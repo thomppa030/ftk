@@ -388,13 +388,16 @@ public:
                 return false;
             }
             if (!asset->markup_root) return false;
-            ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
-                                markup.parent_path().string(), path);
             // Declared prop defaults stand in for the values a game would
-            // bind, the way the UI editor's preview shows them.
+            // bind, the way the UI editor's preview shows them. They go in
+            // before the load, which is when material="{prop}" is resolved,
+            // and replace whatever the previous thumbnail left behind.
+            ui_->context().clear();
             for (const auto& prop : asset->props) {
                 if (!prop.default_value.empty()) ui_->context().set(prop.name, prop.default_value);
             }
+            ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
+                                markup.parent_path().string(), path);
         } else {
             ui_->load(path, fjss);
         }

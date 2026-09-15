@@ -247,6 +247,24 @@ void UiEditorContext::open_ui(const std::string& path) {
             });
     }
 
+    // Declared props become mock entries, keeping any value the user already
+    // typed for them
+    for (const auto& prop : loaded_widget_.props) {
+        bool exists = false;
+        for (const auto& [k, v] : mock_entries_) {
+            if (k == prop.name) { exists = true; break; }
+        }
+        if (!exists) {
+            mock_entries_.emplace_back(prop.name, prop.default_value);
+        }
+    }
+
+    // Mock data goes in before the load: material="{prop}" attributes are
+    // resolved once, while loading, against whatever the context holds then
+    for (const auto& [key, value] : mock_entries_) {
+        preview_ui_->context().set(key, value);
+    }
+
     // Load the UI — either from inline markup tree or from .fjui file
     if (is_widget_file && loaded_widget_.markup_root) {
         auto tree_clone = UiDataBind::clone_node(*loaded_widget_.markup_root, nullptr);
@@ -254,11 +272,6 @@ void UiEditorContext::open_ui(const std::string& path) {
         preview_ui_->load_from_tree(std::move(tree_clone), fjss_path_, base_dir, abs_path);
     } else {
         preview_ui_->load(abs_path, fjss_path_);
-    }
-
-    // Apply mock data
-    for (const auto& [key, value] : mock_entries_) {
-        preview_ui_->context().set(key, value);
     }
 
     // Bind action logging — scan tree for on:click attributes and log dispatches
@@ -324,22 +337,6 @@ void UiEditorContext::open_ui(const std::string& path) {
                       fjui_path_.find("/widgets/") != std::string::npos ||
                       fjui_path_.find("\\widgets\\") != std::string::npos;
 
-    // Populate mock entries from declared props (with defaults)
-    if (!loaded_widget_.props.empty()) {
-        for (const auto& prop : loaded_widget_.props) {
-            // Only add if not already present in mock_entries_
-            bool exists = false;
-            for (const auto& [k, v] : mock_entries_) {
-                if (k == prop.name) { exists = true; break; }
-            }
-            if (!exists) {
-                std::string val = prop.default_value.empty() ? "" : prop.default_value;
-                mock_entries_.emplace_back(prop.name, val);
-                preview_ui_->context().set(prop.name, val);
-            }
-        }
-        preview_ui_->mark_dirty();
-    }
 
     // Auto-discover {key} prop templates in the widget
     discovered_props_.clear();

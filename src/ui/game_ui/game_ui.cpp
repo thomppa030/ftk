@@ -344,17 +344,17 @@ void GameUi::resolve_textures(UiNode& node) {
     // then as a .fjmat asset path.
     auto mat_it = node.attributes.find("material");
     if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
-        // Resolve {key} templates if the material name is a binding
+        // Resolve {key} templates if the material name is a binding. Inside
+        // a widget instance the nearest scoped context holds its props; a
+        // tree loaded on its own (editor preview, thumbnail) has none and
+        // reads the root context, where the loader seeded the prop defaults.
         std::string mat_name = mat_it->second;
         if (mat_name.find('{') != std::string::npos) {
-            // Walk up to find a scoped context for this node
-            UiContext* ctx = nullptr;
+            UiContext* ctx = &context_;
             for (auto* n = &node; n; n = n->parent) {
                 if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
             }
-            if (ctx) {
-                mat_name = UiDataBind::resolve_template(mat_name, *ctx);
-            }
+            mat_name = UiDataBind::resolve_template(mat_name, *ctx);
         }
         auto mat_handle = resource_manager_->find_material(mat_name);
         if (!mat_handle.valid()) {
