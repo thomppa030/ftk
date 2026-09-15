@@ -95,8 +95,8 @@ Visual: `background`, `background-color`, `border` (`2 solid #555`), `border-col
 `border-width`, `border-radius` (one, two or four values), `box-shadow`
 (`x y blur spread color`), `opacity`.
 
-Text: `color`, `font-size`, `line-height`. `color`, `font-size`, `line-height` and
-`opacity` inherit.
+Text: `color`, `font-size`, `line-height`, `font-family`, `font-weight`. `color`,
+`font-size`, `line-height`, `font-family`, `font-weight` and `opacity` inherit.
 
 Every property the engine knows is listed once, in `ui_style_properties.cpp`; the
 parser, the cascade, the transition system and the inspector all read that table.
@@ -131,6 +131,26 @@ covers its longhands (`margin` moves all four sides). Easings: `linear`, `ease-i
 `ease-out`, `ease-in-out`. Any numeric property, color or corner set interpolates.
 A length that changes unit, or becomes `auto`, snaps. Retargeting mid-flight
 continues from the value on screen.
+
+## Fonts: `@font-face`, `font-family`, `font-weight`
+
+```css
+@font-face { font-family: Inter; src: "fonts/Inter.fjfont"; }
+@font-face { font-family: Inter; font-weight: 700; src: "fonts/Inter-Bold.fjfont"; }
+@font-face { font-family: "Geist Mono"; src: "fonts/GeistMono-Regular.fjfont"; }
+
+.title { font-family: Inter; font-weight: bold; }
+.debug { font-family: "Geist Mono"; }
+```
+
+A face binds a family name and a weight to a `.fjfont` recipe (see
+[Fonts](Fonts.md)); `src` is relative to the declaring file like an `@import`,
+and one that does not exist is reported at the block's line. `font-weight` is a
+number from 1 to 1000 or `normal` (400) and `bold` (700); a node gets the face of
+its family whose weight is nearest. Faces from imported and widget sheets count,
+unscoped, since a family name is global. Text that names no family, or a family
+no face declares, draws in the engine's default font; the unknown family is
+reported once. An atlas still baking draws in the default font until it lands.
 
 ## `@import` and `@media`
 
@@ -202,6 +222,7 @@ controllers recreated.
 - Pixels are bare numbers; `px` is optional.
 - `border` takes `width style color` in any order; only `solid` draws.
 - `box-shadow` is `x y blur spread color`, one shadow.
-- No `font-family`, `text-align`, `z-index`, `transform`, `@keyframes`,
-  `!important` (parsed and kept, not weighed), or pseudo-elements yet. Each is
-  reported when used rather than silently ignored.
+- No `text-align`, `z-index`, `transform`, `@keyframes`, `!important` (parsed
+  and kept, not weighed), or pseudo-elements yet. Each is reported when used
+  rather than silently ignored.
+- `font-family` names an `@font-face` in the sheet, never a system font.
