@@ -4,6 +4,7 @@
 #include "renderer/components/terrain_component.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "ui/icons_lc.hpp"
@@ -15,6 +16,9 @@
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
+
+#include <filesystem>
+#include <optional>
 
 namespace fjell {
 
@@ -34,6 +38,39 @@ void load_terrain_material(TerrainComponent& terrain, ResourceManager* resources
     }
     terrain.material_handle = *handle;
     terrain.material = resources->get(*handle);
+}
+
+// Write a fresh .fjmat on the default terrain shader beside the .fjterrain and
+// register it with the project, returning its project-relative path.
+std::optional<std::string> create_terrain_material(const TerrainComponent& terrain,
+                                                   Project& project) {
+    namespace fs = std::filesystem;
+    const fs::path terrain_abs = base_path::resolve_asset(terrain.terrain_path, &project);
+    if (terrain_abs.empty()) return std::nullopt;
+    fs::path material_abs = terrain_abs;
+    material_abs.replace_extension(".fjmat");
+
+    std::error_code ec;
+    if (fs::exists(material_abs, ec)) {
+        FJELL_CORE_ERROR("terrain material: {} already exists", material_abs.string());
+        return std::nullopt;
+    }
+    MaterialAsset asset;
+    asset.shader = "shaders/terrain.fjsl";
+    try {
+        save_material_asset(material_abs.string(), asset);
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("terrain material: {}", e.what());
+        return std::nullopt;
+    }
+
+    const fs::path relative = fs::relative(material_abs, project.root(), ec);
+    const std::string relative_str =
+        ec ? material_abs.generic_string() : relative.generic_string();
+    if (auto* db = project.asset_db()) {
+        db->register_asset(relative_str);
+    }
+    return relative_str;
 }
 
 // The layer table: one .fjmat and a tiling per layer. Layer 0 is the ground
@@ -126,6 +163,20 @@ static const bool registered = [] {
                                 terrain->material_path)) {
                 load_terrain_material(*terrain, ctx.resource_manager, project);
                 changed = true;
+            }
+            if (terrain->material_path.empty()) {
+                ImGui::TextDisabled("Drawing with the engine's terrain shader at its defaults.");
+                // The blend rules are material params, and params live in a
+                // .fjmat, so tuning them from here means giving this terrain
+                // one. It goes next to the .fjterrain under the same name.
+                if (!terrain->terrain_path.empty() && project != nullptr &&
+                    ImGui::Button("Create Material")) {
+                    if (auto created = create_terrain_material(*terrain, *project)) {
+                        terrain->material_path = *created;
+                        load_terrain_material(*terrain, ctx.resource_manager, project);
+                        changed = true;
+                    }
+                }
             }
 
             if (terrain->terrain != nullptr) {

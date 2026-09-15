@@ -888,26 +888,26 @@ void Engine::save_material_assets() {
     auto& bindless = vulkan_context_->bindless_textures();
     if (!cache) return;
 
-    for (auto& obj : scene_.objects()) {
-        auto* mesh = obj->components.get<MeshComponent>();
-        if (!mesh || !mesh->material) continue;
-        if (!base_path::references_asset(mesh->material_name, ".fjmat")) continue;
+    // Every component that carries an editable .fjmat reference: meshes and
+    // terrains both let the inspector change the material's params in place.
+    auto save_material = [&](const Material* material, const std::string& reference) {
+        if (material == nullptr) return;
+        if (!base_path::references_asset(reference, ".fjmat")) return;
 
-        uint32_t pid = mesh->material->pipeline_id();
-        if (pid >= cache->shader_count()) continue;
+        uint32_t pid = material->pipeline_id();
+        if (pid >= cache->shader_count()) return;
 
         const auto& meta = cache->metadata(pid);
-        const auto& gpu = bindless.material_at(mesh->material->material_id());
+        const auto& gpu = bindless.material_at(material->material_id());
 
         // Read current params back from CPU buffer
-        std::string mat_path = base_path::resolve_asset(
-            mesh->material_name, project_mgr_.active());
+        std::string mat_path = base_path::resolve_asset(reference, project_mgr_.active());
 
         MaterialAsset asset;
         try {
             asset = load_material_asset(mat_path);
         } catch (...) {
-            continue;
+            return;
         }
 
         // Update custom param values from live buffer
@@ -925,7 +925,7 @@ void Engine::save_material_assets() {
         // The inspector edits the base factors on the GPU row, so that is
         // where the current values are.
         write_base_params(asset, {
-            .base_color_factor = mesh->material->params().base_color_factor,
+            .base_color_factor = material->params().base_color_factor,
             .metallic_factor = gpu.base_params[4],
             .roughness_factor = gpu.base_params[5],
             .uv_scale = {gpu.base_params[7], gpu.base_params[8]},
@@ -933,6 +933,15 @@ void Engine::save_material_assets() {
 
         save_material_asset(mat_path, asset);
         asset_thumbnails_.refresh(mat_path);
+    };
+
+    for (auto& obj : scene_.objects()) {
+        if (const auto* mesh = obj->components.get<MeshComponent>()) {
+            save_material(mesh->material, mesh->material_name);
+        }
+        if (const auto* terrain = obj->components.get<TerrainComponent>()) {
+            save_material(terrain->material, terrain->material_path);
+        }
     }
 }
 
