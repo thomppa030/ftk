@@ -4,6 +4,7 @@
 #include "core/project_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/terrain_asset.hpp"
+#include "ui/icons_lc.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/terrain_sculpt.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -75,11 +76,16 @@ static const bool registered = [] {
                     const char* tip;
                 };
                 static constexpr BrushEntry brushes[] = {
-                    {BrushTool::raise,   "brush_raise",   "Raise",   "Raise the ground under the brush"},
-                    {BrushTool::lower,   "brush_lower",   "Lower",   "Lower the ground under the brush"},
-                    {BrushTool::smooth,  "brush_smooth",  "Smooth",  "Blend each point toward its neighbours"},
-                    {BrushTool::flatten, "brush_flatten", "Flatten", "Pull the ground to the height where the stroke began"},
-                    {BrushTool::noise,   "brush_noise",   "Noise",   "Roughen the ground under the brush"},
+                    {BrushTool::raise,   "brush_raise",   "Raise " ICON_LC_ARROW_UP_FROM_LINE,
+                     "Raise the ground under the brush"},
+                    {BrushTool::lower,   "brush_lower",   "Lower " ICON_LC_ARROW_DOWN_TO_LINE,
+                     "Lower the ground under the brush"},
+                    {BrushTool::smooth,  "brush_smooth",  "Smooth " ICON_LC_BLEND,
+                     "Blend each point toward its neighbours"},
+                    {BrushTool::flatten, "brush_flatten", "Flatten " ICON_LC_CHEVRONS_DOWN_UP,
+                     "Pull the ground to the height where the stroke began"},
+                    {BrushTool::noise,   "brush_noise",   "Noise " ICON_LC_AUDIO_WAVEFORM,
+                     "Roughen the ground under the brush"},
                 };
                 // Clicking the active brush puts it down again, so the row
                 // needs no separate "none" entry.
