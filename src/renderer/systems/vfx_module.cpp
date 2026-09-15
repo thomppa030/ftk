@@ -175,6 +175,7 @@ std::vector<PinDescriptor> CollisionModule::pin_descriptors() {
         {"source", PinDataType::enum_type, &source, {"SDF", "Depth", "Both"}},
         {"restitution", PinDataType::float_type, &restitution, {}, 0.0f, 1.0f, 0.01f},
         {"friction", PinDataType::float_type, &friction, {}, 0.0f, 1.0f, 0.01f},
+        {"radius_scale", PinDataType::float_type, &radius_scale, {}, 0.0f, 2.0f, 0.01f},
     };
 }
 
@@ -752,14 +753,14 @@ void VelocityLimitModule::from_json(const nlohmann::json& j) {
 
 uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
     // payload: response(1) + source(1) + restitution(1) + friction(1)
-    //        + sdf_min(3) + pad(1) + sdf_max(3) + pad(1) = 12 words
+    //        + sdf_min(3) + radius_scale(1) + sdf_max(3) + pad(1) = 12 words
     uint32_t total = write_header(buffer, type(), 12);
     write_uint(buffer, 8, static_cast<uint32_t>(response));
     write_uint(buffer, 12, static_cast<uint32_t>(source));
     write_float(buffer, 16, restitution);
     write_float(buffer, 20, friction);
     write_vec3(buffer, 24, sdf_volume_min);
-    write_float(buffer, 36, 0.0f);
+    write_float(buffer, 36, radius_scale);
     write_vec3(buffer, 40, sdf_volume_max);
     write_float(buffer, 52, 0.0f);
     return total;
@@ -783,6 +784,7 @@ bool CollisionModule::draw_inspector() {
         if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) changed = true;
         if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
     }
+    if (ImGui::SliderFloat("Radius (x size)", &radius_scale, 0.0f, 2.0f)) changed = true;
     return changed;
 }
 
@@ -794,6 +796,7 @@ void CollisionModule::to_json(nlohmann::json& j) const {
     j["source"] = src_names[static_cast<int>(source)];
     j["restitution"] = restitution;
     j["friction"] = friction;
+    j["radius_scale"] = radius_scale;
 }
 
 void CollisionModule::from_json(const nlohmann::json& j) {
@@ -807,6 +810,7 @@ void CollisionModule::from_json(const nlohmann::json& j) {
     else source = Source::sdf;
     restitution = j.value("restitution", 0.5f);
     friction = j.value("friction", 0.2f);
+    radius_scale = j.value("radius_scale", 0.5f);
 }
 
 // ─── InitialStretch ──────────────────────────────────────────────────────

@@ -392,6 +392,7 @@ struct CollisionModule final : VfxModule {
     Source source{Source::sdf};
     float restitution{0.5f};     // bounciness (0-1)
     float friction{0.2f};        // tangential damping (0-1)
+    float radius_scale{0.5f};    // collision radius as a fraction of particle size
 
     // Set by particle system each frame from SceneSdfPass bounds
     glm::vec3 sdf_volume_min{-10.0f};

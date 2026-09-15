@@ -50,6 +50,52 @@ layout(push_constant) uniform PushConstants {
     uint  sub_emit_pass;
 };
 
+// How far from a surface a resting particle settles.
+const float CONTACT_DISTANCE = 0.01;
+// A bounce slower than this only jitters against the surface; the particle settles instead.
+const float REST_SPEED = 0.3;
+const int SWEEP_STEPS = 12;
+
+// Scene distance field at a world position. The volume is padded around every
+// mesh, so a position outside it is far from anything.
+float scene_sdf_distance(vec3 pos, vec3 sdf_min, vec3 sdf_max) {
+    vec3 uvw = (pos - sdf_min) / (sdf_max - sdf_min);
+    if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) return 1e4;
+    return textureLod(scene_sdf, uvw, 0).r;
+}
+
+// Outward surface normal from central differences one voxel apart. Each axis
+// is divided by its own voxel size in world units, so a volume that is not a
+// cube does not skew the direction.
+vec3 scene_sdf_normal(vec3 pos, vec3 sdf_min, vec3 sdf_max) {
+    vec3 voxel = (sdf_max - sdf_min) / vec3(textureSize(scene_sdf, 0));
+    vec3 g = vec3(
+        scene_sdf_distance(pos + vec3(voxel.x, 0, 0), sdf_min, sdf_max)
+      - scene_sdf_distance(pos - vec3(voxel.x, 0, 0), sdf_min, sdf_max),
+        scene_sdf_distance(pos + vec3(0, voxel.y, 0), sdf_min, sdf_max)
+      - scene_sdf_distance(pos - vec3(0, voxel.y, 0), sdf_min, sdf_max),
+        scene_sdf_distance(pos + vec3(0, 0, voxel.z), sdf_min, sdf_max)
+      - scene_sdf_distance(pos - vec3(0, 0, voxel.z), sdf_min, sdf_max)) / (2.0 * voxel);
+    float len = length(g);
+    return len > 1e-6 ? g / len : vec3(0.0, 1.0, 0.0);
+}
+
+// Sweeps a sphere of `radius` from `start` along the unit `dir` for `travel`.
+// Sphere tracing: each step covers exactly the distance to the nearest
+// surface, which the field cannot cross without reaching zero, so a thin wall
+// stops the particle instead of being skipped. Returns the distance travelled
+// to the contact, or -1 when nothing is hit.
+float scene_sdf_sweep(vec3 start, vec3 dir, float travel, float radius, vec3 sdf_min, vec3 sdf_max) {
+    float t = 0.0;
+    for (int i = 0; i < SWEEP_STEPS; ++i) {
+        float d = scene_sdf_distance(start + dir * t, sdf_min, sdf_max) - radius;
+        if (d < CONTACT_DISTANCE) return t;
+        t += d;
+        if (t >= travel) return -1.0;
+    }
+    return -1.0;
+}
+
 void emit_sub_event(Particle p, EmitterData em, uint event_type) {
     uint slot = atomicAdd(sub_event_counts[p.emitter_index], 1);
     if (slot >= MAX_SUB_EVENTS_PER_EMITTER) return;
@@ -107,6 +153,10 @@ void main() {
     }
 
     float age = 1.0 - (p.lifetime / p.max_lifetime);
+
+    // Share of this frame's travel still to integrate after the module walk;
+    // a collision spends part of it reaching the surface.
+    float move_fraction = 1.0;
 
     // Walk update modules (max 32 iterations to prevent GPU hang on corrupt data)
     uint mo = em.module_offset;
@@ -214,6 +264,7 @@ void main() {
             float restitution = MOD_FLOAT(mo, 4);
             float friction_val = MOD_FLOAT(mo, 5);
             vec3 sdf_min = MOD_VEC3(mo, 6);
+            float radius = p.size * MOD_FLOAT(mo, 9);
             vec3 sdf_max = MOD_VEC3(mo, 10);
 
             bool collided = false;
@@ -221,21 +272,25 @@ void main() {
 
             // Source 0 = SDF, 2 = Both (try SDF first)
             if (collision_source == 0u || collision_source == 2u) {
-                vec3 sdf_extent = sdf_max - sdf_min;
-                vec3 uvw = (p.position - sdf_min) / sdf_extent;
-                if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
-                    float dist = textureLod(scene_sdf, uvw, 0).r;
-                    if (dist < 0.0) {
-                        vec3 texel = 1.0 / vec3(textureSize(scene_sdf, 0));
-                        float dx = textureLod(scene_sdf, uvw + vec3(texel.x, 0, 0), 0).r
-                                 - textureLod(scene_sdf, uvw - vec3(texel.x, 0, 0), 0).r;
-                        float dy = textureLod(scene_sdf, uvw + vec3(0, texel.y, 0), 0).r
-                                 - textureLod(scene_sdf, uvw - vec3(0, texel.y, 0), 0).r;
-                        float dz = textureLod(scene_sdf, uvw + vec3(0, 0, texel.z), 0).r
-                                 - textureLod(scene_sdf, uvw - vec3(0, 0, texel.z), 0).r;
-                        normal = normalize(vec3(dx, dy, dz));
-                        p.position += normal * (-dist + 0.01);
-                        collided = true;
+                float d0 = scene_sdf_distance(p.position, sdf_min, sdf_max) - radius;
+                if (d0 < 0.0) {
+                    // Already overlapping: spawned inside, or the geometry
+                    // moved onto the particle. Push straight out.
+                    normal = scene_sdf_normal(p.position, sdf_min, sdf_max);
+                    p.position += normal * (CONTACT_DISTANCE - d0);
+                    collided = true;
+                } else {
+                    float speed = length(p.velocity);
+                    float travel = speed * dt;
+                    if (travel > 0.0) {
+                        vec3 dir = p.velocity / speed;
+                        float t = scene_sdf_sweep(p.position, dir, travel, radius, sdf_min, sdf_max);
+                        if (t >= 0.0) {
+                            p.position += dir * t;
+                            normal = scene_sdf_normal(p.position, sdf_min, sdf_max);
+                            move_fraction = 1.0 - t / travel;
+                            collided = true;
+                        }
                     }
                 }
             }
@@ -269,25 +324,20 @@ void main() {
             }
 
             if (collided) {
-                if (response_mode == 0u) {
-                    float vn = dot(p.velocity, normal);
-                    if (vn < 0.0) {
-                        p.velocity -= (1.0 + restitution) * vn * normal;
-                        vec3 v_tan = p.velocity - dot(p.velocity, normal) * normal;
-                        p.velocity -= v_tan * friction_val;
-                    }
-                } else if (response_mode == 1u) {
-                    float vn = dot(p.velocity, normal);
-                    if (vn < 0.0) {
-                        p.velocity -= vn * normal;
-                        p.velocity *= (1.0 - friction_val);
-                    }
-                } else {
+                if (response_mode == 2u) {
                     // Collision kill — emit event before killing
                     if (has_sub_emitter && (sub_trigger == SUB_EVENT_COLLISION || sub_trigger == 2u)) {
                         emit_sub_event(p, em, SUB_EVENT_COLLISION);
                     }
                     p.lifetime = 0.0;
+                } else {
+                    float vn = dot(p.velocity, normal);
+                    if (vn < 0.0) {
+                        vec3 v_normal = vn * normal;
+                        vec3 v_tangent = (p.velocity - v_normal) * (1.0 - friction_val);
+                        bool bounce = response_mode == 0u && -vn > REST_SPEED;
+                        p.velocity = bounce ? v_tangent - v_normal * restitution : v_tangent;
+                    }
                 }
             }
         }
@@ -295,7 +345,7 @@ void main() {
         mo += msize;
     }
 
-    p.position += p.velocity * dt;
+    p.position += p.velocity * dt * move_fraction;
     p.rotation += p.rotation_speed * dt;
     particles[idx] = p;
 }
