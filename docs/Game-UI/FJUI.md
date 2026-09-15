@@ -34,8 +34,9 @@ without the `<widget>` wrapper and props, and the parser reads both.
 | anything else | a widget from `widgets/<tag>.fjwidget`, dashes allowed |
 
 Every element is a flex item and may be a flex container; there is no inline flow.
-Any element takes `src="path"` to draw a texture and `material="name"` to draw an
-engine material, both resolved at load, and `material` accepts a `{key}` template.
+Any element takes `src="path"` to draw a texture, resolved against the project, and
+`material="name"` to be painted by a `shader_type ui` shader (see
+[Materials](Materials.md)); `material` accepts a `{key}` template.
 
 ## Attributes
 
@@ -48,8 +49,8 @@ engine material, both resolved at load, and `material` accepts a `{key}` templat
 | `on:click="action"` | dispatches `action`; `select_slot(3)` passes arguments |
 | `foreach="list"` | repeats the element once per item of a list, each item its own scope |
 | `style-<property>="value"` | an inline style, templates resolved: `style---fill="{color}"` |
-| `value`, `max` on `bar` | fill fraction |
-| `src`, `material` | texture or material to draw |
+| `value`, `max` on `bar` | fill fraction, also `FILL` inside a ui shader |
+| `src`, `material` | texture to draw, ui material to paint with |
 
 Comments are `<!-- -->`, elements self-close with `/>`, and attribute values are
 double-quoted. Whitespace-only text between elements is dropped.
