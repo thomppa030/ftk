@@ -697,6 +697,107 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     REQUIRE(checked > 0);
 }
 
+// --- shader_type terrain ---
+
+TEST_CASE("Parse shader_type terrain with a layers() hook", "[fjsl][terrain]") {
+    auto meta = parse_fjsl(R"(
+        shader_type terrain;
+        uniform float snow_line : hint_range(0.0, 500.0, 1.0) = 120.0;
+        void layers() {
+            LAYER_WEIGHTS = mix(LAYER_WEIGHTS, layer_mask(3.0), step(snow_line, WORLD_POS.y));
+        }
+        void fragment() {
+            ROUGHNESS = 1.0;
+        }
+    )");
+    REQUIRE(meta.shader_type == "terrain");
+    REQUIRE(meta.layers_body.find("layer_mask(3.0)") != std::string::npos);
+    REQUIRE(meta.fragment_body.find("ROUGHNESS = 1.0") != std::string::npos);
+    REQUIRE(meta.vertex_body.empty());
+    // The hook bodies are not user globals.
+    REQUIRE(meta.user_globals.find("LAYER_WEIGHTS") == std::string::npos);
+}
+
+TEST_CASE("Terrain rejects vertex(), other types reject layers()", "[fjsl][terrain]") {
+    REQUIRE_THROWS(parse_fjsl("shader_type terrain;\nvoid vertex() {}\nvoid fragment() {}"));
+    REQUIRE_THROWS(parse_fjsl("shader_type spatial;\nvoid layers() {}\nvoid fragment() {}"));
+    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid layers() {}\nvoid fragment() {}"));
+    REQUIRE_NOTHROW(parse_fjsl("shader_type terrain;\nvoid light() {}\nvoid fragment() {}"));
+}
+
+TEST_CASE("Terrain params read the pushed material row", "[fjsl][terrain]") {
+    auto meta = parse_fjsl(R"(
+        shader_type terrain;
+        uniform float slope_start = 0.5;
+        uniform sampler2D detail;
+        void fragment() {}
+    )");
+    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_LAYERS_USER_CODE*/\n/*FJSL_USER_CODE*/\n";
+    auto result = generate_fragment_shader(meta, tmpl);
+    REQUIRE(result.find("materials[push.terrain_material_id].param_offset") != std::string::npos);
+    REQUIRE(result.find("materials[push.terrain_material_id].texture_indices[4]") != std::string::npos);
+}
+
+TEST_CASE("Every terrain .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][terrain]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_terrain_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    // A hand-written sample touches every terrain built-in, so the template
+    // stays covered even when the shipped shaders use only some of them.
+    std::vector<std::pair<std::string, std::string>> sources;
+    sources.emplace_back("terrain_builtins", R"(
+        shader_type terrain;
+        uniform float snow_line : hint_range(0.0, 500.0, 1.0) = 120.0;
+        uniform vec3 tint : hint_color = vec3(1.0, 0.9, 0.8);
+        uniform sampler2D detail;
+        void layers() {
+            LAYER_WEIGHTS = mix(LAYER_WEIGHTS, layer_mask(3.0), smoothstep(snow_line, snow_line + 10.0, WORLD_POS.y));
+            TRIPLANAR = max(TRIPLANAR, SLOPE / 90.0);
+        }
+        void fragment() {
+            float d = texture(detail, UV * 0.1).r;
+            ALBEDO *= tint * mix(0.9, 1.1, d);
+            ROUGHNESS = clamp(ROUGHNESS + 0.1 * SLOPE / 90.0, 0.0, 1.0);
+            EMISSION += vec3(0.0);
+            AO *= 1.0;
+            vec2 s = SCREEN_UV + TERRAIN_UV * 0.0 + vec2(TIME) * 0.0;
+            NORMAL = normalize(mix(NORMAL, WORLD_NORMAL, s.x * 0.0));
+        }
+        void light() {
+            DIFFUSE_LIGHT += ALBEDO * NdotL / 3.14159;
+        }
+    )");
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto text = read_text(entry.path());
+        if (parse_fjsl(text).shader_type == "terrain") {
+            sources.emplace_back(entry.path().stem().string(), text);
+        }
+    }
+    REQUIRE(sources.size() > 1);  // the engine ships terrain.fjsl
+
+    for (const auto& [name, text] : sources) {
+        INFO("shader: " << name);
+        auto meta = parse_fjsl(text);
+        auto frag = out_dir / (name + ".terrain.frag");
+        std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+
+        auto spv = out_dir / (name + ".terrain.spv");
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                    + quoted(shader_dir / "include") + " "
+                                    + quoted(frag) + " -o " + quoted(spv));
+        INFO(output);
+        REQUIRE(status == 0);
+    }
+}
+
 // The ui template is compiled in two shapes by PipelineCache; a shader that
 // only names UI built-ins must survive both, and a hand-written sample keeps
 // the template covered even when no .fjsl in the tree uses every input.

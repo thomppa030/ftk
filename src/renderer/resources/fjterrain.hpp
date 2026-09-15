@@ -14,7 +14,13 @@
 namespace fjell {
 
 static constexpr uint32_t FJTERRAIN_MAGIC   = 0x5254464A; // "JFTR" little-endian
-static constexpr uint32_t FJTERRAIN_VERSION = 1;
+// Version 2 added the name table the layer table indexes into. A version 1
+// file is accepted as long as it carries no layers, which none ever did.
+static constexpr uint32_t FJTERRAIN_VERSION = 2;
+
+// Layer tiling when a layer table does not say otherwise: one texture repeat
+// every four metres reads well for ground materials at character scale.
+static constexpr float FJTERRAIN_DEFAULT_LAYER_UV_SCALE = 4.0F;
 
 // Layer weights pack one layer per channel of an RGBA texture, so four layers
 // blend without a shader branch.
@@ -55,7 +61,7 @@ struct FjTerrainHeader {
 };
 
 // A material layer. `material_path` indexes the name table and points at a
-// .fjmat relative to the project root.
+// .fjmat relative to the project root; an empty name is an unassigned layer.
 struct FjTerrainLayer {
     uint32_t material_path;
     float    uv_scale;      // world metres per texture repeat
@@ -68,10 +74,13 @@ struct FjTerrainData {
     // sample_count^2 entries, row-major, normalized to [0,1].
     std::vector<float> heights;
 
-    // weight_count^2 RGBA entries when layer_count > 0, one byte per layer.
+    // weight_count^2 RGBA entries when painted, one byte per layer. Empty
+    // until the first paint stroke: the renderer then treats the whole field
+    // as layer 0, which is what a freshly generated terrain wants.
     std::vector<uint8_t> weights;
 
     std::vector<FjTerrainLayer> layers;
+    // The strings the layer table indexes. Written after the layer table.
     std::vector<std::string> names;
 
     [[nodiscard]] uint32_t sample_count() const { return header.sample_count; }

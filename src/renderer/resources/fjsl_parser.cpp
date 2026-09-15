@@ -263,12 +263,14 @@ static std::string extract_user_globals(const std::string& source) {
     // Strip uniform declarations.
     s = std::regex_replace(s, uniform_declaration_re(), std::string{});
     // Strip the reserved function definitions (fragment/vertex/light for
-    // spatial shaders; sky for shader_type sky). Whatever's left is the
-    // user's file-scope code — helpers, structs, constants.
+    // spatial shaders; sky for shader_type sky; layers for terrain).
+    // Whatever's left is the user's file-scope code — helpers, structs,
+    // constants.
     strip_function(s, "fragment");
     strip_function(s, "vertex");
     strip_function(s, "light");
     strip_function(s, "sky");
+    strip_function(s, "layers");
     return s;
 }
 
@@ -285,7 +287,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
 
     if (meta.shader_type != "spatial" && meta.shader_type != "sky" &&
-        meta.shader_type != "ui") {
+        meta.shader_type != "ui" && meta.shader_type != "terrain") {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
@@ -368,20 +370,31 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         : extract_function_body(source, "fragment");
     meta.vertex_body = extract_function_body(source, "vertex");
     meta.light_body = extract_function_body(source, "light");
+    meta.layers_body = extract_function_body(source, "layers");
     meta.user_globals = extract_user_globals(source);
 
-    // A ui shader paints one screen-aligned quad: there is no geometry to
-    // displace and no light to shade, so the hooks that exist for meshes are
-    // errors rather than silently ignored code.
+    // A hook that a shader type cannot run is an error rather than silently
+    // ignored code. A ui shader paints one screen-aligned quad: there is no
+    // geometry to displace and no light to shade. Terrain geometry is
+    // generated in a mesh shader from the height texture, so there is
+    // nothing for vertex() to move. layers() decides how the painted layer
+    // weights blend and only terrain has layers.
+    static const std::regex vertex_hook_re(R"(\bvoid\s+vertex\s*\()");
+    static const std::regex light_hook_re(R"(\bvoid\s+light\s*\()");
+    static const std::regex layers_hook_re(R"(\bvoid\s+layers\s*\()");
     if (meta.shader_type == "ui") {
-        static const std::regex vertex_hook_re(R"(\bvoid\s+vertex\s*\()");
-        static const std::regex light_hook_re(R"(\bvoid\s+light\s*\()");
         if (std::regex_search(source, vertex_hook_re)) {
             throw std::runtime_error("FJSL: shader_type ui has no vertex() stage");
         }
         if (std::regex_search(source, light_hook_re)) {
             throw std::runtime_error("FJSL: shader_type ui has no light() stage");
         }
+    }
+    if (meta.shader_type == "terrain" && std::regex_search(source, vertex_hook_re)) {
+        throw std::runtime_error("FJSL: shader_type terrain has no vertex() stage");
+    }
+    if (meta.shader_type != "terrain" && std::regex_search(source, layers_hook_re)) {
+        throw std::runtime_error("FJSL: only shader_type terrain has a layers() stage");
     }
 
     return meta;
@@ -408,10 +421,12 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     std::string param_defines;
     // Each shader type reaches its material row differently. Sky is a single
     // fullscreen pass with no draws[] SSBO, so the row index is pushed as
-    // `push.sky_material_id`; a ui quad carries its row in the quad record;
-    // spatial shaders look up the material via per-draw data.
+    // `push.sky_material_id`; terrain likewise pushes its row per node; a ui
+    // quad carries its row in the quad record; spatial shaders look up the
+    // material via per-draw data.
     const std::string mat_expr =
         meta.shader_type == "sky" ? "materials[push.sky_material_id]"
+        : meta.shader_type == "terrain" ? "materials[push.terrain_material_id]"
         : meta.shader_type == "ui" ? "materials[quads[frag_quad_index].material_id]"
         : "materials[draws[frag_draw_index].material_id]";
     for (const auto& u : meta.uniforms) {
@@ -471,6 +486,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
     replace("/*FJSL_USER_GLOBALS*/", meta.user_globals);
     replace("/*FJSL_USER_CODE*/", meta.fragment_body);
+    replace("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
 
     // light() body — user-provided replaces the default PBR. The default
     // mirrors the standard GGX math so shaders without a custom light()

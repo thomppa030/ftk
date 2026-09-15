@@ -3,9 +3,11 @@
 #include "core/log.hpp"
 #include "renderer/gpu/image.hpp"
 #include "renderer/gpu/upload_context.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/fjterrain_io.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -15,13 +17,22 @@ namespace {
 
 constexpr float UNORM16_MAX = 65535.0F;
 
+constexpr VkPipelineStageFlags2 HEIGHT_READ_STAGE = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
+constexpr VkPipelineStageFlags2 WEIGHT_READ_STAGE = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+
+// Weight texture of a terrain that has never been painted: layer 0 at full
+// weight, everywhere.
+constexpr std::array<uint8_t, 4> UNPAINTED_WEIGHT = {255, 0, 0, 0};
+
 // The height texture is sampled by the terrain mesh shader, not by a fragment
 // stage, so Image::transition_layout — which only knows fragment readers and
-// only two layout pairs — cannot express its hazards. Every transition of this
-// image goes through here, against the stage that actually reads it.
-void barrier_height_image(VkCommandBuffer cmd, VkImage image,
-                          VkImageLayout old_layout, VkImageLayout new_layout) {
-    constexpr VkPipelineStageFlags2 READ_STAGE = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
+// only two layout pairs — cannot express its hazards. Every transition of a
+// terrain image goes through here, against the stage that actually reads it:
+// the mesh stage for heights, the fragment stage for layer weights.
+void barrier_terrain_image(VkCommandBuffer cmd, VkImage image,
+                           VkImageLayout old_layout, VkImageLayout new_layout,
+                           VkPipelineStageFlags2 read_stage) {
+    const VkPipelineStageFlags2 READ_STAGE = read_stage;
 
     VkImageMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -66,6 +77,72 @@ TerrainAsset::~TerrainAsset() {
 
 VkImageView TerrainAsset::height_view() const {
     return height_image_ ? height_image_->view() : VK_NULL_HANDLE;
+}
+
+VkImageView TerrainAsset::weight_view() const {
+    return weight_image_ ? weight_image_->view() : VK_NULL_HANDLE;
+}
+
+const std::string& TerrainAsset::layer_material_path(uint32_t layer) const {
+    static const std::string none;
+    if (layer >= data_.layers.size()) return none;
+    const uint32_t name = data_.layers[layer].material_path;
+    return name < data_.names.size() ? data_.names[name] : none;
+}
+
+float TerrainAsset::layer_uv_scale(uint32_t layer) const {
+    return layer < data_.layers.size() ? data_.layers[layer].uv_scale
+                                       : FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
+}
+
+Material* TerrainAsset::layer_material(uint32_t layer) const {
+    return layer < layer_count() ? layer_materials_[layer] : nullptr;
+}
+
+uint32_t TerrainAsset::layer_material_id(uint32_t layer) const {
+    const Material* material = layer_material(layer);
+    if (material == nullptr) material = unassigned_material_;
+    return material != nullptr ? material->material_id() : 0;
+}
+
+void TerrainAsset::set_layer_count(uint32_t count) {
+    count = std::min(count, FJTERRAIN_MAX_LAYERS);
+    if (count == layer_count()) return;
+    // Every layer owns one name-table entry, at its own index, so the table
+    // never needs deduplicating or garbage collecting.
+    data_.layers.resize(count);
+    data_.names.resize(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        data_.layers[i].material_path = i;
+        if (data_.layers[i].uv_scale <= 0.0F) {
+            data_.layers[i].uv_scale = FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
+        }
+    }
+    for (uint32_t i = count; i < FJTERRAIN_MAX_LAYERS; ++i) {
+        layer_materials_[i] = nullptr;
+    }
+    dirty_ = true;
+}
+
+void TerrainAsset::set_layer_material_path(uint32_t layer, const std::string& path) {
+    if (layer >= layer_count()) return;
+    const uint32_t name = data_.layers[layer].material_path;
+    if (name >= data_.names.size()) return;
+    if (data_.names[name] == path) return;
+    data_.names[name] = path;
+    dirty_ = true;
+}
+
+void TerrainAsset::set_layer_uv_scale(uint32_t layer, float metres_per_repeat) {
+    if (layer >= layer_count()) return;
+    const float clamped = std::max(metres_per_repeat, 0.01F);
+    if (data_.layers[layer].uv_scale == clamped) return;
+    data_.layers[layer].uv_scale = clamped;
+    dirty_ = true;
+}
+
+void TerrainAsset::set_layer_material(uint32_t layer, Material* material) {
+    if (layer < FJTERRAIN_MAX_LAYERS) layer_materials_[layer] = material;
 }
 
 Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
@@ -121,8 +198,8 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     StagingSlice staging = upload.stage_for_image(texels.data(), bytes);
     VkCommandBuffer cmd = upload.image_cb();
 
-    barrier_height_image(cmd, asset->height_image_->handle(), VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    barrier_terrain_image(cmd, asset->height_image_->handle(), VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, HEIGHT_READ_STAGE);
 
     VkBufferImageCopy region{};
     region.bufferOffset = staging.offset;
@@ -134,16 +211,53 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     vkCmdCopyBufferToImage(cmd, staging.buffer, asset->height_image_->handle(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    barrier_height_image(cmd, asset->height_image_->handle(),
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    barrier_terrain_image(cmd, asset->height_image_->handle(),
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, HEIGHT_READ_STAGE);
 
     asset->height_image_->create_view(device, VK_FORMAT_R16_UNORM,
                                       VK_IMAGE_ASPECT_COLOR_BIT, 1);
 
+    // Layer weights. Loaded files that have a layer table but were never
+    // painted, and files with no layers at all, get the one-texel texture.
+    {
+        const auto& data = asset->data_;
+        const bool painted = data.header.weight_count > 0 && !data.weights.empty();
+        const uint32_t side = painted ? data.header.weight_count : 1;
+        const uint8_t* weight_bytes = painted ? data.weights.data() : UNPAINTED_WEIGHT.data();
+        const VkDeviceSize weight_size = static_cast<VkDeviceSize>(side) * side * 4;
+
+        auto weight_image = Image::create(allocator, side, side, VK_FORMAT_R8G8B8A8_UNORM,
+                                          VK_IMAGE_TILING_OPTIMAL,
+                                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                              VK_IMAGE_USAGE_SAMPLED_BIT,
+                                          VMA_MEMORY_USAGE_AUTO, 1);
+        if (!weight_image) {
+            return make_error("terrain: " + weight_image.error());
+        }
+        asset->weight_image_ = std::make_unique<Image>(std::move(*weight_image));
+
+        StagingSlice weight_staging = upload.stage_for_image(weight_bytes, weight_size);
+        barrier_terrain_image(cmd, asset->weight_image_->handle(), VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, WEIGHT_READ_STAGE);
+        VkBufferImageCopy weight_region{};
+        weight_region.bufferOffset = weight_staging.offset;
+        weight_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        weight_region.imageSubresource.layerCount = 1;
+        weight_region.imageExtent = {side, side, 1};
+        vkCmdCopyBufferToImage(cmd, weight_staging.buffer, asset->weight_image_->handle(),
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &weight_region);
+        barrier_terrain_image(cmd, asset->weight_image_->handle(),
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, WEIGHT_READ_STAGE);
+        asset->weight_image_->create_view(device, VK_FORMAT_R8G8B8A8_UNORM,
+                                          VK_IMAGE_ASPECT_COLOR_BIT, 1);
+    }
+
     // Linear filtering so heights interpolate between samples the same way the
     // CPU query does; clamp to edge so border patches read a defined height
-    // instead of wrapping to the far side of the terrain.
+    // instead of wrapping to the far side of the terrain. The weight texture
+    // shares it: layer transitions should blend, not step.
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -303,8 +417,8 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     VkCommandBuffer cmd = upload.image_cb();
     VkImage image = height_image_->handle();
 
-    barrier_height_image(cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, HEIGHT_READ_STAGE);
 
     VkBufferImageCopy region{};
     region.bufferOffset = staging.offset;
@@ -315,8 +429,8 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     vkCmdCopyBufferToImage(cmd, staging.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            1, &region);
 
-    barrier_height_image(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, HEIGHT_READ_STAGE);
 
     height_range_stale_ = true;
     dirty_ = true;

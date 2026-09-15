@@ -1596,7 +1596,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                     AccelStructureManager::RtInstance inst{};
                     inst.transform = spatial != nullptr ? spatial->world_matrix_
                                                         : glm::mat4{1.0F};
-                    inst.material_id = 0;
+                    // Rays cannot run the layer blend, so the terrain bounces
+                    // its first layer, which is the ground where nothing has
+                    // been painted or sloped into another.
+                    inst.material_id = tc->terrain->layer_material_id(0);
                     inst.blas = blas;
                     host_instances.push_back(inst);
                 }

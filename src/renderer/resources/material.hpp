@@ -41,8 +41,8 @@ public:
     void set_shader_path(const std::string& path) { shader_path_ = path; }
     [[nodiscard]] const std::string& shader_path() const { return shader_path_; }
 
-    // The shader's `shader_type`: "spatial", "sky" or "ui". Decides which
-    // renderer may draw with this material.
+    // The shader's `shader_type`: "spatial", "sky", "ui" or "terrain".
+    // Decides which renderer may draw with this material.
     void set_shader_type(const std::string& type) { shader_type_ = type; }
     [[nodiscard]] const std::string& shader_type() const { return shader_type_; }
 

@@ -9,6 +9,7 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@
 namespace fjell {
 
 class Image;
+class Material;
 class UploadContext;
 
 /// A loaded .fjterrain: the CPU height data plus the GPU texture the mesh
@@ -50,6 +52,38 @@ public:
     /// 16-bit. Image + sampler are owned here instead.
     [[nodiscard]] VkImageView height_view() const;
     [[nodiscard]] VkSampler height_sampler() const { return sampler_; }
+
+    /// Painted layer weights, one layer per channel, sampled by the fragment
+    /// stage. A terrain that was never painted holds a single texel that reads
+    /// as layer 0 everywhere.
+    [[nodiscard]] VkImageView weight_view() const;
+    [[nodiscard]] VkSampler weight_sampler() const { return sampler_; }
+
+    // ── Material layers ──
+    // Up to FJTERRAIN_MAX_LAYERS ordinary .fjmat materials, blended by the
+    // weight texture. The table lives in the .fjterrain; the resolved
+    // Material pointers are runtime state the resource manager fills in.
+
+    [[nodiscard]] uint32_t layer_count() const { return static_cast<uint32_t>(data_.layers.size()); }
+    /// Project-relative .fjmat path, empty when the layer is unassigned.
+    [[nodiscard]] const std::string& layer_material_path(uint32_t layer) const;
+    [[nodiscard]] float layer_uv_scale(uint32_t layer) const;
+    [[nodiscard]] Material* layer_material(uint32_t layer) const;
+    /// GPU material row for a layer. A layer with no material, or a layer
+    /// index beyond layer_count(), draws with the plain material the resource
+    /// manager bound as the unassigned look, so every pushed row is valid.
+    [[nodiscard]] uint32_t layer_material_id(uint32_t layer) const;
+
+    /// Grow or shrink the layer table. New layers start unassigned with the
+    /// default tiling. Marks the asset dirty.
+    void set_layer_count(uint32_t count);
+    void set_layer_material_path(uint32_t layer, const std::string& path);
+    void set_layer_uv_scale(uint32_t layer, float metres_per_repeat);
+    /// Runtime binding of a layer to its loaded material. Not persisted; the
+    /// path is what the file holds.
+    void set_layer_material(uint32_t layer, Material* material);
+    /// What an unassigned layer draws with.
+    void set_unassigned_layer_material(Material* material) { unassigned_material_ = material; }
 
     [[nodiscard]] uint32_t sample_count() const { return data_.sample_count(); }
     [[nodiscard]] uint32_t patch_quads() const { return data_.patch_quads(); }
@@ -124,7 +158,7 @@ public:
     void apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                        const float* heights, UploadContext& upload);
 
-    /// True when apply_heights has changed the data since load or the last
+    /// True when the heights or the layer table changed since load or the last
     /// successful save.
     [[nodiscard]] bool dirty() const { return dirty_; }
 
@@ -160,7 +194,10 @@ private:
     bool dirty_{false};
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
+    std::unique_ptr<Image> weight_image_;
     VkSampler sampler_{VK_NULL_HANDLE};
+    std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};
+    Material* unassigned_material_{nullptr};
 };
 
 } // namespace fjell

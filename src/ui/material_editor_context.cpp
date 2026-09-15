@@ -158,6 +158,11 @@ bool MaterialEditorContext::save() {
 void MaterialEditorContext::setup_preview_scene() {
     preview_scene_.clear();
 
+    // A ui or terrain material has no surface pipeline to put on a sphere;
+    // the UI editor previews the one, a terrain node the other (see
+    // draw_params_panel).
+    if (material_ && material_->shader_type() != "spatial") return;
+
     auto sphere = deps_.resource_manager->create_primitive("sphere");
     if (!sphere) return;
 
@@ -184,6 +189,13 @@ void MaterialEditorContext::draw_params_panel() {
 
         ImGui::TextDisabled("Shader: %s", material_->shader_path().c_str());
         ImGui::TextDisabled("Material: %s", fjmat_path_.c_str());
+        if (material_->shader_type() == "ui") {
+            ImGui::TextWrapped("UI shader: the preview sphere cannot draw it. Assign the "
+                               "material to a node and open that widget in the UI editor.");
+        } else if (material_->shader_type() == "terrain") {
+            ImGui::TextWrapped("Terrain shader: the preview sphere cannot draw it. Assign "
+                               "the material to a Terrain component and look at the scene.");
+        }
         ImGui::Separator();
 
         if (pid < cache->shader_count()) {
@@ -202,11 +214,14 @@ void MaterialEditorContext::draw_texture_panel() {
             return;
         }
 
-        // Fixed PBR slots
-        draw_texture_slot("base_color");
-        draw_texture_slot("normal_map");
-        draw_texture_slot("metallic_roughness");
-        draw_texture_slot("emissive");
+        // Fixed PBR slots; ui and terrain shaders sample only the textures
+        // they declare
+        if (material_->shader_type() == "spatial") {
+            draw_texture_slot("base_color");
+            draw_texture_slot("normal_map");
+            draw_texture_slot("metallic_roughness");
+            draw_texture_slot("emissive");
+        }
 
         // Custom texture slots from shader metadata
         auto* cache = deps_.vulkan_context->pipeline_cache();

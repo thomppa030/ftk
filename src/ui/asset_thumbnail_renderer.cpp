@@ -137,6 +137,14 @@ public:
             FJELL_CORE_WARN("Material thumbnail: {}", material.error());
             return false;
         }
+        // A ui material draws quads and a terrain material draws a
+        // heightfield, not a sphere; both keep the generic icon.
+        if (const auto* loaded = resources.get(*material);
+            loaded && loaded->shader_type() != "spatial") {
+            FJELL_CORE_DEBUG("Material thumbnail: '{}' is a {} shader, no sphere preview",
+                             path, loaded->shader_type());
+            return false;
+        }
         scene.add(*sphere, *material, resources, {}, "Thumbnail Sphere", "primitive:sphere", path);
         // The primitive is a unit-diameter sphere at the origin.
         framing = {.center = {0.0F, 0.0F, 0.0F}, .radius = 0.5F};

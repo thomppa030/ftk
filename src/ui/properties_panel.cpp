@@ -11,6 +11,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
+#include "renderer/components/terrain_component.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/component_registry.hpp"
@@ -195,6 +196,8 @@ void PropertiesPanel::draw() {
                         draw_material_inspector(*obj);
                     else if (id == component_type_id<SkeletalMeshComponent>())
                         draw_material_inspector_for(static_cast<SkeletalMeshComponent*>(ptr)->material);
+                    else if (id == component_type_id<TerrainComponent>())
+                        draw_material_inspector_for(static_cast<TerrainComponent*>(ptr)->material);
 
                     std::string remove_label = "Remove " + meta->display_name;
                     if (remove_button(remove_label.c_str())) {
@@ -531,21 +534,24 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
 
     ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s", mat->shader_path().c_str());
 
-    // UV scale (available on all materials)
-    const auto& gpu = bindless_->material_at(mat->material_id());
-    float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
-    if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
-    if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
-    if (auto t = PropertyTable("##mat_uv")) {
-        prop_row("UV Scale", [&] {
-            if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
-                GpuMaterial updated = gpu;
-                updated.base_params[7] = uv_sc[0];
-                updated.base_params[8] = uv_sc[1];
-                bindless_->update_material(mat->material_id(), updated);
-                scene_->mark_dirty();
-            }
-        });
+    // UV scale: every surface material has one; a ui quad's UV is its own and
+    // a terrain material tiles each layer by that layer's own scale
+    if (meta.shader_type == "spatial") {
+        const auto& gpu = bindless_->material_at(mat->material_id());
+        float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
+        if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
+        if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
+        if (auto t = PropertyTable("##mat_uv")) {
+            prop_row("UV Scale", [&] {
+                if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
+                    GpuMaterial updated = gpu;
+                    updated.base_params[7] = uv_sc[0];
+                    updated.base_params[8] = uv_sc[1];
+                    bindless_->update_material(mat->material_id(), updated);
+                    scene_->mark_dirty();
+                }
+            });
+        }
     }
 
     if (!has_custom) return;

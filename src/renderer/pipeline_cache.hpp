@@ -55,9 +55,9 @@ public:
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;
     [[nodiscard]] const std::string& shadow_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& outline_vert_spv(uint32_t id) const;
-    // Path to the compiled fragment SPV. Used by SkyPass (and any future
-    // owner of a custom pipeline shape) to build its own VkPipeline from
-    // an FJSL-generated fragment.
+    // Path to the compiled fragment SPV. Used by SkyPass and TerrainPass (and
+    // any future owner of a custom pipeline shape) to build their own
+    // VkPipeline from an FJSL-generated fragment.
     [[nodiscard]] const std::string& frag_spv_path(uint32_t id) const;
     // A `shader_type ui;` entry compiles its fragment twice, once per UI
     // pipeline shape: screen-space, and worldspace with the scene pass's
@@ -140,6 +140,7 @@ private:
     std::string template_source_;
     std::string sky_template_;
     std::string ui_template_;
+    std::string terrain_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;

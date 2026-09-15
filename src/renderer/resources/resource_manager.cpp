@@ -440,8 +440,10 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     }
 
     // What the ray-traced GI paths read of this material, derived from the
-    // shader's tagged uniforms and this asset's values for them.
-    if (shader_meta) {
+    // shader's tagged uniforms and this asset's values for them. A ui
+    // material never meets a ray; a terrain material's rays land on its
+    // layers, which are spatial materials of their own.
+    if (shader_meta && shader_meta->shader_type == "spatial") {
         // Derived from the same linear values the params SSBO holds, so the
         // GI paths and the raster path agree on the colour.
         auto gi = derive_material_gi_params(*shader_meta, [&](const FjslUniform& u) {
@@ -657,7 +659,8 @@ VfxEffect* ResourceManager::get(VfxAssetHandle handle) const {
 
 // ── Terrain assets ───────────────────────────────────────────────────────
 
-Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string& path) {
+Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string& path,
+                                                               const Project* project) {
     auto it = terrain_assets_.name_to_handle.find(path);
     if (it != terrain_assets_.name_to_handle.end()) {
         return it->second;
@@ -667,7 +670,29 @@ Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string
     if (!terrain) {
         return make_error(terrain.error());
     }
+    resolve_terrain_layers(**terrain, project);
     return terrain_assets_.insert(path, std::move(*terrain));
+}
+
+void ResourceManager::resolve_terrain_layers(TerrainAsset& terrain, const Project* project) {
+    // The same plain white material a mesh gets before it is assigned one,
+    // so an empty layer slot reads as untextured ground rather than as
+    // whichever material happened to be created first.
+    terrain.set_unassigned_layer_material(get(create_material("default", default_white_handle_)));
+    for (uint32_t i = 0; i < terrain.layer_count(); ++i) {
+        const std::string& path = terrain.layer_material_path(i);
+        if (path.empty()) {
+            terrain.set_layer_material(i, nullptr);
+            continue;
+        }
+        auto material = load_material_asset(base_path::resolve_asset(path, project), project);
+        if (!material) {
+            FJELL_CORE_ERROR("terrain '{}' layer {}: {}", terrain.path(), i, material.error());
+            terrain.set_layer_material(i, nullptr);
+            continue;
+        }
+        terrain.set_layer_material(i, get(*material));
+    }
 }
 
 TerrainAsset* ResourceManager::get(TerrainAssetHandle handle) const {

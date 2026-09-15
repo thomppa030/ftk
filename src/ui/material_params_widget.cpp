@@ -16,13 +16,15 @@ bool draw_material_params(const ShaderMetadata& meta,
     bool changed = false;
 
     // Base PBR params (base_params[4]/[5] — see GpuMaterial in bindless.hpp).
-    // These exist on every material regardless of shader — including custom
-    // FJSL shaders like solid_lit.fjsl that only ever declare their own
-    // uniforms (tint, etc.) and never reference ROUGHNESS/METALLIC in
+    // These exist on every surface material regardless of shader — including
+    // custom FJSL shaders like solid_lit.fjsl that only ever declare their
+    // own uniforms (tint, etc.) and never reference ROUGHNESS/METALLIC in
     // fragment(), where they still fall through to these factors. Shown
     // above the custom-uniform loop below so a shader with zero custom
-    // uniforms still gets an editable material.
-    {
+    // uniforms still gets an editable material. A ui shader paints a quad
+    // and reads neither, and a terrain shader takes them from its layers, so
+    // both show only their own uniforms.
+    if (meta.shader_type == "spatial") {
         GpuMaterial base = bindless.material_at(material.material_id());
         float metallic = base.base_params[4];
         float roughness = base.base_params[5];

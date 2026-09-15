@@ -94,8 +94,16 @@ public:
     // VFX assets (.fjvfx)
     Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
 
-    // Terrain assets (.fjterrain)
-    Result<TerrainAssetHandle> load_terrain_asset(const std::string& path);
+    // Terrain assets (.fjterrain). project resolves the layer materials the
+    // file names relative to the project root.
+    Result<TerrainAssetHandle> load_terrain_asset(const std::string& path,
+                                                  const Project* project = nullptr);
+
+    /// Load (or reload) the .fjmat behind each of a terrain's layers and bind
+    /// it to the asset. Called after load and whenever the inspector changes
+    /// a layer's path. A layer whose material fails to load is left unbound
+    /// and draws with the fallback material.
+    void resolve_terrain_layers(TerrainAsset& terrain, const Project* project);
 
     // Audio assets (.fjaudio)
     Result<AudioAssetHandle> load_audio_asset(const std::string& path);

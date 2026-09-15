@@ -14,6 +14,14 @@ layout(push_constant) uniform PushConstants {
     uint  patches_per_side;
     uint  patch_quads;
     uint  _pad;
+    // Read by the fragment stage; declared here so every stage sees the same
+    // block.
+    uint  terrain_material_id;
+    uint  _pad1;
+    uint  _pad2;
+    uint  _pad3;
+    uvec4 layer_material_ids;
+    vec4  layer_uv_scales;
 } push;
 
 struct TaskPayload {

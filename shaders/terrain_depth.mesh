@@ -17,7 +17,9 @@ layout(triangles, max_vertices = MAX_VERTS, max_primitives = MAX_TRIS) out;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
-layout(set = 1, binding = 0) uniform sampler2D height_tex;
+// Set 2 holds the terrain textures: heights here, layer weights at binding 1
+// for the fragment stage. Set 1 is the material set the fragment stage reads.
+layout(set = 2, binding = 0) uniform sampler2D height_tex;
 
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;
@@ -27,6 +29,14 @@ layout(push_constant) uniform PushConstants {
     uint  patches_per_side;
     uint  patch_quads;
     uint  _pad;
+    // Read by the fragment stage; declared here so every stage sees the same
+    // block.
+    uint  terrain_material_id;
+    uint  _pad1;
+    uint  _pad2;
+    uint  _pad3;
+    uvec4 layer_material_ids;
+    vec4  layer_uv_scales;
 } push;
 
 struct TaskPayload {

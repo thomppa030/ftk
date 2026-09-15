@@ -53,6 +53,7 @@ PipelineCache::PipelineCache(Device& device,
     template_source_ = load_template("fjell_spatial_template.glsl");
     sky_template_ = load_template("fjell_sky_template.glsl");
     ui_template_ = load_template("fjell_ui_template.glsl");
+    terrain_template_ = load_template("fjell_terrain_template.glsl");
     if (template_source_.empty()) {
         throw std::runtime_error("Failed to open spatial template");
     }
@@ -191,11 +192,15 @@ void PipelineCache::compile_entry(Entry& entry) {
         next.metadata = parse_fjsl(source);
 
         // Pick the template by shader_type. Spatial uses the full PBR
-        // template; sky the fullscreen sky template; ui the UI quad template.
+        // template; sky the fullscreen sky template; ui the UI quad template;
+        // terrain the layer-blending template drawn by the terrain mesh shader.
         const std::string& shader_type = next.metadata.shader_type;
         const bool is_ui = shader_type == "ui";
+        const bool owns_own_pipeline = shader_type == "sky" || is_ui ||
+                                       shader_type == "terrain";
         const std::string& tmpl = shader_type == "sky" ? sky_template_
                                 : is_ui ? ui_template_
+                                : shader_type == "terrain" ? terrain_template_
                                 : template_source_;
         if (tmpl.empty()) {
             throw std::runtime_error("FJSL: no template loaded for shader_type '"
@@ -294,10 +299,11 @@ void PipelineCache::compile_entry(Entry& entry) {
 
         next.frag_spv = frag_spv;
 
-        // Sky and ui shaders don't participate in any of the spatial pipelines
-        // (opaque/transparent/depth-prepass/shadow/outline). SkyPass and
-        // UiRenderer own their VkPipelines, built from this entry's SPV.
-        if (shader_type != "sky" && !is_ui) {
+        // Sky, ui and terrain shaders don't participate in any of the spatial
+        // pipelines (opaque/transparent/depth-prepass/shadow/outline). SkyPass,
+        // UiRenderer and TerrainPass own their VkPipelines, built from this
+        // entry's SPV.
+        if (!owns_own_pipeline) {
             create_pipelines(next, frag_spv);
         }
 
