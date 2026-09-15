@@ -17,6 +17,7 @@
 
 namespace fjell {
 
+class GameUi;
 class OffscreenPass;
 class PostProcessResources;
 class Project;
@@ -29,9 +30,11 @@ struct FjGraph;
 /// as an ImGui texture: a `.fjmat` on a lit sphere, a `.fjmesh` (or a glTF
 /// with no cache yet) with its authored slot materials, a `.fjskel` in its
 /// bind pose, a `.fjanim` as a frame from the middle of the clip on the
-/// skeleton beside it. Each thumbnail is rendered once through the real pipeline,
-/// written to `.fjcache/<file>.thumb.png` next to the asset, and served from
-/// that file on later runs until the asset or a file it references is newer.
+/// skeleton beside it, a `.fjwidget` or `.fjui` as the game UI draws it at
+/// the project's design resolution. Each thumbnail is rendered once through
+/// the real pipeline, written to `.fjcache/<file>.thumb.png` next to the
+/// asset, and served from that file on later runs until the asset or a file
+/// it references is newer.
 ///
 /// UI code only ever calls request(), refresh() and descriptor(); the engine
 /// calls tick() once per frame in the window where offscreen previews render,
@@ -51,6 +54,8 @@ public:
         IconCache* icon_cache{nullptr};
         ThreadPool* thread_pool{nullptr};
         const Project* project{nullptr};
+        /// The editor's own game UI, whose font atlas UI thumbnails share.
+        GameUi* game_ui{nullptr};
     };
 
     AssetThumbnailRenderer();
@@ -106,13 +111,52 @@ public:
     [[nodiscard]] static AssetThumbnailRenderer* instance() { return s_instance; }
     static void set_instance(AssetThumbnailRenderer* renderer) { s_instance = renderer; }
 
-    /// What one asset type contributes: the files whose timestamps date the
-    /// thumbnail, and the nodes that stand in the scene. The renderer owns
-    /// the light, the camera and the pipeline.
-    struct Framing {
-        glm::vec3 center{0.0f};
-        float radius{0.5f};
+    /// A rendered thumbnail on the CPU: row-major RGBA8, sRGB, straight
+    /// alpha, SIZE × SIZE.
+    struct Pixels {
+        uint32_t width{0};
+        uint32_t height{0};
+        std::vector<uint8_t> rgba;
     };
+
+    /// The bounding sphere a scene subject asks to have framed.
+    struct Framing {
+        glm::vec3 center{0.0F};
+        float radius{0.5F};
+    };
+
+    /// The 3D stage scene subjects share: one small offscreen target with
+    /// its own post-process resources and render graph, a private global
+    /// set, and a scene rebuilt for every render around one fixed light.
+    /// The camera frames whatever the subject placed.
+    class SceneStage {
+    public:
+        /// Create the GPU resources on first use. False when the render
+        /// graph could not be loaded, which disables scene thumbnails.
+        bool ensure(const Deps& deps);
+        /// True while in-flight command buffers may still predate the
+        /// private set; a render this tick has to wait.
+        [[nodiscard]] bool draining() const { return skip_frames_ > 0; }
+        void advance_drain() { if (skip_frames_ > 0) --skip_frames_; }
+
+        /// Empty the scene and place the light; the subject adds the rest.
+        Scene& begin();
+        /// Render the scene framed on `framing` and read it back.
+        bool render(const Deps& deps, const DirectionalLight& light, float dt,
+                    const Framing& framing, Pixels& out);
+        void shutdown(const Deps& deps);
+
+    private:
+        std::unique_ptr<OffscreenPass> target_;
+        std::unique_ptr<PostProcessResources> pp_;
+        const FjGraph* graph_{nullptr};
+        VkDescriptorSet global_set_{VK_NULL_HANDLE};
+        int skip_frames_{0};
+        Scene scene_;
+    };
+
+    /// What one asset type contributes: which files it covers, which files'
+    /// timestamps date its thumbnail, and the picture itself.
     class Subject {
     public:
         virtual ~Subject() = default;
@@ -120,6 +164,19 @@ public:
         /// Newest timestamp among the asset and the files it references.
         [[nodiscard]] virtual std::filesystem::file_time_type source_time(
             const std::filesystem::path& path, const Project* project) const = 0;
+        /// Produce the thumbnail. False when the asset could not be loaded.
+        virtual bool render(const Deps& deps, SceneStage& stage, const DirectionalLight& light,
+                            float dt, const std::string& path, Pixels& out) = 0;
+        /// Release anything the subject holds on the GPU. The device is idle.
+        virtual void shutdown(const Deps& /*deps*/) {}
+    };
+
+    /// A subject drawn by standing in the scene stage: it adds its nodes and
+    /// says what to frame, the stage does the rest.
+    class SceneSubject : public Subject {
+    public:
+        bool render(const Deps& deps, SceneStage& stage, const DirectionalLight& light,
+                    float dt, const std::string& path, Pixels& out) final;
         /// Add the asset to `scene` and say what to frame. False when the
         /// asset could not be loaded.
         virtual bool populate(Scene& scene, const Deps& deps, const std::string& path,
@@ -149,7 +206,6 @@ private:
     [[nodiscard]] static std::filesystem::path cache_path(const std::filesystem::path& asset);
     [[nodiscard]] Subject* subject_for(const std::filesystem::path& path) const;
 
-    void ensure_render_resources(const Deps& deps);
     bool serve_from_cache(const Deps& deps, const std::string& path,
                           std::filesystem::file_time_type newest);
     bool render(const Deps& deps, const DirectionalLight& light, float dt,
@@ -168,17 +224,7 @@ private:
     // next tick so they are freed at a frame boundary.
     std::vector<IconCache::IconEntry> pending_retire_;
 
-    // Render resources, created on the first render.
-    std::unique_ptr<OffscreenPass> target_;
-    std::unique_ptr<PostProcessResources> pp_;
-    const FjGraph* graph_{nullptr};
-    VkDescriptorSet global_set_{VK_NULL_HANDLE};
-    // Frames to wait after creating the resources so every in-flight command
-    // buffer has drained before the private set is first bound.
-    int skip_frames_{0};
-
-    // Rebuilt for every render: the light, then whatever the subject adds.
-    Scene scene_;
+    SceneStage stage_;
     uint64_t ticks_{0};
 };
 

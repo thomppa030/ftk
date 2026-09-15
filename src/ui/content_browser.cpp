@@ -613,6 +613,7 @@ void ContentBrowser::draw_file_grid() {
                 icon_desc = icons_->thumbnail(thumb_path);
                 ++thumbs_loaded_this_frame;
             }
+        bool is_thumbnail = false;
         } else if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
             auto asset_path = entry.path.string();
             icon_desc = asset_thumbnails_->descriptor(asset_path);
@@ -623,12 +624,15 @@ void ContentBrowser::draw_file_grid() {
         }
         if (icon_desc) {
             ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
-            if (entry.type == FileType::preset) {
+            if (!is_thumbnail && entry.type == FileType::preset) {
+            is_thumbnail = icon_desc != VK_NULL_HANDLE;
                 icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
-            } else if (entry.type == FileType::widget) {
+            } else if (!is_thumbnail && entry.type == FileType::widget) {
                 icon_tint = {0.6f, 0.45f, 0.85f, 1.0f};
             }
             ImGui::Image(icon_desc, {cell_size, cell_size},
+            // The type tints colour the generic icon; a rendered thumbnail
+            // is shown as it is.
                          ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
         } else {
             ImGui::Dummy({cell_size, cell_size});

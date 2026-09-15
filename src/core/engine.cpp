@@ -345,6 +345,7 @@ AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
         .icon_cache = icon_cache_.get(),
         .thread_pool = &thread_pool_,
         .project = project_mgr_.active(),
+        .game_ui = &game_ui_,
     };
 }
 

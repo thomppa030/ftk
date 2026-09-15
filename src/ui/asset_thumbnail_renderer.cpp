@@ -21,12 +21,20 @@
 #include "renderer/viewport_source.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/light_node.hpp"
+#include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
+#include "ui/game_ui/ui_node.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "ui/icon_cache.hpp"
 
 #include <stb_image.h>
+#include <stb_image_resize2.h>
 #include <stb_image_write.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <limits>
 #include <optional>
 
 namespace fjell {
@@ -75,7 +83,7 @@ AssetThumbnailRenderer::Framing framing_of(const AABB& aabb, float bounding_radi
 
 // ── Subjects ─────────────────────────────────────────────────────────────
 
-class MaterialSubject final : public AssetThumbnailRenderer::Subject {
+class MaterialSubject final : public AssetThumbnailRenderer::SceneSubject {
 public:
     [[nodiscard]] bool handles(const fs::path& path) const override {
         return path.extension() == ".fjmat";
@@ -126,7 +134,7 @@ public:
     }
 };
 
-class MeshSubject final : public AssetThumbnailRenderer::Subject {
+class MeshSubject final : public AssetThumbnailRenderer::SceneSubject {
 public:
     [[nodiscard]] bool handles(const fs::path& path) const override {
         auto ext = path.extension();
@@ -205,7 +213,7 @@ Node3D* add_skeletal_mesh(Scene& scene, const AssetThumbnailRenderer::Deps& deps
     return added;
 }
 
-class SkeletalMeshSubject final : public AssetThumbnailRenderer::Subject {
+class SkeletalMeshSubject final : public AssetThumbnailRenderer::SceneSubject {
 public:
     [[nodiscard]] bool handles(const fs::path& path) const override {
         return path.extension() == ".fjskel";
@@ -236,7 +244,7 @@ fs::path skeleton_beside(const fs::path& clip) {
     return found;
 }
 
-class AnimationClipSubject final : public AssetThumbnailRenderer::Subject {
+class AnimationClipSubject final : public AssetThumbnailRenderer::SceneSubject {
 public:
     [[nodiscard]] bool handles(const fs::path& path) const override {
         return path.extension() == ".fjanim";
@@ -288,6 +296,187 @@ private:
     std::optional<AnimationClip> clip_;
 };
 
+// ── UI ───────────────────────────────────────────────────────────────────
+
+// The stylesheet a markup file draws with: the one its <widget> header names,
+// else the sheet of the same name beside it.
+fs::path stylesheet_for(const fs::path& markup) {
+    if (markup.extension() == ".fjwidget") {
+        auto asset = load_widget_asset(markup.string());
+        if (asset && !asset->fjss_path.empty()) return markup.parent_path() / asset->fjss_path;
+    }
+    fs::path fjss = markup;
+    fjss.replace_extension(".fjss");
+    return fjss;
+}
+
+// The design-frame pixels the tree's content covers: the union of every
+// node below the root. The root itself is laid out to the frame, so it
+// says nothing about the widget's own size.
+VkRect2D content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame_height) {
+    float min_x = std::numeric_limits<float>::max();
+    float min_y = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float max_y = std::numeric_limits<float>::lowest();
+    std::vector<const UiNode*> stack;
+    for (const auto& child : root.children) stack.push_back(child.get());
+    while (!stack.empty()) {
+        const UiNode* node = stack.back();
+        stack.pop_back();
+        const auto& r = node->layout_rect;
+        if (r.w > 0.0F && r.h > 0.0F) {
+            min_x = std::min(min_x, r.x);
+            min_y = std::min(min_y, r.y);
+            max_x = std::max(max_x, r.x + r.w);
+            max_y = std::max(max_y, r.y + r.h);
+        }
+        for (const auto& child : node->children) stack.push_back(child.get());
+    }
+
+    auto fw = static_cast<float>(frame_width);
+    auto fh = static_cast<float>(frame_height);
+    if (min_x >= max_x || min_y >= max_y) return {{0, 0}, {frame_width, frame_height}};
+    min_x = std::clamp(std::floor(min_x), 0.0F, fw);
+    min_y = std::clamp(std::floor(min_y), 0.0F, fh);
+    max_x = std::clamp(std::ceil(max_x), 0.0F, fw);
+    max_y = std::clamp(std::ceil(max_y), 0.0F, fh);
+    if (max_x - min_x < 1.0F || max_y - min_y < 1.0F) return {{0, 0}, {frame_width, frame_height}};
+    return {{static_cast<int32_t>(min_x), static_cast<int32_t>(min_y)},
+            {static_cast<uint32_t>(max_x - min_x), static_cast<uint32_t>(max_y - min_y)}};
+}
+
+// A widget or layout rendered by the game UI itself, at the project's
+// design resolution, then cropped to its content and fitted into the
+// thumbnail with the aspect kept. Nothing from the scene pipeline.
+class WidgetSubject final : public AssetThumbnailRenderer::Subject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        auto ext = path.extension();
+        return ext == ".fjwidget" || ext == ".fjui";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        auto newest = file_time(path);
+        if (newest == fs::file_time_type::min()) return newest;
+        return std::max(newest, file_time(stylesheet_for(path)));
+    }
+
+    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
+                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
+                AssetThumbnailRenderer::Pixels& out) override {
+        auto& vk = *deps.vulkan_context;
+        ensure_ui(deps);
+
+        uint32_t frame_w = 1920;
+        uint32_t frame_h = 1080;
+        if (deps.project) {
+            frame_w = deps.project->config().ui.design_width;
+            frame_h = deps.project->config().ui.design_height;
+        }
+        if (!target_ || target_->extent().width != frame_w || target_->extent().height != frame_h) {
+            target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.allocator(),
+                                                      frame_w, frame_h, VK_SAMPLE_COUNT_1_BIT);
+        }
+
+        fs::path markup(path);
+        auto fjss = stylesheet_for(markup).string();
+        if (markup.extension() == ".fjwidget") {
+            auto asset = load_widget_asset(path);
+            if (!asset) {
+                FJELL_CORE_WARN("Widget thumbnail: {}", asset.error());
+                return false;
+            }
+            if (!asset->markup_root) return false;
+            ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
+                                markup.parent_path().string(), path);
+            // Declared prop defaults stand in for the values a game would
+            // bind, the way the UI editor's preview shows them.
+            for (const auto& prop : asset->props) {
+                if (!prop.default_value.empty()) ui_->context().set(prop.name, prop.default_value);
+            }
+        } else {
+            ui_->load(path, fjss);
+        }
+        if (!ui_->loaded()) return false;
+
+        // Laid out in the design frame at the design size, so layout rects
+        // are target pixels.
+        ui_->set_design_frame({static_cast<float>(frame_w), static_cast<float>(frame_h)});
+        ui_->update(static_cast<float>(frame_w), static_cast<float>(frame_h),
+                    vk.current_frame_index(), 0.0F, nullptr);
+        vk.render_game_ui_preview(*ui_, *target_);
+
+        // Crop to the content, read it back near its own size, and let the
+        // CPU do the real shrink: one linear blit aliases past about 2:1.
+        VkRect2D crop = content_bounds(*ui_->root(), frame_w, frame_h);
+        constexpr uint32_t READBACK_MAX = 1024;
+        float read_scale = std::min(1.0F, static_cast<float>(READBACK_MAX) /
+                                              static_cast<float>(std::max(crop.extent.width, crop.extent.height)));
+        auto read_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.width) * read_scale)));
+        auto read_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.height) * read_scale)));
+        ImageReadback readback({.device = vk.device(), .allocator = vk.allocator(),
+                                .command_pool = vk.command_pool(), .queue = vk.graphics_queue()},
+                               target_->color_image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                               crop, read_w, read_h);
+
+        constexpr uint32_t SIZE = AssetThumbnailRenderer::SIZE;
+        float fit = std::min(1.0F, std::min(static_cast<float>(SIZE) / static_cast<float>(read_w),
+                                            static_cast<float>(SIZE) / static_cast<float>(read_h)));
+        auto fit_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_w) * fit)));
+        auto fit_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_h) * fit)));
+        std::vector<uint8_t> fitted(static_cast<size_t>(fit_w) * fit_h * 4);
+        if (fit_w == read_w && fit_h == read_h) {
+            std::memcpy(fitted.data(), readback.pixels(), fitted.size());
+        } else {
+            stbir_resize_uint8_srgb(readback.pixels(), static_cast<int>(read_w), static_cast<int>(read_h), 0,
+                                    fitted.data(), static_cast<int>(fit_w), static_cast<int>(fit_h), 0,
+                                    STBIR_RGBA);
+        }
+
+        // Centred on a transparent square, so a wide bar and a small icon
+        // both sit in the cell at their own proportions.
+        out.width = SIZE;
+        out.height = SIZE;
+        out.rgba.assign(static_cast<size_t>(SIZE) * SIZE * 4, 0);
+        uint32_t ox = (SIZE - fit_w) / 2;
+        uint32_t oy = (SIZE - fit_h) / 2;
+        for (uint32_t y = 0; y < fit_h; ++y) {
+            std::memcpy(out.rgba.data() + ((static_cast<size_t>(oy + y) * SIZE + ox) * 4),
+                        fitted.data() + (static_cast<size_t>(y) * fit_w * 4),
+                        static_cast<size_t>(fit_w) * 4);
+        }
+        return true;
+    }
+
+    void shutdown(const AssetThumbnailRenderer::Deps& /*deps*/) override {
+        if (ui_) {
+            ui_->destroy();
+            ui_.reset();
+        }
+        target_.reset();
+    }
+
+private:
+    void ensure_ui(const AssetThumbnailRenderer::Deps& deps) {
+        auto& vk = *deps.vulkan_context;
+        if (!ui_) {
+            ui_ = std::make_unique<GameUi>();
+            if (deps.game_ui) {
+                vk.init_game_ui_shared(*ui_, deps.game_ui->font(), OffscreenPass::COLOR_FORMAT);
+            } else {
+                vk.init_game_ui(*ui_, base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
+                                OffscreenPass::COLOR_FORMAT);
+            }
+            ui_->set_resource_manager(deps.resource_manager);
+        }
+        ui_->set_project(deps.project);
+    }
+
+    std::unique_ptr<GameUi> ui_;
+    std::unique_ptr<OffscreenPass> target_;
+};
+
 } // namespace
 
 // ── Public API ───────────────────────────────────────────────────────────
@@ -297,6 +486,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<MeshSubject>());
     subjects_.push_back(std::make_unique<SkeletalMeshSubject>());
     subjects_.push_back(std::make_unique<AnimationClipSubject>());
+    subjects_.push_back(std::make_unique<WidgetSubject>());
 }
 
 AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;
@@ -357,8 +547,8 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
     pending_retire_.clear();
     evict_least_recent(deps);
 
-    if (skip_frames_ > 0) {
-        --skip_frames_;
+    if (stage_.draining()) {
+        stage_.advance_drain();
         return;
     }
 
@@ -383,11 +573,11 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
             continue;
         }
 
-        // A render owns the rest of this tick. When the resources were just
+        // A render owns the rest of this tick. When the stage was just
         // created the render waits for the drain, so the path goes back on
         // the queue rather than being lost.
-        ensure_render_resources(deps);
-        if (skip_frames_ > 0) {
+        (void)stage_.ensure(deps);
+        if (stage_.draining()) {
             refresh(path);
             return;
         }
@@ -406,13 +596,8 @@ void AssetThumbnailRenderer::shutdown(const Deps& deps) {
     queue_.clear();
     queued_.clear();
 
-    if (global_set_ != VK_NULL_HANDLE && deps.vulkan_context) {
-        deps.vulkan_context->gpu().global_bindings().free_set(global_set_);
-        global_set_ = VK_NULL_HANDLE;
-    }
-    pp_.reset();
-    target_.reset();
-    scene_.clear();
+    for (auto& subject : subjects_) subject->shutdown(deps);
+    stage_.shutdown(deps);
 }
 
 // ── Cache ────────────────────────────────────────────────────────────────
@@ -439,10 +624,10 @@ bool AssetThumbnailRenderer::serve_from_cache(const Deps& deps, const std::strin
     return store(deps, path, entry, newest);
 }
 
-// ── Rendering ────────────────────────────────────────────────────────────
+// ── Scene stage ──────────────────────────────────────────────────────────
 
-void AssetThumbnailRenderer::ensure_render_resources(const Deps& deps) {
-    if (target_) return;
+bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
+    if (target_) return true;
     auto& vk = *deps.vulkan_context;
 
     // The graph decides both which passes run and which per-viewport images
@@ -450,8 +635,8 @@ void AssetThumbnailRenderer::ensure_render_resources(const Deps& deps) {
     // reported, not papered over with a hand-rolled config.
     graph_ = vk.get_or_load_graph(GRAPH_PATH);
     if (graph_ == nullptr) {
-        FJELL_CORE_ERROR("Asset thumbnails disabled: failed to load {}", GRAPH_PATH);
-        return;
+        FJELL_CORE_ERROR("Scene thumbnails disabled: failed to load {}", GRAPH_PATH);
+        return false;
     }
 
     // Pipelines are compiled for the main viewport's sample count.
@@ -465,14 +650,10 @@ void AssetThumbnailRenderer::ensure_render_resources(const Deps& deps) {
                                                  pp_config_from_graph(*graph_), refs);
     global_set_ = vk.gpu().global_bindings().allocate_set();
     skip_frames_ = DRAIN_FRAMES;
+    return true;
 }
 
-bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& light, float dt,
-                                    Subject& subject, const std::string& path,
-                                    fs::file_time_type newest) {
-    if (!target_ || !pp_) return false;
-    auto& vk = *deps.vulkan_context;
-
+Scene& AssetThumbnailRenderer::SceneStage::begin() {
     // One fixed light and the subject: the thumbnail's lighting never
     // follows whatever scene happens to be open.
     scene_.clear();
@@ -480,9 +661,13 @@ bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& li
     sun->name = "Thumbnail Sun";
     sun->direction = glm::normalize(glm::vec3{-0.45F, -0.8F, -0.4F});
     scene_.add_node(std::move(sun));
+    return scene_;
+}
 
-    Framing framing;
-    if (!subject.populate(scene_, deps, path, framing)) return false;
+bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const DirectionalLight& light,
+                                                float dt, const Framing& framing, Pixels& out) {
+    if (!target_ || !pp_) return false;
+    auto& vk = *deps.vulkan_context;
     scene_.compute_world_matrices(nullptr);
 
     Camera camera(framing.center,
@@ -512,27 +697,64 @@ bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& li
 
     auto* output = pp_->tonemap();
     if (output == nullptr || output->image == VK_NULL_HANDLE) {
-        FJELL_CORE_ERROR("Asset thumbnail: tonemap output unavailable");
+        FJELL_CORE_ERROR("Scene thumbnail: tonemap output unavailable");
         return false;
     }
     ImageReadback readback({.device = vk.device(), .allocator = vk.allocator(),
                             .command_pool = vk.command_pool(), .queue = vk.graphics_queue()},
                            output->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            output->extent.width, output->extent.height);
+    out.width = readback.width();
+    out.height = readback.height();
+    out.rgba.assign(readback.pixels(),
+                    readback.pixels() + static_cast<size_t>(out.width) * out.height * 4);
+    return true;
+}
+
+void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
+    if (global_set_ != VK_NULL_HANDLE && deps.vulkan_context) {
+        deps.vulkan_context->gpu().global_bindings().free_set(global_set_);
+        global_set_ = VK_NULL_HANDLE;
+    }
+    pp_.reset();
+    target_.reset();
+    scene_.clear();
+}
+
+bool AssetThumbnailRenderer::SceneSubject::render(const Deps& deps, SceneStage& stage,
+                                                  const DirectionalLight& light, float dt,
+                                                  const std::string& path, Pixels& out) {
+    if (!stage.ensure(deps)) return false;
+    Framing framing;
+    if (!populate(stage.begin(), deps, path, framing)) return false;
+    return stage.render(deps, light, dt, framing, out);
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────
+
+bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& light, float dt,
+                                    Subject& subject, const std::string& path,
+                                    fs::file_time_type newest) {
+    Pixels pixels;
+    if (!subject.render(deps, stage_, light, dt, path, pixels)) return false;
+    if (pixels.width == 0 || pixels.height == 0 ||
+        pixels.rgba.size() < static_cast<size_t>(pixels.width) * pixels.height * 4) {
+        return false;
+    }
 
     auto cached = cache_path(path);
     std::error_code ec;
     fs::create_directories(cached.parent_path(), ec);
     if (!ec) {
-        int w = static_cast<int>(readback.width());
-        int h = static_cast<int>(readback.height());
-        if (stbi_write_png(cached.string().c_str(), w, h, 4, readback.pixels(), w * 4) == 0) {
+        int w = static_cast<int>(pixels.width);
+        int h = static_cast<int>(pixels.height);
+        if (stbi_write_png(cached.string().c_str(), w, h, 4, pixels.rgba.data(), w * 4) == 0) {
             FJELL_CORE_WARN("Asset thumbnail: failed to write {}", cached.string());
         }
     }
 
-    auto entry = deps.icon_cache->upload_rgba(readback.pixels(), static_cast<int>(readback.width()),
-                                              static_cast<int>(readback.height()),
+    auto entry = deps.icon_cache->upload_rgba(pixels.rgba.data(), static_cast<int>(pixels.width),
+                                              static_cast<int>(pixels.height),
                                               "asset thumbnail " + path);
     return store(deps, path, entry, newest);
 }
