@@ -96,14 +96,27 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
                              const std::string& base_dir, const std::string& markup_path) {
     if (!root) return;
     discard_tree_state();
-    root_ = std::move(root);
-
     stylesheet_ = {};
     stylesheet_path_ = fjss_path;
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
         stylesheet_ = load_stylesheet(fjss_path);
     }
+    install_tree(std::move(root), base_dir);
+    watch_sources(markup_path, fjss_path);
+}
 
+void GameUi::load_from_tree(std::unique_ptr<UiNode> root, Stylesheet sheet,
+                             const std::string& base_dir) {
+    if (!root) return;
+    discard_tree_state();
+    stylesheet_ = std::move(sheet);
+    stylesheet_path_.clear();
+    install_tree(std::move(root), base_dir);
+    watch_sources({}, {});
+}
+
+void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_dir) {
+    root_ = std::move(root);
     widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
     init_text_templates(*root_);
 
@@ -117,8 +130,6 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     }
 
     dirty_ = true;
-    watch_sources(markup_path, fjss_path);
-
     FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
 }
 

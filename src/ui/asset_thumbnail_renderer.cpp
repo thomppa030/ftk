@@ -1,4 +1,7 @@
 #include "ui/asset_thumbnail_renderer.hpp"
+#include "ui/game_ui/font_sample.hpp"
+#include "ui/game_ui/font_library.hpp"
+#include "ui/game_ui/fjfont.hpp"
 
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
@@ -459,28 +462,31 @@ VkRect2D content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame
             {static_cast<uint32_t>(max_x - min_x), static_cast<uint32_t>(max_y - min_y)}};
 }
 
-// A widget or layout rendered by the game UI itself, at the project's
-// design resolution, then cropped to its content and fitted into the
-// thumbnail with the aspect kept. Nothing from the scene pipeline.
-class WidgetSubject final : public AssetThumbnailRenderer::Subject {
+// What every subject drawn by the game UI shares: one GameUi, one target
+// at the design resolution, and the capture that crops the render to its
+// content and fits it into the thumbnail with the aspect kept. Nothing
+// from the scene pipeline.
+class UiSubject : public AssetThumbnailRenderer::Subject {
 public:
-    [[nodiscard]] bool handles(const fs::path& path) const override {
-        auto ext = path.extension();
-        return ext == ".fjwidget" || ext == ".fjui";
+    void shutdown(const AssetThumbnailRenderer::Deps& /*deps*/) override {
+        if (ui_) {
+            ui_->destroy();
+            ui_.reset();
+        }
+        target_.reset();
     }
 
-    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
-                                                 const Project* /*project*/) const override {
-        auto newest = file_time(path);
-        if (newest == fs::file_time_type::min()) return newest;
-        return std::max(newest, file_time(stylesheet_for(path)));
-    }
-
-    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
-                AssetThumbnailRenderer::Pixels& out) override {
+protected:
+    // The UI and a target sized to the project's design frame, ready to load
+    // into. Returns the frame size.
+    VkExtent2D prepare(const AssetThumbnailRenderer::Deps& deps) {
         auto& vk = *deps.vulkan_context;
-        ensure_ui(deps);
+        if (!ui_) {
+            ui_ = std::make_unique<GameUi>();
+            vk.init_game_ui(*ui_, OffscreenPass::COLOR_FORMAT);
+            ui_->set_resource_manager(deps.resource_manager);
+        }
+        ui_->set_project(deps.project);
 
         uint32_t frame_w = 1920;
         uint32_t frame_h = 1080;
@@ -492,31 +498,15 @@ public:
             target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.allocator(),
                                                       frame_w, frame_h, VK_SAMPLE_COUNT_1_BIT);
         }
+        return {frame_w, frame_h};
+    }
 
-        fs::path markup(path);
-        auto fjss = stylesheet_for(markup).string();
-        if (markup.extension() == ".fjwidget") {
-            auto asset = load_widget_asset(path);
-            if (!asset) {
-                FJELL_CORE_WARN("Widget thumbnail: {}", asset.error());
-                return false;
-            }
-            if (!asset->markup_root) return false;
-            // Declared prop defaults stand in for the values a game would
-            // bind, the way the UI editor's preview shows them. They go in
-            // before the load, which is when material="{prop}" is resolved,
-            // and replace whatever the previous thumbnail left behind.
-            ui_->context().clear();
-            for (const auto& prop : asset->props) {
-                if (!prop.default_value.empty()) ui_->context().set(prop.name, prop.default_value);
-            }
-            ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
-                                markup.parent_path().string(), path);
-        } else {
-            ui_->load(path, fjss);
-        }
-        if (!ui_->loaded()) return false;
-
+    // Lays the loaded tree out in the frame, renders it and fills `out`.
+    bool capture(const AssetThumbnailRenderer::Deps& deps, VkExtent2D frame,
+                 AssetThumbnailRenderer::Pixels& out) {
+        auto& vk = *deps.vulkan_context;
+        const uint32_t frame_w = frame.width;
+        const uint32_t frame_h = frame.height;
         // Laid out in the design frame at the design size, so layout rects
         // are target pixels.
         ui_->set_design_frame({static_cast<float>(frame_w), static_cast<float>(frame_h)});
@@ -566,27 +556,105 @@ public:
         return true;
     }
 
-    void shutdown(const AssetThumbnailRenderer::Deps& /*deps*/) override {
-        if (ui_) {
-            ui_->destroy();
-            ui_.reset();
-        }
-        target_.reset();
-    }
-
-private:
-    void ensure_ui(const AssetThumbnailRenderer::Deps& deps) {
-        auto& vk = *deps.vulkan_context;
-        if (!ui_) {
-            ui_ = std::make_unique<GameUi>();
-            vk.init_game_ui(*ui_, OffscreenPass::COLOR_FORMAT);
-            ui_->set_resource_manager(deps.resource_manager);
-        }
-        ui_->set_project(deps.project);
-    }
-
     std::unique_ptr<GameUi> ui_;
     std::unique_ptr<OffscreenPass> target_;
+};
+
+// A widget or layout rendered as the game draws it.
+class WidgetSubject final : public UiSubject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        auto ext = path.extension();
+        return ext == ".fjwidget" || ext == ".fjui";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        auto newest = file_time(path);
+        if (newest == fs::file_time_type::min()) return newest;
+        return std::max(newest, file_time(stylesheet_for(path)));
+    }
+
+    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
+                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
+                AssetThumbnailRenderer::Pixels& out) override {
+        auto frame = prepare(deps);
+
+        fs::path markup(path);
+        auto fjss = stylesheet_for(markup).string();
+        if (markup.extension() == ".fjwidget") {
+            auto asset = load_widget_asset(path);
+            if (!asset) {
+                FJELL_CORE_WARN("Widget thumbnail: {}", asset.error());
+                return false;
+            }
+            if (!asset->markup_root) return false;
+            // Declared prop defaults stand in for the values a game would
+            // bind, the way the UI editor's preview shows them. They go in
+            // before the load, which is when material="{prop}" is resolved,
+            // and replace whatever the previous thumbnail left behind.
+            ui_->context().clear();
+            for (const auto& prop : asset->props) {
+                if (!prop.default_value.empty()) ui_->context().set(prop.name, prop.default_value);
+            }
+            ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
+                                markup.parent_path().string(), path);
+        } else {
+            ui_->load(path, fjss);
+        }
+        if (!ui_->loaded()) return false;
+        return capture(deps, frame, out);
+    }
+};
+
+// A font recipe shown as a sample line in that font, drawn by the game UI
+// through a sheet built here that names the recipe with @font-face.
+class FontSubject final : public UiSubject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        return path.extension() == ".fjfont";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        auto newest = file_time(path);
+        if (newest == fs::file_time_type::min()) return newest;
+        if (auto recipe = load_font_recipe(path)) {
+            newest = std::max(newest, file_time(font_source_path(path, *recipe)));
+        }
+        return newest;
+    }
+
+    // The atlas comes from the shared library, which loads off the frame;
+    // asking for it is what starts the load.
+    [[nodiscard]] bool ready(const AssetThumbnailRenderer::Deps& deps,
+                             const std::string& path) override {
+        auto& fonts = deps.vulkan_context->font_library();
+        switch (fonts.status(path)) {
+            case FontLibrary::Status::unknown:
+                (void)fonts.get(path);
+                return false;
+            case FontLibrary::Status::pending:
+                return false;
+            case FontLibrary::Status::ready:
+            case FontLibrary::Status::failed:
+                return true;
+        }
+        return true;
+    }
+
+    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
+                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
+                AssetThumbnailRenderer::Pixels& out) override {
+        if (deps.vulkan_context->font_library().status(path) != FontLibrary::Status::ready) {
+            return false;
+        }
+        auto frame = prepare(deps);
+        // Large enough to read at thumbnail size; the capture crops to it.
+        load_font_sample(*ui_, path, "Ag 123", 160.0f);
+        if (!ui_->loaded()) return false;
+        return capture(deps, frame, out);
+    }
 };
 
 } // namespace
@@ -601,6 +669,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<VfxSubject>());
     subjects_.push_back(std::make_unique<SceneFileSubject>());
     subjects_.push_back(std::make_unique<WidgetSubject>());
+    subjects_.push_back(std::make_unique<FontSubject>());
 }
 
 AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;
@@ -706,7 +775,7 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
         // created the render waits for the drain, so the path goes back on
         // the queue rather than being lost.
         (void)stage_.ensure(deps);
-        if (stage_.draining()) {
+        if (stage_.draining() || !subject->ready(deps, path)) {
             refresh(path);
             return;
         }

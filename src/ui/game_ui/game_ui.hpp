@@ -71,6 +71,12 @@ public:
     void load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
                         const std::string& base_dir, const std::string& markup_path);
 
+    /// The same with a sheet built in memory rather than read from disk —
+    /// a thumbnail or an editor preview whose rules exist nowhere else. No
+    /// files are watched beyond the widgets the tree pulls in.
+    void load_from_tree(std::unique_ptr<UiNode> root, Stylesheet sheet,
+                        const std::string& base_dir);
+
     /// True once after any file this UI was built from — root markup,
     /// stylesheet, or a widget pulled in by tag — changed on disk. The owner
     /// rebuilds by loading again; until then the current tree stays intact,
@@ -143,6 +149,8 @@ private:
     void resolve_textures(UiNode& node);
     // Debug builds watch every file the loaded tree came from.
     void watch_sources(const std::string& markup_path, const std::string& fjss_path);
+    // Everything a load does after it has a tree and a sheet.
+    void install_tree(std::unique_ptr<UiNode> root, const std::string& base_dir);
     // Every per-tree subsystem drops what it remembers about the old tree
     // before root_ is replaced.
     void discard_tree_state();

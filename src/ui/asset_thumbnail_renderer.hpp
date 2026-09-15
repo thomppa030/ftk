@@ -34,7 +34,8 @@ struct FjGraph;
 /// bind pose, a `.fjanim` as a frame from the middle of the clip on the
 /// skeleton beside it, a `.fjvfx` once its particles have had time to fill
 /// in, a `.fjwidget` or `.fjui` as the game UI draws it at the project's
-/// design resolution, a `.fjell` as it looked when it was last saved. Each
+/// design resolution, a `.fjfont` as a sample line in that font, a `.fjell`
+/// as it looked when it was last saved. Each
 /// thumbnail is rendered once through the real pipeline, written to
 /// `.fjcache/<file>.thumb.png` next to the asset, and served from that file
 /// on later runs until the asset or a file it references is newer.
@@ -207,6 +208,12 @@ public:
                             float dt, const std::string& path, Pixels& out) = 0;
         /// Whether render() can produce the thumbnail from the file alone.
         [[nodiscard]] virtual bool renders_on_demand() const { return true; }
+        /// False while something render() needs is still on its way — a
+        /// font atlas being baked, say. The path is tried again on a later
+        /// tick rather than recorded as a failure.
+        [[nodiscard]] virtual bool ready(const Deps& /*deps*/, const std::string& /*path*/) {
+            return true;
+        }
         /// Release anything the subject holds on the GPU. The device is idle.
         virtual void shutdown(const Deps& /*deps*/) {}
     };

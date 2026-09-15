@@ -83,6 +83,15 @@ void FontLibrary::prebake(const std::string& recipe_path) {
     } else {
         prebake_now(key);
     }
+FontLibrary::Status FontLibrary::status(const std::string& recipe_path) const {
+    auto it = entries_.find(key_for(recipe_path));
+    if (it == entries_.end()) return Status::unknown;
+    const auto& entry = it->second;
+    if (entry.failed) return Status::failed;
+    if (entry.atlas) return Status::ready;
+    return Status::pending;
+}
+
 }
 
 void FontLibrary::start_load(Entry& entry) {

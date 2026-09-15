@@ -45,6 +45,14 @@ public:
 
     /// The atlas of a recipe once it is loaded. Nullptr while the load is
     /// pending and, for good, when the recipe cannot be loaded or baked;
+    enum class Status : uint8_t {
+        unknown, ///< never asked for
+        pending, ///< load queued or running
+        ready,   ///< on the GPU
+        failed,  ///< could not be loaded; logged once
+    };
+    [[nodiscard]] Status status(const std::string& recipe_path) const;
+
     /// that failure is logged once per path.
     [[nodiscard]] const FontAtlas* get(const std::string& recipe_path);
 
