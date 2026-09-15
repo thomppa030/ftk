@@ -223,6 +223,7 @@ void VfxEditorContext::init() {
 
 void VfxEditorContext::shutdown() {
     timeline_connections_.clear();
+    deps_.vulkan_context->release_scene_particles(preview_scene_);
     if (node_editor_ctx_) {
         ne::DestroyEditor(node_editor_ctx_);
         node_editor_ctx_ = nullptr;

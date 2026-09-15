@@ -7,6 +7,7 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -131,12 +132,24 @@ public:
     void remove_point_light(int index);
     void remove_spot_light(int index);
 
+    /// Identity that no other scene in this process shares, for systems that
+    /// keep state per scene across frames (the particle system's emitters).
+    /// A pointer would not do: a preview scene that is destroyed and another
+    /// created at the same address must not inherit its state.
+    [[nodiscard]] uint64_t id() const { return scene_id_; }
+
 private:
+    static uint64_t next_scene_id() {
+        static std::atomic<uint64_t> counter{1};
+        return counter.fetch_add(1);
+    }
+
     std::vector<std::unique_ptr<Node>> objects_;
     std::unordered_map<uint32_t, int> id_to_index_;
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};
+    uint64_t scene_id_{next_scene_id()};
     bool dirty_{false};
     bool index_dirty_{true};
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch

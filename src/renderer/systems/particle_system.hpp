@@ -105,6 +105,18 @@ public:
 private:
     // Internal implementations (called by the virtual overrides above)
     void sync_emitters(Scene& scene);
+
+public:
+    /// Register a scene's emitters and resolve what their modules reference,
+    /// without the per-frame bookkeeping sync() adds for the frame's scene
+    /// (the file watcher). For a scene rendered outside the frame.
+    void sync_scene(Scene& scene, ResourceManager* resources, const Project* project);
+
+    /// Drop the emitters a scene owned. For a scene that is going away;
+    /// one that merely lost its emitter nodes is reconciled by sync.
+    void release_scene(uint64_t scene_id);
+
+private:
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
                           VkDescriptorSet global_set,
                           const glm::vec3& camera_pos,
@@ -117,6 +129,13 @@ private:
 public:
     // Public for DDGI RT TLAS integration (mesh particle emitters as proxy geometry)
     struct EmitterGpu {
+        // The scene the emitter's node lives in. Every scene rendered keeps
+        // its emitters here; a dispatch only drives the ones of the scene
+        // it is given and freezes the rest, so a preview scene rendered
+        // between two frames of the main scene leaves the main scene's
+        // effects exactly where they were.
+        uint64_t scene_id{0};
+        bool in_scene{true};        // owner is the scene of the current dispatch
         uint32_t object_id{0};
         uint32_t emitter_index{0};  // index into VfxEffect::emitters
         uint32_t max_particles{0};

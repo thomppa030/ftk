@@ -1472,11 +1472,15 @@ void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
     }
     setup_vfx_watcher(ctx);
 #endif
-    if (ctx.scene) sync_emitters(*ctx.scene);
+    if (ctx.scene) sync_scene(*ctx.scene, ctx.resource_manager, ctx.project);
+}
+
+void ParticleSystem::sync_scene(Scene& scene, ResourceManager* resources, const Project* project) {
+    sync_emitters(scene);
 
     // Lazy-resolve mesh particle materials that weren't resolved on load
-    if (ctx.scene && ctx.resource_manager) {
-        for (const auto& obj : ctx.scene->objects()) {
+    if (resources) {
+        for (const auto& obj : scene.objects()) {
             auto* ec = obj->components.get<EmitterComponent>();
             if (!ec || !ec->effect) continue;
             for (auto& sub : ec->effect->emitters) {
@@ -1484,10 +1488,10 @@ void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
                     if (rm->type() != ModuleType::mesh_particle) continue;
                     auto* mm = static_cast<MeshParticleModule*>(rm.get());
                     if (mm->material_path.empty() || mm->resolved_material_id != 0) continue;
-                    auto resolved = base_path::resolve_asset(mm->material_path, ctx.project);
-                    auto result = ctx.resource_manager->load_material_asset(resolved, ctx.project);
+                    auto resolved = base_path::resolve_asset(mm->material_path, project);
+                    auto result = resources->load_material_asset(resolved, project);
                     if (result) {
-                        auto* mat = ctx.resource_manager->get(*result);
+                        auto* mat = resources->get(*result);
                         if (mat) mm->resolved_material_id = mat->material_id();
                     }
                 }
@@ -1570,6 +1574,10 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
 
 // ── Internal implementations ───────────────────────────────────────────
 
+void ParticleSystem::release_scene(uint64_t scene_id) {
+    std::erase_if(emitters_, [scene_id](const EmitterGpu& gpu) { return gpu.scene_id == scene_id; });
+}
+
 void ParticleSystem::sync_emitters(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
 
@@ -1580,6 +1588,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         uint32_t max_particles;
         ParticleBlendMode blend_mode;
     };
+    const uint64_t scene_id = scene.id();
     std::vector<EmitterKey> scene_emitters;
     for (const auto& obj : scene.objects()) {
         auto* ec = obj->components.get<EmitterComponent>();
@@ -1591,12 +1600,16 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         }
     }
 
-    auto key_match = [](const EmitterGpu& gpu, const EmitterKey& key) {
-        return gpu.object_id == key.object_id && gpu.emitter_index == key.emitter_index;
+    auto key_match = [scene_id](const EmitterGpu& gpu, const EmitterKey& key) {
+        return gpu.scene_id == scene_id && gpu.object_id == key.object_id
+            && gpu.emitter_index == key.emitter_index;
     };
 
-    // Remove dead emitters
+    // Remove this scene's dead emitters. Other scenes' emitters are not
+    // this sync's to judge; they stay until their own scene is synced or
+    // released.
     for (auto it = emitters_.begin(); it != emitters_.end();) {
+        if (it->scene_id != scene_id) { ++it; continue; }
         bool alive = false;
         for (const auto& se : scene_emitters) {
             if (key_match(*it, se)) { alive = true; break; }
@@ -1635,6 +1648,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     uint32_t first_new = static_cast<uint32_t>(emitters_.size());
     for (const auto& ne : new_emitters) {
         EmitterGpu gpu{};
+        gpu.scene_id = scene_id;
         gpu.object_id = ne.object_id;
         gpu.emitter_index = ne.emitter_index;
         gpu.max_particles = ne.max_particles;
@@ -1790,7 +1804,11 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
     for (size_t i = 0; i < emitters_.size(); ++i) {
         auto& gpu = emitters_[i];
-        auto* obj = scene.find(gpu.object_id);
+        // An emitter of another scene is looked up nowhere: a node id is
+        // only unique within its scene, and it has to freeze, not follow a
+        // stranger's node.
+        gpu.in_scene = gpu.scene_id == scene.id();
+        auto* obj = gpu.in_scene ? scene.find(gpu.object_id) : nullptr;
         auto& data = emitter_data_cache_[i];
         std::memset(&data, 0, sizeof(data));
 
@@ -1798,7 +1816,10 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         if (!ec || !ec->effect || !obj->as_spatial()
             || gpu.emitter_index >= ec->effect->emitters.size()) {
             // Emitter not valid — assign a terminator-only module block
-            // so the shader exits the module walk immediately.
+            // so the shader exits the module walk immediately. With dt and
+            // emit count zero its particles hold still, and unseen they
+            // are not drawn into a target that is not theirs.
+            gpu.visible = false;
             data.module_offset = module_word_offset;
             auto* term = reinterpret_cast<uint32_t*>(module_ptr + module_word_offset * 4);
             term[0] = 0xFFFFFFFF; // MOD_TERMINATOR
@@ -2099,6 +2120,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
     // Clear one-frame fire flags
     for (size_t i = 0; i < emitters_.size(); ++i) {
+        if (!emitters_[i].in_scene) continue;
         auto* obj = scene.find(emitters_[i].object_id);
         auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
         if (ec) ec->fire = false;

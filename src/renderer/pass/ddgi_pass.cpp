@@ -1137,7 +1137,7 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
         }
 
         for (const auto& em : particle_system_->emitters()) {
-            if (!em.is_mesh) continue;
+            if (!em.is_mesh || !em.in_scene) continue;
             auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
             accel_manager_->ensure_blas_entry(shape_key, em.mesh_entry, *ctx.mega_buffer);
         }
@@ -1606,7 +1606,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             std::vector<AccelStructureManager::ParticleEmitterInfo> particle_infos;
             if (particle_system_) {
                 for (const auto& em : particle_system_->emitters()) {
-                    if (!em.is_mesh) continue;
+                    if (!em.is_mesh || !em.in_scene) continue;
                     auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
                     const auto* blas = accel_manager_->find_blas(shape_key);
                     if (!blas) continue;

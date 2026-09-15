@@ -1153,6 +1153,14 @@ void VulkanContext::record_game_ui_offscreen_multi(const GameUiRecordFn& record_
     record_game_ui_into(gpu_.command_buffer(frame_index), record_fn, target, frame_index);
 }
 
+void VulkanContext::sync_scene_particles(Scene& scene) {
+    if (particle_system_) particle_system_->sync_scene(scene, resource_manager_, project_);
+}
+
+void VulkanContext::release_scene_particles(const Scene& scene) {
+    if (particle_system_) particle_system_->release_scene(scene.id());
+}
+
 void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
     if (!ui.loaded()) return;
 

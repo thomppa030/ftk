@@ -286,6 +286,17 @@ public:
   /// then. The target's colour image is left in SHADER_READ_ONLY_OPTIMAL.
   void render_game_ui_preview(class GameUi& ui, OffscreenPass& target);
 
+  /// Register a scene's emitters with the particle system, for a scene
+  /// rendered outside the frame (a thumbnail). record_frame does this for
+  /// the frame's scene; other scenes' emitters are left alone, the
+  /// particle system keeps them per scene.
+  void sync_scene_particles(Scene& scene);
+
+  /// Drop the particle state a scene owned. Call before a scene that had
+  /// emitters is destroyed, or its emitters sit in the particle system for
+  /// good.
+  void release_scene_particles(const Scene& scene);
+
   /// Callback for worldspace UI rendering (color pass, after transparent objects).
   using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
                                               VkDescriptorSet, VkExtent2D, uint32_t)>;
