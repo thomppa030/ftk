@@ -2,6 +2,7 @@
 #include "ui/game_ui/fjfont.hpp"
 #include "ui/game_ui/font_atlas_build.hpp"
 #include "renderer/bindless.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 
@@ -9,6 +10,8 @@
 #include <utility>
 
 namespace fjell {
+
+FontAtlas::FontAtlas() = default;
 
 FontAtlas::~FontAtlas() {
     destroy();
@@ -20,26 +23,22 @@ void FontAtlas::destroy() {
     kerning_.clear();
 }
 
-void FontAtlas::create(const std::string& recipe_path,
-                       VkDevice device, VmaAllocator allocator,
-                       VkPhysicalDevice physical_device,
-                       UploadContext& upload,
-                       BindlessTextures& bindless) {
+Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
     // The bake reports recipe warnings too, but a fresh cache skips it, so
-    // they are read here where every startup passes.
+    // they are read here where every load passes.
     std::vector<std::string> warnings;
     auto recipe = load_font_recipe(recipe_path, &warnings);
     for (const auto& warning : warnings) FJELL_CORE_WARN("FontAtlas: {}", warning);
     if (!recipe) {
         FJELL_CORE_ERROR("FontAtlas: {}", recipe.error());
-        return;
+        return make_error(recipe.error());
     }
 
     auto source_path = font_source_path(recipe_path, *recipe);
     auto hash = font_source_hash(recipe_path, source_path);
     if (!hash) {
         FJELL_CORE_ERROR("FontAtlas: {}", hash.error());
-        return;
+        return make_error(hash.error());
     }
     auto cache_path = font_atlas_cache_path(recipe_path);
 
@@ -58,7 +57,7 @@ void FontAtlas::create(const std::string& recipe_path,
         auto baked = bake_font_recipe(recipe_path);
         if (!baked) {
             FJELL_CORE_ERROR("FontAtlas: {}", baked.error());
-            return;
+            return make_error(baked.error());
         }
         atlas = std::move(baked->atlas);
         if (!baked->missing.empty()) {
@@ -71,15 +70,17 @@ void FontAtlas::create(const std::string& recipe_path,
                        atlas.glyphs.size(), atlas.header.cell_size, atlas.header.px_range);
     }
 
+    FontAtlasData data;
+    data.source_path = source_path.string();
     const auto& header = atlas.header;
-    metrics_.ascender = header.ascender;
-    metrics_.descender = header.descender;
-    metrics_.line_height = header.line_height;
-    pixel_range_ = header.px_range;
-    atlas_width_ = header.atlas_width;
-    atlas_height_ = header.atlas_height;
+    data.metrics.ascender = header.ascender;
+    data.metrics.descender = header.descender;
+    data.metrics.line_height = header.line_height;
+    data.pixel_range = header.px_range;
+    data.width = header.atlas_width;
+    data.height = header.atlas_height;
 
-    glyphs_.reserve(atlas.glyphs.size());
+    data.glyphs.reserve(atlas.glyphs.size());
     for (const auto& g : atlas.glyphs) {
         GlyphInfo gi{};
         gi.uv_x0 = g.uv_x0;
@@ -91,22 +92,65 @@ void FontAtlas::create(const std::string& recipe_path,
         gi.quad_w = g.quad_w;
         gi.quad_h = g.quad_h;
         gi.advance = g.advance;
-        glyphs_[g.codepoint] = gi;
+        data.glyphs[g.codepoint] = gi;
     }
-    kerning_.reserve(atlas.kerning.size());
+    data.kerning.reserve(atlas.kerning.size());
     for (const auto& k : atlas.kerning) {
-        kerning_[{k.left, k.right}] = k.value;
+        data.kerning.push_back({{k.left, k.right}, k.value});
     }
+    data.pixels = std::move(atlas.pixels);
+    return data;
+}
+
+void FontAtlas::adopt(FontAtlasData& data) {
+    source_path_ = std::move(data.source_path);
+    metrics_ = data.metrics;
+    pixel_range_ = data.pixel_range;
+    atlas_width_ = data.width;
+    atlas_height_ = data.height;
+    glyphs_ = std::move(data.glyphs);
+    kerning_.clear();
+    kerning_.reserve(data.kerning.size());
+    for (const auto& [pair, value] : data.kerning) kerning_[pair] = value;
+}
+
+void FontAtlas::create(const std::string& recipe_path, const FontAtlasGpu& gpu,
+                       FontAtlasData data) {
+    gpu_ = gpu;
+    recipe_path_ = recipe_path;
+    adopt(data);
 
     // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
     atlas_texture_ = std::make_unique<Texture>(
-        device, allocator, physical_device, upload,
-        atlas.pixels.data(), atlas_width_, atlas_height_,
+        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.upload,
+        data.pixels.data(), atlas_width_, atlas_height_,
         VK_FORMAT_R8G8B8A8_UNORM, 1, true);
-    atlas_index_ = bindless.add(*atlas_texture_);
+    atlas_index_ = gpu_.bindless->add(*atlas_texture_);
 
     FJELL_GFX_INFO("Font atlas ready: {} ({}x{}, {} glyphs)",
-                   recipe_path, atlas_width_, atlas_height_, glyphs_.size());
+                   recipe_path_, atlas_width_, atlas_height_, glyphs_.size());
+}
+
+void FontAtlas::reload(FontAtlasData data) {
+    if (!atlas_texture_) {
+        // Nothing to swap; the first successful load registers the slot.
+        create(recipe_path_, gpu_, std::move(data));
+        return;
+    }
+    adopt(data);
+
+    auto fresh = std::make_unique<Texture>(
+        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.upload,
+        data.pixels.data(), atlas_width_, atlas_height_,
+        VK_FORMAT_R8G8B8A8_UNORM, 1, true);
+    gpu_.bindless->update_entry(atlas_index_, fresh->image_view(), fresh->sampler());
+    if (gpu_.deleter) {
+        gpu_.deleter->retire(std::move(atlas_texture_));
+    }
+    atlas_texture_ = std::move(fresh);
+
+    FJELL_GFX_INFO("Font atlas reloaded: {} ({}x{}, {} glyphs)",
+                   recipe_path_, atlas_width_, atlas_height_, glyphs_.size());
 }
 
 const GlyphInfo* FontAtlas::glyph(uint32_t codepoint) const {

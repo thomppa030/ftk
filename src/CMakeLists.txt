@@ -302,6 +302,7 @@ add_executable(fjell
     ui/game_ui/fjfont.cpp
     ui/game_ui/font_atlas.cpp
     ui/game_ui/font_atlas_build.cpp
+    ui/game_ui/font_library.cpp
     ui/game_ui/text_shaper.cpp
 
     # ImGui sources

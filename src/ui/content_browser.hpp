@@ -69,8 +69,6 @@ private:
     // Writes `<font>.fjfont` beside a .ttf/.otf with the default recipe and
     // selects it; a recipe that already exists is left alone.
     void create_font_recipe(const std::filesystem::path& font_file);
-    // Bakes a recipe's atlas on demand and logs the outcome.
-    void bake_font_recipe_entry(const std::filesystem::path& recipe_path);
     void create_asset_file(std::string_view filename, std::string_view extension,
                            std::string_view content);
     void create_folder();
@@ -149,6 +147,10 @@ public:
     Delegate<void(const std::string&)> on_import_model;
     /// Pick a model file and import it into this directory (absolute path).
     Delegate<void(const std::string& dir)> on_import_into;
+    /// Bake a font recipe's atlas (absolute path): a recipe just created, or
+    /// one the user asked to bake. The engine's font library does the work
+    /// off the frame.
+    Delegate<void(const std::string& recipe)> on_bake_font;
 
     /// Fired after a file is renamed or moved, with the old and new paths
     /// relative to the project root, so the asset database can follow it.

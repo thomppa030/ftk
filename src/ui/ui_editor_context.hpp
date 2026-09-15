@@ -35,7 +35,6 @@ struct UiEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
-    GameUi* engine_game_ui;       // for sharing font atlas
     ScriptManager* script_manager; // for looking up UiComponent types
 };
 

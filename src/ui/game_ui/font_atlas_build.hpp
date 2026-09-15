@@ -39,4 +39,9 @@ struct FontBake {
 /// content browser alike.
 [[nodiscard]] Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path);
 
+/// Bakes only when the cached atlas is missing or stale, so a project's
+/// fonts can be readied ahead of use without redoing work. True when a bake
+/// ran.
+[[nodiscard]] Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path);
+
 } // namespace fjell

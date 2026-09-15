@@ -579,12 +579,7 @@ private:
         auto& vk = *deps.vulkan_context;
         if (!ui_) {
             ui_ = std::make_unique<GameUi>();
-            if (deps.game_ui) {
-                vk.init_game_ui_shared(*ui_, deps.game_ui->font(), OffscreenPass::COLOR_FORMAT);
-            } else {
-                vk.init_game_ui(*ui_, base_path::resolve("engine_assets/fonts/Inter.fjfont"),
-                                OffscreenPass::COLOR_FORMAT);
-            }
+            vk.init_game_ui(*ui_, OffscreenPass::COLOR_FORMAT);
             ui_->set_resource_manager(deps.resource_manager);
         }
         ui_->set_project(deps.project);

@@ -255,14 +255,14 @@ public:
   }
   [[nodiscard]] bool is_playing() const { return playing_; }
 
-  /// Initialize a GameUi instance using renderer resources.
-  /// Ownership stays with the caller.
-  void init_game_ui(class GameUi& ui, const std::string& font_path,
-                    VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
+  /// Initialize a GameUi with the renderer's resources and font library.
+  /// Ownership stays with the caller. `world` also builds the worldspace
+  /// pipelines (HDR format + scene MSAA) for a widget drawn in the scene.
+  void init_game_ui(class GameUi& ui, VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB,
+                    bool world = false);
 
-  /// Initialize a GameUi using a shared font atlas (no msdfgen rebuild).
-  void init_game_ui_shared(class GameUi& ui, const class FontAtlas& shared_atlas,
-                           VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
+  /// Every font atlas on the GPU, shared by all GameUi instances.
+  [[nodiscard]] class FontLibrary& font_library() { return *font_library_; }
 
   /// Record a GameUi into an offscreen pass (for editor preview).
   void record_game_ui_offscreen(class GameUi& ui, OffscreenPass& target,
@@ -301,9 +301,6 @@ public:
   using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
                                               VkDescriptorSet, VkExtent2D, uint32_t)>;
   void set_world_ui_callback(WorldUiCallback cb) { world_ui_callback_ = std::move(cb); }
-
-  /// Initialize a GameUi for worldspace rendering (HDR format + scene MSAA).
-  void init_game_ui_world(class GameUi& ui, const class FontAtlas& shared_atlas);
 
   /// Callback for UI editor preview rendering (offscreen, called during record_frame).
   using UiPreviewCallback = std::function<void(uint32_t frame_index)>;
@@ -460,6 +457,7 @@ private:
 
   // ── Editor / game state ───────────────────────────────────────────────
   std::unique_ptr<DebugDraw> debug_draw_;
+  std::unique_ptr<class FontLibrary> font_library_;
   DebugDrawQueue* debug_draw_queue_{nullptr};
   OverlayCallback overlay_callback_;
   WorldUiCallback world_ui_callback_;

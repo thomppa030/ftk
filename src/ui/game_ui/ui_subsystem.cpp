@@ -21,10 +21,8 @@
 
 namespace fjell {
 
-UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
-                         ScriptManager& script_manager)
-    : vulkan_context_{vulkan_context}, editor_game_ui_{editor_game_ui}
-    , script_manager_{&script_manager} {}
+UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager)
+    : vulkan_context_{vulkan_context}, script_manager_{&script_manager} {}
 
 /// Loads the .fjwidget an instance was placed with, rejecting one that
 /// parsed but carries no markup — there would be nothing to show for it.
@@ -81,16 +79,12 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         inst.style_classes = wc->style_classes;
         inst.render_mode = wc->render_mode;
         inst.game_ui = std::make_unique<GameUi>();
-        if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) {
-            vulkan_context_.init_game_ui_world(*inst.game_ui, editor_game_ui_.font());
-        } else {
-            // Screen-space widgets composite into PlayController's HUD
-            // target, an OffscreenPass, not the swapchain — the pipeline's
-            // color format has to match what it will actually render into.
-            vulkan_context_.init_game_ui_shared(*inst.game_ui,
-                editor_game_ui_.font(),
-                OffscreenPass::COLOR_FORMAT);
-        }
+        // Both draw into an OffscreenPass, never the swapchain — world
+        // widgets into the scene's HDR target, screen widgets into
+        // PlayController's HUD target — so the pipeline's color format has
+        // to match that.
+        vulkan_context_.init_game_ui(*inst.game_ui, OffscreenPass::COLOR_FORMAT,
+            inst.render_mode == UiWidgetComponent::RenderMode::world_space);
         inst.game_ui->set_project(ctx.project);
         UiDesignFrame design_frame = design_frame_for(*wc, ctx.project);
         inst.game_ui->set_design_frame(design_frame);

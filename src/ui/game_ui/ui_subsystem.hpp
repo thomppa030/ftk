@@ -27,8 +27,7 @@ struct WidgetAsset;
 /// on stop. Creates UiWidget instances and auto-syncs bind fields.
 class UiSubsystem : public Subsystem {
 public:
-    UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
-                 ScriptManager& script_manager);
+    UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager);
 
     void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
 
@@ -98,7 +97,6 @@ private:
     void validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type);
 
     VulkanContext& vulkan_context_;
-    GameUi& editor_game_ui_;
     ScriptManager* script_manager_{nullptr};
     ResourceManager* resource_manager_{nullptr};
     std::vector<UiInstance> instances_;

@@ -22,18 +22,22 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace fjell {
 
 class Device;
 class BindlessTextures;
-class UploadContext;
+class FontLibrary;
 class Input;
 class ResourceManager;
 struct PassResources;
 
 /// Orchestrator for the game UI system.
-/// Owns parsers, layout engine, style resolver, context, font atlas, and renderer.
+/// Owns parsers, layout engine, style resolver, context and renderer; fonts
+/// come from the renderer's FontLibrary, resolved per text node from its
+/// `font-family` and `font-weight` through the sheet's @font-face rules.
 ///
 /// Usage from game code:
 ///
@@ -51,17 +55,8 @@ public:
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
                 BindlessTextures& bindless,
-                UploadContext& upload,
-                const std::string& font_path,
+                FontLibrary& fonts,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
-
-    /// Create with a shared font atlas (avoids expensive re-generation).
-    /// The caller must keep the source GameUi alive for the font atlas lifetime.
-    void create_with_shared_font(Device& device, VmaAllocator allocator,
-                                 const PassResources& resources,
-                                 BindlessTextures& bindless,
-                                 const FontAtlas& shared_atlas,
-                                 VkFormat output_format = VK_FORMAT_UNDEFINED);
 
     void destroy();
 
@@ -94,7 +89,7 @@ public:
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                 VkExtent2D extent, uint32_t frame_index);
 
-    /// Create worldspace pipelines (HDR + scene MSAA). Call after create/create_with_shared_font.
+    /// Create worldspace pipelines (HDR + scene MSAA). Call after create().
     void create_world_pipelines(Device& device, const PassResources& resources);
 
     /// Record worldspace draw commands with push constants. prev_mvp is last
@@ -121,7 +116,6 @@ public:
 
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
-    [[nodiscard]] const FontAtlas& font() const { return shared_font_atlas_ ? *shared_font_atlas_ : font_atlas_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
     [[nodiscard]] Stylesheet& stylesheet() { return stylesheet_; }
@@ -141,6 +135,10 @@ public:
 private:
     void shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
                           uint32_t frame_index);
+    /// The atlas a node's text draws in: the sheet's @font-face whose family
+    /// matches and whose weight is nearest, else the default font. A family
+    /// no face declares is reported once per load.
+    [[nodiscard]] const FontAtlas& font_for(const UiComputedStyle& style);
     void init_text_templates(UiNode& node);
     void resolve_textures(UiNode& node);
     // Debug builds watch every file the loaded tree came from.
@@ -160,8 +158,12 @@ private:
     UiDataBind data_bind_;
     UiAnimation animation_;
     WidgetResolver widget_resolver_;
-    FontAtlas font_atlas_;
-    const FontAtlas* shared_font_atlas_{nullptr}; // non-owning, overrides font_atlas_ when set
+    FontLibrary* fonts_{nullptr};
+    // Resolved faces by "family\nweight", rebuilt as text is shaped after a
+    // load; a sheet declares a handful of faces and text nodes ask every
+    // frame, so the lookup is cached.
+    std::unordered_map<std::string, const FontAtlas*> font_cache_;
+    std::unordered_set<std::string> unknown_families_;
     bool dirty_{true};
     bool layout_dirty_{true};
     bool needs_redraw_{true};

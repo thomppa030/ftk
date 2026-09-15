@@ -236,6 +236,8 @@ private:
     std::filesystem::path import_output_dir_;
     void open_import_browser(const std::filesystem::path& output_dir);
 
+    void prebake_project_fonts(const std::filesystem::path& root);
+
     // Asset reference widget browser (separate from import browser)
     FileBrowser asset_file_browser_;
 };

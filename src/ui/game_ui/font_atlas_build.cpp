@@ -276,6 +276,21 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     return atlas;
 }
 
+Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path) {
+    std::vector<std::string> warnings;
+    auto recipe = load_font_recipe(recipe_path, &warnings);
+    if (!recipe) return make_error(recipe.error());
+    auto source_path = font_source_path(recipe_path, *recipe);
+    auto hash = font_source_hash(recipe_path, source_path);
+    if (!hash) return make_error(hash.error());
+    if (font_atlas_is_fresh(recipe_path, source_path, font_atlas_cache_path(recipe_path), *hash)) {
+        return false;
+    }
+    auto bake = bake_font_recipe(recipe_path);
+    if (!bake) return make_error(bake.error());
+    return true;
+}
+
 Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path) {
     FontBake bake;
     auto recipe = load_font_recipe(recipe_path, &bake.warnings);

@@ -1,6 +1,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
+#include "ui/game_ui/font_library.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/device.hpp"
@@ -13,6 +14,8 @@
 #include "core/project.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -22,26 +25,11 @@ namespace fjell {
 void GameUi::create(Device& device, VmaAllocator allocator,
                     const PassResources& resources,
                     BindlessTextures& bindless,
-                    UploadContext& upload,
-                    const std::string& font_path,
+                    FontLibrary& fonts,
                     VkFormat output_format) {
     bindless_ = &bindless;
+    fonts_ = &fonts;
     renderer_.create(device, allocator, resources, output_format);
-
-    if (!font_path.empty() && std::filesystem::exists(font_path)) {
-        font_atlas_.create(font_path, device.handle(), allocator,
-                           device.physical_device(), upload, bindless);
-    }
-}
-
-void GameUi::create_with_shared_font(Device& device, VmaAllocator allocator,
-                                      const PassResources& resources,
-                                      BindlessTextures& bindless,
-                                      const FontAtlas& shared_atlas,
-                                      VkFormat output_format) {
-    bindless_ = &bindless;
-    renderer_.create(device, allocator, resources, output_format);
-    shared_font_atlas_ = &shared_atlas;
 }
 
 void GameUi::set_resource_manager(ResourceManager* rm) {
@@ -58,7 +46,6 @@ void GameUi::mark_dirty() {
 }
 
 void GameUi::destroy() {
-    font_atlas_.destroy();
     renderer_.destroy();
 }
 
@@ -139,6 +126,51 @@ void GameUi::discard_tree_state() {
     data_bind_.forget_tree();
     ui_input_.forget_tree();
     animation_.forget_tree();
+    // The faces come with the sheet, which the load replaces.
+    font_cache_.clear();
+    unknown_families_.clear();
+}
+
+const FontAtlas& GameUi::font_for(const UiComputedStyle& style) {
+    const auto& fallback = fonts_->fallback();
+    if (style.font_family.empty()) return fallback;
+
+    char weight_text[16];
+    std::snprintf(weight_text, sizeof(weight_text), "%g", static_cast<double>(style.font_weight));
+    std::string key = style.font_family + '\n' + weight_text;
+    if (auto it = font_cache_.find(key); it != font_cache_.end()) return *it->second;
+
+    // The face of the family whose weight is nearest; a tie goes to the
+    // lighter one, the way CSS resolves a weight below 500.
+    const StyleFontFace* best = nullptr;
+    for (const auto& face : stylesheet_.font_faces) {
+        if (face.family != style.font_family) continue;
+        if (!best) {
+            best = &face;
+            continue;
+        }
+        float d_best = std::abs(best->weight - style.font_weight);
+        float d_face = std::abs(face.weight - style.font_weight);
+        if (d_face < d_best || (d_face == d_best && face.weight < best->weight)) best = &face;
+    }
+
+    if (!best) {
+        if (unknown_families_.insert(style.font_family).second) {
+            FJELL_CORE_WARN("GameUi: {}: no @font-face declares font-family '{}', using the default font",
+                            stylesheet_path_.empty() ? "<in-memory sheet>" : stylesheet_path_,
+                            style.font_family);
+        }
+        font_cache_.emplace(std::move(key), &fallback);
+        return fallback;
+    }
+
+    // Nullptr while the library is still loading the face (or never will):
+    // draw in the fallback for now and ask again next frame, so the text
+    // switches the frame the atlas arrives.
+    const FontAtlas* atlas = fonts_->get(best->resolved_src);
+    if (!atlas) return fallback;
+    font_cache_.emplace(std::move(key), atlas);
+    return *atlas;
 }
 
 void GameUi::watch_sources(const std::string& markup_path, const std::string& fjss_path) {
@@ -271,7 +303,7 @@ void GameUi::update(float viewport_width, float viewport_height,
     renderer_.update(*root_, viewport_width, viewport_height, scale, frame_index);
 
     // 8. Shape and upload text for all text nodes
-    if (font().valid()) {
+    if (fonts_ && fonts_->fallback().valid()) {
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
 }
@@ -286,7 +318,7 @@ void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport
         float font_size = layout_node->style.font_size;
         float line_height = layout_node->style.line_height;
 
-        auto& fa = font();
+        const auto& fa = font_for(layout_node->style);
         auto shaped = TextShaper::shape(node.text_content, fa,
                                         font_size, max_width, line_height);
         renderer_.update_text(shaped.glyphs, *layout_node,

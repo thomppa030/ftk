@@ -1,10 +1,13 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -12,7 +15,19 @@ namespace fjell {
 
 class Texture;
 class BindlessTextures;
+class DeferredDeleter;
 class UploadContext;
+
+/// What an atlas needs to reach the GPU. Kept by the atlas so it can
+/// rebuild itself in place.
+struct FontAtlasGpu {
+    VkDevice device{VK_NULL_HANDLE};
+    VmaAllocator allocator{VK_NULL_HANDLE};
+    VkPhysicalDevice physical_device{VK_NULL_HANDLE};
+    UploadContext* upload{nullptr};
+    BindlessTextures* bindless{nullptr};
+    DeferredDeleter* deleter{nullptr};
+};
 
 struct GlyphInfo {
     float uv_x0, uv_y0;   // top-left UV in atlas
@@ -30,6 +45,21 @@ struct FontMetrics {
     float line_height;     // recommended line spacing (em-normalized)
 };
 
+/// Everything a recipe's atlas is before it reaches the GPU: the glyph and
+/// kerning tables, the metrics and the pixels. Produced by
+/// FontAtlas::load_data on any thread, since baking a large charset takes
+/// long enough to stall a frame; adopted on the main thread.
+struct FontAtlasData {
+    std::unordered_map<uint32_t, GlyphInfo> glyphs;
+    std::vector<std::pair<std::pair<uint32_t, uint32_t>, float>> kerning;
+    FontMetrics metrics{};
+    float pixel_range{0.0f};
+    uint32_t width{0};
+    uint32_t height{0};
+    std::vector<uint8_t> pixels;
+    std::string source_path;
+};
+
 /// The MSDF atlas of one `.fjfont` recipe on the GPU, registered in the
 /// bindless system. The atlas itself is baked offline (see fjfont.hpp): this
 /// loads the cached bake beside the recipe, rebuilding it first when the
@@ -42,7 +72,8 @@ struct FontMetrics {
 /// The fragment shader must apply the median-of-three + screenPxRange formula.
 class FontAtlas {
 public:
-    FontAtlas() = default;
+    // Out of line: Texture is only forward-declared here.
+    FontAtlas();
     ~FontAtlas();
 
     FontAtlas(const FontAtlas&) = delete;
@@ -50,15 +81,25 @@ public:
     FontAtlas(FontAtlas&&) = delete;
     FontAtlas& operator=(FontAtlas&&) = delete;
 
-    /// Loads the recipe at `recipe_path` and uploads its atlas. Failures are
-    /// logged and leave the atlas invalid; text then draws nothing.
-    void create(const std::string& recipe_path,
-                VkDevice device, VmaAllocator allocator,
-                VkPhysicalDevice physical_device,
-                UploadContext& upload,
-                BindlessTextures& bindless);
+    /// Reads a recipe and its cached atlas, baking the atlas first when the
+    /// cache is stale. CPU only, safe on a worker thread; problems are
+    /// logged and returned.
+    [[nodiscard]] static Result<FontAtlasData> load_data(const std::string& recipe_path);
+
+    /// Takes the loaded data to the GPU. Main thread, between frames.
+    void create(const std::string& recipe_path, const FontAtlasGpu& gpu, FontAtlasData data);
+
+    /// Swaps freshly loaded data into the same bindless slot, so every glyph
+    /// already recorded with this atlas's index keeps drawing. The old
+    /// texture is retired through the deferred deleter, never freed under a
+    /// frame in flight.
+    void reload(FontAtlasData data);
 
     void destroy();
+
+    [[nodiscard]] const std::string& recipe_path() const { return recipe_path_; }
+    /// The font file the recipe names, resolved; empty until loaded.
+    [[nodiscard]] const std::string& source_path() const { return source_path_; }
 
     [[nodiscard]] const GlyphInfo* glyph(uint32_t codepoint) const;
     [[nodiscard]] float kerning(uint32_t left, uint32_t right) const;
@@ -77,6 +118,12 @@ private:
         }
     };
 
+    /// Installs the tables of `data`; the texture is the caller's business.
+    void adopt(FontAtlasData& data);
+
+    FontAtlasGpu gpu_{};
+    std::string recipe_path_;
+    std::string source_path_;
     std::unordered_map<uint32_t, GlyphInfo> glyphs_;
     std::unordered_map<std::pair<uint32_t, uint32_t>, float, PairHash> kerning_;
     FontMetrics metrics_{};

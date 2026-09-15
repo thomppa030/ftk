@@ -19,6 +19,7 @@
 #include "scripting/debug_draw_queue.hpp"
 #include "scripting/screen_debug_queue.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
+#include "ui/game_ui/font_library.hpp"
 #include "platform/platform.hpp"
 #include "platform/shared_library.hpp"
 #include "physics/physics_world.hpp"
@@ -77,6 +78,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
 {
+    // Font bakes run on the pool from here on, project fonts included.
+    vulkan_context_->font_library().set_thread_pool(&thread_pool_);
+
     auto* gpu_core = &vulkan_context_->gpu().core();
     import_dialog_.set_gpu(gpu_core);
     menu_bar_.set_gpu(gpu_core);
@@ -207,6 +211,9 @@ void Engine::init_project(const std::filesystem::path& project_path,
                 static_cast<float>(project_mgr_.active()->config().network.tick_rate);
             net_send_subsystem_->set_tick_rate(tick_rate);
             net_manager_->set_tick_rate(tick_rate);  // match the interp timeline to send rate
+            // The on_opened handler that does this for a project opened from
+            // the menu is bound later in startup.
+            prebake_project_fonts(project_mgr_.active()->root());
         }
     }
 
@@ -232,11 +239,9 @@ void Engine::init_ui() {
     // (screen-space widgets from the scene are ui_subsystem_'s job, recorded
     // into PlayController's HUD target — see Engine::run) and no docked
     // presentation of its own yet, so it still targets the swapchain.
-    vulkan_context_->init_game_ui(game_ui_,
-        base_path::resolve("engine_assets/fonts/Inter.fjfont"),
-        vulkan_context_->swapchain_format());
+    vulkan_context_->init_game_ui(game_ui_, vulkan_context_->swapchain_format());
 
-    ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_,
+    ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_,
                                                script_subsystem_->manager());
     play_phase_0_.push_back(ui_subsystem_);
 
@@ -345,7 +350,6 @@ AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
         .icon_cache = icon_cache_.get(),
         .thread_pool = &thread_pool_,
         .project = project_mgr_.active(),
-        .game_ui = &game_ui_,
     };
 }
 
@@ -610,7 +614,6 @@ void Engine::init_editor() {
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
-                .engine_game_ui = &game_ui_,
                 .script_manager = &script_subsystem_->manager()
             };
             auto ctx = std::make_unique<UiEditorContext>(deps);
@@ -1321,6 +1324,10 @@ void Engine::bind_menu_bar() {
                 : std::filesystem::path{};
             open_import_browser(output_dir);
         }));
+    connections_.push_back(content_browser_.on_bake_font.bind(
+        [this](const std::string& recipe) {
+            vulkan_context_->font_library().prebake(recipe);
+        }));
     connections_.push_back(content_browser_.on_import_into.bind(
         [this](const std::string& dir) { open_import_browser(dir); }));
     connections_.push_back(menu_bar_.on_open_capture.bind(
@@ -1350,6 +1357,7 @@ void Engine::bind_menu_bar() {
         [this](const std::string& name) {
             window_.set_title("Fjell - " + name);
             content_browser_.set_root(project_mgr_.active()->root());
+            prebake_project_fonts(project_mgr_.active()->root());
             // Defer layout restore
             auto& layout = project_mgr_.active()->config().layout;
             if (!layout.empty()) {
@@ -1418,6 +1426,29 @@ nlohmann::json Engine::serialize_dockspace(EditorContext& ctx) {
     };
 
     return serialize_node(root);
+}
+
+// Every font recipe in the project is baked ahead of use, in the
+// background, so a sheet that names one never has to wait for it. Hidden
+// directories and the build tree are skipped, as the content browser skips
+// them.
+void Engine::prebake_project_fonts(const std::filesystem::path& root) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
+    if (ec) return;
+    for (; it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) break;
+        const auto& entry = *it;
+        auto name = entry.path().filename().string();
+        if (entry.is_directory(ec) && (name.starts_with(".") || name == "build")) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".fjfont") {
+            vulkan_context_->font_library().prebake(entry.path().string());
+        }
+    }
 }
 
 void Engine::open_import_browser(const std::filesystem::path& output_dir) {

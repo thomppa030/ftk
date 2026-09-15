@@ -205,16 +205,9 @@ void UiEditorContext::open_ui(const std::string& path) {
             preview_width_ = static_cast<float>(ui.design_width);
             preview_height_ = static_cast<float>(ui.design_height);
         }
-        if (deps_.engine_game_ui) {
-            // Share font atlas; use offscreen color format (not swapchain format)
-            deps_.vulkan_context->init_game_ui_shared(*preview_ui_,
-                                                       deps_.engine_game_ui->font(),
-                                                       OffscreenPass::COLOR_FORMAT);
-        } else {
-            deps_.vulkan_context->init_game_ui(*preview_ui_,
-                base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
-                OffscreenPass::COLOR_FORMAT);
-        }
+        // The offscreen color format, not the swapchain's: the preview
+        // renders to its own pass.
+        deps_.vulkan_context->init_game_ui(*preview_ui_, OffscreenPass::COLOR_FORMAT);
         preview_ui_->set_resource_manager(deps_.resource_manager);
         // Without this, resolve_textures()'s .fjmat fallback path resolves
         // relative to the engine's own build/ directory instead of the

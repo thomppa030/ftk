@@ -57,8 +57,6 @@ public:
         IconCache* icon_cache{nullptr};
         ThreadPool* thread_pool{nullptr};
         const Project* project{nullptr};
-        /// The editor's own game UI, whose font atlas UI thumbnails share.
-        GameUi* game_ui{nullptr};
     };
 
     AssetThumbnailRenderer();

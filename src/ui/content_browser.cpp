@@ -1,6 +1,4 @@
 #include "ui/content_browser.hpp"
-#include "ui/game_ui/fjfont.hpp"
-#include "ui/game_ui/font_atlas_build.hpp"
 #include "core/asset_identity.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
@@ -986,7 +984,7 @@ void ContentBrowser::draw_context_menu() {
                             ImGui::CloseCurrentPopup();
                         }
                         if (ImGui::MenuItem("Bake Atlas")) {
-                            bake_font_recipe_entry(entry.path);
+                            on_bake_font.broadcast(entry.path.string());
                             ImGui::CloseCurrentPopup();
                         }
                     } else {
@@ -1303,26 +1301,8 @@ void ContentBrowser::create_font_recipe(const std::filesystem::path& font_file) 
             break;
         }
     }
-}
-
-void ContentBrowser::bake_font_recipe_entry(const std::filesystem::path& recipe_path) {
-    auto bake = bake_font_recipe(recipe_path);
-    if (!bake) {
-        FJELL_CORE_ERROR("Font bake failed: {}", bake.error());
-        return;
-    }
-    for (const auto& warning : bake->warnings) FJELL_CORE_WARN("{}", warning);
-    if (!bake->missing.empty()) {
-        FJELL_CORE_WARN("{}: the font has no glyph for {} codepoint(s): {}",
-                        recipe_path.string(), bake->missing.size(),
-                        describe_codepoints(bake->missing));
-    }
-    const auto& h = bake->atlas.header;
-    FJELL_CORE_INFO("Baked {}: {}x{}, {} glyphs, {} kerning pairs", recipe_path.string(),
-                    h.atlas_width, h.atlas_height, h.glyph_count, h.kerning_count);
-    if (asset_thumbnails_ && asset_thumbnails_->supports(recipe_path)) {
-        asset_thumbnails_->invalidate(recipe_path.string());
-    }
+    // Ready before anything names it.
+    on_bake_font.broadcast(recipe_path.string());
 }
 
 // ── Material base_color resolution ───────────────────────────────────────

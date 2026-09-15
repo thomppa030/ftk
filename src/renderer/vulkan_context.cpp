@@ -14,6 +14,7 @@
 #include "renderer/components/sprite_desc.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/font_library.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/material.hpp"
@@ -130,6 +131,13 @@ VulkanContext::VulkanContext(Window& window)
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
 
+    // The engine's own font is the one every UI falls back to.
+    font_library_ = std::make_unique<FontLibrary>();
+    font_library_->create(
+        FontAtlasGpu{gpu_.device(), gpu_.allocator(), gpu_.device_ref().physical_device(),
+                     &gpu_.upload_context(), &gpu_.bindless_textures(), &gpu_.deferred_deleter()},
+        base_path::resolve("engine_assets/fonts/Inter.fjfont"));
+
     // Default post-process resources for the main viewport (all passes enabled)
     PostProcessConfig default_config{};
     default_config.ssr = true;
@@ -147,6 +155,8 @@ VulkanContext::VulkanContext(Window& window)
 VulkanContext::~VulkanContext() {
     default_pp_.reset();
     debug_draw_.reset();
+    if (font_library_) font_library_->destroy();
+    font_library_.reset();
     for (auto& sys : render_subsystems_) sys->destroy();
     render_subsystems_.clear();
     particle_system_ = nullptr;
@@ -1095,8 +1105,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
 
 }
 
-void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
-                                VkFormat output_format) {
+void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world) {
     PassResources res{};
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout = gpu_.bindless_textures().layout();
@@ -1107,37 +1116,8 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
     res.sample_count = gpu_.msaa_samples();
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
-              gpu_.upload_context(), font_path, output_format);
-}
-
-void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atlas,
-                                         VkFormat output_format) {
-    PassResources res{};
-    res.global_set_layout = gpu_.global_set_layout();
-    res.material_set_layout = gpu_.bindless_textures().layout();
-    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
-    res.depth_format = gpu_.device_ref().find_depth_format();
-    res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.sample_count = gpu_.msaa_samples();
-
-    ui.create_with_shared_font(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
-                                shared_atlas, output_format);
-}
-
-void VulkanContext::init_game_ui_world(GameUi& ui, const FontAtlas& shared_atlas) {
-    PassResources res{};
-    res.global_set_layout = gpu_.global_set_layout();
-    res.material_set_layout = gpu_.bindless_textures().layout();
-    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
-    res.depth_format = gpu_.device_ref().find_depth_format();
-    res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.sample_count = gpu_.msaa_samples();
-
-    ui.create_with_shared_font(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
-                                shared_atlas, OffscreenPass::COLOR_FORMAT);
-    ui.create_world_pipelines(gpu_.device_ref(), res);
+              *font_library_, output_format);
+    if (world) ui.create_world_pipelines(gpu_.device_ref(), res);
 }
 
 void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
@@ -1519,6 +1499,10 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // Destroy resources retired the last time this slot recorded, and point
     // new retirements at this slot.
     gpu_.deferred_deleter().begin_frame(current_frame_);
+
+    // A font whose recipe changed is rebuilt here, where the retired texture
+    // lands in a slot the GPU is done with.
+    font_library_->poll();
 
     // Free buffers that capacity growth retired for this slot last time it was
     // in flight. Safe now that the slot's fence has signaled — the command
