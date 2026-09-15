@@ -403,7 +403,7 @@ void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_b
 void MeshEditorContext::draw_primitive_list() {
     ImGui::SeparatorText("Shapes");
 
-    if (model_ != nullptr && model_->authored_version() < FJMESH_VERSION) {
+    if (model_ != nullptr && model_->authored_version() < FJMESH_LAYOUT_VERSION) {
         ImGui::TextWrapped(
             "This mesh was written by an older version of the format and has no "
             "room for a shape list. Reimport it to author shapes.");

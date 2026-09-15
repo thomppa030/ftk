@@ -171,14 +171,24 @@ bool rewrite_authored_data(const std::string& path, const MeshAuthoredData& auth
     }
     std::fclose(in);
 
-    // A pre-v5 file gains the new header fields, which shifts every section.
-    // Rewriting those offsets means re-laying out the whole file, so leave it
-    // to a reimport instead.
-    if (header.version < FJMESH_VERSION) {
+    // A file older than the current layout gains header fields, which shifts
+    // every section. Rewriting those offsets means re-laying out the whole
+    // file, so leave it to a reimport instead.
+    if (header.version < FJMESH_LAYOUT_VERSION || header.version > FJMESH_VERSION) {
         return false;
     }
 
     auto* out_header = reinterpret_cast<FjMeshHeader*>(body.data());
+    if (header.version < FJMESH_SDF_SIGN_VERSION &&
+        header.sdf_resolution > 0 && header.sdf_data_offset > 0) {
+        auto voxels = static_cast<uint64_t>(header.sdf_resolution) *
+                      header.sdf_resolution * header.sdf_resolution;
+        if (header.sdf_data_offset + voxels * sizeof(int16_t) > body.size()) {
+            return false;
+        }
+        flip_sdf_sign(reinterpret_cast<int16_t*>(body.data() + header.sdf_data_offset), voxels);
+    }
+    out_header->version = FJMESH_VERSION;
     AuthoredLayout layout;
     layout_authored_sections(*out_header, geometry_end, authored, layout);
 
@@ -210,7 +220,8 @@ bool rewrite_collision_data(const std::string& path,
 
     FjMeshHeader header{};
     if (std::fread(&header, sizeof(header), 1, in) != 1 ||
-        header.magic != FJMESH_MAGIC || header.version != FJMESH_VERSION) {
+        header.magic != FJMESH_MAGIC ||
+        header.version < FJMESH_LAYOUT_VERSION || header.version > FJMESH_VERSION) {
         std::fclose(in);
         return false;
     }
@@ -272,10 +283,14 @@ bool rewrite_collision_data(const std::string& path,
             std::fclose(in);
             return false;
         }
+        if (header.version < FJMESH_SDF_SIGN_VERSION) {
+            flip_sdf_sign(reinterpret_cast<int16_t*>(sdf_data.data()), voxels);
+        }
     }
     std::fclose(in);
 
     auto* out_header = reinterpret_cast<FjMeshHeader*>(prefix.data());
+    out_header->version = FJMESH_VERSION;
     out_header->collision_vertex_count = static_cast<uint32_t>(collision.vertices.size());
     out_header->collision_index_count = static_cast<uint32_t>(collision.indices.size());
     // The full-detail counts carry over from the header already in `prefix`:

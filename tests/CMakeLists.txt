@@ -25,6 +25,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -85,6 +86,7 @@ add_executable(fjell-tests
     test_ddgi_clipmap.cpp
     test_character_controller.cpp
     test_sdk_headers.cpp
+    test_sdf_generator.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

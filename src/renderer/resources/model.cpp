@@ -550,6 +550,12 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         data.sdf_min = header.sdf_min;
         data.sdf_max = header.sdf_max;
         read_section(data.sdf_data, header.sdf_data_offset, voxel_count);
+        // Flipping restores the sign convention of an older bake; the finer
+        // errors of that baker next to concave edges stay until the asset is
+        // imported again.
+        if (header.version < FJMESH_SDF_SIGN_VERSION) {
+            flip_sdf_sign(data.sdf_data.data(), data.sdf_data.size());
+        }
     }
 
     // Authored settings (v5+)

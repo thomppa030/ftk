@@ -15,7 +15,23 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 8;
+static constexpr uint32_t FJMESH_VERSION = 9;
+
+// Files from this version on have every header field and section the current
+// layout expects, so the writers can rewrite them in place. Older files need
+// a reimport.
+static constexpr uint32_t FJMESH_LAYOUT_VERSION = 8;
+
+// Files before this version store the SDF with the opposite sign, positive
+// inside the mesh. Readers flip it on load; rewriters flip it and stamp the
+// current version.
+static constexpr uint32_t FJMESH_SDF_SIGN_VERSION = 9;
+
+inline void flip_sdf_sign(int16_t* data, size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+        data[i] = data[i] == INT16_MIN ? INT16_MAX : static_cast<int16_t>(-data[i]);
+    }
+}
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
