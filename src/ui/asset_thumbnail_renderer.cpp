@@ -651,7 +651,8 @@ public:
         }
         auto frame = prepare(deps);
         // Large enough to read at thumbnail size; the capture crops to it.
-        load_font_sample(*ui_, path, "Ag 123", 160.0f);
+        load_font_sample(*ui_, path, "Ag 123", 160.0f,
+                         deps.vulkan_context->font_library().get(path));
         if (!ui_->loaded()) return false;
         return capture(deps, frame, out);
     }

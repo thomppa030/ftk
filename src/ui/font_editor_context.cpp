@@ -373,7 +373,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
                                                           preview_width_, preview_height_,
                                                           VK_SAMPLE_COUNT_1_BIT);
     }
-    load_font_sample(*preview_ui_, recipe_abs_path_, sample_buf_, sample_size_);
+    load_font_sample(*preview_ui_, recipe_abs_path_, sample_buf_, sample_size_,
+                     fonts.get(recipe_abs_path_));
     preview_ui_->set_design_frame({static_cast<float>(preview_width_),
                                    static_cast<float>(preview_height_)});
     preview_ui_->update(static_cast<float>(preview_width_), static_cast<float>(preview_height_),
