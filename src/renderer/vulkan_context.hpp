@@ -470,7 +470,6 @@ private:
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
   Scene* active_render_scene_{nullptr}; // editor context's preview scene (if different from main)
-  std::vector<GpuSdfInstance> pending_sdf_instances_;
   bool show_sdf_debug_{false};
   int sdf_debug_axis_{1};       // default Y axis
   float sdf_debug_slice_{0.5f};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 
 #include <glm/glm.hpp>
@@ -52,15 +53,36 @@ public:
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
     bool register_model_sdf(const Model& model, uintptr_t model_id);
 
-    // Build the instance list from scene objects and dispatch compositing.
-    // instances: world transforms + model IDs of all mesh objects with SDF data.
-    void composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstance>& instances);
+    /// Identifies one placed mesh across frames. Node ids repeat across
+    /// scenes, so the scene id is part of the key.
+    [[nodiscard]] static uint64_t instance_key(uint64_t scene_id, uint32_t object_id) {
+        return (scene_id << 32) | object_id;
+    }
+
+    /// The field is rebuilt only where it can have changed. Each frame the
+    /// caller hands over every placed mesh between begin_gather() and
+    /// end_gather(); the pass remembers where each one was and turns moved,
+    /// added and vanished instances into voxel regions for compose_pending().
+    void begin_gather();
+    /// `world_bounds` is the mesh's bounding box in world space, `moved` says
+    /// its transform changed since the previous frame.
+    void gather_instance(uint64_t key, const AABB& world_bounds, bool moved,
+                         const GpuSdfInstance& instance);
+    void end_gather();
+
+    [[nodiscard]] bool has_pending_update() const {
+        return full_rebuild_ || !dirty_regions_.empty();
+    }
+    /// Records the outstanding region updates, or a full rebuild, into `cmd`.
+    void compose_pending(VkCommandBuffer cmd);
 
     // Set world-space bounds of the global SDF volume
     void set_bounds(const glm::vec3& min, const glm::vec3& max);
 
-    [[nodiscard]] bool dirty() const { return dirty_; }
-    void mark_dirty() { dirty_ = true; }
+    /// Distances are clamped here: a voxel farther than this from every
+    /// surface holds exactly this value. Sphere tracing stays conservative,
+    /// and a moved mesh only touches voxels within this band of its bounds.
+    [[nodiscard]] float max_distance() const;
 
     [[nodiscard]] VkImageView view() const { return sdf_view_; }
     [[nodiscard]] VkSampler sampler() const { return sdf_sampler_; }
@@ -119,9 +141,33 @@ private:
     glm::vec3 volume_min_{-10.0f};
     glm::vec3 volume_max_{10.0f};
     uint32_t resolution_{DEFAULT_RESOLUTION};
-    bool dirty_{true};
+    VkImageLayout image_layout_{VK_IMAGE_LAYOUT_UNDEFINED};
 
     std::unordered_map<uintptr_t, MeshSdfEntry> model_sdf_entries_;
+
+    // What the field currently holds, per placed mesh, so the next gather
+    // can tell what moved or vanished.
+    struct TrackedInstance {
+        AABB bounds;
+        uint32_t grid_offset;
+        bool seen;
+    };
+    std::unordered_map<uint64_t, TrackedInstance> tracked_;
+
+    // This frame's instances and their world bounds, parallel arrays
+    std::vector<GpuSdfInstance> gathered_;
+    std::vector<AABB> gathered_bounds_;
+
+    // World-space boxes whose voxels must be recomputed, each already grown
+    // by max_distance(). Merged where they overlap.
+    std::vector<AABB> dirty_regions_;
+    bool full_rebuild_{true};
+
+    [[nodiscard]] glm::vec3 voxel_size() const;
+    void add_dirty_region(AABB region);
+    void compose_region(VkCommandBuffer cmd, const glm::ivec3& voxel_min,
+                        const glm::ivec3& voxel_extent, uint32_t instance_offset,
+                        uint32_t instance_count);
 
     // Slice visualization
     static constexpr uint32_t SLICE_SIZE = 256;

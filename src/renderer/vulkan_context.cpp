@@ -741,9 +741,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 
     // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
-    if (!pending_sdf_instances_.empty()) {
-        scene_sdf_pass().composite(cmd, pending_sdf_instances_);
-        pending_sdf_instances_.clear();
+    if (scene_sdf_pass().has_pending_update()) {
+        scene_sdf_pass().compose_pending(cmd);
     }
 
     // Once-per-frame pass preparation: each pass scans the scene for the
@@ -1594,10 +1593,11 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     }
 
 
-    // Update scene SDF — register mesh SDFs, auto-fit volume, check dirty transforms
+    // Update scene SDF — register mesh SDFs, auto-fit volume, hand every
+    // placed mesh to the pass so it can rebuild only what moved
     {
-        std::vector<GpuSdfInstance> sdf_instances;
         AABB scene_bounds;
+        scene_sdf_pass().begin_gather();
 
         auto gather_sdf = [&](Scene& s) {
             for (const auto& obj : s.objects()) {
@@ -1633,10 +1633,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
                 scene_sdf_pass().register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
 
-                if (spatial->world_dirty_) {
-                    scene_sdf_pass().mark_dirty();
-                }
-
                 auto it = scene_sdf_pass().model_entry(reinterpret_cast<uintptr_t>(model));
                 if (it) {
                     GpuSdfInstance inst{};
@@ -1648,7 +1644,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     inst.grid_resolution = glm::uvec3(it->resolution);
                     inst.mesh_min = it->mesh_min;
                     inst.mesh_max = it->mesh_max;
-                    sdf_instances.push_back(inst);
+                    scene_sdf_pass().gather_instance(
+                        SceneSdfPass::instance_key(s.id(), obj->id),
+                        world_aabb, spatial->world_dirty_, inst);
                 }
             }
         };
@@ -1727,9 +1725,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             }
         }
 
-        if (scene_sdf_pass().dirty() && !sdf_instances.empty()) {
-            pending_sdf_instances_ = std::move(sdf_instances);
-        }
+        scene_sdf_pass().end_gather();
     }
 
     // Update per-frame global bindings before recording

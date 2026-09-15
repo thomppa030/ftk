@@ -20,9 +20,13 @@ const uint INSTANCE_WORDS = 36u;
 
 layout(push_constant) uniform PushConstants {
     vec3 volume_min;
-    uint instance_count;
+    uint instance_offset;   // first instance of this region in instance_data
     vec3 volume_max;
+    uint instance_count;
+    ivec3 region_min;       // first voxel written by this dispatch
     uint resolution;
+    ivec3 region_extent;    // voxels written along each axis
+    float max_distance;     // distances clamp here; the band an instance reaches
 };
 
 // Read a single int16 value from the packed buffer
@@ -93,17 +97,19 @@ float sample_mesh_sdf(vec3 grid_coord, uint grid_offset, uvec3 grid_res) {
 }
 
 void main() {
-    ivec3 gid = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(gid, ivec3(resolution)))) return;
+    ivec3 local = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(local, region_extent))) return;
+    ivec3 gid = region_min + local;
 
     // World-space position of this voxel center
     vec3 uvw = (vec3(gid) + 0.5) / float(resolution);
     vec3 world_pos = mix(volume_min, volume_max, uvw);
 
-    float min_dist = 1e10;
+    // Nothing within reach leaves the voxel at the clamp distance
+    float min_dist = max_distance;
 
-    for (uint i = 0u; i < instance_count; i++) {
-        // Read instance data
+    for (uint n = 0u; n < instance_count; n++) {
+        uint i = instance_offset + n;
         mat4 world_to_sdf = read_instance_mat4(i, 0u);
         vec3 sdf_min = read_instance_vec3(i, 16u);
         float sdf_scale = read_instance_float(i, 19u);
@@ -146,8 +152,5 @@ void main() {
         min_dist = min(min_dist, dist * to_world);
     }
 
-    // A voxel no instance covers must still hold a finite value: R16F turns
-    // the sentinel into infinity, and a difference of two infinities is NaN
-    // in every gradient taken from this field.
-    imageStore(scene_sdf, gid, vec4(min(min_dist, 1e4)));
+    imageStore(scene_sdf, gid, vec4(min_dist));
 }

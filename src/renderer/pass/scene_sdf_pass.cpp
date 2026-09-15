@@ -10,6 +10,8 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
+
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -74,6 +76,12 @@ void SceneSdfPass::destroy() {
 
     mesh_sdf_buffer_.reset();
     instance_buffer_.reset();
+    tracked_.clear();
+    gathered_.clear();
+    gathered_bounds_.clear();
+    dirty_regions_.clear();
+    full_rebuild_ = true;
+    image_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
     safe(composite_pipeline_, vkDestroyPipeline);
     safe(composite_layout_, vkDestroyPipelineLayout);
@@ -149,7 +157,7 @@ void SceneSdfPass::create_compute_pipeline() {
     // Push constants: volume_min (vec3) + instance_count (uint) + volume_max (vec3) + resolution (uint) = 32 bytes
     VkPushConstantRange push{};
     push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push.size = 32;
+    push.size = 64;
 
     VkPipelineLayoutCreateInfo pipe_ci{};
     pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -222,7 +230,7 @@ void SceneSdfPass::create_compute_pipeline() {
 
     // Allocate instance buffer (enough for 256 instances)
     instance_buffer_ = std::make_unique<Buffer>(
-        allocator_, 256 * sizeof(GpuSdfInstance),
+        allocator_, 1024 * sizeof(GpuSdfInstance),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
@@ -291,7 +299,6 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
     model_sdf_entries_[model_id] = entry;
 
     mesh_sdf_offset_ += voxel_count;
-    dirty_ = true;
 
     FJELL_GFX_DEBUG("Registered SDF for model {} ({}³, offset={})",
                     model_id, res, entry.offset);
@@ -307,32 +314,167 @@ void SceneSdfPass::set_bounds(const glm::vec3& min, const glm::vec3& max) {
     if (volume_min_ != min || volume_max_ != max) {
         volume_min_ = min;
         volume_max_ = max;
-        dirty_ = true;
+        full_rebuild_ = true;
     }
 }
 
-void SceneSdfPass::composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstance>& instances) {
-    if (instances.empty()) {
-        dirty_ = false;
+glm::vec3 SceneSdfPass::voxel_size() const {
+    return (volume_max_ - volume_min_) / float(resolution_);
+}
+
+float SceneSdfPass::max_distance() const {
+    glm::vec3 v = voxel_size();
+    return std::max(4.0f, 4.0f * std::max({v.x, v.y, v.z}));
+}
+
+void SceneSdfPass::begin_gather() {
+    gathered_.clear();
+    gathered_bounds_.clear();
+    for (auto& [key, tracked] : tracked_) tracked.seen = false;
+}
+
+void SceneSdfPass::gather_instance(uint64_t key, const AABB& world_bounds, bool moved,
+                                   const GpuSdfInstance& instance) {
+    gathered_.push_back(instance);
+    gathered_bounds_.push_back(world_bounds);
+
+    auto it = tracked_.find(key);
+    if (it == tracked_.end()) {
+        add_dirty_region(world_bounds);
+        tracked_.emplace(key, TrackedInstance{world_bounds, instance.grid_offset, true});
         return;
     }
-
-    // Upload instance data
-    uint32_t inst_count = static_cast<uint32_t>(instances.size());
-    uint32_t inst_bytes = inst_count * sizeof(GpuSdfInstance);
-    if (inst_bytes > instance_buffer_->size()) {
-        FJELL_GFX_WARN("SDF instance buffer too small ({} instances)", inst_count);
-        inst_count = static_cast<uint32_t>(instance_buffer_->size() / sizeof(GpuSdfInstance));
+    auto& tracked = it->second;
+    tracked.seen = true;
+    if (moved || tracked.grid_offset != instance.grid_offset) {
+        add_dirty_region(tracked.bounds);
+        add_dirty_region(world_bounds);
+        tracked.bounds = world_bounds;
+        tracked.grid_offset = instance.grid_offset;
     }
-    std::memcpy(instance_buffer_->mapped(), instances.data(), inst_count * sizeof(GpuSdfInstance));
+}
 
-    // Transition SDF image to GENERAL for compute write
+void SceneSdfPass::end_gather() {
+    for (auto it = tracked_.begin(); it != tracked_.end();) {
+        if (it->second.seen) {
+            ++it;
+        } else {
+            add_dirty_region(it->second.bounds);
+            it = tracked_.erase(it);
+        }
+    }
+
+    // Past this many regions, or this share of the volume, one dispatch
+    // over everything is cheaper than the bookkeeping.
+    constexpr size_t MAX_REGIONS = 32;
+    if (dirty_regions_.size() > MAX_REGIONS) {
+        full_rebuild_ = true;
+    } else if (!full_rebuild_) {
+        glm::vec3 v = voxel_size();
+        double region_voxels = 0.0;
+        for (const auto& r : dirty_regions_) {
+            glm::vec3 extent = glm::max(r.max - r.min, glm::vec3(0.0f)) / v;
+            region_voxels += double(extent.x) * double(extent.y) * double(extent.z);
+        }
+        double total = double(resolution_) * resolution_ * resolution_;
+        if (region_voxels > total * 0.5) full_rebuild_ = true;
+    }
+    if (full_rebuild_) dirty_regions_.clear();
+}
+
+void SceneSdfPass::add_dirty_region(AABB region) {
+    if (!region.valid()) return;
+    region.min -= glm::vec3(max_distance());
+    region.max += glm::vec3(max_distance());
+
+    // Merge with everything it touches; a merge can bridge two others, so
+    // repeat until nothing overlaps.
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (auto it = dirty_regions_.begin(); it != dirty_regions_.end(); ++it) {
+            if (!it->intersects(region)) continue;
+            region.expand(it->min);
+            region.expand(it->max);
+            dirty_regions_.erase(it);
+            merged = true;
+            break;
+        }
+    }
+    dirty_regions_.push_back(region);
+}
+
+void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
+    if (!has_pending_update()) return;
+
+    // Each region gets the instances whose distance band reaches into it,
+    // laid out contiguously so one push constant range addresses them.
+    struct Dispatch {
+        glm::ivec3 voxel_min;
+        glm::ivec3 voxel_extent;
+        uint32_t instance_offset;
+        uint32_t instance_count;
+    };
+    std::vector<Dispatch> dispatches;
+    std::vector<GpuSdfInstance> upload;
+    auto capacity = static_cast<uint32_t>(instance_buffer_->size() / sizeof(GpuSdfInstance));
+
+    if (full_rebuild_) {
+        upload = gathered_;
+        dispatches.push_back({glm::ivec3(0), glm::ivec3(int(resolution_)), 0,
+                              static_cast<uint32_t>(upload.size())});
+    } else {
+        glm::vec3 v = voxel_size();
+        float band = max_distance();
+        for (const auto& region : dirty_regions_) {
+            glm::ivec3 lo = glm::ivec3(glm::floor((region.min - volume_min_) / v));
+            glm::ivec3 hi = glm::ivec3(glm::ceil((region.max - volume_min_) / v));
+            lo = glm::clamp(lo, glm::ivec3(0), glm::ivec3(int(resolution_)));
+            hi = glm::clamp(hi, glm::ivec3(0), glm::ivec3(int(resolution_)));
+            if (glm::any(glm::lessThanEqual(hi - lo, glm::ivec3(0)))) continue;
+
+            // Voxel-aligned box back in world space decides which instances
+            // can reach it.
+            AABB box{volume_min_ + glm::vec3(lo) * v, volume_min_ + glm::vec3(hi) * v};
+            Dispatch d{lo, hi - lo, static_cast<uint32_t>(upload.size()), 0};
+            for (size_t i = 0; i < gathered_.size(); ++i) {
+                AABB reach = gathered_bounds_[i];
+                reach.min -= glm::vec3(band);
+                reach.max += glm::vec3(band);
+                if (!reach.intersects(box)) continue;
+                upload.push_back(gathered_[i]);
+                ++d.instance_count;
+            }
+            dispatches.push_back(d);
+        }
+    }
+
+    if (upload.size() > capacity) {
+        FJELL_GFX_WARN("SDF instance buffer too small ({} instances), rebuilding everything",
+                       upload.size());
+        upload = gathered_;
+        if (upload.size() > capacity) upload.resize(capacity);
+        dispatches.assign(1, {glm::ivec3(0), glm::ivec3(int(resolution_)), 0,
+                              static_cast<uint32_t>(upload.size())});
+    }
+    if (!upload.empty()) {
+        std::memcpy(instance_buffer_->mapped(), upload.data(),
+                    upload.size() * sizeof(GpuSdfInstance));
+    }
+
+    // Storage layout for the writes. A region update keeps the rest of the
+    // field, so the transition must come from the layout the image holds,
+    // not from UNDEFINED.
     VkImageMemoryBarrier2 pre_barrier{};
     pre_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    pre_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    pre_barrier.oldLayout = image_layout_;
     pre_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     pre_barrier.image = sdf_image_;
     pre_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    pre_barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    pre_barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     pre_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
 
@@ -342,23 +484,12 @@ void SceneSdfPass::composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstan
     pre_dep.pImageMemoryBarriers = &pre_barrier;
     vkCmdPipelineBarrier2(cmd, &pre_dep);
 
-    // Bind and dispatch
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_layout_,
                             0, 1, &composite_set_, 0, nullptr);
-
-    struct PushData {
-        glm::vec3 volume_min;
-        uint32_t instance_count;
-        glm::vec3 volume_max;
-        uint32_t resolution;
-    } push{volume_min_, inst_count, volume_max_, resolution_};
-
-    vkCmdPushConstants(cmd, composite_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-
-    uint32_t groups = (resolution_ + 3) / 4;
-    vkCmdDispatch(cmd, groups, groups, groups);
+    for (const auto& d : dispatches) {
+        compose_region(cmd, d.voxel_min, d.voxel_extent, d.instance_offset, d.instance_count);
+    }
 
     // Transition to SHADER_READ_ONLY for sampling
     VkImageMemoryBarrier2 post_barrier{};
@@ -370,7 +501,8 @@ void SceneSdfPass::composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstan
     post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     post_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     post_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
     post_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
     VkDependencyInfo post_dep{};
@@ -378,8 +510,32 @@ void SceneSdfPass::composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstan
     post_dep.imageMemoryBarrierCount = 1;
     post_dep.pImageMemoryBarriers = &post_barrier;
     vkCmdPipelineBarrier2(cmd, &post_dep);
+    image_layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    dirty_ = false;
+    dirty_regions_.clear();
+    full_rebuild_ = false;
+}
+
+void SceneSdfPass::compose_region(VkCommandBuffer cmd, const glm::ivec3& voxel_min,
+                                  const glm::ivec3& voxel_extent, uint32_t instance_offset,
+                                  uint32_t instance_count) {
+    struct PushData {
+        glm::vec3 volume_min;
+        uint32_t instance_offset;
+        glm::vec3 volume_max;
+        uint32_t instance_count;
+        glm::ivec3 region_min;
+        uint32_t resolution;
+        glm::ivec3 region_extent;
+        float max_distance;
+    } push{volume_min_, instance_offset, volume_max_, instance_count,
+           voxel_min, resolution_, voxel_extent, max_distance()};
+    static_assert(sizeof(PushData) == 64);
+
+    vkCmdPushConstants(cmd, composite_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(push), &push);
+    glm::ivec3 groups = (voxel_extent + 3) / 4;
+    vkCmdDispatch(cmd, uint32_t(groups.x), uint32_t(groups.y), uint32_t(groups.z));
 }
 
 void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_pos) {
