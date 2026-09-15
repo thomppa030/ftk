@@ -1230,7 +1230,7 @@ void Engine::load_input_actions() {
         auto dir = ic->actions_dir.empty() ? std::string("assets/input/actions") : ic->actions_dir;
         if (project_mgr_.active()) {
             auto resolved = project_mgr_.active()->resolve(dir);
-            FJELL_CORE_INFO("InputActionMap: loading actions from {}", resolved);
+            FJELL_CORE_DEBUG("InputActionMap: loading actions from {}", resolved);
             input_action_map_.load_actions_dir(resolved);
         }
     }

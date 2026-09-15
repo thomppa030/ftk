@@ -183,7 +183,7 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
     }
     clip.animation_ = std::move(*anim_result);
 
-    FJELL_CORE_INFO("Loaded animation clip: {} ({:.2f}s, {} tracks)",
+    FJELL_CORE_DEBUG("Loaded animation clip: {} ({:.2f}s, {} tracks)",
                     clip.name_, clip.animation_.duration(), clip.animation_.num_tracks());
     return clip;
 }

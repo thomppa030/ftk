@@ -102,7 +102,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     dirty_ = true;
     watch_sources(fjui_path, fjss_path);
 
-    FJELL_CORE_INFO("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
+    FJELL_CORE_DEBUG("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
 }
 
 void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
@@ -132,7 +132,7 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     dirty_ = true;
     watch_sources(markup_path, fjss_path);
 
-    FJELL_CORE_INFO("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
+    FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
 }
 
 void GameUi::discard_tree_state() {
@@ -377,10 +377,10 @@ void GameUi::resolve_textures(UiNode& node) {
             auto* mat = resource_manager_->get(mat_handle);
             if (mat) {
                 node.resolved_material_id = mat->material_id();
-                FJELL_CORE_INFO("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
-                                "param_offset={} param_count={}",
-                                node.tag, mat_name, mat->material_id(), mat->pipeline_id(),
-                                mat->custom_param_offset(), mat->custom_param_count());
+                FJELL_CORE_DEBUG("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
+                                 "param_offset={} param_count={}",
+                                 node.tag, mat_name, mat->material_id(), mat->pipeline_id(),
+                                 mat->custom_param_offset(), mat->custom_param_count());
             }
         } else {
             FJELL_CORE_WARN("GameUi: <{}> material='{}' did not resolve to a valid handle",

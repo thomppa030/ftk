@@ -624,7 +624,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         graph.log_queue_segments();
         (void)graph.validate_alias_groups(graph.compute_alias_groups());
         if (ctx.transient_pool != nullptr) {
-            FJELL_GFX_INFO(
+            FJELL_GFX_DEBUG(
                 "TransientImagePool: {} live, {} acquires, {} new allocations this frame",
                 ctx.transient_pool->live_images(),
                 ctx.transient_pool->acquires_this_frame(),

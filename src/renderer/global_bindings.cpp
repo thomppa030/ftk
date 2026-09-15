@@ -138,7 +138,7 @@ void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight) {
     finalized_ = true;
 
     // Log binding table
-    FJELL_GFX_INFO("Global bindings finalized: {} bindings", entries_.size());
+    FJELL_GFX_DEBUG("Global bindings finalized: {} bindings", entries_.size());
     for (const auto& e : entries_) {
         const char* type_str = "unknown";
         switch (e.decl.type) {
@@ -148,7 +148,7 @@ void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight) {
             case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:          type_str = "STORAGE_IMAGE"; break;
             default: break;
         }
-        FJELL_GFX_INFO("  [{}] {} - {}", e.decl.binding, e.decl.name, type_str);
+        FJELL_GFX_DEBUG("  [{}] {} - {}", e.decl.binding, e.decl.name, type_str);
     }
 }
 
