@@ -12,6 +12,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -121,5 +122,24 @@ struct CollisionMesh {
 // deriving it here means the overlay draws the same solid the body will
 // collide against rather than a second opinion about it.
 [[nodiscard]] std::vector<glm::vec3> convex_hull_edges(const std::vector<glm::vec3>& points);
+
+// The unique edges of a triangle list, as line-segment pairs. Interior edges
+// are shared by two triangles, so emitting per triangle would draw most of a
+// mesh twice. Indices outside `vertices` are skipped.
+[[nodiscard]] std::vector<glm::vec3> triangle_mesh_edges(const std::vector<glm::vec3>& vertices,
+                                                         std::span<const uint32_t> indices);
+
+// The outline of one geometry-kind primitive — a hull's surface or a triangle
+// mesh's wireframe — as line pairs in the mesh's local space, from the range
+// of `geometry` the primitive indexes. Empty for the authored kinds, which are
+// drawn from their extents, and when the geometry is missing.
+[[nodiscard]] std::vector<glm::vec3> collision_primitive_edges(const CollisionPrimitive& primitive,
+                                                               const CollisionMesh& geometry);
+
+// The same outline for a primitive of a loaded model, built once per model
+// and kept: a model's collision never changes after load, and the wireframe
+// of a large triangle mesh is far too costly to rebuild every frame.
+[[nodiscard]] const std::vector<glm::vec3>& collision_primitive_edges(const Model& model,
+                                                                      size_t primitive_index);
 
 } // namespace fjell

@@ -1,6 +1,19 @@
 #include "physics/physics_types.hpp"
+#include "physics/collision_shape.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/model.hpp"
+#include "scene/node.hpp"
 
 namespace fjell {
+
+ColliderShape effective_collider_shape(const ColliderComponent& collider, const Node& node) {
+    if (!collider.inherit_from_mesh) return collider.shape;
+    const auto* mesh = node.components.get<MeshComponent>();
+    if (mesh && mesh->model && collision_mesh_of(*mesh->model).valid()) {
+        return ColliderShape::Mesh;
+    }
+    return collider.shape;
+}
 
 bool fit_collider_to_primitive(ColliderComponent& collider, const std::string& source) {
     if (source == "primitive:cube") {

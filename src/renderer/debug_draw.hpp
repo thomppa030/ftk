@@ -49,8 +49,11 @@ public:
 
     /// One authored collision shape, drawn in the mesh's local space. Submitted
     /// per shape while the mesh editor is open; `highlight` picks out the one
-    /// being edited so a drag is visible against the others.
-    void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight);
+    /// being edited so a drag is visible against the others. A hull or
+    /// triangle-mesh shape is outlined from the range of `geometry` it
+    /// indexes, so a caller with only authored kinds may leave it empty.
+    void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight,
+                                    const CollisionMesh& geometry = {});
 
     /// Draw with the buffer populated by the matching `update()` call.
     void draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const;
@@ -70,12 +73,23 @@ private:
     void generate_capsule(float radius, float height, uint32_t segments = 16);
     void generate_frustum(const CameraNode& cam, float aspect);
 
+    // Outline of a box, sphere or capsule primitive in its own frame, sized
+    // the way the physics backend sizes it under a node scale: a box scales
+    // per axis, a sphere by the largest axis, a capsule's radius by the
+    // horizontal axes and its height by the vertical one. Geometry kinds add
+    // nothing here; their lines come from collision_primitive_edges().
+    void generate_primitive_outline(const CollisionPrimitive& primitive, const glm::vec3& scale);
+
+    // Placement of one primitive under a node: the shape sits at its
+    // authored position scaled with the node, in its authored rotation. The
+    // scale itself is folded into the lines for the authored kinds and applied
+    // here for the geometry kinds, whose cached outline is unscaled.
+    [[nodiscard]] static glm::mat4 primitive_placement(const CollisionPrimitive& primitive,
+                                                       const glm::vec3& scale);
+
     void add_line(const glm::vec3& a, const glm::vec3& b);
     void add_circle(const glm::vec3& center, const glm::vec3& axis_a,
                     const glm::vec3& axis_b, float radius, uint32_t segments);
-
-    void generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
-                                      const std::vector<uint32_t>& indices);
 
     VkDevice device_;
     VmaAllocator allocator_;

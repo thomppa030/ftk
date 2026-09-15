@@ -49,6 +49,14 @@ struct ColliderComponent : NodeComponent {
 // the collider alone.
 bool fit_collider_to_primitive(ColliderComponent& collider, const std::string& source);
 
+struct Node;
+
+// The shape a collider actually collides as: Mesh when it inherits from a
+// mesh that carries collision, its own `shape` otherwise. Physics builds the
+// body from this and overlays draw it, so the two never disagree.
+[[nodiscard]] ColliderShape effective_collider_shape(const ColliderComponent& collider,
+                                                     const Node& node);
+
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
 
 // A capsule that walks. Field order is mirrored by the script SDK's copy of

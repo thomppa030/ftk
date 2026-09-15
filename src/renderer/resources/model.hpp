@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -132,6 +133,25 @@ public:
         return collision_primitives_;
     }
 
+    // Line pairs outlining one primitive's geometry, for overlays. Built on
+    // first use and kept for the model's lifetime, which is safe because the
+    // collision data above is fixed at construction. Empty for the authored
+    // kinds, which have no geometry to outline. Prefer the free function of
+    // the same name in physics/collision_shape.hpp.
+    [[nodiscard]] const std::vector<glm::vec3>& collision_primitive_edges(size_t index) const {
+        static const std::vector<glm::vec3> none;
+        if (index >= collision_primitives_.size()) return none;
+        if (collision_edges_.size() != collision_primitives_.size()) {
+            collision_edges_.resize(collision_primitives_.size());
+        }
+        auto& slot = collision_edges_[index];
+        if (!slot) {
+            slot = fjell::collision_primitive_edges(collision_primitives_[index],
+                                                    collision_mesh_of(*this));
+        }
+        return *slot;
+    }
+
     // The .fjmesh version this was loaded from, so the editor can tell whether
     // the file has room for what is being authored. Zero for meshes not loaded
     // from a file at all.
@@ -200,6 +220,8 @@ private:
     std::vector<glm::vec3> collision_full_vertices_;
     std::vector<uint32_t> collision_full_indices_;
     std::vector<CollisionPrimitive> collision_primitives_;
+    // One entry per primitive, filled by collision_primitive_edges().
+    mutable std::vector<std::optional<std::vector<glm::vec3>>> collision_edges_;
     uint32_t authored_version_{0};
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;

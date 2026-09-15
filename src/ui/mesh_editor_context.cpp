@@ -73,10 +73,14 @@ void MeshEditorContext::draw(float dt) {
                 debug.submit_authored_collision(collision_vertices_, collision_indices_);
             }
         } else {
+            CollisionMesh geometry;
+            geometry.vertices = &collision_vertices_;
+            geometry.indices = &collision_indices_;
+            geometry.source = authored_.collision_source;
             for (int i = 0; i < static_cast<int>(collision_primitives_.size()); ++i) {
                 debug.submit_collision_primitive(
                     collision_primitives_[static_cast<size_t>(i)],
-                    i == selected_primitive_);
+                    i == selected_primitive_, geometry);
             }
         }
     }

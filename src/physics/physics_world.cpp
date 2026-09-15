@@ -864,13 +864,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
 
     // Collision authored on the mesh wins over the component's own fields,
     // so a placed object needs no per-instance setup.
-    auto effective_shape = col.shape;
-    if (col.inherit_from_mesh) {
-        auto* mesh = node.components.get<MeshComponent>();
-        if (mesh && mesh->model && collision_mesh_of(*mesh->model).valid()) {
-            effective_shape = ColliderShape::Mesh;
-        }
-    }
+    auto effective_shape = effective_collider_shape(col, node);
 
     switch (effective_shape) {
         case ColliderShape::Box: {

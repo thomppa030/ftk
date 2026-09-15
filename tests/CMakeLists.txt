@@ -22,6 +22,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
 )
 

@@ -1,5 +1,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/components/arrow_component.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/model.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "physics/collision_shape.hpp"
 #include "physics/physics_types.hpp"
@@ -11,9 +13,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
-#include <unordered_set>
 #include <utility>
 
 namespace fjell {
@@ -148,75 +150,59 @@ void DebugDraw::generate_frustum(const CameraNode& cam, float aspect) {
 
 void DebugDraw::submit_authored_collision(const std::vector<glm::vec3>& vertices,
                                           const std::vector<uint32_t>& indices) {
-    // Build into the member buffer by swapping it in as the scratch target,
-    // so the line generation below can stay shared with the scene path.
-    authored_collision_lines_.clear();
-    std::swap(vertices_, authored_collision_lines_);
-    generate_collision_wireframe(vertices, indices);
-    std::swap(vertices_, authored_collision_lines_);
+    // A hull stores only the points it is built from, so its surface has to be
+    // derived. Drawing the points themselves shows nothing about whether the
+    // hull swallowed a concavity, which is the whole reason to look at it.
+    authored_collision_lines_ = indices.empty()
+        ? convex_hull_edges(vertices)
+        : triangle_mesh_edges(vertices, indices);
 }
 
-void DebugDraw::submit_collision_primitive(const CollisionPrimitive& prim, bool highlight) {
+void DebugDraw::submit_collision_primitive(const CollisionPrimitive& prim, bool highlight,
+                                           const CollisionMesh& geometry) {
     uint32_t first = static_cast<uint32_t>(authored_collision_lines_.size());
     std::swap(vertices_, authored_collision_lines_);
-
-    switch (prim.kind) {
-        case CollisionPrimitiveKind::box:
-            generate_box(prim.extents);
-            break;
-        case CollisionPrimitiveKind::sphere:
-            generate_sphere(prim.extents.x);
-            break;
-        case CollisionPrimitiveKind::capsule:
-            generate_capsule(prim.extents.x, prim.extents.y);
-            break;
-        default:
-            // Hull and triangle-mesh shapes are drawn from the geometry they
-            // index, which submit_authored_collision already covers.
-            break;
-    }
-
+    generate_primitive_outline(prim, glm::vec3{1.0f});
+    auto edges = collision_primitive_edges(prim, geometry);
+    vertices_.insert(vertices_.end(), edges.begin(), edges.end());
     std::swap(vertices_, authored_collision_lines_);
+
     uint32_t count = static_cast<uint32_t>(authored_collision_lines_.size()) - first;
     if (count == 0) return;
 
-    auto model = glm::translate(glm::mat4(1.0f), prim.position) *
-                 glm::mat4_cast(prim.rotation);
-    authored_shapes_.push_back({model, first, count,
+    authored_shapes_.push_back({primitive_placement(prim, glm::vec3{1.0f}), first, count,
                                 highlight ? glm::vec4{1.0f, 0.75f, 0.2f, 1.0f}
                                           : glm::vec4{0.25f, 0.85f, 0.4f, 1.0f}});
 }
 
-void DebugDraw::generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
-                                             const std::vector<uint32_t>& indices) {
-    // A hull stores only the points it is built from, so its surface has to be
-    // derived. Drawing the points themselves shows nothing about whether the
-    // hull swallowed a concavity, which is the whole reason to look at it.
-    if (indices.empty()) {
-        auto edges = convex_hull_edges(vertices);
-        for (size_t i = 0; i + 1 < edges.size(); i += 2) {
-            add_line(edges[i], edges[i + 1]);
-        }
-        return;
+void DebugDraw::generate_primitive_outline(const CollisionPrimitive& prim,
+                                           const glm::vec3& scale) {
+    switch (prim.kind) {
+        case CollisionPrimitiveKind::box:
+            generate_box(prim.extents * scale);
+            break;
+        case CollisionPrimitiveKind::sphere:
+            generate_sphere(prim.extents.x * std::max({scale.x, scale.y, scale.z}));
+            break;
+        case CollisionPrimitiveKind::capsule:
+            generate_capsule(prim.extents.x * std::max(scale.x, scale.z),
+                             prim.extents.y * scale.y);
+            break;
+        case CollisionPrimitiveKind::convex_hull:
+        case CollisionPrimitiveKind::triangle_mesh:
+            break;
     }
+}
 
-    // Interior edges are shared by two triangles, so emitting per-triangle
-    // would draw most of the mesh twice.
-    std::unordered_set<uint64_t> seen;
-    seen.reserve(indices.size());
-    auto edge = [&](uint32_t a, uint32_t b) {
-        if (a > b) std::swap(a, b);
-        uint64_t key = (static_cast<uint64_t>(a) << 32) | b;
-        if (!seen.insert(key).second) return;
-        if (a >= vertices.size() || b >= vertices.size()) return;
-        add_line(vertices[a], vertices[b]);
-    };
-
-    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-        edge(indices[i], indices[i + 1]);
-        edge(indices[i + 1], indices[i + 2]);
-        edge(indices[i + 2], indices[i]);
+glm::mat4 DebugDraw::primitive_placement(const CollisionPrimitive& prim,
+                                         const glm::vec3& scale) {
+    auto placement = glm::translate(glm::mat4(1.0f), prim.position * scale) *
+                     glm::mat4_cast(prim.rotation);
+    if (prim.kind == CollisionPrimitiveKind::convex_hull ||
+        prim.kind == CollisionPrimitiveKind::triangle_mesh) {
+        placement = glm::scale(placement, scale);
     }
+    return placement;
 }
 
 void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t selected_id,
@@ -255,41 +241,58 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
         const auto* spatial = obj->as_spatial();
         if (!spatial) continue;
         const auto& col = *col_ptr;
+        const glm::vec3 scale = spatial->transform.scale;
 
-        uint32_t first = static_cast<uint32_t>(vertices_.size());
-
-        switch (col.shape) {
-            case ColliderShape::Box:
-                generate_box(col.half_extents * spatial->transform.scale);
-                break;
-            case ColliderShape::Sphere:
-                generate_sphere(col.radius * std::max({spatial->transform.scale.x,
-                                                        spatial->transform.scale.y,
-                                                        spatial->transform.scale.z}));
-                break;
-            case ColliderShape::Capsule:
-                generate_capsule(col.radius * std::max(spatial->transform.scale.x, spatial->transform.scale.z),
-                                 col.height * spatial->transform.scale.y);
-                break;
-            case ColliderShape::Mesh:
-                // Mesh collider wireframe not visualized (too many lines)
-                break;
-        }
-
-        uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
-        if (count == 0) continue;
-
-        // Model matrix = object position + rotation + collider offset (rotated).
-        // Scale is already baked into the shape dimensions, so strip it.
+        // Node placement without its scale, which is folded into each shape
+        // the way the physics backend folds it, plus the collider offset.
         glm::mat3 rot(glm::normalize(glm::vec3(spatial->world_matrix_[0])),
                       glm::normalize(glm::vec3(spatial->world_matrix_[1])),
                       glm::normalize(glm::vec3(spatial->world_matrix_[2])));
         glm::vec3 world_offset = rot * col.offset;
-        glm::mat4 model(glm::vec4(rot[0], 0.0f),
-                         glm::vec4(rot[1], 0.0f),
-                         glm::vec4(rot[2], 0.0f),
-                         glm::vec4(glm::vec3(spatial->world_matrix_[3]) + world_offset, 1.0f));
-        draw_commands_.push_back({model, first, count});
+        glm::mat4 node(glm::vec4(rot[0], 0.0f),
+                       glm::vec4(rot[1], 0.0f),
+                       glm::vec4(rot[2], 0.0f),
+                       glm::vec4(glm::vec3(spatial->world_matrix_[3]) + world_offset, 1.0f));
+
+        uint32_t first = static_cast<uint32_t>(vertices_.size());
+
+        switch (effective_collider_shape(col, *obj)) {
+            case ColliderShape::Box:
+                generate_box(col.half_extents * scale);
+                break;
+            case ColliderShape::Sphere:
+                generate_sphere(col.radius * std::max({scale.x, scale.y, scale.z}));
+                break;
+            case ColliderShape::Capsule:
+                generate_capsule(col.radius * std::max(scale.x, scale.z),
+                                 col.height * scale.y);
+                break;
+            case ColliderShape::Mesh: {
+                // The mesh's authored shapes, each placed on its own, which
+                // is what the body is built from.
+                const auto* mesh = obj->components.get<MeshComponent>();
+                if (!mesh || !mesh->model) break;
+                const auto& primitives = mesh->model->collision_primitives();
+                for (size_t i = 0; i < primitives.size(); ++i) {
+                    const auto& prim = primitives[i];
+                    uint32_t prim_first = static_cast<uint32_t>(vertices_.size());
+                    generate_primitive_outline(prim, scale);
+                    const auto& edges = collision_primitive_edges(*mesh->model, i);
+                    vertices_.insert(vertices_.end(), edges.begin(), edges.end());
+                    uint32_t prim_count = static_cast<uint32_t>(vertices_.size()) - prim_first;
+                    if (prim_count == 0) continue;
+                    draw_commands_.push_back({node * primitive_placement(prim, scale),
+                                              prim_first, prim_count});
+                }
+                // Each shape was issued above with its own placement; on to
+                // the next node.
+                continue;
+            }
+        }
+
+        uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
+        if (count == 0) continue;
+        draw_commands_.push_back({node, first, count});
     }
 
     // Draw capsule wireframe for nodes with CharacterComponent
