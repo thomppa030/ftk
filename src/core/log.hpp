@@ -10,6 +10,9 @@ class ConsoleSink;
 
 namespace fjell::log {
 
+/// Creates the CORE/GFX/APP loggers. Everything below `info` is silent unless
+/// the FJELL_LOG_LEVEL environment variable names a lower level
+/// (trace, debug, info, warn, error).
 void init();
 void shutdown();
 
