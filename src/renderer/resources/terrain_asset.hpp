@@ -54,10 +54,28 @@ public:
     [[nodiscard]] VkSampler height_sampler() const { return sampler_; }
 
     /// Painted layer weights, one layer per channel, sampled by the fragment
-    /// stage. A terrain that was never painted holds a single texel that reads
-    /// as layer 0 everywhere.
+    /// stage. The texture always covers the field at weight_count() texels a
+    /// side; until the first paint stroke the CPU array stays empty and the
+    /// texture reads as layer 0 everywhere.
     [[nodiscard]] VkImageView weight_view() const;
     [[nodiscard]] VkSampler weight_sampler() const { return sampler_; }
+
+    /// Weight texels per side. One per height sample unless the file was
+    /// painted at another resolution.
+    [[nodiscard]] uint32_t weight_count() const { return weight_side_; }
+    [[nodiscard]] bool has_painted_weights() const { return !data_.weights.empty(); }
+
+    /// Copy a rectangle of RGBA weights out, row-major, `size_x * size_z * 4`
+    /// bytes. Clipped to the grid; an unpainted field reads as layer 0.
+    void copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                      uint8_t* out) const;
+
+    /// Overwrite a rectangle of RGBA weights and push that region to the GPU.
+    /// The first call on an unpainted field allocates the CPU array, which is
+    /// what makes the weights part of the saved file. Same shape as
+    /// apply_heights; there is nothing to tell physics.
+    void apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                       const uint8_t* rgba, UploadContext& upload);
 
     // ── Material layers ──
     // Up to FJTERRAIN_MAX_LAYERS ordinary .fjmat materials, blended by the
@@ -195,6 +213,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     std::unique_ptr<Image> weight_image_;
+    uint32_t weight_side_{0};
     VkSampler sampler_{VK_NULL_HANDLE};
     std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};
     Material* unassigned_material_{nullptr};

@@ -49,6 +49,11 @@ void apply_terrain_rect(TerrainAsset& terrain, UploadContext& upload, PhysicsSub
     }
 }
 
+void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload, const HeightRect& rect,
+                           const uint8_t* rgba) {
+    terrain.apply_weights(rect.x, rect.z, rect.width, rect.height, rgba, upload);
+}
+
 bool raycast_terrain(const TerrainAsset& terrain, const glm::vec3& terrain_origin,
                      const glm::vec3& ray_origin, const glm::vec3& ray_dir, glm::vec3& out_hit) {
     const float size = terrain.world_size();
@@ -128,6 +133,24 @@ std::string SculptStrokeCommand::description() const {
     return "Sculpt terrain";
 }
 
+PaintStrokeCommand::PaintStrokeCommand(TerrainAsset& terrain, UploadContext& upload,
+                                       HeightRect rect, std::vector<uint8_t> before,
+                                       std::vector<uint8_t> after)
+    : terrain_{terrain}, upload_{upload}, rect_{rect}, before_{std::move(before)},
+      after_{std::move(after)} {}
+
+void PaintStrokeCommand::execute() {
+    apply_terrain_weights(terrain_, upload_, rect_, after_.data());
+}
+
+void PaintStrokeCommand::undo() {
+    apply_terrain_weights(terrain_, upload_, rect_, before_.data());
+}
+
+std::string PaintStrokeCommand::description() const {
+    return "Paint terrain";
+}
+
 void TerrainSculptTool::update(const Frame& frame) {
     const bool pressed = frame.mouse_down && !mouse_was_down_;
     mouse_was_down_ = frame.mouse_down;
@@ -156,9 +179,15 @@ void TerrainSculptTool::update(const Frame& frame) {
 }
 
 void TerrainSculptTool::begin_stroke(const Frame& frame) {
-    // One copy of the whole field is far simpler than tracking which cells a
+    // One copy of the whole grid is far simpler than tracking which cells a
     // stroke has already captured, and a few megabytes per click is nothing.
-    snapshot_ = frame.terrain->data().heights;
+    if (painting()) {
+        const uint32_t side = frame.terrain->weight_count();
+        weight_snapshot_.resize(static_cast<size_t>(side) * side * 4);
+        frame.terrain->copy_weights(0, 0, side, side, weight_snapshot_.data());
+    } else {
+        snapshot_ = frame.terrain->data().heights;
+    }
     touched_ = {};
     flatten_target_set_ = false;
     ++stroke_seed_;
@@ -166,6 +195,83 @@ void TerrainSculptTool::begin_stroke(const Frame& frame) {
 }
 
 void TerrainSculptTool::dab(const Frame& frame, const glm::vec3& hit_world) {
+    if (painting()) {
+        paint_dab(frame, hit_world);
+    } else {
+        sculpt_dab(frame, hit_world);
+    }
+}
+
+// Weight texels cover the field edge to edge, each centred at (i + 0.5) / N,
+// which is where the sampler reads them from the 0..1 terrain UV.
+void TerrainSculptTool::paint_dab(const Frame& frame, const glm::vec3& hit_world) {
+    TerrainAsset& terrain = *frame.terrain;
+    const uint32_t side = terrain.weight_count();
+    const float size = terrain.world_size();
+    if (side == 0 || size <= 0.0f || brush_.paint_layer >= 4) return;
+    const float texels_per_metre = static_cast<float>(side) / size;
+
+    const float cx = ((hit_world.x - frame.terrain_origin.x) * texels_per_metre) - 0.5f;
+    const float cz = ((hit_world.z - frame.terrain_origin.z) * texels_per_metre) - 0.5f;
+    const float radius = std::max(brush_.radius * texels_per_metre, 0.5f);
+    const int last = static_cast<int>(side) - 1;
+    const int x0 = std::clamp(static_cast<int>(std::floor(cx - radius)), 0, last);
+    const int z0 = std::clamp(static_cast<int>(std::floor(cz - radius)), 0, last);
+    const int x1 = std::clamp(static_cast<int>(std::ceil(cx + radius)), 0, last);
+    const int z1 = std::clamp(static_cast<int>(std::ceil(cz + radius)), 0, last);
+    if (x1 < x0 || z1 < z0) return;
+
+    const HeightRect rect{static_cast<uint32_t>(x0), static_cast<uint32_t>(z0),
+                          static_cast<uint32_t>(x1 - x0 + 1), static_cast<uint32_t>(z1 - z0 + 1)};
+    weight_scratch_.resize(rect.count() * 4);
+    terrain.copy_weights(rect.x, rect.z, rect.width, rect.height, weight_scratch_.data());
+
+    // Rate is the fraction of full coverage laid down per second at the
+    // brush centre. A fixed step, not an exponential approach: the latter
+    // never quite arrives, and a texel that is 97% rock still shows grass.
+    const float step = 255.0f * brush_.rate * frame.dt;
+    const float hard = std::clamp(brush_.hardness, 0.0f, 0.999f);
+
+    for (uint32_t row = 0; row < rect.height; ++row) {
+        const float dz = (static_cast<float>(rect.z + row) - cz) / radius;
+        for (uint32_t col = 0; col < rect.width; ++col) {
+            const float dx = (static_cast<float>(rect.x + col) - cx) / radius;
+            const float d = std::sqrt((dx * dx) + (dz * dz));
+            if (d >= 1.0f) continue;
+            float weight = 1.0f;
+            if (d > hard) {
+                const float t = (d - hard) / (1.0f - hard);
+                weight = 1.0f - (t * t * (3.0f - (2.0f * t)));
+            }
+
+            // Raise the target layer by the step and take the same amount
+            // from the other layers in proportion, so the four always sum to
+            // 255 and a held brush ends at exactly (255, 0, 0, 0) for its
+            // layer. The blend shader divides by the sum, so the total is
+            // what keeps painted ground from reading as layer 0.
+            uint8_t* texel = &weight_scratch_[(static_cast<size_t>(row) * rect.width + col) * 4];
+            const uint32_t target = brush_.paint_layer;
+            const float old_target = static_cast<float>(texel[target]);
+            const float new_target = std::min(255.0f, old_target + (step * weight));
+            float others = 0.0f;
+            for (uint32_t c = 0; c < 4; ++c) {
+                if (c != target) others += static_cast<float>(texel[c]);
+            }
+            const float remaining = 255.0f - new_target;
+            const float scale = others > 0.0f ? remaining / others : 0.0f;
+            for (uint32_t c = 0; c < 4; ++c) {
+                const float value = c == target ? new_target
+                                                : static_cast<float>(texel[c]) * scale;
+                texel[c] = static_cast<uint8_t>(std::clamp(std::lround(value), 0L, 255L));
+            }
+        }
+    }
+
+    apply_terrain_weights(terrain, *frame.upload, rect, weight_scratch_.data());
+    touched_ = touched_.merged(rect);
+}
+
+void TerrainSculptTool::sculpt_dab(const Frame& frame, const glm::vec3& hit_world) {
     TerrainAsset& terrain = *frame.terrain;
     const uint32_t samples = terrain.sample_count();
     if (samples < 2 || terrain.height_scale() <= 0.0f) return;
@@ -246,6 +352,7 @@ void TerrainSculptTool::dab(const Frame& frame, const glm::vec3& hit_world) {
                 break;
             case BrushTool::flatten: h += (flatten_target_ - h) * blend * weight; break;
             case BrushTool::noise:   h += amount * weight * sample_noise(sx, sz, stroke_seed_); break;
+            case BrushTool::paint:
             case BrushTool::none:    break;
             }
         }
@@ -260,9 +367,35 @@ void TerrainSculptTool::end_stroke(const Frame& frame) {
     stroke_active_ = false;
     if (touched_.empty() || frame.history == nullptr || frame.terrain == nullptr) {
         snapshot_.clear();
+        weight_snapshot_.clear();
         return;
     }
+    if (painting()) {
+        end_paint_stroke(frame);
+    } else {
+        end_sculpt_stroke(frame);
+    }
+}
 
+void TerrainSculptTool::end_paint_stroke(const Frame& frame) {
+    const uint32_t side = frame.terrain->weight_count();
+    std::vector<uint8_t> before(touched_.count() * 4);
+    for (uint32_t row = 0; row < touched_.height; ++row) {
+        const uint8_t* src =
+            &weight_snapshot_[((static_cast<size_t>(touched_.z + row) * side) + touched_.x) * 4];
+        std::copy(src, src + (static_cast<size_t>(touched_.width) * 4),
+                  &before[static_cast<size_t>(row) * touched_.width * 4]);
+    }
+    std::vector<uint8_t> after(touched_.count() * 4);
+    frame.terrain->copy_weights(touched_.x, touched_.z, touched_.width, touched_.height,
+                                after.data());
+    weight_snapshot_.clear();
+
+    frame.history->execute(std::make_unique<PaintStrokeCommand>(
+        *frame.terrain, *frame.upload, touched_, std::move(before), std::move(after)));
+}
+
+void TerrainSculptTool::end_sculpt_stroke(const Frame& frame) {
     const uint32_t samples = frame.terrain->sample_count();
     std::vector<float> before(touched_.count());
     for (uint32_t row = 0; row < touched_.height; ++row) {
@@ -285,7 +418,9 @@ void TerrainSculptTool::draw_brush(const Frame& frame, const glm::vec3& hit_worl
     if (frame.debug == nullptr) return;
     constexpr int SEGMENTS = 48;
     constexpr float LIFT = 0.1f;  // keep the ring from z-fighting the ground
+    // Green sculpts, blue paints, orange while a stroke is down.
     const glm::vec4 colour = stroke_active_ ? glm::vec4{1.0f, 0.6f, 0.15f, 1.0f}
+                             : painting()   ? glm::vec4{0.4f, 0.65f, 1.0f, 1.0f}
                                             : glm::vec4{0.3f, 1.0f, 0.4f, 1.0f};
     const TerrainAsset& terrain = *frame.terrain;
 

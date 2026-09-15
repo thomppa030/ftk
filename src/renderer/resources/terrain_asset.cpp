@@ -218,14 +218,23 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     asset->height_image_->create_view(device, VK_FORMAT_R16_UNORM,
                                       VK_IMAGE_ASPECT_COLOR_BIT, 1);
 
-    // Layer weights. Loaded files that have a layer table but were never
-    // painted, and files with no layers at all, get the one-texel texture.
+    // Layer weights. An unpainted field gets a texture at one texel per
+    // height sample filled with layer 0, so the first paint stroke is a
+    // partial upload like any other rather than a texture rebuild.
     {
         const auto& data = asset->data_;
         const bool painted = data.header.weight_count > 0 && !data.weights.empty();
-        const uint32_t side = painted ? data.header.weight_count : 1;
-        const uint8_t* weight_bytes = painted ? data.weights.data() : UNPAINTED_WEIGHT.data();
+        const uint32_t side = painted ? data.header.weight_count : samples;
+        std::vector<uint8_t> unpainted;
+        if (!painted) {
+            unpainted.resize(static_cast<size_t>(side) * side * 4);
+            for (size_t i = 0; i < unpainted.size(); i += 4) {
+                std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(), &unpainted[i]);
+            }
+        }
+        const uint8_t* weight_bytes = painted ? data.weights.data() : unpainted.data();
         const VkDeviceSize weight_size = static_cast<VkDeviceSize>(side) * side * 4;
+        asset->weight_side_ = side;
 
         auto weight_image = Image::create(allocator, side, side, VK_FORMAT_R8G8B8A8_UNORM,
                                           VK_IMAGE_TILING_OPTIMAL,
@@ -433,6 +442,74 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, HEIGHT_READ_STAGE);
 
     height_range_stale_ = true;
+    dirty_ = true;
+}
+
+void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                                uint8_t* out) const {
+    const uint32_t side = weight_side_;
+    if (out == nullptr || x >= side || z >= side) return;
+    const uint32_t x_end = std::min(x + size_x, side);
+    const uint32_t z_end = std::min(z + size_z, side);
+    for (uint32_t row = z; row < z_end; ++row) {
+        uint8_t* dst = out + (static_cast<size_t>(row - z) * size_x * 4);
+        if (data_.weights.empty()) {
+            for (uint32_t col = 0; col < x_end - x; ++col) {
+                std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(),
+                          dst + (static_cast<size_t>(col) * 4));
+            }
+            continue;
+        }
+        const uint8_t* src = &data_.weights[((static_cast<size_t>(row) * side) + x) * 4];
+        std::copy(src, src + (static_cast<size_t>(x_end - x) * 4), dst);
+    }
+}
+
+void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                                 const uint8_t* rgba, UploadContext& upload) {
+    const uint32_t side = weight_side_;
+    if (rgba == nullptr || !weight_image_ || x >= side || z >= side) return;
+    const uint32_t x_end = std::min(x + size_x, side);
+    const uint32_t z_end = std::min(z + size_z, side);
+    const uint32_t w = x_end - x;
+    const uint32_t h = z_end - z;
+    if (w == 0 || h == 0) return;
+
+    if (data_.weights.empty()) {
+        data_.weights.resize(static_cast<size_t>(side) * side * 4);
+        for (size_t i = 0; i < data_.weights.size(); i += 4) {
+            std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(), &data_.weights[i]);
+        }
+        data_.header.weight_count = side;
+    }
+
+    std::vector<uint8_t> texels(static_cast<size_t>(w) * h * 4);
+    for (uint32_t row = 0; row < h; ++row) {
+        uint8_t* dst = &data_.weights[((static_cast<size_t>(z + row) * side) + x) * 4];
+        const uint8_t* src = rgba + (static_cast<size_t>(row) * size_x * 4);
+        std::copy(src, src + (static_cast<size_t>(w) * 4), dst);
+        std::copy(src, src + (static_cast<size_t>(w) * 4), &texels[static_cast<size_t>(row) * w * 4]);
+    }
+
+    StagingSlice staging = upload.stage_for_image(texels.data(), texels.size());
+    VkCommandBuffer cmd = upload.image_cb();
+    VkImage image = weight_image_->handle();
+
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, WEIGHT_READ_STAGE);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = staging.offset;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {static_cast<int32_t>(x), static_cast<int32_t>(z), 0};
+    region.imageExtent = {w, h, 1};
+    vkCmdCopyBufferToImage(cmd, staging.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &region);
+
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, WEIGHT_READ_STAGE);
+
     dirty_ = true;
 }
 

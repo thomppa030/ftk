@@ -222,6 +222,8 @@ static const bool registered = [] {
                      "Pull the ground to the height where the stroke began"},
                     {BrushTool::noise,   "brush_noise",   "Noise " ICON_LC_AUDIO_WAVEFORM,
                      "Roughen the ground under the brush"},
+                    {BrushTool::paint,   "brush_paint",   "Paint " ICON_LC_PAINTBRUSH,
+                     "Paint a material layer onto the ground"},
                 };
                 // Clicking the active brush puts it down again, so the row
                 // needs no separate "none" entry.
@@ -236,8 +238,28 @@ static const bool registered = [] {
                 }
                 if (tool.active()) {
                     auto& brush = tool.brush();
-                    const bool rate_brush =
-                        tool.tool() == BrushTool::smooth || tool.tool() == BrushTool::flatten;
+                    const bool rate_brush = tool.tool() == BrushTool::smooth ||
+                                            tool.tool() == BrushTool::flatten ||
+                                            tool.tool() == BrushTool::paint;
+                    if (tool.tool() == BrushTool::paint) {
+                        const uint32_t layers = terrain->terrain->layer_count();
+                        if (layers == 0) {
+                            ImGui::TextDisabled("Add a layer above to have something to paint.");
+                        }
+                        static constexpr const char* layer_ids[FJTERRAIN_MAX_LAYERS] = {
+                            "paint_layer0", "paint_layer1", "paint_layer2", "paint_layer3"};
+                        static constexpr const char* layer_labels[FJTERRAIN_MAX_LAYERS] = {
+                            "Layer 0", "Layer 1", "Layer 2", "Layer 3"};
+                        for (uint32_t i = 0; i < layers; ++i) {
+                            if (i > 0) ImGui::SameLine();
+                            if (toggle_button(layer_ids[i], layer_labels[i],
+                                              brush.paint_layer == i,
+                                              "Paint this layer")) {
+                                brush.paint_layer = i;
+                            }
+                        }
+                        if (brush.paint_layer >= layers && layers > 0) brush.paint_layer = 0;
+                    }
                     ImGui::SliderFloat("Radius (m)", &brush.radius, 0.5f, 100.0f, "%.1f",
                                        ImGuiSliderFlags_Logarithmic);
                     if (rate_brush) {
@@ -248,7 +270,9 @@ static const bool registered = [] {
                                            ImGuiSliderFlags_Logarithmic);
                     }
                     ImGui::SliderFloat("Hardness", &brush.hardness, 0.0f, 1.0f, "%.2f");
-                    ImGui::TextDisabled("Drag on the terrain to sculpt. Ctrl+Z undoes a stroke.");
+                    ImGui::TextDisabled(tool.tool() == BrushTool::paint
+                                            ? "Drag on the terrain to paint. Ctrl+Z undoes a stroke."
+                                            : "Drag on the terrain to sculpt. Ctrl+Z undoes a stroke.");
                 }
             }
             return changed;
