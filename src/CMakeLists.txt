@@ -273,6 +273,7 @@ add_executable(fjell
     ui/material_editor_context.cpp
     ui/asset_thumbnail_renderer.cpp
     ui/mesh_editor_context.cpp
+    ui/font_editor_context.cpp
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
@@ -303,8 +304,8 @@ add_executable(fjell
     ui/game_ui/font_atlas.cpp
     ui/game_ui/font_atlas_build.cpp
     ui/game_ui/font_library.cpp
-    ui/game_ui/text_shaper.cpp
     ui/game_ui/font_sample.cpp
+    ui/game_ui/text_shaper.cpp
 
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp

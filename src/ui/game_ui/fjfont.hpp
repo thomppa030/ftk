@@ -64,6 +64,15 @@ struct FjFontRecipe {
 /// Parses one charset entry: a named set or `U+XXXX` / `U+XXXX-YYYY`.
 [[nodiscard]] Result<CharsetRange> parse_charset_entry(std::string_view entry);
 
+/// A range as a recipe spells it: the named set it equals, else `U+XXXX`
+/// or `U+XXXX-YYYY`.
+[[nodiscard]] std::string charset_entry_text(CharsetRange range);
+
+/// Writes a recipe as the editor does: the known keys in a fixed order,
+/// ranges by their names where they have one. Fails when the file cannot
+/// be written.
+[[nodiscard]] Result<> save_font_recipe(const std::filesystem::path& path, const FjFontRecipe& recipe);
+
 /// The recipe's charset as sorted, unique codepoints.
 [[nodiscard]] std::vector<uint32_t> charset_codepoints(const FjFontRecipe& recipe);
 

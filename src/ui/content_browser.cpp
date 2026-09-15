@@ -979,7 +979,12 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::font:
                     if (entry.path.extension() == ".fjfont") {
-                        if (ImGui::MenuItem("Open")) {
+                        if (ImGui::MenuItem("Open in Font Editor")) {
+                            auto rel = std::filesystem::relative(entry.path, root_);
+                            on_open_asset.broadcast(rel.string(), "font");
+                            ImGui::CloseCurrentPopup();
+                        }
+                        if (ImGui::MenuItem("Open in Code Editor")) {
                             (void)platform::open_path(entry.path);
                             ImGui::CloseCurrentPopup();
                         }
@@ -1261,7 +1266,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         }
 
         case FileType::font:
-            (void)platform::open_path(entry.path);
+            if (entry.path.extension() == ".fjfont") {
+                auto rel = std::filesystem::relative(entry.path, root_);
+                on_open_asset.broadcast(rel.string(), "font");
+            } else {
+                (void)platform::open_path(entry.path);
+            }
             break;
 
         case FileType::unknown:

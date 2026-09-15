@@ -3,6 +3,8 @@
 #include "ui/game_ui/font_atlas_build.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
+
+#include <imgui_impl_vulkan.h>
 #include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 
@@ -18,9 +20,27 @@ FontAtlas::~FontAtlas() {
 }
 
 void FontAtlas::destroy() {
+    // The ImGui image is not returned here: destruction runs after the
+    // ImGui backend is gone, and release_imgui_texture() ran before that.
     atlas_texture_.reset();
     glyphs_.clear();
     kerning_.clear();
+}
+
+void FontAtlas::release_imgui_texture() {
+    if (imgui_descriptor_ != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
+        imgui_descriptor_ = VK_NULL_HANDLE;
+    }
+}
+
+VkDescriptorSet FontAtlas::imgui_texture() {
+    if (imgui_descriptor_ == VK_NULL_HANDLE && atlas_texture_) {
+        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
+            atlas_texture_->sampler(), atlas_texture_->image_view(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return imgui_descriptor_;
 }
 
 Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
@@ -146,6 +166,13 @@ void FontAtlas::reload(FontAtlasData data) {
     gpu_.bindless->update_entry(atlas_index_, fresh->image_view(), fresh->sampler());
     if (gpu_.deleter) {
         gpu_.deleter->retire(std::move(atlas_texture_));
+        // The editor's view of the old texture may still be in a frame's
+        // draw data; it goes when that frame is done, and the next
+        // imgui_texture() call makes one for the new texture.
+        if (imgui_descriptor_ != VK_NULL_HANDLE) {
+            gpu_.deleter->defer([set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
+            imgui_descriptor_ = VK_NULL_HANDLE;
+        }
     }
     atlas_texture_ = std::move(fresh);
 

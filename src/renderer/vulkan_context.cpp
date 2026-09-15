@@ -1804,6 +1804,12 @@ void VulkanContext::wait_idle() {
 }
 
 void VulkanContext::release_imgui_textures() {
+    // Anything retired in the last frames — a font atlas swapped out, an
+    // editor preview target — may hold an ImGui image and would otherwise
+    // return it from the deleter after the backend is gone.
+    vkDeviceWaitIdle(gpu_.device());
+    gpu_.deferred_deleter().flush_all();
+    font_library_->release_imgui_textures();
     default_pp_->invalidate_imgui_textures();
     depth_viz_pass().invalidate_imgui_texture();
     wireframe_pass().invalidate_imgui_texture();

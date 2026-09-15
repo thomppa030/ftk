@@ -47,6 +47,13 @@ void FontLibrary::create(const FontAtlasGpu& gpu, const std::string& fallback_re
     }
 }
 
+void FontLibrary::release_imgui_textures() {
+    if (fallback_) fallback_->release_imgui_texture();
+    for (auto& [key, entry] : entries_) {
+        if (entry.atlas) entry.atlas->release_imgui_texture();
+    }
+}
+
 void FontLibrary::destroy() {
 #ifndef NDEBUG
     watcher_.clear();
@@ -76,13 +83,6 @@ const FontAtlas* FontLibrary::get(const std::string& recipe_path) {
     return entry.atlas.get();
 }
 
-void FontLibrary::prebake(const std::string& recipe_path) {
-    auto key = key_for(recipe_path);
-    if (pool_) {
-        prebakes_.push_back(pool_->submit([key] { prebake_now(key); }));
-    } else {
-        prebake_now(key);
-    }
 FontLibrary::Status FontLibrary::status(const std::string& recipe_path) const {
     auto it = entries_.find(key_for(recipe_path));
     if (it == entries_.end()) return Status::unknown;
@@ -92,6 +92,20 @@ FontLibrary::Status FontLibrary::status(const std::string& recipe_path) const {
     return Status::pending;
 }
 
+void FontLibrary::prebake(const std::string& recipe_path) {
+    auto key = key_for(recipe_path);
+    if (pool_) {
+        prebakes_.push_back(pool_->submit([key] { prebake_now(key); }));
+    } else {
+        prebake_now(key);
+    }
+}
+
+void FontLibrary::reload(const std::string& recipe_path) {
+    auto it = entries_.find(key_for(recipe_path));
+    if (it == entries_.end()) return;
+    it->second.changed = true;
+    it->second.expect_events = true;
 }
 
 void FontLibrary::start_load(Entry& entry) {
@@ -135,7 +149,11 @@ void FontLibrary::watch(const std::string& key, const FontAtlas& atlas) {
             if (key.empty()) {
                 fallback_changed_ = true;
             } else if (auto it = entries_.find(key); it != entries_.end()) {
-                it->second.changed = true;
+                if (it->second.expect_events) {
+                    it->second.events_seen = true;
+                } else {
+                    it->second.changed = true;
+                }
             }
         });
         if (!ok) FJELL_GFX_DEBUG("FontLibrary: cannot watch {}", path);
@@ -160,6 +178,15 @@ void FontLibrary::poll() {
 
 #ifndef NDEBUG
     (void)watcher_.poll();
+    // A write raises several events across a poll or two; the expectation
+    // ends with the first poll that saw any of them.
+    for (auto& [key, entry] : entries_) {
+        if (entry.events_seen) {
+            entry.expect_events = false;
+            entry.events_seen = false;
+        }
+    }
+#endif
     for (auto& [key, entry] : entries_) {
         // One rebuild in flight at a time; a change during it queues the next.
         if (entry.changed && entry.atlas && !entry.pending.valid()) {
@@ -168,6 +195,7 @@ void FontLibrary::poll() {
             start_load(entry);
         }
     }
+#ifndef NDEBUG
     if (fallback_pending_.valid() && ready(fallback_pending_)) {
         auto data = fallback_pending_.get();
         fallback_pending_ = {};

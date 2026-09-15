@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -93,6 +94,43 @@ Result<CharsetRange> parse_charset_entry(std::string_view entry) {
         return make_error("'" + std::string(entry) + "' is beyond the last Unicode codepoint");
     }
     return range;
+}
+
+std::string charset_entry_text(CharsetRange range) {
+    for (const auto& named : kNamedCharsets) {
+        if (named.range.first == range.first && named.range.last == range.last) {
+            return std::string(named.name);
+        }
+    }
+    char buf[32];
+    if (range.first == range.last) {
+        std::snprintf(buf, sizeof(buf), "U+%04X", range.first);
+    } else {
+        std::snprintf(buf, sizeof(buf), "U+%04X-%04X", range.first, range.last);
+    }
+    return buf;
+}
+
+Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
+    nlohmann::ordered_json j;
+    j["source"] = recipe.source;
+    auto charset = nlohmann::ordered_json::array();
+    for (const auto& range : recipe.charset) charset.push_back(charset_entry_text(range));
+    j["charset"] = charset;
+    j["cell_size"] = recipe.cell_size;
+    // A whole number of pixels is written as one; 6.5 stays 6.5.
+    if (recipe.px_range == std::floor(recipe.px_range)) {
+        j["px_range"] = static_cast<int>(recipe.px_range);
+    } else {
+        j["px_range"] = recipe.px_range;
+    }
+    j["kerning"] = recipe.kerning;
+
+    std::ofstream file(path);
+    if (!file) return make_error("cannot write " + path.string());
+    file << j.dump(4) << "\n";
+    if (!file) return make_error("write failed for " + path.string());
+    return {};
 }
 
 Result<FjFontRecipe> load_font_recipe(const fs::path& path, std::vector<std::string>* warnings) {

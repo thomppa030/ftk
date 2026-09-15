@@ -98,6 +98,14 @@ public:
     void destroy();
 
     [[nodiscard]] const std::string& recipe_path() const { return recipe_path_; }
+
+    /// The atlas as an ImGui image, for an editor to show. Created on first
+    /// use; a reload replaces it once the frames still drawing the old one
+    /// are done.
+    [[nodiscard]] VkDescriptorSet imgui_texture();
+    /// Gives the ImGui image back. Must run while the ImGui backend is still
+    /// up, which is before this atlas is destroyed at shutdown.
+    void release_imgui_texture();
     /// The font file the recipe names, resolved; empty until loaded.
     [[nodiscard]] const std::string& source_path() const { return source_path_; }
 
@@ -106,6 +114,7 @@ public:
     [[nodiscard]] const FontMetrics& metrics() const { return metrics_; }
     [[nodiscard]] uint32_t atlas_bindless_index() const { return atlas_index_; }
     [[nodiscard]] uint32_t atlas_width() const { return atlas_width_; }
+    [[nodiscard]] size_t glyph_count() const { return glyphs_.size(); }
     [[nodiscard]] uint32_t atlas_height() const { return atlas_height_; }
     [[nodiscard]] float pixel_range() const { return pixel_range_; }
     [[nodiscard]] bool valid() const { return atlas_texture_ != nullptr; }
@@ -128,6 +137,7 @@ private:
     std::unordered_map<std::pair<uint32_t, uint32_t>, float, PairHash> kerning_;
     FontMetrics metrics_{};
     std::unique_ptr<Texture> atlas_texture_;
+    VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
     uint32_t atlas_index_{0};
     uint32_t atlas_width_{0};
     uint32_t atlas_height_{0};

@@ -35,6 +35,8 @@ class ThreadPool;
 class FontLibrary {
 public:
     void create(const FontAtlasGpu& gpu, const std::string& fallback_recipe);
+    /// Returns every atlas's ImGui image while the backend is still up.
+    void release_imgui_textures();
     void destroy();
 
     /// Loads run on this pool once it is set; before that, and without one,
@@ -43,8 +45,6 @@ public:
 
     [[nodiscard]] const FontAtlas& fallback() const { return *fallback_; }
 
-    /// The atlas of a recipe once it is loaded. Nullptr while the load is
-    /// pending and, for good, when the recipe cannot be loaded or baked;
     enum class Status : uint8_t {
         unknown, ///< never asked for
         pending, ///< load queued or running
@@ -53,8 +53,15 @@ public:
     };
     [[nodiscard]] Status status(const std::string& recipe_path) const;
 
+    /// The atlas of a recipe once it is loaded. Nullptr while the load is
+    /// pending and, for good, when the recipe cannot be loaded or baked;
     /// that failure is logged once per path.
     [[nodiscard]] const FontAtlas* get(const std::string& recipe_path);
+
+    /// Loads a recipe again from its files, on the pool, and swaps the
+    /// atlas in place when done. For an editor that just wrote the recipe;
+    /// debug builds also do this on their own when a watched file changes.
+    void reload(const std::string& recipe_path);
 
     /// Bakes a recipe's atlas ahead of any use, on the pool, when it is
     /// missing or stale. Nothing reaches the GPU; a later get() reads the
@@ -74,6 +81,10 @@ private:
         bool queued{true};    // a load has to start
         bool failed{false};
         bool changed{false};  // a watched file changed since the last load
+        // reload() was asked for by whoever wrote the recipe; the watcher's
+        // events for that write are swallowed rather than reloading twice.
+        bool expect_events{false};
+        bool events_seen{false};
         std::future<Result<FontAtlasData>> pending;
     };
     [[nodiscard]] static std::string key_for(const std::string& path);
