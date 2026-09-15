@@ -5,7 +5,6 @@
 #include "renderer/gpu/vk_utils.hpp"
 #include "ui/imgui_layer.hpp"
 
-#include "platform/platform.hpp"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -25,17 +24,6 @@ static constexpr int BROWSER_HEIGHT = 520;
 
 FileBrowser::~FileBrowser() {
     close();
-}
-
-std::string FileBrowser::resolve_font_dir() {
-    auto exe_dir = platform::executable_path().parent_path();
-    for (int i = 0; i < 3; ++i) {
-        if (fs::is_directory(exe_dir / "engine_assets" / "fonts")) {
-            return (exe_dir / "engine_assets" / "fonts").string();
-        }
-        exe_dir = exe_dir.parent_path();
-    }
-    return {};
 }
 
 std::string FileBrowser::format_size(uintmax_t bytes) {
@@ -120,8 +108,7 @@ void FileBrowser::open(const std::string& title, Mode mode,
         window_->handle(), gpu_->instance(),
         gpu_->physical_device(), gpu_->vk_device(),
         gpu_->graphics_family(), gpu_->graphics_queue(),
-        swapchain_->format(), swapchain_->image_count(),
-        resolve_font_dir());
+        swapchain_->format(), swapchain_->image_count());
 
     frame_index_ = 0;
 }

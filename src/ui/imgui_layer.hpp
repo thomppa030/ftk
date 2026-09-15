@@ -17,9 +17,7 @@ public:
     ImGuiLayer(GLFWwindow* window, VkInstance instance,
                VkPhysicalDevice physical_device, VkDevice device,
                uint32_t graphics_family, VkQueue graphics_queue,
-               VkFormat color_format, uint32_t image_count,
-               const std::string& font_dir = {},
-               const std::string& shader_dir = {});
+               VkFormat color_format, uint32_t image_count);
     ~ImGuiLayer();
 
     ImGuiLayer(const ImGuiLayer&) = delete;
@@ -49,7 +47,6 @@ private:
 
     VkDevice device_;
     VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
-    std::string font_dir_;
     // Fragment stage that decodes ImGui's sRGB colours for the sRGB
     // swapchain (shaders/imgui.frag). The backend keeps the pointer for
     // its lifetime, so the code lives here for the layer's.

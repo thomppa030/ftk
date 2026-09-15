@@ -88,7 +88,6 @@ private:
     void refresh();
     void confirm_selection();
 
-    static std::string resolve_font_dir();
     static std::string format_size(uintmax_t bytes);
     static std::string format_time(std::filesystem::file_time_type time);
 
