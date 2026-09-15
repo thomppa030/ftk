@@ -96,6 +96,9 @@ private:
     // the caller; `names[resolved_index]` must be the CSS value FjssParser
     // expects to read back (see StyleResolver::apply_property).
     void style_edit_keyword(UiNode& node, const char* property);
+    // A string property such as font-family: a text field that commits on
+    // Enter or blur, an empty value unsetting it.
+    void style_edit_text(UiNode& node, const char* property, const std::string& resolved_value);
     // Hover text for the style row just drawn: which rule in which file set
     // the property, or that it is inherited or a default. Uses the origins
     // computed for the selected node at the top of draw_style_editor.
@@ -112,6 +115,7 @@ private:
     // never move the value, which reads as an instant snap-back.
     std::unordered_map<ImGuiID, float> active_float_edits_;
     std::unordered_map<ImGuiID, std::array<float, 4>> active_color_edits_;
+    std::unordered_map<ImGuiID, std::string> active_text_edits_;
 
     // Element tree helpers
     void draw_node_tree(UiNode* node);

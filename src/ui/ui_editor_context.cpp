@@ -24,6 +24,8 @@
 #include "ui/icon_cache.hpp"
 
 #include <imgui.h>
+
+#include <cstring>
 #include <imgui_internal.h>
 
 #include <algorithm>
@@ -1212,6 +1214,42 @@ void UiEditorContext::style_edit_color(UiNode& node, const char* property, const
     }
 }
 
+void UiEditorContext::style_edit_text(UiNode& node, const char* property,
+                                      const std::string& resolved_value) {
+    // Same empty-means-unset convention as style_edit_float: the explicit
+    // string is what undo restores to.
+    auto explicit_str = style_prop_string(node, property, {});
+    std::string shown = explicit_str.empty() ? resolved_value : ui_style_unquote(explicit_str);
+
+    // Buffered while the field is active, like a drag, so a resolve mid-edit
+    // cannot reset the text under the caret.
+    ImGuiID id = ImGui::GetID(property);
+    auto it = active_text_edits_.find(id);
+    bool editing = it != active_text_edits_.end();
+    char buf[128];
+    std::strncpy(buf, (editing ? it->second : shown).c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    ImGui::InputText(property, buf, sizeof(buf));
+    style_origin_tooltip(property);
+
+    if (ImGui::IsItemActive()) {
+        active_text_edits_[id] = buf;
+    } else if (editing) {
+        active_text_edits_.erase(it);
+    }
+
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        std::string value = buf;
+        if (value == shown) return;
+        // A name with a space needs quoting to read back as one name.
+        if (value.find(' ') != std::string::npos) value = "\"" + value + "\"";
+        command_history().execute(std::make_unique<SetStylePropertyCommand>(
+            *preview_ui_, node, property, explicit_str, value,
+            std::string("Set ") + property));
+    }
+}
+
 void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
     const auto* desc = find_ui_style_property(property);
     if (!desc || desc->kind != UiPropertyKind::keyword) return;
@@ -1314,6 +1352,8 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
         style_edit_color(node, "background-color", "background-color", s.background_color);
         style_edit_color(node, "color", "color", s.color);
         style_edit_float(node, "font-size", "font-size", s.font_size, 0.5f, 1.0f, 256.0f);
+        style_edit_text(node, "font-family", s.font_family);
+        style_edit_float(node, "font-weight", "font-weight", s.font_weight, 10.0f, 1.0f, 1000.0f);
         style_edit_color(node, "border-color", "border-color", s.border_color);
         style_edit_float(node, "border-width", "border-width", s.border_width, 0.5f, 0.0f, 64.0f);
         style_edit_float(node, "border-radius", "border-radius",
