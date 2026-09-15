@@ -1,12 +1,12 @@
 #include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
 #include <fstream>
-#include <unistd.h>
 
 using namespace fjell;
 namespace fs = std::filesystem;
@@ -18,7 +18,7 @@ static struct LogInit {
 struct SheetDir {
     fs::path base;
     SheetDir() {
-        base = fs::temp_directory_path() / ("fjell_import_test_" + std::to_string(::getpid()));
+        base = fs::temp_directory_path() / ("fjell_fjss_loader_test_" + std::to_string(platform::process_id()));
         fs::create_directories(base / "shared");
     }
     ~SheetDir() { fs::remove_all(base); }
