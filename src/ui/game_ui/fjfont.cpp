@@ -183,6 +183,17 @@ std::vector<uint32_t> charset_codepoints(const FjFontRecipe& recipe) {
     return codepoints;
 }
 
+std::string describe_codepoints(const std::vector<uint32_t>& codepoints, size_t limit) {
+    std::string out;
+    char buf[16];
+    for (size_t i = 0; i < codepoints.size() && i < limit; ++i) {
+        std::snprintf(buf, sizeof(buf), "%sU+%04X", i ? " " : "", codepoints[i]);
+        out += buf;
+    }
+    if (codepoints.size() > limit) out += " ...";
+    return out;
+}
+
 fs::path font_source_path(const fs::path& recipe_path, const FjFontRecipe& recipe) {
     return recipe_path.parent_path() / recipe.source;
 }

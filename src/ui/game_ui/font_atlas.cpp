@@ -6,7 +6,6 @@
 #include "core/log.hpp"
 
 #include <filesystem>
-#include <sstream>
 #include <utility>
 
 namespace fjell {
@@ -26,6 +25,8 @@ void FontAtlas::create(const std::string& recipe_path,
                        VkPhysicalDevice physical_device,
                        UploadContext& upload,
                        BindlessTextures& bindless) {
+    // The bake reports recipe warnings too, but a fresh cache skips it, so
+    // they are read here where every startup passes.
     std::vector<std::string> warnings;
     auto recipe = load_font_recipe(recipe_path, &warnings);
     for (const auto& warning : warnings) FJELL_CORE_WARN("FontAtlas: {}", warning);
@@ -54,24 +55,16 @@ void FontAtlas::create(const std::string& recipe_path,
         }
     }
     if (!loaded) {
-        std::vector<uint32_t> missing;
-        auto baked = bake_font_atlas(*recipe, source_path, *hash, &missing);
+        auto baked = bake_font_recipe(recipe_path);
         if (!baked) {
-            FJELL_CORE_ERROR("FontAtlas: {}: {}", recipe_path, baked.error());
+            FJELL_CORE_ERROR("FontAtlas: {}", baked.error());
             return;
         }
-        atlas = std::move(*baked);
-        if (!missing.empty()) {
-            std::ostringstream list;
-            for (size_t i = 0; i < missing.size() && i < 16; ++i) {
-                list << (i ? " " : "") << "U+" << std::hex << std::uppercase << missing[i];
-            }
-            if (missing.size() > 16) list << " ...";
+        atlas = std::move(baked->atlas);
+        if (!baked->missing.empty()) {
             FJELL_CORE_WARN("FontAtlas: {} has no glyph for {} codepoint(s): {}",
-                            recipe->source, missing.size(), list.str());
-        }
-        if (auto written = write_font_atlas(cache_path, atlas); !written) {
-            FJELL_CORE_WARN("FontAtlas: {}", written.error());
+                            recipe->source, baked->missing.size(),
+                            describe_codepoints(baked->missing));
         }
         FJELL_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
                        recipe_path, atlas.header.atlas_width, atlas.header.atlas_height,

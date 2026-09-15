@@ -67,6 +67,11 @@ struct FjFontRecipe {
 /// The recipe's charset as sorted, unique codepoints.
 [[nodiscard]] std::vector<uint32_t> charset_codepoints(const FjFontRecipe& recipe);
 
+/// Codepoints as `U+0041 U+00E9 ...` for a log line, at most `limit` of
+/// them followed by `...`.
+[[nodiscard]] std::string describe_codepoints(const std::vector<uint32_t>& codepoints,
+                                              size_t limit = 16);
+
 /// Where the recipe's font file is: `source` resolved against the recipe's
 /// own directory.
 [[nodiscard]] std::filesystem::path font_source_path(const std::filesystem::path& recipe_path,
