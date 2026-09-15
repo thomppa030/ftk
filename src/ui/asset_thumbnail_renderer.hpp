@@ -30,8 +30,9 @@ struct FjGraph;
 /// as an ImGui texture: a `.fjmat` on a lit sphere, a `.fjmesh` (or a glTF
 /// with no cache yet) with its authored slot materials, a `.fjskel` in its
 /// bind pose, a `.fjanim` as a frame from the middle of the clip on the
-/// skeleton beside it, a `.fjwidget` or `.fjui` as the game UI draws it at
-/// the project's design resolution. Each thumbnail is rendered once through
+/// skeleton beside it, a `.fjvfx` once its particles have had time to fill
+/// in, a `.fjwidget` or `.fjui` as the game UI draws it at the project's
+/// design resolution. Each thumbnail is rendered once through
 /// the real pipeline, written to `.fjcache/<file>.thumb.png` next to the
 /// asset, and served from that file on later runs until the asset or a file
 /// it references is newer.
@@ -141,9 +142,11 @@ public:
 
         /// Empty the scene and place the light; the subject adds the rest.
         Scene& begin();
-        /// Render the scene framed on `framing` and read it back.
+        /// Render the scene framed on `framing`, through the stage's own
+        /// graph or `graph` when given, and read it back into `out`. A null
+        /// `out` only advances what the render simulates.
         bool render(const Deps& deps, const DirectionalLight& light, float dt,
-                    const Framing& framing, Pixels& out);
+                    const Framing& framing, Pixels* out, const FjGraph* graph = nullptr);
         void shutdown(const Deps& deps);
 
     private:

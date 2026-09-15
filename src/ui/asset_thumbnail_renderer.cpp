@@ -7,6 +7,7 @@
 #include "core/project.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/particle_emitter.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/gpu/image_readback.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -18,6 +19,8 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/skeletal_model.hpp"
+#include "renderer/systems/vfx_asset.hpp"
+#include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/viewport_source.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/light_node.hpp"
@@ -296,6 +299,88 @@ private:
     std::optional<AnimationClip> clip_;
 };
 
+// ── Effects ──────────────────────────────────────────────────────────────
+
+// A particle effect is nothing at frame zero, so its thumbnail comes from
+// a simulation stepped up to a moment where the effect has filled in, in
+// one go, then rendered once. The particle system keeps emitters per
+// scene, so the steps leave every other scene's effects untouched.
+class VfxSubject final : public AssetThumbnailRenderer::Subject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        return path.extension() == ".fjvfx";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        return file_time(path);
+    }
+
+    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& stage,
+                const DirectionalLight& light, float /*dt*/, const std::string& path,
+                AssetThumbnailRenderer::Pixels& out) override {
+        auto& vk = *deps.vulkan_context;
+        if (!stage.ensure(deps)) return false;
+        const auto* graph = vk.get_or_load_graph(VFX_GRAPH_PATH);
+        if (graph == nullptr) {
+            FJELL_CORE_ERROR("Effect thumbnails disabled: failed to load {}", VFX_GRAPH_PATH);
+            return false;
+        }
+
+        // The effect's timing state lives on the VfxEffect itself, so the
+        // thumbnail runs its own copy rather than the one a scene may be
+        // playing.
+        std::shared_ptr<VfxEffect> effect;
+        try {
+            auto loaded = load_vfx_effect(path);
+            resolve_vfx_textures(loaded, *deps.resource_manager, deps.project);
+            effect = std::make_shared<VfxEffect>(std::move(loaded));
+        } catch (const std::exception& e) {
+            FJELL_CORE_WARN("Effect thumbnail: {}: {}", path, e.what());
+            return false;
+        }
+        if (effect->emitters.empty()) return false;
+
+        auto& scene = stage.begin();
+        auto node = std::make_unique<Node3D>();
+        node->name = fs::path(path).stem().string();
+        auto& emitter = node->components.add<EmitterComponent>();
+        emitter.effect = effect;
+        emitter.vfx_path = path;
+        scene.add_node(std::move(node));
+        scene.compute_world_matrices(nullptr);
+        vk.sync_scene_particles(scene);
+
+        // Long enough for the first particles to reach the end of their
+        // life, so a looping effect is at its steady state and a burst is
+        // mid-flight; capped so a slow effect does not stall the editor.
+        float warm = std::clamp(effect->max_lifetime(), MIN_WARMUP_SECONDS, MAX_WARMUP_SECONDS);
+        int steps = static_cast<int>(std::ceil(warm / WARMUP_STEP));
+        for (int i = 0; i < steps; ++i) {
+            if (!stage.render(deps, light, WARMUP_STEP, FRAMING, nullptr, graph)) return false;
+        }
+        // The simulation advances the effect's own clock, so this says
+        // whether the steps reached the emitter at all.
+        for (size_t i = 0; i < effect->emitters.size(); ++i) {
+            const auto& sub = effect->emitters[i];
+            FJELL_CORE_DEBUG("Effect thumbnail {} emitter {}: {} steps, elapsed {:.2f}s, "
+                             "rate {:.1f}/s, burst {}, lifetime {:.2f}s, paused {}, finished {}",
+                             fs::path(path).filename().string(), i, steps, sub.emitter_elapsed,
+                             sub.emission_rate(), sub.burst_count(), sub.lifetime_max(),
+                             sub.paused, sub.finished);
+        }
+        return stage.render(deps, light, WARMUP_STEP, FRAMING, &out, graph);
+    }
+
+private:
+    static constexpr const char* VFX_GRAPH_PATH = "assets/render_graphs/asset_thumbnail_vfx.fjgraph";
+    static constexpr float WARMUP_STEP = 1.0F / 30.0F;
+    static constexpr float MIN_WARMUP_SECONDS = 0.5F;
+    static constexpr float MAX_WARMUP_SECONDS = 2.0F;
+    // The VFX editor frames its preview the same way.
+    static constexpr AssetThumbnailRenderer::Framing FRAMING{.center = {0.0F, 1.0F, 0.0F}, .radius = 3.0F};
+};
+
 // ── UI ───────────────────────────────────────────────────────────────────
 
 // The stylesheet a markup file draws with: the one its <widget> header names,
@@ -489,6 +574,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<MeshSubject>());
     subjects_.push_back(std::make_unique<SkeletalMeshSubject>());
     subjects_.push_back(std::make_unique<AnimationClipSubject>());
+    subjects_.push_back(std::make_unique<VfxSubject>());
     subjects_.push_back(std::make_unique<WidgetSubject>());
 }
 
@@ -668,7 +754,8 @@ Scene& AssetThumbnailRenderer::SceneStage::begin() {
 }
 
 bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const DirectionalLight& light,
-                                                float dt, const Framing& framing, Pixels& out) {
+                                                float dt, const Framing& framing, Pixels* out,
+                                                const FjGraph* graph) {
     if (!target_ || !pp_) return false;
     auto& vk = *deps.vulkan_context;
     scene_.compute_world_matrices(nullptr);
@@ -683,7 +770,7 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const Directio
     req.camera_position = camera.position();
     req.pp_resources = pp_.get();
     req.skip_shadows = true;
-    req.viewport_graph = graph_;
+    req.viewport_graph = graph != nullptr ? graph : graph_;
     req.global_set = global_set_;
 
     // Exposure is one adapted value shared by every viewport. Pin it for
@@ -697,6 +784,7 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const Directio
     vk.render_preview(req, light, &scene_, dt, 0, *deps.thread_pool);
     tonemap.set_exposure(saved_exposure);
     tonemap.set_auto_exposure(saved_auto);
+    if (out == nullptr) return true;
 
     auto* output = pp_->tonemap();
     if (output == nullptr || output->image == VK_NULL_HANDLE) {
@@ -707,14 +795,15 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const Directio
                             .command_pool = vk.command_pool(), .queue = vk.graphics_queue()},
                            output->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            output->extent.width, output->extent.height);
-    out.width = readback.width();
-    out.height = readback.height();
-    out.rgba.assign(readback.pixels(),
-                    readback.pixels() + static_cast<size_t>(out.width) * out.height * 4);
+    out->width = readback.width();
+    out->height = readback.height();
+    out->rgba.assign(readback.pixels(),
+                     readback.pixels() + static_cast<size_t>(out->width) * out->height * 4);
     return true;
 }
 
 void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
+    if (deps.vulkan_context) deps.vulkan_context->release_scene_particles(scene_);
     if (global_set_ != VK_NULL_HANDLE && deps.vulkan_context) {
         deps.vulkan_context->gpu().global_bindings().free_set(global_set_);
         global_set_ = VK_NULL_HANDLE;
@@ -730,7 +819,7 @@ bool AssetThumbnailRenderer::SceneSubject::render(const Deps& deps, SceneStage& 
     if (!stage.ensure(deps)) return false;
     Framing framing;
     if (!populate(stage.begin(), deps, path, framing)) return false;
-    return stage.render(deps, light, dt, framing, out);
+    return stage.render(deps, light, dt, framing, &out);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────

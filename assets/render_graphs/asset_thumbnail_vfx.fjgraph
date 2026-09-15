@@ -1,0 +1,38 @@
+// The asset thumbnail pipeline with the particle simulation in it, for
+// effects: the same single-frame render, after the thumbnail renderer has
+// stepped the simulation up to a representative moment. Nothing temporal may run — exposure adapts over
+// frames and would bake an unsettled value — and nothing that needs a
+// second object to matter (shadows, GI, occlusion) is worth its cost here.
+{
+    "name": "asset_thumbnail_vfx",
+    "resources": {},
+
+    "passes": [
+        // Static opaque geometry only has a mesh-shader path, so the meshlet
+        // expand/cull chain has to run to fill the indirect buffers the
+        // depth and color passes draw from.
+        { "class": "DepthPrePass",        "name": "depth_prepass" },
+        { "class": "DepthResolvePass",    "name": "depth_resolve" },
+        { "class": "HizPass",             "name": "hiz" },
+        { "class": "InstanceCullPass",    "name": "instance_cull" },
+        { "class": "MeshletInstancePass", "name": "meshlet_cull",       "enabled_if": "mesh_shaders" },
+        { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2", "enabled_if": "mesh_shaders" },
+        { "class": "MeshShaderDepthPass", "name": "mesh_shader_depth",  "enabled_if": "mesh_shaders" },
+
+        // The sky cubemap is what the sphere reflects.
+        { "class": "SkyCubemapPass",   "name": "sky_cubemap" },
+
+        // Forward+ tile cull — opaque needs the tile SSBO.
+        { "class": "LightCullPass",    "name": "light_cull" },
+
+        // Steps every render subsystem's GPU simulation for the emitters in
+        // the thumbnail scene.
+        { "class": "SubsystemComputePass", "name": "subsystem_compute" },
+
+        { "class": "OpaquePass",       "name": "opaque" },
+        { "class": "TransparentPass",  "name": "transparent" },
+        { "class": "SkyPass",          "name": "sky" },
+
+        { "class": "TonemapPass",      "name": "tonemap" }
+    ]
+}
