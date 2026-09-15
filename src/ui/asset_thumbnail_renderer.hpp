@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/uniform_types.hpp"
+#include "renderer/viewport_source.hpp"
 #include "scene/scene.hpp"
 #include "ui/icon_cache.hpp"
 
@@ -10,6 +11,7 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -32,10 +34,10 @@ struct FjGraph;
 /// bind pose, a `.fjanim` as a frame from the middle of the clip on the
 /// skeleton beside it, a `.fjvfx` once its particles have had time to fill
 /// in, a `.fjwidget` or `.fjui` as the game UI draws it at the project's
-/// design resolution. Each thumbnail is rendered once through
-/// the real pipeline, written to `.fjcache/<file>.thumb.png` next to the
-/// asset, and served from that file on later runs until the asset or a file
-/// it references is newer.
+/// design resolution, a `.fjell` as it looked when it was last saved. Each
+/// thumbnail is rendered once through the real pipeline, written to
+/// `.fjcache/<file>.thumb.png` next to the asset, and served from that file
+/// on later runs until the asset or a file it references is newer.
 ///
 /// UI code only ever calls request(), refresh() and descriptor(); the engine
 /// calls tick() once per frame in the window where offscreen previews render,
@@ -98,6 +100,24 @@ public:
     /// icon cache's retired thumbnails.
     void invalidate(const std::string& path);
 
+    /// A camera to shoot a scene with.
+    struct View {
+        glm::mat4 view{1.0F};
+        glm::mat4 projection{1.0F};
+        glm::vec3 position{0.0F};
+    };
+
+    /// Take a scene's thumbnail from a scene that is already loaded, as
+    /// seen from `view`: the scene editor calls this when it saves, since
+    /// rendering a scene on demand would mean loading everything in it.
+    /// The render happens on the next tick, so `scene` has to outlive it.
+    void capture_scene(Scene& scene, const std::string& fjell_path, const View& view);
+
+    /// Whether a thumbnail for this file can be rendered on demand. A scene's
+    /// cannot: it exists only from a save. Regenerating a folder skips these
+    /// rather than throwing away a thumbnail nothing can bring back.
+    [[nodiscard]] bool regenerates(const std::filesystem::path& path) const;
+
     /// Serve or render at most one queued thumbnail. Call once per frame in
     /// the offscreen preview window.
     void tick(const Deps& deps, const DirectionalLight& light, float dt);
@@ -126,6 +146,19 @@ public:
         float radius{0.5F};
     };
 
+    /// How one render through the scene stage differs from the default,
+    /// which is what an asset thumbnail wants: the stage's own graph, the
+    /// editor's backdrop, no shadows, and a fixed exposure.
+    struct RenderOptions {
+        const FjGraph* graph{nullptr};
+        const SkyBackdrop* backdrop{&SkyBackdrop::editor_preview()};
+        bool skip_shadows{true};
+        // Exposure is one adapted value shared by every viewport. Pinned,
+        // a thumbnail does not depend on how bright the open scene is;
+        // left alone, a capture of that very scene matches its viewport.
+        bool pin_exposure{true};
+    };
+
     /// The 3D stage scene subjects share: one small offscreen target with
     /// its own post-process resources and render graph, a private global
     /// set, and a scene rebuilt for every render around one fixed light.
@@ -142,11 +175,15 @@ public:
 
         /// Empty the scene and place the light; the subject adds the rest.
         Scene& begin();
-        /// Render the scene framed on `framing`, through the stage's own
-        /// graph or `graph` when given, and read it back into `out`. A null
-        /// `out` only advances what the render simulates.
+        /// Render the stage's scene framed on `framing`, through the stage's
+        /// own graph or `graph` when given, and read it back into `out`. A
+        /// null `out` only advances what the render simulates.
         bool render(const Deps& deps, const DirectionalLight& light, float dt,
                     const Framing& framing, Pixels* out, const FjGraph* graph = nullptr);
+        /// Render any scene from an explicit camera into the stage's target.
+        bool render_view(const Deps& deps, const DirectionalLight& light, float dt,
+                         Scene& scene, const View& view, Pixels* out,
+                         const RenderOptions& options);
         void shutdown(const Deps& deps);
 
     private:
@@ -170,6 +207,8 @@ public:
         /// Produce the thumbnail. False when the asset could not be loaded.
         virtual bool render(const Deps& deps, SceneStage& stage, const DirectionalLight& light,
                             float dt, const std::string& path, Pixels& out) = 0;
+        /// Whether render() can produce the thumbnail from the file alone.
+        [[nodiscard]] virtual bool renders_on_demand() const { return true; }
         /// Release anything the subject holds on the GPU. The device is idle.
         virtual void shutdown(const Deps& /*deps*/) {}
     };
@@ -214,6 +253,10 @@ private:
     bool render(const Deps& deps, const DirectionalLight& light, float dt,
                 Subject& subject, const std::string& path,
                 std::filesystem::file_time_type newest);
+    // Write the cache file and upload the pixels as the asset's thumbnail.
+    bool store_pixels(const Deps& deps, const std::string& path, const Pixels& pixels,
+                      std::filesystem::file_time_type newest);
+    void render_pending_capture(const Deps& deps, const DirectionalLight& light, float dt);
     void retire(const Deps& deps, Entry& entry);
     void evict_least_recent(const Deps& deps);
     // Store a fresh upload, or fail it when ImGui could not register it.
@@ -229,6 +272,15 @@ private:
 
     SceneStage stage_;
     uint64_t ticks_{0};
+
+    // A scene capture asked for outside the preview window, taken on the
+    // next tick. A later request replaces an earlier one.
+    struct PendingCapture {
+        Scene* scene{nullptr};
+        std::string path;
+        View view;
+    };
+    std::optional<PendingCapture> pending_capture_;
 };
 
 } // namespace fjell

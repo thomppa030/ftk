@@ -838,7 +838,24 @@ void Engine::save_scene() {
     save_material_assets();
     if (auto r = scene_.save(current_scene_path_, project_mgr_.active()); !r) {
         FJELL_CORE_ERROR("{}", r.error());
+        return;
     }
+
+    // The scene is in memory right now, which is the one time its
+    // thumbnail is cheap: from the scene's camera when it has one, else
+    // from wherever the editor viewport is looking.
+    AssetThumbnailRenderer::View view;
+    if (auto* cam = camera_subsystem_->active_camera(scene_)) {
+        view = {.view = cam->view_matrix(), .projection = cam->projection_matrix(1.0f),
+                .position = cam->position()};
+    } else if (auto* cam = scene_context_->viewport_manager().active_camera()) {
+        view = {.view = cam->view_matrix(), .projection = cam->projection_matrix(1.0f),
+                .position = cam->position()};
+    } else {
+        return;
+    }
+    asset_thumbnails_.capture_scene(scene_, current_scene_path_, view);
+    asset_thumbnails_.refresh(current_scene_path_);
 }
 
 void Engine::save_material_assets() {

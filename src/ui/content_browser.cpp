@@ -1005,7 +1005,7 @@ void ContentBrowser::draw_context_menu() {
             // the renderer does; this is for the day the renderer did.
             if (asset_thumbnails_ && ImGui::MenuItem("Regenerate Thumbnails")) {
                 for (const auto& e : entries_) {
-                    if (!asset_thumbnails_->supports(e.path)) continue;
+                    if (!asset_thumbnails_->regenerates(e.path)) continue;
                     asset_thumbnails_->invalidate(e.path.string());
                     asset_thumbnails_->refresh(e.path.string());
                 }

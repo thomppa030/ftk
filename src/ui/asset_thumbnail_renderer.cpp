@@ -47,6 +47,10 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr const char* GRAPH_PATH = "assets/render_graphs/asset_thumbnail.fjgraph";
+// A saved scene is shot with shadows and its own sky, the way the editor
+// shows it; the camera preview renders through this graph for the same
+// reason.
+constexpr const char* SCENE_GRAPH_PATH = "assets/render_graphs/editor_preview.fjgraph";
 
 // The camera preview waits this long too: MAX_FRAMES_IN_FLIGHT command
 // buffers may still be pending when the private set is allocated.
@@ -381,6 +385,31 @@ private:
     static constexpr AssetThumbnailRenderer::Framing FRAMING{.center = {0.0F, 1.0F, 0.0F}, .radius = 3.0F};
 };
 
+// ── Scenes ───────────────────────────────────────────────────────────────
+
+// A scene's thumbnail is taken when the scene is saved, from the scene
+// already in memory (capture_scene). Rendering one on demand would mean
+// loading every asset in it, so this subject only ever serves the cache.
+class SceneFileSubject final : public AssetThumbnailRenderer::Subject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        return path.extension() == ".fjell";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        return file_time(path);
+    }
+
+    bool render(const AssetThumbnailRenderer::Deps& /*deps*/, AssetThumbnailRenderer::SceneStage& /*stage*/,
+                const DirectionalLight& /*light*/, float /*dt*/, const std::string& /*path*/,
+                AssetThumbnailRenderer::Pixels& /*out*/) override {
+        return false;
+    }
+
+    [[nodiscard]] bool renders_on_demand() const override { return false; }
+};
+
 // ── UI ───────────────────────────────────────────────────────────────────
 
 // The stylesheet a markup file draws with: the one its <widget> header names,
@@ -575,6 +604,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<SkeletalMeshSubject>());
     subjects_.push_back(std::make_unique<AnimationClipSubject>());
     subjects_.push_back(std::make_unique<VfxSubject>());
+    subjects_.push_back(std::make_unique<SceneFileSubject>());
     subjects_.push_back(std::make_unique<WidgetSubject>());
 }
 
@@ -582,6 +612,16 @@ AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;
 
 bool AssetThumbnailRenderer::supports(const fs::path& path) const {
     return subject_for(path) != nullptr;
+}
+
+bool AssetThumbnailRenderer::regenerates(const fs::path& path) const {
+    const auto* subject = subject_for(path);
+    return subject != nullptr && subject->renders_on_demand();
+}
+
+void AssetThumbnailRenderer::capture_scene(Scene& scene, const std::string& fjell_path,
+                                           const View& view) {
+    pending_capture_ = PendingCapture{.scene = &scene, .path = fjell_path, .view = view};
 }
 
 AssetThumbnailRenderer::Subject* AssetThumbnailRenderer::subject_for(const fs::path& path) const {
@@ -639,6 +679,11 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
     if (stage_.draining()) {
         stage_.advance_drain();
         return;
+    }
+
+    if (pending_capture_) {
+        render_pending_capture(deps, light, dt);
+        if (stage_.draining()) return;
     }
 
     int served = 0;
@@ -756,35 +801,41 @@ Scene& AssetThumbnailRenderer::SceneStage::begin() {
 bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const DirectionalLight& light,
                                                 float dt, const Framing& framing, Pixels* out,
                                                 const FjGraph* graph) {
-    if (!target_ || !pp_) return false;
-    auto& vk = *deps.vulkan_context;
-    scene_.compute_world_matrices(nullptr);
-
     Camera camera(framing.center,
                   std::max(framing.radius * CAMERA_DISTANCE_PER_RADIUS, CAMERA_MIN_DISTANCE),
                   CAMERA_YAW, CAMERA_PITCH);
+    View view{.view = camera.view_matrix(),
+              .projection = camera.projection_matrix(1.0F),
+              .position = camera.position()};
+    return render_view(deps, light, dt, scene_, view, out, RenderOptions{.graph = graph});
+}
+
+bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, const DirectionalLight& light,
+                                                     float dt, Scene& scene, const View& view,
+                                                     Pixels* out, const RenderOptions& options) {
+    if (!target_ || !pp_) return false;
+    auto& vk = *deps.vulkan_context;
+    scene.compute_world_matrices(nullptr);
+
     ViewportRenderRequest req;
     req.target = target_.get();
-    req.view = camera.view_matrix();
-    req.projection = camera.projection_matrix(1.0F);
-    req.camera_position = camera.position();
+    req.view = view.view;
+    req.projection = view.projection;
+    req.camera_position = view.position;
     req.pp_resources = pp_.get();
-    req.skip_shadows = true;
-    req.viewport_graph = graph != nullptr ? graph : graph_;
+    req.skip_shadows = options.skip_shadows;
+    req.viewport_graph = options.graph != nullptr ? options.graph : graph_;
     req.global_set = global_set_;
-    // The same studio backdrop the asset editors preview over, so a
-    // thumbnail is a small view of what the editor shows.
-    req.backdrop = &SkyBackdrop::editor_preview();
+    req.backdrop = options.backdrop;
 
-    // Exposure is one adapted value shared by every viewport. Pin it for
-    // this submit so the thumbnail does not depend on how bright the open
-    // scene happened to be.
     auto& tonemap = vk.tonemap_pass();
     const float saved_exposure = tonemap.exposure();
     const bool saved_auto = tonemap.auto_exposure();
-    tonemap.set_auto_exposure(false);
-    tonemap.set_exposure(0.0F);
-    vk.render_preview(req, light, &scene_, dt, 0, *deps.thread_pool);
+    if (options.pin_exposure) {
+        tonemap.set_auto_exposure(false);
+        tonemap.set_exposure(0.0F);
+    }
+    vk.render_preview(req, light, &scene, dt, 0, *deps.thread_pool);
     tonemap.set_exposure(saved_exposure);
     tonemap.set_auto_exposure(saved_auto);
     if (out == nullptr) return true;
@@ -832,6 +883,38 @@ bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& li
                                     fs::file_time_type newest) {
     Pixels pixels;
     if (!subject.render(deps, stage_, light, dt, path, pixels)) return false;
+    return store_pixels(deps, path, pixels, newest);
+}
+
+void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, const DirectionalLight& light,
+                                                    float dt) {
+    if (!stage_.ensure(deps) || stage_.draining()) return;
+    PendingCapture capture = std::move(*pending_capture_);
+    pending_capture_.reset();
+
+    const auto* graph = deps.vulkan_context->get_or_load_graph(SCENE_GRAPH_PATH);
+    if (graph == nullptr) {
+        FJELL_CORE_ERROR("Scene thumbnail: failed to load {}", SCENE_GRAPH_PATH);
+        return;
+    }
+    Pixels pixels;
+    if (!stage_.render_view(deps, light, dt, *capture.scene, capture.view, &pixels,
+                            RenderOptions{.graph = graph, .backdrop = nullptr,
+                                          .skip_shadows = false, .pin_exposure = false})) {
+        return;
+    }
+    auto* subject = subject_for(capture.path);
+    auto newest = subject != nullptr ? subject->source_time(capture.path, deps.project)
+                                     : file_time(capture.path);
+    if (auto it = entries_.find(capture.path); it != entries_.end()) {
+        retire(deps, it->second);
+        entries_.erase(it);
+    }
+    store_pixels(deps, capture.path, pixels, newest);
+}
+
+bool AssetThumbnailRenderer::store_pixels(const Deps& deps, const std::string& path,
+                                          const Pixels& pixels, fs::file_time_type newest) {
     if (pixels.width == 0 || pixels.height == 0 ||
         pixels.rgba.size() < static_cast<size_t>(pixels.width) * pixels.height * 4) {
         return false;
