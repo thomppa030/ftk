@@ -66,16 +66,19 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     auto mesh_code = read_spirv(base_path::resolve("shaders/terrain.mesh.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/terrain.frag.spv"));
     auto depth_mesh_code = read_spirv(base_path::resolve("shaders/terrain_depth.mesh.spv"));
+    auto depth_frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
     auto wire_frag_code = read_spirv(base_path::resolve("shaders/terrain_wire.frag.spv"));
 
     VkShaderModule task_module = create_shader_module(device_, task_code);
     VkShaderModule mesh_module = create_shader_module(device_, mesh_code);
     VkShaderModule frag_module = create_shader_module(device_, frag_code);
     VkShaderModule depth_mesh_module = create_shader_module(device_, depth_mesh_code);
+    VkShaderModule depth_frag_module = create_shader_module(device_, depth_frag_code);
     VkShaderModule wire_frag_module = create_shader_module(device_, wire_frag_code);
 
     auto cleanup_modules = [&] {
         vkDestroyShaderModule(device_, wire_frag_module, nullptr);
+        vkDestroyShaderModule(device_, depth_frag_module, nullptr);
         vkDestroyShaderModule(device_, depth_mesh_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
@@ -195,11 +198,14 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     }
 
     // Depth-only variant for the prepass: same task shader and push constants,
-    // a mesh shader that emits position alone, and no color attachments.
-    std::array<VkPipelineShaderStageCreateInfo, 2> depth_stages{};
-    depth_stages[0] = stages[0];
-    depth_stages[1] = stages[1];
+    // a mesh shader that emits position alone, and no color attachments. It
+    // keeps an empty fragment stage like the other depth-only pipelines:
+    // without one the pipeline has no fragment output interface state, so
+    // pMultisampleState is dropped and the validation layer reports it NULL
+    // (VUID-VkGraphicsPipelineCreateInfo-pMultisampleState-09026).
+    std::array<VkPipelineShaderStageCreateInfo, 3> depth_stages = stages;
     depth_stages[1].module = depth_mesh_module;
+    depth_stages[2].module = depth_frag_module;
 
     VkPipelineColorBlendStateCreateInfo depth_blending{};
     depth_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;

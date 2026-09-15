@@ -16,6 +16,18 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageTypeFlagsEXT /*type*/,
     const VkDebugUtilsMessengerCallbackDataEXT* data,
     void* /*user_data*/) {
+    // VUID-vkCmdTraceRaysKHR-None-08608: the layer only clears its "dynamic
+    // state set since bind" flags on a *graphics* pipeline bind, so a viewport
+    // or scissor set by any earlier raster pass on the same command buffer is
+    // reported at the next trace. The spec only forbids dynamic state set after
+    // the ray-tracing pipeline was bound, which no pass does, and viewport and
+    // scissor have no effect on ray tracing. Filtered rather than reordering
+    // every raster pass around a layer quirk.
+    if (data->pMessageIdName &&
+        std::strcmp(data->pMessageIdName, "VUID-vkCmdTraceRaysKHR-None-08608") == 0) {
+        return VK_FALSE;
+    }
+
     switch (severity) {
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
         FJELL_GFX_TRACE("Validation: {}", data->pMessage);
