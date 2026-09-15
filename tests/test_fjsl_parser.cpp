@@ -1,11 +1,10 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -598,7 +597,7 @@ std::filesystem::path find_shader_dir() {
     // Both the source tree and the build tree carry shaders/include/; walk
     // up from wherever the test runs until one appears.
     for (auto dir : {std::filesystem::current_path(),
-                     std::filesystem::read_symlink("/proc/self/exe").parent_path()}) {
+                     platform::executable_path().parent_path()}) {
         for (int i = 0; i < 6; ++i) {
             if (std::filesystem::exists(dir / "shaders" / "include" / "fjell_spatial_template.glsl")) {
                 return dir / "shaders";
@@ -620,11 +619,12 @@ std::string read_text(const std::filesystem::path& path) {
 // Runs a command and returns its exit status plus captured output.
 std::pair<int, std::string> run(const std::string& cmd) {
     std::string output;
-    FILE* pipe = popen((cmd + " 2>&1").c_str(), "r");
-    if (pipe == nullptr) return {-1, "popen failed"};
-    char buf[512];
-    while (fgets(buf, sizeof(buf), pipe) != nullptr) output += buf;
-    return {pclose(pipe), output};
+    int status = platform::run_command(cmd + " 2>&1", output);
+    return {status, output};
+}
+
+std::string quoted(const std::filesystem::path& path) {
+    return "\"" + path.string() + "\"";
 }
 
 } // namespace
@@ -652,9 +652,10 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
         auto frag = out_dir / (name + ".frag");
         std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
 
+        auto spv = out_dir / (name + ".spv");
         auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
-                                    + (shader_dir / "include").string() + " "
-                                    + frag.string() + " -o /dev/null");
+                                    + quoted(shader_dir / "include") + " "
+                                    + quoted(frag) + " -o " + quoted(spv));
         INFO(output);
         REQUIRE(status == 0);
         ++checked;
