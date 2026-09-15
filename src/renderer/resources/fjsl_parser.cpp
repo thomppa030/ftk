@@ -284,7 +284,8 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         throw std::runtime_error("FJSL: missing shader_type declaration");
     }
 
-    if (meta.shader_type != "spatial" && meta.shader_type != "sky") {
+    if (meta.shader_type != "spatial" && meta.shader_type != "sky" &&
+        meta.shader_type != "ui") {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
@@ -369,6 +370,20 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     meta.light_body = extract_function_body(source, "light");
     meta.user_globals = extract_user_globals(source);
 
+    // A ui shader paints one screen-aligned quad: there is no geometry to
+    // displace and no light to shade, so the hooks that exist for meshes are
+    // errors rather than silently ignored code.
+    if (meta.shader_type == "ui") {
+        static const std::regex vertex_hook_re(R"(\bvoid\s+vertex\s*\()");
+        static const std::regex light_hook_re(R"(\bvoid\s+light\s*\()");
+        if (std::regex_search(source, vertex_hook_re)) {
+            throw std::runtime_error("FJSL: shader_type ui has no vertex() stage");
+        }
+        if (std::regex_search(source, light_hook_re)) {
+            throw std::runtime_error("FJSL: shader_type ui has no light() stage");
+        }
+    }
+
     return meta;
 }
 
@@ -391,11 +406,13 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // inside main(). Each macro reads from the materials SSBO using
     // frag_draw_index, which is in scope throughout the fragment shader.
     std::string param_defines;
-    // Sky shaders are a single fullscreen pass with no draws[] SSBO — the
-    // sky's material row index is pushed directly as `push.sky_material_id`.
-    // Spatial shaders look up the material via per-draw data.
-    const std::string mat_expr = meta.shader_type == "sky"
-        ? "materials[push.sky_material_id]"
+    // Each shader type reaches its material row differently. Sky is a single
+    // fullscreen pass with no draws[] SSBO, so the row index is pushed as
+    // `push.sky_material_id`; a ui quad carries its row in the quad record;
+    // spatial shaders look up the material via per-draw data.
+    const std::string mat_expr =
+        meta.shader_type == "sky" ? "materials[push.sky_material_id]"
+        : meta.shader_type == "ui" ? "materials[quads[frag_quad_index].material_id]"
         : "materials[draws[frag_draw_index].material_id]";
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;

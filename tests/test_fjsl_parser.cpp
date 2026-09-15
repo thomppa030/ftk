@@ -30,6 +30,40 @@ TEST_CASE("Unsupported shader_type throws", "[fjsl]") {
     REQUIRE_THROWS(parse_fjsl("shader_type canvas;\nvoid fragment() {}"));
 }
 
+// --- shader_type ui ---
+
+TEST_CASE("Parse shader_type ui takes its body from fragment()", "[fjsl][ui]") {
+    auto meta = parse_fjsl(R"(
+        shader_type ui;
+        uniform float speed : hint_range(0.0, 3.0, 0.1) = 1.0;
+        void fragment() { ALPHA = COLOR.a * step(1.0 - FILL, UV.y); }
+    )");
+    REQUIRE(meta.shader_type == "ui");
+    REQUIRE(meta.fragment_body.find("step(1.0 - FILL, UV.y)") != std::string::npos);
+    REQUIRE(meta.vertex_body.empty());
+    REQUIRE(meta.light_body.empty());
+    REQUIRE(meta.custom_param_count == 1);
+}
+
+TEST_CASE("shader_type ui rejects the mesh-only hooks", "[fjsl][ui]") {
+    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid vertex() { VERTEX.y += 1.0; }\nvoid fragment() {}"));
+    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid light() {}\nvoid fragment() {}"));
+}
+
+TEST_CASE("shader_type ui reads its material through the quad record", "[fjsl][ui]") {
+    auto meta = parse_fjsl(R"(
+        shader_type ui;
+        uniform vec3 glow : hint_color = vec3(1.0, 0.3, 0.2);
+        uniform sampler2D noise;
+        void fragment() { ALBEDO = glow * texture(noise, UV).r; }
+    )");
+    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\nvoid main() {\n/*FJSL_USER_CODE*/\n}\n";
+    auto result = generate_fragment_shader(meta, tmpl);
+    REQUIRE(result.find("materials[quads[frag_quad_index].material_id].param_offset") != std::string::npos);
+    REQUIRE(result.find("materials[quads[frag_quad_index].material_id].texture_indices[4]") != std::string::npos);
+    REQUIRE(result.find("frag_draw_index") == std::string::npos);
+}
+
 // --- Uniforms ---
 
 TEST_CASE("Parse float uniform with default", "[fjsl]") {
@@ -661,6 +695,64 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
         ++checked;
     }
     REQUIRE(checked > 0);
+}
+
+// The ui template is compiled in two shapes by PipelineCache; a shader that
+// only names UI built-ins must survive both, and a hand-written sample keeps
+// the template covered even when no .fjsl in the tree uses every input.
+TEST_CASE("shader_type ui generates GLSL that glslc accepts in both shapes", "[fjsl][glslc][ui]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_ui_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    std::vector<std::pair<std::string, std::string>> sources;
+    sources.emplace_back("ui_builtins", R"(
+        shader_type ui;
+        uniform float speed : hint_range(0.0, 3.0, 0.1) = 1.0;
+        uniform vec3 glow : hint_color = vec3(1.0, 0.3, 0.2);
+        uniform sampler2D noise;
+        const float TIME_SCALE = 2.0;
+        float ripple(vec2 p) { return sin(p.x * 12.0 - TIME_SCALE * p.y); }
+        void fragment() {
+            float wave = sin(UV.x * 12.0 - TIME * speed) * 0.02;
+            float surface = FILL + wave + texture(noise, PIXEL / SIZE).r * 0.01;
+            float inside = step(1.0 - surface, UV.y);
+            vec3 base = HAS_TEXTURE ? texture(TEXTURE, UV).rgb : COLOR.rgb;
+            ALBEDO = mix(base, glow, 0.3 + 0.2 * HOVER + 0.1 * ACTIVE + 0.1 * FOCUS)
+                   + vec3(ripple(SCREEN_UV)) * 0.01;
+            ALPHA = COLOR.a * inside;
+        }
+    )");
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto text = read_text(entry.path());
+        if (parse_fjsl(text).shader_type == "ui") {
+            sources.emplace_back(entry.path().stem().string(), text);
+        }
+    }
+
+    for (const auto& [name, text] : sources) {
+        INFO("shader: " << name);
+        auto meta = parse_fjsl(text);
+        auto frag = out_dir / (name + ".ui.frag");
+        std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+
+        for (const char* define : {"", "-DFJELL_UI_WORLD"}) {
+            INFO("defines: " << define);
+            auto spv = out_dir / (name + ".ui.spv");
+            auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                        + quoted(shader_dir / "include") + " " + define + " "
+                                        + quoted(frag) + " -o " + quoted(spv));
+            INFO(output);
+            REQUIRE(status == 0);
+        }
+    }
 }
 
 TEST_CASE("hint_color uniforms are authored in sRGB and stored linear", "[fjsl][color]") {

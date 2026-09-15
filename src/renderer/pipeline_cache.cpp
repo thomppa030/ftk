@@ -52,6 +52,7 @@ PipelineCache::PipelineCache(Device& device,
     // Load the spatial template (required)
     template_source_ = load_template("fjell_spatial_template.glsl");
     sky_template_ = load_template("fjell_sky_template.glsl");
+    ui_template_ = load_template("fjell_ui_template.glsl");
     if (template_source_.empty()) {
         throw std::runtime_error("Failed to open spatial template");
     }
@@ -190,10 +191,12 @@ void PipelineCache::compile_entry(Entry& entry) {
         next.metadata = parse_fjsl(source);
 
         // Pick the template by shader_type. Spatial uses the full PBR
-        // template; sky uses the fullscreen sky template.
-        const std::string& tmpl = next.metadata.shader_type == "sky"
-            ? sky_template_
-            : template_source_;
+        // template; sky the fullscreen sky template; ui the UI quad template.
+        const std::string& shader_type = next.metadata.shader_type;
+        const bool is_ui = shader_type == "ui";
+        const std::string& tmpl = shader_type == "sky" ? sky_template_
+                                : is_ui ? ui_template_
+                                : template_source_;
         if (tmpl.empty()) {
             throw std::runtime_error("FJSL: no template loaded for shader_type '"
                                      + next.metadata.shader_type + "'");
@@ -221,11 +224,16 @@ void PipelineCache::compile_entry(Entry& entry) {
         struct ShaderJob {
             std::string source_path;
             std::string output_name;
+            std::vector<std::string> defines;
         };
         std::vector<ShaderJob> jobs;
 
-        // Fragment is always compiled
-        jobs.push_back({next.generated_frag_path, stem + ".frag"});
+        // Fragment is always compiled. A ui shader is one generated source
+        // compiled in two shapes, screen-space and worldspace.
+        jobs.push_back({next.generated_frag_path, stem + ".frag", {}});
+        if (is_ui) {
+            jobs.push_back({next.generated_frag_path, stem + ".world.frag", {"FJELL_UI_WORLD"}});
+        }
 
         if (next.has_custom_vertex) {
             auto gen_source = [&](const std::string& vertex_tmpl, const std::string& suffix) -> std::string {
@@ -242,7 +250,7 @@ void PipelineCache::compile_entry(Entry& entry) {
             auto add_job = [&](const std::string& vertex_tmpl, const std::string& suffix) {
                 std::string path = gen_source(vertex_tmpl, suffix);
                 if (!path.empty()) {
-                    jobs.push_back({path, stem + suffix});
+                    jobs.push_back({path, stem + suffix, {}});
                 }
             };
 
@@ -259,16 +267,20 @@ void PipelineCache::compile_entry(Entry& entry) {
         futures.reserve(jobs.size());
         for (auto& job : jobs) {
             futures.push_back(std::async(std::launch::async,
-                [this](std::string src, std::string out_name) {
-                    return compile_glsl(src, out_name);
-                }, job.source_path, job.output_name));
+                [this](std::string src, std::string out_name, std::vector<std::string> defs) {
+                    return compile_glsl(src, out_name, defs);
+                }, job.source_path, job.output_name, job.defines));
         }
 
         // Collect results
         std::string frag_spv = futures[0].get(); // fragment is always index 0
+        size_t idx = 1;
+        if (is_ui) {
+            next.ui_frag_spv = frag_spv;
+            next.ui_world_frag_spv = futures[idx++].get();
+        }
 
         if (next.has_custom_vertex) {
-            size_t idx = 1;
             auto collect = [&]() -> std::string {
                 return (idx < futures.size()) ? futures[idx++].get() : std::string{};
             };
@@ -282,10 +294,10 @@ void PipelineCache::compile_entry(Entry& entry) {
 
         next.frag_spv = frag_spv;
 
-        // Sky shaders don't participate in any of the spatial pipelines
-        // (opaque/transparent/depth-prepass/shadow/outline). SkyPass owns
-        // its own VkPipeline built from this entry's frag_spv + metadata.
-        if (next.metadata.shader_type != "sky") {
+        // Sky and ui shaders don't participate in any of the spatial pipelines
+        // (opaque/transparent/depth-prepass/shadow/outline). SkyPass and
+        // UiRenderer own their VkPipelines, built from this entry's SPV.
+        if (shader_type != "sky" && !is_ui) {
             create_pipelines(next, frag_spv);
         }
 
@@ -312,6 +324,8 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.skinned_transparent = next.skinned_transparent;
     entry.outline = next.outline;
     entry.frag_spv = std::move(next.frag_spv);
+    entry.ui_frag_spv = std::move(next.ui_frag_spv);
+    entry.ui_world_frag_spv = std::move(next.ui_world_frag_spv);
     entry.vert_spv = std::move(next.vert_spv);
     entry.mesh_spv = std::move(next.mesh_spv);
     entry.depth_vert_spv = std::move(next.depth_vert_spv);
@@ -322,11 +336,15 @@ void PipelineCache::compile_entry(Entry& entry) {
 }
 
 std::string PipelineCache::compile_glsl(const std::string& source_path,
-                                         const std::string& output_name) {
+                                         const std::string& output_name,
+                                         const std::vector<std::string>& defines) {
     std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
     std::string include_dir = shader_source_dir_ + "/include";
-    std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir +
-                      " " + source_path + " -o " + spv_path + " 2>&1";
+    std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
+    for (const auto& define : defines) {
+        cmd += " -D" + define;
+    }
+    cmd += " " + source_path + " -o " + spv_path + " 2>&1";
 
     std::string output;
     int status = platform::run_command(cmd, output);
@@ -860,6 +878,14 @@ const std::string& PipelineCache::outline_vert_spv(uint32_t id) const {
 
 const std::string& PipelineCache::frag_spv_path(uint32_t id) const {
     return entries_[id].frag_spv;
+}
+
+const std::string& PipelineCache::ui_frag_spv(uint32_t id) const {
+    return entries_[id].ui_frag_spv;
+}
+
+const std::string& PipelineCache::ui_world_frag_spv(uint32_t id) const {
+    return entries_[id].ui_world_frag_spv;
 }
 
 } // namespace fjell

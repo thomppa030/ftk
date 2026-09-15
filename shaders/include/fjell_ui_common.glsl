@@ -19,6 +19,7 @@ struct UiQuad {
     uint material_id;   // material SSBO index (UINT32_MAX = none)
     float z_layer;      // depth ordering (0 = far, 1 = near)
     uint quad_flags;    // bitfield: bit 0 = opaque
+    vec4 state;         // FILL, HOVER, ACTIVE, FOCUS for shader_type ui
 };
 
 struct UiGlyph {

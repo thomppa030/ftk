@@ -59,6 +59,12 @@ public:
     // owner of a custom pipeline shape) to build its own VkPipeline from
     // an FJSL-generated fragment.
     [[nodiscard]] const std::string& frag_spv_path(uint32_t id) const;
+    // A `shader_type ui;` entry compiles its fragment twice, once per UI
+    // pipeline shape: screen-space, and worldspace with the scene pass's
+    // extra attachments. UiRenderer builds its pipelines from these. Empty
+    // for every other shader type.
+    [[nodiscard]] const std::string& ui_frag_spv(uint32_t id) const;
+    [[nodiscard]] const std::string& ui_world_frag_spv(uint32_t id) const;
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
     [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
     [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
@@ -84,6 +90,9 @@ private:
         VkPipeline skinned_transparent{VK_NULL_HANDLE};
         VkPipeline outline{VK_NULL_HANDLE};
         std::string frag_spv;  // path to compiled fragment SPIR-V
+        // shader_type ui only: the two UI pipeline shapes
+        std::string ui_frag_spv;
+        std::string ui_world_frag_spv;
         // Custom vertex SPIR-V paths (empty = use standard shaders)
         std::string vert_spv;
         std::string mesh_spv;
@@ -101,8 +110,11 @@ private:
     void destroy_entry_pipelines(Entry& entry);
 
     // Compile a GLSL source to SPIR-V using glslc. Returns path to .spv file.
+    // `defines` are passed as -D flags, for templates compiled in more than
+    // one shape from one generated source.
     [[nodiscard]] std::string compile_glsl(const std::string& source_path,
-                                            const std::string& output_name);
+                                            const std::string& output_name,
+                                            const std::vector<std::string>& defines = {});
 
     Device& device_;
     VkFormat color_format_;
@@ -120,6 +132,7 @@ private:
     std::unordered_map<std::string, uint32_t> path_to_id_;
     std::string template_source_;
     std::string sky_template_;
+    std::string ui_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;

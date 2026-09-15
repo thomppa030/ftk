@@ -86,8 +86,9 @@ private:
         uint32_t material_id;    // material SSBO index (UINT32_MAX = none)
         float z_layer;           // depth ordering (0 = far, 1 = near)
         uint32_t quad_flags;     // bitfield: bit 0 = opaque
+        glm::vec4 state;         // FILL, HOVER, ACTIVE, FOCUS for shader_type ui
     };
-    static_assert(sizeof(GpuUiQuad) == 144);
+    static_assert(sizeof(GpuUiQuad) == 160);
 
     struct GpuUiGlyph {
         glm::vec4 rect;          // x, y, w, h (pixels)
