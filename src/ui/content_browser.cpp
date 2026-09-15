@@ -585,6 +585,13 @@ void ContentBrowser::draw_file_grid() {
         if (columns > 1) ImGui::SameLine(0, padding);
     }
 
+    // The whole grid area doubles as "the folder itself": right-clicking
+    // anywhere that is not an entry, or dropping a hierarchy node anywhere in
+    // it, addresses the current directory. It is laid out as one item behind
+    // the entries once their extent is known.
+    ImVec2 grid_start = ImGui::GetCursorScreenPos();
+    ImVec2 grid_avail = ImGui::GetContentRegionAvail();
+
     int col = (current_dir_ != root_) ? 1 : 0;
     bool open_context_menu = false;
 
@@ -797,15 +804,18 @@ void ContentBrowser::draw_file_grid() {
         ImGui::OpenPopup("##CBContext");
     }
 
-    // Invisible drop zone covering remaining space — accepts hierarchy node drops
-    // Also handles right-click on empty space (since InvisibleButton eats hover,
-    // IsAnyItemHovered() is always true and the old empty-space check never fired).
+    // Entries claim the mouse only while a drag is starting, so a right-click
+    // on one also lands on the background item; the entry's own handling above
+    // takes precedence. The background spans the taller of the grid and the
+    // visible area so it never adds scroll range of its own.
     {
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        if (avail.y < 30.0f) avail.y = 30.0f; // minimum drop area
-        ImGui::InvisibleButton("##preset_drop_zone", avail);
+        if (col != 0) ImGui::NewLine();
+        float grid_height = ImGui::GetCursorScreenPos().y - grid_start.y;
+        ImVec2 size{std::max(grid_avail.x, 1.0f), std::max(grid_height, std::max(grid_avail.y, 1.0f))};
+        ImGui::SetCursorScreenPos(grid_start);
+        ImGui::InvisibleButton("##grid_background", size);
 
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        if (!open_context_menu && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
             context_menu_index_ = -1;
             selected_index_ = -1;
             ImGui::OpenPopup("##CBContext");
