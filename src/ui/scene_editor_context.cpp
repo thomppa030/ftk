@@ -1831,12 +1831,26 @@ void SceneEditorContext::snap_selection_to_floor() {
     for (const auto& other : deps_.scene->objects()) {
         if (is_selected_or_descendant(*other)) continue;
 
+        const auto* other_spatial = other->as_spatial();
+        if (!other_spatial) continue;
+
+        // Terrain has no triangles to walk; its surface is wherever the mesh
+        // shader puts it, which raycast_terrain reproduces.
+        if (const auto* terrain = other->components.get<TerrainComponent>();
+            terrain != nullptr && terrain->terrain != nullptr) {
+            glm::vec3 surface{0.0f};
+            if (raycast_terrain(*terrain->terrain,
+                                terrain->terrain->world_min_corner(other_spatial->world_matrix_),
+                                origin, DOWN, surface)) {
+                const float t = origin.y - surface.y;
+                if (t >= 0.0f && t < best_t) best_t = t;
+            }
+            continue;
+        }
+
         auto* other_mesh = other->components.get<MeshComponent>();
         if (!other_mesh || !other_mesh->model) continue;
         if (!other_mesh->model->local_aabb().valid()) continue;
-
-        const auto* other_spatial = other->as_spatial();
-        if (!other_spatial) continue;
 
         const glm::mat4& world = other_spatial->world_matrix_;
         const AABB other_box = other_mesh->model->local_aabb().transform(world);
