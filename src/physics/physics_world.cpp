@@ -38,6 +38,8 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
+#include <Jolt/Physics/Collision/PhysicsMaterialSimple.h>
 
 #include <glm/gtc/epsilon.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -241,6 +243,8 @@ class FjellContactListener final : public JPH::ContactListener {
 public:
     // Back-pointer for resolving body → object ID
     std::unordered_map<uint32_t, uint32_t>* body_to_object{nullptr};
+    // Back-pointer for resolving a shape's material → surface id
+    const std::unordered_map<const JPH::PhysicsMaterial*, uint32_t>* material_surfaces{nullptr};
 
     // Bodies that stand in for a character. Their contacts are not reported
     // from here: a character sweeps its own shape and knows every contact it
@@ -291,6 +295,18 @@ public:
         }
         auto contact_normal = to_glm(manifold.mWorldSpaceNormal);
 
+        // Each side learns what the other is made of where they touch.
+        uint32_t surface1 = 0;
+        uint32_t surface2 = 0;
+        if (material_surfaces != nullptr) {
+            auto lookup = [&](const JPH::PhysicsMaterial* material) {
+                auto found = material_surfaces->find(material);
+                return found != material_surfaces->end() ? found->second : 0U;
+            };
+            surface1 = lookup(body1.GetShape()->GetMaterial(manifold.mSubShapeID1));
+            surface2 = lookup(body2.GetShape()->GetMaterial(manifold.mSubShapeID2));
+        }
+
         bool is_sensor = body1.IsSensor() || body2.IsSensor();
 
         // Cache this contact for exit tracking
@@ -302,12 +318,12 @@ public:
 
         if (is_sensor) {
             std::lock_guard lock(event_mutex_);
-            trigger_enter_events.push_back({obj1, {obj2, contact_point, contact_normal}});
-            trigger_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+            trigger_enter_events.push_back({obj1, {obj2, contact_point, contact_normal, surface2}});
+            trigger_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal, surface1}});
         } else {
             std::lock_guard lock(event_mutex_);
-            collision_enter_events.push_back({obj1, {obj2, contact_point, contact_normal}});
-            collision_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+            collision_enter_events.push_back({obj1, {obj2, contact_point, contact_normal, surface2}});
+            collision_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal, surface1}});
         }
     }
 
@@ -327,7 +343,7 @@ public:
             active_contacts_.erase(it);
         }
 
-        CollisionEvent exit_event{0, glm::vec3(0.0f), glm::vec3(0.0f)};
+        CollisionEvent exit_event{0, glm::vec3(0.0f), glm::vec3(0.0f), 0};
 
         if (cached.is_sensor) {
             std::lock_guard lock(event_mutex_);
@@ -439,6 +455,31 @@ struct PhysicsWorld::Impl {
     // rescaled afterwards, so the scale each body was built at is kept to
     // notice when it no longer matches and the shape must be rebuilt.
     std::unordered_map<uint32_t, glm::vec3> body_scales;
+
+    // One Jolt material per surface id, created on first use and kept for
+    // the world's lifetime, and the reverse map that turns the material a
+    // shape reports back into the surface id gameplay compares. Jolt's own
+    // material types carry only a debug name, which is all a surface needs
+    // on that side; the identity lives in these maps.
+    std::unordered_map<uint32_t, JPH::RefConst<JPH::PhysicsMaterial>> surface_materials;
+    std::unordered_map<const JPH::PhysicsMaterial*, uint32_t> material_surfaces;
+
+    // Null for surface 0, which is what a shape with no material means.
+    const JPH::PhysicsMaterial* material_for(uint32_t surface) {
+        if (surface == 0) return nullptr;
+        auto it = surface_materials.find(surface);
+        if (it != surface_materials.end()) return it->second.GetPtr();
+        JPH::RefConst<JPH::PhysicsMaterial> material =
+            new JPH::PhysicsMaterialSimple("surface " + std::to_string(surface), JPH::Color::sGrey);
+        material_surfaces[material.GetPtr()] = surface;
+        surface_materials[surface] = material;
+        return material.GetPtr();
+    }
+
+    [[nodiscard]] uint32_t surface_of(const JPH::PhysicsMaterial* material) const {
+        auto it = material_surfaces.find(material);
+        return it != material_surfaces.end() ? it->second : 0;
+    }
 };
 
 static bool s_jolt_initialized = false;
@@ -485,6 +526,7 @@ PhysicsWorld::PhysicsWorld() : impl_(std::make_unique<Impl>()) {
 
     // Wire up contact listener
     impl_->contact_listener.body_to_object = &impl_->body_to_object;
+    impl_->contact_listener.material_surfaces = &impl_->material_surfaces;
     impl_->physics_system->SetContactListener(&impl_->contact_listener);
 }
 
@@ -527,20 +569,22 @@ static float clamp_positive(float v) {
 static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
                                             const CollisionMesh& geometry,
                                             const glm::vec3& scale,
-                                            const std::string& owner) {
+                                            const std::string& owner,
+                                            const JPH::PhysicsMaterial* material) {
     switch (prim.kind) {
         case CollisionPrimitiveKind::box: {
             auto he = clamp_box_half_extents(prim.extents * scale);
-            return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
+            return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z), JPH::cDefaultConvexRadius,
+                                     material);
         }
         case CollisionPrimitiveKind::sphere: {
             float r = clamp_positive(prim.extents.x * std::max({scale.x, scale.y, scale.z}));
-            return new JPH::SphereShape(r);
+            return new JPH::SphereShape(r, material);
         }
         case CollisionPrimitiveKind::capsule: {
             float r = clamp_positive(prim.extents.x * std::max(scale.x, scale.z));
             float half_h = clamp_positive(prim.extents.y * 0.5f * scale.y);
-            return new JPH::CapsuleShape(half_h, r);
+            return new JPH::CapsuleShape(half_h, r, material);
         }
         case CollisionPrimitiveKind::convex_hull: {
             if (geometry.vertices == nullptr) return {};
@@ -553,7 +597,8 @@ static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
                 auto p = verts[idx] * scale;
                 points.push_back(JPH::Vec3(p.x, p.y, p.z));
             }
-            auto result = JPH::ConvexHullShapeSettings(points).Create();
+            auto result = JPH::ConvexHullShapeSettings(points, JPH::cDefaultConvexRadius, material)
+                              .Create();
             if (result.HasError()) {
                 FJELL_CORE_ERROR("Failed to create hull collider for '{}': {}",
                                  owner, result.GetError().c_str());
@@ -578,7 +623,11 @@ static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
                     JPH::Float3(v1.x, v1.y, v1.z),
                     JPH::Float3(v2.x, v2.y, v2.z)));
             }
-            auto result = JPH::MeshShapeSettings(triangles).Create();
+            // Every triangle indexes material 0; with no surface the list stays
+            // empty and Jolt reports its default.
+            JPH::PhysicsMaterialList materials;
+            if (material != nullptr) materials.push_back(material);
+            auto result = JPH::MeshShapeSettings(triangles, std::move(materials)).Create();
             if (result.HasError()) {
                 FJELL_CORE_ERROR("Failed to create mesh collider for '{}': {}",
                                  owner, result.GetError().c_str());
@@ -597,6 +646,7 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
                                            const CollisionMesh& geometry,
                                            const glm::vec3& scale,
                                            const std::string& owner,
+                                           const JPH::PhysicsMaterial* material,
                                            bool& out_supports_dynamic) {
     out_supports_dynamic = true;
     for (const auto& prim : primitives) {
@@ -605,7 +655,7 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 
     if (primitives.size() == 1) {
         const auto& prim = primitives.front();
-        auto shape = build_primitive_shape(prim, geometry, scale, owner);
+        auto shape = build_primitive_shape(prim, geometry, scale, owner, material);
         if (!shape) return {};
         // A placed shape needs the transform wrapper; an unplaced one does not.
         if (glm::length(prim.position) < 1e-5f &&
@@ -621,7 +671,7 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
     JPH::StaticCompoundShapeSettings settings;
     uint32_t added = 0;
     for (const auto& prim : primitives) {
-        auto shape = build_primitive_shape(prim, geometry, scale, owner);
+        auto shape = build_primitive_shape(prim, geometry, scale, owner, material);
         if (!shape) continue;
         settings.AddShape(to_jolt(prim.position * scale), to_jolt_quat(prim.rotation), shape);
         ++added;
@@ -644,8 +694,8 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 // the same reconstruction the terrain shader performs, expressed as Jolt's
 // surface equation rather than repeated per sample.
 static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filters,
-                                       const TerrainAsset& terrain, const Node3D& node,
-                                       const glm::vec3& world_position,
+                                       PhysicsWorld::Impl& impl, const TerrainAsset& terrain,
+                                       const Node3D& node, const glm::vec3& world_position,
                                        const glm::quat& world_rotation) {
     const auto& data = terrain.data();
     const uint32_t samples = data.sample_count();
@@ -674,6 +724,25 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
     // otherwise flatten against a ceiling derived from the initial samples.
     settings.mMinHeightValue = 0.0f;
     settings.mMaxHeightValue = 1.0f;
+
+    // One material per layer, indexed per quad by whichever layer dominates
+    // the painted weights there. Only worth building when some layer has a
+    // surface; otherwise the field reports Jolt's default everywhere.
+    bool any_surface = false;
+    for (uint32_t i = 0; i < terrain.layer_count(); ++i) {
+        any_surface = any_surface || terrain.layer_surface(i) != 0;
+    }
+    if (any_surface) {
+        for (uint32_t i = 0; i < FJTERRAIN_MAX_LAYERS; ++i) {
+            const JPH::PhysicsMaterial* material = impl.material_for(terrain.layer_surface(i));
+            settings.mMaterials.push_back(material != nullptr
+                                              ? JPH::RefConst<JPH::PhysicsMaterial>(material)
+                                              : JPH::PhysicsMaterial::sDefault);
+        }
+        const uint32_t quads = samples - 1;
+        settings.mMaterialIndices.resize(static_cast<size_t>(quads) * quads);
+        terrain.dominant_layers(0, 0, quads, quads, settings.mMaterialIndices.data());
+    }
 
     auto shape_result = settings.Create();
     if (shape_result.HasError()) {
@@ -718,11 +787,18 @@ void PhysicsWorld::create_bone_bodies(Node& node, const Skeleton& skeleton) {
     auto& bi = impl_->physics_system->GetBodyInterface();
     CollisionMesh no_geometry;
 
+    // Bone shapes are the character's hit surfaces; they report the node's
+    // collider surface, when it has one, so a hit on a forearm says what the
+    // character is made of.
+    const auto* node_collider = node.components.get<ColliderComponent>();
+    const JPH::PhysicsMaterial* bone_material =
+        impl_->material_for(node_collider != nullptr ? node_collider->surface : 0);
+
     for (const auto& col : colliders) {
         if (col.shape.bone < 0) continue;
 
         auto shape = build_primitive_shape(col.shape, no_geometry,
-                                           spatial->transform.scale, node.name);
+                                           spatial->transform.scale, node.name, bone_material);
         if (!shape) continue;
 
         // Placed at the node for now; step() moves it onto its bone before the
@@ -828,8 +904,9 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
         glm::vec3 world_position;
         glm::quat world_rotation;
         world_placement(scene, *spatial, world_position, world_rotation);
-        if (auto body_id = create_terrain_body(bi, impl_->filter_table, *terrain_comp->terrain,
-                                               *spatial, world_position, world_rotation);
+        if (auto body_id = create_terrain_body(bi, impl_->filter_table, *impl_,
+                                               *terrain_comp->terrain, *spatial,
+                                               world_position, world_rotation);
             !body_id.IsInvalid()) {
             impl_->object_to_body[node.id] = body_id;
             impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;
@@ -872,21 +949,26 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
     // so a placed object needs no per-instance setup.
     auto effective_shape = effective_collider_shape(col, node);
 
+    // The collider's surface rides on the shape, so a ray or a foot that
+    // lands on this body reads it back.
+    const JPH::PhysicsMaterial* material = impl_->material_for(col.surface);
+
     switch (effective_shape) {
         case ColliderShape::Box: {
             auto he = clamp_box_half_extents(col.half_extents * s);
-            shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
+            shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z), JPH::cDefaultConvexRadius,
+                                      material);
             break;
         }
         case ColliderShape::Sphere: {
             float r = clamp_positive(col.radius * std::max({s.x, s.y, s.z}));
-            shape = new JPH::SphereShape(r);
+            shape = new JPH::SphereShape(r, material);
             break;
         }
         case ColliderShape::Capsule: {
             float r = clamp_positive(col.radius * std::max(s.x, s.z));
             float half_h = clamp_positive(col.height * 0.5f * s.y);
-            shape = new JPH::CapsuleShape(half_h, r);
+            shape = new JPH::CapsuleShape(half_h, r, material);
             break;
         }
         case ColliderShape::Mesh: {
@@ -903,7 +985,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
                 return;
             }
 
-            shape = build_authored_shape(primitives, collision, s, node.name,
+            shape = build_authored_shape(primitives, collision, s, node.name, material,
                                          mesh_supports_dynamic);
             if (!shape) return;
 
@@ -1178,8 +1260,11 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     // Two characters touching each other are both aware of it, so a pair is
     // reported once per step no matter which side found it.
     std::unordered_set<uint64_t> reported_pairs;
+    // `surface` is what the character touched; the character itself has none,
+    // so the other side's event carries 0.
     auto report_character_contact = [&](bool enter, bool sensor, uint32_t self, uint32_t other,
-                                        const glm::vec3& point, const glm::vec3& normal) {
+                                        const glm::vec3& point, const glm::vec3& normal,
+                                        uint32_t surface) {
         uint64_t pair = (static_cast<uint64_t>(std::min(self, other)) << 32) |
                         std::max(self, other);
         if (!reported_pairs.insert(pair).second) return;
@@ -1188,8 +1273,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
                               : (enter ? listener.collision_enter_events : listener.collision_exit_events);
         // Normals point from the receiving node toward the other, as the body
         // listener reports them.
-        events.push_back({self, {other, point, normal}});
-        events.push_back({other, {self, point, -normal}});
+        events.push_back({self, {other, point, normal, surface}});
+        events.push_back({other, {self, point, -normal, 0}});
     };
     for (auto& entry : impl_->characters) {
         auto* node = scene.find_spatial(entry.object_id);
@@ -1217,7 +1302,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
             // touching has ended as far as gameplay is concerned.
             for (const auto& old : entry.contacts) {
                 report_character_contact(false, old.sensor, entry.object_id, old.other_id,
-                                         world_position, glm::vec3{0.0f});
+                                         world_position, glm::vec3{0.0f}, 0);
             }
             entry.contacts.clear();
             continue;
@@ -1275,7 +1360,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
             if (!was_touching) {
                 report_character_contact(true, contact.mIsSensorB, entry.object_id, other->second,
                                          to_glm(JPH::Vec3(contact.mPosition)),
-                                         -to_glm(contact.mContactNormal));
+                                         -to_glm(contact.mContactNormal),
+                                         impl_->surface_of(contact.mMaterial));
             }
         }
         for (const auto& old : entry.contacts) {
@@ -1283,7 +1369,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
                                      [&](const auto& t) { return t.other_id == old.other_id; });
             if (!still) {
                 report_character_contact(false, old.sensor, entry.object_id, old.other_id,
-                                         to_glm(entry.character->GetPosition()), glm::vec3{0.0f});
+                                         to_glm(entry.character->GetPosition()), glm::vec3{0.0f},
+                                         0);
             }
         }
         entry.contacts = std::move(touched);
@@ -1327,6 +1414,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         cc->velocity = to_glm(entry.character->GetLinearVelocity());
         cc->ground_velocity = to_glm(entry.character->GetGroundVelocity());
         cc->ground_normal = to_glm(entry.character->GetGroundNormal());
+        cc->ground_surface = impl_->surface_of(entry.character->GetGroundMaterial());
 
         switch (entry.character->GetGroundState()) {
             case JPH::CharacterVirtual::EGroundState::OnGround:
@@ -1461,19 +1549,20 @@ public:
 
 // Fills a RaycastHit from a body and a point on it. Surface normals need the
 // body locked, so this is the one place that does it.
-static void fill_hit(const JPH::PhysicsSystem& system,
-                     const std::unordered_map<uint32_t, uint32_t>& body_to_object,
-                     JPH::BodyID body_id, JPH::SubShapeID sub_shape,
-                     JPH::RVec3Arg point, float distance, RaycastHit& out) {
+static void fill_hit(const PhysicsWorld::Impl& impl, JPH::BodyID body_id,
+                     JPH::SubShapeID sub_shape, JPH::RVec3Arg point, float distance,
+                     RaycastHit& out) {
     out.position = to_glm(point);
     out.distance = distance;
 
-    auto it = body_to_object.find(body_id.GetIndexAndSequenceNumber());
-    out.object_id = it != body_to_object.end() ? it->second : 0;
+    auto it = impl.body_to_object.find(body_id.GetIndexAndSequenceNumber());
+    out.object_id = it != impl.body_to_object.end() ? it->second : 0;
 
-    JPH::BodyLockRead lock(system.GetBodyLockInterface(), body_id);
+    JPH::BodyLockRead lock(impl.physics_system->GetBodyLockInterface(), body_id);
     if (lock.Succeeded()) {
-        out.normal = to_glm(lock.GetBody().GetWorldSpaceSurfaceNormal(sub_shape, point));
+        const JPH::Body& body = lock.GetBody();
+        out.normal = to_glm(body.GetWorldSpaceSurfaceNormal(sub_shape, point));
+        out.surface = impl.surface_of(body.GetShape()->GetMaterial(sub_shape));
     }
 }
 
@@ -1547,6 +1636,46 @@ void PhysicsWorld::update_terrain_heights(uint32_t object_id, uint32_t x, uint32
                       *impl_->temp_allocator);
 }
 
+void PhysicsWorld::update_terrain_surfaces(uint32_t object_id, const TerrainAsset& terrain,
+                                           uint32_t x, uint32_t z, uint32_t size_x,
+                                           uint32_t size_z) {
+    if (size_x == 0 || size_z == 0) return;
+
+    auto it = impl_->object_to_body.find(object_id);
+    if (it == impl_->object_to_body.end()) return;
+
+    JPH::BodyLockWrite lock(impl_->physics_system->GetBodyLockInterface(), it->second);
+    if (!lock.Succeeded()) return;
+
+    auto* shape = const_cast<JPH::Shape*>(lock.GetBody().GetShape());
+    if (shape == nullptr || shape->GetSubType() != JPH::EShapeSubType::HeightField) {
+        return;
+    }
+    auto* field = static_cast<JPH::HeightFieldShape*>(shape);
+    // A field built without materials has nothing to update; it was built
+    // that way because no layer had a surface, and layers are not added
+    // during play.
+    if (field->GetMaterialList().empty()) return;
+
+    // Weight texels to the quads they cover: the field has one quad fewer
+    // than samples per side, the weight grid its own count.
+    const uint32_t quads = terrain.sample_count() > 1 ? terrain.sample_count() - 1 : 0;
+    const uint32_t side = terrain.weight_count();
+    if (quads == 0 || side == 0) return;
+    const uint32_t qx0 = std::min((x * quads) / side, quads - 1);
+    const uint32_t qz0 = std::min((z * quads) / side, quads - 1);
+    const uint32_t qx1 = std::min((((x + size_x) * quads) + side - 1) / side, quads);
+    const uint32_t qz1 = std::min((((z + size_z) * quads) + side - 1) / side, quads);
+    if (qx1 <= qx0 || qz1 <= qz0) return;
+    const uint32_t w = qx1 - qx0;
+    const uint32_t h = qz1 - qz0;
+
+    std::vector<uint8_t> indices(static_cast<size_t>(w) * h);
+    terrain.dominant_layers(qx0, qz0, w, h, indices.data());
+    field->SetMaterials(qx0, qz0, w, h, indices.data(), static_cast<intptr_t>(w), nullptr,
+                        *impl_->temp_allocator);
+}
+
 bool PhysicsWorld::ground_height_at(const glm::vec3& world_position, float max_distance,
                                     float& out_height) const {
     RaycastHit hit;
@@ -1584,7 +1713,7 @@ bool PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& direction,
         return false;
     }
 
-    fill_hit(*impl_->physics_system, impl_->body_to_object, result.mBodyID,
+    fill_hit(*impl_, result.mBodyID,
              result.mSubShapeID2, ray.GetPointOnRay(result.mFraction),
              max_distance * result.mFraction, out_hit);
     return true;
@@ -1611,7 +1740,7 @@ std::vector<RaycastHit> PhysicsWorld::raycast_all(const glm::vec3& origin,
     hits.reserve(collector.mHits.size());
     for (const auto& hit : collector.mHits) {
         RaycastHit out;
-        fill_hit(*impl_->physics_system, impl_->body_to_object, hit.mBodyID,
+        fill_hit(*impl_, hit.mBodyID,
                  hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction),
                  max_distance * hit.mFraction, out);
         hits.push_back(out);
@@ -1644,7 +1773,7 @@ bool PhysicsWorld::shape_cast(QueryShape shape, const glm::vec3& extents,
     if (!collector.HadHit()) return false;
 
     const auto& hit = collector.mHit;
-    fill_hit(*impl_->physics_system, impl_->body_to_object, hit.mBodyID2,
+    fill_hit(*impl_, hit.mBodyID2,
              hit.mSubShapeID2, cast.GetPointOnRay(hit.mFraction),
              max_distance * hit.mFraction, out_hit);
     // A swept shape's contact normal is the separating axis, which is more

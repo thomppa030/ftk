@@ -12,6 +12,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_gi_params.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjterrain_io.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
@@ -95,6 +96,7 @@ add_executable(fjell-tests
     test_fjss_loader.cpp
     test_fjfont.cpp
     test_fjterrain_io.cpp
+    test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp
     test_ui_animation.cpp

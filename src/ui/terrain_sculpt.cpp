@@ -49,9 +49,14 @@ void apply_terrain_rect(TerrainAsset& terrain, UploadContext& upload, PhysicsSub
     }
 }
 
-void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload, const HeightRect& rect,
+void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload,
+                           PhysicsSubsystem* physics, uint32_t node_id, const HeightRect& rect,
                            const uint8_t* rgba) {
     terrain.apply_weights(rect.x, rect.z, rect.width, rect.height, rgba, upload);
+    if (physics == nullptr) return;
+    if (auto* world = physics->world()) {
+        world->update_terrain_surfaces(node_id, terrain, rect.x, rect.z, rect.width, rect.height);
+    }
 }
 
 bool raycast_terrain(const TerrainAsset& terrain, const glm::vec3& terrain_origin,
@@ -134,17 +139,18 @@ std::string SculptStrokeCommand::description() const {
 }
 
 PaintStrokeCommand::PaintStrokeCommand(TerrainAsset& terrain, UploadContext& upload,
+                                       PhysicsSubsystem* physics, uint32_t node_id,
                                        HeightRect rect, std::vector<uint8_t> before,
                                        std::vector<uint8_t> after)
-    : terrain_{terrain}, upload_{upload}, rect_{rect}, before_{std::move(before)},
-      after_{std::move(after)} {}
+    : terrain_{terrain}, upload_{upload}, physics_{physics}, node_id_{node_id}, rect_{rect},
+      before_{std::move(before)}, after_{std::move(after)} {}
 
 void PaintStrokeCommand::execute() {
-    apply_terrain_weights(terrain_, upload_, rect_, after_.data());
+    apply_terrain_weights(terrain_, upload_, physics_, node_id_, rect_, after_.data());
 }
 
 void PaintStrokeCommand::undo() {
-    apply_terrain_weights(terrain_, upload_, rect_, before_.data());
+    apply_terrain_weights(terrain_, upload_, physics_, node_id_, rect_, before_.data());
 }
 
 std::string PaintStrokeCommand::description() const {
@@ -267,7 +273,8 @@ void TerrainSculptTool::paint_dab(const Frame& frame, const glm::vec3& hit_world
         }
     }
 
-    apply_terrain_weights(terrain, *frame.upload, rect, weight_scratch_.data());
+    apply_terrain_weights(terrain, *frame.upload, frame.physics, frame.node_id, rect,
+                          weight_scratch_.data());
     touched_ = touched_.merged(rect);
 }
 
@@ -392,7 +399,8 @@ void TerrainSculptTool::end_paint_stroke(const Frame& frame) {
     weight_snapshot_.clear();
 
     frame.history->execute(std::make_unique<PaintStrokeCommand>(
-        *frame.terrain, *frame.upload, touched_, std::move(before), std::move(after)));
+        *frame.terrain, *frame.upload, frame.physics, frame.node_id, touched_,
+        std::move(before), std::move(after)));
 }
 
 void TerrainSculptTool::end_sculpt_stroke(const Frame& frame) {

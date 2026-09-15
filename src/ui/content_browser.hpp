@@ -46,6 +46,7 @@ private:
         preset,
         input_config,
         font,
+        surface,
         unknown
     };
 

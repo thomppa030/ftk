@@ -206,6 +206,7 @@ add_executable(fjell
     physics/collider_component_meta.cpp
     physics/character_component_meta.cpp
     physics/physics_types.cpp
+    physics/surface_asset.cpp
     physics/collision_channel.cpp
     physics/collision_filter_ui.cpp
     physics/collision_build.cpp
@@ -231,6 +232,7 @@ add_executable(fjell
     scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
     scripting/physics_api.cpp
+    scripting/surface_api.cpp
     scripting/viewport_api.cpp
     scripting/timer_manager.cpp
     scripting/timer_api.cpp

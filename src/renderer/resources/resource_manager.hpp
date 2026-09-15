@@ -6,6 +6,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
+#include "physics/surface_asset.hpp"
 // Complete type required: Pool<TerrainAsset> destroys unique_ptrs inline.
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -99,14 +100,19 @@ public:
     Result<TerrainAssetHandle> load_terrain_asset(const std::string& path,
                                                   const Project* project = nullptr);
 
-    /// Load (or reload) the .fjmat behind each of a terrain's layers and bind
-    /// it to the asset. Called after load and whenever the inspector changes
-    /// a layer's path. A layer whose material fails to load is left unbound
-    /// and draws with the fallback material.
+    /// Load (or reload) the .fjmat and .fjsurface behind each of a terrain's
+    /// layers and bind them to the asset. Called after load and whenever the
+    /// inspector changes a layer's path. A layer whose material fails to load
+    /// is left unbound and draws with the fallback material; a surface that
+    /// fails to load leaves the layer with none.
     void resolve_terrain_layers(TerrainAsset& terrain, const Project* project);
 
     // Audio assets (.fjaudio)
     Result<AudioAssetHandle> load_audio_asset(const std::string& path);
+
+    // Surface assets (.fjsurface). The handle's id is the surface id physics
+    // reports, so loading through here is what gives a surface its identity.
+    Result<SurfaceAssetHandle> load_surface_asset(const std::string& path);
 
     // Input action assets (.fjaction)
     Result<InputActionHandle> load_input_action(const std::string& path);
@@ -124,6 +130,7 @@ public:
     // Reverse lookup: handle → path
     [[nodiscard]] std::string asset_path_of(VfxAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(SurfaceAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
     [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
     [[nodiscard]] std::string asset_path_of(PresetAssetHandle handle) const;
@@ -135,6 +142,7 @@ public:
     [[nodiscard]] VfxEffect* get(VfxAssetHandle handle) const;
     [[nodiscard]] TerrainAsset* get(TerrainAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
+    [[nodiscard]] SurfaceAsset* get(SurfaceAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
     [[nodiscard]] struct PresetAsset* get(PresetAssetHandle handle) const;
 
@@ -211,6 +219,7 @@ private:
     Pool<VfxEffect, VfxAssetHandle> vfx_assets_;
     Pool<TerrainAsset, TerrainAssetHandle> terrain_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
+    Pool<SurfaceAsset, SurfaceAssetHandle> surface_assets_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
     Pool<PresetAsset, PresetAssetHandle> preset_assets_;
 

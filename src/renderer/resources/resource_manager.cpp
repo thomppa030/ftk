@@ -693,6 +693,21 @@ void ResourceManager::resolve_terrain_layers(TerrainAsset& terrain, const Projec
         }
         terrain.set_layer_material(i, get(*material));
     }
+    for (uint32_t i = 0; i < terrain.layer_count(); ++i) {
+        const std::string& path = terrain.layer_surface_path(i);
+        if (path.empty()) {
+            terrain.set_layer_surface(i, 0);
+            continue;
+        }
+        auto surface = load_surface_asset(base_path::resolve_asset(path, project));
+        if (!surface) {
+            FJELL_CORE_ERROR("terrain '{}' layer {} surface: {}", terrain.path(), i,
+                             surface.error());
+            terrain.set_layer_surface(i, 0);
+            continue;
+        }
+        terrain.set_layer_surface(i, surface->id);
+    }
 }
 
 TerrainAsset* ResourceManager::get(TerrainAssetHandle handle) const {
@@ -711,6 +726,28 @@ Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& pa
     if (!result) return make_error(result.error());
     auto asset = std::make_unique<AudioAsset>(std::move(*result));
     return audio_assets_.insert(path, std::move(asset));
+}
+
+// ── Surface assets ───────────────────────────────────────────────────────
+
+Result<SurfaceAssetHandle> ResourceManager::load_surface_asset(const std::string& path) {
+    auto it = surface_assets_.name_to_handle.find(path);
+    if (it != surface_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto result = load_surface_asset_file(path);
+    if (!result) return make_error(result.error());
+    auto asset = std::make_unique<SurfaceAsset>(std::move(*result));
+    return surface_assets_.insert(path, std::move(asset));
+}
+
+SurfaceAsset* ResourceManager::get(SurfaceAssetHandle handle) const {
+    return surface_assets_.get(handle);
+}
+
+std::string ResourceManager::asset_path_of(SurfaceAssetHandle handle) const {
+    return surface_assets_.path_of(handle);
 }
 
 AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {

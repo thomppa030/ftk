@@ -35,6 +35,7 @@ struct FjellRaycastHit {
     float normal[3];
     float distance;
     uint32_t node_id;
+    uint32_t surface;
 };
 
 extern "C" {
@@ -71,6 +72,9 @@ struct PhysicsHit {
     glm::vec3 normal{0.0F};
     float distance{0.0F};
     uint32_t node_id{0};
+    /// Surface id of what was hit — the handle id of the `.fjsurface` on the
+    /// collider or terrain layer, 0 for none. See `Surface`.
+    uint32_t surface{0};
 };
 
 /// Narrows what a query looks at.
@@ -211,7 +215,7 @@ private:
     static PhysicsHit to_hit(const FjellRaycastHit& raw) {
         return {{raw.position[0], raw.position[1], raw.position[2]},
                 {raw.normal[0], raw.normal[1], raw.normal[2]},
-                raw.distance, raw.node_id};
+                raw.distance, raw.node_id, raw.surface};
     }
 
     static bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& origin,

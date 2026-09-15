@@ -37,9 +37,12 @@ struct HeightRect {
 void apply_terrain_rect(TerrainAsset& terrain, UploadContext& upload, PhysicsSubsystem* physics,
                         uint32_t node_id, const HeightRect& rect, const float* heights);
 
-/// Write a rect of RGBA layer weights to the asset's CPU array and GPU texture.
-/// Physics does not read weights yet; when surfaces do, they update here.
-void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload, const HeightRect& rect,
+/// Write a rect of RGBA layer weights to everything that holds them: the
+/// asset (CPU array and GPU texture) and, when a play session has built a
+/// collision body for the node, that body's per-quad surfaces. `rect` is in
+/// weight texels.
+void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload,
+                           PhysicsSubsystem* physics, uint32_t node_id, const HeightRect& rect,
                            const uint8_t* rgba);
 
 /// First point where a world-space ray enters the terrain surface. Marches at
@@ -76,8 +79,9 @@ private:
 /// SculptStrokeCommand.
 class PaintStrokeCommand final : public Command {
 public:
-    PaintStrokeCommand(TerrainAsset& terrain, UploadContext& upload, HeightRect rect,
-                       std::vector<uint8_t> before, std::vector<uint8_t> after);
+    PaintStrokeCommand(TerrainAsset& terrain, UploadContext& upload, PhysicsSubsystem* physics,
+                       uint32_t node_id, HeightRect rect, std::vector<uint8_t> before,
+                       std::vector<uint8_t> after);
 
     void execute() override;
     void undo() override;
@@ -86,6 +90,8 @@ public:
 private:
     TerrainAsset& terrain_;
     UploadContext& upload_;
+    PhysicsSubsystem* physics_;
+    uint32_t node_id_;
     HeightRect rect_;
     std::vector<uint8_t> before_;
     std::vector<uint8_t> after_;

@@ -90,6 +90,26 @@ const std::string& TerrainAsset::layer_material_path(uint32_t layer) const {
     return name < data_.names.size() ? data_.names[name] : none;
 }
 
+const std::string& TerrainAsset::layer_surface_path(uint32_t layer) const {
+    static const std::string none;
+    if (layer >= data_.layers.size()) return none;
+    const uint32_t name = data_.layers[layer].surface_path;
+    return name < data_.names.size() ? data_.names[name] : none;
+}
+
+void TerrainAsset::set_layer_surface_path(uint32_t layer, const std::string& path) {
+    if (layer >= layer_count()) return;
+    const uint32_t name = data_.layers[layer].surface_path;
+    if (name >= data_.names.size()) return;
+    if (data_.names[name] == path) return;
+    data_.names[name] = path;
+    dirty_ = true;
+}
+
+void TerrainAsset::set_layer_surface(uint32_t layer, uint32_t surface_id) {
+    if (layer < FJTERRAIN_MAX_LAYERS) layer_surfaces_[layer] = surface_id;
+}
+
 float TerrainAsset::layer_uv_scale(uint32_t layer) const {
     return layer < data_.layers.size() ? data_.layers[layer].uv_scale
                                        : FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
@@ -110,16 +130,27 @@ void TerrainAsset::set_layer_count(uint32_t count) {
     if (count == layer_count()) return;
     // Every layer owns one name-table entry, at its own index, so the table
     // never needs deduplicating or garbage collecting.
+    // Every layer owns two name-table entries, material then surface, at
+    // fixed indices, so the table never needs deduplicating or garbage
+    // collecting. Growing keeps existing names; shrinking drops the tail.
+    std::vector<std::string> names(static_cast<size_t>(count) * 2);
+    for (uint32_t i = 0; i < count && i < data_.layers.size(); ++i) {
+        names[static_cast<size_t>(i) * 2] = layer_material_path(i);
+        names[(static_cast<size_t>(i) * 2) + 1] = layer_surface_path(i);
+    }
+    const uint32_t old_count = layer_count();
     data_.layers.resize(count);
-    data_.names.resize(count);
+    data_.names = std::move(names);
     for (uint32_t i = 0; i < count; ++i) {
-        data_.layers[i].material_path = i;
-        if (data_.layers[i].uv_scale <= 0.0F) {
+        data_.layers[i].material_path = i * 2;
+        data_.layers[i].surface_path = (i * 2) + 1;
+        if (i >= old_count || data_.layers[i].uv_scale <= 0.0F) {
             data_.layers[i].uv_scale = FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
         }
     }
     for (uint32_t i = count; i < FJTERRAIN_MAX_LAYERS; ++i) {
         layer_materials_[i] = nullptr;
+        layer_surfaces_[i] = 0;
     }
     dirty_ = true;
 }

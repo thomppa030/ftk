@@ -9,6 +9,7 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
@@ -85,6 +86,12 @@ public:
     [[nodiscard]] uint32_t layer_count() const { return static_cast<uint32_t>(data_.layers.size()); }
     /// Project-relative .fjmat path, empty when the layer is unassigned.
     [[nodiscard]] const std::string& layer_material_path(uint32_t layer) const;
+    /// Project-relative .fjsurface path, empty when the layer has no surface.
+    [[nodiscard]] const std::string& layer_surface_path(uint32_t layer) const;
+    /// Surface id physics reports where this layer dominates, 0 for none.
+    [[nodiscard]] uint32_t layer_surface(uint32_t layer) const {
+        return layer < layer_count() ? layer_surfaces_[layer] : 0;
+    }
     [[nodiscard]] float layer_uv_scale(uint32_t layer) const;
     [[nodiscard]] Material* layer_material(uint32_t layer) const;
     /// GPU material row for a layer. A layer with no material, or a layer
@@ -96,12 +103,47 @@ public:
     /// default tiling. Marks the asset dirty.
     void set_layer_count(uint32_t count);
     void set_layer_material_path(uint32_t layer, const std::string& path);
+    void set_layer_surface_path(uint32_t layer, const std::string& path);
     void set_layer_uv_scale(uint32_t layer, float metres_per_repeat);
     /// Runtime binding of a layer to its loaded material. Not persisted; the
     /// path is what the file holds.
     void set_layer_material(uint32_t layer, Material* material);
     /// What an unassigned layer draws with.
     void set_unassigned_layer_material(Material* material) { unassigned_material_ = material; }
+    /// Runtime binding of a layer to its loaded surface id. Not persisted.
+    void set_layer_surface(uint32_t layer, uint32_t surface_id);
+
+    /// Which layer dominates the painted weights under each of the field's
+    /// quads, as physics wants it: one byte per quad, row-major,
+    /// `size_x * size_z` entries for the quad rect starting at (x, z). Quads
+    /// outside the field are left untouched. Inline, like everything physics
+    /// reads from the asset, so the physics world needs none of the GPU side.
+    void dominant_layers(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                         uint8_t* out) const {
+        const uint32_t samples = data_.sample_count();
+        if (out == nullptr || samples < 2 || weight_side_ == 0) return;
+        const uint32_t quads = samples - 1;
+        const uint32_t side = weight_side_;
+        const uint32_t x_end = std::min(x + size_x, quads);
+        const uint32_t z_end = std::min(z + size_z, quads);
+        for (uint32_t qz = z; qz < z_end; ++qz) {
+            // The quad's centre, read from the weight grid the way the sampler
+            // reads it: texel i covers [i, i + 1) / side of the field.
+            const uint32_t tz = std::min(((2 * qz + 1) * side) / (2 * quads), side - 1);
+            for (uint32_t qx = x; qx < x_end; ++qx) {
+                const uint32_t tx = std::min(((2 * qx + 1) * side) / (2 * quads), side - 1);
+                uint8_t best = 0;
+                if (!data_.weights.empty()) {
+                    const uint8_t* texel =
+                        &data_.weights[((static_cast<size_t>(tz) * side) + tx) * 4];
+                    for (uint8_t c = 1; c < 4; ++c) {
+                        if (texel[c] > texel[best]) best = c;
+                    }
+                }
+                out[(static_cast<size_t>(qz - z) * size_x) + (qx - x)] = best;
+            }
+        }
+    }
 
     [[nodiscard]] uint32_t sample_count() const { return data_.sample_count(); }
     [[nodiscard]] uint32_t patch_quads() const { return data_.patch_quads(); }
@@ -216,6 +258,7 @@ private:
     uint32_t weight_side_{0};
     VkSampler sampler_{VK_NULL_HANDLE};
     std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};
+    std::array<uint32_t, FJTERRAIN_MAX_LAYERS> layer_surfaces_{};
     Material* unassigned_material_{nullptr};
 };
 

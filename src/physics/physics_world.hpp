@@ -84,6 +84,14 @@ public:
                                 uint32_t size_x, uint32_t size_z,
                                 const float* heights);
 
+    /// Refresh which surface a terrain body reports under each quad after the
+    /// layer weights changed in a rectangle of weight texels. The dominant
+    /// painted layer's surface wins per quad, which is what the surface
+    /// under a foot or a ray should be; the shader's slope and height rules
+    /// are not consulted, so a cliff painted grass reports grass.
+    void update_terrain_surfaces(uint32_t object_id, const class TerrainAsset& terrain,
+                                 uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z);
+
     /// World-space ground height under a point, from the collision shape rather
     /// than a separate interpolation of the height array, so gameplay queries
     /// and what a character stands on cannot disagree. Returns false when
@@ -111,7 +119,12 @@ private:
     void apply_character_changes(struct CharacterEntry& entry, CharacterComponent& character,
                                  const Node3D& node);
 
+public:
+    // Named here so the file-local helpers in physics_world.cpp can take it by
+    // reference; it is defined there and nowhere else.
     struct Impl;
+
+private:
     std::unique_ptr<Impl> impl_;
 };
 

@@ -55,6 +55,26 @@ static const bool reg_audio = [] {
     return true;
 }();
 
+static const bool reg_surface = [] {
+    AssetTypeRegistry::instance().register_type({
+        .type_name = "SurfaceAsset",
+        .extension = ".fjsurface",
+        .label     = "Surface",
+        .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
+            return rm.get(fjell::SurfaceAssetHandle{id});
+        },
+        .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
+            return rm.asset_path_of(fjell::SurfaceAssetHandle{id});
+        },
+        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+            auto r = rm.load_surface_asset(path);
+            if (!r) return fjell::make_error(r.error());
+            return r->id;
+        },
+    });
+    return true;
+}();
+
 static const bool reg_material = [] {
     AssetTypeRegistry::instance().register_type({
         .type_name = "Material",

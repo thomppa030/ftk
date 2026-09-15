@@ -19,7 +19,7 @@ struct RefData {
 };
 
 /// Reference to an engine-owned asset — a preset, audio clip, VFX effect,
-/// input action, and so on. Declare it as a `[[fj::property]]` and the
+/// input action, surface, and so on. Declare it as a `[[fj::property]]` and the
 /// inspector shows an asset picker for the right type; the chosen asset is
 /// saved with the scene.
 ///

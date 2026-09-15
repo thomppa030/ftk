@@ -34,6 +34,7 @@ void write_hit(const fjell::RaycastHit& hit, FjellRaycastHit* out) {
     out->normal[2] = hit.normal.z;
     out->distance = hit.distance;
     out->node_id = hit.object_id;
+    out->surface = hit.surface;
 }
 
 fjell::QueryShape to_shape(uint32_t shape) {

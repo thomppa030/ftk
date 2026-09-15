@@ -1,13 +1,46 @@
 #include "scene/component_registry.hpp"
+#include "core/asset_type_registry.hpp"
+#include "core/base_path.hpp"
+#include "core/log.hpp"
+#include "core/project_manager.hpp"
 #include "physics/physics_types.hpp"
 #include "physics/collision_filter_ui.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scene/node.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
+
+namespace {
+
+// Resolve the component's surface path to the handle physics reports, or
+// clear it. Shared by the inspector and scene load.
+void load_collider_surface(ColliderComponent& col, ResourceManager* resources,
+                           const Project* project) {
+    col.surface = 0;
+    if (col.surface_path.empty() || resources == nullptr) return;
+    auto handle = resources->load_surface_asset(base_path::resolve_asset(col.surface_path, project));
+    if (handle) col.surface = handle->id;
+    else FJELL_CORE_ERROR("collider surface: {}", handle.error());
+}
+
+void draw_surface_field(ColliderComponent& col, const InspectorContext& ctx, bool& changed) {
+    static const std::string surface_exts[] = {".fjsurface"};
+    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
+    if (asset_ref_field({.label = "Surface", .id = "##ColliderSurface", .extensions = surface_exts,
+                         .ctx = &ctx, .asset_type = surface_type},
+                        col.surface_path)) {
+        load_collider_surface(col, ctx.resource_manager,
+                              ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr);
+        changed = true;
+    }
+}
+
+} // namespace
 
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<ColliderComponent>({
@@ -15,7 +48,7 @@ static const bool registered = [] {
         .json_key = "collider",
         .color = {0.85f, 0.45f, 0.25f, 1.0f},
 
-        .draw = [](Node3D& node, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& node, void* ptr, const InspectorContext& ctx) -> bool {
             auto* col = static_cast<ColliderComponent*>(ptr);
             bool changed = false;
 
@@ -31,6 +64,7 @@ static const bool registered = [] {
             if (col->inherit_from_mesh && has_mesh) {
                 ImGui::TextDisabled("Collision comes from the mesh asset.");
                 if (ImGui::Checkbox("Is Trigger", &col->is_trigger)) changed = true;
+                draw_surface_field(*col, ctx, changed);
                 if (draw_collision_filter(col->filter)) changed = true;
                 return changed;
             }
@@ -61,6 +95,7 @@ static const bool registered = [] {
             ImGui::Text("Offset"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat3("##Offset", &col->offset.x, 0.05f)) changed = true;
             if (ImGui::Checkbox("Is Trigger", &col->is_trigger)) changed = true;
+            draw_surface_field(*col, ctx, changed);
 
             if (draw_collision_filter(col->filter)) changed = true;
             return changed;
@@ -76,7 +111,7 @@ static const bool registered = [] {
         },
 
         .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
-                        const Project* /*proj*/) {
+                        const Project* proj) {
             auto* col = static_cast<const ColliderComponent*>(ptr);
             out["shape"] = static_cast<int>(col->shape);
             out["inherit_from_mesh"] = col->inherit_from_mesh;
@@ -88,9 +123,12 @@ static const bool registered = [] {
             out["channel"] = collision_channel_name(col->filter.channel);
             out["block_mask"] = col->filter.block_mask;
             out["overlap_mask"] = col->filter.overlap_mask;
+            if (!col->surface_path.empty()) {
+                out["surface"] = base_path::asset_reference(col->surface_path, proj);
+            }
         },
 
-        .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
+        .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& res, const Project* proj) {
             auto& col = node.components.add<ColliderComponent>();
             col.shape = static_cast<ColliderShape>(j.value("shape", 0));
             col.inherit_from_mesh = j.value("inherit_from_mesh", false);
@@ -109,6 +147,9 @@ static const bool registered = [] {
             auto defaults = default_filter_for(col.filter.channel);
             col.filter.block_mask = j.value("block_mask", defaults.block_mask);
             col.filter.overlap_mask = j.value("overlap_mask", defaults.overlap_mask);
+
+            col.surface_path = j.value("surface", std::string{});
+            load_collider_surface(col, &res, proj);
         },
 
         .script_type_name = "ColliderComponent",

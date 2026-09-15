@@ -40,6 +40,13 @@ struct ColliderComponent : NodeComponent {
 
     // What this collider is, and what it does about everything else.
     CollisionFilter filter{default_filter_for(CollisionChannel::world_static)};
+
+    // The surface this collider is made of, as the SurfaceAssetHandle id of a
+    // .fjsurface (0 for none) and the project-relative path it was loaded
+    // from. Queries and contacts against the body report the id. Mirrored by
+    // the script SDK's copy of this struct.
+    uint32_t surface{0};
+    std::string surface_path;
 };
 
 // Shapes a collider to match the primitive mesh a node was built from. The
@@ -98,6 +105,9 @@ struct CharacterComponent : NodeComponent {
     CharacterGroundState ground_state{CharacterGroundState::InAir};
     glm::vec3 ground_normal{0.0f, 1.0f, 0.0f};
     glm::vec3 ground_velocity{0.0f};
+    // Surface id of the ground underfoot, 0 when airborne or on a collider
+    // with no surface. What a footstep reads.
+    uint32_t ground_surface{0};
 
     // Where the capsule's center sits relative to the node origin.
     [[nodiscard]] glm::vec3 capsule_center() const {
@@ -131,6 +141,8 @@ struct CollisionEvent {
     uint32_t other_id{0};
     glm::vec3 contact_point{0.0f};
     glm::vec3 contact_normal{0.0f};
+    // Surface id of the other body where it was touched, 0 for none.
+    uint32_t surface{0};
 };
 
 struct RaycastHit {
@@ -138,6 +150,8 @@ struct RaycastHit {
     glm::vec3 normal{0.0f};
     float distance{0.0f};
     uint32_t object_id{0};
+    // Surface id of the shape that was hit, 0 for none.
+    uint32_t surface{0};
 };
 
 // Which bodies a query considers. Expressed in the terms gameplay reasons

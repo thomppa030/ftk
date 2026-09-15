@@ -80,7 +80,9 @@ void draw_layers(TerrainAsset& asset, const InspectorContext& ctx, const Project
     ImGui::Text("Layers");
 
     static const std::string material_exts[] = {".fjmat"};
+    static const std::string surface_exts[] = {".fjsurface"};
     const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
+    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
     // Stable ids and labels for each row, so the widgets keep their state
     // across frames without building strings every draw.
     static constexpr const char* labels[FJTERRAIN_MAX_LAYERS] = {"Layer 0", "Layer 1",
@@ -89,6 +91,8 @@ void draw_layers(TerrainAsset& asset, const InspectorContext& ctx, const Project
         "##TerrainLayer0", "##TerrainLayer1", "##TerrainLayer2", "##TerrainLayer3"};
     static constexpr const char* tiling_ids[FJTERRAIN_MAX_LAYERS] = {
         "##TerrainTiling0", "##TerrainTiling1", "##TerrainTiling2", "##TerrainTiling3"};
+    static constexpr const char* surface_ids[FJTERRAIN_MAX_LAYERS] = {
+        "##TerrainSurface0", "##TerrainSurface1", "##TerrainSurface2", "##TerrainSurface3"};
 
     for (uint32_t i = 0; i < asset.layer_count(); ++i) {
         std::string path = asset.layer_material_path(i);
@@ -104,6 +108,16 @@ void draw_layers(TerrainAsset& asset, const InspectorContext& ctx, const Project
         ImGui::SetNextItemWidth(-1);
         if (ImGui::DragFloat(tiling_ids[i], &tiling, 0.1F, 0.1F, 1000.0F, "Tiling %.1f m")) {
             asset.set_layer_uv_scale(i, tiling);
+        }
+        // What physics reports for ground this layer dominates.
+        std::string surface = asset.layer_surface_path(i);
+        if (asset_ref_field({.label = "Surface", .id = surface_ids[i], .extensions = surface_exts,
+                             .ctx = &ctx, .asset_type = surface_type},
+                            surface)) {
+            asset.set_layer_surface_path(i, surface);
+            if (ctx.resource_manager != nullptr) {
+                ctx.resource_manager->resolve_terrain_layers(asset, project);
+            }
         }
     }
 

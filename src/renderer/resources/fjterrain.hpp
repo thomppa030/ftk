@@ -14,9 +14,11 @@
 namespace fjell {
 
 static constexpr uint32_t FJTERRAIN_MAGIC   = 0x5254464A; // "JFTR" little-endian
-// Version 2 added the name table the layer table indexes into. A version 1
-// file is accepted as long as it carries no layers, which none ever did.
-static constexpr uint32_t FJTERRAIN_VERSION = 2;
+// Version 2 added the name table the layer table indexes into; version 3 gave
+// each layer a surface. A version 1 file is accepted as long as it carries no
+// layers, which none ever did; a version 2 layer record is read as having no
+// surface.
+static constexpr uint32_t FJTERRAIN_VERSION = 3;
 
 // Layer tiling when a layer table does not say otherwise: one texture repeat
 // every four metres reads well for ground materials at character scale.
@@ -60,11 +62,20 @@ struct FjTerrainHeader {
     uint32_t reserved[6];
 };
 
-// A material layer. `material_path` indexes the name table and points at a
-// .fjmat relative to the project root; an empty name is an unassigned layer.
+// A material layer. `material_path` and `surface_path` index the name table
+// and point at a .fjmat and a .fjsurface relative to the project root; an
+// empty name is unassigned. The surface is what physics reports for ground
+// where this layer dominates the painted weights.
 struct FjTerrainLayer {
     uint32_t material_path;
     float    uv_scale;      // world metres per texture repeat
+    uint32_t surface_path;
+};
+
+// The layer record as version 2 wrote it.
+struct FjTerrainLayerV2 {
+    uint32_t material_path;
+    float    uv_scale;
 };
 
 // Parsed contents of a .fjterrain file.

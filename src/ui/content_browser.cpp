@@ -144,6 +144,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjp") return FileType::preset;
     if (ext == ".fjinput" || ext == ".fjaction") return FileType::input_config;
     if (ext == ".fjfont" || ext == ".ttf" || ext == ".otf") return FileType::font;
+    if (ext == ".fjsurface") return FileType::surface;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -167,6 +168,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::preset:       return "node";
         case FileType::input_config: return "node";
         case FileType::font:         return "font";
+        case FileType::surface:      return "node";
         case FileType::unknown:      return "node";
     }
     return "node";
@@ -1002,6 +1004,13 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::surface:
+                    if (ImGui::MenuItem("Open in Code Editor")) {
+                        (void)platform::open_path(entry.path);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     break;
@@ -1272,6 +1281,10 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             } else {
                 (void)platform::open_path(entry.path);
             }
+            break;
+
+        case FileType::surface:
+            (void)platform::open_path(entry.path);
             break;
 
         case FileType::unknown:

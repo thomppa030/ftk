@@ -33,6 +33,7 @@ using AudioAssetHandle    = Handle<struct AudioAssetTag>;
 using InputActionHandle   = Handle<struct InputActionTag>;
 using PresetAssetHandle   = Handle<struct PresetAssetTag>;
 using TerrainAssetHandle  = Handle<struct TerrainAssetTag>;
+using SurfaceAssetHandle  = Handle<struct SurfaceAssetTag>;
 
 enum class LoadState : uint8_t {
     Loading,

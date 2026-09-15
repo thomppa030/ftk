@@ -49,7 +49,8 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
     if (data.header.magic != FJTERRAIN_MAGIC) {
         return make_error("fjterrain: bad magic in " + path);
     }
-    if (data.header.version != 1 && data.header.version != FJTERRAIN_VERSION) {
+    if (data.header.version != 1 && data.header.version != 2 &&
+        data.header.version != FJTERRAIN_VERSION) {
         return make_error("fjterrain: unsupported version " +
                           std::to_string(data.header.version) + " in " + path);
     }
@@ -97,8 +98,20 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
 
     if (data.header.layer_count > 0) {
         data.layers.resize(data.header.layer_count);
-        if (std::fread(data.layers.data(), sizeof(FjTerrainLayer), data.layers.size(),
-                       file.get()) != data.layers.size()) {
+        if (data.header.version == 2) {
+            std::vector<FjTerrainLayerV2> old_layers(data.layers.size());
+            if (std::fread(old_layers.data(), sizeof(FjTerrainLayerV2), old_layers.size(),
+                           file.get()) != old_layers.size()) {
+                return make_error("fjterrain: truncated layer table in " + path);
+            }
+            // A version 2 layer has no surface; it gets an empty name of its
+            // own so every layer keeps one entry per field.
+            for (size_t i = 0; i < old_layers.size(); ++i) {
+                data.layers[i].material_path = old_layers[i].material_path;
+                data.layers[i].uv_scale = old_layers[i].uv_scale;
+            }
+        } else if (std::fread(data.layers.data(), sizeof(FjTerrainLayer), data.layers.size(),
+                              file.get()) != data.layers.size()) {
             return make_error("fjterrain: truncated layer table in " + path);
         }
 
@@ -122,8 +135,15 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
                 return make_error("fjterrain: truncated name table in " + path);
             }
         }
+        if (data.header.version == 2) {
+            for (auto& layer : data.layers) {
+                layer.surface_path = static_cast<uint32_t>(data.names.size());
+                data.names.emplace_back();
+            }
+        }
         for (const auto& layer : data.layers) {
-            if (layer.material_path >= data.names.size()) {
+            if (layer.material_path >= data.names.size() ||
+                layer.surface_path >= data.names.size()) {
                 return make_error("fjterrain: layer names a string outside the name table in " +
                                   path);
             }
@@ -152,7 +172,7 @@ Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
     }
 
     for (const auto& layer : data.layers) {
-        if (layer.material_path >= data.names.size()) {
+        if (layer.material_path >= data.names.size() || layer.surface_path >= data.names.size()) {
             return make_error("fjterrain: layer names a string outside the name table");
         }
     }

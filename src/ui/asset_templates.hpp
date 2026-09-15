@@ -25,6 +25,10 @@ inline constexpr std::array kAssetTemplates = {
     AssetTemplate{"Spatial Shader (.fjsl)", "new_shader", ".fjsl",
                   "shader_type spatial;\nvoid fragment() {\n}\n"},
     AssetTemplate{nullptr, {}, {}, {}},
+    // ── Physics ──
+    AssetTemplate{"Surface (.fjsurface)", "new_surface", ".fjsurface",
+                  R"({"name":"new_surface"})"},
+    AssetTemplate{nullptr, {}, {}, {}},
     // ── VFX ──
     AssetTemplate{"VFX Effect (.fjvfx)", "new_effect", ".fjvfx",
                   R"({"version":2,"name":"new_effect","emitters":[]})"},

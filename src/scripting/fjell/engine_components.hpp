@@ -142,6 +142,17 @@ struct ColliderComponent {
 
     /// Channel membership and what this collider blocks or overlaps.
     CollisionFilter filter{};
+
+    /// What this collider is made of: the handle id of a `.fjsurface`, as
+    /// `Ref<SurfaceAsset>::handle_id()` gives it, or 0 for none. Raycast hits
+    /// and contacts against the body report it back. Assign one from the
+    /// inspector, or from script with a `Ref<SurfaceAsset>` property; a
+    /// change takes effect when the body is next built.
+    uint32_t surface{0};
+
+    /// Project-relative path of that `.fjsurface`, kept for the scene file.
+    /// Engine-owned; set `surface` rather than this from script.
+    std::string surface_path;
 };
 
 /// What a character is standing on.
@@ -222,6 +233,12 @@ struct CharacterComponent {
 
     /// Velocity of the surface underfoot, for moving platforms. Read-only output.
     glm::vec3 ground_velocity{0.0f};
+
+    /// Surface id of the ground underfoot — the handle id of the
+    /// `.fjsurface` on the collider or terrain layer being stood on, 0 when
+    /// airborne or when it has none. Read-only output. Compare against the
+    /// handle of a `Ref<SurfaceAsset>` property to pick a footstep sound.
+    uint32_t ground_surface{0};
 
     /// Where the capsule's center sits relative to the node origin.
     [[nodiscard]] glm::vec3 capsule_center() const {
