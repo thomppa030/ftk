@@ -333,6 +333,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.shadow_vert_spv = std::move(next.shadow_vert_spv);
     entry.outline_vert_spv = std::move(next.outline_vert_spv);
     entry.compile_error.clear();
+    ++entry.generation;
 }
 
 std::string PipelineCache::compile_glsl(const std::string& source_path,

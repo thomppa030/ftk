@@ -348,8 +348,9 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     if (!fjsl_pipeline_cache_ || !fjsl_bindless_) {
         return;  // wiring not provided — silently skip; gradient fallback runs.
     }
-    if (sky_shader_ == fjsl_pipeline_shader_ && fjsl_pipeline_ != VK_NULL_HANDLE) {
-        return;  // already built for this path.
+    if (sky_shader_ == fjsl_pipeline_shader_ && fjsl_pipeline_ != VK_NULL_HANDLE &&
+        fjsl_pipeline_cache_->generation(fjsl_pipeline_id_) == fjsl_pipeline_generation_) {
+        return;  // already built for this path and this compile of it.
     }
 
     destroy_fjsl_pipeline();
@@ -402,6 +403,7 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     }
     fjsl_material_id_ = fjsl_bindless_->add_material(gpu);
     fjsl_pipeline_id_ = pid;
+    fjsl_pipeline_generation_ = fjsl_pipeline_cache_->generation(pid);
 
     // Build the pipeline layout: set 0 = global UBO/cubemap, set 1 = bindless.
     std::array set_layouts = {

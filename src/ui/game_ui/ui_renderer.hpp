@@ -170,8 +170,8 @@ private:
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;
-    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * 144; // sizeof(GpuUiQuad)
-    static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * 96; // sizeof(GpuUiGlyph)
+    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * sizeof(GpuUiQuad);
+    static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * sizeof(GpuUiGlyph);
 };
 
 } // namespace fjell

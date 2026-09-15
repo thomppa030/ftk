@@ -77,6 +77,7 @@ private:
     std::string sky_shader_;          // canonical path, e.g. "shaders/gradient_sky.fjsl"
     std::string fjsl_pipeline_shader_;// last path we built the pipeline for
     uint32_t fjsl_pipeline_id_{0};
+    uint32_t fjsl_pipeline_generation_{0}; // PipelineCache generation the pipeline was built at
     uint32_t fjsl_material_id_{0};
     VkPipelineLayout fjsl_layout_{VK_NULL_HANDLE};
     VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};

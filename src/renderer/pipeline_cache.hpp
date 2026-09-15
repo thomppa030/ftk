@@ -65,6 +65,11 @@ public:
     // for every other shader type.
     [[nodiscard]] const std::string& ui_frag_spv(uint32_t id) const;
     [[nodiscard]] const std::string& ui_world_frag_spv(uint32_t id) const;
+    // Counts successful compiles of the entry. An owner that built its own
+    // VkPipeline from the entry's SPV compares this against the value it
+    // built at and rebuilds when it moved, which is how a hot-reload reaches
+    // pipelines the cache does not create itself.
+    [[nodiscard]] uint32_t generation(uint32_t id) const { return entries_[id].generation; }
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
     [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
     [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
@@ -102,6 +107,8 @@ private:
         std::string outline_vert_spv;
         // Last compile error (empty = success)
         std::string compile_error;
+        // Incremented on every successful compile; 0 until the first one
+        uint32_t generation{0};
     };
 
     void create_layout();

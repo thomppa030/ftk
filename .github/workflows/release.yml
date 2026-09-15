@@ -86,8 +86,17 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Published to the public fjell-releases repo, so a download needs no
+      # GitHub account and the source stays private. RELEASES_TOKEN is a
+      # fine-grained token with Contents read/write on that one repo. The tag
+      # is created there from its default branch; release notes are written
+      # by hand on the draft, since that repo's history has nothing to say.
       - uses: softprops/action-gh-release@v2
         with:
+          repository: thomppa030/fjell-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: Fjell ${{ github.ref_name }}
           files: dist/*
+          fail_on_unmatched_files: true
           draft: true
-          generate_release_notes: true
