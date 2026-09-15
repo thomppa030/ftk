@@ -61,8 +61,8 @@ public:
     /// nominal range (offset..offset+scale) is what the format *allows*; this is
     /// what the data actually uses, which keeps a bounding box from claiming
     /// empty air above a flat terrain.
-    [[nodiscard]] float min_world_height() const { return min_world_height_; }
-    [[nodiscard]] float max_world_height() const { return max_world_height_; }
+    [[nodiscard]] float min_world_height() const;
+    [[nodiscard]] float max_world_height() const;
 
     /// Terrain-local triangle mesh for ray tracing, decimated from the height
     /// array. Rendering needs no such thing — the mesh shader derives vertices
@@ -71,6 +71,11 @@ public:
     ///
     /// Positions are relative to the terrain's own origin; the TLAS instance
     /// transform places it in the world.
+    ///
+    /// Built once at load. Editing the heights does not rebuild it: the
+    /// mega-buffer only appends, so re-uploading per stroke would leak, and a
+    /// BLAS rebuild per stroke is not cheap. Until a rebuild lands, ray
+    /// tracing sees the terrain as it was loaded.
     [[nodiscard]] const std::vector<Vertex>& ray_vertices() const { return ray_vertices_; }
     [[nodiscard]] const std::vector<uint32_t>& ray_indices() const { return ray_indices_; }
 
@@ -81,6 +86,32 @@ public:
 
     /// Upload the ray mesh into the mega-buffer. Idempotent.
     void upload_ray_mesh(MegaBuffer& mega);
+
+    /// Copy a rectangle of normalized heights out, row-major, `size_x * size_z`
+    /// floats. The rect is clipped to the field; clipped-away cells are left
+    /// untouched in `out`. This is what an undo entry captures before a stroke.
+    void copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                      float* out) const;
+
+    /// Overwrite a rectangle of normalized heights and push that region to the
+    /// GPU. `heights` is row-major, `size_x * size_z` floats, clamped to [0,1].
+    /// The rect is clipped to the field.
+    ///
+    /// Only the touched region is uploaded, so a brush stroke costs the render
+    /// side one small copy — geometry is regenerated from the texture every
+    /// frame and needs no rebuild. The change is visible on the next frame
+    /// that samples the texture. Physics is not updated here: the editor has
+    /// no physics world, and a play-time body is the caller's to refresh
+    /// through PhysicsWorld::update_terrain_heights.
+    void apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                       const float* heights, UploadContext& upload);
+
+    /// True when apply_heights has changed the data since load or the last
+    /// successful save.
+    [[nodiscard]] bool dirty() const { return dirty_; }
+
+    /// Write the current heights back to the .fjterrain this was loaded from.
+    [[nodiscard]] Result<> save();
 
     /// Normalized height at a sample index, clamped at the edges.
     [[nodiscard]] float height_at_sample(uint32_t x, uint32_t z) const;
@@ -99,8 +130,15 @@ private:
     std::vector<Vertex> ray_vertices_;
     std::vector<uint32_t> ray_indices_;
     MegaMeshEntry ray_mesh_entry_{};
-    float min_world_height_{0.0F};
-    float max_world_height_{0.0F};
+    /// Recompute the world height range from the data when an edit has
+    /// invalidated it. Lazy so a stroke of many small edits scans the field
+    /// once, when a reader next asks, rather than once per brush dab.
+    void ensure_height_range() const;
+
+    mutable float min_world_height_{0.0F};
+    mutable float max_world_height_{0.0F};
+    mutable bool height_range_stale_{false};
+    bool dirty_{false};
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     VkSampler sampler_{VK_NULL_HANDLE};

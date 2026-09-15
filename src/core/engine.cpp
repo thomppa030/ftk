@@ -48,6 +48,8 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/texture.hpp"
 
@@ -857,6 +859,7 @@ void Engine::save_scene() {
         script_subsystem_->manager().serialize_all(scene_);
     }
     save_material_assets();
+    save_terrain_assets();
     if (auto r = scene_.save(current_scene_path_, project_mgr_.active()); !r) {
         FJELL_CORE_ERROR("{}", r.error());
         return;
@@ -929,6 +932,19 @@ void Engine::save_material_assets() {
 
         save_material_asset(mat_path, asset);
         asset_thumbnails_.refresh(mat_path);
+    }
+}
+
+// Sculpted heights live in the .fjterrain, not the scene file, so saving the
+// scene writes every terrain a stroke has touched since it was loaded or last
+// saved. An asset shared by several nodes is written once.
+void Engine::save_terrain_assets() {
+    for (auto& obj : scene_.objects()) {
+        auto* tc = obj->components.get<TerrainComponent>();
+        if (tc == nullptr || tc->terrain == nullptr || !tc->terrain->dirty()) continue;
+        if (auto r = tc->terrain->save(); !r) {
+            FJELL_CORE_ERROR("terrain: {}", r.error());
+        }
     }
 }
 

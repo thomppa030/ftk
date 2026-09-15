@@ -15,6 +15,47 @@ namespace {
 
 constexpr float UNORM16_MAX = 65535.0F;
 
+// The height texture is sampled by the terrain mesh shader, not by a fragment
+// stage, so Image::transition_layout — which only knows fragment readers and
+// only two layout pairs — cannot express its hazards. Every transition of this
+// image goes through here, against the stage that actually reads it.
+void barrier_height_image(VkCommandBuffer cmd, VkImage image,
+                          VkImageLayout old_layout, VkImageLayout new_layout) {
+    constexpr VkPipelineStageFlags2 READ_STAGE = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
+
+    VkImageMemoryBarrier2 barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.oldLayout = old_layout;
+    barrier.newLayout = new_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcStageMask = READ_STAGE;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    } else {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        barrier.srcAccessMask = 0;
+    }
+    if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    } else {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        barrier.dstStageMask = READ_STAGE;
+        barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    }
+
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &barrier;
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 } // namespace
 
 TerrainAsset::~TerrainAsset() {
@@ -80,8 +121,8 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     StagingSlice staging = upload.stage_for_image(texels.data(), bytes);
     VkCommandBuffer cmd = upload.image_cb();
 
-    asset->height_image_->transition_layout(cmd, VK_IMAGE_LAYOUT_UNDEFINED,
-                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
+    barrier_height_image(cmd, asset->height_image_->handle(), VK_IMAGE_LAYOUT_UNDEFINED,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     VkBufferImageCopy region{};
     region.bufferOffset = staging.offset;
@@ -93,8 +134,9 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     vkCmdCopyBufferToImage(cmd, staging.buffer, asset->height_image_->handle(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    asset->height_image_->transition_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+    barrier_height_image(cmd, asset->height_image_->handle(),
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     asset->height_image_->create_view(device, VK_FORMAT_R16_UNORM,
                                       VK_IMAGE_ASPECT_COLOR_BIT, 1);
@@ -194,6 +236,95 @@ void TerrainAsset::build_ray_mesh() {
 void TerrainAsset::upload_ray_mesh(MegaBuffer& mega) {
     if (ray_mesh_uploaded() || ray_indices_.empty()) return;
     ray_mesh_entry_ = mega.upload(ray_vertices_, ray_indices_);
+}
+
+void TerrainAsset::ensure_height_range() const {
+    if (!height_range_stale_) return;
+    float lowest = 1.0F;
+    float highest = 0.0F;
+    for (float h : data_.heights) {
+        lowest = std::min(lowest, h);
+        highest = std::max(highest, h);
+    }
+    min_world_height_ = data_.world_height(lowest);
+    max_world_height_ = data_.world_height(highest);
+    height_range_stale_ = false;
+}
+
+float TerrainAsset::min_world_height() const {
+    ensure_height_range();
+    return min_world_height_;
+}
+
+float TerrainAsset::max_world_height() const {
+    ensure_height_range();
+    return max_world_height_;
+}
+
+void TerrainAsset::copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                                float* out) const {
+    const uint32_t samples = data_.sample_count();
+    if (out == nullptr || x >= samples || z >= samples) return;
+    const uint32_t x_end = std::min(x + size_x, samples);
+    const uint32_t z_end = std::min(z + size_z, samples);
+    for (uint32_t row = z; row < z_end; ++row) {
+        const float* src = &data_.heights[(static_cast<size_t>(row) * samples) + x];
+        float* dst = out + (static_cast<size_t>(row - z) * size_x);
+        std::copy(src, src + (x_end - x), dst);
+    }
+}
+
+void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
+                                 const float* heights, UploadContext& upload) {
+    const uint32_t samples = data_.sample_count();
+    if (heights == nullptr || !height_image_ || x >= samples || z >= samples) return;
+    const uint32_t x_end = std::min(x + size_x, samples);
+    const uint32_t z_end = std::min(z + size_z, samples);
+    const uint32_t w = x_end - x;
+    const uint32_t h = z_end - z;
+    if (w == 0 || h == 0) return;
+
+    // One walk both stores the clamped floats and quantizes the texels the
+    // GPU copy wants, tightly packed at the rect's own width.
+    std::vector<uint16_t> texels(static_cast<size_t>(w) * h);
+    for (uint32_t row = 0; row < h; ++row) {
+        float* dst = &data_.heights[(static_cast<size_t>(z + row) * samples) + x];
+        const float* src = heights + (static_cast<size_t>(row) * size_x);
+        uint16_t* tex = &texels[static_cast<size_t>(row) * w];
+        for (uint32_t col = 0; col < w; ++col) {
+            const float clamped = std::clamp(src[col], 0.0F, 1.0F);
+            dst[col] = clamped;
+            tex[col] = static_cast<uint16_t>(std::lround(clamped * UNORM16_MAX));
+        }
+    }
+
+    StagingSlice staging = upload.stage_for_image(texels.data(), texels.size() * sizeof(uint16_t));
+    VkCommandBuffer cmd = upload.image_cb();
+    VkImage image = height_image_->handle();
+
+    barrier_height_image(cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = staging.offset;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {static_cast<int32_t>(x), static_cast<int32_t>(z), 0};
+    region.imageExtent = {w, h, 1};
+    vkCmdCopyBufferToImage(cmd, staging.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &region);
+
+    barrier_height_image(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    height_range_stale_ = true;
+    dirty_ = true;
+}
+
+Result<> TerrainAsset::save() {
+    auto result = save_fjterrain(path_, data_);
+    if (result) dirty_ = false;
+    return result;
 }
 
 float TerrainAsset::height_at_sample(uint32_t x, uint32_t z) const {

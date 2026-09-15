@@ -93,6 +93,7 @@ private:
     void create_default_scene();
     void save_scene();
     void save_material_assets();
+    void save_terrain_assets();
 
     void draw_ui();
     void setup_dockspace();
