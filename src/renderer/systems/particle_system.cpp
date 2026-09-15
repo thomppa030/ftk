@@ -1781,6 +1781,11 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                                       const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
+    // One long frame would otherwise move every particle far enough in a
+    // single step to pass through whatever it was about to hit. Past this
+    // the simulation runs slow instead.
+    constexpr float MAX_STEP = 1.0f / 15.0f;
+    dt = std::min(dt, MAX_STEP);
     ++frame_seed_;
     accumulated_time_ += dt;
     camera_pos_ = camera_pos;
