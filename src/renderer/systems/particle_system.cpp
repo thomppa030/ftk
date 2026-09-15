@@ -1822,6 +1822,10 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             // are not drawn into a target that is not theirs.
             gpu.visible = false;
             data.module_offset = module_word_offset;
+            // Zero would name emitter 0 as its parent, and the sub-emit
+            // pass would then spawn from that emitter's events into a
+            // ring of zero particles.
+            data.sub_event_source = 0xFFFFFFFF;
             auto* term = reinterpret_cast<uint32_t*>(module_ptr + module_word_offset * 4);
             term[0] = 0xFFFFFFFF; // MOD_TERMINATOR
             term[1] = 0;
@@ -2050,10 +2054,12 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.sub_burst_count = 0;
         data.sub_vel_inherit = 0.0f;
 
-        // Check if any parent emitter has a SubEmitterModule pointing to us
-        // We match by emitter_index within the same VfxEffect (same object_id)
+        // Check if any parent emitter has a SubEmitterModule pointing to us.
+        // We match by emitter_index within the same VfxEffect: the same
+        // object in the same scene, since node ids repeat across scenes.
         for (uint32_t pi = 0; pi < emitter_count; ++pi) {
             if (pi == i) continue;
+            if (emitters_[pi].scene_id != gpu.scene_id) continue;
             if (emitters_[pi].object_id != gpu.object_id) continue;
             // Find the parent's VfxEmitter to check for SubEmitterModule
             auto* parent_obj = scene.find(emitters_[pi].object_id);
