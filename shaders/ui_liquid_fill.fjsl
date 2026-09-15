@@ -1,0 +1,101 @@
+shader_type ui;
+
+// A bar filled with liquid, drawn at the scale of a HUD bar a couple of
+// dozen pixels tall. The fill edge is a surface driven by the bar dynamics:
+// it rides FILL, which springs after the value, ripples harder the more the
+// last change stirred it (FILL_AGITATION), and its waves travel the way the
+// liquid is moving (FILL_VELOCITY). At rest it barely breathes. The body
+// runs from a bright top colour to a deep bottom colour with caustic light
+// playing through it, and the surface carries a thin bright meniscus with a
+// glow that flares while the liquid is disturbed. The material owns every
+// colour; the stylesheet's fill colour contributes only its alpha.
+uniform vec3 liquid_color : hint_color = vec3(0.48, 0.15, 0.13);
+uniform vec3 deep_color : hint_color = vec3(0.15, 0.04, 0.05);
+uniform vec3 caustic_color : hint_color = vec3(0.85, 0.72, 0.6);
+uniform float caustic_intensity : hint_range(0.0, 1.0, 0.02) = 0.22;
+uniform float caustic_scale : hint_range(0.1, 8.0, 0.1) = 3.0;
+uniform float caustic_speed : hint_range(0.0, 3.0, 0.05) = 0.4;
+uniform float idle_ripple : hint_range(0.0, 4.0, 0.25) = 0.3;   // pixels at rest
+uniform float slosh : hint_range(0.0, 12.0, 0.5) = 1.0;          // pixels when fully stirred
+uniform float wave_speed : hint_range(0.0, 8.0, 0.1) = 0.7;
+uniform float tilt : hint_range(0.0, 1.0, 0.05) = 0.85;          // how far the top leads the bottom
+uniform float gloss : hint_range(0.0, 1.0, 0.05) = 0.3;
+uniform float sweep : hint_range(0.0, 1.0, 0.05) = 0.12;
+uniform float glow_strength : hint_range(0.0, 2.0, 0.05) = 0.45;
+uniform float glow_pixels : hint_range(1.0, 40.0, 1.0) = 12.0;
+uniform vec3 glow_color : hint_color = vec3(0.9, 0.5, 0.4);
+
+// Rotating-domain caustic field.
+float caustic(vec2 uv, float t) {
+    vec2 n = vec2(0.0);
+    vec2 sum = vec2(0.0);
+    float freq = 10.0;
+    float cs = cos(1.0);
+    float sn = sin(1.0);
+    for (int i = 0; i < 6; i++) {
+        uv = vec2(uv.x * cs - uv.y * sn, uv.x * sn + uv.y * cs);
+        n = vec2(n.x * cs - n.y * sn, n.x * sn + n.y * cs);
+        vec2 q = uv * freq + float(i) + n + t;
+        n += sin(q);
+        sum += cos(q) / freq;
+        freq *= 1.2;
+    }
+    return clamp(sum.x + sum.y + 0.5, 0.0, 1.0);
+}
+
+void fragment() {
+    // How stirred the liquid is: what the last hits left behind, plus the
+    // motion of the surface itself, so a fast heal still shows a wake.
+    float stir = clamp(FILL_AGITATION + abs(FILL_VELOCITY) * 0.6, 0.0, 1.0);
+
+    // A liquid tips before it moves. The top of the surface is already
+    // near the value while the bottom trails on the spring and swings back,
+    // so the surface leans in the direction of travel and straightens as
+    // the bar settles.
+    float lead = mix(FILL, FILL_TARGET, tilt);
+    float depth = smoothstep(0.0, 1.0, UV.y);
+    float level = mix(lead, FILL, depth);
+
+    // One slow, long swell rides the surface, travelling with the liquid:
+    // toward the empty end while draining, toward the full end while
+    // filling. A thick liquid does not ripple; stirring makes the swell a
+    // little taller and nothing faster.
+    float travel = TIME * wave_speed;
+    float direction = FILL_VELOCITY < -0.01 ? 1.0 : (FILL_VELOCITY > 0.01 ? -1.0 : 1.0);
+    float swell = sin(UV.y * 3.14 + travel * direction);
+    float amplitude_px = mix(idle_ripple, slosh, stir);
+
+    // Only a surface with liquid on both sides can move.
+    float sloshing = step(0.001, FILL) * step(FILL, 0.999);
+    float surface = level + swell * amplitude_px / SIZE.x * sloshing;
+
+    float aa = fwidth(UV.x);
+    float inside = 1.0 - smoothstep(surface - aa, surface + aa, UV.x);
+
+    // Body: top colour down to deep colour, with a glossy strip up high.
+    vec3 body = mix(liquid_color, deep_color, smoothstep(0.0, 1.0, UV.y));
+    float strip = smoothstep(0.5, 0.2, UV.y) * smoothstep(0.04, 0.18, UV.y);
+    body += vec3(0.14) * strip * gloss;
+
+    // Caustics anchored to the screen so the bar is a window onto moving
+    // water; clearer near the top, a little brighter while stirred.
+    float t = TIME * caustic_speed;
+    vec2 field_uv = SCREEN_UV * caustic_scale * 4.0 + vec2(t * 0.3, t * 0.1);
+    float clarity = mix(1.0, 0.35, UV.y);
+    body += caustic_color * caustic(field_uv, t) * caustic_intensity * (1.0 + 0.4 * stir) * clarity;
+
+    // One wide, slow band of light travelling along the bar.
+    float pos = fract(TIME * 0.09) * 1.5 - 0.25;
+    float band = exp(-pow((UV.x - pos) / 0.09, 2.0));
+    body += liquid_color * band * sweep;
+
+    // The meniscus: a two-pixel bright line at the surface and a glow that
+    // fades over a few pixels behind it, a little stronger while stirred.
+    float depth_px = max((surface - UV.x) * SIZE.x, 0.0);
+    float line = 1.0 - smoothstep(0.0, 2.0, depth_px);
+    float halo = exp(-depth_px / glow_pixels);
+    body += glow_color * (line * 0.8 + halo * 0.45) * glow_strength * (1.0 + 0.5 * stir);
+
+    ALBEDO = body;
+    ALPHA = COLOR.a * inside;
+}
