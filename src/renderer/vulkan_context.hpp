@@ -278,6 +278,14 @@ public:
   void record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                        OffscreenPass& target, uint32_t frame_index);
 
+  /// Render a GameUi into an offscreen pass in its own one-shot submit and
+  /// wait for it, outside the frame's command buffer. For thumbnails and
+  /// other reads of the result on the CPU. Call in the window between the
+  /// frame fence and record_frame, like render_preview: the UI reads the
+  /// current frame slot's global set and UBO, which nothing else is using
+  /// then. The target's colour image is left in SHADER_READ_ONLY_OPTIMAL.
+  void render_game_ui_preview(class GameUi& ui, OffscreenPass& target);
+
   /// Callback for worldspace UI rendering (color pass, after transparent objects).
   using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
                                               VkDescriptorSet, VkExtent2D, uint32_t)>;
@@ -333,6 +341,12 @@ public:
   /// Render a single viewport in its own command buffer (submitted + waited).
   /// Used for camera preview to avoid singleton state conflicts with the main
   /// viewport's render_scene_to in the same command buffer.
+  // The transient render target, clear and layout transitions every
+  // offscreen UI draw shares, recorded into whatever command buffer is
+  // open: the frame's for previews and the HUD, a one-shot for readbacks.
+  void record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordFn& record_fn,
+                           OffscreenPass& target, uint32_t frame_index);
+
   void render_preview(const ViewportRenderRequest& req,
                       const DirectionalLight& light, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);

@@ -21,8 +21,15 @@ public:
         VkQueue queue{VK_NULL_HANDLE};
     };
 
+    /// The whole image at its own size.
     ImageReadback(const Queue& queue, VkImage source, VkImageLayout source_layout,
                   uint32_t width, uint32_t height);
+
+    /// A region of the image, scaled to `width` × `height` on the way. The
+    /// scale is a single linear blit, so shrink by more than about half
+    /// in a second CPU pass rather than here.
+    ImageReadback(const Queue& queue, VkImage source, VkImageLayout source_layout,
+                  VkRect2D region, uint32_t width, uint32_t height);
     ~ImageReadback();
 
     ImageReadback(const ImageReadback&) = delete;

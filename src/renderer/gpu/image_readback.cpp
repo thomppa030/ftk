@@ -7,6 +7,11 @@ namespace fjell {
 
 ImageReadback::ImageReadback(const Queue& queue, VkImage source, VkImageLayout source_layout,
                              uint32_t width, uint32_t height)
+    : ImageReadback(queue, source, source_layout,
+                    VkRect2D{{0, 0}, {width, height}}, width, height) {}
+
+ImageReadback::ImageReadback(const Queue& queue, VkImage source, VkImageLayout source_layout,
+                             VkRect2D region, uint32_t width, uint32_t height)
     : allocator_{queue.allocator}
     , width_{width}
     , height_{height}
@@ -74,14 +79,17 @@ ImageReadback::ImageReadback(const Queue& queue, VkImage source, VkImageLayout s
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-    VkImageBlit region{};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.srcOffsets[1] = {static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstOffsets[1] = {static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
+    const bool scaled = region.extent.width != width || region.extent.height != height;
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.srcOffsets[0] = {region.offset.x, region.offset.y, 0};
+    blit.srcOffsets[1] = {region.offset.x + static_cast<int32_t>(region.extent.width),
+                          region.offset.y + static_cast<int32_t>(region.extent.height), 1};
+    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.dstOffsets[1] = {static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
     vkCmdBlitImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    blit_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1, &region, VK_FILTER_NEAREST);
+                   1, &blit, scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 
     vk_utils::transition_image(cmd, source,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, source_layout,

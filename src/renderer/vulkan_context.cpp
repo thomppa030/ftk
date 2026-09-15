@@ -1150,7 +1150,51 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
 void VulkanContext::record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                                     OffscreenPass& target,
                                                     uint32_t frame_index) {
-    VkCommandBuffer cmd = gpu_.command_buffer(frame_index);
+    record_game_ui_into(gpu_.command_buffer(frame_index), record_fn, target, frame_index);
+}
+
+void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
+    if (!ui.loaded()) return;
+
+    auto vk = gpu_.device();
+    VkCommandBuffer cmd{};
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.commandPool = gpu_.command_pool();
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+    vk_check(vkAllocateCommandBuffers(vk, &alloc_info, &cmd), "allocate UI preview command buffer");
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vk_check(vkBeginCommandBuffer(cmd, &begin), "begin UI preview command buffer");
+
+    record_game_ui_into(cmd,
+        [&ui](VkCommandBuffer c, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+              VkExtent2D extent, uint32_t idx) {
+            ui.record(c, global_set, bindless_set, extent, idx);
+        },
+        target, current_frame_);
+
+    vk_check(vkEndCommandBuffer(cmd), "end UI preview command buffer");
+
+    // The UI may sample textures still sitting in the upload batch; the
+    // frame submit waits for those on its timeline, this one-shot does not.
+    gpu_.upload_context().wait_all();
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vk_check(vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE), "submit UI preview");
+    vk_check(vkQueueWaitIdle(gpu_.graphics_queue()), "wait for UI preview");
+
+    vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
+}
+
+void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordFn& record_fn,
+                                        OffscreenPass& target, uint32_t frame_index) {
     VkExtent2D extent = target.extent();
 
     // Transition offscreen color to color attachment
