@@ -10,6 +10,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/material_params_widget.hpp"
 
@@ -142,6 +143,7 @@ void MaterialEditorContext::save_material() {
     }
 
     save_material_asset(fjmat_abs_path_, asset_);
+    if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmat_abs_path_);
     FJELL_CORE_INFO("Material saved: {}", fjmat_abs_path_);
 }
 

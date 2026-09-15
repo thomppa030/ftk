@@ -64,6 +64,11 @@ public:
     /// check reads the asset's references.
     void refresh(const std::string& path);
 
+    /// Queue every known asset for the timestamp check. For events whose
+    /// reach is unknown, such as a shader edit, which changes the look of
+    /// any material using it and any mesh using such a material.
+    void refresh_all();
+
     /// The thumbnail's ImGui descriptor, or VK_NULL_HANDLE while it is not
     /// ready. Never loads or renders.
     [[nodiscard]] VkDescriptorSet descriptor(const std::string& path) const;

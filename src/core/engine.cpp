@@ -561,7 +561,8 @@ void Engine::init_editor() {
                 .input = &input_,
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
-                .icon_cache = icon_cache_.get()
+                .icon_cache = icon_cache_.get(),
+                .asset_thumbnails = &asset_thumbnails_
             };
             auto ctx = std::make_unique<MaterialEditorContext>(deps);
             ctx->init();
@@ -583,6 +584,7 @@ void Engine::init_editor() {
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
+                .asset_thumbnails = &asset_thumbnails_,
                 .import_model = [this](const std::string& source) {
                     content_browser_.on_import_model.broadcast(source);
                 }
@@ -887,6 +889,7 @@ void Engine::save_material_assets() {
         });
 
         save_material_asset(mat_path, asset);
+        asset_thumbnails_.refresh(mat_path);
     }
 }
 
@@ -1667,6 +1670,9 @@ void Engine::run() {
 #ifndef NDEBUG
         if (shader_watcher_ && shader_watcher_->poll()) {
             vulkan_context_->reload_pipeline();
+            // Which thumbnails a shader edit touches is not known here; the
+            // timestamp check on each of them finds out.
+            asset_thumbnails_.refresh_all();
         }
         if (fjgraph_watcher_) { (void)fjgraph_watcher_->poll(); }
 #endif

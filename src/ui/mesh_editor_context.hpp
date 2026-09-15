@@ -16,6 +16,7 @@
 
 namespace fjell {
 
+class AssetThumbnailRenderer;
 class Clock;
 class IconCache;
 class Input;
@@ -31,6 +32,7 @@ struct MeshEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
+    AssetThumbnailRenderer* asset_thumbnails;
 
     /// Opens the import dialog for a source file. Lets the editor offer a
     /// reimport without owning the dialog.

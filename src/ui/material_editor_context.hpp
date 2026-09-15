@@ -11,6 +11,7 @@
 
 namespace fjell {
 
+class AssetThumbnailRenderer;
 class BindlessTextures;
 class Clock;
 class IconCache;
@@ -28,6 +29,7 @@ struct MaterialEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
+    AssetThumbnailRenderer* asset_thumbnails;
 };
 
 class MaterialEditorContext final : public EditorContext {

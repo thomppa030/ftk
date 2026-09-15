@@ -242,6 +242,10 @@ void AssetThumbnailRenderer::refresh(const std::string& path) {
     }
 }
 
+void AssetThumbnailRenderer::refresh_all() {
+    for (const auto& [path, entry] : entries_) refresh(path);
+}
+
 VkDescriptorSet AssetThumbnailRenderer::descriptor(const std::string& path) const {
     auto it = entries_.find(path);
     return it != entries_.end() ? it->second.descriptor : VK_NULL_HANDLE;

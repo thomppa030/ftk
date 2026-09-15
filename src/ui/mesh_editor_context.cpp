@@ -10,6 +10,7 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
 
 #include <imgui.h>
 
@@ -339,6 +340,7 @@ bool MeshEditorContext::save() {
 
     collision_dirty_ = false;
     dirty_ = false;
+    if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmesh_abs_path_);
     FJELL_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
     return true;
 }
