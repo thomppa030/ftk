@@ -1001,6 +1001,15 @@ void ContentBrowser::draw_context_menu() {
             if (ImGui::MenuItem("Refresh")) {
                 refresh_current_dir();
             }
+            // A thumbnail is re-rendered when its asset changes, not when
+            // the renderer does; this is for the day the renderer did.
+            if (asset_thumbnails_ && ImGui::MenuItem("Regenerate Thumbnails")) {
+                for (const auto& e : entries_) {
+                    if (!asset_thumbnails_->supports(e.path)) continue;
+                    asset_thumbnails_->invalidate(e.path.string());
+                    asset_thumbnails_->refresh(e.path.string());
+                }
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Show in File Manager")) {
                 (void)platform::open_path(current_dir_);
