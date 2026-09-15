@@ -137,10 +137,12 @@ TEST_CASE("Resolver reports every widget file it read", "[widget]") {
     resolver.resolve(*root, fx.base.string(), sheet, context);
 
     const auto& deps = resolver.dependencies();
+    // Paths compare element-wise, so the separator the resolver joined with
+    // does not matter.
     auto has = [&](const char* rel) {
-        auto full = (fx.base / rel).string();
+        auto full = fx.base / rel;
         for (const auto& d : deps) {
-            if (d == full) return true;
+            if (fs::path(d) == full) return true;
         }
         return false;
     };
@@ -160,6 +162,6 @@ TEST_CASE("Widget stylesheet diagnostics merge into the host sheet", "[widget]")
     resolver.resolve(*root, fx.base.string(), sheet, context);
 
     REQUIRE(sheet.diagnostics.size() == 1);
-    REQUIRE(sheet.diagnostics[0].source == (fx.base / "widgets/my_widget.fjss").string());
+    REQUIRE(fs::path(sheet.diagnostics[0].source) == fx.base / "widgets/my_widget.fjss");
     REQUIRE(sheet.diagnostics[0].message.find("colour") != std::string::npos);
 }
