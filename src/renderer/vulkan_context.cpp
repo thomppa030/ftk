@@ -1610,7 +1610,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 // ground were not there.
                 if (const auto* tc = obj->components.get<TerrainComponent>();
                     tc != nullptr && tc->terrain != nullptr) {
-                    const auto& origin = spatial->transform.position;
+                    const glm::vec3 origin = tc->terrain->world_min_corner(spatial->world_matrix_);
                     const float span = tc->terrain->world_size();
                     scene_bounds.expand({origin.x, origin.y + tc->terrain->min_world_height(),
                                          origin.z});

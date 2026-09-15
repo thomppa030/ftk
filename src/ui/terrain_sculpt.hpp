@@ -85,7 +85,7 @@ public:
     /// What one frame of the tool needs, gathered by the viewport that owns it.
     struct Frame {
         TerrainAsset* terrain{nullptr};
-        glm::vec3 terrain_origin{0.0f};  ///< the node position: the field's min corner
+        glm::vec3 terrain_origin{0.0f};  ///< the field's min corner in world space
         uint32_t node_id{0};
         glm::vec3 ray_origin{0.0f};
         glm::vec3 ray_dir{0.0f};

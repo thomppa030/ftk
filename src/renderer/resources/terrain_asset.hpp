@@ -5,6 +5,7 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/vertex.hpp"
 
+#include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -57,6 +58,22 @@ public:
     [[nodiscard]] float height_scale() const { return data_.header.height_scale; }
     [[nodiscard]] float height_offset() const { return data_.header.height_offset; }
 
+    // ── Placement ──
+    // The node's pivot is the centre of the field, so a terrain parented to
+    // an empty sits around it like any other child. Field coordinates —
+    // what height_at() and the brush use — are metres from the min corner,
+    // which is this far from the pivot:
+    [[nodiscard]] glm::vec3 local_min_corner() const {
+        const float half = data_.header.world_size * 0.5F;
+        return {-half, 0.0F, -half};
+    }
+    /// The field's min corner in world space, from the node's world matrix.
+    /// Only the translation is honoured here; rotation and scale are applied
+    /// by physics but not yet by the renderer.
+    [[nodiscard]] glm::vec3 world_min_corner(const glm::mat4& world_matrix) const {
+        return glm::vec3{world_matrix[3]} + local_min_corner();
+    }
+
     /// World-space height range across the whole field, measured at load. The
     /// nominal range (offset..offset+scale) is what the format *allows*; this is
     /// what the data actually uses, which keeps a bounding box from claiming
@@ -69,8 +86,9 @@ public:
     /// from the texture — but an acceleration structure has to be built from
     /// real triangles, and GI rays do not resolve the full sample density.
     ///
-    /// Positions are relative to the terrain's own origin; the TLAS instance
-    /// transform places it in the world.
+    /// Positions are in the node's local space — centred on the pivot, see
+    /// local_min_corner() — so the TLAS instance transform is the node's
+    /// world matrix.
     ///
     /// Built once at load. Editing the heights does not rebuild it: the
     /// mega-buffer only appends, so re-uploading per stroke would leak, and a
@@ -116,9 +134,10 @@ public:
     /// Normalized height at a sample index, clamped at the edges.
     [[nodiscard]] float height_at_sample(uint32_t x, uint32_t z) const;
 
-    /// World-space height at an arbitrary point in terrain-local XZ metres,
-    /// bilinearly filtered to match what the shader reconstructs between
-    /// samples. Outside the terrain this clamps to the edge.
+    /// World-space height (before the node's Y) at a point in field metres
+    /// from the min corner, bilinearly filtered to match what the shader
+    /// reconstructs between samples. Outside the terrain this clamps to the
+    /// edge.
     [[nodiscard]] float height_at(float local_x, float local_z) const;
 
 private:

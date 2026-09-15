@@ -644,7 +644,9 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 // the same reconstruction the terrain shader performs, expressed as Jolt's
 // surface equation rather than repeated per sample.
 static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filters,
-                                       const TerrainAsset& terrain, const Node3D& node) {
+                                       const TerrainAsset& terrain, const Node3D& node,
+                                       const glm::vec3& world_position,
+                                       const glm::quat& world_rotation) {
     const auto& data = terrain.data();
     const uint32_t samples = data.sample_count();
 
@@ -654,12 +656,15 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
     }
 
     // Sample spacing on X and Z; the node's scale stretches the whole field.
+    // Jolt grows the field from the shape origin, so the min corner is
+    // offset to put the node's pivot at the centre, as the renderer does.
     const float spacing = data.header.world_size / static_cast<float>(samples - 1);
     const auto& s = node.transform.scale;
+    const glm::vec3 corner = terrain.local_min_corner();
 
     JPH::HeightFieldShapeSettings settings(
         data.heights.data(),
-        JPH::Vec3(0.0f, data.header.height_offset * s.y, 0.0f),
+        JPH::Vec3(corner.x * s.x, data.header.height_offset * s.y, corner.z * s.z),
         JPH::Vec3(spacing * s.x, data.header.height_scale * s.y, spacing * s.z),
         samples);
 
@@ -677,8 +682,6 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
         return {};
     }
 
-    // The field grows from its origin corner rather than from its centre, so
-    // the body sits at the node's position and the samples extend from there.
     // Terrain is world geometry, so it answers the channel table like any
     // other collider — a projectile set to ignore the world has to pass
     // through the ground too, not just through walls.
@@ -687,8 +690,8 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
 
     JPH::BodyCreationSettings body_settings(
         shape_result.Get(),
-        to_jolt(node.transform.position),
-        to_jolt_quat(node.transform.rotation),
+        to_jolt(world_position),
+        to_jolt_quat(world_rotation),
         JPH::EMotionType::Static, layer);
 
     return bi.CreateAndAddBody(body_settings, JPH::EActivation::DontActivate);
@@ -822,8 +825,11 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
     // surface can never disagree with what is on screen.
     if (const auto* terrain_comp = node.components.get<TerrainComponent>();
         terrain_comp != nullptr && terrain_comp->terrain != nullptr) {
-        if (auto body_id = create_terrain_body(bi, impl_->filter_table,
-                                               *terrain_comp->terrain, *spatial);
+        glm::vec3 world_position;
+        glm::quat world_rotation;
+        world_placement(scene, *spatial, world_position, world_rotation);
+        if (auto body_id = create_terrain_body(bi, impl_->filter_table, *terrain_comp->terrain,
+                                               *spatial, world_position, world_rotation);
             !body_id.IsInvalid()) {
             impl_->object_to_body[node.id] = body_id;
             impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;

@@ -187,6 +187,7 @@ void TerrainAsset::build_ray_mesh() {
     const uint32_t count = ((samples - 1 + step - 1) / step) + 1;
     const float spacing = data_.header.world_size / static_cast<float>(samples - 1);
 
+    const glm::vec3 corner = local_min_corner();
     ray_vertices_.resize(static_cast<size_t>(count) * count);
     for (uint32_t z = 0; z < count; ++z) {
         for (uint32_t x = 0; x < count; ++x) {
@@ -194,9 +195,9 @@ void TerrainAsset::build_ray_mesh() {
             const uint32_t sz = std::min(z * step, samples - 1);
 
             Vertex& v = ray_vertices_[(static_cast<size_t>(z) * count) + x];
-            v.position = {static_cast<float>(sx) * spacing,
+            v.position = {corner.x + (static_cast<float>(sx) * spacing),
                           data_.world_height(height_at_sample(sx, sz)),
-                          static_cast<float>(sz) * spacing};
+                          corner.z + (static_cast<float>(sz) * spacing)};
             v.color = glm::vec3{1.0F};
             v.tex_coord = {static_cast<float>(sx) / static_cast<float>(samples - 1),
                            static_cast<float>(sz) / static_cast<float>(samples - 1)};

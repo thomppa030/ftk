@@ -377,11 +377,11 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, VkPipeline pipelin
                                 static_cast<uint32_t>(sets.size()), sets.data(), 0,
                                 nullptr);
 
-        // The node's transform positions the terrain; only its XZ translation
-        // is used, since the heightfield carries its own vertical placement.
+        // The node's world translation positions the terrain, centred on the
+        // pivot; the heightfield carries its own vertical placement on top.
         const auto* spatial = node->as_spatial();
-        const glm::vec3 origin =
-            spatial != nullptr ? spatial->transform.position : glm::vec3{0.0F};
+        const glm::vec3 origin = terrain.world_min_corner(
+            spatial != nullptr ? spatial->world_matrix_ : glm::mat4{1.0F});
 
         TerrainPushConstants push{};
         push.world_origin = {origin.x, origin.z};

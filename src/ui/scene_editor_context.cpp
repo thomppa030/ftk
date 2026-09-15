@@ -492,7 +492,7 @@ void SceneEditorContext::draw_sculpt(ViewportPanel& vp) {
 
     TerrainSculptTool::Frame frame{};
     frame.terrain = comp->terrain;
-    frame.terrain_origin = node->transform.position;
+    frame.terrain_origin = comp->terrain->world_min_corner(node->world_matrix_);
     frame.node_id = node->id;
     frame.ray_valid = vp.hovered && viewport_mouse_ray(vp, frame.ray_origin, frame.ray_dir);
     frame.mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
@@ -595,8 +595,9 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
                 // Terrain has no model to test; its surface is where the
                 // mesh shader puts it, which raycast_terrain reproduces.
                 glm::vec3 surface{0.0f};
-                if (raycast_terrain(*terrain->terrain, spatial->transform.position, ray_origin,
-                                    ray_dir, surface)) {
+                if (raycast_terrain(*terrain->terrain,
+                                    terrain->terrain->world_min_corner(spatial->world_matrix_),
+                                    ray_origin, ray_dir, surface)) {
                     const float dist = glm::length(surface - ray_origin);
                     if (dist < closest_t) {
                         hit = true;
