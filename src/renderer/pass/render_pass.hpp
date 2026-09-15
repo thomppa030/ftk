@@ -22,6 +22,7 @@ class DebugDraw;
 class DeferredDeleter;
 class GpuContext;
 class OffscreenPass;
+struct SkyBackdrop;
 class PassRegistry;
 class RenderQueue;
 class RenderSubsystem;
@@ -117,6 +118,8 @@ struct FrameContext {
     // Flip tonemap output vertically so render-to-texture viewports produce
     // images with V=0 at bottom (standard texture convention).
     bool flip_tonemap_y{false};
+    // Drawn in place of the scene's sky when set (see ViewportRenderRequest).
+    const SkyBackdrop* backdrop{nullptr};
 
     // ── Extended context (for self-registering passes) ─────────────────
 

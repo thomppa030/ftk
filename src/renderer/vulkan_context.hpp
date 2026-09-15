@@ -377,7 +377,8 @@ private:
                        PostProcessResources *pp, bool skip_shadows = false,
                        bool flip_tonemap_y = false,
                        const FjGraph *viewport_graph = nullptr,
-                       VkDescriptorSet global_set = VK_NULL_HANDLE);
+                       VkDescriptorSet global_set = VK_NULL_HANDLE,
+                       const SkyBackdrop *backdrop = nullptr);
   /// `pp` is the viewport being rendered: its config decides which temporal
   /// effects the UBO enables (TAA jitter, GI intensities) and its ViewHistory
   /// supplies and receives the previous-frame camera.
@@ -397,7 +398,8 @@ private:
                                    PostProcessResources *pp, bool skip_shadows,
                                    bool flip_tonemap_y,
                                    const FjGraph *viewport_graph = nullptr,
-                                   VkDescriptorSet global_set = VK_NULL_HANDLE);
+                                   VkDescriptorSet global_set = VK_NULL_HANDLE,
+                                   const SkyBackdrop *backdrop = nullptr);
 
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;

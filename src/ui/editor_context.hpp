@@ -68,6 +68,15 @@ public:
                                   class ThreadPool& /*pool*/) {}
 
     // Dockspace layout tracking
+    /// The requests of an asset preview: the same viewports, drawn over the
+    /// editor's studio backdrop instead of the scene's sky, so the asset is
+    /// what stands out.
+    [[nodiscard]] static std::vector<ViewportRenderRequest> preview_render_requests(
+        std::vector<ViewportRenderRequest> requests) {
+        for (auto& request : requests) request.backdrop = &SkyBackdrop::editor_preview();
+        return requests;
+    }
+
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }
 

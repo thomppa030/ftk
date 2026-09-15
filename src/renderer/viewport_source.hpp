@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/math/color_space.hpp"
+
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -48,6 +50,25 @@ inline const char* viewport_source_name(ViewportSource source) {
 
 constexpr int VIEWPORT_SOURCE_COUNT = 13;
 
+/// A flat gradient drawn where the scene's sky would be, for a preview
+/// whose subject should not compete with an HDRI. Only the picture changes:
+/// the environment lighting still comes from the scene's sky. Linear
+/// colours, like everything the renderer multiplies.
+struct SkyBackdrop {
+    glm::vec3 top{0.0f};
+    glm::vec3 bottom{0.0f};
+
+    /// The editor's studio backdrop for asset previews: dark neutral grey,
+    /// a little lighter towards the top.
+    static const SkyBackdrop& editor_preview() {
+        static const SkyBackdrop backdrop{
+            .top = color_space::srgb_to_linear(glm::vec3{0.227f, 0.239f, 0.259f}),
+            .bottom = color_space::srgb_to_linear(glm::vec3{0.102f, 0.110f, 0.122f}),
+        };
+        return backdrop;
+    }
+};
+
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};
     glm::mat4 view{1.0f};
@@ -69,6 +90,9 @@ struct ViewportRenderRequest {
     /// the main viewport during the migration window before per-viewport
     /// graphs are wired everywhere. SceneViewports own their own graph.
     const FjGraph* viewport_graph{nullptr};
+
+    /// Drawn in place of the sky when set; null shows the scene's sky.
+    const SkyBackdrop* backdrop{nullptr};
 };
 
 } // namespace fjell

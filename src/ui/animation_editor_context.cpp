@@ -265,7 +265,7 @@ bool AnimationEditorContext::handle_shortcuts() {
 }
 
 std::vector<ViewportRenderRequest> AnimationEditorContext::build_render_requests() {
-    return viewport_manager_.build_render_requests();
+    return preview_render_requests(viewport_manager_.build_render_requests());
 }
 
 void AnimationEditorContext::apply_resize(VulkanContext& vk) {

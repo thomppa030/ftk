@@ -75,7 +75,7 @@ bool MaterialEditorContext::handle_shortcuts() {
 }
 
 std::vector<ViewportRenderRequest> MaterialEditorContext::build_render_requests() {
-    return viewport_manager_.build_render_requests();
+    return preview_render_requests(viewport_manager_.build_render_requests());
 }
 
 void MaterialEditorContext::apply_resize(VulkanContext& vk) {

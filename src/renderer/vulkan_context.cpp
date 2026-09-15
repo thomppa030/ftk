@@ -345,7 +345,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
                                                  PostProcessResources* pp, bool skip_shadows,
                                                  bool flip_tonemap_y,
                                                  const FjGraph* viewport_graph,
-                                                 VkDescriptorSet global_set) {
+                                                 VkDescriptorSet global_set,
+                                                 const SkyBackdrop* backdrop) {
     FrameContext ctx{};
     ctx.cmd = cmd;
     // Async compute CB is set on the main-viewport path in render_frame
@@ -384,6 +385,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = skip_shadows;
     ctx.flip_tonemap_y = flip_tonemap_y;
+    ctx.backdrop = backdrop;
     ctx.target_pool = &target_pool_;
 
     // Read inv_view_proj from the already-written GlobalUbo
@@ -419,7 +421,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     ThreadPool& pool, PostProcessResources* pp,
                                     bool skip_shadows, bool flip_tonemap_y,
                                     const FjGraph* viewport_graph,
-                                    VkDescriptorSet global_set) {
+                                    VkDescriptorSet global_set,
+                                    const SkyBackdrop* backdrop) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
     // Gather scene: frustum cull, build render queue and indirect batches
@@ -483,7 +486,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y,
-                                        viewport_graph, global_set);
+                                        viewport_graph, global_set, backdrop);
     // Hand the async CB + post-compute graphics CB to the graph, but
     // only for the main frame CB — preview viewports get their own
     // one-shot CBs from render_preview and have no paired compute/post
@@ -668,7 +671,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     update_light_ssbo(current_frame_, scene);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
                     req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
-                    req.global_set);
+                    req.global_set, req.backdrop);
 
     vkEndCommandBuffer(cmd);
 
@@ -771,7 +774,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                               vp.camera_position, light, scene, vp.target->extent(), *pp);
         update_light_ssbo(current_frame_, scene);
         render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
-                        vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph);
+                        vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph,
+                        VK_NULL_HANDLE, vp.backdrop);
     }
 
     // --- UI editor preview offscreen pass ---

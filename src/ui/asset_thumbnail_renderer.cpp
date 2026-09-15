@@ -772,6 +772,9 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const Directio
     req.skip_shadows = true;
     req.viewport_graph = graph != nullptr ? graph : graph_;
     req.global_set = global_set_;
+    // The same studio backdrop the asset editors preview over, so a
+    // thumbnail is a small view of what the editor shows.
+    req.backdrop = &SkyBackdrop::editor_preview();
 
     // Exposure is one adapted value shared by every viewport. Pin it for
     // this submit so the thumbnail does not depend on how bright the open

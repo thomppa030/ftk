@@ -648,7 +648,7 @@ bool BlendSpace1DEditorContext::handle_shortcuts() {
 }
 
 std::vector<ViewportRenderRequest> BlendSpace1DEditorContext::build_render_requests() {
-    return viewport_manager_.build_render_requests();
+    return preview_render_requests(viewport_manager_.build_render_requests());
 }
 
 void BlendSpace1DEditorContext::apply_resize(VulkanContext& vk) {

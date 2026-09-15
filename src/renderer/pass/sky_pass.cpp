@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/viewport_source.hpp"
 #include "core/profiler.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/device.hpp"
@@ -276,7 +277,11 @@ void SkyPass::record(const FrameContext& ctx) {
 
     begin_rendering(ctx);
 
-    if (mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE) {
+    // A backdrop replaces whatever sky is configured, custom shader included;
+    // the sky cubemap the surfaces reflect is built by SkyCubemapPass and
+    // untouched by this.
+    const bool has_backdrop = ctx.backdrop != nullptr;
+    if (!has_backdrop && mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE) {
         struct {
             float viewport_width;
             float viewport_height;
@@ -315,11 +320,11 @@ void SkyPass::record(const FrameContext& ctx) {
         float atmosphere_hdri_floor;
         float atmosphere_has_hdri;
     } push{
-        glm::vec4(top_color_, 1.0f),
-        glm::vec4(bottom_color_, 1.0f),
+        glm::vec4(has_backdrop ? ctx.backdrop->top : top_color_, 1.0f),
+        glm::vec4(has_backdrop ? ctx.backdrop->bottom : bottom_color_, 1.0f),
         static_cast<float>(ctx.target->extent().width),
         static_cast<float>(ctx.target->extent().height),
-        static_cast<float>(mode_),
+        static_cast<float>(has_backdrop ? Mode::Gradient : mode_),
         atm_rayleigh_scale_,
         atm_mie_scale_,
         atm_mie_g_,
