@@ -475,6 +475,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
         shadow.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
         shadow.quad_flags = 0;
         shadow.state = {1.0f, 0.0f, 0.0f, 0.0f};
+        shadow.bar = {1.0f, 0.0f, 0.0f, 0.0f};
         quads.push_back({shadow, UINT32_MAX});
     }
 
@@ -489,9 +490,11 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
 
         // A bar without a material shows its fill by shrinking the quad. A
         // material paints the whole bar and reads the fill as FILL, so it
-        // can shape the edge and the empty part itself.
-        if (node.tag == "bar" && !has_material) {
-            rect_w *= node.fill_fraction;
+        // can shape the edge and the empty part itself. Either way the
+        // displayed fill is the one the bar dynamics moved, not the raw value.
+        bool is_bar = node.tag == "bar";
+        if (is_bar && !has_material) {
+            rect_w *= node.fill_display;
         }
 
         GpuUiQuad quad{};
@@ -528,10 +531,14 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
         quad.texture_id = node.resolved_texture_id;
         quad.material_id = has_material ? node.resolved_material_id : UINT32_MAX;
         quad.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
-        quad.state = {node.tag == "bar" ? node.fill_fraction : 1.0f,
+        quad.state = {is_bar ? node.fill_display : 1.0f,
                       node.is_hovered() ? 1.0f : 0.0f,
                       node.is_active() ? 1.0f : 0.0f,
                       node.is_focused() ? 1.0f : 0.0f};
+        quad.bar = {is_bar ? node.fill_fraction : 1.0f,
+                    is_bar ? node.fill_velocity : 0.0f,
+                    is_bar ? node.fill_agitation : 0.0f,
+                    0.0f};
 
         // Classify opaque: fully opaque color, no border-radius, not shadow, not textured
         bool is_opaque = s.opacity >= 1.0f &&

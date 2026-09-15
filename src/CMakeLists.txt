@@ -296,6 +296,7 @@ add_executable(fjell
     ui/game_ui/ui_input.cpp
     ui/game_ui/ui_data_bind.cpp
     ui/game_ui/ui_animation.cpp
+    ui/game_ui/ui_bar_dynamics.cpp
     ui/game_ui/ui_watcher.cpp
     ui/game_ui/widget_resolver.cpp
     ui/game_ui/ui_subsystem.cpp

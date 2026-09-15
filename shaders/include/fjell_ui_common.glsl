@@ -20,6 +20,7 @@ struct UiQuad {
     float z_layer;      // depth ordering (0 = far, 1 = near)
     uint quad_flags;    // bitfield: bit 0 = opaque
     vec4 state;         // FILL, HOVER, ACTIVE, FOCUS for shader_type ui
+    vec4 bar;           // FILL_TARGET, FILL_VELOCITY, FILL_AGITATION, unused
 };
 
 struct UiGlyph {

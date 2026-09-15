@@ -28,7 +28,7 @@ without the `<widget>` wrapper and props, and the parser reads both.
 |---|---|
 | `panel`, `div` | a box; the two are interchangeable, `panel` reads better as a container |
 | `text` | its text content, wrapped to its box; the only element that holds text |
-| `bar` | a box whose fill is `value` divided by `max`, both templatable |
+| `bar` | a box whose fill is `value` divided by `max`, both templatable; the drawn fill springs after the value rather than jumping |
 | `img` | a box, meant to carry a `src` |
 | `slot` | inside a widget only: where the caller's children land |
 | anything else | a widget from `widgets/<tag>.fjwidget`, dashes allowed |
@@ -50,6 +50,7 @@ Any element takes `src="path"` to draw a texture, resolved against the project, 
 | `foreach="list"` | repeats the element once per item of a list, each item its own scope |
 | `style-<property>="value"` | an inline style, templates resolved: `style---fill="{color}"` |
 | `value`, `max` on `bar` | fill fraction, also `FILL` inside a ui shader |
+| `settle`, `bounce` on `bar` | how the drawn fill follows the value: seconds to come to rest (0.35) and overshoot 0..1 (0.25) |
 | `src`, `material` | texture to draw, ui material to paint with |
 
 Comments are `<!-- -->`, elements self-close with `/>`, and attribute values are

@@ -4,10 +4,11 @@
 // FJSL ui template. One quad of the game UI, drawn by UiRenderer through a
 // pipeline built for the `shader_type ui;` .fjsl that a node's material
 // names. The user writes fragment() and fills ALBEDO and ALPHA; UV, SIZE,
-// PIXEL, SCREEN_UV, TIME, COLOR, TEXTURE, HAS_TEXTURE, FILL, HOVER, ACTIVE
-// and FOCUS are in scope. The quad's corners, border, clip rect and opacity
-// are applied afterwards through the same helpers the fixed UI shader uses,
-// so a material paints only the fill.
+// PIXEL, SCREEN_UV, TIME, COLOR, TEXTURE, HAS_TEXTURE, FILL, FILL_TARGET,
+// FILL_VELOCITY, FILL_AGITATION, HOVER, ACTIVE and FOCUS are in scope. The
+// quad's corners, border, clip rect and opacity are applied afterwards
+// through the same helpers the fixed UI shader uses, so a material paints
+// only the fill.
 //
 // Compiled twice: as is for screen-space UI, and with FJELL_UI_WORLD defined
 // for worldspace widgets, which carry the extra varyings and attachments the
@@ -71,6 +72,9 @@ void main() {
     float HOVER = q.state.y;
     float ACTIVE = q.state.z;
     float FOCUS = q.state.w;
+    float FILL_TARGET = q.bar.x;      // where the bar's value is; FILL follows it
+    float FILL_VELOCITY = q.bar.y;    // bar widths per second, negative while draining
+    float FILL_AGITATION = q.bar.z;   // 0..1, stirred up by sudden changes, dies away
 
     vec3 ALBEDO = COLOR.rgb;
     float ALPHA = COLOR.a;

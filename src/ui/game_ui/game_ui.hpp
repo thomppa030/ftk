@@ -4,6 +4,7 @@
 #include "ui/game_ui/font_atlas.hpp"
 #include "ui/game_ui/text_shaper.hpp"
 #include "ui/game_ui/ui_animation.hpp"
+#include "ui/game_ui/ui_bar_dynamics.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_input.hpp"
@@ -171,6 +172,7 @@ private:
     UiInput ui_input_;
     UiDataBind data_bind_;
     UiAnimation animation_;
+    UiBarDynamics bar_dynamics_;
     WidgetResolver widget_resolver_;
     FontLibrary* fonts_{nullptr};
     // Resolved faces by "family\nweight", rebuilt as text is shaped after a

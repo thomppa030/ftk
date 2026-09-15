@@ -140,6 +140,7 @@ void GameUi::discard_tree_state() {
     data_bind_.forget_tree();
     ui_input_.forget_tree();
     animation_.forget_tree();
+    bar_dynamics_.forget_tree();
     // The faces come with the sheet, which the load replaces.
     font_cache_.clear();
     unknown_families_.clear();
@@ -293,7 +294,13 @@ void GameUi::update(float viewport_width, float viewport_height,
         }
     }
 
-    // 5. Animate transitions
+    // 5. Move every bar's displayed fill toward its value. Only the quads
+    // change, so a redraw is enough.
+    if (bar_dynamics_.update(*root_, dt)) {
+        needs_redraw_ = true;
+    }
+
+    // 6. Animate transitions
     bool animating = animation_.update(*root_, dt);
     if (animating) {
         needs_redraw_ = true;

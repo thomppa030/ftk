@@ -62,8 +62,14 @@ struct UiNode {
     uint32_t resolved_material_id{UINT32_MAX};
     uint32_t resolved_pipeline_id{UINT32_MAX};
 
-    // <bar> value/max as data binding last resolved it, 0..1; 1 elsewhere
+    // <bar> value/max as data binding last resolved it, 0..1; 1 elsewhere.
+    // What is drawn is fill_display, which UiBarDynamics moves toward it
+    // like a spring; fill_velocity is its speed in bar widths per second
+    // and fill_agitation (0..1) how disturbed the last changes left it.
     float fill_fraction{1.0f};
+    float fill_display{1.0f};
+    float fill_velocity{0.0f};
+    float fill_agitation{0.0f};
 
     // Where the markup that produced this node lives, for diagnostics that
     // point at a file and line. The parser stamps the line, the loader that

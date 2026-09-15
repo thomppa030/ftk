@@ -57,7 +57,10 @@ no effect: a UI quad always alpha-blends.
 | `COLOR` | vec4 | the node's stylesheet colour, linear, with its alpha |
 | `TEXTURE` | sampler2D | the node's `src` texture; white when there is none |
 | `HAS_TEXTURE` | bool | whether `src` was set |
-| `FILL` | float | a `<bar>`'s value divided by max, 0..1; 1 on any other element |
+| `FILL` | float | the fill a `<bar>` shows, 0..1, which springs after its value; 1 on any other element |
+| `FILL_TARGET` | float | where the bar's value is right now |
+| `FILL_VELOCITY` | float | how fast `FILL` is moving, in bar widths per second, negative while draining |
+| `FILL_AGITATION` | float | 0..1, stirred up by a sudden change and dying away over about half a second; a drop stirs harder than a rise |
 | `HOVER`, `ACTIVE`, `FOCUS` | float | 1 while the pseudo-class holds, else 0 |
 
 ### Outputs
@@ -72,6 +75,12 @@ A `<bar>` without a material shows its fill by shrinking its quad. With a materi
 the quad stays the full track and the shader reads `FILL`, so it decides the edge:
 a straight cut with `step(UV.x, FILL)`, a wave, a gradient into the empty part, or
 nothing at all for a shader that ignores the fill.
+
+The fill a bar shows is not the raw value: it follows the value like a mass on a
+spring, tuned by the bar's `settle` and `bounce` attributes, and a sudden change
+leaves an agitation behind that decays on its own. A liquid shader uses
+`FILL_AGITATION` to slosh after a hit and `FILL_VELOCITY` to send its waves the way
+the liquid moves; `shaders/ui_liquid_fill.fjsl` does both.
 
 ## Where the texture goes
 

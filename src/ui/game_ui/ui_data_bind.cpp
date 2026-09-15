@@ -174,6 +174,9 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
     clone->resolved_material_id = source.resolved_material_id;
     clone->resolved_pipeline_id = source.resolved_pipeline_id;
     clone->fill_fraction = source.fill_fraction;
+    clone->fill_display = source.fill_display;
+    clone->fill_velocity = source.fill_velocity;
+    clone->fill_agitation = source.fill_agitation;
     clone->source_file = source.source_file;
     clone->source_line = source.source_line;
 
