@@ -388,7 +388,6 @@ target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
 
 if(MSVC)
     target_compile_options(fjell PRIVATE /W4 /WX)
-    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS)
     # Pass the full path to cl.exe so fjreflect can use it at runtime
     string(REPLACE "\\" "/" _FJELL_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
     target_compile_definitions(fjell PRIVATE "FJELL_CXX_COMPILER=\"${_FJELL_CXX_COMPILER}\"")
@@ -587,7 +586,6 @@ target_link_libraries(fjell-hub PRIVATE
 )
 if(MSVC)
     target_compile_options(fjell-hub PRIVATE /W4 /WX)
-    target_compile_definitions(fjell-hub PRIVATE _CRT_SECURE_NO_WARNINGS)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)

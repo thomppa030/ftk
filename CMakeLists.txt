@@ -11,6 +11,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# The engine reads and writes its binary formats with the C stdio family,
+# which MSVC deprecates in favour of the *_s variants under /W4 /WX. One
+# definition here covers every target, so a source shared between the
+# engine, the tools and the tests compiles the same way in each.
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 # MSVC warns when a local hides another local or a parameter (C4456/C4457)
 # and /WX makes that a CI failure. GCC's -Wshadow=local is that same set;
 # Clang has no =local form, and its plain -Wshadow covers the same cases.

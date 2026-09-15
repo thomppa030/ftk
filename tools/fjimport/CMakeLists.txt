@@ -34,7 +34,6 @@ target_link_libraries(fjimport PRIVATE
 
 if(MSVC)
     target_compile_options(fjimport PRIVATE /W4 /WX)
-    target_compile_definitions(fjimport PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(fjimport PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
