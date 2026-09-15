@@ -299,7 +299,9 @@ add_executable(fjell
     ui/game_ui/ui_widget_component_meta.cpp
     ui/game_ui/widget_asset.cpp
     ui/game_ui/game_ui.cpp
+    ui/game_ui/fjfont.cpp
     ui/game_ui/font_atlas.cpp
+    ui/game_ui/font_atlas_build.cpp
     ui/game_ui/text_shaper.cpp
 
     # ImGui sources
@@ -602,11 +604,10 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/include" DESTINATION shaders
         FILES_MATCHING PATTERN "*.glsl")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.fjsl")
-# Both directories hold local-only files the repository ignores — development
-# screenshots and the dumped font atlas — which would otherwise be packaged
-# from a working tree even though a fresh checkout never has them.
+# The assets directory holds local-only development screenshots the
+# repository ignores, which would otherwise be packaged from a working tree
+# even though a fresh checkout never has them.
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets
         PATTERN "screenshots" EXCLUDE)
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets
-        PATTERN "*.atlas.ppm" EXCLUDE)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell" DESTINATION sdk)

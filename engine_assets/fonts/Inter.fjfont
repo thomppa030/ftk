@@ -1,0 +1,7 @@
+{
+    "source": "Inter-Regular.ttf",
+    "charset": ["ascii"],
+    "cell_size": 48,
+    "px_range": 6,
+    "kerning": true
+}

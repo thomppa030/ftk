@@ -30,8 +30,10 @@ struct FontMetrics {
     float line_height;     // recommended line spacing (em-normalized)
 };
 
-/// Loads a TTF font via FreeType, generates MSDF per glyph via msdfgen,
-/// packs into a single atlas texture, and registers it in the bindless system.
+/// The MSDF atlas of one `.fjfont` recipe on the GPU, registered in the
+/// bindless system. The atlas itself is baked offline (see fjfont.hpp): this
+/// loads the cached bake beside the recipe, rebuilding it first when the
+/// recipe or its font file is newer.
 ///
 /// Glyph metrics are stored in em-normalized space — multiply by font_size
 /// to get pixel coordinates at render time.
@@ -48,7 +50,9 @@ public:
     FontAtlas(FontAtlas&&) = delete;
     FontAtlas& operator=(FontAtlas&&) = delete;
 
-    void create(const std::string& font_path,
+    /// Loads the recipe at `recipe_path` and uploads its atlas. Failures are
+    /// logged and leave the atlas invalid; text then draws nothing.
+    void create(const std::string& recipe_path,
                 VkDevice device, VmaAllocator allocator,
                 VkPhysicalDevice physical_device,
                 UploadContext& upload,

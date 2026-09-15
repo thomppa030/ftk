@@ -233,7 +233,7 @@ void Engine::init_ui() {
     // into PlayController's HUD target — see Engine::run) and no docked
     // presentation of its own yet, so it still targets the swapchain.
     vulkan_context_->init_game_ui(game_ui_,
-        base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
+        base_path::resolve("engine_assets/fonts/Inter.fjfont"),
         vulkan_context_->swapchain_format());
 
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_,
