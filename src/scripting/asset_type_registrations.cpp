@@ -8,6 +8,8 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+
 namespace {
 
 using fjell::AssetTypeRegistry;
@@ -85,8 +87,11 @@ static const bool reg_material = [] {
                 thumbnails->request(abs_mat);
                 thumb = icons ? icons->icon("material") : VK_NULL_HANDLE;
             }
+            // Drawn at the thumbnail's own size: stretched to the panel it
+            // is a blur, and a sphere does not need to be wider than that.
+            float size = std::min(width, static_cast<float>(fjell::AssetThumbnailRenderer::SIZE));
             if (thumb) {
-                ImGui::Image(thumb, {width, width});
+                ImGui::Image(thumb, {size, size});
             }
         },
     });
