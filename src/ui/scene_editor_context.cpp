@@ -590,6 +590,19 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
                 hit = ray_hits_skeletal_model(ray_origin, ray_dir, *skel->skeletal_model,
                                               obj->components.get<AnimatorComponent>(),
                                               spatial->world_matrix_, closest_t, posed, t);
+            } else if (const auto* terrain = obj->components.get<TerrainComponent>();
+                       terrain && terrain->terrain) {
+                // Terrain has no model to test; its surface is where the
+                // mesh shader puts it, which raycast_terrain reproduces.
+                glm::vec3 surface{0.0f};
+                if (raycast_terrain(*terrain->terrain, spatial->transform.position, ray_origin,
+                                    ray_dir, surface)) {
+                    const float dist = glm::length(surface - ray_origin);
+                    if (dist < closest_t) {
+                        hit = true;
+                        t = dist;
+                    }
+                }
             }
             if (hit) {
                 closest_t = t;
