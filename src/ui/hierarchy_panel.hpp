@@ -34,6 +34,16 @@ public:
 private:
     void draw_node(Node& obj);
 
+    // Inline rename of one row. Started by F2 on the primary selection or
+    // from the row's context menu; the text box takes the keyboard on the
+    // frame it appears, commits on Enter or when it loses focus, and Escape
+    // puts the old name back before that so committing it changes nothing.
+    void begin_rename(uint32_t id);
+    void draw_rename_box(Node& obj, float x, float width, float row_min_y, float row_h);
+    uint32_t renaming_id_{0};
+    bool rename_focus_pending_{false};
+    char rename_buf_[128]{};
+
     Scene* scene_{nullptr};
     ViewportManager* viewports_{nullptr};
     uint32_t* selected_id_{nullptr};

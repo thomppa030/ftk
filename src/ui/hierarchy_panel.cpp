@@ -202,9 +202,63 @@ void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
     icons_ = icons;
 }
 
+void HierarchyPanel::begin_rename(uint32_t id) {
+    const auto* obj = scene_->find(id);
+    if (!obj) return;
+    renaming_id_ = id;
+    rename_focus_pending_ = true;
+    std::strncpy(rename_buf_, obj->name.c_str(), sizeof(rename_buf_) - 1);
+    rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+}
+
+void HierarchyPanel::draw_rename_box(Node& obj, float x, float width,
+                                     float row_min_y, float row_h) {
+    // The tree row already advanced the layout; the box is placed over the
+    // row's label area and the cursor put back where the row left it.
+    ImVec2 resume = ImGui::GetCursorScreenPos();
+    float frame_h = ImGui::GetFrameHeight();
+    ImGui::SetCursorScreenPos({x, row_min_y + (row_h - frame_h) * 0.5f});
+    ImGui::SetNextItemWidth(std::max(width, 40.0f));
+    if (rename_focus_pending_) {
+        ImGui::SetKeyboardFocusHere();
+        rename_focus_pending_ = false;
+    }
+    // Sits inside a highlighted row already, so it needs no frame of its own.
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    bool entered = ImGui::InputText("##rename", rename_buf_, sizeof(rename_buf_),
+                                    ImGuiInputTextFlags_EnterReturnsTrue |
+                                    ImGuiInputTextFlags_AutoSelectAll);
+    ImGui::PopStyleVar();
+    bool done = entered || ImGui::IsItemDeactivated();
+    ImGui::SetCursorScreenPos(resume);
+    if (!done) return;
+
+    std::string new_name(rename_buf_);
+    if (!new_name.empty() && new_name != obj.name) {
+        if (history_) {
+            history_->execute(std::make_unique<RenameCommand>(
+                *scene_, obj.id, obj.name, new_name));
+        } else {
+            obj.name = new_name;
+            scene_->mark_dirty();
+        }
+    }
+    renaming_id_ = 0;
+}
+
 void HierarchyPanel::draw() {
     if (auto p = Panel(ICON_LC_LIST_TREE, "Hierarchy")) {
         remove_pending_id_ = 0;
+
+        // A rename outlives its row only until the node is gone.
+        if (renaming_id_ != 0 && !scene_->find(renaming_id_)) renaming_id_ = 0;
+
+        // The search box owns the keyboard while it is active, so F2 there
+        // must not start a rename.
+        if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
+            ImGui::IsKeyPressed(ImGuiKey_F2, false) && *selected_id_ != 0) {
+            begin_rename(*selected_id_);
+        }
 
         // Sync selection with external changes to selected_id_
         // (e.g. viewport click, add object, etc.)
@@ -332,11 +386,14 @@ void HierarchyPanel::draw_node(Node& obj) {
 
     bool is_selected = selection_.contains(obj.id);
     bool is_primary = (obj.id == *selected_id_);
+    bool is_renaming = (obj.id == renaming_id_);
 
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
         ImGuiTreeNodeFlags_SpanAvailWidth |
         ImGuiTreeNodeFlags_FramePadding;
+    // The rename box sits on top of the row and needs to take the mouse.
+    if (is_renaming) flags |= ImGuiTreeNodeFlags_AllowOverlap;
 
     if (!has_children) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -369,7 +426,9 @@ void HierarchyPanel::draw_node(Node& obj) {
         ImGui::PushStyleColor(ImGuiCol_Text, {0.95f, 0.95f, 0.95f, 1.0f});
     }
 
-    std::string padded_label = "          " + obj.name;
+    // The label is padded to leave room for the icon drawn over it; while
+    // renaming, the box replaces the text and the row shows none of its own.
+    std::string padded_label = is_renaming ? "##renaming" : "          " + obj.name;
     float tree_indent = ImGui::GetTreeNodeToLabelSpacing();
 
     bool node_open = ImGui::TreeNodeEx(padded_label.c_str(), flags);
@@ -408,6 +467,22 @@ void HierarchyPanel::draw_node(Node& obj) {
                 icon_desc, icon_pos,
                 {icon_pos.x + icon_size, icon_pos.y + icon_size});
         }
+    }
+
+    if (is_renaming) {
+        float text_x = row_min.x + tree_indent + 2.0f + icon_size + 6.0f;
+        float delete_area = 14.0f + 8.0f * 2.0f;
+        draw_rename_box(obj, text_x, row_max.x - delete_area - text_x, row_min.y, row_h);
+        // The box owns clicks and keys on this row until it closes; the rest
+        // of the row's interaction would only fight it for them.
+        if (has_children && node_open) {
+            for (auto* child : child_it->second) {
+                draw_node(*child);
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+        return;
     }
 
     // Delete "button" — drawn manually, click detected via mouse pos
@@ -483,6 +558,9 @@ void HierarchyPanel::draw_node(Node& obj) {
         ImGui::OpenPopup("##NodeContext");
     }
     if (ImGui::BeginPopup("##NodeContext")) {
+        if (ImGui::MenuItem("Rename", "F2")) {
+            begin_rename(obj.id);
+        }
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
             on_duplicate.broadcast();
         }
