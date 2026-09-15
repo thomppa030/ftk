@@ -1,10 +1,10 @@
 // fjlint: reports every problem the engine would report when loading
-// .fjss stylesheets and .fjwidget files, without starting the engine.
+// .fjss stylesheets, .fjwidget files and .fjfont recipes, without starting the engine.
 //
 //   fjlint <file or directory>...
 //   fjlint --stdin-filename <name> -
 //
-// Directories are searched for *.fjss and *.fjwidget. A widget's own
+// Directories are searched for *.fjss, *.fjwidget and *.fjfont. A widget's own
 // stylesheet is checked along with it. With "-" the stylesheet text is read
 // from stdin and reported under the given name, which is how an editor
 // checks a buffer while it is being typed, before it is saved. Exit status
@@ -28,6 +28,7 @@
 // with a filetype rule mapping *.fjss to "fjss". Vim's own :make works with
 // `set makeprg=fjlint\ %` and the default errorformat.
 
+#include "ui/game_ui/fjfont.hpp"
 #include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"
@@ -95,6 +96,24 @@ void check_widget(const fs::path& path, Tally& tally) {
     }
 }
 
+void check_font(const fs::path& path, Tally& tally) {
+    ++tally.files;
+    std::vector<std::string> warnings;
+    auto recipe = load_font_recipe(path, &warnings);
+    for (const auto& warning : warnings) FJELL_CORE_WARN("{}", warning);
+    if (!recipe) {
+        FJELL_CORE_ERROR("{}", recipe.error());
+        return;
+    }
+    auto source = font_source_path(path, *recipe);
+    if (!fs::exists(source)) {
+        FJELL_CORE_ERROR("{}: source font '{}' does not exist", path.string(), recipe->source);
+    }
+    if (charset_codepoints(*recipe).empty()) {
+        FJELL_CORE_ERROR("{}: the charset is empty", path.string());
+    }
+}
+
 void check_path(const fs::path& path, Tally& tally) {
     if (fs::is_directory(path)) {
         std::vector<fs::path> entries;
@@ -111,6 +130,8 @@ void check_path(const fs::path& path, Tally& tally) {
             } else if (ext == ".fjss") {
                 auto widget = fs::path(entry).replace_extension(".fjwidget");
                 if (!fs::exists(widget)) check_stylesheet(entry, tally);
+            } else if (ext == ".fjfont") {
+                check_font(entry, tally);
             }
         }
         return;
@@ -120,8 +141,10 @@ void check_path(const fs::path& path, Tally& tally) {
         check_widget(path, tally);
     } else if (ext == ".fjss") {
         check_stylesheet(path, tally);
+    } else if (ext == ".fjfont") {
+        check_font(path, tally);
     } else {
-        std::fprintf(stderr, "%s: not a .fjss or .fjwidget file\n", path.string().c_str());
+        std::fprintf(stderr, "%s: not a .fjss, .fjwidget or .fjfont file\n", path.string().c_str());
         ++tally.problems;
     }
 }
