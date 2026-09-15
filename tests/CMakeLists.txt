@@ -60,6 +60,21 @@ else()
     target_compile_options(fjell-testable PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
+# Source file properties are scoped to the directory that set them, so an
+# engine source with a targeted warning suppression in src/ compiles here
+# without it and can fail under -Werror in this target alone. Every engine
+# source in the library keeps the per-file flags src/ gave it.
+get_target_property(FJELL_TESTABLE_SOURCES fjell-testable SOURCES)
+foreach(source IN LISTS FJELL_TESTABLE_SOURCES)
+    if(NOT source MATCHES "^${CMAKE_SOURCE_DIR}/src/")
+        continue()
+    endif()
+    get_source_file_property(flags "${source}" DIRECTORY "${CMAKE_SOURCE_DIR}/src" COMPILE_FLAGS)
+    if(flags)
+        set_source_files_properties("${source}" PROPERTIES COMPILE_FLAGS "${flags}")
+    endif()
+endforeach()
+
 # --- Test executable ---
 add_executable(fjell-tests
     test_resource_handle.cpp
