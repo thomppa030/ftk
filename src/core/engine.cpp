@@ -228,9 +228,7 @@ void Engine::init_ui() {
         window_.handle(), vulkan_context_->instance(),
         vulkan_context_->physical_device(), vulkan_context_->device(),
         vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
-        vulkan_context_->swapchain_format(), vulkan_context_->image_count(),
-        base_path::resolve("engine_assets/fonts"),
-        base_path::resolve("shaders"));
+        vulkan_context_->swapchain_format(), vulkan_context_->image_count());
 
     vulkan_context_->set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);

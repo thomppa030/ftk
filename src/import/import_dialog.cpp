@@ -5,7 +5,6 @@
 #include "renderer/gpu/vk_utils.hpp"
 #include "ui/imgui_layer.hpp"
 
-#include "platform/platform.hpp"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -22,17 +21,6 @@ static constexpr int DIALOG_HEIGHT = 650;
 
 ImportDialog::~ImportDialog() {
     close();
-}
-
-std::string ImportDialog::resolve_font_dir() {
-    auto exe_dir = platform::executable_path().parent_path();
-    for (int i = 0; i < 3; ++i) {
-        if (fs::is_directory(exe_dir / "engine_assets" / "fonts")) {
-            return (exe_dir / "engine_assets" / "fonts").string();
-        }
-        exe_dir = exe_dir.parent_path();
-    }
-    return {};
 }
 
 void ImportDialog::open(const fs::path& source_path, const fs::path& default_output_dir) {
@@ -106,8 +94,7 @@ void ImportDialog::open(const fs::path& source_path, const fs::path& default_out
         window_->handle(), gpu_->instance(),
         gpu_->physical_device(), gpu_->vk_device(),
         gpu_->graphics_family(), gpu_->graphics_queue(),
-        swapchain_->format(), swapchain_->image_count(),
-        resolve_font_dir());
+        swapchain_->format(), swapchain_->image_count());
 
     // Wire up import completion
     job_connection_ = job_.on_complete.bind([this](bool success, const std::vector<std::string>& files) {

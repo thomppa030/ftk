@@ -72,7 +72,6 @@ private:
     void draw_action_buttons();
     void draw_progress();
 
-    static std::string resolve_font_dir();
 
     // Shared from the editor (not owned)
     GpuCore* gpu_{nullptr};

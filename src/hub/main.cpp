@@ -32,19 +32,6 @@ static void launch_editor(const std::string& project_path, const std::string& cr
     FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
 }
 
-// The hub runs next to the engine, so its fonts and shaders sit a few
-// directories up from the executable, the same as for the editor.
-static std::string resolve_engine_dir(const std::filesystem::path& relative) {
-    auto exe_dir = fjell::platform::executable_path().parent_path();
-    for (int i = 0; i < 3; ++i) {
-        if (std::filesystem::is_directory(exe_dir / relative)) {
-            return (exe_dir / relative).string();
-        }
-        exe_dir = exe_dir.parent_path();
-    }
-    return {};
-}
-
 int main() {
     fjell::log::init();
     std::string pending_launch;
@@ -58,9 +45,7 @@ int main() {
             window.handle(), gpu.instance(),
             gpu.physical_device(), gpu.vk_device(),
             gpu.graphics_family(), gpu.graphics_queue(),
-            gpu.swapchain_format(), gpu.image_count(),
-            resolve_engine_dir(std::filesystem::path("engine_assets") / "fonts"),
-            resolve_engine_dir("shaders"));
+            gpu.swapchain_format(), gpu.image_count());
 
         const auto& render_done = gpu.swapchain().render_finished_semaphores();
 
