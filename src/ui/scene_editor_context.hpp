@@ -116,7 +116,10 @@ private:
     void delete_selection();
     void snap_selection_to_floor();
     void draw_picking(ViewportPanel& vp);
-    void draw_gizmo(ViewportPanel& vp);
+    /// Draw and run the transform gizmo for the selection. True while the
+    /// mouse is over one of its handles or dragging one, so a click there is
+    /// the gizmo's and never a pick.
+    [[nodiscard]] bool draw_gizmo(ViewportPanel& vp);
     void check_viewport_recapture_click();
     void draw_play_toolbar();
     void draw_spline_visuals();

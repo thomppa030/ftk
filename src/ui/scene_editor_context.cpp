@@ -362,18 +362,24 @@ void SceneEditorContext::draw(float dt) {
     // already treated it as a selection attempt.
     check_viewport_recapture_click();
 
-    // Picking and gizmo on the active viewport — suppressed while the game
+    // Gizmo and picking on the active viewport — suppressed while the game
     // has input focus (play started, or the player just clicked back into
     // the viewport above) so a click meant for the game can never also
     // select a node and drop a gizmo on it. Shift+Esc hands both back along
     // with everything else editor input reaches.
+    //
+    // The gizmo runs first so that its hit test is for this frame's mouse
+    // position and the click that grabs a handle is decided before picking
+    // gets to see it; the other way round a click on a handle the mouse had
+    // only just reached went to the mesh behind it.
     auto* vp = viewport_manager_.active_panel();
     bool editor_owns_viewport_input = !deps_.play->input_focused();
-    if (vp && vp->hovered && editor_owns_viewport_input) {
-        draw_picking(*vp);
-    }
+    bool gizmo_has_mouse = false;
     if (vp && editor_owns_viewport_input) {
-        draw_gizmo(*vp);
+        gizmo_has_mouse = draw_gizmo(*vp);
+    }
+    if (vp && vp->hovered && editor_owns_viewport_input && !gizmo_has_mouse) {
+        draw_picking(*vp);
     }
 
     // Spline viewport overlays (polyline + control points for the selected node)
@@ -430,9 +436,8 @@ void SceneEditorContext::check_viewport_recapture_click() {
 }
 
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {
-    if (!ImGuizmo::IsUsing() && !ImGuizmo::IsOver() &&
-        (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
-         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         auto mouse = ImGui::GetMousePos();
         float mx = (mouse.x - vp.img_pos.x) / vp.img_size.x;
         float my = (mouse.y - vp.img_pos.y) / vp.img_size.y;
@@ -550,11 +555,11 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
     }
 }
 
-void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
+bool SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
     auto* obj = deps_.scene->find_spatial(selected_id_);
     if (!obj) {
         gizmo_dragging_ = false;
-        return;
+        return false;
     }
 
     // If the selected object carries any spline with a selected control
@@ -569,7 +574,7 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
     if (!ImGui::Begin(vp.title.c_str())) {
         ImGui::End();
         gizmo_dragging_ = false;
-        return;
+        return false;
     }
 
     float aspect = vp.img_size.x / std::max(vp.img_size.y, 1.0f);
@@ -580,6 +585,14 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
     ImGuizmo::SetRect(vp.img_pos.x, vp.img_pos.y, vp.img_size.x, vp.img_size.y);
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist();
+
+    // ImGuizmo sizes the gizmo as a fraction of the viewport, so the handles
+    // shrink with a docked panel while the grab tolerances stay in pixels.
+    // Ask for a fixed axis length on screen instead: the fraction is measured
+    // along the viewport's longer side.
+    constexpr float kGizmoAxisPixels = 100.0f;
+    const float longer_side = std::max(std::max(vp.img_size.x, vp.img_size.y), 1.0f);
+    ImGuizmo::SetGizmoSizeClipSpace(2.0f * kGizmoAxisPixels / longer_side);
 
     // Snapshot at drag start
     if (!gizmo_dragging_) {
@@ -635,6 +648,10 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
         nullptr,
         snap);
 
+    // IsOver(op) re-runs the hit test against the state Manipulate just set
+    // up; the argument-less IsOver() only reports the previous frame.
+    const bool gizmo_has_mouse = ImGuizmo::IsUsing() || ImGuizmo::IsOver(op);
+
     ImGui::End();
 
     auto apply_node_gizmo = [&] {
@@ -680,6 +697,7 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
                 obj->name));
         }
     }
+    return gizmo_has_mouse;
 }
 
 void SceneEditorContext::draw_spline_visuals() {

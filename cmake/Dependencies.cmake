@@ -351,6 +351,38 @@ block()
 endblock()
 
 block()
+    # ImGuizmo hard-codes how close the mouse has to be to a rotation ring to
+    # grab it: 4px either side of the screen-space ring and 8px on the axis
+    # rings, which is barely wider than the rings are drawn. A click that
+    # misses by a few pixels goes to the mesh behind the gizmo instead. There
+    # is no style field for the tolerance, so the constants are widened in the
+    # fetched source. The check reads the file rather than a marker so a
+    # re-fetched checkout is patched again, and an upstream change to the
+    # anchors stops the configure instead of silently dropping the fix.
+    set(_file "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
+    set(_ring_before "dist >= (gContext.mRadiusSquareCenter - 4.0f) && dist < (gContext.mRadiusSquareCenter + 4.0f)")
+    set(_ring_after  "dist >= (gContext.mRadiusSquareCenter - 8.0f) && dist < (gContext.mRadiusSquareCenter + 8.0f)")
+    set(_axis_before "if (distance < 8.f) // pixel size")
+    set(_axis_after  "if (distance < 12.f) // pixel size")
+    file(READ "${_file}" _contents)
+    string(FIND "${_contents}" "${_ring_after}" _ring_done)
+    string(FIND "${_contents}" "${_axis_after}" _axis_done)
+    if(_ring_done EQUAL -1 OR _axis_done EQUAL -1)
+        string(FIND "${_contents}" "${_ring_before}" _ring_at)
+        string(FIND "${_contents}" "${_axis_before}" _axis_at)
+        if(_ring_at EQUAL -1 OR _axis_at EQUAL -1)
+            message(FATAL_ERROR
+                "imguizmo: rotation hit-tolerance anchors not found in ${_file}; "
+                "upstream changed, update the patch in cmake/Dependencies.cmake")
+        endif()
+        string(REPLACE "${_ring_before}" "${_ring_after}" _contents "${_contents}")
+        string(REPLACE "${_axis_before}" "${_axis_after}" _contents "${_contents}")
+        file(WRITE "${_file}" "${_contents}")
+        message(STATUS "imguizmo: widened rotation ring hit tolerance")
+    endif()
+endblock()
+
+block()
     # Patch: guard operator*(float, ImVec2) which ImGui docking branch already defines
     foreach(_file
         "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.h"
