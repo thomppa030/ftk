@@ -382,12 +382,26 @@ void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDes
 }
 
 void GameUi::resolve_textures(UiNode& node) {
+    // An attribute may name its asset through a {key} template. Inside a
+    // widget instance the nearest scoped context holds its props; a tree
+    // loaded on its own (editor preview, thumbnail) has none and reads the
+    // root context, where the loader seeded the prop defaults.
+    auto resolve_reference = [&](const std::string& value) {
+        if (value.find('{') == std::string::npos) return value;
+        UiContext* ctx = &context_;
+        for (auto* n = &node; n; n = n->parent) {
+            if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
+        }
+        return UiDataBind::resolve_template(value, *ctx);
+    };
+
     // Resolve src="path" → bindless texture index. A project's own textures
     // resolve against the project, like materials do; without a project the
     // path is engine-relative.
     auto src_it = node.attributes.find("src");
     if (src_it != node.attributes.end() && !src_it->second.empty()) {
-        auto resolved_path = base_path::resolve_asset(src_it->second, project_);
+        std::string src = resolve_reference(src_it->second);
+        auto resolved_path = src.empty() ? std::string{} : base_path::resolve_asset(src, project_);
         auto tex_result = resolved_path.empty()
             ? Result<TextureHandle>(make_error("asset reference does not resolve"))
             : resource_manager_->load_texture(resolved_path);
@@ -405,18 +419,7 @@ void GameUi::resolve_textures(UiNode& node) {
     // then as a .fjmat asset path.
     auto mat_it = node.attributes.find("material");
     if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
-        // Resolve {key} templates if the material name is a binding. Inside
-        // a widget instance the nearest scoped context holds its props; a
-        // tree loaded on its own (editor preview, thumbnail) has none and
-        // reads the root context, where the loader seeded the prop defaults.
-        std::string mat_name = mat_it->second;
-        if (mat_name.find('{') != std::string::npos) {
-            UiContext* ctx = &context_;
-            for (auto* n = &node; n; n = n->parent) {
-                if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
-            }
-            mat_name = UiDataBind::resolve_template(mat_name, *ctx);
-        }
+        std::string mat_name = resolve_reference(mat_it->second);
         auto mat_handle = resource_manager_->find_material(mat_name);
         if (!mat_handle.valid()) {
             // Try loading as .fjmat asset — resolve via project if available
