@@ -13,7 +13,14 @@ function(fjell_check_posix_includes)
     )
     list(JOIN posix_headers "|" alternatives)
     string(REPLACE "." "\\." alternatives "${alternatives}")
-    set(pattern "^[ \t]*#[ \t]*include[ \t]*[<\"](${alternatives})[>\"]")
+    set(header_pattern "^[ \t]*#[ \t]*include[ \t]*[<\"](${alternatives})[>\"]")
+
+    # Calls and paths that compile on Linux from portable headers and only
+    # fail on MSVC. platform:: has a replacement for each: run_command for
+    # popen, process_id for getpid, executable_path for /proc/self/exe.
+    set(call_pattern "(^|[^A-Za-z0-9_:])(popen|pclose|getpid|fork|execv|execvp|execl|readlink|usleep)[ \t]*\\(")
+    set(path_pattern "\"/(proc|dev|tmp)/")
+    set(pattern "(${header_pattern})|(${call_pattern})|(${path_pattern})")
 
     # CONFIGURE_DEPENDS makes a new file re-run the check on the next build,
     # but script mode does not accept it.
@@ -30,6 +37,12 @@ function(fjell_check_posix_includes)
             if(source MATCHES "/platform/(linux|windows)/")
                 continue()
             endif()
+            # fjreflect runs inside a project's script build and depends on
+            # nothing from the engine, so it carries its own popen/_popen
+            # shim instead of linking fjell-platform.
+            if(source MATCHES "/tools/fjreflect/")
+                continue()
+            endif()
             file(STRINGS "${source}" hits REGEX "${pattern}")
             foreach(hit IN LISTS hits)
                 string(STRIP "${hit}" hit)
@@ -42,7 +55,7 @@ function(fjell_check_posix_includes)
     if(offenders)
         list(JOIN offenders "\n" offenders)
         message(FATAL_ERROR
-            "POSIX-only headers outside src/platform/ (MSVC cannot build these):\n"
+            "POSIX-only headers, calls or paths outside src/platform/ (MSVC cannot build these):\n"
             "${offenders}\n"
             "Use the fjell::platform API instead, or add a platform/ backend for what is missing.")
     endif()
