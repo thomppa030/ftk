@@ -302,7 +302,6 @@ add_executable(fjell
     ui/game_ui/game_ui.cpp
     ui/game_ui/fjfont.cpp
     ui/game_ui/font_atlas.cpp
-    ui/game_ui/font_atlas_build.cpp
     ui/game_ui/font_library.cpp
     ui/game_ui/font_sample.cpp
     ui/game_ui/text_shaper.cpp
@@ -355,12 +354,9 @@ target_link_libraries(fjell PRIVATE
     spdlog::spdlog
     Vulkan::Vulkan
     yogacore
-    msdfgen::msdfgen-core
     meshoptimizer
     ozz_animation
     ozz_animation_offline
-    msdfgen::msdfgen-ext
-    Freetype::Freetype
     enet
     ${CMAKE_DL_LIBS}
 )
@@ -493,11 +489,26 @@ if(OZZ_OFFLINE_DIRS)
     target_include_directories(fjell SYSTEM PRIVATE ${OZZ_OFFLINE_DIRS})
 endif()
 
-# Treat msdfgen headers as system headers to suppress warnings from them
-get_target_property(MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)
-target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_CORE_DIRS})
-get_target_property(MSDFGEN_EXT_DIRS msdfgen-ext INTERFACE_INCLUDE_DIRECTORIES)
-target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_EXT_DIRS})
+# Baking font atlases needs FreeType and msdfgen. A development build bakes
+# a stale atlas itself; a shipped build reads only what fjimport baked, and
+# links neither library. Release drops it by default; any other
+# configuration keeps it.
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(_font_bake_default OFF)
+else()
+    set(_font_bake_default ON)
+endif()
+option(FJELL_FONT_BAKE "Bake font atlases in the engine (links FreeType and msdfgen)" ${_font_bake_default})
+if(FJELL_FONT_BAKE)
+    target_sources(fjell PRIVATE ui/game_ui/font_atlas_build.cpp)
+    target_compile_definitions(fjell PRIVATE FJELL_FONT_BAKE=1)
+    target_link_libraries(fjell PRIVATE msdfgen::msdfgen-core msdfgen::msdfgen-ext Freetype::Freetype)
+    # Treat msdfgen headers as system headers to suppress warnings from them
+    get_target_property(MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_CORE_DIRS})
+    get_target_property(MSDFGEN_EXT_DIRS msdfgen-ext INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_EXT_DIRS})
+endif()
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
@@ -612,5 +623,19 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/" DESTINATION shaders
 # even though a fresh checkout never has them.
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets
         PATTERN "screenshots" EXCLUDE)
+# A shipped engine cannot bake, so every engine font is baked here, into the
+# source tree's cache, before the directory is copied. fjimport is built by
+# the same configuration, whatever FJELL_FONT_BAKE says.
+install(CODE "
+    file(GLOB _recipes \"${CMAKE_SOURCE_DIR}/engine_assets/fonts/*.fjfont\")
+    foreach(_recipe IN LISTS _recipes)
+        message(STATUS \"Baking \${_recipe}\")
+        execute_process(COMMAND \"$<TARGET_FILE:fjimport>\" \"\${_recipe}\"
+                        RESULT_VARIABLE _bake_result)
+        if(NOT _bake_result EQUAL 0)
+            message(FATAL_ERROR \"font bake failed for \${_recipe}\")
+        endif()
+    endforeach()
+")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell" DESTINATION sdk)

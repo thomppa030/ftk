@@ -58,3 +58,13 @@ changes.
 
 The engine's own fonts live in `engine_assets/fonts/`; `Inter.fjfont` is the
 default every UI falls back to.
+
+## Shipping
+
+A Release build (`FJELL_FONT_BAKE=OFF`, the default there) links neither FreeType
+nor msdfgen and cannot bake: an atlas that is missing or stale is an error naming
+the recipe, and text in that font draws in the default one. `fjimport` always
+bakes, and installing or packaging the engine bakes every engine font first, so
+`engine_assets/fonts/.fjcache/` ships with its atlases. A project's atlases ship
+in the project's own `.fjcache/` directories; bake them with `fjimport` before
+packaging, or open the project once in a development build.

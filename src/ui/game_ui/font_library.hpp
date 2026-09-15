@@ -75,6 +75,12 @@ public:
     void poll();
 
 private:
+    // The load's outcome travels through the future behind a pointer: GCC
+    // at -O3 misreads the in-place move of the Result inside std::future's
+    // task setter as freeing a non-heap object and refuses the build.
+    using LoadResult = std::unique_ptr<Result<FontAtlasData>>;
+    using LoadFuture = std::future<LoadResult>;
+
     struct Entry {
         std::unique_ptr<FontAtlas> atlas;
         std::string path;
@@ -85,7 +91,7 @@ private:
         // events for that write are swallowed rather than reloading twice.
         bool expect_events{false};
         bool events_seen{false};
-        std::future<Result<FontAtlasData>> pending;
+        LoadFuture pending;
     };
     [[nodiscard]] static std::string key_for(const std::string& path);
     void start_load(Entry& entry);
@@ -102,7 +108,7 @@ private:
 #ifndef NDEBUG
     platform::FileWatcher watcher_;
     bool fallback_changed_{false};
-    std::future<Result<FontAtlasData>> fallback_pending_;
+    LoadFuture fallback_pending_;
 #endif
 };
 

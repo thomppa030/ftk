@@ -1,6 +1,8 @@
 #include "ui/game_ui/font_atlas.hpp"
 #include "ui/game_ui/fjfont.hpp"
+#if FJELL_FONT_BAKE
 #include "ui/game_ui/font_atlas_build.hpp"
+#endif
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 
@@ -74,6 +76,7 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
         }
     }
     if (!loaded) {
+#if FJELL_FONT_BAKE
         auto baked = bake_font_recipe(recipe_path);
         if (!baked) {
             FJELL_CORE_ERROR("FontAtlas: {}", baked.error());
@@ -88,6 +91,13 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
         FJELL_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
                        recipe_path, atlas.header.atlas_width, atlas.header.atlas_height,
                        atlas.glyphs.size(), atlas.header.cell_size, atlas.header.px_range);
+#else
+        // A shipped build carries no baker; the atlas has to arrive with
+        // the recipe.
+        auto message = recipe_path + ": atlas missing or stale, bake it with fjimport";
+        FJELL_CORE_ERROR("FontAtlas: {}", message);
+        return make_error(message);
+#endif
     }
 
     FontAtlasData data;

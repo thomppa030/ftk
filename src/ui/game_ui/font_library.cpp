@@ -1,5 +1,8 @@
 #include "ui/game_ui/font_library.hpp"
+#include "ui/game_ui/fjfont.hpp"
+#if FJELL_FONT_BAKE
 #include "ui/game_ui/font_atlas_build.hpp"
+#endif
 #include "core/log.hpp"
 #include "core/thread_pool.hpp"
 
@@ -17,14 +20,32 @@ bool ready(const std::future<T>& future) {
            future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
+std::unique_ptr<Result<FontAtlasData>> load_boxed(const std::string& path) {
+    return std::make_unique<Result<FontAtlasData>>(FontAtlas::load_data(path));
+}
+
 // The whole prebake, run wherever the pool puts it; it reports for itself.
 void prebake_now(const std::string& path) {
+#if FJELL_FONT_BAKE
     auto baked = ensure_font_atlas(path);
     if (!baked) {
         FJELL_CORE_ERROR("FontLibrary: {}", baked.error());
     } else if (*baked) {
         FJELL_GFX_INFO("Font atlas baked ahead of use: {}", path);
     }
+#else
+    // No baker in this build: the most that can be done ahead of use is to
+    // say now that the atlas is not there, rather than when a sheet names it.
+    auto recipe = load_font_recipe(path);
+    if (!recipe) return;
+    auto source = font_source_path(path, *recipe);
+    auto hash = font_source_hash(path, source);
+    if (!hash) return;
+    if (!font_atlas_is_fresh(path, source, font_atlas_cache_path(path), *hash)) {
+        FJELL_CORE_WARN("FontLibrary: {}: atlas missing or stale and this build cannot bake; "
+                        "run fjimport on it", path);
+    }
+#endif
 }
 
 } // namespace
@@ -112,7 +133,7 @@ void FontLibrary::start_load(Entry& entry) {
     entry.queued = false;
     auto path = entry.path;
     if (pool_) {
-        entry.pending = pool_->submit([path] { return FontAtlas::load_data(path); });
+        entry.pending = pool_->submit([path] { return load_boxed(path); });
     } else {
         finish_load(entry, FontAtlas::load_data(path));
     }
@@ -170,7 +191,7 @@ void FontLibrary::poll() {
     for (auto& [key, entry] : entries_) {
         if (entry.pending.valid()) {
             if (!ready(entry.pending)) continue;
-            finish_load(entry, entry.pending.get());
+            finish_load(entry, std::move(*entry.pending.get()));
             entry.pending = {};
         }
         if (entry.queued) start_load(entry);
@@ -199,13 +220,13 @@ void FontLibrary::poll() {
     if (fallback_pending_.valid() && ready(fallback_pending_)) {
         auto data = fallback_pending_.get();
         fallback_pending_ = {};
-        if (data) fallback_->reload(std::move(*data));
+        if (*data) fallback_->reload(std::move(**data));
     }
     if (fallback_changed_ && fallback_->valid() && !fallback_pending_.valid()) {
         fallback_changed_ = false;
         auto path = fallback_->recipe_path();
         if (pool_) {
-            fallback_pending_ = pool_->submit([path] { return FontAtlas::load_data(path); });
+            fallback_pending_ = pool_->submit([path] { return load_boxed(path); });
         } else if (auto data = FontAtlas::load_data(path)) {
             fallback_->reload(std::move(*data));
         }
