@@ -45,6 +45,7 @@
 #include "physics/physics_subsystem.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/resources/terrain_asset.hpp"
+#include "ui/inspector_widgets.hpp"
 
 #include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
@@ -839,23 +840,6 @@ void SceneEditorContext::draw_spline_visuals() {
 
 namespace {
 
-// One toolbar toggle: an icon that reads as pressed while `on` is true.
-// Returns true on click. `tooltip` carries the name and shortcut, since the
-// buttons are icon-only.
-bool toolbar_toggle(const char* id, const char* glyph, bool on, const char* tooltip) {
-    ImVec4 active{0.26f, 0.59f, 0.98f, 0.65f};
-    ImVec4 idle{0.0f, 0.0f, 0.0f, 0.0f};
-    ImGui::PushStyleColor(ImGuiCol_Button, on ? active : idle);
-    ImGui::PushID(id);
-    bool clicked = ImGui::Button(glyph);
-    ImGui::PopID();
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", tooltip);
-    }
-    return clicked;
-}
-
 } // namespace
 
 SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
@@ -1125,15 +1109,15 @@ void SceneEditorContext::draw_play_toolbar() {
             ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + pad});
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {spacing, 0.0f});
 
-            if (toolbar_toggle("gizmo_move", ICON_LC_MOVE, tool_ == ViewportTool::move, "Move (W)")) {
+            if (toggle_button("gizmo_move", ICON_LC_MOVE, tool_ == ViewportTool::move, "Move (W)")) {
                 tool_ = ViewportTool::move;
             }
             ImGui::SameLine();
-            if (toolbar_toggle("gizmo_rotate", ICON_LC_ROTATE_3D, tool_ == ViewportTool::rotate, "Rotate (E)")) {
+            if (toggle_button("gizmo_rotate", ICON_LC_ROTATE_3D, tool_ == ViewportTool::rotate, "Rotate (E)")) {
                 tool_ = ViewportTool::rotate;
             }
             ImGui::SameLine();
-            if (toolbar_toggle("gizmo_scale", ICON_LC_SCALE_3D, tool_ == ViewportTool::scale, "Scale (R)")) {
+            if (toggle_button("gizmo_scale", ICON_LC_SCALE_3D, tool_ == ViewportTool::scale, "Scale (R)")) {
                 tool_ = ViewportTool::scale;
             }
 
@@ -1145,17 +1129,17 @@ void SceneEditorContext::draw_play_toolbar() {
 
                 ImGui::SameLine();
                 bool colliders = deps_.vulkan_context->show_colliders();
-                if (toolbar_toggle("show_colliders", ICON_LC_BOX, colliders,
+                if (toggle_button("show_colliders", ICON_LC_BOX, colliders,
                                    "Show colliders")) {
                     deps_.vulkan_context->set_show_colliders(!colliders);
                 }
                 ImGui::SameLine();
-                if (toolbar_toggle("show_grid", ICON_LC_GRID_3X3, grid.visible,
+                if (toggle_button("show_grid", ICON_LC_GRID_3X3, grid.visible,
                                    "Show grid")) {
                     grid.visible = !grid.visible;
                 }
                 ImGui::SameLine();
-                if (toolbar_toggle("snap_grid", ICON_LC_MAGNET, grid.snap_enabled,
+                if (toggle_button("snap_grid", ICON_LC_MAGNET, grid.snap_enabled,
                                    "Snap to grid")) {
                     grid.snap_enabled = !grid.snap_enabled;
                 }

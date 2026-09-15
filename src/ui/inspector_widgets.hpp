@@ -23,6 +23,23 @@ inline bool color_edit_linear(const char* id, glm::vec3& linear) {
     return true;
 }
 
+/// One toggle in a row of tools: an icon or short label that reads as
+/// pressed while `on` is true. Returns true on click. `tooltip` carries the
+/// full name and any shortcut, since the button itself is terse.
+inline bool toggle_button(const char* id, const char* label, bool on, const char* tooltip) {
+    ImVec4 active{0.26f, 0.59f, 0.98f, 0.65f};
+    ImVec4 idle{0.0f, 0.0f, 0.0f, 0.0f};
+    ImGui::PushStyleColor(ImGuiCol_Button, on ? active : idle);
+    ImGui::PushID(id);
+    bool clicked = ImGui::Button(label);
+    ImGui::PopID();
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    return clicked;
+}
+
 /// A small-caps dimmed section heading with a 1px separator above. Use
 /// instead of `ImGui::TextColored(palette_purple, "Transform")`. Renders:
 ///
