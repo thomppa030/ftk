@@ -17,49 +17,25 @@
 // result is decoded to linear light before it meets a texture sample or the
 // linear target. Coverage (border and edge anti-aliasing) blends linear.
 
-#include "fjell_color_space.glsl"
-
-float fjell_ui_sdf_rounded_rect(vec2 p, vec2 half_size, vec4 radii) {
-    float r;
-    if (p.x < 0.0) {
-        r = (p.y < 0.0) ? radii.x : radii.w;
-    } else {
-        r = (p.y < 0.0) ? radii.y : radii.z;
-    }
-    r = min(r, min(half_size.x, half_size.y));
-    vec2 q_val = abs(p) - half_size + r;
-    return min(max(q_val.x, q_val.y), 0.0) + length(max(q_val, 0.0)) - r;
-}
+#include "fjell_ui_quad_shape.glsl"
 
 // Returns the fill color for this fragment, or discards (never returns) when
 // the fragment is fully outside the clip rect or fully transparent.
 vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
     UiQuad q = quads[frag_quad_index];
 
-    // Clip test
-    vec2 pixel_pos = q.rect.xy + frag_uv * q.rect.zw;
-    if (pixel_pos.x < q.clip_rect.x || pixel_pos.x > q.clip_rect.x + q.clip_rect.z ||
-        pixel_pos.y < q.clip_rect.y || pixel_pos.y > q.clip_rect.y + q.clip_rect.w) {
-        discard;
-    }
+    fjell_ui_quad_clip(q, frag_uv);
+    FjellUiShape shape = fjell_ui_quad_shape(q, frag_uv);
 
-    vec2 half_size = q.rect.zw * 0.5;
-    vec2 local_pos = (frag_uv - 0.5) * q.rect.zw;
-
-    float border_width = q.params.x;
     float opacity = q.params.y;
     float flags = q.params.z;
     float gradient_angle = q.params.w;
-
-    float dist = fjell_ui_sdf_rounded_rect(local_pos, half_size, q.corners);
-    float aa = fwidth(dist);
-    float outer_alpha = 1.0 - smoothstep(-aa, aa, dist);
 
     // Shadow mode (flags == 2): gaussian falloff from SDF distance
     if (flags > 1.5 && flags < 2.5) {
         float blur = max(q.shadow_params.x, 0.001);
         // Gaussian approximation: use smoothstep over blur radius
-        float shadow_alpha = 1.0 - smoothstep(-blur, blur * 0.5, dist);
+        float shadow_alpha = 1.0 - smoothstep(-blur, blur * 0.5, shape.dist);
         vec4 shadow_color = vec4(srgb_to_linear(q.color.rgb), q.color.a * shadow_alpha * opacity);
         if (shadow_color.a < 0.001) discard;
         return shadow_color;
@@ -131,19 +107,7 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
         fill_color = srgb_to_linear(q.color);
     }
 
-    // Border
-    if (border_width > 0.0) {
-        vec2 inner_half = half_size - border_width;
-        float inner_dist = fjell_ui_sdf_rounded_rect(local_pos, inner_half,
-                                             max(q.corners - border_width, vec4(0.0)));
-        float inner_alpha = 1.0 - smoothstep(-aa, aa, inner_dist);
-        fill_color = mix(srgb_to_linear(q.border_color), fill_color, inner_alpha);
-    }
-
-    fill_color.a *= outer_alpha * opacity;
-    if (fill_color.a < 0.001) discard;
-
-    return fill_color;
+    return fjell_ui_quad_finish(fill_color, shape, q);
 }
 
 #endif // FJELL_UI_QUAD_FILL_GLSL
