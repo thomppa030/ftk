@@ -285,6 +285,8 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
     entry.resolution = res;
     entry.sdf_min = model.sdf_volume_min();
     entry.sdf_max = model.sdf_volume_max();
+    entry.mesh_min = model.local_aabb().min;
+    entry.mesh_max = model.local_aabb().max;
     entry.max_dist = max_dist;
     model_sdf_entries_[model_id] = entry;
 

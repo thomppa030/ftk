@@ -11,9 +11,12 @@ layout(std430, set = 0, binding = 1) readonly buffer MeshSdfData {
 layout(std430, set = 0, binding = 2) readonly buffer SdfMetadata {
     // Per-instance: mat4 world_to_sdf (64), vec3 sdf_min (12), float sdf_scale (4),
     //               vec3 sdf_max (12), uint grid_offset (4),
-    //               uvec3 grid_resolution (12), uint pad (4) = 112 bytes
+    //               uvec3 grid_resolution (12), uint pad (4),
+    //               vec3 mesh_min (12), pad (4), vec3 mesh_max (12), pad (4) = 144 bytes
     uint instance_data[];
 };
+
+const uint INSTANCE_WORDS = 36u;
 
 layout(push_constant) uniform PushConstants {
     vec3 volume_min;
@@ -34,9 +37,9 @@ float read_sdf(uint offset) {
     return float(val) / 32767.0;
 }
 
-// Read instance data helpers (112 bytes = 28 uint32s per instance)
+// Read instance data helpers
 mat4 read_instance_mat4(uint inst, uint word_offset) {
-    uint base = inst * 28u + word_offset;
+    uint base = inst * INSTANCE_WORDS + word_offset;
     mat4 m;
     for (int c = 0; c < 4; c++) {
         for (int r = 0; r < 4; r++) {
@@ -47,18 +50,18 @@ mat4 read_instance_mat4(uint inst, uint word_offset) {
 }
 
 vec3 read_instance_vec3(uint inst, uint word_offset) {
-    uint base = inst * 28u + word_offset;
+    uint base = inst * INSTANCE_WORDS + word_offset;
     return vec3(uintBitsToFloat(instance_data[base]),
                 uintBitsToFloat(instance_data[base + 1u]),
                 uintBitsToFloat(instance_data[base + 2u]));
 }
 
 float read_instance_float(uint inst, uint word_offset) {
-    return uintBitsToFloat(instance_data[inst * 28u + word_offset]);
+    return uintBitsToFloat(instance_data[inst * INSTANCE_WORDS + word_offset]);
 }
 
 uint read_instance_uint(uint inst, uint word_offset) {
-    return instance_data[inst * 28u + word_offset];
+    return instance_data[inst * INSTANCE_WORDS + word_offset];
 }
 
 // Trilinear sample from per-mesh SDF grid
@@ -109,27 +112,42 @@ void main() {
         uvec3 grid_res = uvec3(read_instance_uint(i, 24u),
                                read_instance_uint(i, 25u),
                                read_instance_uint(i, 26u));
+        vec3 mesh_min = read_instance_vec3(i, 28u);
+        vec3 mesh_max = read_instance_vec3(i, 32u);
 
         // Transform world position to object's SDF grid space
         vec3 local_pos = (world_to_sdf * vec4(world_pos, 1.0)).xyz;
 
-        // Normalize to [0,1] within the SDF volume
+        // The grid stores local-space distances. The rows of the inverse
+        // model matrix have length 1/scale per axis, and the smallest axis
+        // scale keeps the world-space value a lower bound when the scale is
+        // not uniform.
+        float inv_scale = max(max(length(vec3(world_to_sdf[0][0], world_to_sdf[1][0], world_to_sdf[2][0])),
+                                  length(vec3(world_to_sdf[0][1], world_to_sdf[1][1], world_to_sdf[2][1]))),
+                              length(vec3(world_to_sdf[0][2], world_to_sdf[1][2], world_to_sdf[2][2])));
+        float to_world = 1.0 / max(inv_scale, 1e-6);
+
         vec3 sdf_uvw = (local_pos - sdf_min) / (sdf_max - sdf_min);
-
-        // Skip if outside the SDF grid
-        if (any(lessThan(sdf_uvw, vec3(-0.01))) || any(greaterThan(sdf_uvw, vec3(1.01))))
-            continue;
-
-        // Sample the per-mesh SDF
-        vec3 grid_coord = clamp(sdf_uvw, vec3(0.0), vec3(1.0)) * vec3(grid_res - uvec3(1));
-        float dist = sample_mesh_sdf(grid_coord, grid_offset, grid_res);
-
-        // Denormalize to world-space distance
-        dist *= sdf_scale;
+        float dist;
+        if (any(lessThan(sdf_uvw, vec3(0.0))) || any(greaterThan(sdf_uvw, vec3(1.0)))) {
+            // Outside the baked grid nothing was sampled, but the mesh lies
+            // inside its bounds, so the distance to those bounds is a lower
+            // bound on the distance to the surface. That keeps sphere
+            // tracing through this field conservative instead of stepping
+            // blindly past a grid it never entered.
+            vec3 outside = max(max(mesh_min - local_pos, local_pos - mesh_max), vec3(0.0));
+            dist = length(outside);
+        } else {
+            vec3 grid_coord = sdf_uvw * vec3(grid_res - uvec3(1));
+            dist = sample_mesh_sdf(grid_coord, grid_offset, grid_res) * sdf_scale;
+        }
 
         // Union: take minimum
-        min_dist = min(min_dist, dist);
+        min_dist = min(min_dist, dist * to_world);
     }
 
-    imageStore(scene_sdf, gid, vec4(min_dist));
+    // A voxel no instance covers must still hold a finite value: R16F turns
+    // the sentinel into infinity, and a difference of two infinities is NaN
+    // in every gradient taken from this field.
+    imageStore(scene_sdf, gid, vec4(min(min_dist, 1e4)));
 }

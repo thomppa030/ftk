@@ -26,9 +26,13 @@ struct GpuSdfInstance {
     glm::vec3 sdf_max;         // local-space SDF volume max
     uint32_t grid_offset;      // offset into mesh SDF buffer (in int16 units)
     glm::uvec3 grid_resolution;
-    uint32_t pad;
+    uint32_t pad0;
+    glm::vec3 mesh_min;        // local-space mesh bounds, tighter than the grid
+    float pad1;
+    glm::vec3 mesh_max;
+    float pad2;
 };
-static_assert(sizeof(GpuSdfInstance) == 112);
+static_assert(sizeof(GpuSdfInstance) == 144);
 
 class SceneSdfPass : public RenderPass {
 public:
@@ -75,6 +79,8 @@ public:
         uint32_t resolution;
         glm::vec3 sdf_min;
         glm::vec3 sdf_max;
+        glm::vec3 mesh_min;
+        glm::vec3 mesh_max;
         float max_dist;
     };
 

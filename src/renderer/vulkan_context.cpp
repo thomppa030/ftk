@@ -1646,6 +1646,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     inst.sdf_max = it->sdf_max;
                     inst.grid_offset = it->offset;
                     inst.grid_resolution = glm::uvec3(it->resolution);
+                    inst.mesh_min = it->mesh_min;
+                    inst.mesh_max = it->mesh_max;
                     sdf_instances.push_back(inst);
                 }
             }
