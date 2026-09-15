@@ -11,6 +11,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(cmake/PortabilityCheck.cmake)
+# Only the tool directories that are built; tools/ also holds things like a
+# Python environment whose headers are not ours.
+file(GLOB FJELL_TOOL_CMAKE_LISTS "${CMAKE_SOURCE_DIR}/tools/*/CMakeLists.txt")
+set(FJELL_TOOL_DIRS "")
+foreach(tool_cmake_list IN LISTS FJELL_TOOL_CMAKE_LISTS)
+    cmake_path(GET tool_cmake_list PARENT_PATH tool_dir)
+    list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
+endforeach()
+fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
+
 include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 include(cmake/GenerateShaderConstants.cmake)
