@@ -1,4 +1,6 @@
 #include "ui/content_browser.hpp"
+#include "ui/game_ui/fjfont.hpp"
+#include "ui/game_ui/font_atlas_build.hpp"
 #include "core/asset_identity.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
@@ -143,6 +145,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjwidget") return FileType::widget;
     if (ext == ".fjp") return FileType::preset;
     if (ext == ".fjinput" || ext == ".fjaction") return FileType::input_config;
+    if (ext == ".fjfont" || ext == ".ttf" || ext == ".otf") return FileType::font;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -165,6 +168,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::widget:     return "node";
         case FileType::preset:       return "node";
         case FileType::input_config: return "node";
+        case FileType::font:         return "font";
         case FileType::unknown:      return "node";
     }
     return "node";
@@ -975,6 +979,26 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::font:
+                    if (entry.path.extension() == ".fjfont") {
+                        if (ImGui::MenuItem("Open")) {
+                            (void)platform::open_path(entry.path);
+                            ImGui::CloseCurrentPopup();
+                        }
+                        if (ImGui::MenuItem("Bake Atlas")) {
+                            bake_font_recipe_entry(entry.path);
+                            ImGui::CloseCurrentPopup();
+                        }
+                    } else {
+                        // A font file on its own is not an asset yet; the
+                        // recipe beside it is what the UI names.
+                        if (ImGui::MenuItem("Create Font Asset")) {
+                            create_font_recipe(entry.path);
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     break;
@@ -1238,8 +1262,66 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             break;
         }
 
+        case FileType::font:
+            (void)platform::open_path(entry.path);
+            break;
+
         case FileType::unknown:
             break;
+    }
+}
+
+// ── Fonts ────────────────────────────────────────────────────────────────
+
+void ContentBrowser::create_font_recipe(const std::filesystem::path& font_file) {
+    auto recipe_path = font_file;
+    recipe_path.replace_extension(".fjfont");
+    if (std::filesystem::exists(recipe_path)) {
+        FJELL_CORE_WARN("Font asset already exists: {}", recipe_path.string());
+        return;
+    }
+    std::ofstream file(recipe_path);
+    if (!file.is_open()) {
+        FJELL_CORE_ERROR("Failed to create font asset: {}", recipe_path.string());
+        return;
+    }
+    // The defaults are spelled out so the file documents what it bakes.
+    file << "{\n"
+         << "    \"source\": \"" << font_file.filename().string() << "\",\n"
+         << "    \"charset\": [\"ascii\", \"latin-1\"],\n"
+         << "    \"cell_size\": 48,\n"
+         << "    \"px_range\": 6,\n"
+         << "    \"kerning\": true\n"
+         << "}\n";
+    file.close();
+    FJELL_CORE_INFO("Created: {}", recipe_path.string());
+    refresh_current_dir();
+    auto name = recipe_path.filename().string();
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
+        if (entries_[i].name == name) {
+            selected_index_ = i;
+            break;
+        }
+    }
+}
+
+void ContentBrowser::bake_font_recipe_entry(const std::filesystem::path& recipe_path) {
+    auto bake = bake_font_recipe(recipe_path);
+    if (!bake) {
+        FJELL_CORE_ERROR("Font bake failed: {}", bake.error());
+        return;
+    }
+    for (const auto& warning : bake->warnings) FJELL_CORE_WARN("{}", warning);
+    if (!bake->missing.empty()) {
+        FJELL_CORE_WARN("{}: the font has no glyph for {} codepoint(s): {}",
+                        recipe_path.string(), bake->missing.size(),
+                        describe_codepoints(bake->missing));
+    }
+    const auto& h = bake->atlas.header;
+    FJELL_CORE_INFO("Baked {}: {}x{}, {} glyphs, {} kerning pairs", recipe_path.string(),
+                    h.atlas_width, h.atlas_height, h.glyph_count, h.kerning_count);
+    if (asset_thumbnails_ && asset_thumbnails_->supports(recipe_path)) {
+        asset_thumbnails_->invalidate(recipe_path.string());
     }
 }
 

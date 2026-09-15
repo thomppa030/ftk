@@ -45,6 +45,7 @@ private:
         widget,
         preset,
         input_config,
+        font,
         unknown
     };
 
@@ -65,6 +66,11 @@ private:
     void draw_context_menu();
     void draw_create_new_submenu();
     void draw_common_context_items(int index);
+    // Writes `<font>.fjfont` beside a .ttf/.otf with the default recipe and
+    // selects it; a recipe that already exists is left alone.
+    void create_font_recipe(const std::filesystem::path& font_file);
+    // Bakes a recipe's atlas on demand and logs the outcome.
+    void bake_font_recipe_entry(const std::filesystem::path& recipe_path);
     void create_asset_file(std::string_view filename, std::string_view extension,
                            std::string_view content);
     void create_folder();
