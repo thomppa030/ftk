@@ -1,5 +1,7 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 
+#include "animation/animation_clip.hpp"
+#include "animation/animator_component.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
@@ -25,6 +27,7 @@
 #include <stb_image_write.h>
 
 #include <algorithm>
+#include <optional>
 
 namespace fjell {
 
@@ -172,6 +175,36 @@ public:
     }
 };
 
+// Adds a .fjskel to the scene with the default material and no animator,
+// so the bone upload hands it its bind pose. Returns the node, or null when
+// the file did not load.
+Node3D* add_skeletal_mesh(Scene& scene, const AssetThumbnailRenderer::Deps& deps,
+                          const std::string& skel_path, AssetThumbnailRenderer::Framing& framing) {
+    auto& resources = *deps.resource_manager;
+    auto model = resources.load_skeletal_model(skel_path);
+    if (!model) {
+        FJELL_CORE_WARN("Skeletal mesh thumbnail: {}", model.error());
+        return nullptr;
+    }
+    auto* loaded = resources.get(*model);
+    if (!loaded) return nullptr;
+
+    auto node = std::make_unique<Node3D>();
+    node->name = fs::path(skel_path).stem().string();
+    node->source = skel_path;
+    auto& skinned = node->components.add<SkeletalMeshComponent>();
+    skinned.skeletal_model_handle = *model;
+    skinned.skeletal_model = loaded;
+    skinned.material_handle = default_material(resources);
+    skinned.material = resources.get(skinned.material_handle);
+    skinned.material_name = "default";
+    auto* added = node.get();
+    scene.add_node(std::move(node));
+
+    framing = framing_of(loaded->local_aabb(), loaded->bounding_radius());
+    return added;
+}
+
 class SkeletalMeshSubject final : public AssetThumbnailRenderer::Subject {
 public:
     [[nodiscard]] bool handles(const fs::path& path) const override {
@@ -185,30 +218,74 @@ public:
 
     bool populate(Scene& scene, const AssetThumbnailRenderer::Deps& deps,
                   const std::string& path, AssetThumbnailRenderer::Framing& framing) override {
-        auto& resources = *deps.resource_manager;
-        auto model = resources.load_skeletal_model(path);
-        if (!model) {
-            FJELL_CORE_WARN("Skeletal mesh thumbnail: {}", model.error());
+        return add_skeletal_mesh(scene, deps, path, framing) != nullptr;
+    }
+};
+
+// A clip carries no skeleton reference; the animation editor pairs clips
+// with the .fjskel they sit beside, and the thumbnail follows the same
+// convention. Zero or several skeletons in the directory means no guess.
+fs::path skeleton_beside(const fs::path& clip) {
+    fs::path found;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(clip.parent_path(), ec)) {
+        if (entry.path().extension() != ".fjskel") continue;
+        if (!found.empty()) return {};
+        found = entry.path();
+    }
+    return found;
+}
+
+class AnimationClipSubject final : public AssetThumbnailRenderer::Subject {
+public:
+    [[nodiscard]] bool handles(const fs::path& path) const override {
+        return path.extension() == ".fjanim";
+    }
+
+    [[nodiscard]] fs::file_time_type source_time(const fs::path& path,
+                                                 const Project* /*project*/) const override {
+        auto newest = file_time(path);
+        auto skeleton = skeleton_beside(path);
+        if (!skeleton.empty()) newest = std::max(newest, file_time(skeleton));
+        return newest;
+    }
+
+    bool populate(Scene& scene, const AssetThumbnailRenderer::Deps& deps,
+                  const std::string& path, AssetThumbnailRenderer::Framing& framing) override {
+        auto skeleton = skeleton_beside(path);
+        if (skeleton.empty()) {
+            FJELL_CORE_WARN("Animation thumbnail: no single .fjskel beside {}", path);
             return false;
         }
-        auto* loaded = resources.get(*model);
-        if (!loaded) return false;
+        auto clip = AnimationClip::load(path);
+        if (!clip) {
+            FJELL_CORE_WARN("Animation thumbnail: {}", clip.error());
+            return false;
+        }
+        // The animator keeps a pointer to the clip, so it lives here until
+        // the next clip replaces it, past the render that samples it.
+        clip_ = std::move(*clip);
 
-        // No animator, so the bone upload hands the mesh its bind pose.
-        auto node = std::make_unique<Node3D>();
-        node->name = fs::path(path).stem().string();
-        node->source = path;
-        auto& skinned = node->components.add<SkeletalMeshComponent>();
-        skinned.skeletal_model_handle = *model;
-        skinned.skeletal_model = loaded;
-        skinned.material_handle = default_material(resources);
-        skinned.material = resources.get(skinned.material_handle);
-        skinned.material_name = "default";
-        scene.add_node(std::move(node));
+        auto* node = add_skeletal_mesh(scene, deps, skeleton.string(), framing);
+        if (!node) return false;
+        auto* skinned = node->components.get<SkeletalMeshComponent>();
+        if (!skinned || !skinned->skeletal_model->skeleton()) {
+            FJELL_CORE_WARN("Animation thumbnail: {} has no embedded skeleton", skeleton.string());
+            return false;
+        }
 
-        framing = framing_of(loaded->local_aabb(), loaded->bounding_radius());
+        // A frozen frame from the middle of the clip: enough to tell a jump
+        // from an idle, and the bone upload takes the pose from here.
+        auto& animator = node->components.add<AnimatorComponent>();
+        animator.init(skinned->skeletal_model->skeleton());
+        animator.play(&*clip_, false);
+        animator.set_time(clip_->duration() * 0.5F);
+        animator.update(0.0F);
         return true;
     }
+
+private:
+    std::optional<AnimationClip> clip_;
 };
 
 } // namespace
@@ -219,6 +296,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<MaterialSubject>());
     subjects_.push_back(std::make_unique<MeshSubject>());
     subjects_.push_back(std::make_unique<SkeletalMeshSubject>());
+    subjects_.push_back(std::make_unique<AnimationClipSubject>());
 }
 
 AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;

@@ -28,7 +28,8 @@ struct FjGraph;
 /// Renders an asset into a small picture of itself and hands the result out
 /// as an ImGui texture: a `.fjmat` on a lit sphere, a `.fjmesh` (or a glTF
 /// with no cache yet) with its authored slot materials, a `.fjskel` in its
-/// bind pose. Each thumbnail is rendered once through the real pipeline,
+/// bind pose, a `.fjanim` as a frame from the middle of the clip on the
+/// skeleton beside it. Each thumbnail is rendered once through the real pipeline,
 /// written to `.fjcache/<file>.thumb.png` next to the asset, and served from
 /// that file on later runs until the asset or a file it references is newer.
 ///
