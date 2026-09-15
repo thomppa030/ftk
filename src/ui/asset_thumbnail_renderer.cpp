@@ -25,7 +25,6 @@
 #include <stb_image_write.h>
 
 #include <algorithm>
-#include <array>
 
 namespace fjell {
 
@@ -157,6 +156,9 @@ public:
         }
         const auto* loaded = resources.get(*model);
         if (!loaded) return false;
+        // A skinned .fjmesh loads as an empty model; its picture is the
+        // .fjskel's, not a frame of sky.
+        if (loaded->mesh_count() == 0) return false;
 
         uint32_t id = scene.add(*model, default_material(resources), resources, {},
                                 fs::path(path).stem().string(), path, "default");
@@ -209,23 +211,25 @@ public:
     }
 };
 
-MaterialSubject material_subject;
-MeshSubject mesh_subject;
-SkeletalMeshSubject skeletal_mesh_subject;
-const std::array<AssetThumbnailRenderer::Subject*, 3> subjects{
-    &material_subject, &mesh_subject, &skeletal_mesh_subject};
-
 } // namespace
 
 // ── Public API ───────────────────────────────────────────────────────────
 
-bool AssetThumbnailRenderer::supports(const fs::path& path) {
+AssetThumbnailRenderer::AssetThumbnailRenderer() {
+    subjects_.push_back(std::make_unique<MaterialSubject>());
+    subjects_.push_back(std::make_unique<MeshSubject>());
+    subjects_.push_back(std::make_unique<SkeletalMeshSubject>());
+}
+
+AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;
+
+bool AssetThumbnailRenderer::supports(const fs::path& path) const {
     return subject_for(path) != nullptr;
 }
 
-AssetThumbnailRenderer::Subject* AssetThumbnailRenderer::subject_for(const fs::path& path) {
-    for (auto* subject : subjects) {
-        if (subject->handles(path)) return subject;
+AssetThumbnailRenderer::Subject* AssetThumbnailRenderer::subject_for(const fs::path& path) const {
+    for (const auto& subject : subjects_) {
+        if (subject->handles(path)) return subject.get();
     }
     return nullptr;
 }
@@ -246,9 +250,11 @@ void AssetThumbnailRenderer::refresh_all() {
     for (const auto& [path, entry] : entries_) refresh(path);
 }
 
-VkDescriptorSet AssetThumbnailRenderer::descriptor(const std::string& path) const {
+VkDescriptorSet AssetThumbnailRenderer::descriptor(const std::string& path) {
     auto it = entries_.find(path);
-    return it != entries_.end() ? it->second.descriptor : VK_NULL_HANDLE;
+    if (it == entries_.end()) return VK_NULL_HANDLE;
+    it->second.last_used = ticks_;
+    return it->second.descriptor;
 }
 
 void AssetThumbnailRenderer::invalidate(const std::string& path) {
@@ -268,8 +274,10 @@ void AssetThumbnailRenderer::invalidate(const std::string& path) {
 void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& light, float dt) {
     if (!deps.vulkan_context || !deps.resource_manager || !deps.icon_cache || !deps.thread_pool) return;
 
+    ++ticks_;
     for (auto& entry : pending_retire_) deps.icon_cache->retire(entry);
     pending_retire_.clear();
+    evict_least_recent(deps);
 
     if (skip_frames_ > 0) {
         --skip_frames_;
@@ -348,15 +356,9 @@ bool AssetThumbnailRenderer::serve_from_cache(const Deps& deps, const std::strin
     int channels = 0;
     auto* pixels = stbi_load(cached.string().c_str(), &w, &h, &channels, 4);
     if (pixels == nullptr) return false;
-    auto entry = deps.icon_cache->upload_rgba(pixels, w, h);
+    auto entry = deps.icon_cache->upload_rgba(pixels, w, h, "asset thumbnail " + path);
     stbi_image_free(pixels);
-
-    entries_[path] = Entry{
-        .descriptor = entry.descriptor,
-        .descriptor_entry = entry,
-        .source_time = newest,
-    };
-    return true;
+    return store(deps, path, entry, newest);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
@@ -452,19 +454,57 @@ bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& li
     }
 
     auto entry = deps.icon_cache->upload_rgba(readback.pixels(), static_cast<int>(readback.width()),
-                                              static_cast<int>(readback.height()));
+                                              static_cast<int>(readback.height()),
+                                              "asset thumbnail " + path);
+    return store(deps, path, entry, newest);
+}
+
+bool AssetThumbnailRenderer::store(const Deps& deps, const std::string& path,
+                                   IconCache::IconEntry entry, fs::file_time_type newest) {
+    // The image exists either way; without a descriptor nothing can draw
+    // it, so it goes straight back rather than sitting unreachable.
+    if (entry.descriptor == VK_NULL_HANDLE) {
+        FJELL_CORE_ERROR("Asset thumbnail: ImGui could not register {}", path);
+        deps.icon_cache->retire(entry);
+        return false;
+    }
     entries_[path] = Entry{
         .descriptor = entry.descriptor,
         .descriptor_entry = entry,
         .source_time = newest,
+        .last_used = ticks_,
     };
     return true;
 }
 
 void AssetThumbnailRenderer::retire(const Deps& deps, Entry& entry) {
-    if (entry.descriptor == VK_NULL_HANDLE) return;
+    if (entry.descriptor_entry.image == VK_NULL_HANDLE) return;
     deps.icon_cache->retire(entry.descriptor_entry);
+    entry.descriptor_entry = {};
     entry.descriptor = VK_NULL_HANDLE;
+}
+
+void AssetThumbnailRenderer::evict_least_recent(const Deps& deps) {
+    // Only entries with an image count; failed ones hold nothing. An entry
+    // handed out this tick is on screen and stays.
+    size_t resident = 0;
+    for (const auto& [path, entry] : entries_) {
+        if (entry.descriptor_entry.image != VK_NULL_HANDLE) ++resident;
+    }
+    while (resident > MAX_RESIDENT) {
+        auto oldest = entries_.end();
+        for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+            if (it->second.descriptor_entry.image == VK_NULL_HANDLE) continue;
+            if (it->second.last_used >= ticks_) continue;
+            if (oldest == entries_.end() || it->second.last_used < oldest->second.last_used) {
+                oldest = it;
+            }
+        }
+        if (oldest == entries_.end()) return;
+        retire(deps, oldest->second);
+        entries_.erase(oldest);
+        --resident;
+    }
 }
 
 } // namespace fjell

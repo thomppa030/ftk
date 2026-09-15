@@ -89,8 +89,10 @@ public:
     static void ensure_thumbnail_cache(const std::string& path);
 
     /// Upload RGBA pixel data as a Vulkan image + ImGui descriptor.
-    /// Reusable for icons, thumbnails, material previews, etc.
-    IconEntry upload_rgba(const uint8_t* pixels, int w, int h);
+    /// Reusable for icons, thumbnails, material previews, etc. `debug_name`
+    /// labels the image for validation messages and captures, so a leaked
+    /// or misused entry names the file it came from.
+    IconEntry upload_rgba(const uint8_t* pixels, int w, int h, const std::string& debug_name);
 
     /// Hand an entry from upload_rgba() back for destruction at the next
     /// frame boundary, with the same lifetime rule as clear_thumbnails():

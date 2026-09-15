@@ -39,6 +39,10 @@ struct FjGraph;
 class AssetThumbnailRenderer {
 public:
     static constexpr uint32_t SIZE = 128;
+    /// Thumbnails kept on the GPU at once. Beyond this the ones drawn least
+    /// recently are retired; they come back from the disk cache when shown
+    /// again. Bounds both memory and the ImGui descriptors they hold.
+    static constexpr size_t MAX_RESIDENT = 512;
 
     struct Deps {
         VulkanContext* vulkan_context{nullptr};
@@ -48,8 +52,15 @@ public:
         const Project* project{nullptr};
     };
 
+    AssetThumbnailRenderer();
+    ~AssetThumbnailRenderer();
+    AssetThumbnailRenderer(const AssetThumbnailRenderer&) = delete;
+    AssetThumbnailRenderer& operator=(const AssetThumbnailRenderer&) = delete;
+    AssetThumbnailRenderer(AssetThumbnailRenderer&&) = delete;
+    AssetThumbnailRenderer& operator=(AssetThumbnailRenderer&&) = delete;
+
     /// Whether the renderer can draw this file, judged by extension.
-    [[nodiscard]] static bool supports(const std::filesystem::path& path);
+    [[nodiscard]] bool supports(const std::filesystem::path& path) const;
 
     /// Queue a thumbnail for an absolute asset path the renderer knows
     /// nothing about yet. Cheap and idempotent, so draw code may call it
@@ -70,8 +81,9 @@ public:
     void refresh_all();
 
     /// The thumbnail's ImGui descriptor, or VK_NULL_HANDLE while it is not
-    /// ready. Never loads or renders.
-    [[nodiscard]] VkDescriptorSet descriptor(const std::string& path) const;
+    /// ready. Never loads or renders; marks the thumbnail as in use so it
+    /// is not the next one evicted.
+    [[nodiscard]] VkDescriptorSet descriptor(const std::string& path);
 
     /// Forget a thumbnail and delete its cache file. The descriptor is
     /// retired, not destroyed: a draw list recorded this frame may still
@@ -116,6 +128,11 @@ public:
 private:
     static inline AssetThumbnailRenderer* s_instance{nullptr};
 
+    // Owned here rather than at namespace scope: a subject may hold loaded
+    // asset data (a clip's ozz animation) that must go before the libraries
+    // behind it tear down at exit.
+    std::vector<std::unique_ptr<Subject>> subjects_;
+
     struct Entry {
         VkDescriptorSet descriptor{VK_NULL_HANDLE};
         // The image behind the descriptor, owned here until retired.
@@ -124,10 +141,12 @@ private:
         // this entry was produced.
         std::filesystem::file_time_type source_time;
         bool failed{false};
+        // tick() count when descriptor() last handed this out.
+        uint64_t last_used{0};
     };
 
     [[nodiscard]] static std::filesystem::path cache_path(const std::filesystem::path& asset);
-    [[nodiscard]] static Subject* subject_for(const std::filesystem::path& path);
+    [[nodiscard]] Subject* subject_for(const std::filesystem::path& path) const;
 
     void ensure_render_resources(const Deps& deps);
     bool serve_from_cache(const Deps& deps, const std::string& path,
@@ -136,6 +155,10 @@ private:
                 Subject& subject, const std::string& path,
                 std::filesystem::file_time_type newest);
     void retire(const Deps& deps, Entry& entry);
+    void evict_least_recent(const Deps& deps);
+    // Store a fresh upload, or fail it when ImGui could not register it.
+    bool store(const Deps& deps, const std::string& path, IconCache::IconEntry entry,
+               std::filesystem::file_time_type newest);
 
     std::deque<std::string> queue_;
     std::unordered_set<std::string> queued_;
@@ -155,6 +178,7 @@ private:
 
     // Rebuilt for every render: the light, then whatever the subject adds.
     Scene scene_;
+    uint64_t ticks_{0};
 };
 
 } // namespace fjell

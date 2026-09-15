@@ -121,7 +121,7 @@ void ContentBrowser::apply_pending_navigation() {
     // also re-renders an asset edited since its thumbnail was made.
     if (asset_thumbnails_) {
         for (const auto& entry : entries_) {
-            if (AssetThumbnailRenderer::supports(entry.path)) {
+            if (asset_thumbnails_->supports(entry.path)) {
                 asset_thumbnails_->refresh(entry.path.string());
             }
         }
@@ -428,7 +428,7 @@ void ContentBrowser::draw() {
                 // without it.
                 std::error_code side_ec;
                 std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
-                if (asset_thumbnails_ && AssetThumbnailRenderer::supports(e.path)) {
+                if (asset_thumbnails_ && asset_thumbnails_->supports(e.path)) {
                     asset_thumbnails_->invalidate(e.path.string());
                 }
             }
@@ -613,7 +613,7 @@ void ContentBrowser::draw_file_grid() {
                 icon_desc = icons_->thumbnail(thumb_path);
                 ++thumbs_loaded_this_frame;
             }
-        } else if (asset_thumbnails_ && AssetThumbnailRenderer::supports(entry.path)) {
+        } else if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
             auto asset_path = entry.path.string();
             icon_desc = asset_thumbnails_->descriptor(asset_path);
             if (!icon_desc) asset_thumbnails_->request(asset_path);
@@ -656,7 +656,7 @@ void ContentBrowser::draw_file_grid() {
                         std::filesystem::rename(
                             from_side, asset_identity::sidecar_path(new_path), sc);
                     }
-                    if (asset_thumbnails_ && AssetThumbnailRenderer::supports(entry.path)) {
+                    if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
                         asset_thumbnails_->invalidate(entry.path.string());
                     }
 
@@ -765,7 +765,7 @@ void ContentBrowser::draw_file_grid() {
                                 IconCache::ensure_thumbnail_cache(dest_str);
                             });
                         }
-                        if (asset_thumbnails_ && AssetThumbnailRenderer::supports(src.path)) {
+                        if (asset_thumbnails_ && asset_thumbnails_->supports(src.path)) {
                             asset_thumbnails_->invalidate(src.path.string());
                         }
                         refresh_current_dir();

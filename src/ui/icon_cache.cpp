@@ -2,6 +2,7 @@
 #include "core/log.hpp"
 #include "core/thread_pool.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "ui/imgui_layer.hpp"
 
 #include <imgui.h>
@@ -120,7 +121,8 @@ void IconCache::forget_context(void* context) {
 
 // ── Shared upload ───────────────────────────────────────────────────────
 
-IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h) {
+IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h,
+                                            const std::string& debug_name) {
     VkDeviceSize image_size = static_cast<VkDeviceSize>(w) * h * 4;
 
     // Staging buffer
@@ -174,6 +176,7 @@ IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h)
     img_info.samples = VK_SAMPLE_COUNT_1_BIT;
     vk_check(vkCreateImage(device_, &img_info, nullptr, &entry.image),
              "create image");
+    set_image_debug_name(device_, entry.image, debug_name);
 
     vkGetImageMemoryRequirements(device_, entry.image, &mem_req);
     alloc_info.allocationSize = mem_req.size;
@@ -279,7 +282,7 @@ void IconCache::load_icon(const std::string& name, const std::string& path) {
         return;
     }
 
-    icons_[name] = upload_rgba(reinterpret_cast<const uint8_t*>(pixels), w, h);
+    icons_[name] = upload_rgba(reinterpret_cast<const uint8_t*>(pixels), w, h, "icon " + name);
     stbi_image_free(pixels);
 }
 
@@ -343,7 +346,7 @@ VkDescriptorSet IconCache::thumbnail(const std::string& path) {
         }
     }
 
-    auto entry = upload_rgba(pixels_buf.data(), upload_w, upload_h);
+    auto entry = upload_rgba(pixels_buf.data(), upload_w, upload_h, "thumbnail " + path);
     thumbnails_[path] = entry;
     return entry.descriptor;
 }
@@ -619,6 +622,7 @@ void IconCache::poll_thumbnails() {
         img_info.samples = VK_SAMPLE_COUNT_1_BIT;
         vk_check(vkCreateImage(device_, &img_info, nullptr, &entries[i].image),
                  "create batch image");
+        set_image_debug_name(device_, entries[i].image, "thumbnail " + batch[i].path);
 
         vkGetImageMemoryRequirements(device_, entries[i].image, &mem_req);
         alloc_info.allocationSize = mem_req.size;
