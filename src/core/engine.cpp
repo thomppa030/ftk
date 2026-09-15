@@ -1299,22 +1299,23 @@ void Engine::bind_menu_bar() {
         [this](const std::string& name) { load_layout(name); }));
     connections_.push_back(menu_bar_.on_import_model.bind(
         [this]() {
-            import_file_browser_.open("Import Model", FileBrowser::Mode::select_file,
-                                      {".glb", ".gltf", ".fbx"});
+            auto output_dir = project_mgr_.active()
+                ? project_mgr_.active()->root() / "models"
+                : std::filesystem::path{};
+            open_import_browser(output_dir);
         }));
+    connections_.push_back(content_browser_.on_import_into.bind(
+        [this](const std::string& dir) { open_import_browser(dir); }));
     connections_.push_back(menu_bar_.on_open_capture.bind(
         [this]() { capture_popup_.open(); }));
     connections_.push_back(import_file_browser_.on_selected.bind(
         [this](const std::string& path) {
-            auto output_dir = project_mgr_.active()
-                ? project_mgr_.active()->root() / "models"
-                : std::filesystem::path{};
             if (auto* proj = project_mgr_.active()) {
                 import_dialog_.set_project(proj->root(), proj->config().texture_import_dir);
             } else {
                 import_dialog_.set_project({}, "assets/textures");
             }
-            import_dialog_.open(path, output_dir);
+            import_dialog_.open(path, import_output_dir_);
         }));
 
     // Asset reference widget browser → deliver result to pending widget
@@ -1400,6 +1401,12 @@ nlohmann::json Engine::serialize_dockspace(EditorContext& ctx) {
     };
 
     return serialize_node(root);
+}
+
+void Engine::open_import_browser(const std::filesystem::path& output_dir) {
+    import_output_dir_ = output_dir;
+    import_file_browser_.open("Import Model", FileBrowser::Mode::select_file,
+                              {".glb", ".gltf", ".fbx"});
 }
 
 void Engine::save_layout(const std::string& name) {

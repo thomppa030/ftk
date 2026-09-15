@@ -994,6 +994,10 @@ void ContentBrowser::draw_context_menu() {
                 create_asset_file("new_script", ".cpp", "#include <iostream>\n");
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("Import...")) {
+                on_import_into.broadcast(current_dir_.string());
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Refresh")) {
                 refresh_current_dir();
             }

@@ -229,9 +229,12 @@ private:
     AssetThumbnailRenderer asset_thumbnails_;
     [[nodiscard]] AssetThumbnailRenderer::Deps asset_thumbnail_deps();
 
-    // In-engine mesh importer
+    // In-engine mesh importer. The file browser only picks the source; the
+    // directory the result lands in is decided by whoever opened it.
     ImportDialog import_dialog_;
     FileBrowser import_file_browser_;
+    std::filesystem::path import_output_dir_;
+    void open_import_browser(const std::filesystem::path& output_dir);
 
     // Asset reference widget browser (separate from import browser)
     FileBrowser asset_file_browser_;
