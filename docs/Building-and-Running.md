@@ -52,6 +52,13 @@ reuses the `debug` tree's imgui checkout, so configure `debug` first.
 
 The hub is the easier entry point: it lists recent projects and can create new ones.
 
+The log shows `info` and above by default. When chasing something, raise it
+for one run without rebuilding:
+
+```bash
+FJELL_LOG_LEVEL=debug ./build/src/fjell /path/to/project   # or trace
+```
+
 ## Tests
 
 ```bash
