@@ -442,18 +442,6 @@ void VfxEditorContext::setup_preview() {
 
     if (!effect_) return;
 
-    auto plane = deps_.resource_manager->create_primitive("plane");
-    if (plane) {
-        auto tex = deps_.resource_manager->load_texture(
-            base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-        auto mat = deps_.resource_manager->create_material("vfx_ground", tex);
-        Transform ground_tf;
-        ground_tf.position = {0.0f, -0.01f, 0.0f};
-        ground_tf.scale = {3.0f, 1.0f, 3.0f};
-        preview_scene_.add(*plane, mat, *deps_.resource_manager,
-                           ground_tf, "ground", "primitive:plane");
-    }
-
     auto node = std::make_unique<SceneNode>();
     node->name = "vfx_preview";
     auto& ec = node->components.add<EmitterComponent>();

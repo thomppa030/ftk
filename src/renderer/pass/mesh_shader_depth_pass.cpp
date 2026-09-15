@@ -1,5 +1,6 @@
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/gpu/vk_utils.hpp"
 #include "renderer/pass/terrain_pass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
@@ -362,8 +363,14 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
     // geometry in a mesh shader and never enters the queue. Skipping the pass
     // would leave depth at whatever the last camera position wrote, and the
     // color pass — which tests against this depth without writing it — would
-    // then smear stale terrain across the view.
-    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
+    // then smear stale terrain across the view. A scene with nothing to draw
+    // at all still gets its clear for the same reason: particles and the sky
+    // test against it.
+    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) {
+        vk_utils::clear_depth_attachment(ctx.cmd, ctx.target->msaa_depth_view(),
+                                         ctx.target->extent());
+        return;
+    }
 
     FJELL_PROFILE_SCOPE_N("record_mesh_depth");
     FJELL_GPU_ZONE(ctx, "Mesh Depth");

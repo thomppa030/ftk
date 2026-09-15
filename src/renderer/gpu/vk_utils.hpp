@@ -34,6 +34,29 @@ inline void transition_image(VkCommandBuffer cmd, VkImage image,
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
+/// Clear a depth attachment without drawing: an empty rendering scope with
+/// a clear load op. For a depth pass that has nothing to draw, so the
+/// passes after it still test against a defined depth.
+inline void clear_depth_attachment(VkCommandBuffer cmd, VkImageView depth_view,
+                                   VkExtent2D extent, float depth = 1.0f) {
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = depth_view;
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil = {depth, 0};
+
+    VkRenderingInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    rendering_info.renderArea.extent = extent;
+    rendering_info.layerCount = 1;
+    rendering_info.pDepthAttachment = &depth_attachment;
+
+    vkCmdBeginRendering(cmd, &rendering_info);
+    vkCmdEndRendering(cmd);
+}
+
 /// Transition image from UNDEFINED to COLOR_ATTACHMENT_OPTIMAL (pre-render).
 inline void prepare_color_attachment(VkCommandBuffer cmd, VkImage image) {
     transition_image(cmd, image,

@@ -1,6 +1,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/gpu/vk_utils.hpp"
 #include "renderer/pass/terrain_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -220,7 +221,14 @@ void DepthPrePass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr || ctx.queue == nullptr) return;
     // Terrain is mesh-shader generated and never enters the render queue, so
     // an empty queue can still have depth to write. See the mesh-shader path.
-    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
+    // With nothing at all to draw the clear still has to happen: particles
+    // and the sky test against this depth, and an empty scene is a real
+    // scene (an effect preview, a thumbnail).
+    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) {
+        vk_utils::clear_depth_attachment(ctx.cmd, ctx.target->msaa_depth_view(),
+                                         ctx.target->extent());
+        return;
+    }
 
     auto extent = ctx.target->extent();
 
