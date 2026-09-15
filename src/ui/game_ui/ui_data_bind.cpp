@@ -144,8 +144,10 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
             float pct = val / max;
             if (pct < 0.0f) pct = 0.0f;
             if (pct > 1.0f) pct = 1.0f;
-            node.attributes["_fill_pct"] = std::to_string(pct);
-            result.text_changed = true; // bar fill is a visual-only change
+            if (pct != node.fill_fraction) {
+                node.fill_fraction = pct;
+                result.text_changed = true; // bar fill is a visual-only change
+            }
         }
     }
 
@@ -170,6 +172,10 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
     clone->parent = new_parent;
     clone->resolved_texture_id = source.resolved_texture_id;
     clone->resolved_material_id = source.resolved_material_id;
+    clone->resolved_pipeline_id = source.resolved_pipeline_id;
+    clone->fill_fraction = source.fill_fraction;
+    clone->source_file = source.source_file;
+    clone->source_line = source.source_line;
 
     // Copy widget state
     clone->is_widget = source.is_widget;

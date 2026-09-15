@@ -11,11 +11,14 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
 
+class DeferredDeleter;
 class Device;
+class PipelineCache;
 struct UiNode;
 
 /// Push constants for worldspace UI rendering.
@@ -39,8 +42,12 @@ struct UiWorldFrameData {
 
 class UiRenderer {
 public:
+    /// fjsl_pipelines compiles the `shader_type ui;` materials quads may
+    /// name; null means materials are ignored. Pipelines built from it are
+    /// retired through the deleter, which outlives this renderer.
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
+                PipelineCache* fjsl_pipelines, DeferredDeleter& deleter,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
     void destroy();
 
@@ -101,24 +108,55 @@ private:
     };
     static_assert(sizeof(GpuUiGlyph) == 96);
 
-    void collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads,
+    // A quad as collected from the tree, with what the CPU side needs to
+    // order and batch it and the GPU side never reads.
+    struct CollectedQuad {
+        GpuUiQuad gpu;
+        uint32_t pipeline_id{UINT32_MAX}; // PipelineCache entry of a ui material, else none
+    };
+
+    void collect_quads(const UiNode& node, std::vector<CollectedQuad>& quads,
                        float viewport_width, float viewport_height);
 
-    // Scissor clip group: a contiguous range of quads sharing the same clip rect
+    // Draw group: a contiguous range of quads drawn with one scissor and one
+    // pipeline. Runs break on either changing.
     struct ClipGroup {
         glm::vec4 clip_rect;  // x, y, w, h in pixels
+        uint32_t pipeline_id{UINT32_MAX}; // ui material pipeline, or none for the fixed fill
         uint32_t first_vertex;
         uint32_t vertex_count;
     };
 
-    // Build contiguous clip groups from a range of quads
-    static std::vector<ClipGroup> build_clip_groups(const GpuUiQuad* quads,
+    // Build contiguous draw groups from a range of quads
+    static std::vector<ClipGroup> build_clip_groups(const CollectedQuad* quads,
                                                      uint32_t first_quad,
                                                      uint32_t quad_count);
 
     // Per-frame clip groups for opaque and transparent passes
     std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> opaque_groups_;
     std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> transparent_groups_;
+
+    // Pipelines built for one `shader_type ui;` PipelineCache entry, in the
+    // two shapes the fixed quad pipelines come in. Rebuilt when the entry's
+    // compile generation moves (a hot-reload), old ones retired through the
+    // deferred deleter.
+    struct MaterialPipelines {
+        VkPipeline screen{VK_NULL_HANDLE};
+        VkPipeline world{VK_NULL_HANDLE};
+        uint32_t generation{0};
+    };
+    // Builds or refreshes the pipelines for a PipelineCache entry. Returns
+    // false when the entry has no usable ui fragment, in which case the quad
+    // is drawn by the fixed fill instead.
+    bool ensure_material_pipelines(uint32_t pipeline_id);
+    void retire_material_pipelines(MaterialPipelines& mp);
+    std::unordered_map<uint32_t, MaterialPipelines> material_pipelines_;
+    PipelineCache* fjsl_pipelines_{nullptr};
+    DeferredDeleter* deleter_{nullptr};
+    // Worldspace pipeline shape, kept so material pipelines can match it
+    bool has_world_pipelines_{false};
+    VkSampleCountFlagBits world_samples_{VK_SAMPLE_COUNT_1_BIT};
+    VkFormat world_color_format_{VK_FORMAT_UNDEFINED};
 
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};

@@ -55,9 +55,21 @@ struct UiNode {
     // Scroll offset for overflow:scroll containers
     float scroll_offset_y{0.0f};
 
-    // Resolved texture/material indices (set during load)
+    // Resolved texture/material indices (set during load). A material on a
+    // UI node is a `shader_type ui;` .fjsl; resolved_pipeline_id names its
+    // PipelineCache entry so the renderer can draw the quad through it.
     uint32_t resolved_texture_id{0};
     uint32_t resolved_material_id{UINT32_MAX};
+    uint32_t resolved_pipeline_id{UINT32_MAX};
+
+    // <bar> value/max as data binding last resolved it, 0..1; 1 elsewhere
+    float fill_fraction{1.0f};
+
+    // Where the markup that produced this node lives, for diagnostics that
+    // point at a file and line. The parser stamps the line, the loader that
+    // knows the file (root markup or a widget asset) stamps the file.
+    std::string source_file;
+    uint32_t source_line{0};
 
     // Widget composition
     bool is_widget{false};
@@ -93,5 +105,14 @@ struct UiNode {
     [[nodiscard]] bool is_active() const { return (interaction_state & 2) != 0; }
     [[nodiscard]] bool is_focused() const { return (interaction_state & 4) != 0; }
 };
+
+/// Records `file` as the source of every node in the subtree that has none
+/// yet. Nodes spliced in from another file keep theirs.
+inline void ui_stamp_source_file(UiNode& node, const std::string& file) {
+    if (node.source_file.empty()) node.source_file = file;
+    for (auto& child : node.children) {
+        ui_stamp_source_file(*child, file);
+    }
+}
 
 } // namespace fjell

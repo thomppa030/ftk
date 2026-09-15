@@ -66,6 +66,7 @@ std::unique_ptr<UiNode> FjuiParser::parse_element() {
 
     auto node = std::make_unique<UiNode>();
     node->type = UiNodeType::element;
+    node->source_line = line_;
     node->tag = parse_tag_name();
 
     if (node->tag.empty()) {

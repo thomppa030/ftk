@@ -54,6 +54,7 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     if (!tree) {
         return make_error("Failed to parse widget markup: " + path);
     }
+    ui_stamp_source_file(*tree, path);
 
     // The root must be a <widget> element
     if (tree->tag != "widget") {

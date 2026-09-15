@@ -1,7 +1,9 @@
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_node.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -162,9 +164,12 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
 
 void UiRenderer::create(Device& device, VmaAllocator allocator,
                         const PassResources& resources,
+                        PipelineCache* fjsl_pipelines, DeferredDeleter& deleter,
                         VkFormat output_format) {
     device_ = device.handle();
     allocator_ = allocator;
+    fjsl_pipelines_ = fjsl_pipelines;
+    deleter_ = &deleter;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
@@ -289,6 +294,11 @@ void UiRenderer::destroy() {
     for (auto& ssbo : quad_ssbos_) ssbo.reset();
     for (auto& ssbo : text_ssbos_) ssbo.reset();
     for (auto& buf : world_frame_buffers_) buf.reset();
+    for (auto& [id, mp] : material_pipelines_) {
+        safe_destroy(mp.screen, vkDestroyPipeline);
+        safe_destroy(mp.world, vkDestroyPipeline);
+    }
+    material_pipelines_.clear();
     safe_destroy(pool_, vkDestroyDescriptorPool);
     safe_destroy(world_pool_, vkDestroyDescriptorPool);
     safe_destroy(world_text_pipeline_, vkDestroyPipeline);
@@ -304,22 +314,24 @@ void UiRenderer::destroy() {
 }
 
 std::vector<UiRenderer::ClipGroup> UiRenderer::build_clip_groups(
-        const GpuUiQuad* quads, uint32_t first_quad, uint32_t quad_count) {
+        const CollectedQuad* quads, uint32_t first_quad, uint32_t quad_count) {
     std::vector<ClipGroup> groups;
     if (quad_count == 0) return groups;
 
     ClipGroup current{};
-    current.clip_rect = quads[first_quad].clip_rect;
+    current.clip_rect = quads[first_quad].gpu.clip_rect;
+    current.pipeline_id = quads[first_quad].pipeline_id;
     current.first_vertex = first_quad * 6;
     current.vertex_count = 6;
 
     for (uint32_t i = 1; i < quad_count; ++i) {
-        const auto& cr = quads[first_quad + i].clip_rect;
-        if (cr == current.clip_rect) {
+        const auto& q = quads[first_quad + i];
+        if (q.gpu.clip_rect == current.clip_rect && q.pipeline_id == current.pipeline_id) {
             current.vertex_count += 6;
         } else {
             groups.push_back(current);
-            current.clip_rect = cr;
+            current.clip_rect = q.gpu.clip_rect;
+            current.pipeline_id = q.pipeline_id;
             current.first_vertex = (first_quad + i) * 6;
             current.vertex_count = 6;
         }
@@ -331,14 +343,24 @@ std::vector<UiRenderer::ClipGroup> UiRenderer::build_clip_groups(
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
                          float frame_scale, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_update");
-    std::vector<GpuUiQuad> quads;
+    std::vector<CollectedQuad> quads;
     collect_quads(root, quads, viewport_width, viewport_height);
 
-    // Partition into opaque (front-to-back) and transparent (original order)
-    std::vector<GpuUiQuad> opaque;
-    std::vector<GpuUiQuad> transparent;
+    // A material quad needs its pipeline; one whose shader failed to compile
+    // falls back to the fixed fill so the node still shows its colour.
     for (auto& q : quads) {
-        if (q.quad_flags & 1u) {
+        if (q.pipeline_id != UINT32_MAX && !ensure_material_pipelines(q.pipeline_id)) {
+            q.pipeline_id = UINT32_MAX;
+            q.gpu.material_id = UINT32_MAX;
+            q.gpu.params.z = 0.0f;
+        }
+    }
+
+    // Partition into opaque (front-to-back) and transparent (original order)
+    std::vector<CollectedQuad> opaque;
+    std::vector<CollectedQuad> transparent;
+    for (auto& q : quads) {
+        if (q.gpu.quad_flags & 1u) {
             opaque.push_back(q);
         } else {
             transparent.push_back(q);
@@ -347,12 +369,12 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
 
     // Sort opaque front-to-back (ascending z_layer = near first)
     std::sort(opaque.begin(), opaque.end(),
-              [](const GpuUiQuad& a, const GpuUiQuad& b) {
-                  return a.z_layer < b.z_layer;
+              [](const CollectedQuad& a, const CollectedQuad& b) {
+                  return a.gpu.z_layer < b.gpu.z_layer;
               });
 
     // Write opaque first, then transparent
-    std::vector<GpuUiQuad> sorted;
+    std::vector<CollectedQuad> sorted;
     sorted.reserve(opaque.size() + transparent.size());
     sorted.insert(sorted.end(), opaque.begin(), opaque.end());
     sorted.insert(sorted.end(), transparent.begin(), transparent.end());
@@ -366,7 +388,9 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
 
     if (count > 0) {
         auto* dst = static_cast<GpuUiQuad*>(quad_ssbos_[frame_index]->mapped());
-        std::memcpy(dst, sorted.data(), count * sizeof(GpuUiQuad));
+        for (uint32_t i = 0; i < count; ++i) {
+            dst[i] = sorted[i].gpu;
+        }
     }
 
     // Build scissor clip groups for each pass
@@ -412,7 +436,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
     text_counts_[frame_index] = existing + count;
 }
 
-void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads,
+void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& quads,
                                 float viewport_width, float viewport_height) {
     if (node.style.display == UiDisplay::none) return;
     if (node.hidden_by_if) return;
@@ -423,7 +447,8 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
     bool has_border = s.border_width > 0.0f && s.border_color.a > 0.0f;
     bool has_shadow = s.box_shadow.active();
     bool has_texture = node.resolved_texture_id != 0;
-    bool has_material = node.resolved_material_id != UINT32_MAX;
+    bool has_material = node.resolved_material_id != UINT32_MAX &&
+                        node.resolved_pipeline_id != UINT32_MAX;
 
     // Emit shadow quad first (behind the main quad)
     if (has_shadow) {
@@ -449,25 +474,24 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         shadow.material_id = UINT32_MAX;
         shadow.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
         shadow.quad_flags = 0;
-        quads.push_back(shadow);
+        shadow.state = {1.0f, 0.0f, 0.0f, 0.0f};
+        quads.push_back({shadow, UINT32_MAX});
     }
 
     if (has_bg || has_border || has_texture || has_material) {
-        // flags: 0 = normal, 1 = gradient, 2 = shadow, 3 = raw texture, 4 = material
+        // flags: 0 = normal, 1 = gradient, 2 = shadow, 3 = raw texture,
+        // 4 = drawn by the material's own pipeline
         float flags = s.gradient.active() ? 1.0f : 0.0f;
         if (has_texture) flags = 3.0f;
         if (has_material) flags = 4.0f;
 
         float rect_w = node.layout_rect.w;
 
-        // Bar element: shrink background quad to fill percentage
-        if (node.tag == "bar") {
-            auto pct_it = node.attributes.find("_fill_pct");
-            if (pct_it != node.attributes.end()) {
-                float pct = 0.0f;
-                try { pct = std::stof(pct_it->second); } catch (...) {}
-                rect_w *= pct;
-            }
+        // A bar without a material shows its fill by shrinking the quad. A
+        // material paints the whole bar and reads the fill as FILL, so it
+        // can shape the edge and the empty part itself.
+        if (node.tag == "bar" && !has_material) {
+            rect_w *= node.fill_fraction;
         }
 
         GpuUiQuad quad{};
@@ -502,8 +526,12 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         }
         quad.viewport_size = {viewport_width, viewport_height};
         quad.texture_id = node.resolved_texture_id;
-        quad.material_id = node.resolved_material_id;
+        quad.material_id = has_material ? node.resolved_material_id : UINT32_MAX;
         quad.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
+        quad.state = {node.tag == "bar" ? node.fill_fraction : 1.0f,
+                      node.is_hovered() ? 1.0f : 0.0f,
+                      node.is_active() ? 1.0f : 0.0f,
+                      node.is_focused() ? 1.0f : 0.0f};
 
         // Classify opaque: fully opaque color, no border-radius, not shadow, not textured
         bool is_opaque = s.opacity >= 1.0f &&
@@ -515,11 +543,69 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
                          !has_texture && !has_material;
         quad.quad_flags = is_opaque ? 1u : 0u;
 
-        quads.push_back(quad);
+        quads.push_back({quad, has_material ? node.resolved_pipeline_id : UINT32_MAX});
     }
 
     for (const auto& child : node.children) {
         collect_quads(*child, quads, viewport_width, viewport_height);
+    }
+}
+
+bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
+    if (!fjsl_pipelines_) return false;
+
+    auto it = material_pipelines_.find(pipeline_id);
+    uint32_t generation = fjsl_pipelines_->generation(pipeline_id);
+    if (it != material_pipelines_.end() && it->second.generation == generation) {
+        return it->second.screen != VK_NULL_HANDLE;
+    }
+
+    // The entry compiled again (or for the first time). A failed compile
+    // leaves the cache's SPV paths at the last good build and its generation
+    // unchanged, so an existing pipeline is only replaced by a working one.
+    const std::string& screen_spv = fjsl_pipelines_->ui_frag_spv(pipeline_id);
+    if (screen_spv.empty()) {
+        if (it == material_pipelines_.end()) {
+            FJELL_GFX_WARN("UI material '{}' has no ui fragment to draw with",
+                           fjsl_pipelines_->shader_path(pipeline_id));
+            material_pipelines_[pipeline_id] = MaterialPipelines{VK_NULL_HANDLE, VK_NULL_HANDLE, generation};
+        }
+        return false;
+    }
+
+    MaterialPipelines fresh{};
+    fresh.generation = generation;
+    fresh.screen = create_ui_pipeline(device_, layout_, color_format_, depth_format_,
+        base_path::resolve("shaders/ui_quad.vert.spv"), screen_spv,
+        UiPipelineMode::transparent);
+    if (has_world_pipelines_) {
+        fresh.world = create_ui_pipeline(device_, world_layout_, world_color_format_, depth_format_,
+            base_path::resolve("shaders/ui_quad_world.vert.spv"),
+            fjsl_pipelines_->ui_world_frag_spv(pipeline_id),
+            UiPipelineMode::transparent, world_samples_, VK_FORMAT_R8G8_UNORM,
+            OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT);
+    }
+
+    if (it != material_pipelines_.end()) {
+        retire_material_pipelines(it->second);
+        it->second = fresh;
+    } else {
+        material_pipelines_[pipeline_id] = fresh;
+    }
+    FJELL_GFX_DEBUG("UI material pipelines built for '{}' (generation {})",
+                    fjsl_pipelines_->shader_path(pipeline_id), generation);
+    return true;
+}
+
+void UiRenderer::retire_material_pipelines(MaterialPipelines& mp) {
+    // A frame in flight may still reference these; the deleter destroys
+    // them once that frame's fence has signalled.
+    for (VkPipeline* p : {&mp.screen, &mp.world}) {
+        if (*p == VK_NULL_HANDLE) continue;
+        deleter_->defer([device = device_, pipeline = *p] {
+            vkDestroyPipeline(device, pipeline, nullptr);
+        });
+        *p = VK_NULL_HANDLE;
     }
 }
 
@@ -571,14 +657,21 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
         }
     }
 
-    // Pass 2: Draw transparent quads with per-group scissor
+    // Pass 2: Draw transparent quads with per-group scissor and pipeline.
+    // A group of material quads binds that material's pipeline; the fixed
+    // fill is rebound when the next group has none.
     const auto& transparent_groups = transparent_groups_[frame_index];
-    if (!transparent_groups.empty()) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        for (const auto& group : transparent_groups) {
-            set_scissor(group.clip_rect);
-            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+    VkPipeline bound = VK_NULL_HANDLE;
+    for (const auto& group : transparent_groups) {
+        VkPipeline wanted = group.pipeline_id == UINT32_MAX
+            ? pipeline_
+            : material_pipelines_[group.pipeline_id].screen;
+        if (wanted != bound) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            bound = wanted;
         }
+        set_scissor(group.clip_rect);
+        vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
     }
 
     // Draw text glyphs (full scissor, text has its own clip test)
@@ -637,6 +730,13 @@ void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources&
     auto msaa = resources.sample_count;
     auto color_fmt = resources.color_format;
     auto depth_fmt = resources.depth_format;
+    has_world_pipelines_ = true;
+    world_samples_ = msaa;
+    world_color_format_ = color_fmt;
+    // Material pipelines built before this point know only the screen shape
+    for (auto& [id, mp] : material_pipelines_) {
+        mp.generation = 0;
+    }
 
     // Color pass has 2 color attachments (color + metallic/roughness).
     // UI doesn't write to M/R, but the pipeline must declare both.
@@ -766,13 +866,18 @@ void UiRenderer::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, V
         }
     }
 
-    // Pass 2: Transparent quads
+    // Pass 2: Transparent quads, switching to a material's pipeline for its groups
     const auto& transparent_groups = transparent_groups_[frame_index];
-    if (!transparent_groups.empty()) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_transparent_pipeline_);
-        for (const auto& group : transparent_groups) {
-            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+    VkPipeline bound = VK_NULL_HANDLE;
+    for (const auto& group : transparent_groups) {
+        VkPipeline wanted = group.pipeline_id == UINT32_MAX
+            ? world_transparent_pipeline_
+            : material_pipelines_[group.pipeline_id].world;
+        if (wanted != bound) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            bound = wanted;
         }
+        vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
     }
 
     // Pass 3: Text glyphs

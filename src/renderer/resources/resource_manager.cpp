@@ -474,6 +474,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);
     if (shader_meta) {
+        material->set_shader_type(shader_meta->shader_type);
         if (shader_meta->render_state.force_transparent) {
             material->set_force_transparent(true);
         }

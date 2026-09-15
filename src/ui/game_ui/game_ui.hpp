@@ -29,8 +29,10 @@ namespace fjell {
 
 class Device;
 class BindlessTextures;
+class DeferredDeleter;
 class FontLibrary;
 class Input;
+class PipelineCache;
 class ResourceManager;
 struct PassResources;
 
@@ -52,10 +54,14 @@ struct PassResources;
 ///
 class GameUi {
 public:
+    /// fjsl_pipelines compiles the `shader_type ui;` materials nodes may
+    /// name; the deleter retires the pipelines built from them.
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
                 BindlessTextures& bindless,
                 FontLibrary& fonts,
+                PipelineCache* fjsl_pipelines,
+                DeferredDeleter& deleter,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
 
     void destroy();

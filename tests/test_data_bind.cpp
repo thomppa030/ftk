@@ -309,7 +309,7 @@ TEST_CASE("Bar element computes fill percentage", "[databind]") {
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    float pct = std::stof(root->attributes["_fill_pct"]);
+    float pct = root->fill_fraction;
     REQUIRE(pct == Catch::Approx(0.5f));
 }
 
@@ -325,12 +325,12 @@ TEST_CASE("Bar element clamps to 0-1", "[databind]") {
     ctx.set("hp", "150");
     ctx.set("max_hp", "100");
     bind.resolve(*root, ctx);
-    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(1.0f));
+    REQUIRE(root->fill_fraction == Catch::Approx(1.0f));
 
     // Negative
     ctx.set("hp", "-10");
     bind.resolve(*root, ctx);
-    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(0.0f));
+    REQUIRE(root->fill_fraction == Catch::Approx(0.0f));
 }
 
 TEST_CASE("Bar element with zero max uses 1.0 as fallback", "[databind]") {
@@ -343,7 +343,7 @@ TEST_CASE("Bar element with zero max uses 1.0 as fallback", "[databind]") {
     bind.resolve(*root, ctx);
 
     // max <= 0 → max = 1.0, so pct = 50/1 → clamped to 1.0
-    float pct = std::stof(root->attributes["_fill_pct"]);
+    float pct = root->fill_fraction;
     REQUIRE(pct == Catch::Approx(1.0f));
 }
 
@@ -357,7 +357,7 @@ TEST_CASE("Bar element with non-numeric value doesn't crash", "[databind]") {
     bind.resolve(*root, ctx);
 
     // stof("garbage") throws → caught, val=0
-    float pct = std::stof(root->attributes["_fill_pct"]);
+    float pct = root->fill_fraction;
     REQUIRE(pct == Catch::Approx(0.0f));
 }
 
@@ -623,7 +623,7 @@ TEST_CASE("Bar reads typed float value", "[databind]") {
     bind.resolve(*root, ctx);
 
     REQUIRE(ctx.get_float("hp") == Catch::Approx(25.0f));
-    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(0.25f));
+    REQUIRE(root->fill_fraction == Catch::Approx(0.25f));
 }
 
 TEST_CASE("Bar reads typed int value", "[databind]") {
@@ -637,7 +637,7 @@ TEST_CASE("Bar reads typed int value", "[databind]") {
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(0.75f));
+    REQUIRE(root->fill_fraction == Catch::Approx(0.75f));
 }
 
 TEST_CASE("set_bool writes a template-visible string", "[databind]") {

@@ -1,9 +1,33 @@
-shader_type spatial;
-render_mode unlit;
+shader_type ui;
+
+// A bar fill lit by a slow caustic field. The field is anchored to the
+// screen, so the bar reads as a window onto moving water rather than a
+// texture stuck to it.
 uniform float caustic_speed : hint_range(0.0, 3.0, 0.1) = 0.5;
 uniform float caustic_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
 uniform float caustic_scale : hint_range(0.1, 5.0, 0.1) = 1.0;
 uniform vec3 caustic_color : hint_color = vec3(1.0, 0.955, 0.735);
+
+float caustic(vec2 uv, float t) {
+    vec2 n = vec2(0.0);
+    vec2 sum = vec2(0.0);
+    float freq = 10.0;
+    float cs = cos(1.0);
+    float sn = sin(1.0);
+    for (int i = 0; i < 8; i++) {
+        uv = vec2(uv.x * cs - uv.y * sn, uv.x * sn + uv.y * cs);
+        n = vec2(n.x * cs - n.y * sn, n.x * sn + n.y * cs);
+        vec2 q = uv * freq + float(i) + n + t;
+        n += sin(q);
+        sum += cos(q) / freq;
+        freq *= 1.2;
+    }
+    return clamp(sum.x + sum.y + 0.5, 0.0, 1.0);
+}
+
 void fragment() {
-    ALBEDO = vec3(1.0);
+    float t = TIME * caustic_speed;
+    vec2 field_uv = SCREEN_UV * caustic_scale * 4.0 + vec2(t * 0.3, t * 0.1);
+    ALBEDO = COLOR.rgb + caustic_color * caustic(field_uv, t) * caustic_intensity;
+    ALPHA = COLOR.a * step(UV.x, FILL);
 }

@@ -26,10 +26,12 @@ void GameUi::create(Device& device, VmaAllocator allocator,
                     const PassResources& resources,
                     BindlessTextures& bindless,
                     FontLibrary& fonts,
+                    PipelineCache* fjsl_pipelines,
+                    DeferredDeleter& deleter,
                     VkFormat output_format) {
     bindless_ = &bindless;
     fonts_ = &fonts;
-    renderer_.create(device, allocator, resources, output_format);
+    renderer_.create(device, allocator, resources, fjsl_pipelines, deleter, output_format);
 }
 
 void GameUi::set_resource_manager(ResourceManager* rm) {
@@ -64,6 +66,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
         FJELL_CORE_ERROR("GameUi: failed to parse {}", fjui_path);
         return;
     }
+    ui_stamp_source_file(*parsed, fjui_path);
     discard_tree_state();
     root_ = std::move(parsed);
 
@@ -372,13 +375,21 @@ void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDes
 }
 
 void GameUi::resolve_textures(UiNode& node) {
-    // Resolve src="path" → bindless texture index
+    // Resolve src="path" → bindless texture index. A project's own textures
+    // resolve against the project, like materials do; without a project the
+    // path is engine-relative.
     auto src_it = node.attributes.find("src");
     if (src_it != node.attributes.end() && !src_it->second.empty()) {
-        auto resolved_path = base_path::resolve(src_it->second);
-        auto tex_result = resource_manager_->load_texture(resolved_path);
+        auto resolved_path = base_path::resolve_asset(src_it->second, project_);
+        auto tex_result = resolved_path.empty()
+            ? Result<TextureHandle>(make_error("asset reference does not resolve"))
+            : resource_manager_->load_texture(resolved_path);
         if (tex_result) {
             node.resolved_texture_id = resource_manager_->bindless_index(*tex_result);
+        } else {
+            FJELL_CORE_WARN("{}:{}: <{}> src='{}' did not load: {}",
+                            node.source_file, node.source_line, node.tag, src_it->second,
+                            tex_result.error());
         }
     }
 
@@ -418,8 +429,21 @@ void GameUi::resolve_textures(UiNode& node) {
         }
         if (mat_handle.valid()) {
             auto* mat = resource_manager_->get(mat_handle);
-            if (mat) {
+            if (mat && mat->shader_type() != "ui") {
+                // A UI quad is drawn by the material's own fragment pipeline,
+                // which only a `shader_type ui;` shader has. Reported where
+                // the stylesheet problems are, so the editor lists it.
+                stylesheet_.diagnostics.push_back({
+                    node.source_file, node.source_line, 1, FjssSeverity::error,
+                    "material '" + mat_name + "' is shader_type " + mat->shader_type() +
+                        "; a UI node needs a shader_type ui material"});
+                FJELL_CORE_WARN("{}:{}: <{}> material '{}' is shader_type {}, a UI node needs "
+                                "shader_type ui",
+                                node.source_file, node.source_line, node.tag, mat_name,
+                                mat->shader_type());
+            } else if (mat) {
                 node.resolved_material_id = mat->material_id();
+                node.resolved_pipeline_id = mat->pipeline_id();
                 FJELL_CORE_DEBUG("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
                                  "param_offset={} param_count={}",
                                  node.tag, mat_name, mat->material_id(), mat->pipeline_id(),

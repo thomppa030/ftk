@@ -41,6 +41,11 @@ public:
     void set_shader_path(const std::string& path) { shader_path_ = path; }
     [[nodiscard]] const std::string& shader_path() const { return shader_path_; }
 
+    // The shader's `shader_type`: "spatial", "sky" or "ui". Decides which
+    // renderer may draw with this material.
+    void set_shader_type(const std::string& type) { shader_type_ = type; }
+    [[nodiscard]] const std::string& shader_type() const { return shader_type_; }
+
     void set_force_transparent(bool v) { force_transparent_ = v; }
     [[nodiscard]] bool force_transparent() const { return force_transparent_; }
 
@@ -60,6 +65,7 @@ private:
     uint32_t custom_param_count_{0};
     PbrParams params_;
     std::string shader_path_{"shaders/standard.fjsl"};
+    std::string shader_type_{"spatial"};
     bool force_transparent_{false};
     float aabb_padding_{0.0f};
 };
