@@ -143,6 +143,9 @@ private:
     void draw_screen_debug(ImDrawList* dl, const glm::vec2& origin,
                            const glm::vec2& size);
 
+    /// Which transform the viewport gizmo applies to the selection.
+    enum class ViewportTool : uint8_t { move, rotate, scale };
+
     // Gizmo drag state
     bool gizmo_dragging_{false};
     glm::mat4 gizmo_matrix_{1.0f};
@@ -161,7 +164,7 @@ private:
 
     // Context-owned state
     uint32_t selected_id_{0};
-    int gizmo_op_{0};
+    ViewportTool tool_{ViewportTool::move};
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
     ScreenRect scene_image_rect_;
 

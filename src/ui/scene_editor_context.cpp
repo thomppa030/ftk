@@ -611,8 +611,8 @@ bool SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
     // Spline points only translate (rotation/scale would rotate the node, not the point).
     ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
     if (!spline_point_mode) {
-        if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
-        if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
+        if (tool_ == ViewportTool::rotate) op = ImGuizmo::ROTATE;
+        if (tool_ == ViewportTool::scale) op = ImGuizmo::SCALE;
     }
 
     // Snapping. Ctrl inverts the toolbar toggle, so a coarse grid can be
@@ -1070,16 +1070,16 @@ void SceneEditorContext::draw_play_toolbar() {
             ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + pad});
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {spacing, 0.0f});
 
-            if (toolbar_toggle("gizmo_move", ICON_LC_MOVE, gizmo_op_ == 0, "Move (W)")) {
-                gizmo_op_ = 0;
+            if (toolbar_toggle("gizmo_move", ICON_LC_MOVE, tool_ == ViewportTool::move, "Move (W)")) {
+                tool_ = ViewportTool::move;
             }
             ImGui::SameLine();
-            if (toolbar_toggle("gizmo_rotate", ICON_LC_ROTATE_3D, gizmo_op_ == 1, "Rotate (E)")) {
-                gizmo_op_ = 1;
+            if (toolbar_toggle("gizmo_rotate", ICON_LC_ROTATE_3D, tool_ == ViewportTool::rotate, "Rotate (E)")) {
+                tool_ = ViewportTool::rotate;
             }
             ImGui::SameLine();
-            if (toolbar_toggle("gizmo_scale", ICON_LC_SCALE_3D, gizmo_op_ == 2, "Scale (R)")) {
-                gizmo_op_ = 2;
+            if (toolbar_toggle("gizmo_scale", ICON_LC_SCALE_3D, tool_ == ViewportTool::scale, "Scale (R)")) {
+                tool_ = ViewportTool::scale;
             }
 
             if (show_views) {
@@ -1169,9 +1169,9 @@ bool SceneEditorContext::handle_shortcuts() {
     if (navigating) return false;
 
     // Gizmo mode shortcuts
-    if (ImGui::IsKeyPressed(ImGuiKey_W)) { gizmo_op_ = 0; return true; }
-    if (ImGui::IsKeyPressed(ImGuiKey_E)) { gizmo_op_ = 1; return true; }
-    if (ImGui::IsKeyPressed(ImGuiKey_R)) { gizmo_op_ = 2; return true; }
+    if (ImGui::IsKeyPressed(ImGuiKey_W)) { tool_ = ViewportTool::move; return true; }
+    if (ImGui::IsKeyPressed(ImGuiKey_E)) { tool_ = ViewportTool::rotate; return true; }
+    if (ImGui::IsKeyPressed(ImGuiKey_R)) { tool_ = ViewportTool::scale; return true; }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         hierarchy_panel_.clear_selection();
         return true;
