@@ -23,12 +23,31 @@ void add_file(Stylesheet& sheet, const std::string& path) {
     }
 }
 
-void report(Stylesheet& sheet, const StyleImport& import, std::string message) {
+void report(Stylesheet& sheet, const std::string& source, uint32_t line, uint32_t column,
+            std::string message) {
     // Loader problems are logged the way the parser logs its own, so the
     // console and fjlint show them in the same place and format.
-    FJELL_CORE_ERROR("{}:{}:{}: error: {}", import.source, import.line, import.column, message);
-    sheet.diagnostics.push_back({import.source, import.line, import.column,
-                                 FjssSeverity::error, std::move(message)});
+    FJELL_CORE_ERROR("{}:{}:{}: error: {}", source, line, column, message);
+    sheet.diagnostics.push_back({source, line, column, FjssSeverity::error, std::move(message)});
+}
+
+void report(Stylesheet& sheet, const StyleImport& import, std::string message) {
+    report(sheet, import.source, import.line, import.column, std::move(message));
+}
+
+// A face's recipe is named relative to the file that declares it, like an
+// import. Resolved once; a face merged from an imported sheet keeps the
+// path its own file resolved.
+void resolve_font_faces(Stylesheet& sheet, const std::string& base_dir) {
+    for (auto& face : sheet.font_faces) {
+        if (!face.resolved_src.empty()) continue;
+        auto path = normalized((fs::path(base_dir) / face.src).string());
+        if (!fs::exists(path)) {
+            report(sheet, face.source, face.line, face.column,
+                   "@font-face src '" + face.src + "' does not exist");
+        }
+        face.resolved_src = path;
+    }
 }
 
 // Files currently being resolved, outermost first, to catch a cycle.
@@ -49,6 +68,8 @@ Stylesheet load(const std::string& path, std::vector<std::string>& chain) {
 }
 
 void resolve(Stylesheet& sheet, const std::string& base_dir, std::vector<std::string>& chain) {
+    resolve_font_faces(sheet, base_dir);
+
     // Each import's rules go where the import was written; every splice
     // shifts the indices of the imports after it.
     size_t inserted = 0;
@@ -70,6 +91,9 @@ void resolve(Stylesheet& sheet, const std::string& base_dir, std::vector<std::st
                            std::make_move_iterator(imported.rules.end()));
         inserted += imported.rules.size();
         nested.insert(nested.end(), imported.imports.begin(), imported.imports.end());
+        sheet.font_faces.insert(sheet.font_faces.end(),
+                                std::make_move_iterator(imported.font_faces.begin()),
+                                std::make_move_iterator(imported.font_faces.end()));
         sheet.diagnostics.insert(sheet.diagnostics.end(), imported.diagnostics.begin(),
                                  imported.diagnostics.end());
         for (const auto& f : imported.files) add_file(sheet, f);

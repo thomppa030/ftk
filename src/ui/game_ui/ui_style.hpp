@@ -55,6 +55,10 @@ struct UiComputedStyle {
     UiColor color{1.0f, 1.0f, 1.0f, 1.0f};
     float font_size{16.0f};
     float line_height{0.0f}; // 0 = use font metric default
+    // A family declared by an @font-face in the sheet; empty draws in the
+    // engine's default font. The weight picks the nearest declared face.
+    std::string font_family;
+    float font_weight{400.0f};
 
     // Effects
     UiBoxShadow box_shadow{};

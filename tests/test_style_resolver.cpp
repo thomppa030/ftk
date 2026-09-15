@@ -1381,3 +1381,29 @@ TEST_CASE("explain skips rules whose @media does not hold", "[style][media]") {
     REQUIRE(wide.at("width").declaration->value == "2");
     REQUIRE(normal.at("width").declaration->value == "1");
 }
+
+// --- Fonts ---
+
+TEST_CASE("font-family and font-weight are set and inherited", "[style]") {
+    auto root = make_node("div", "", {"card"});
+    auto* label = add_child(*root, make_node("text"));
+    auto sheet = FjssParser::parse(
+        ".card { font-family: \"Geist Mono\"; font-weight: bold; }\n"
+        "text { font-weight: 300; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.font_family == "Geist Mono");
+    REQUIRE(root->style.font_weight == 700.0f);
+    REQUIRE(label->style.font_family == "Geist Mono");
+    REQUIRE(label->style.font_weight == 300.0f);
+}
+
+TEST_CASE("A bad font-weight leaves the inherited weight alone", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+    auto sheet = FjssParser::parse("div { font-weight: 600; } span { font-weight: heavy; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.font_weight == 600.0f);
+    REQUIRE(root->style.font_family.empty());
+}

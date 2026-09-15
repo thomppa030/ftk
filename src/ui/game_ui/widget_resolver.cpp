@@ -149,6 +149,12 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             stylesheet.diagnostics.insert(stylesheet.diagnostics.end(),
                                           widget_sheet.diagnostics.begin(),
                                           widget_sheet.diagnostics.end());
+            // Font faces are global names rather than rules, so a widget's
+            // faces join the sheet unscoped; a family declared twice is
+            // the same family.
+            stylesheet.font_faces.insert(stylesheet.font_faces.end(),
+                                         widget_sheet.font_faces.begin(),
+                                         widget_sheet.font_faces.end());
         }
 
         child.is_widget = true;

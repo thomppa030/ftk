@@ -142,9 +142,23 @@ struct StyleImport {
     uint32_t column{1};
 };
 
+/// One `@font-face { ... }`: a family name and weight bound to a `.fjfont`
+/// recipe. `font-family: Inter; font-weight: 700;` on a node then picks the
+/// face whose family matches and whose weight is nearest.
+struct StyleFontFace {
+    std::string family;
+    float weight{400.0f};
+    std::string src;          ///< as written, relative to the declaring file
+    std::string resolved_src; ///< the recipe's path on disk, once a loader resolved it
+    std::string source;       ///< the file the block is in
+    uint32_t line{1};
+    uint32_t column{1};
+};
+
 struct Stylesheet {
     std::vector<StyleRule> rules;
     std::vector<StyleImport> imports;
+    std::vector<StyleFontFace> font_faces;
     /// Problems from this sheet and from every widget sheet merged into it.
     std::vector<FjssDiagnostic> diagnostics;
     /// Every file the rules were read from, the root first, then imports in
@@ -201,6 +215,9 @@ private:
     void parse_at_rule();
     void parse_import(size_t start);
     void parse_media(size_t start);
+    /// `@font-face { font-family: ...; src: ...; font-weight: ...; }`. A block
+    /// missing its family or src is reported and dropped.
+    void parse_font_face(size_t start);
     /// Reads the query up to `{`. Returns false, after reporting, for a
     /// query the engine cannot evaluate; the block is then skipped whole.
     bool parse_media_query(size_t start, std::vector<MediaCondition>& conditions);

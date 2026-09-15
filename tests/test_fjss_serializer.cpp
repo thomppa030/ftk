@@ -108,3 +108,20 @@ TEST_CASE("@media blocks are written back grouped and round-trip", "[serialize]"
     REQUIRE(parsed.rules[2].media.size() == 2);
     REQUIRE(parsed.rules[3].media.empty());
 }
+
+TEST_CASE("@font-face blocks survive a round trip", "[serialize]") {
+    auto [text, again] = round_trip(R"(
+        @import "theme.fjss";
+        @font-face { font-family: "Geist Mono"; font-weight: 700; src: "fonts/GeistMono-Bold.fjfont"; }
+        @font-face { font-family: Inter; src: "fonts/Inter.fjfont"; }
+        .a { font-family: "Geist Mono"; font-weight: bold; }
+    )");
+    REQUIRE(text == again);
+    REQUIRE(text.find("@font-face {\n    font-family: \"Geist Mono\";\n    font-weight: 700;\n"
+                      "    src: \"fonts/GeistMono-Bold.fjfont\";\n}") != std::string::npos);
+    REQUIRE(text.find("font-family: Inter;\n    src:") != std::string::npos);
+    auto sheet = FjssParser::parse(text);
+    REQUIRE(sheet.font_faces.size() == 2);
+    REQUIRE(sheet.font_faces[0].family == "Geist Mono");
+    REQUIRE(sheet.font_faces[1].weight == 400.0f);
+}

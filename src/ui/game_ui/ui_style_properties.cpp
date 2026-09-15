@@ -1,5 +1,7 @@
 #include "ui/game_ui/ui_style_properties.hpp"
 
+#include <charconv>
+
 #include <cstdio>
 #include <type_traits>
 
@@ -105,6 +107,11 @@ constexpr UiPropertyDescriptor composite(std::string_view name) {
     return {.name = name, .kind = Kind::composite};
 }
 
+constexpr UiPropertyDescriptor string(std::string_view name, std::string Style::* member,
+                                      bool inherited = false) {
+    return {.name = name, .kind = Kind::string, .member = member, .inherited = inherited};
+}
+
 const UiPropertyDescriptor PROPERTIES[] = {
     // Layout
     keyword("display", DISPLAY_KEYWORDS,
@@ -168,6 +175,8 @@ const UiPropertyDescriptor PROPERTIES[] = {
     color("color", &Style::color, true),
     number("font-size", &Style::font_size, true, true),
     number("line-height", &Style::line_height, true, true),
+    string("font-family", &Style::font_family, true),
+    number("font-weight", &Style::font_weight, false, true),
 
     composite("transition"),
 };
@@ -210,6 +219,7 @@ auto& channel_ref(StyleRef& style, const UiPropertyDescriptor& desc, uint8_t cha
     case Kind::edges:
     case Kind::keyword:
     case Kind::composite:
+    case Kind::string:
         break;
     }
     return style.opacity; // unreachable for animatable kinds; see ui_style_channel_count
@@ -228,6 +238,24 @@ const UiPropertyDescriptor* find_ui_style_property(std::string_view name) {
     return nullptr;
 }
 
+std::optional<float> parse_ui_font_weight(std::string_view value) {
+    if (value == "normal") return 400.0f;
+    if (value == "bold") return 700.0f;
+    float weight = 0.0f;
+    auto result = std::from_chars(value.data(), value.data() + value.size(), weight);
+    if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) return std::nullopt;
+    if (weight < 1.0f || weight > 1000.0f) return std::nullopt;
+    return weight;
+}
+
+std::string ui_style_unquote(std::string_view value) {
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') &&
+        value.back() == value.front()) {
+        value = value.substr(1, value.size() - 2);
+    }
+    return std::string(value);
+}
+
 uint8_t ui_style_channel_count(const UiPropertyDescriptor& desc) {
     if (!desc.animatable) return 0;
     switch (desc.kind) {
@@ -241,6 +269,7 @@ uint8_t ui_style_channel_count(const UiPropertyDescriptor& desc) {
     case Kind::edges:
     case Kind::keyword:
     case Kind::composite:
+    case Kind::string:
         return 0;
     }
     return 0;
@@ -274,6 +303,7 @@ bool ui_style_channel_interpolable(const UiComputedStyle& from, const UiComputed
     case Kind::corners:
     case Kind::keyword:
     case Kind::composite:
+    case Kind::string:
         return true;
     }
     return true;
@@ -293,6 +323,7 @@ void ui_style_copy(UiComputedStyle& into, const UiComputedStyle& from,
     case Kind::edges:
     case Kind::edge:
     case Kind::corners:
+    case Kind::string:
         break;
     }
     std::visit([&](auto member) {

@@ -3,7 +3,9 @@
 #include "ui/game_ui/ui_style.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <variant>
 
@@ -21,6 +23,7 @@ enum class UiPropertyKind : uint8_t {
     corners,   ///< a UiCorners member (`border-radius`)
     keyword,   ///< an enum member chosen from a fixed keyword list
     composite, ///< bespoke syntax (`border`, `background`, `box-shadow`, ...)
+    string,    ///< a std::string member, quotes stripped (`font-family`)
 };
 
 enum class UiEdgeSide : uint8_t { top, right, bottom, left };
@@ -35,7 +38,8 @@ using UiStyleMember = std::variant<std::monostate,
                                    UiLength UiComputedStyle::*,
                                    UiColor UiComputedStyle::*,
                                    UiEdges UiComputedStyle::*,
-                                   UiCorners UiComputedStyle::*>;
+                                   UiCorners UiComputedStyle::*,
+                                   std::string UiComputedStyle::*>;
 
 /// One row of the property table: the authored name, the member it
 /// targets and what the cascade, the transition system and the editor
@@ -68,6 +72,13 @@ struct UiPropertyDescriptor {
 /// The descriptor for an authored name, or nullptr when the engine has no
 /// such property — which the parser reports rather than dropping silently.
 [[nodiscard]] const UiPropertyDescriptor* find_ui_style_property(std::string_view name);
+
+/// A font weight as CSS writes it: a number from 1 to 1000, `normal` (400)
+/// or `bold` (700). Nothing for anything else.
+[[nodiscard]] std::optional<float> parse_ui_font_weight(std::string_view value);
+
+/// The text of a string property with surrounding quotes removed.
+[[nodiscard]] std::string ui_style_unquote(std::string_view value);
 
 /// Scalar channels a transition interpolates for the property: one for a
 /// number or edge, four for a color or corners, none when not animatable.

@@ -234,10 +234,19 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
         style.font_size = resolve_font_size(parse_length(value));
         return;
     }
+    // font-weight takes keywords as well as numbers; a bad value was
+    // reported at parse time and leaves the inherited weight alone.
+    if (desc->name == "font-weight") {
+        if (auto weight = parse_ui_font_weight(value)) style.font_weight = *weight;
+        return;
+    }
 
     switch (desc->kind) {
     case UiPropertyKind::number:
         style.*std::get<float UiComputedStyle::*>(desc->member) = parse_px(value);
+        return;
+    case UiPropertyKind::string:
+        style.*std::get<std::string UiComputedStyle::*>(desc->member) = ui_style_unquote(value);
         return;
     case UiPropertyKind::length: {
         auto length = parse_length(value);

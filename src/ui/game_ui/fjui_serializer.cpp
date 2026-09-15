@@ -1,5 +1,7 @@
 #include "ui/game_ui/fjui_serializer.hpp"
 
+#include <cstdio>
+
 #include <algorithm>
 #include <utility>
 
@@ -197,6 +199,7 @@ std::string FjssSerializer::write_selector(const StyleSelector& sel) {
 std::string FjssSerializer::serialize(const Stylesheet& sheet) {
     std::string out;
     write_imports(sheet, std::nullopt, out);
+    write_font_faces(sheet, std::nullopt, out);
     write_rules(sheet, std::nullopt, out);
     return finish(std::move(out));
 }
@@ -204,6 +207,7 @@ std::string FjssSerializer::serialize(const Stylesheet& sheet) {
 std::string FjssSerializer::serialize(const Stylesheet& sheet, std::string_view source) {
     std::string out;
     write_imports(sheet, source, out);
+    write_font_faces(sheet, source, out);
     write_rules(sheet, source, out);
     return finish(std::move(out));
 }
@@ -238,6 +242,24 @@ void FjssSerializer::write_imports(const Stylesheet& sheet, std::optional<std::s
         any = true;
     }
     if (any) out += "\n";
+}
+
+void FjssSerializer::write_font_faces(const Stylesheet& sheet,
+                                      std::optional<std::string_view> source, std::string& out) {
+    for (const auto& face : sheet.font_faces) {
+        if (source && face.source != *source) continue;
+        // A family with a space needs quoting to read back as one name.
+        bool quote = face.family.find(' ') != std::string::npos;
+        out += "@font-face {\n";
+        out += "    font-family: " + (quote ? "\"" + face.family + "\"" : face.family) + ";\n";
+        if (face.weight != 400.0f) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(face.weight));
+            out += std::string("    font-weight: ") + buf + ";\n";
+        }
+        out += "    src: \"" + face.src + "\";\n";
+        out += "}\n\n";
+    }
 }
 
 std::string FjssSerializer::finish(std::string out) {

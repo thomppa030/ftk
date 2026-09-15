@@ -63,6 +63,9 @@ private:
     /// The @import lines of `source`, or of every file when source is empty.
     static void write_imports(const Stylesheet& sheet, std::optional<std::string_view> source,
                               std::string& out);
+    /// The @font-face blocks of `source`, after the imports.
+    static void write_font_faces(const Stylesheet& sheet, std::optional<std::string_view> source,
+                                 std::string& out);
     static std::string finish(std::string out);
 };
 

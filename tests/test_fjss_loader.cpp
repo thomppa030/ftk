@@ -99,3 +99,26 @@ TEST_CASE("Saving the importing file writes its @import lines and only its rules
     REQUIRE(base.find("@import") == std::string::npos);
     REQUIRE(base.find(".base {") != std::string::npos);
 }
+
+TEST_CASE("A font face's src resolves against the file that declares it", "[font-face]") {
+    SheetDir dir;
+    dir.write("shared/Inter.fjfont", "{ \"source\": \"Inter.ttf\" }\n");
+    dir.write("shared/theme.fjss",
+              "@font-face { font-family: Inter; font-weight: 700; src: \"Inter.fjfont\"; }\n");
+    dir.write("hud.fjss", "@import \"shared/theme.fjss\";\n"
+                          "@font-face { font-family: Missing; src: \"nope.fjfont\"; }\n"
+                          ".a { font-family: Inter; }\n");
+
+    auto sheet = load_stylesheet(dir.path("hud.fjss"));
+    REQUIRE(sheet.font_faces.size() == 2);
+    const auto* inter = &sheet.font_faces[0];
+    const auto* missing = &sheet.font_faces[1];
+    if (inter->family != "Inter") std::swap(inter, missing);
+    REQUIRE(inter->family == "Inter");
+    REQUIRE(inter->weight == 700.0f);
+    REQUIRE(fs::path(inter->resolved_src) == (dir.base / "shared" / "Inter.fjfont").lexically_normal());
+    REQUIRE(missing->family == "Missing");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("does not exist") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].line == 2);
+}

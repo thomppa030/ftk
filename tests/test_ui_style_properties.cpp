@@ -86,6 +86,9 @@ TEST_CASE("Non-composite members are typed for their kind", "[props]") {
         case UiPropertyKind::corners:
             REQUIRE(std::holds_alternative<UiCorners UiComputedStyle::*>(desc.member));
             break;
+        case UiPropertyKind::string:
+            REQUIRE(std::holds_alternative<std::string UiComputedStyle::*>(desc.member));
+            break;
         case UiPropertyKind::keyword:
         case UiPropertyKind::composite:
             REQUIRE(std::holds_alternative<std::monostate>(desc.member));

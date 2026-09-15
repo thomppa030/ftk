@@ -930,3 +930,58 @@ TEST_CASE("px and % pass validation", "[fjss][diag]") {
     auto sheet = FjssParser::parse(".a { width: 50%; height: 24px; padding: 1 2% 3px 4; top: -5; }");
     REQUIRE(sheet.diagnostics.empty());
 }
+
+TEST_CASE("@font-face records family, weight and src", "[at-rules]") {
+    auto sheet = fjell::FjssParser::parse(R"(
+        @font-face { font-family: Inter; src: "fonts/Inter.fjfont"; }
+        @font-face {
+            font-family: "Geist Mono";
+            font-weight: bold;
+            src: url("fonts/GeistMono.fjfont");
+        }
+        .a { width: 1; }
+    )");
+    REQUIRE(sheet.font_faces.size() == 2);
+    REQUIRE(sheet.font_faces[0].family == "Inter");
+    REQUIRE(sheet.font_faces[0].weight == 400.0f);
+    REQUIRE(sheet.font_faces[0].src == "fonts/Inter.fjfont");
+    REQUIRE(sheet.font_faces[0].line == 2);
+    REQUIRE(sheet.font_faces[1].family == "Geist Mono");
+    REQUIRE(sheet.font_faces[1].weight == 700.0f);
+    REQUIRE(sheet.font_faces[1].src == "fonts/GeistMono.fjfont");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.diagnostics.empty());
+}
+
+TEST_CASE("@font-face without a src is dropped with an error", "[at-rules]") {
+    auto sheet = fjell::FjssParser::parse(R"(
+        @font-face { font-family: Inter; }
+        @font-face { src: "a.fjfont"; font-weight: heavy; colour: red; }
+        .a { width: 1; }
+    )");
+    REQUIRE(sheet.font_faces.empty());
+    REQUIRE(sheet.rules.size() == 1);
+    bool missing_src = false, missing_family = false, bad_weight = false, unknown = false;
+    for (const auto& d : sheet.diagnostics) {
+        if (d.message.find("needs a src") != std::string::npos) missing_src = true;
+        if (d.message.find("needs a font-family") != std::string::npos) missing_family = true;
+        if (d.message.find("not a font weight") != std::string::npos) bad_weight = true;
+        if (d.message.find("not a @font-face descriptor") != std::string::npos) unknown = true;
+    }
+    REQUIRE(missing_src);
+    REQUIRE(missing_family);
+    REQUIRE(bad_weight);
+    REQUIRE(unknown);
+}
+
+TEST_CASE("font-weight and font-family declarations are validated", "[props]") {
+    auto sheet = fjell::FjssParser::parse(R"(
+        .a { font-weight: bold; font-family: "Inter"; }
+        .b { font-weight: heavy; }
+    )");
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(prop(sheet.rules[0], "font-weight") == "bold");
+    REQUIRE(prop(sheet.rules[0], "font-family") == "\"Inter\"");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("not a font weight") != std::string::npos);
+}

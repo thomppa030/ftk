@@ -481,9 +481,14 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
         break;
     case UiPropertyKind::number:
         if (name == "font-size") validate_lengths(offset, *desc, value);
+        if (name == "font-weight" && !parse_ui_font_weight(value)) {
+            diagnose(offset, FjssSeverity::warning,
+                     "'" + value + "' is not a font weight, expected 1-1000, normal or bold");
+        }
         return;
     case UiPropertyKind::color:
     case UiPropertyKind::corners:
+    case UiPropertyKind::string:
         return;
     }
 
@@ -709,6 +714,109 @@ void FjssParser::parse_media(size_t start) {
     }
 }
 
+void FjssParser::parse_font_face(size_t start) {
+    skip_whitespace();
+    if (at_end() || peek() != '{') {
+        diagnose(start, FjssSeverity::error, "expected '{' after @font-face");
+        skip_malformed_rule();
+        return;
+    }
+    advance(); // {
+
+    // The block holds descriptors, not style properties, so it is read
+    // here rather than through parse_declarations and its property table.
+    StyleFontFace face;
+    auto position = position_at(start);
+    face.source = source_name_;
+    face.line = position.line;
+    face.column = position.column;
+    bool has_family = false;
+    bool has_src = false;
+
+    auto strip_quotes = [](std::string text) {
+        if (text.size() >= 2 && (text.front() == '"' || text.front() == '\'') &&
+            text.back() == text.front()) {
+            return text.substr(1, text.size() - 2);
+        }
+        return text;
+    };
+
+    while (!at_end()) {
+        skip_whitespace();
+        if (at_end() || peek() == '}') break;
+        if (peek() == '/' && pos_ + 1 < source_.size() && source_[pos_ + 1] == '*') {
+            skip_comment();
+            continue;
+        }
+        size_t decl_start = pos_;
+        std::string name;
+        while (!at_end() && peek() != ':' && peek() != '}' && peek() != ';' &&
+               !std::isspace(static_cast<unsigned char>(peek()))) {
+            name += advance();
+        }
+        skip_whitespace();
+        if (name.empty() || at_end() || peek() != ':') {
+            if (!name.empty()) {
+                diagnose(decl_start, FjssSeverity::warning,
+                         "expected ':' after '" + name + "' in @font-face");
+            }
+            while (!at_end() && peek() != ';' && peek() != '}') advance();
+            if (!at_end() && peek() == ';') advance();
+            continue;
+        }
+        advance(); // :
+        skip_whitespace();
+        std::string value;
+        while (!at_end() && peek() != ';' && peek() != '}') value += advance();
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+            value.pop_back();
+        }
+        if (!at_end() && peek() == ';') advance();
+
+        if (name == "font-family") {
+            face.family = strip_quotes(value);
+            has_family = !face.family.empty();
+        } else if (name == "src") {
+            if (value.starts_with("url(") && value.ends_with(")")) {
+                value = value.substr(4, value.size() - 5);
+                while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+                    value.erase(value.begin());
+                }
+                while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+                    value.pop_back();
+                }
+            }
+            face.src = strip_quotes(value);
+            has_src = !face.src.empty();
+        } else if (name == "font-weight") {
+            auto weight = parse_ui_font_weight(value);
+            if (!weight) {
+                diagnose(decl_start, FjssSeverity::warning,
+                         "'" + value + "' is not a font weight, expected 1-1000, normal or bold");
+            } else {
+                face.weight = *weight;
+            }
+        } else {
+            diagnose(decl_start, FjssSeverity::warning,
+                     "'" + name + "' is not a @font-face descriptor, ignored");
+        }
+    }
+
+    if (!at_end() && peek() == '}') {
+        advance();
+    } else {
+        diagnose(start, FjssSeverity::error, "@font-face block is never closed, missing '}'");
+    }
+
+    if (!has_family || !has_src) {
+        diagnose(start, FjssSeverity::error,
+                 std::string("@font-face needs ") + (!has_family ? "a font-family" : "a src") +
+                 ", block ignored");
+        return;
+    }
+    sheet_.font_faces.push_back(std::move(face));
+}
+
 void FjssParser::parse_at_rule() {
     size_t start = pos_;
     advance(); // @
@@ -722,6 +830,10 @@ void FjssParser::parse_at_rule() {
     }
     if (name == "media") {
         parse_media(start);
+        return;
+    }
+    if (name == "font-face") {
+        parse_font_face(start);
         return;
     }
     diagnose(start, FjssSeverity::warning, "'@" + name + "' is not supported, ignored");
