@@ -1,4 +1,5 @@
-# fjlint — checks .fjss stylesheets and .fjwidget files without the engine.
+# fjlint — checks .fjss stylesheets, .fjwidget files and .fjfont recipes
+# without the engine.
 # Links the same parser sources the engine uses; nothing from the renderer.
 
 add_executable(fjlint
@@ -11,6 +12,7 @@ add_executable(fjlint
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
 )
 
 target_include_directories(fjlint PRIVATE
@@ -29,7 +31,7 @@ if(MSVC)
     target_compile_options(fjlint PRIVATE /W4 /WX)
     target_compile_definitions(fjlint PRIVATE FJELL_ENGINE_BUILD)
 else()
-    target_compile_options(fjlint PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(fjlint PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
 install(TARGETS fjlint RUNTIME DESTINATION .)

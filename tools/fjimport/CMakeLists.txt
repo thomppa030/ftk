@@ -1,9 +1,12 @@
-# fjimport — offline mesh importer (glTF/GLB/FBX → .fjmesh)
-# Links Assimp + meshoptimizer. NOT linked into the engine runtime.
+# fjimport — offline importer: glTF/GLB/FBX → .fjmesh, and .fjfont recipes →
+# their baked atlases. Links Assimp + meshoptimizer + msdfgen + FreeType.
+# NOT linked into the engine runtime.
 
 add_executable(fjimport
     main.cpp
     log_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_build.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/meshlet.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
@@ -18,6 +21,9 @@ target_include_directories(fjimport PRIVATE
 target_link_libraries(fjimport PRIVATE
     assimp::assimp
     meshoptimizer
+    msdfgen::msdfgen-core
+    msdfgen::msdfgen-ext
+    Freetype::Freetype
     ozz_animation
     ozz_animation_offline
     glm::glm
@@ -30,8 +36,14 @@ if(MSVC)
     target_compile_options(fjimport PRIVATE /W4 /WX)
     target_compile_definitions(fjimport PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
-    target_compile_options(fjimport PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(fjimport PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
+
+# Treat msdfgen headers as system headers to suppress warnings from them
+get_target_property(FJIMPORT_MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjimport SYSTEM PRIVATE ${FJIMPORT_MSDFGEN_CORE_DIRS})
+get_target_property(FJIMPORT_MSDFGEN_EXT_DIRS msdfgen-ext INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjimport SYSTEM PRIVATE ${FJIMPORT_MSDFGEN_EXT_DIRS})
 
 # Treat Assimp headers as system headers to suppress warnings
 get_target_property(ASSIMP_INCLUDE_DIRS assimp::assimp INTERFACE_INCLUDE_DIRECTORIES)

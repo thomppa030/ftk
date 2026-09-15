@@ -11,6 +11,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# MSVC warns when a local hides another local or a parameter (C4456/C4457)
+# and /WX makes that a CI failure. GCC's -Wshadow=local is that same set;
+# Clang has no =local form, and its plain -Wshadow covers the same cases.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(FJELL_SHADOW_FLAG -Wshadow=local)
+else()
+    set(FJELL_SHADOW_FLAG -Wshadow)
+endif()
+
 include(cmake/PortabilityCheck.cmake)
 # Only the tool directories that are built; tools/ also holds things like a
 # Python environment whose headers are not ours.

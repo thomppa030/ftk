@@ -56,7 +56,7 @@ if(MSVC)
     target_compile_options(fjell-testable PRIVATE /W4 /WX)
     target_compile_definitions(fjell-testable PRIVATE FJELL_ENGINE_BUILD)
 else()
-    target_compile_options(fjell-testable PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(fjell-testable PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
 # --- Test executable ---
@@ -95,7 +95,7 @@ target_link_libraries(fjell-tests PRIVATE
 if(MSVC)
     target_compile_options(fjell-tests PRIVATE /W4 /WX)
 else()
-    target_compile_options(fjell-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(fjell-tests PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
