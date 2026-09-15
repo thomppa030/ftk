@@ -42,6 +42,10 @@
 #include <algorithm>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include "physics/physics_subsystem.hpp"
+#include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
+
 #include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
 
@@ -242,7 +246,7 @@ void SceneEditorContext::init() {
                            &deps_.vulkan_context->bindless_textures(),
                            deps_.resource_manager, deps_.project_mgr,
                            deps_.content_browser, deps_.file_browser,
-                           deps_.icon_cache);
+                           deps_.icon_cache, &sculpt_tool_);
     node_editor_panel_.init(deps_.scene, &selected_id_);
 
     // Undo commands mutate a scene that stop() throws away, and a selection
@@ -378,8 +382,16 @@ void SceneEditorContext::draw(float dt) {
     if (vp && editor_owns_viewport_input) {
         gizmo_has_mouse = draw_gizmo(*vp);
     }
-    if (vp && vp->hovered && editor_owns_viewport_input && !gizmo_has_mouse) {
-        draw_picking(*vp);
+    // With a brush chosen in the selected terrain's inspector, the viewport
+    // sculpts wherever the gizmo did not claim the mouse. The gizmo keeps
+    // first claim so the terrain node itself can still be moved.
+    const bool sculpting = selected_terrain() != nullptr && sculpt_tool_.active();
+    if (vp && editor_owns_viewport_input && !gizmo_has_mouse) {
+        if (sculpting) {
+            draw_sculpt(*vp);
+        } else if (vp->hovered) {
+            draw_picking(*vp);
+        }
     }
 
     // Spline viewport overlays (polyline + control points for the selected node)
@@ -435,28 +447,71 @@ void SceneEditorContext::check_viewport_recapture_click() {
     deps_.play->capture_input();
 }
 
+namespace {
+
+// The world-space ray under the mouse, through the viewport's camera. False
+// when the panel has no image to be over.
+bool viewport_mouse_ray(const ViewportPanel& vp, glm::vec3& origin, glm::vec3& dir) {
+    if (vp.img_size.x <= 0.0f || vp.img_size.y <= 0.0f) return false;
+    auto mouse = ImGui::GetMousePos();
+    float mx = (mouse.x - vp.img_pos.x) / vp.img_size.x;
+    float my = (mouse.y - vp.img_pos.y) / vp.img_size.y;
+
+    float aspect = vp.img_size.x / std::max(vp.img_size.y, 1.0f);
+    auto view = vp.camera.view_matrix();
+    auto proj = vp.camera.projection_matrix(aspect);
+    auto inv_vp = glm::inverse(proj * view);
+
+    glm::vec4 ndc_near{mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 0.0f, 1.0f};
+    glm::vec4 ndc_far {mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 1.0f, 1.0f};
+
+    glm::vec4 world_near = inv_vp * ndc_near;
+    glm::vec4 world_far  = inv_vp * ndc_far;
+    world_near /= world_near.w;
+    world_far  /= world_far.w;
+
+    origin = glm::vec3(world_near);
+    dir = glm::normalize(glm::vec3(world_far - world_near));
+    return true;
+}
+
+} // namespace
+
+TerrainComponent* SceneEditorContext::selected_terrain() const {
+    auto* node = deps_.scene->find_spatial(selected_id_);
+    if (node == nullptr) return nullptr;
+    auto* terrain = node->components.get<TerrainComponent>();
+    return (terrain != nullptr && terrain->terrain != nullptr) ? terrain : nullptr;
+}
+
+void SceneEditorContext::draw_sculpt(ViewportPanel& vp) {
+    auto* node = deps_.scene->find_spatial(selected_id_);
+    auto* comp = selected_terrain();
+    if (node == nullptr || comp == nullptr) return;
+
+    TerrainSculptTool::Frame frame{};
+    frame.terrain = comp->terrain;
+    frame.terrain_origin = node->transform.position;
+    frame.node_id = node->id;
+    frame.ray_valid = vp.hovered && viewport_mouse_ray(vp, frame.ray_origin, frame.ray_dir);
+    frame.mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    // A press on a toolbar button over the image is that button's, not a
+    // stroke. The image itself carries no item id, so it never counts here.
+    frame.may_begin_stroke = vp.hovered && !ImGui::IsAnyItemHovered();
+    frame.dt = ImGui::GetIO().DeltaTime;
+    frame.upload = &deps_.vulkan_context->upload_context();
+    frame.physics = deps_.physics;
+    frame.debug = deps_.vulkan_context->debug_draw_queue();
+    frame.history = &command_history();
+    sculpt_tool_.update(frame);
+}
+
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        auto mouse = ImGui::GetMousePos();
-        float mx = (mouse.x - vp.img_pos.x) / vp.img_size.x;
-        float my = (mouse.y - vp.img_pos.y) / vp.img_size.y;
-
-        float aspect = vp.img_size.x / std::max(vp.img_size.y, 1.0f);
-        auto view = vp.camera.view_matrix();
-        auto proj = vp.camera.projection_matrix(aspect);
-        auto inv_vp = glm::inverse(proj * view);
-
-        glm::vec4 ndc_near{mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 0.0f, 1.0f};
-        glm::vec4 ndc_far {mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 1.0f, 1.0f};
-
-        glm::vec4 world_near = inv_vp * ndc_near;
-        glm::vec4 world_far  = inv_vp * ndc_far;
-        world_near /= world_near.w;
-        world_far  /= world_far.w;
-
-        glm::vec3 ray_origin = glm::vec3(world_near);
-        glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
+        glm::vec3 ray_origin{0.0f};
+        glm::vec3 ray_dir{0.0f};
+        if (!viewport_mouse_ray(vp, ray_origin, ray_dir)) return;
 
         // ── Spline control-point pick (any spline-bearing component) ──
         // Ray-test every control point on every node that carries a

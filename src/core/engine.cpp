@@ -551,6 +551,7 @@ void Engine::init_editor() {
             .camera_subsystem = camera_subsystem_,
             .screen_debug_queue = screen_debug_queue_.get(),
             .play = &play_controller_,
+            .physics = physics_subsystem_,
         };
         auto ctx = std::make_unique<SceneEditorContext>(deps);
         ctx->init();

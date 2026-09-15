@@ -5,6 +5,7 @@
 #include "ui/net_panel.hpp"
 #include "ui/node_editor_panel.hpp"
 #include "ui/properties_panel.hpp"
+#include "ui/terrain_sculpt.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
 #include "scene/transform.hpp"
@@ -32,6 +33,7 @@ class ContentBrowser;
 class FileBrowser;
 class NetManager;
 class CameraSubsystem;
+class PhysicsSubsystem;
 class PlayController;
 class ScreenDebugQueue;
 class VulkanContext;
@@ -58,6 +60,7 @@ struct SceneEditorDeps {
     CameraSubsystem* camera_subsystem{nullptr};
     ScreenDebugQueue* screen_debug_queue{nullptr};
     PlayController* play{nullptr};
+    PhysicsSubsystem* physics{nullptr};
 };
 
 class SceneEditorContext final : public EditorContext {
@@ -123,6 +126,10 @@ private:
     void check_viewport_recapture_click();
     void draw_play_toolbar();
     void draw_spline_visuals();
+    /// Run the sculpt tool on the viewport for the selected terrain.
+    void draw_sculpt(ViewportPanel& vp);
+    /// The selected node's terrain component, when it has one with an asset.
+    [[nodiscard]] struct TerrainComponent* selected_terrain() const;
 
     // Play/stop/pause/step/time-scale cluster, centered along the top edge
     // of the rect the scene image occupies. Shared between the docked
@@ -161,6 +168,7 @@ private:
     NodeEditorPanel node_editor_panel_;
     ViewportManager viewport_manager_;
     NetPanel net_panel_;
+    TerrainSculptTool sculpt_tool_;
 
     // Context-owned state
     uint32_t selected_id_{0};

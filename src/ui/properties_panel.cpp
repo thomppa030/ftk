@@ -50,7 +50,7 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
                            ProjectManager* project_mgr,
                            ContentBrowser* content_browser,
                            FileBrowser* file_browser,
-                           IconCache* icons) {
+                           IconCache* icons, TerrainSculptTool* sculpt) {
     scene_ = scene;
     selected_id_ = selected_id;
     light_ = light;
@@ -64,6 +64,7 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
     content_browser_ = content_browser;
     file_browser_ = file_browser;
     icons_ = icons;
+    sculpt_ = sculpt;
 }
 
 void PropertiesPanel::draw() {
@@ -176,7 +177,7 @@ void PropertiesPanel::draw() {
 
             const InspectorContext ictx{
                 scene_, history_, resource_manager_, pipeline_cache_, bindless_, project_mgr_,
-                content_browser_, file_browser_, icons_};
+                content_browser_, file_browser_, icons_, sculpt_};
 
             auto& registry = ComponentRegistry::instance();
             ComponentTypeId remove_id = ~0u;

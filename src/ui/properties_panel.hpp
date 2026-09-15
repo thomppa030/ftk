@@ -18,6 +18,7 @@ class ProjectManager;
 class ResourceManager;
 class Scene;
 class ScriptManager;
+class TerrainSculptTool;
 struct DirectionalLight;
 struct GridSettings;
 
@@ -32,7 +33,8 @@ public:
               ProjectManager* project_mgr = nullptr,
               ContentBrowser* content_browser = nullptr,
               FileBrowser* file_browser = nullptr,
-              IconCache* icons = nullptr);
+              IconCache* icons = nullptr,
+              TerrainSculptTool* sculpt = nullptr);
 
     void draw();
 
@@ -53,6 +55,7 @@ private:
     ContentBrowser* content_browser_{nullptr};
     FileBrowser* file_browser_{nullptr};
     IconCache* icons_{nullptr};
+    TerrainSculptTool* sculpt_{nullptr};
 
     // Drag coalescing
     Transform drag_start_transform_;

@@ -4,6 +4,7 @@
 #include "core/project_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/terrain_asset.hpp"
+#include "ui/terrain_sculpt.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
@@ -58,6 +59,29 @@ static const bool registered = [] {
             }
 
             if (ImGui::Checkbox("Show Wireframe", &terrain->show_wireframe)) changed = true;
+
+            // Brush settings are editor state on the tool, not data on the
+            // component, so touching them does not mark the node changed.
+            if (ctx.sculpt != nullptr && terrain->has_asset()) {
+                ImGui::Separator();
+                ImGui::Text("Sculpt");
+                auto& tool = *ctx.sculpt;
+                static const char* tool_labels[] = {"None", "Raise"};
+                int tool_idx = static_cast<int>(tool.tool());
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::Combo("##SculptTool", &tool_idx, tool_labels, 2)) {
+                    tool.set_tool(static_cast<TerrainSculptTool::BrushTool>(tool_idx));
+                }
+                if (tool.active()) {
+                    auto& brush = tool.brush();
+                    ImGui::SliderFloat("Radius (m)", &brush.radius, 0.5f, 100.0f, "%.1f",
+                                       ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat("Strength (m/s)", &brush.strength, 0.1f, 50.0f, "%.1f",
+                                       ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat("Hardness", &brush.hardness, 0.0f, 1.0f, "%.2f");
+                    ImGui::TextDisabled("Drag on the terrain to sculpt. Ctrl+Z undoes a stroke.");
+                }
+            }
             return changed;
         },
 

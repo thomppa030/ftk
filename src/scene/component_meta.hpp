@@ -23,6 +23,7 @@ class Scene;
 struct Node;
 struct Node3D;
 class Project;
+class TerrainSculptTool;
 
 struct InspectorContext {
     Scene* scene{nullptr};
@@ -34,6 +35,9 @@ struct InspectorContext {
     ContentBrowser* content_browser{nullptr};
     FileBrowser* file_browser{nullptr};
     IconCache* icons{nullptr};
+    /// The scene editor's terrain sculpting tool, so a terrain component's
+    /// inspector can offer its brush. Null in any other context.
+    TerrainSculptTool* sculpt{nullptr};
 };
 
 struct ComponentMeta {
