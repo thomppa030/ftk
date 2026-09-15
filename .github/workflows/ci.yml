@@ -51,6 +51,9 @@ jobs:
       - name: Build
         run: cmake --build --preset debug
 
+      - name: Bake engine fonts
+        run: ./build/tools/fjimport/fjimport engine_assets/fonts/Inter.fjfont
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
@@ -88,6 +91,9 @@ jobs:
 
       - name: Build
         run: cmake --build --preset debug
+
+      - name: Bake engine fonts
+        run: build\tools\fjimport\fjimport.exe engine_assets\fonts\Inter.fjfont
 
       - name: Test
         run: ctest --test-dir build --output-on-failure

@@ -12,6 +12,8 @@
 #include "animation/fjskel.hpp"
 #include "animation/fjanim.hpp"
 #include "core/log.hpp"
+#include "ui/game_ui/fjfont.hpp"
+#include "ui/game_ui/font_atlas_build.hpp"
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -1586,8 +1588,32 @@ static fjell::MeshAuthoredData build_authored_data(
 
 static void print_usage(const char* prog) {
     std::fprintf(stderr,
-        "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n",
-        prog);
+        "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n"
+        "       %s <font.fjfont>        bake the recipe's atlas into .fjcache/ beside it\n",
+        prog, prog);
+}
+
+// Bakes one .fjfont recipe. Prints what a maintainer wants to see from a
+// shell or a CI log and returns the process exit code.
+static int bake_font(const std::string& recipe_path) {
+    auto bake = fjell::bake_font_recipe(recipe_path);
+    if (!bake) {
+        std::fprintf(stderr, "error: %s\n", bake.error().c_str());
+        return 1;
+    }
+    for (const auto& warning : bake->warnings) {
+        std::fprintf(stderr, "warning: %s\n", warning.c_str());
+    }
+    if (!bake->missing.empty()) {
+        std::fprintf(stderr, "warning: %s: the font has no glyph for %zu codepoint(s): %s\n",
+                     recipe_path.c_str(), bake->missing.size(),
+                     fjell::describe_codepoints(bake->missing).c_str());
+    }
+    const auto& h = bake->atlas.header;
+    std::printf("baked %s: %ux%u, %u glyphs, %u kerning pairs -> %s\n",
+                recipe_path.c_str(), h.atlas_width, h.atlas_height, h.glyph_count,
+                h.kerning_count, bake->atlas_path.string().c_str());
+    return 0;
 }
 
 int main(int argc, char* argv[]) {
@@ -1628,6 +1654,10 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr, "error: file not found: %s\n", input_path.c_str());
         if (use_json_progress) json_error("File not found");
         return 1;
+    }
+
+    if (fs::path(input_path).extension() == ".fjfont") {
+        return bake_font(input_path);
     }
 
     // Load settings (defaults if no --settings provided)
