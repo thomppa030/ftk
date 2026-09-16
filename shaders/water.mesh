@@ -1,0 +1,122 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+#include "fjell_global_ubo.glsl"
+#include "fjell_water_waves.glsl"
+
+// One workgroup emits one water patch. Same arithmetic as terrain.mesh, and
+// the same constraint behind the number: primitives bind before vertices in
+// the mesh shader output limits — 2N^2 outgrows (N+1)^2 — so 11 quads a side
+// (144 verts, 242 prims) is the largest square patch that fits the 256/256
+// floor.
+#define PATCH_QUADS 11
+#define PATCH_VERTS (PATCH_QUADS + 1)
+#define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)
+#define MAX_TRIS    (PATCH_QUADS * PATCH_QUADS * 2)
+
+layout(local_size_x = 64) in;
+layout(triangles, max_vertices = MAX_VERTS, max_primitives = MAX_TRIS) out;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+// Set 2 is the water's own: the wave field it is shaped by. Terrain puts its
+// height texture here; water's surface is a formula rather than a texture, so
+// what it needs is the parameters.
+layout(set = 2, binding = 0) uniform WaterFieldBuffer {
+    FjellWaterField field;
+} water;
+
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;
+    float world_size;
+    float surface_height;
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  water_material_id;
+    // The time the previous frame's surface was built at. The sea moves under
+    // a still camera, so motion vectors need where a vertex was rather than
+    // only where the camera was; the global UBO carries no delta, and the
+    // pass knows this without one.
+    float prev_time;
+} push;
+
+struct TaskPayload {
+    uint patch_x;
+    uint patch_z;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+// Matches mesh.vert's interface so water shares the scene's fragment
+// conventions, plus the two the wave field alone can answer.
+layout(location = 0) out vec3 frag_color[];
+layout(location = 1) out vec2 frag_tex_coord[];
+layout(location = 2) out vec3 frag_world_pos[];
+layout(location = 3) out vec3 frag_world_normal[];
+layout(location = 4) out vec4 frag_clip_pos[];
+layout(location = 5) out vec4 frag_prev_clip_pos[];
+// How far the wave lifted this vertex above the flat surface, and how pinched
+// the surface is here. Both come out of the same evaluation the displacement
+// does, so passing them costs nothing and saves the fragment stage from
+// solving the wave field a second time.
+layout(location = 6) out float frag_wave_lift[];
+layout(location = 7) out float frag_crest[];
+
+void main() {
+    SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
+
+    vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
+    vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
+
+    float time = ubo.time;
+
+    // Vertices: position comes from the invocation index, not a vertex buffer.
+    // The loop strides by workgroup size because MAX_VERTS exceeds it.
+    for (uint i = gl_LocalInvocationIndex; i < MAX_VERTS; i += 64) {
+        uint ix = i % PATCH_VERTS;
+        uint iz = i / PATCH_VERTS;
+        vec2 local = vec2(float(ix), float(iz)) / float(PATCH_QUADS);
+        vec2 uv = patch_uv_min + local * patch_uv_size;
+
+        // The flat surface this vertex belongs to, before any wave moves it.
+        vec2 rest = push.world_origin + uv * push.world_size;
+
+        vec3 offset = fjell_water_displace(water.field, rest, time);
+        vec3 world_pos = vec3(rest.x + offset.x,
+                              push.surface_height + offset.y,
+                              rest.y + offset.z);
+
+        gl_MeshVerticesEXT[i].gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);
+
+        frag_color[i] = vec3(1.0);
+        frag_tex_coord[i] = uv;
+        frag_world_pos[i] = world_pos;
+        frag_world_normal[i] = fjell_water_normal(water.field, rest, time);
+        frag_clip_pos[i] = ubo.unjittered_vp * vec4(world_pos, 1.0);
+
+        // The sea moves, so the previous frame's position is where this
+        // vertex was one frame ago rather than where it is now — motion
+        // vectors want the surface's own motion, not just the camera's.
+        vec3 prev_offset = fjell_water_displace(water.field, rest, push.prev_time);
+        vec3 prev_world = vec3(rest.x + prev_offset.x,
+                               push.surface_height + prev_offset.y,
+                               rest.y + prev_offset.z);
+        frag_prev_clip_pos[i] = ubo.prev_unjittered_vp * vec4(prev_world, 1.0);
+
+        frag_wave_lift[i] = offset.y;
+        frag_crest[i] = fjell_water_crest(water.field, rest, time);
+    }
+
+    // Triangles: fixed grid topology, pure index arithmetic, no index buffer.
+    for (uint t = gl_LocalInvocationIndex; t < MAX_TRIS; t += 64) {
+        uint quad = t >> 1;
+        uint qx = quad % PATCH_QUADS;
+        uint qz = quad / PATCH_QUADS;
+        uint tl = qz * PATCH_VERTS + qx;
+        uint tr = tl + 1;
+        uint bl = tl + PATCH_VERTS;
+        uint br = bl + 1;
+        gl_PrimitiveTriangleIndicesEXT[t] = (t & 1u) == 0u ? uvec3(tl, tr, br)
+                                                           : uvec3(tl, br, bl);
+    }
+}

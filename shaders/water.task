@@ -1,0 +1,34 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+// One task invocation per water patch. Bounded water emits every patch;
+// frustum culling and the clipmap's level selection belong here and land
+// with the infinite mode.
+
+layout(local_size_x = 1) in;
+
+// Mirrors WaterPushConstants in water_pass.hpp and the block in water.mesh
+// and the water FJSL template. Every stage declares the same block.
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;      // water min corner, world XZ
+    float world_size;        // extent in metres (square)
+    float surface_height;    // world Y of the surface at rest
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  water_material_id;
+    float prev_time;
+} push;
+
+struct TaskPayload {
+    uint patch_x;
+    uint patch_z;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+void main() {
+    uint patch_index = gl_WorkGroupID.x;
+    payload.patch_x = patch_index % push.patches_per_side;
+    payload.patch_z = patch_index / push.patches_per_side;
+    EmitMeshTasksEXT(1, 1, 1);
+}
