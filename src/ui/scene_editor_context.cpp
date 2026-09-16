@@ -494,15 +494,17 @@ void SceneEditorContext::draw_sculpt(ViewportPanel& vp) {
     frame.terrain = comp->terrain;
     frame.terrain_origin = comp->terrain->world_min_corner(node->world_matrix_);
     frame.node_id = node->id;
-    frame.ray_valid = vp.hovered && viewport_mouse_ray(vp, frame.ray_origin, frame.ray_dir);
-    frame.mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    frame.brush.ray_valid =
+        vp.hovered && viewport_mouse_ray(vp, frame.brush.ray_origin, frame.brush.ray_dir);
+    frame.brush.mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
     // A press on a toolbar button over the image is that button's, not a
     // stroke. The image itself carries no item id, so it never counts here.
-    frame.may_begin_stroke = vp.hovered && !ImGui::IsAnyItemHovered();
-    frame.dt = ImGui::GetIO().DeltaTime;
+    frame.brush.may_begin_stroke = vp.hovered && !ImGui::IsAnyItemHovered();
+    frame.brush.keys_allowed = vp.hovered || vp.focused;
+    frame.brush.dt = ImGui::GetIO().DeltaTime;
+    frame.brush.debug = deps_.vulkan_context->debug_draw_queue();
     frame.upload = &deps_.vulkan_context->upload_context();
     frame.physics = deps_.physics;
-    frame.debug = deps_.vulkan_context->debug_draw_queue();
     frame.history = &command_history();
     sculpt_tool_.update(frame);
 }

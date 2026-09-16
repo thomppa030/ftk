@@ -5,6 +5,7 @@
 #include "ui/net_panel.hpp"
 #include "ui/node_editor_panel.hpp"
 #include "ui/properties_panel.hpp"
+#include "ui/brush.hpp"
 #include "ui/terrain_sculpt.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
@@ -168,7 +169,10 @@ private:
     NodeEditorPanel node_editor_panel_;
     ViewportManager viewport_manager_;
     NetPanel net_panel_;
-    TerrainSculptTool sculpt_tool_;
+    /// The one viewport brush, shared by every brush tool so radius and
+    /// strength carry over from one to the next.
+    ViewportBrush brush_;
+    TerrainSculptTool sculpt_tool_{brush_};
 
     // Context-owned state
     uint32_t selected_id_{0};

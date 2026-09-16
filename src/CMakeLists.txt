@@ -281,6 +281,7 @@ add_executable(fjell
     ui/imgui_curve_editor.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
+    ui/brush.cpp
     ui/terrain_sculpt.cpp
     ui/dockspace_layout.cpp
     ui/timeline_widget.cpp

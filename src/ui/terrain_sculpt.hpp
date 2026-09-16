@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/command.hpp"
+#include "ui/brush.hpp"
 
 #include <glm/glm.hpp>
 
@@ -11,7 +12,6 @@
 namespace fjell {
 
 class CommandHistory;
-class DebugDrawQueue;
 class PhysicsSubsystem;
 class TerrainAsset;
 class UploadContext;
@@ -97,68 +97,65 @@ private:
     std::vector<uint8_t> after_;
 };
 
-/// The viewport's terrain brush tool: projects the mouse onto the selected
-/// terrain, draws the brush there, and turns a held button into height edits
-/// or layer painting with one undo entry per stroke.
-class TerrainSculptTool {
+/// The terrain's brush tools: what a stroke of the viewport brush does to the
+/// selected terrain — height edits or layer painting — with one undo entry
+/// per stroke. The brush itself (mouse, stroke, cursor, shortcuts) is the
+/// shared ViewportBrush this tool drives.
+class TerrainSculptTool final : public BrushTarget {
 public:
-    /// Which brush is in hand. `none` leaves the viewport to the gizmo and
-    /// picking; the sculpt brushes edit heights on drag, `paint` edits the
+    /// Which operation is in hand. `none` leaves the viewport to the gizmo and
+    /// picking; the sculpt operations edit heights on drag, `paint` edits the
     /// layer weights.
     enum class BrushTool : uint8_t { none, raise, lower, smooth, flatten, noise, paint };
-
-    struct Brush {
-        float radius{8.0f};    ///< metres
-        float strength{4.0f};  ///< raise, lower, noise: metres of height per second at the centre
-        float rate{2.0f};      ///< smooth, flatten, paint: fraction of the remaining difference closed per second
-        float hardness{0.5f};  ///< fraction of the radius held at full strength before falloff
-        uint32_t paint_layer{0};  ///< paint: which layer the stroke lays down
-    };
 
     /// What one frame of the tool needs, gathered by the viewport that owns it.
     struct Frame {
         TerrainAsset* terrain{nullptr};
         glm::vec3 terrain_origin{0.0f};  ///< the field's min corner in world space
         uint32_t node_id{0};
-        glm::vec3 ray_origin{0.0f};
-        glm::vec3 ray_dir{0.0f};
-        bool ray_valid{false};
-        bool mouse_down{false};
-        bool may_begin_stroke{false};  ///< false while the press belongs to a UI item
-        float dt{0.0f};
+        ViewportBrush::Frame brush;
         UploadContext* upload{nullptr};
         PhysicsSubsystem* physics{nullptr};
-        DebugDrawQueue* debug{nullptr};
         CommandHistory* history{nullptr};
     };
 
+    explicit TerrainSculptTool(ViewportBrush& brush) : brush_{brush} {}
+
     void update(const Frame& frame);
 
-    [[nodiscard]] Brush& brush() { return brush_; }
+    [[nodiscard]] ViewportBrush& brush() { return brush_; }
     [[nodiscard]] BrushTool tool() const { return tool_; }
-    void set_tool(BrushTool tool) { tool_ = tool; }
+    void set_tool(BrushTool tool);
     [[nodiscard]] bool active() const { return tool_ != BrushTool::none; }
-    [[nodiscard]] bool stroking() const { return stroke_active_; }
+    [[nodiscard]] bool stroking() const { return brush_.stroking(); }
+
+    /// Paint only: which layer the stroke lays down.
+    [[nodiscard]] uint32_t paint_layer() const { return paint_layer_; }
+    void set_paint_layer(uint32_t layer) { paint_layer_ = layer; }
+
+    // BrushTarget
+    bool raycast(const glm::vec3& origin, const glm::vec3& direction,
+                 glm::vec3& out_hit) const override;
+    float surface_height(float x, float z) const override;
+    void begin_stroke(const BrushHit& hit) override;
+    void dab(const BrushHit& hit, float dt) override;
+    void end_stroke() override;
 
 private:
-    void begin_stroke(const Frame& frame);
-    void dab(const Frame& frame, const glm::vec3& hit_world);
-    void sculpt_dab(const Frame& frame, const glm::vec3& hit_world);
-    void paint_dab(const Frame& frame, const glm::vec3& hit_world);
-    void end_stroke(const Frame& frame);
-    void end_sculpt_stroke(const Frame& frame);
-    void end_paint_stroke(const Frame& frame);
-    void draw_brush(const Frame& frame, const glm::vec3& hit_world) const;
+    void sculpt_dab(const glm::vec3& hit_world, float dt);
+    void paint_dab(const glm::vec3& hit_world, float dt);
+    void end_sculpt_stroke();
+    void end_paint_stroke();
     [[nodiscard]] bool painting() const { return tool_ == BrushTool::paint; }
 
-    Brush brush_;
+    ViewportBrush& brush_;
+    const Frame* frame_{nullptr};  ///< the frame being updated, for the BrushTarget calls
     BrushTool tool_{BrushTool::none};
-    bool stroke_active_{false};
+    uint32_t paint_layer_{0};
     bool flatten_target_set_{false};
     float flatten_target_{0.0f};     ///< normalized height the stroke flattens toward
     uint32_t stroke_seed_{0};        ///< varies the noise brush between strokes
     std::vector<float> neighbourhood_;  ///< dab rect plus a one-sample border, for smoothing
-    bool mouse_was_down_{false};
     std::vector<float> snapshot_;  ///< the whole height field at stroke start, for undo
     HeightRect touched_;           ///< union of every dab's rect this stroke
     std::vector<float> scratch_;   ///< working buffer for the dab under edit
