@@ -6,6 +6,7 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 
 ### Getting Started
 - [Building & Running](Building-and-Running.md)
+- [CI Guide](CI-Guide.md) — building, testing, and driving the GitHub workflows from the terminal
 - [Project Structure](Project-Structure.md)
 - [Creating a Project](Creating-a-Project.md)
 
@@ -21,6 +22,12 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 - [Render Passes](Render-Passes.md)
 - [Scene System](Scene-System.md)
 - [Physics](Physics.md)
+
+### Environment
+- [Time of Day](Environment/Time-of-Day.md) — the clock, the sun's path, the moon and the stars
+- [Day Profiles](Environment/Day-Profiles.md) — `.fjday`, the look of a day keyed over 24 hours
+- [Weather](Environment/Weather.md) — `.fjweather` events, `.fjclimate`, wetness, wind, lightning and shelter
+- [Sky Shaders](Environment/Sky-Shaders.md) — `shader_type sky`, its built-ins, and how the sky lights the world
 
 ### Scripting
 - [Scripting Overview](Scripting-Overview.md)
