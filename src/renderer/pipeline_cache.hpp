@@ -65,6 +65,8 @@ public:
     // for every other shader type.
     [[nodiscard]] const std::string& ui_frag_spv(uint32_t id) const;
     [[nodiscard]] const std::string& ui_world_frag_spv(uint32_t id) const;
+    /// shader_type sky: the cubemap compute variant of the sky shader.
+    [[nodiscard]] const std::string& sky_cubemap_spv(uint32_t id) const;
     // Counts successful compiles of the entry. An owner that built its own
     // VkPipeline from the entry's SPV compares this against the value it
     // built at and rebuilds when it moved, which is how a hot-reload reaches
@@ -98,6 +100,9 @@ private:
         // shader_type ui only: the two UI pipeline shapes
         std::string ui_frag_spv;
         std::string ui_world_frag_spv;
+        // shader_type sky only: the same source as a compute shader that
+        // renders the lighting cubemap
+        std::string sky_cubemap_spv;
         // Custom vertex SPIR-V paths (empty = use standard shaders)
         std::string vert_spv;
         std::string mesh_spv;
@@ -121,7 +126,8 @@ private:
     // one shape from one generated source.
     [[nodiscard]] std::string compile_glsl(const std::string& source_path,
                                             const std::string& output_name,
-                                            const std::vector<std::string>& defines = {});
+                                            const std::vector<std::string>& defines = {},
+                                            const std::string& stage = {});
 
     Device& device_;
     VkFormat color_format_;

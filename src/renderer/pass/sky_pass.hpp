@@ -55,6 +55,14 @@ public:
     // project-relative paths). When null, paths are resolved engine-relative.
     void set_project(const class Project* p) { project_ = p; }
 
+    // The compiled FJSL sky, for SkyCubemapPass to render the same shader
+    // into the lighting cubemap: false / zero while no FJSL sky is active.
+    [[nodiscard]] bool fjsl_active() const { return mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] uint32_t fjsl_pipeline_id() const { return fjsl_pipeline_id_; }
+    [[nodiscard]] uint32_t fjsl_material_id() const { return fjsl_material_id_; }
+    [[nodiscard]] uint32_t fjsl_pipeline_generation() const { return fjsl_pipeline_generation_; }
+    [[nodiscard]] PipelineCache* pipeline_cache() const { return fjsl_pipeline_cache_; }
+
     [[nodiscard]] float atmosphere_rayleigh_scale() const { return atm_rayleigh_scale_; }
     [[nodiscard]] float atmosphere_mie_scale() const { return atm_mie_scale_; }
     [[nodiscard]] float atmosphere_mie_g() const { return atm_mie_g_; }

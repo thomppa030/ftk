@@ -9,8 +9,14 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
+
+#include "environment/environment_state.hpp"
+#include "environment/environment_ubo.hpp"
 
 namespace fjell {
+
+class SkyPass;
 
 /// Generates a sky gradient cubemap (64x64 per face, mipmapped) and a
 /// split-sum BRDF integration LUT (512x512 RG16F) for IBL.
@@ -45,6 +51,10 @@ public:
     /// Dispatch the cubemap compute shader and generate mips.
     /// Only does work if dirty.
     void generate(VkCommandBuffer cmd);
+    /// Render the active FJSL sky into the cubemap with its compute variant,
+    /// so the sky that is drawn is the sky that lights. Rebuilds its pipeline
+    /// when SkyPass compiles a new shader.
+    void generate_fjsl(const FrameContext& ctx);
 
     [[nodiscard]] VkImageView cubemap_view() const {
         return hdri_cubemap_view_ != VK_NULL_HANDLE ? hdri_cubemap_view_ : cubemap_view_;
@@ -74,6 +84,10 @@ private:
     void create_cubemap();
     void create_brdf_lut();
     void create_cubemap_pipeline();
+    // Move mip 0 of the cubemap into GENERAL for a compute write.
+    void begin_cubemap_write(VkCommandBuffer cmd);
+    void ensure_fjsl_pipeline();
+    void destroy_fjsl_pipeline();
     void create_brdf_pipeline();
     void create_hdri_pipelines();
     void generate_brdf_lut();
@@ -134,6 +148,25 @@ private:
 
     bool dirty_{true};
     bool first_generate_{true};
+
+    // FJSL sky: the sky shader's compute variant over the six faces. Binds
+    // the global set, the bindless set and the storage image.
+    PassResources resources_{};
+    SkyPass* sky_pass_{nullptr};
+    bool fjsl_active_{false};
+    VkPipelineLayout fjsl_layout_{VK_NULL_HANDLE};
+    VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};
+    uint32_t fjsl_pipeline_id_{0};
+    uint32_t fjsl_generation_{0};
+    // What the cubemap last rendered; a change re-renders it.
+    struct FjslInputs {
+        EnvironmentUbo ubo{};
+        std::vector<NamedValue> uniforms;
+        uint32_t generation{0};
+        bool operator==(const FjslInputs&) const = default;
+    };
+    FjslInputs fjsl_inputs_{};
+    bool fjsl_rendered_{false};
     uint32_t binding_version_{0};
     ResourceRegistry* registry_{nullptr};
     const class Project* project_{nullptr};

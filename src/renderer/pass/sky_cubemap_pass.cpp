@@ -6,6 +6,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -28,6 +29,7 @@ namespace fjell {
 
 Result<> SkyCubemapPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    resources_ = resources;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     command_pool_ = resources.command_pool;
@@ -64,6 +66,7 @@ void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
 void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     // Copy initial sky colors from the sky gradient pass
     auto& sky = passes.get<SkyPass>("sky");
+    sky_pass_ = &sky;
     set_colors(sky.top_color(), sky.bottom_color());
 
     // One-shot cubemap generation
@@ -136,6 +139,7 @@ void SkyCubemapPass::destroy() {
     destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
 
     destroy_hdri();
+    destroy_fjsl_pipeline();
 
     device_ = VK_NULL_HANDLE;
 }
@@ -147,6 +151,23 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // the sky pass and the direct lighting term.
     const auto& sun = ctx.environment->primary;
     const auto& sky = ctx.environment->sky;
+    // An FJSL sky renders the cubemap itself and takes over from an HDRI;
+    // its inputs are what decide whether the cubemap is stale.
+    fjsl_active_ = !sky.sky_shader.empty();
+    if (fjsl_active_) {
+        FjslInputs inputs;
+        inputs.ubo = make_environment_ubo(*ctx.environment);
+        inputs.uniforms = ctx.environment->sky_uniforms;
+        inputs.generation = sky_pass_ != nullptr ? sky_pass_->fjsl_pipeline_generation() : 0;
+        if (!fjsl_rendered_ || !(inputs == fjsl_inputs_)) {
+            fjsl_inputs_ = std::move(inputs);
+            dirty_ = true;
+        }
+    } else if (fjsl_rendered_) {
+        // Back to a built-in sky: the cubemap holds the FJSL result.
+        fjsl_rendered_ = false;
+        dirty_ = true;
+    }
     set_colors(sky.top_color, sky.bottom_color);
     set_atmosphere(sky.atmosphere_enabled, sun.direction, sun.color,
                    sky.atmosphere_sun_intensity,
@@ -157,7 +178,7 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
 
     // Load HDRI if path changed (works regardless of atmosphere mode —
     // atmosphere modulates the HDRI color rather than replacing it).
-    if (!sky.hdri_path.empty() && sky.hdri_path != loaded_hdri_path_) {
+    if (!fjsl_active_ && !sky.hdri_path.empty() && sky.hdri_path != loaded_hdri_path_) {
         auto resolved = base_path::resolve_asset(sky.hdri_path, project_);
         load_hdri(resolved);
         loaded_hdri_path_ = sky.hdri_path;
@@ -179,7 +200,7 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
                  .view = hdri_cubemap_view_, .sampler = hdri_cubemap_sampler_});
         }
         ++binding_version_;
-    } else if (sky.hdri_path.empty() && !loaded_hdri_path_.empty()) {
+    } else if ((sky.hdri_path.empty() || fjsl_active_) && !loaded_hdri_path_.empty()) {
         // HDRI was cleared — revert to gradient cubemap.
         // The sky_cubemap binding (on both the global set and DDGI's
         // RT set) isn't UPDATE_AFTER_BIND, so we must wait for
@@ -240,9 +261,7 @@ void SkyCubemapPass::set_atmosphere(bool enabled, const glm::vec3& sun_dir,
     if (changed) dirty_ = true;
 }
 
-void SkyCubemapPass::generate(VkCommandBuffer cmd) {
-    if (!dirty_) return;
-
+void SkyCubemapPass::begin_cubemap_write(VkCommandBuffer cmd) {
     // Transition cubemap mip 0 to GENERAL for compute write
     {
         VkImageMemoryBarrier2 barrier{};
@@ -274,6 +293,11 @@ void SkyCubemapPass::generate(VkCommandBuffer cmd) {
         dep.pImageMemoryBarriers = &barrier;
         vkCmdPipelineBarrier2(cmd, &dep);
     }
+}
+
+void SkyCubemapPass::generate(VkCommandBuffer cmd) {
+    if (!dirty_) return;
+    begin_cubemap_write(cmd);
 
     // Dispatch cubemap compute shader
     struct PushConstants {
@@ -828,8 +852,98 @@ void SkyCubemapPass::record(const FrameContext& ctx) {
     }
     if (dirty()) {
         FJELL_GPU_ZONE(ctx, "Sky Cubemap");
-        generate(ctx.cmd);
+        if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
+            generate_fjsl(ctx);
+        } else {
+            generate(ctx.cmd);
+        }
     }
+}
+
+void SkyCubemapPass::ensure_fjsl_pipeline() {
+    const uint32_t pid = sky_pass_->fjsl_pipeline_id();
+    const uint32_t generation = sky_pass_->fjsl_pipeline_generation();
+    if (fjsl_pipeline_ != VK_NULL_HANDLE && fjsl_pipeline_id_ == pid && fjsl_generation_ == generation) {
+        return;
+    }
+    destroy_fjsl_pipeline();
+
+    auto* cache = sky_pass_ != nullptr ? sky_pass_->pipeline_cache() : nullptr;
+    if (cache == nullptr) return;
+    const std::string& spv = cache->sky_cubemap_spv(pid);
+    if (spv.empty()) return;
+
+    // set 0 = global (UBOs), set 1 = bindless (textures, materials, params),
+    // set 2 = the cubemap faces as a storage image.
+    std::array set_layouts = {resources_.global_set_layout, resources_.material_set_layout,
+                              cubemap_set_layout_};
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_range.offset = 0;
+    push_range.size = sizeof(float) * 2 + sizeof(uint32_t) * 2;
+
+    VkPipelineLayoutCreateInfo layout_info{};
+    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    layout_info.pSetLayouts = set_layouts.data();
+    layout_info.pushConstantRangeCount = 1;
+    layout_info.pPushConstantRanges = &push_range;
+    vk_check(vkCreatePipelineLayout(device_, &layout_info, nullptr, &fjsl_layout_),
+             "Failed to create FJSL sky cubemap pipeline layout");
+
+    auto code = read_spirv(spv);
+    auto module = create_shader_module(device_, code);
+    VkComputePipelineCreateInfo comp_ci{};
+    comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    comp_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    comp_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    comp_ci.stage.module = module;
+    comp_ci.stage.pName = "main";
+    comp_ci.layout = fjsl_layout_;
+    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci, nullptr, &fjsl_pipeline_),
+             "Failed to create FJSL sky cubemap pipeline");
+    vkDestroyShaderModule(device_, module, nullptr);
+
+    fjsl_pipeline_id_ = pid;
+    fjsl_generation_ = generation;
+}
+
+void SkyCubemapPass::destroy_fjsl_pipeline() {
+    if (fjsl_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, fjsl_pipeline_, nullptr);
+    if (fjsl_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, fjsl_layout_, nullptr);
+    fjsl_pipeline_ = VK_NULL_HANDLE;
+    fjsl_layout_ = VK_NULL_HANDLE;
+}
+
+void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
+    ensure_fjsl_pipeline();
+    if (fjsl_pipeline_ == VK_NULL_HANDLE) {
+        // The shader has no cubemap variant compiled; the built-in path
+        // keeps the cubemap valid rather than leaving it stale.
+        generate(ctx.cmd);
+        return;
+    }
+    begin_cubemap_write(ctx.cmd);
+
+    struct PushConstants {
+        float viewport_width;
+        float viewport_height;
+        uint32_t sky_material_id;
+        uint32_t face_size;
+    } push{0.0f, 0.0f, sky_pass_->fjsl_material_id(), CUBEMAP_SIZE};
+
+    std::array sets = {ctx.global_descriptor_set, ctx.bindless_set, cubemap_set_};
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, fjsl_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, fjsl_layout_, 0,
+                            static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, fjsl_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    const uint32_t groups_xy = (CUBEMAP_SIZE + 7) / 8;
+    vkCmdDispatch(ctx.cmd, groups_xy, groups_xy, 6);
+
+    generate_mips(ctx.cmd);
+    dirty_ = false;
+    first_generate_ = false;
+    fjsl_rendered_ = true;
 }
 
 PassSetup SkyCubemapPass::setup() const {

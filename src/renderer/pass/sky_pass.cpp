@@ -339,7 +339,7 @@ void SkyPass::record(const FrameContext& ctx) {
             float viewport_width;
             float viewport_height;
             uint32_t sky_material_id;
-            uint32_t pad;
+            uint32_t face_size;   // the cubemap variant's; unused by the fragment
         } push{
             static_cast<float>(ctx.target->extent().width),
             static_cast<float>(ctx.target->extent().height),

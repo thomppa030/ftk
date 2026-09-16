@@ -230,14 +230,20 @@ void PipelineCache::compile_entry(Entry& entry) {
             std::string source_path;
             std::string output_name;
             std::vector<std::string> defines;
+            std::string stage;  // glslc -fshader-stage; empty infers from the extension
         };
         std::vector<ShaderJob> jobs;
 
         // Fragment is always compiled. A ui shader is one generated source
-        // compiled in two shapes, screen-space and worldspace.
-        jobs.push_back({next.generated_frag_path, stem + ".frag", {}});
+        // compiled in two shapes, screen-space and worldspace; a sky shader
+        // once more as the compute shader that fills the lighting cubemap.
+        const bool is_sky = shader_type == "sky";
+        jobs.push_back({next.generated_frag_path, stem + ".frag", {}, {}});
         if (is_ui) {
-            jobs.push_back({next.generated_frag_path, stem + ".world.frag", {"FJELL_UI_WORLD"}});
+            jobs.push_back({next.generated_frag_path, stem + ".world.frag", {"FJELL_UI_WORLD"}, {}});
+        }
+        if (is_sky) {
+            jobs.push_back({next.generated_frag_path, stem + ".cubemap.comp", {"FJELL_SKY_CUBEMAP"}, "compute"});
         }
 
         if (next.has_custom_vertex) {
@@ -255,7 +261,7 @@ void PipelineCache::compile_entry(Entry& entry) {
             auto add_job = [&](const std::string& vertex_tmpl, const std::string& suffix) {
                 std::string path = gen_source(vertex_tmpl, suffix);
                 if (!path.empty()) {
-                    jobs.push_back({path, stem + suffix, {}});
+                    jobs.push_back({path, stem + suffix, {}, {}});
                 }
             };
 
@@ -272,9 +278,10 @@ void PipelineCache::compile_entry(Entry& entry) {
         futures.reserve(jobs.size());
         for (auto& job : jobs) {
             futures.push_back(std::async(std::launch::async,
-                [this](std::string src, std::string out_name, std::vector<std::string> defs) {
-                    return compile_glsl(src, out_name, defs);
-                }, job.source_path, job.output_name, job.defines));
+                [this](std::string src, std::string out_name, std::vector<std::string> defs,
+                       std::string stage) {
+                    return compile_glsl(src, out_name, defs, stage);
+                }, job.source_path, job.output_name, job.defines, job.stage));
         }
 
         // Collect results
@@ -283,6 +290,9 @@ void PipelineCache::compile_entry(Entry& entry) {
         if (is_ui) {
             next.ui_frag_spv = frag_spv;
             next.ui_world_frag_spv = futures[idx++].get();
+        }
+        if (is_sky) {
+            next.sky_cubemap_spv = futures[idx++].get();
         }
 
         if (next.has_custom_vertex) {
@@ -332,6 +342,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.frag_spv = std::move(next.frag_spv);
     entry.ui_frag_spv = std::move(next.ui_frag_spv);
     entry.ui_world_frag_spv = std::move(next.ui_world_frag_spv);
+    entry.sky_cubemap_spv = std::move(next.sky_cubemap_spv);
     entry.vert_spv = std::move(next.vert_spv);
     entry.mesh_spv = std::move(next.mesh_spv);
     entry.depth_vert_spv = std::move(next.depth_vert_spv);
@@ -344,10 +355,14 @@ void PipelineCache::compile_entry(Entry& entry) {
 
 std::string PipelineCache::compile_glsl(const std::string& source_path,
                                          const std::string& output_name,
-                                         const std::vector<std::string>& defines) {
+                                         const std::vector<std::string>& defines,
+                                         const std::string& stage) {
     std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
     std::string include_dir = shader_source_dir_ + "/include";
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
+    if (!stage.empty()) {
+        cmd += " -fshader-stage=" + stage;
+    }
     for (const auto& define : defines) {
         cmd += " -D" + define;
     }
@@ -893,6 +908,10 @@ const std::string& PipelineCache::ui_frag_spv(uint32_t id) const {
 
 const std::string& PipelineCache::ui_world_frag_spv(uint32_t id) const {
     return entries_[id].ui_world_frag_spv;
+}
+
+const std::string& PipelineCache::sky_cubemap_spv(uint32_t id) const {
+    return entries_[id].sky_cubemap_spv;
 }
 
 } // namespace fjell
