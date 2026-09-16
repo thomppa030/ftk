@@ -24,12 +24,16 @@
 #include "ui/icons_lc.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
+#include "renderer/pass/sky_pass.hpp"
+#include "core/string_utils.hpp"
 #include "ui/material_params_widget.hpp"
 #include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
+#include <span>
 #include <cstdio>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -44,6 +48,65 @@ static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
         std::round(pos.y / cell_size) * cell_size,
         std::round(pos.z / cell_size) * cell_size,
     };
+}
+
+// The sky shader's uniforms as rows on the World Environment node: each shows
+// the node's override when it has one and the .fjsl default otherwise, and an
+// edit stores an override on the node. A day profile track of the same name
+// takes over from the override while the profile is bound.
+static void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+    if (ictx.pipeline_cache == nullptr) return;
+    const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
+    const uint32_t pid = ictx.pipeline_cache->register_shader(
+        canonical_sky_shader_path(env.sky_shader, project));
+    if (ictx.pipeline_cache->has_compile_error(pid)) return;
+    const auto& meta = ictx.pipeline_cache->metadata(pid);
+    if (meta.shader_type != "sky") return;
+
+    bool any = false;
+    for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
+    if (!any) return;
+
+    ImGui::TextDisabled("Sky Uniforms");
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        const uint32_t count = uniform_float_count(u.type);
+        auto override_it = std::find_if(env.sky_uniforms.begin(), env.sky_uniforms.end(),
+                                        [&](const WorldEnvironmentNode::SkyUniform& o) { return o.name == u.name; });
+        const bool overridden = override_it != env.sky_uniforms.end();
+
+        std::array<float, 4> temp{};
+        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
+        if (overridden) {
+            for (uint32_t i = 0; i < count && i < override_it->count; ++i) temp[i] = override_it->values[i];
+        }
+
+        ImGui::PushID(u.name.c_str());
+        ImGui::Text("%s", display_name(u.name).c_str());
+        if (overridden) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset")) {
+                env.sky_uniforms.erase(override_it);
+                if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+                ImGui::PopID();
+                continue;
+            }
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (draw_uniform_value(u, std::span{temp}.first(count))) {
+            WorldEnvironmentNode::SkyUniform value;
+            value.name = u.name;
+            value.count = count;
+            value.values = temp;
+            if (overridden) {
+                *override_it = std::move(value);
+            } else {
+                env.sky_uniforms.push_back(std::move(value));
+            }
+            if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+        }
+        ImGui::PopID();
+    }
 }
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
@@ -421,6 +484,16 @@ void PropertiesPanel::draw() {
                                  .extensions = sky_shader_exts,
                                  .ctx = &ictx},
                                 env->sky_shader);
+                if (!env->sky_shader.empty()) {
+                    draw_sky_uniforms(*env, ictx);
+                }
+
+                static const std::string day_profile_exts[] = {".fjday"};
+                asset_ref_field({.label = "Day Profile",
+                                 .id = "##EnvDayProfile",
+                                 .extensions = day_profile_exts,
+                                 .ctx = &ictx},
+                                env->day_profile);
 
                 const bool gradient_mode = env->hdri_path.empty();
                 ImGui::BeginDisabled(!gradient_mode);

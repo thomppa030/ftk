@@ -182,6 +182,17 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         if (!env->sky_shader.empty()) {
             j["sky"]["sky_shader"] = env->sky_shader;
         }
+        if (!env->day_profile.empty()) {
+            j["day_profile"] = env->day_profile;
+        }
+        if (!env->sky_uniforms.empty()) {
+            auto& ju = j["sky_uniforms"] = nlohmann::json::object();
+            for (const auto& u : env->sky_uniforms) {
+                auto values = nlohmann::json::array();
+                for (uint32_t i = 0; i < u.count && i < u.values.size(); ++i) values.push_back(u.values[i]);
+                ju[u.name] = std::move(values);
+            }
+        }
         j["time_of_day"] = {
             {"enabled", env->time_of_day_enabled},
             {"hour", env->time_of_day},
@@ -413,6 +424,17 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 if (js.contains("sky_shader")) {
                     env->sky_shader = js["sky_shader"].get<std::string>();
+                }
+            }
+            env->day_profile = j.value("day_profile", std::string{});
+            if (j.contains("sky_uniforms") && j["sky_uniforms"].is_object()) {
+                for (const auto& [uniform_name, values] : j["sky_uniforms"].items()) {
+                    if (!values.is_array() || values.empty()) continue;
+                    WorldEnvironmentNode::SkyUniform u;
+                    u.name = uniform_name;
+                    u.count = static_cast<uint32_t>(std::min<size_t>(values.size(), u.values.size()));
+                    for (uint32_t i = 0; i < u.count; ++i) u.values[i] = values[i].get<float>();
+                    env->sky_uniforms.push_back(std::move(u));
                 }
             }
             if (j.contains("time_of_day")) {

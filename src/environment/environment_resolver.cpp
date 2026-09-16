@@ -1,5 +1,6 @@
 #include "environment/environment_resolver.hpp"
 
+#include "environment/day_profile_asset.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -136,18 +137,37 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led) {
         if (sun_found && env_found && fog_found) break;
     }
 
-    if (const auto* env = find_world_environment(scene); env != nullptr && env->time_of_day_enabled) {
+    const auto* env = find_world_environment(scene);
+    const bool clock_runs = env != nullptr && env->time_of_day_enabled;
+    if (clock_runs) {
         // The sun follows the path for the hour; its authored colour,
-        // intensity and ambient stay, and the light fades out across the
-        // horizon so night is dark without anyone turning the sun down.
+        // intensity and ambient stay in charge of the look.
         const SunPath path{.tilt_degrees = env->sun_path_tilt,
                            .north_yaw_degrees = env->north_yaw,
                            .noon_hour = env->noon_hour};
         state.hour = wrap_hour(env->time_of_day);
         state.sun.direction = sun_direction(path, state.hour);
         state.sun.elevation = elevation_of(state.sun.direction);
-        state.sun.intensity *= horizon_fade(state.sun.elevation);
         state.phase = time_phase(state.sun.elevation, state.hour, env->noon_hour);
+    }
+
+    if (env != nullptr) {
+        // The node's sky uniform overrides first, then the profile, whose
+        // custom tracks replace an override of the same name.
+        for (const auto& u : env->sky_uniforms) {
+            state.sky_uniforms.push_back(NamedValue{.name = u.name, .count = u.count, .values = u.values});
+        }
+        if (env->day_profile_asset != nullptr) {
+            env->day_profile_asset->apply(state.hour, state);
+        }
+    }
+
+    if (clock_runs) {
+        // Light fades out across the horizon so night is dark without anyone
+        // turning the sun down; after the profile, so a profile that keeps
+        // the sun bright at dusk still loses it once it has set.
+        state.sun.intensity *= horizon_fade(state.sun.elevation);
+        state.moon.intensity *= horizon_fade(state.moon.elevation);
     }
 
     // One body casts the shadows and fills the global UBO's directional

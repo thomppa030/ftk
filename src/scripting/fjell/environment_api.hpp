@@ -26,6 +26,9 @@ FJELL_SDK_EXPORT void  fjell_time_of_day_sun_direction(float* x, float* y, float
 
 namespace fjell {
 
+/// A `.fjday` day profile, for `[[fj::property]] Ref<DayProfileAsset>` fields.
+struct DayProfileAsset;
+
 /// Same values as the FjellTimePhase constants above.
 enum class TimePhase : int { Night = 0, Dawn = 1, Day = 2, Dusk = 3 };
 

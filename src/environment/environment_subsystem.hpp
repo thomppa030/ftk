@@ -7,7 +7,9 @@
 
 namespace fjell {
 
+class ResourceManager;
 class Scene;
+struct WorldEnvironmentNode;
 
 /// Owns the resolved environment of the scene the engine ticks, and the
 /// clock behind its time of day. Runs every frame, in and out of play, so the
@@ -36,6 +38,9 @@ public:
     [[nodiscard]] float day_length() const;
 
 private:
+    // Keep the node's day profile pointer following its path.
+    static void bind_day_profile(WorldEnvironmentNode& env, ResourceManager* resources);
+
     Scene* scene_{nullptr};
     EnvironmentState state_;
     // Which body cast the shadows last frame, so the handoff has hysteresis.

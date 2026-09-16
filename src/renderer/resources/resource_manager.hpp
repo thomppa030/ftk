@@ -7,6 +7,7 @@
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
 #include "physics/surface_asset.hpp"
+#include "environment/day_profile_asset.hpp"
 // Complete type required: Pool<TerrainAsset> destroys unique_ptrs inline.
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -114,6 +115,11 @@ public:
     // reports, so loading through here is what gives a surface its identity.
     Result<SurfaceAssetHandle> load_surface_asset(const std::string& path);
 
+    // Day profiles (.fjday). A reload replaces the pooled asset in place, so
+    // a World Environment node keeps pointing at the same object.
+    Result<DayProfileAssetHandle> load_day_profile(const std::string& path);
+    Result<> reload_day_profile(const std::string& path);
+
     // Input action assets (.fjaction)
     Result<InputActionHandle> load_input_action(const std::string& path);
 
@@ -131,6 +137,7 @@ public:
     [[nodiscard]] std::string asset_path_of(VfxAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(SurfaceAssetHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(DayProfileAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
     [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
     [[nodiscard]] std::string asset_path_of(PresetAssetHandle handle) const;
@@ -143,6 +150,7 @@ public:
     [[nodiscard]] TerrainAsset* get(TerrainAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
     [[nodiscard]] SurfaceAsset* get(SurfaceAssetHandle handle) const;
+    [[nodiscard]] DayProfileAsset* get(DayProfileAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
     [[nodiscard]] struct PresetAsset* get(PresetAssetHandle handle) const;
 
@@ -220,6 +228,7 @@ private:
     Pool<TerrainAsset, TerrainAssetHandle> terrain_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
     Pool<SurfaceAsset, SurfaceAssetHandle> surface_assets_;
+    Pool<DayProfileAsset, DayProfileAssetHandle> day_profiles_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
     Pool<PresetAsset, PresetAssetHandle> preset_assets_;
 

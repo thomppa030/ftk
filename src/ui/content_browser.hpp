@@ -47,6 +47,7 @@ private:
         input_config,
         font,
         surface,
+        day_profile,
         unknown
     };
 

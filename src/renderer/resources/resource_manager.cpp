@@ -750,6 +750,39 @@ std::string ResourceManager::asset_path_of(SurfaceAssetHandle handle) const {
     return surface_assets_.path_of(handle);
 }
 
+// ── Day profiles ─────────────────────────────────────────────────────────
+
+Result<DayProfileAssetHandle> ResourceManager::load_day_profile(const std::string& path) {
+    auto it = day_profiles_.name_to_handle.find(path);
+    if (it != day_profiles_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto result = load_day_profile_file(base_path::resolve_asset(path, project_));
+    if (!result) return make_error(result.error());
+    auto asset = std::make_unique<DayProfileAsset>(std::move(*result));
+    return day_profiles_.insert(path, std::move(asset));
+}
+
+Result<> ResourceManager::reload_day_profile(const std::string& path) {
+    auto it = day_profiles_.name_to_handle.find(path);
+    if (it == day_profiles_.name_to_handle.end()) return {};
+    auto result = load_day_profile_file(base_path::resolve_asset(path, project_));
+    if (!result) return make_error(result.error());
+    if (auto* live = day_profiles_.get(it->second)) {
+        *live = std::move(*result);
+    }
+    return {};
+}
+
+DayProfileAsset* ResourceManager::get(DayProfileAssetHandle handle) const {
+    return day_profiles_.get(handle);
+}
+
+std::string ResourceManager::asset_path_of(DayProfileAssetHandle handle) const {
+    return day_profiles_.path_of(handle);
+}
+
 AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
     return audio_assets_.get(handle);
 }

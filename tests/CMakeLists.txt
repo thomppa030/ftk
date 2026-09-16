@@ -26,6 +26,10 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment/color_gradient.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment/track_set.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment/day_profile_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_curve.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
@@ -110,6 +114,7 @@ add_executable(fjell-tests
     test_sdk_headers.cpp
     test_sdf_generator.cpp
     test_environment.cpp
+    test_tracks.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

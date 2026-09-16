@@ -29,6 +29,10 @@ inline constexpr std::array kAssetTemplates = {
     AssetTemplate{"Surface (.fjsurface)", "new_surface", ".fjsurface",
                   R"({"name":"new_surface"})"},
     AssetTemplate{nullptr, {}, {}, {}},
+    // ── Environment ──
+    AssetTemplate{"Day Profile (.fjday)", "new_day", ".fjday",
+                  R"({"name":"new_day","tracks":{"length":24,"wrap":true,"tracks":[]}})"},
+    AssetTemplate{nullptr, {}, {}, {}},
     // ── VFX ──
     AssetTemplate{"VFX Effect (.fjvfx)", "new_effect", ".fjvfx",
                   R"({"version":2,"name":"new_effect","emitters":[]})"},

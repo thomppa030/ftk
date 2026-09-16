@@ -1,4 +1,5 @@
 #include "renderer/pass/tonemap_pass.hpp"
+#include "environment/environment_state.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
@@ -217,9 +218,12 @@ void TonemapPass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_tonemap");
     FJELL_GPU_ZONE(ctx, "Tonemap");
 
+    // The day profile's bias rides on top of the project exposure, adapted
+    // or fixed alike, so a dusk that should read dark does.
+    const float exposure = exposure_ + (ctx.environment != nullptr ? ctx.environment->exposure_bias : 0.0f);
     auto* tonemap = ctx.pp_resources ? ctx.pp_resources->tonemap() : nullptr;
     if (tonemap == nullptr) {
-        record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure_);
+        record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure);
         return;
     }
 
@@ -240,7 +244,7 @@ void TonemapPass::record(const FrameContext& ctx) {
         }
     }
 
-    record_into(ctx, *tonemap, color_source, bloom_view, 0.3f, exposure_);
+    record_into(ctx, *tonemap, color_source, bloom_view, 0.3f, exposure);
 }
 
 void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,

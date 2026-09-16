@@ -1,8 +1,16 @@
 #pragma once
 
+#include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
+#include <array>
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace fjell {
+
+struct DayProfileAsset;
 
 // ── Light nodes ─────────────────────────────────────────────────────────
 // Every colour below is linear light, ready for the renderer to multiply.
@@ -173,6 +181,24 @@ struct WorldEnvironmentNode : Node3D {
     float north_yaw{0.0f};             // degrees the whole path turns about the up axis
     float noon_hour{12.0f};            // the hour the sun peaks
 
+    // The look over the day: a .fjday whose tracks shape the sun, ambient,
+    // sky, fog and exposure by the hour. The environment subsystem binds the
+    // path to the loaded asset; the binding is runtime state, not saved.
+    std::string day_profile;
+    DayProfileAssetHandle day_profile_handle{};
+    const DayProfileAsset* day_profile_asset{nullptr};
+    std::string day_profile_bound;     // the path day_profile_asset was loaded from
+
+    // Values for the sky shader's uniforms, by name, as the picker shows
+    // them (colours in sRGB). A uniform without an entry keeps the .fjsl
+    // default; a day profile track of the same name takes precedence.
+    struct SkyUniform {
+        std::string name;
+        uint32_t count{1};
+        std::array<float, 4> values{};
+    };
+    std::vector<SkyUniform> sky_uniforms;
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<WorldEnvironmentNode>();
         clone_3d_into(*copy);
@@ -199,6 +225,8 @@ struct WorldEnvironmentNode : Node3D {
         copy->sun_path_tilt = sun_path_tilt;
         copy->north_yaw = north_yaw;
         copy->noon_hour = noon_hour;
+        copy->day_profile = day_profile;
+        copy->sky_uniforms = sky_uniforms;
         return copy;
     }
 };

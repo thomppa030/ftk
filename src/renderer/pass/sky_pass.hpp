@@ -6,11 +6,22 @@
 #include <vulkan/vulkan.h>
 
 #include <string>
+#include <vector>
+
+#include "environment/environment_state.hpp"
 
 namespace fjell {
 
 class BindlessTextures;
 class PipelineCache;
+struct ShaderMetadata;
+
+/// The path SkyPass hands PipelineCache for a sky shader reference. A
+/// project reference that leaves the engine tree is made absolute so the
+/// cache does not read it as engine-relative; anything else passes through,
+/// so a caller asking about the same reference gets the same compile.
+[[nodiscard]] std::string canonical_sky_shader_path(const std::string& sky_shader,
+                                                    const class Project* project);
 
 // Draws a solid color or vertical gradient behind all geometry.
 // Renders into the existing color pass (between begin/end rendering)
@@ -63,6 +74,10 @@ private:
     // hot-reloaded.
     void ensure_fjsl_pipeline(const PassResources& resources);
     void destroy_fjsl_pipeline();
+    // Write the shader's default uniform values into its params slice.
+    void write_default_params(const ShaderMetadata& meta, uint32_t param_offset);
+    // Lay the environment's named values over the defaults, once per change.
+    void apply_uniform_values();
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
@@ -83,6 +98,11 @@ private:
     VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};
     PipelineCache* fjsl_pipeline_cache_{nullptr};
     BindlessTextures* fjsl_bindless_{nullptr};
+    // The environment's sky uniform values this frame, and the set the params
+    // slice currently holds; a rebuild clears the latter so they reapply.
+    std::vector<NamedValue> uniform_values_;
+    std::vector<NamedValue> applied_uniform_values_;
+    bool uniform_values_applied_{false};
     const class Project* project_{nullptr};
 
     // PassResources kept across frames so prepare_frame can rebuild the

@@ -21,6 +21,7 @@ void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (ctx.environment == nullptr) return;
 
     const auto& sky = ctx.environment->sky;
+    uniform_values_ = ctx.environment->sky_uniforms;
     top_color_ = sky.top_color;
     bottom_color_ = sky.bottom_color;
     sky_shader_ = sky.sky_shader;
@@ -43,7 +44,63 @@ void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 
     if (mode_ == Mode::Fjsl) {
         ensure_fjsl_pipeline(cached_resources_);
+        apply_uniform_values();
     }
+}
+
+std::string canonical_sky_shader_path(const std::string& sky_shader, const Project* project) {
+    if (sky_shader.find("..") == std::string::npos && !sky_shader.starts_with("/")) {
+        return sky_shader;
+    }
+    std::string resolved = base_path::resolve_asset(sky_shader, project);
+    std::error_code ec;
+    auto abs = std::filesystem::weakly_canonical(resolved, ec);
+    return ec ? resolved : abs.string();
+}
+
+void SkyPass::write_default_params(const ShaderMetadata& meta, uint32_t param_offset) {
+    std::vector<float> seed(meta.custom_param_count, 0.0f);
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        uint32_t count = uniform_float_count(u.type);
+        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+            seed[u.slot + i] = u.default_value[i];
+        }
+        encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
+    }
+    fjsl_bindless_->write_params(param_offset, seed.data(), meta.custom_param_count);
+}
+
+void SkyPass::apply_uniform_values() {
+    if (fjsl_pipeline_ == VK_NULL_HANDLE || fjsl_pipeline_cache_ == nullptr || fjsl_bindless_ == nullptr) return;
+    if (uniform_values_applied_ && uniform_values_ == applied_uniform_values_) return;
+
+    const auto& meta = fjsl_pipeline_cache_->metadata(fjsl_pipeline_id_);
+    if (meta.custom_param_count == 0) {
+        applied_uniform_values_ = uniform_values_;
+        uniform_values_applied_ = true;
+        return;
+    }
+    const uint32_t param_offset = fjsl_bindless_->material_at(fjsl_material_id_).param_offset;
+
+    // Start from the defaults so a value that went away falls back to the
+    // .fjsl, then lay every named value over its uniform. A value shorter
+    // than the uniform keeps the default in the components it leaves out.
+    write_default_params(meta, param_offset);
+    for (const auto& value : uniform_values_) {
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D || u.name != value.name) continue;
+            const uint32_t count = uniform_float_count(u.type);
+            std::array<float, 4> temp{};
+            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
+            for (uint32_t i = 0; i < count && i < value.count; ++i) temp[i] = value.values[i];
+            encode_uniform_for_gpu(u, std::span{temp}.first(count));
+            fjsl_bindless_->write_params(param_offset + u.slot, temp.data(), count);
+            break;
+        }
+    }
+    applied_uniform_values_ = uniform_values_;
+    uniform_values_applied_ = true;
 }
 
 Result<> SkyPass::create(Device& device, const PassResources& resources) {
@@ -355,13 +412,7 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     // when the engine shader lives outside the project tree). Resolve to an
     // absolute path before handing to PipelineCache, which otherwise treats
     // strings as engine-relative and would double-prefix the "../" form.
-    std::string canonical = sky_shader_;
-    if (canonical.find("..") != std::string::npos || canonical.starts_with("/")) {
-        std::string resolved = base_path::resolve_asset(sky_shader_, project_);
-        std::error_code ec;
-        auto abs = std::filesystem::weakly_canonical(resolved, ec);
-        canonical = ec ? resolved : abs.string();
-    }
+    const std::string canonical = canonical_sky_shader_path(sky_shader_, project_);
 
     // Compile the shader through PipelineCache (parses metadata, runs
     // glslc, doesn't create any spatial pipelines for shader_type sky).
@@ -384,19 +435,11 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     if (meta.custom_param_count > 0) {
         gpu.param_offset = fjsl_bindless_->allocate_params(meta.custom_param_count);
         gpu.param_count  = meta.custom_param_count;
-
-        // Seed defaults from the parsed uniforms.
-        std::vector<float> seed(meta.custom_param_count, 0.0f);
-        for (const auto& u : meta.uniforms) {
-            if (u.type == UniformType::Sampler2D) continue;
-            uint32_t count = uniform_float_count(u.type);
-            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
-                seed[u.slot + i] = u.default_value[i];
-            }
-            encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
-        }
-        fjsl_bindless_->write_params(gpu.param_offset, seed.data(), meta.custom_param_count);
+        write_default_params(meta, gpu.param_offset);
     }
+    // A fresh params slice holds defaults; the environment's values go back
+    // on top on the next apply.
+    uniform_values_applied_ = false;
     fjsl_material_id_ = fjsl_bindless_->add_material(gpu);
     fjsl_pipeline_id_ = pid;
     fjsl_pipeline_generation_ = fjsl_pipeline_cache_->generation(pid);

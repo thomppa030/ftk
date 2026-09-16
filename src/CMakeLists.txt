@@ -42,6 +42,9 @@ add_executable(fjell
     core/engine.cpp
     environment/environment_resolver.cpp
     environment/environment_subsystem.cpp
+    environment/color_gradient.cpp
+    environment/track_set.cpp
+    environment/day_profile_asset.cpp
     core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp

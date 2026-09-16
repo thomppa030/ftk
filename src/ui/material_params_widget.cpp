@@ -10,6 +10,27 @@
 
 namespace fjell {
 
+bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
+    float* v = values.data();
+    switch (u.type) {
+        case UniformType::Float:
+            if (u.hint == UniformHint::None && u.range.max > u.range.min) {
+                return ImGui::SliderFloat("##val", v, u.range.min, u.range.max);
+            }
+            return ImGui::DragFloat("##val", v, 0.01f);
+        case UniformType::Vec2:
+            return ImGui::DragFloat2("##val", v, 0.01f);
+        case UniformType::Vec3:
+            if (u.hint == UniformHint::Color) return ImGui::ColorEdit3("##val", v);
+            return ImGui::DragFloat3("##val", v, 0.01f);
+        case UniformType::Vec4:
+            if (u.hint == UniformHint::Color) return ImGui::ColorEdit4("##val", v);
+            return ImGui::DragFloat4("##val", v, 0.01f);
+        default:
+            return false;
+    }
+}
+
 bool draw_material_params(const ShaderMetadata& meta,
                            BindlessTextures& bindless,
                            Material& material) {
@@ -53,84 +74,26 @@ bool draw_material_params(const ShaderMetadata& meta,
 
     uint32_t param_count = material.custom_param_count();
     if (param_count == 0) return changed;
-
     const auto& gpu = bindless.material_at(material.material_id());
-
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
-
         uint32_t fcount = uniform_float_count(u.type);
         if (u.slot + fcount > param_count) continue;
-
         uint32_t abs_offset = gpu.param_offset + u.slot;
-
         ImGui::PushID(u.name.c_str());
         ImGui::Text("%s", display_name(u.name).c_str());
         ImGui::SetNextItemWidth(-1);
-
         // Read current values from CPU-side params buffer
         float temp[4]{};
         for (uint32_t i = 0; i < fcount; ++i) {
             temp[i] = bindless.read_param(abs_offset + i);
         }
         decode_uniform_from_gpu(u, std::span{temp}.first(fcount));
-
-        switch (u.type) {
-            case UniformType::Float:
-                if (u.hint == UniformHint::None && u.range.max > u.range.min) {
-                    if (ImGui::SliderFloat("##val", temp, u.range.min, u.range.max)) {
-                        bindless.write_params(abs_offset, temp, 1);
-                        changed = true;
-                    }
-                } else {
-                    if (ImGui::DragFloat("##val", temp, 0.01f)) {
-                        bindless.write_params(abs_offset, temp, 1);
-                        changed = true;
-                    }
-                }
-                break;
-
-            case UniformType::Vec2:
-                if (ImGui::DragFloat2("##val", temp, 0.01f)) {
-                    bindless.write_params(abs_offset, temp, 2);
-                    changed = true;
-                }
-                break;
-
-            case UniformType::Vec3:
-                if (u.hint == UniformHint::Color) {
-                    if (ImGui::ColorEdit3("##val", temp)) {
-                        encode_uniform_for_gpu(u, std::span{temp}.first(3));
-                        bindless.write_params(abs_offset, temp, 3);
-                        changed = true;
-                    }
-                } else {
-                    if (ImGui::DragFloat3("##val", temp, 0.01f)) {
-                        bindless.write_params(abs_offset, temp, 3);
-                        changed = true;
-                    }
-                }
-                break;
-
-            case UniformType::Vec4:
-                if (u.hint == UniformHint::Color) {
-                    if (ImGui::ColorEdit4("##val", temp)) {
-                        encode_uniform_for_gpu(u, std::span{temp}.first(4));
-                        bindless.write_params(abs_offset, temp, 4);
-                        changed = true;
-                    }
-                } else {
-                    if (ImGui::DragFloat4("##val", temp, 0.01f)) {
-                        bindless.write_params(abs_offset, temp, 4);
-                        changed = true;
-                    }
-                }
-                break;
-
-            default:
-                break;
+        if (draw_uniform_value(u, std::span{temp}.first(fcount))) {
+            encode_uniform_for_gpu(u, std::span{temp}.first(fcount));
+            bindless.write_params(abs_offset, temp, fcount);
+            changed = true;
         }
-
         ImGui::PopID();
     }
 

@@ -337,6 +337,7 @@ bool AssetDatabase::is_trackable(const std::string& ext) {
         // Fjell formats
         ".fjmat", ".fjvfx", ".fjanimset", ".fjblend1D", ".fjblend2D",
         ".fjaction", ".fjinput", ".fjanim", ".fjaudio",
+        ".fjday",
         ".fjwidget", ".fjui", ".fjss",
         ".fjsl", ".fjp", ".fjell",
         // Binary Fjell formats

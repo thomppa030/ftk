@@ -1,6 +1,9 @@
 #include "environment/environment_subsystem.hpp"
 
 #include "core/frame_context.hpp"
+#include "core/log.hpp"
+#include "environment/day_profile_asset.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "environment/environment_resolver.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
@@ -13,6 +16,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     scene_ = &ctx.scene;
 
     auto* env = find_world_environment(ctx.scene);
+    if (env != nullptr) bind_day_profile(*env, ctx.resources);
     if (env != nullptr && env->time_of_day_enabled) {
         const bool advancing = playing() || env->advance_in_editor;
         if (advancing && env->day_length > 0.0f) {
@@ -34,6 +38,29 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
             }
         }
     }
+}
+
+void EnvironmentSubsystem::bind_day_profile(WorldEnvironmentNode& env, ResourceManager* resources) {
+    if (env.day_profile == env.day_profile_bound) {
+        // Same path: keep following the pool's object, which a reload of the
+        // asset replaces in place.
+        if (resources != nullptr && env.day_profile_handle.valid()) {
+            env.day_profile_asset = resources->get(env.day_profile_handle);
+        }
+        return;
+    }
+    env.day_profile_bound = env.day_profile;
+    env.day_profile_handle = {};
+    env.day_profile_asset = nullptr;
+    if (env.day_profile.empty() || resources == nullptr) return;
+
+    auto handle = resources->load_day_profile(env.day_profile);
+    if (!handle) {
+        FJELL_CORE_ERROR("World environment: {}", handle.error());
+        return;
+    }
+    env.day_profile_handle = *handle;
+    env.day_profile_asset = resources->get(*handle);
 }
 
 void EnvironmentSubsystem::set_hour(float hour) {

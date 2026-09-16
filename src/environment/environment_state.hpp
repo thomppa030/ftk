@@ -4,7 +4,10 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace fjell {
 
@@ -18,6 +21,16 @@ namespace fjell {
 //
 // Colours are linear light, ready to multiply. Directions toward a body are
 // normalized and point from the surface to the sun or moon.
+
+/// A named value bound for a sky shader uniform: one float, or a colour in
+/// sRGB as the shader's hint_color expects it, up to four components.
+struct NamedValue {
+    std::string name;
+    uint32_t count{1};
+    std::array<float, 4> values{};
+
+    bool operator==(const NamedValue&) const = default;
+};
 
 /// A distant light source: the sun, or the moon.
 struct DirectionalBody {
@@ -97,6 +110,14 @@ struct EnvironmentState {
 
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
     float ambient_intensity{0.4f};
+
+    /// EV added on top of the project's exposure, from the day profile.
+    float exposure_bias{0.0f};
+    /// How bright the sky's star field is, 0 by day.
+    float star_intensity{0.0f};
+    /// Values for the sky shader's uniforms, by name: the environment node's
+    /// overrides and the day profile's custom tracks.
+    std::vector<NamedValue> sky_uniforms;
 
     SkySettings sky;
     ContactShadowSettings contact_shadows;

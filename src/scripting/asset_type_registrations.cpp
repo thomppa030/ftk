@@ -75,6 +75,26 @@ static const bool reg_surface = [] {
     return true;
 }();
 
+static const bool reg_day_profile = [] {
+    AssetTypeRegistry::instance().register_type({
+        .type_name = "DayProfileAsset",
+        .extension = ".fjday",
+        .label     = "Day Profile",
+        .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
+            return rm.get(fjell::DayProfileAssetHandle{id});
+        },
+        .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
+            return rm.asset_path_of(fjell::DayProfileAssetHandle{id});
+        },
+        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+            auto r = rm.load_day_profile(path);
+            if (!r) return fjell::make_error(r.error());
+            return r->id;
+        },
+    });
+    return true;
+}();
+
 static const bool reg_material = [] {
     AssetTypeRegistry::instance().register_type({
         .type_name = "Material",
