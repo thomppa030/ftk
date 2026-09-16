@@ -53,6 +53,9 @@ void main() {
     vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
     float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
     float TIME_OF_DAY = env_ubo.weather1.w;
+    // Must match fjell_mesh_template.glsl exactly, or the outline pulls away
+    // from the silhouette it is tracing.
+    vec3 WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
 
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
 

@@ -60,6 +60,10 @@ void main() {
         VERTEX = fjell_spline_deform_position(in_position, seg);
     }
 
+    // After the spline deform, and matching fjell_mesh_template.glsl exactly:
+    // a vertex displaced differently here than in the color pass z-fights.
+    vec3 WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
+
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
 
     {

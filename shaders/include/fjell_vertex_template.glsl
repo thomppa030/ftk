@@ -78,6 +78,10 @@ void main() {
         UV             = fjell_spline_remap_uv(UV, in_position, seg);
     }
 
+    // After the spline deform, so a bent rail reports where its vertices
+    // actually ended up. Must match fjell_mesh_template.glsl exactly.
+    vec3 WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
+
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
 
     {

@@ -697,6 +697,83 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     REQUIRE(checked > 0);
 }
 
+// --- Every template running vertex() offers the same built-ins ---
+//
+// A vertex() body is substituted into six templates: the color and depth
+// passes each have a mesh-shader and a vertex-shader path, and shadow and
+// outline have one each. They are separate files, so a built-in added to
+// one and forgotten in another compiles in the color pass and fails the
+// moment the shader is drawn into depth, shadow or an outline. Worse, a
+// built-in defined differently between them displaces the same vertex to
+// two places: z-fighting against the depth prepass, acne against its own
+// shadow.
+//
+// So compile a body using every documented built-in through all six, and
+// a body using none through all six as well, since most shaders name no
+// built-in at all and must not pay for the ones they skip.
+
+TEST_CASE("Every vertex() template accepts the same built-ins", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    struct Template {
+        const char* file;
+        const char* stage;
+    };
+    const Template templates[] = {
+        {"fjell_mesh_template.glsl", "mesh"},
+        {"fjell_vertex_template.glsl", "vert"},
+        {"fjell_depth_mesh_template.glsl", "mesh"},
+        {"fjell_depth_vertex_template.glsl", "vert"},
+        {"fjell_shadow_vertex_template.glsl", "vert"},
+        {"fjell_outline_vertex_template.glsl", "vert"},
+    };
+
+    struct Body {
+        const char* name;
+        const char* source;
+    };
+    const Body bodies[] = {
+        {"every_builtin",
+         "VERTEX.y += sin(WORLD_VERTEX.x + TIME) * UV.x;\n"
+         "VERTEX += NORMAL * 0.01;\n"
+         "VERTEX.xz += (MODEL * vec4(0.0, 0.0, 0.0, 1.0)).xz * 0.0;\n"},
+        // Most shaders name no built-in. An unused one must not cost them a
+        // warning under -Werror or an unresolved symbol.
+        {"no_builtin", "VERTEX.y += 0.5;\n"},
+    };
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-vertex-template-test";
+    std::filesystem::create_directories(out_dir);
+
+    for (const auto& body : bodies) {
+        for (const auto& t : templates) {
+            INFO("body: " << body.name << ", template: " << t.file);
+
+            auto tmpl = read_text(shader_dir / "include" / t.file);
+            REQUIRE_FALSE(tmpl.empty());
+
+            auto meta = parse_fjsl(std::string("shader_type spatial;\nvoid vertex() {\n")
+                                   + body.source + "}\nvoid fragment() {}\n");
+            REQUIRE_FALSE(meta.vertex_body.empty());
+
+            std::string name = std::string(body.name) + "_" + t.file;
+            auto src = out_dir / name;
+            std::ofstream(src) << generate_vertex_shader(meta, tmpl);
+
+            auto spv = out_dir / (name + ".spv");
+            auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage="
+                                        + std::string(t.stage) + " -I "
+                                        + quoted(shader_dir / "include") + " "
+                                        + quoted(src) + " -o " + quoted(spv));
+            INFO(output);
+            REQUIRE(status == 0);
+        }
+    }
+}
+
 // --- shader_type terrain ---
 
 TEST_CASE("Parse shader_type terrain with a layers() hook", "[fjsl][terrain]") {
