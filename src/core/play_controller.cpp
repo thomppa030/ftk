@@ -155,7 +155,14 @@ void PlayController::begin_frame() {
     // gated query methods — ImGui's own NewFrame (and therefore every
     // editor widget/shortcut check) runs later in Engine::run, so setting
     // it here guarantees it is never one frame stale for either side.
-    s_.input->set_game_focus(input_focused());
+    const bool focused = input_focused();
+    s_.input->set_game_focus(focused);
+
+    // A cursor locked for mouse-look has to come unlocked the moment the
+    // editor takes focus back, or there is no usable pointer for the chrome
+    // around the game — and lock again by itself when focus returns, since
+    // the script that asked never sees focus change.
+    s_.input->apply_cursor_lock(focused);
 
     if (!stepping_) return;
     stepping_ = false;
@@ -416,6 +423,10 @@ void PlayController::stop() {
     session_.reset();
     state_ = PlayState::stopped;
     s_.vulkan->set_playing(false);
+    // The request dies with the session that made it: scripts are gone, so
+    // nothing is left to ask again, and a stale one would start the next
+    // session with the cursor already locked.
+    s_.input->set_cursor_lock_wanted(false);
     if (s_.input->is_cursor_captured()) {
         s_.input->set_cursor_captured(s_.window->handle(), false);
     }

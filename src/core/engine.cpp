@@ -139,8 +139,10 @@ void Engine::init_subsystems() {
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
     environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
     environment_subsystem_->set_audio(audio_subsystem_);
+    environment_subsystem_->set_scripts(script_subsystem_);
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
+    physics_subsystem_->set_environment(environment_subsystem_);
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();
     sprite_anim_subsystem_ = add_subsystem<SpriteAnimSubsystem>();
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
@@ -851,18 +853,6 @@ void Engine::init_editor() {
         },
         .open = [](EditorContext& ctx, const std::string& path) {
             static_cast<InputMappingEditorContext&>(ctx).open_context(path);
-        },
-        .matches = input_matches
-    });
-
-    context_registry_.register_type("input_action", {
-        .create = [input_factory](const std::string& path) {
-            auto ctx = input_factory(path);
-            static_cast<InputMappingEditorContext&>(*ctx).open_action(path);
-            return ctx;
-        },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<InputMappingEditorContext&>(ctx).open_action(path);
         },
         .matches = input_matches
     });
@@ -1818,8 +1808,14 @@ void Engine::run() {
         // Phase 2: CPU work (overlaps with GPU executing the submitted frame)
         asset_loader_->poll();
         input_.update();
-        input_action_map_.update(input_);
         window_.poll_events();
+        // After poll_events, so the action map sees this frame's mouse and
+        // scroll deltas: the callbacks accumulate them during the poll, and
+        // Input::update() clears them for the next frame. Reading before the
+        // poll gave every axis bound to mouse motion a constant zero, while
+        // keys and buttons kept working because they are latched state rather
+        // than a per-frame delta.
+        input_action_map_.update(input_);
         if (import_dialog_.is_open()) import_dialog_.tick();
         if (import_file_browser_.is_open()) import_file_browser_.tick();
         if (asset_file_browser_.is_open()) asset_file_browser_.tick();

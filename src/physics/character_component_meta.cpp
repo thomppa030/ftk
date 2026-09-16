@@ -74,6 +74,10 @@ static const bool registered = [] {
             if (ImGui::DragFloat("##CharSlope", &cc->max_slope_angle, 0.5f, 0.0f, 89.0f)) changed = true;
             ImGui::Text("Mass"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##CharMass", &cc->mass, 0.5f, 1.0f, 500.0f)) changed = true;
+            if (ImGui::DragFloat("Wind Push", &cc->wind_push, 0.05f, 0.0f, 20.0f, "%.2f")) changed = true;
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("How hard the weather's wind leans on the character. 0 ignores it.");
+            }
             if (ImGui::Checkbox("Feet At Origin", &cc->feet_at_origin)) changed = true;
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Stand the capsule on the node origin, where a character mesh has its feet");
@@ -105,6 +109,7 @@ static const bool registered = [] {
             out["max_slope_angle"] = cc->max_slope_angle;
             out["mass"] = cc->mass;
             out["feet_at_origin"] = cc->feet_at_origin;
+            out["wind_push"] = cc->wind_push;
             out["shape_offset"] = {cc->shape_offset.x, cc->shape_offset.y, cc->shape_offset.z};
             out["step_up"] = cc->step_up;
             out["step_down"] = cc->step_down;
@@ -120,6 +125,7 @@ static const bool registered = [] {
             cc.max_slope_angle = j.value("max_slope_angle", 50.0f);
             cc.mass = j.value("mass", 80.0f);
             cc.feet_at_origin = j.value("feet_at_origin", true);
+            cc.wind_push = j.value("wind_push", 0.0f);
             if (j.contains("shape_offset")) {
                 auto& o = j["shape_offset"];
                 cc.shape_offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};

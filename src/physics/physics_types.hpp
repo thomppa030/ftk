@@ -23,6 +23,8 @@ struct RigidbodyComponent : NodeComponent {
     float linear_damping{0.05f};
     float angular_damping{0.05f};
     bool gravity_enabled{true};
+    // Surface the wind pushes against, in square metres; 0 ignores it.
+    float wind_area{0.0f};
 };
 
 struct ColliderComponent : NodeComponent {
@@ -76,6 +78,8 @@ struct CharacterComponent : NodeComponent {
 
     // The node origin is where a character mesh has its feet, so the capsule
     // is lifted to stand on it. Off, the capsule is centered on the origin.
+    // How hard the wind leans on the character, per square metre; 0 ignores it.
+    float wind_push{0.0f};
     bool feet_at_origin{true};
     // Applied on top of that, for a capsule that sits off-center by design.
     glm::vec3 shape_offset{0.0f};

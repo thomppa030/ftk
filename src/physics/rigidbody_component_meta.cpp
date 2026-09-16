@@ -35,6 +35,10 @@ static const bool registered = [] {
             ImGui::Text("Angular Damping"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##AngularDamping", &rb->angular_damping, 0.01f, 0.0f, 10.0f)) changed = true;
             if (ImGui::Checkbox("Gravity", &rb->gravity_enabled)) changed = true;
+            if (ImGui::DragFloat("Wind Area", &rb->wind_area, 0.05f, 0.0f, 100.0f, "%.2f m\xc2\xb2")) changed = true;
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Surface the weather's wind pushes against. 0 leaves the body unmoved by it.");
+            }
             return changed;
         },
 
@@ -52,6 +56,7 @@ static const bool registered = [] {
             out["linear_damping"] = rb->linear_damping;
             out["angular_damping"] = rb->angular_damping;
             out["gravity_enabled"] = rb->gravity_enabled;
+            out["wind_area"] = rb->wind_area;
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
@@ -63,6 +68,7 @@ static const bool registered = [] {
             rb.linear_damping = j.value("linear_damping", 0.05f);
             rb.angular_damping = j.value("angular_damping", 0.05f);
             rb.gravity_enabled = j.value("gravity_enabled", true);
+            rb.wind_area = j.value("wind_area", 0.0f);
         },
 
         .script_type_name = "RigidbodyComponent",

@@ -10,6 +10,8 @@
 
 namespace fjell {
 
+class EnvironmentSubsystem;
+
 class PhysicsSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "Physics"; }
@@ -17,8 +19,13 @@ public:
     void tick(const TickContext& ctx) override {
         if (!world_) return;
         FJELL_PROFILE_SCOPE_N("physics_step");
+        apply_wind(ctx);
         world_->step(ctx.dt, ctx.scene);
     }
+
+    /// Where the weather's wind comes from. Optional; without it nothing
+    /// blows.
+    void set_environment(const EnvironmentSubsystem* environment) { environment_ = environment; }
 
     void on_play_start(const TickContext& ctx) override {
         world_ = std::make_unique<PhysicsWorld>();
@@ -32,7 +39,13 @@ public:
     [[nodiscard]] PhysicsWorld* world() { return world_.get(); }
 
 private:
+    /// Push every body that offers the wind a surface, and lean on every
+    /// character that lets it. A force, not an impulse, so a steady wind
+    /// holds a body against gravity rather than kicking it once.
+    void apply_wind(const TickContext& ctx);
+
     std::unique_ptr<PhysicsWorld> world_;
+    const EnvironmentSubsystem* environment_{nullptr};
 };
 
 } // namespace fjell

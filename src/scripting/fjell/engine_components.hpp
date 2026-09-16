@@ -64,6 +64,11 @@ struct RigidbodyComponent {
 
     /// Whether gravity applies. Clear it for floating or flying objects.
     bool gravity_enabled{true};
+
+    /// How much surface the wind has to push against, in square metres. Zero
+    /// leaves the body unmoved by the weather; a loose tarp wants more than
+    /// a crate of the same size.
+    float wind_area{0.0f};
 };
 
 /// Category a collider belongs to, used to decide what it interacts with.
@@ -190,6 +195,10 @@ struct CharacterComponent {
 
     /// Mass in kilograms. Bounds how hard the character pushes dynamic bodies.
     float mass{80.0f};
+
+    /// How hard the wind leans on the character, as a fraction of the force
+    /// it would put on a square metre. Zero ignores the weather.
+    float wind_push{0.0f};
 
     /// Stand the capsule on the node origin, where a character mesh has its
     /// feet. Off, the capsule is centered on the origin.
