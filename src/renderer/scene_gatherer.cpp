@@ -30,6 +30,9 @@ void SceneGatherer::init(GpuContext& gpu) {
             gpu.device(), gpu.allocator());
         shadow_draw_data_[c].create(gpu.device());
     }
+
+    overhead_batch_ = std::make_unique<IndirectBatch>(gpu.device(), gpu.allocator());
+    overhead_draw_data_.create(gpu.device());
 }
 
 void SceneGatherer::gather(const GatherInput& input) {
@@ -41,6 +44,7 @@ void SceneGatherer::gather(const GatherInput& input) {
 
     // Build render queue with parallel frustum culling
     for (auto& cmds : shadow_commands_) cmds.clear();
+    overhead_commands_.clear();
     if (input.scene) {
         render_queue_.clear();
         render_queue_.reserve(input.scene->objects().size());
@@ -54,6 +58,13 @@ void SceneGatherer::gather(const GatherInput& input) {
         // off screen and what blocks that light.
         auto in_gi_reach = [&input](const DrawCommand& dc) {
             return input.gi_reach && input.gi_reach->intersects(dc.world_aabb);
+        };
+
+        // What could stand over the ground the overhead map covers. Culled
+        // against that box rather than the view: shelter the camera is not
+        // looking at still shelters.
+        auto in_overhead_reach = [&input](const DrawCommand& dc) {
+            return input.overhead_box && input.overhead_box->intersects(dc.world_aabb);
         };
 
         // Build per-cascade shadow caster frustums from light matrices.
@@ -72,12 +83,14 @@ void SceneGatherer::gather(const GatherInput& input) {
         local_commands_.resize(num_chunks);
         local_gi_commands_.resize(num_chunks);
         local_shadow_commands_.resize(num_chunks);
+        local_overhead_commands_.resize(num_chunks);
         local_slot_scratch_.resize(num_chunks);
         local_total_.assign(num_chunks, 0);
         local_culled_.assign(num_chunks, 0);
         for (uint32_t ch = 0; ch < num_chunks; ++ch) {
             local_commands_[ch].clear();
             local_gi_commands_[ch].clear();
+            local_overhead_commands_[ch].clear();
             for (auto& sc : local_shadow_commands_[ch]) sc.clear();
         }
 
@@ -86,6 +99,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                 auto& commands = local_commands_[chunk_id];
                 auto& gi_cmds = local_gi_commands_[chunk_id];
                 auto& cascade_cmds = local_shadow_commands_[chunk_id];
+                auto& overhead_cmds = local_overhead_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
@@ -113,6 +127,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                         cascade_cmds[c].push_back(dc);
                                     }
                                 }
+                                if (in_overhead_reach(dc)) overhead_cmds.push_back(dc);
                             }
                             if (!camera_frustum.intersects(dc.world_aabb)) {
                                 if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
@@ -160,6 +175,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                     cascade_cmds[c].push_back(dc);
                                 }
                             }
+                            if (in_overhead_reach(dc)) overhead_cmds.push_back(dc);
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
                             if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
@@ -208,6 +224,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 cascade_cmds[c].push_back(dc);
                             }
                         }
+                        if (in_overhead_reach(dc)) overhead_cmds.push_back(dc);
                     }
 
                     // The transparent sort key; a submesh can be transparent
@@ -282,6 +299,9 @@ void SceneGatherer::gather(const GatherInput& input) {
                     shadow_commands_[c].push_back(dc);
                 }
             }
+            for (const auto& dc : local_overhead_commands_[i]) {
+                overhead_commands_.push_back(dc);
+            }
         }
         render_queue_.sort(camera_position_);
     }
@@ -306,6 +326,12 @@ void SceneGatherer::gather(const GatherInput& input) {
                                   glm::mat4(1.0f), glm::vec3(0.0f),
                                   input.animation_system, /*is_shadow_batch=*/true);
     }
+
+    // The overhead map's own geometry, built like a cascade: no view-based
+    // LOD, no instance cull, since neither applies to a top-down box.
+    overhead_batch_->build(overhead_commands_, empty_transparent_, input.frame_index,
+                           glm::mat4(1.0f), glm::vec3(0.0f),
+                           input.animation_system, /*is_shadow_batch=*/true);
 
     // Update draw data descriptor for this frame
     if (indirect_batch_->draw_data_count(input.frame_index) > 0) {
@@ -372,6 +398,28 @@ void SceneGatherer::gather(const GatherInput& input) {
                 shadow_batches_[c]->instance_transform_buffer(input.frame_index),
                 shadow_batches_[c]->instance_transform_size(input.frame_index),
                 input.frame_index);
+        }
+    }
+
+    // The overhead map's descriptor, the same shape as a cascade's.
+    if (overhead_batch_->draw_data_count(input.frame_index) > 0) {
+        overhead_draw_data_.update(
+            overhead_batch_->draw_data_buffer(input.frame_index),
+            overhead_batch_->draw_data_size(input.frame_index),
+            input.frame_index);
+    }
+    if (overhead_batch_->instance_transform_count(input.frame_index) > 0) {
+        overhead_draw_data_.update_instance_transforms(
+            overhead_batch_->instance_transform_buffer(input.frame_index),
+            overhead_batch_->instance_transform_size(input.frame_index),
+            input.frame_index);
+    }
+    if (input.animation_system && input.animation_system->has_bones_this_frame()) {
+        auto& bb = input.animation_system->bone_buffer();
+        if (bb.total_bones(input.frame_index) > 0) {
+            overhead_draw_data_.update_bones(bb.buffer(input.frame_index),
+                                             bb.byte_size(input.frame_index),
+                                             input.frame_index);
         }
     }
 }

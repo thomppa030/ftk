@@ -1,6 +1,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "environment/environment_ubo.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
+#include "renderer/pass/overhead_depth_pass.hpp"
 
 #include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
@@ -425,6 +426,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
             gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
         ctx.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
     }
+    ctx.overhead_batch = gatherer_.overhead_batch();
+    ctx.overhead_draw_data = gatherer_.overhead_draw_data().descriptor_set(current_frame_);
 
     return ctx;
 }
@@ -452,6 +455,15 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         gi.animation_system = animation_system_;
         if (ddgi_pass().backend() == DdgiBackend::ray_traced) {
             gi.gi_reach = ddgi_pass().trace_reach_bounds();
+        }
+        // While something is falling, gather what stands over the ground
+        // near the camera as well: a roof shelters whether or not the camera
+        // happens to be looking at it. Read from the environment rather than
+        // from the pass, whose prepare_frame runs after this.
+        if (auto* overhead = passes_.try_get<OverheadDepthPass>("overhead_depth");
+            overhead != nullptr && current_environment_ != nullptr &&
+            OverheadDepthPass::needed_by(*current_environment_)) {
+            gi.overhead_box = overhead->reach_bounds(gatherer_.camera_position());
         }
         gatherer_.gather(gi);
     }
@@ -998,6 +1010,10 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     if (auto* clouds = passes_.try_get<CloudShadowPass>("cloud_shadow")) {
         env_ubo.cloud_shadow_vp = clouds->world_to_uv();
         env_ubo.cloud_shadow_texture = clouds->active() ? 1u : 0u;
+    }
+    if (auto* overhead = passes_.try_get<OverheadDepthPass>("overhead_depth")) {
+        env_ubo.overhead_vp = overhead->world_to_map();
+        env_ubo.overhead_depth_texture = overhead->active() ? 1u : 0u;
     }
     gpu_.environment_buffer(frame_index).write(&env_ubo, sizeof(env_ubo));
 
