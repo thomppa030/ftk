@@ -131,6 +131,10 @@ public:
     [[nodiscard]] Buffer& uniform_buffer(uint32_t frame_index) {
         return *uniform_buffers_[frame_index];
     }
+    /// The per-frame EnvironmentUbo behind global binding "environment_ubo".
+    [[nodiscard]] Buffer& environment_buffer(uint32_t frame_index) {
+        return *environment_buffers_[frame_index];
+    }
 
     /// Finalize global descriptor layout, pool, and initial writes.
     /// Must be called after any additional global_bindings().declare() calls
@@ -191,6 +195,7 @@ private:
     // Descriptors
     GlobalBindings global_bindings_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> environment_buffers_;
 
     BindlessTextures bindless_textures_;
     FrameDescriptorCache descriptor_cache_;

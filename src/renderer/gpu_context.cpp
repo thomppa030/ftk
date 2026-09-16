@@ -4,6 +4,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
+#include "environment/environment_ubo.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 
@@ -175,6 +176,8 @@ GpuContext::~GpuContext() {
 
     for (auto& ub : uniform_buffers_)
         ub.reset();
+    for (auto& eb : environment_buffers_)
+        eb.reset();
     for (auto& lb : light_ssbo_)
         lb.reset();
     for (auto& tb : tile_light_ssbo_)
@@ -231,6 +234,13 @@ void GpuContext::create_descriptor_resources() {
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         uniform_buffers_[i]->map();
+
+        environment_buffers_[i] = std::make_unique<Buffer>(
+            core_.allocator(), sizeof(EnvironmentUbo),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        environment_buffers_[i]->map();
 
         // Light SSBO (host-visible for CPU upload)
         light_ssbo_[i] = std::make_unique<Buffer>(
@@ -336,6 +346,8 @@ void GpuContext::finalize_descriptors() {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         global_bindings_.write_buffer(i, "global_ubo",
             uniform_buffers_[i]->handle(), 0, sizeof(GlobalUbo));
+        global_bindings_.write_buffer(i, "environment_ubo",
+            environment_buffers_[i]->handle(), 0, sizeof(EnvironmentUbo));
         global_bindings_.write_buffer(i, "light_ssbo",
             light_ssbo_[i]->handle(), 0, light_ssbo_size);
         global_bindings_.write_buffer(i, "tile_light_ssbo",

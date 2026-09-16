@@ -22,6 +22,7 @@
 //   11 local_shadow_atlas  COMBINED_IMAGE_SAMPLER
 //   12 ss_gi_emissive      COMBINED_IMAGE_SAMPLER
 //   13 contact_shadow      COMBINED_IMAGE_SAMPLER
+//   14 environment_ubo     UNIFORM_BUFFER  (fjell_environment.glsl)
 //
 // To add a new binding:
 //   1. Call gpu_.global_bindings().declare({...}) in C++ before finalize

@@ -66,6 +66,8 @@ layout(location = 2) out vec2 out_normal;
 #include "include/fjell_pbr.glsl"
 #include "include/fjell_shadow.glsl"
 #include "include/fjell_lighting.glsl"
+#include "include/fjell_environment.glsl"
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
 
 // ── Depth linearization (same as particle.frag) ─────────────────────────
 
@@ -180,6 +182,8 @@ void main() {
 
     // Forward+ tile lights
     Lo += accumulate_tile_lights(frag_world_pos, N, V, NdotV, albedo, mat_metallic, mat_roughness, F0);
+    Lo += fjell_secondary_directional(N, V, NdotV, albedo, mat_metallic, mat_roughness, F0,
+                                      env_ubo.secondary_dir_intensity, env_ubo.secondary_color);
 
     // Screen-space AO
     vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);

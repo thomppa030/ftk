@@ -22,6 +22,9 @@ layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D ss_gi_emissive;
 layout(set = 0, binding = 13) uniform sampler2D contact_shadow_tex;
 
+#include "fjell_environment.glsl"
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuPointLight point_lights[1024];
     GpuSpotLight spot_lights[1024];
@@ -91,6 +94,31 @@ void fjell_shade_surface(vec3 NORMAL, vec3 VIEW_DIR, vec3 WORLD_POS, vec3 geomet
 
         vec3 radiance = LIGHT_COLOR * LIGHT_INTENSITY;
         Lo += (d + s) * radiance * NdotL * shadow;
+        DIFFUSE_LIGHT  += d;
+        SPECULAR_LIGHT += s;
+    }
+
+    // ── Second directional body (moon or setting sun) ──
+    // Shaded through the same light() hook as the sun so a stylised BRDF
+    // treats both alike; occluded only by contact shadows, the cascades
+    // belong to the primary.
+    if (env_ubo.secondary_dir_intensity.w > 0.0) {
+        vec3 LIGHT_DIR = normalize(env_ubo.secondary_dir_intensity.xyz);
+        vec3 LIGHT_COLOR = env_ubo.secondary_color.rgb;
+        float LIGHT_INTENSITY = env_ubo.secondary_dir_intensity.w;
+        float NdotL = max(dot(N, LIGHT_DIR), 0.0);
+
+        vec3 d = vec3(0.0);
+        vec3 s = vec3(0.0);
+        fjell_light(LIGHT_DIR, LIGHT_COLOR, LIGHT_INTENSITY, NdotL,
+                    N, V, ALBEDO, METALLIC, ROUGHNESS, F0, d, s);
+
+        ivec2 cs_size = textureSize(contact_shadow_tex, 0);
+        ivec2 cs_texel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), cs_size - 1);
+        float contact = texelFetch(contact_shadow_tex, cs_texel, 0).r;
+
+        vec3 radiance = LIGHT_COLOR * LIGHT_INTENSITY;
+        Lo += (d + s) * radiance * NdotL * contact;
         DIFFUSE_LIGHT  += d;
         SPECULAR_LIGHT += s;
     }

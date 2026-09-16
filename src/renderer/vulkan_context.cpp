@@ -1,5 +1,5 @@
 #include "renderer/vulkan_context.hpp"
-#include "environment/environment_state.hpp"
+#include "environment/environment_ubo.hpp"
 
 #include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
@@ -991,6 +991,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.time = elapsed_time_;
 
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
+    const EnvironmentUbo env_ubo = make_environment_ubo(environment);
+    gpu_.environment_buffer(frame_index).write(&env_ubo, sizeof(env_ubo));
 
     history.advance(view, jittered_projection, projection);
 }

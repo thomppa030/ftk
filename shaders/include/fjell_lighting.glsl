@@ -187,4 +187,28 @@ vec3 accumulate_tile_lights(vec3 world_pos, vec3 N, vec3 V, float NdotV,
     return Lo;
 }
 
-#endif
+// ── Second directional body ────────────────────────────────────────────
+// The environment's other distant light (the moon by day, the setting sun
+// by night), shaded like the primary but without cascaded shadows: the
+// caller applies whatever occlusion it has. Zero intensity costs nothing.
+// Requires fjell_pbr.glsl.
+vec3 fjell_secondary_directional(vec3 N, vec3 V, float NdotV,
+                                 vec3 albedo, float metallic, float roughness, vec3 F0,
+                                 vec4 dir_intensity, vec4 color) {
+    if (dir_intensity.w <= 0.0) return vec3(0.0);
+    vec3 L = normalize(dir_intensity.xyz);
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0) return vec3(0.0);
+    vec3 H = normalize(V + L);
+    float NdotH = max(dot(N, H), 0.0);
+    float HdotV = max(dot(H, V), 0.0);
+    float D = distribution_GGX(NdotH, roughness);
+    float G = geometry_smith(NdotV, NdotL, roughness);
+    vec3  F = fresnel_schlick(HdotV, F0);
+    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+    return (diffuse + specular) * color.rgb * dir_intensity.w * NdotL;
+}
+
+#endif // FJELL_LIGHTING_GLSL

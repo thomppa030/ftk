@@ -1,4 +1,5 @@
 #include "environment/environment_resolver.hpp"
+#include "environment/environment_ubo.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -106,4 +107,24 @@ TEST_CASE("Environment and fog nodes fill their settings", "[environment]") {
     REQUIRE(env.fog.height == Approx(12.0f));
     REQUIRE(env.sun_shafts.enabled);
     REQUIRE(env.sun_shafts.step_count == 9);
+}
+
+TEST_CASE("The environment UBO packs both bodies", "[environment]") {
+    EnvironmentState env;
+    env.sun.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    env.sun.intensity = 2.0f;
+    env.sun.color = glm::vec3(1.0f, 0.9f, 0.8f);
+    env.secondary.direction = glm::vec3(1.0f, 0.0f, 0.0f);
+    env.secondary.intensity = 0.25f;
+
+    auto ubo = make_environment_ubo(env);
+    REQUIRE(ubo.sun_dir_intensity.y == Approx(1.0f));
+    REQUIRE(ubo.sun_dir_intensity.w == Approx(2.0f));
+    REQUIRE(ubo.sun_color.g == Approx(0.9f));
+    REQUIRE(ubo.secondary_dir_intensity.x == Approx(1.0f));
+    REQUIRE(ubo.secondary_dir_intensity.w == Approx(0.25f));
+    REQUIRE(ubo.moon_dir_intensity.w == Approx(0.0f));
+    // Slots nothing drives are neutral: no tint, no weather.
+    REQUIRE(ubo.sky_tint_star.r == Approx(1.0f));
+    REQUIRE(ubo.weather0 == glm::vec4(0.0f));
 }

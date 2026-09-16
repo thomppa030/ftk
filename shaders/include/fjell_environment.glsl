@@ -1,0 +1,34 @@
+#ifndef FJELL_ENVIRONMENT_GLSL
+#define FJELL_ENVIRONMENT_GLSL
+
+// Per-frame environment UBO. Mirrors fjell::EnvironmentUbo in
+// src/environment/environment_ubo.hpp: the two are edited together, and the
+// C++ side asserts every offset this std140 layout produces.
+//
+// Global binding 14, "environment_ubo". The global UBO's light_direction and
+// light_color remain the shadow-casting body; this block adds the rest of the
+// environment: both bodies by name, the one lit without cascades, wind,
+// weather and the maps weather projects over the world.
+
+#define FJELL_DECLARE_ENVIRONMENT_UBO(SET, BIND, NAME)                         \
+layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
+    vec4 sun_dir_intensity;        /* xyz toward the sun, w intensity */       \
+    vec4 sun_color;                                                            \
+    vec4 moon_dir_intensity;                                                   \
+    vec4 moon_color;                                                           \
+    vec4 secondary_dir_intensity;  /* lit without cascaded shadows */          \
+    vec4 secondary_color;                                                      \
+    vec4 wind_dir_speed_gust;      /* xyz direction, w speed * gust */         \
+    vec4 weather0;                 /* cloud coverage, cloud density, precipitation, precipitation type */ \
+    vec4 weather1;                 /* wetness, snow, lightning ramp, time of day (hours) */ \
+    vec4 front;                    /* xy front dir on xz, z edge position, w edge softness */ \
+    vec4 sky_tint_star;            /* rgb sky tint, w star intensity */        \
+    mat4 cloud_shadow_vp;                                                      \
+    mat4 overhead_vp;                                                          \
+    uint cloud_shadow_texture;     /* bindless index, 0 = none */              \
+    uint overhead_depth_texture;                                               \
+} NAME
+
+#define FJELL_ENVIRONMENT_UBO_BINDING 14
+
+#endif // FJELL_ENVIRONMENT_GLSL
