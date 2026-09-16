@@ -839,6 +839,58 @@ TEST_CASE("Water reaches its material row through the push block", "[fjsl][water
     REQUIRE(result.find("push.water_material_id") != std::string::npos);
 }
 
+TEST_CASE("An unlit shader still writes every attachment", "[fjsl][glslc]") {
+    // A pass binds four attachments and a fragment that leaves one alone gets
+    // undefined values in it. The lit path writes all four; the unlit path
+    // replaces that whole block, so it has to write them too. Velocity is the
+    // one that bites: undefined values there feed TAA, and the result is a
+    // smear that only appears in motion and never in a still frame.
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    // Every template the unlit substitution can reach. Sky and ui have no PBR
+    // lighting block for it to replace, so they are not in this list.
+    for (const char* name : {"fjell_spatial_template.glsl",
+                             "fjell_water_template.glsl",
+                             "fjell_terrain_template.glsl"}) {
+        INFO("template: " << name);
+        auto tmpl = read_text(shader_dir / "include" / name);
+        REQUIRE_FALSE(tmpl.empty());
+
+        const std::string type = std::string(name).find("water") != std::string::npos
+            ? "water"
+            : (std::string(name).find("terrain") != std::string::npos ? "terrain"
+                                                                       : "spatial");
+        auto meta = parse_fjsl("shader_type " + type + ";\nrender_mode unlit;\n"
+                               "void fragment() { ALBEDO = vec3(0.2); }\n");
+        REQUIRE(meta.render_mode == RenderMode::Unlit);
+
+        auto result = generate_fragment_shader(meta, tmpl);
+        // Assignments, not mentions: the template declares all four as
+        // outputs, so searching for the name finds the declaration whether or
+        // not anything ever writes it.
+        REQUIRE(result.find("out_color =") != std::string::npos);
+        REQUIRE(result.find("out_metallic_roughness =") != std::string::npos);
+        REQUIRE(result.find("out_normal =") != std::string::npos);
+        REQUIRE(result.find("out_velocity =") != std::string::npos);
+
+        // And it has to compile: the velocity write reaches for the clip
+        // positions, which every one of these templates carries.
+        auto out_dir = std::filesystem::temp_directory_path() / "fjell-unlit-test";
+        std::filesystem::create_directories(out_dir);
+        auto frag = out_dir / (std::string(name) + ".frag");
+        std::ofstream(frag) << result;
+        auto spv = out_dir / (std::string(name) + ".spv");
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=frag -I "
+                                    + quoted(shader_dir / "include") + " "
+                                    + quoted(frag) + " -o " + quoted(spv));
+        INFO(output);
+        REQUIRE(status == 0);
+    }
+}
+
 TEST_CASE("The water template accepts every built-in it offers", "[fjsl][water][glslc]") {
     // The template is the only place a water shader's built-ins exist, and a
     // shader naming one that quietly went away fails at the moment someone
@@ -868,6 +920,7 @@ TEST_CASE("The water template accepts every built-in it offers", "[fjsl][water][
             ALBEDO += FLOOR_POS * 0.0 + WORLD_POS * 0.0 + vec3(WATER_UV, 0.0) * 0.0;
             NORMAL = normalize(WORLD_NORMAL + TBN[0] * 0.01);
             EMISSION = vec3(TIME) * 0.0;
+            EMISSION += LIGHT_COLOR * max(dot(NORMAL, LIGHT_DIR), 0.0) * LIGHT_INTENSITY * 0.0;
             ROUGHNESS = 0.06;
             METALLIC = 0.0;
             AO = 1.0;

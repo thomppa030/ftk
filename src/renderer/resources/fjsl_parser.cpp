@@ -532,9 +532,26 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
             // Find the closing brace of main() — last '}' in the file
             auto main_end = result.rfind('}');
             if (main_end != std::string::npos) {
+                // Every attachment the pass binds has to be written, including
+                // the ones an unlit surface has no opinion about: a fragment
+                // that leaves one alone gets undefined values in it, and the
+                // velocity buffer feeding undefined values to TAA is a smear
+                // that only shows in motion.
+                //
+                // The normal goes out zero, the same as geometry drawn without
+                // one, and the velocity is the real screen-space motion, which
+                // the clip positions give without any lighting. Both are in
+                // scope in every template this substitution can reach: sky and
+                // ui have no PBR lighting block to replace.
                 result.replace(lighting_pos, main_end - lighting_pos,
                     "    out_color = vec4(ALBEDO + EMISSION, ALPHA);\n"
-                    "    out_metallic_roughness = vec2(0.0);\n");
+                    "    out_metallic_roughness = vec2(0.0);\n"
+                    "    out_normal = vec2(0.0);\n"
+                    "    {\n"
+                    "        vec2 unlit_cur = frag_clip_pos.xy / frag_clip_pos.w;\n"
+                    "        vec2 unlit_prev = frag_prev_clip_pos.xy / frag_prev_clip_pos.w;\n"
+                    "        out_velocity = (unlit_cur - unlit_prev) * 0.5;\n"
+                    "    }\n");
             }
         }
     }
