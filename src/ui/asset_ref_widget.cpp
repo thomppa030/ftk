@@ -183,4 +183,17 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     return changed;
 }
 
+std::vector<std::string> list_project_assets(const Project* project, std::string_view extension) {
+    std::vector<std::string> files;
+    if (project == nullptr) return files;
+    std::error_code ec;
+    for (auto it = std::filesystem::recursive_directory_iterator(project->root(), ec);
+         !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec) || it->path().extension() != extension) continue;
+        files.push_back(std::filesystem::relative(it->path(), project->root(), ec).generic_string());
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 } // namespace fjell

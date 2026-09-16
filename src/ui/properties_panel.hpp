@@ -4,11 +4,13 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace fjell {
 
 class BindlessTextures;
 class CommandHistory;
+class EnvironmentSubsystem;
 class ContentBrowser;
 class FileBrowser;
 class IconCache;
@@ -37,12 +39,21 @@ public:
 
     void draw();
 
+    /// The subsystem playing the scene's weather, for the World Environment
+    /// inspector's live weather controls. Optional.
+    void set_environment(EnvironmentSubsystem* environment) { environment_ = environment; }
+
 private:
     void draw_material_inspector(struct Node3D& obj);
+    void draw_weather_controls(struct WorldEnvironmentNode& env, const struct InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
+    EnvironmentSubsystem* environment_{nullptr};
+    // The project's .fjweather files for the pick list, rescanned now and then.
+    std::vector<std::string> weather_files_;
+    double weather_files_scanned_at_{0.0};
     ScriptManager* scripts_{nullptr};
     CommandHistory* history_{nullptr};
     GridSettings* grid_settings_{nullptr};

@@ -40,6 +40,7 @@ class ScreenDebugQueue;
 class VulkanContext;
 class Window;
 struct EnvironmentState;
+class EnvironmentSubsystem;
 
 struct SceneEditorDeps {
     Scene* scene;
@@ -61,6 +62,7 @@ struct SceneEditorDeps {
     ScreenDebugQueue* screen_debug_queue{nullptr};
     PlayController* play{nullptr};
     PhysicsSubsystem* physics{nullptr};
+    EnvironmentSubsystem* environment{nullptr};
 };
 
 class SceneEditorContext final : public EditorContext {

@@ -1,4 +1,5 @@
 #include "ui/scene_editor_context.hpp"
+#include "environment/environment_subsystem.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "ui/icons_lc.hpp"
 #include "core/base_path.hpp"
@@ -240,6 +241,7 @@ void SceneEditorContext::init() {
 
     hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_,
                           &command_history(), deps_.icon_cache);
+    properties_panel_.set_environment(deps_.environment);
     properties_panel_.init(deps_.scene, &selected_id_,
                            &deps_.script_subsystem->manager(), &command_history(),
                            &deps_.vulkan_context->grid_pass().settings(),

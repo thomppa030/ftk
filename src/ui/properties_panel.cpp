@@ -17,6 +17,8 @@
 #include "scene/component_registry.hpp"
 #include "scene/light_node.hpp"
 #include "environment/environment_resolver.hpp"
+#include "environment/weather_asset.hpp"
+#include "environment/environment_subsystem.hpp"
 #include "scene/scene.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "scripting/script_manager.hpp"
@@ -33,6 +35,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <span>
 #include <cstdio>
 #include <glm/gtc/type_ptr.hpp>
@@ -107,6 +110,54 @@ static void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext&
         }
         ImGui::PopID();
     }
+}
+
+// Below the Weather reference: a pick list of the project's events, and
+// what is playing right now with Stop and Replay. Setting the field starts
+// the event; the pick list is the same assignment without a file dialog.
+void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+    const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
+    const double now = ImGui::GetTime();
+    if (weather_files_scanned_at_ <= 0.0 || now - weather_files_scanned_at_ > 2.0) {
+        weather_files_scanned_at_ = now;
+        weather_files_ = list_project_assets(project, ".fjweather");
+    }
+
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##EnvWeatherPick", "Pick an event...")) {
+        for (const auto& file : weather_files_) {
+            const std::string name = std::filesystem::path(file).stem().string();
+            if (ImGui::Selectable(name.c_str(), file == env.weather)) {
+                env.weather = file;
+                if (scene_ != nullptr) scene_->mark_dirty();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", file.c_str());
+        }
+        if (weather_files_.empty()) ImGui::TextDisabled("No .fjweather files in the project");
+        ImGui::EndCombo();
+    }
+
+    if (environment_ == nullptr || ictx.resource_manager == nullptr) return;
+    const auto& weather = environment_->state().weather;
+    if (weather.event_id != 0) {
+        const auto* event = ictx.resource_manager->get(WeatherAssetHandle{weather.event_id});
+        ImGui::TextDisabled("Playing %s: %s %d%%", event != nullptr ? event->name.c_str() : "?",
+                            weather_phase_name(weather.phase),
+                            static_cast<int>(weather.phase_progress * 100.0f + 0.5f));
+        if (ImGui::SmallButton("Stop##EnvWeatherStop")) {
+            environment_->play_weather({});
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Let the event tail out with nothing to follow");
+        ImGui::SameLine();
+    } else {
+        ImGui::TextDisabled("No weather playing");
+    }
+    if (!env.weather.empty() && ImGui::SmallButton("Replay##EnvWeatherReplay")) {
+        if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
+            environment_->play_weather(*handle);
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Start the scene's weather event again from its approach");
 }
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
@@ -501,6 +552,7 @@ void PropertiesPanel::draw() {
                                  .extensions = weather_exts,
                                  .ctx = &ictx},
                                 env->weather);
+                draw_weather_controls(*env, ictx);
 
                 const bool gradient_mode = env->hdri_path.empty();
                 ImGui::BeginDisabled(!gradient_mode);
