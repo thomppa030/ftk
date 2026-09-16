@@ -63,6 +63,7 @@ FJELL_SDK_EXPORT void     fjell_weather_set_climate(uint32_t climate_handle_id);
 FJELL_SDK_EXPORT void     fjell_weather_hold(int held);
 FJELL_SDK_EXPORT int      fjell_weather_is_held();
 FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index);
+FJELL_SDK_EXPORT void     fjell_weather_strike(float x, float y, float z, float intensity);
 }
 
 namespace fjell {
@@ -250,6 +251,15 @@ struct Weather {
     /// @param index 0 is the next event, 1 the one after it.
     [[nodiscard]] static uint32_t forecast(uint32_t index = 0) {
         return fjell_weather_forecast(index);
+    }
+
+    /// Strike lightning now, without waiting for the storm to roll one: the
+    /// playing event's lightning, so its colour, reach and flash are the
+    /// ones the artist authored.
+    /// @param offset    Where it lands relative to the listener, in metres.
+    /// @param intensity Scales the flash and the light.
+    static void strike(const glm::vec3& offset, float intensity = 1.0f) {
+        fjell_weather_strike(offset.x, offset.y, offset.z, intensity);
     }
 };
 

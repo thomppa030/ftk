@@ -8,7 +8,9 @@
 #include "core/project.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/systems/vfx_asset.hpp"
+#include "renderer/systems/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/light_node.hpp"
 #include "environment/climate_asset.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -61,6 +63,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
     update_beds(ctx);
     update_precipitation(ctx);
+    update_lightning(ctx);
     dispatch_changes(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
@@ -307,6 +310,96 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
     follow(outgoing_fall_, player_.outgoing());
 }
 
+void EnvironmentSubsystem::strike_lightning(const glm::vec3& relative_position, float intensity) {
+    player_.strike(relative_position, intensity);
+}
+
+void EnvironmentSubsystem::stop_lightning(Scene& scene) {
+    for (const auto& light : strike_lights_) {
+        if (light.node_id != 0) scene.queue_destroy(light.node_id);
+    }
+    strike_lights_.clear();
+    pending_thunder_.clear();
+}
+
+void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
+    if (!playing()) {
+        stop_lightning(ctx.scene);
+        return;
+    }
+
+    // Where the listener is, so a strike lands somewhere around them.
+    glm::vec3 listener{0.0f};
+    for (const auto& obj : ctx.scene.objects()) {
+        if (const auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
+            listener = glm::vec3(cam->world_matrix_[3]);
+            break;
+        }
+    }
+
+    // A new strike: its own light, its bolt, and thunder on its way.
+    if (const auto* strike = player_.strike_this_tick(); strike != nullptr && strike->asset != nullptr) {
+        const auto& l = strike->asset->lightning;
+        const glm::vec3 world = listener + strike->position;
+        const float distance = glm::length(strike->position);
+
+        auto node = std::make_unique<PointLightNode>();
+        node->name = "Lightning";
+        node->transform.position = world + glm::vec3(0.0f, l.radius * 0.5f, 0.0f);
+        node->color = l.color;
+        node->intensity = 0.0f;   // the flash curve drives it from here
+        node->radius = l.radius;
+        StrikeLight light;
+        light.node_id = ctx.scene.add_node(std::move(node));
+        light.remaining = l.duration;
+        light.duration = l.duration;
+        light.intensity = l.intensity * strike->intensity;
+        strike_lights_.push_back(light);
+
+        if (!l.vfx.empty() && resources_ != nullptr && vfx_ != nullptr) {
+            if (auto handle = resources_->load_vfx_asset(base_path::resolve_asset(l.vfx, ctx.project))) {
+                vfx_->spawn(*handle, world, ctx.scene, *resources_);
+            }
+        }
+        if (!strike->asset->audio.thunder.empty()) {
+            // Sound crosses the distance at its own pace; that gap is what
+            // tells you how far the storm is.
+            pending_thunder_.push_back(PendingThunder{
+                .delay = distance / 343.0f,
+                .volume = glm::clamp(1.0f - distance / std::max(l.max_distance, 1.0f), 0.15f, 1.0f),
+                .position = world,
+                .clip = strike->asset->audio.thunder});
+        }
+    }
+
+    // The lights follow the same flash the sky does, then go.
+    const float flash = state_.weather.lightning;
+    for (size_t i = strike_lights_.size(); i-- > 0;) {
+        StrikeLight& light = strike_lights_[i];
+        light.remaining -= ctx.dt;
+        if (light.remaining <= 0.0f) {
+            ctx.scene.queue_destroy(light.node_id);
+            strike_lights_.erase(strike_lights_.begin() + static_cast<long>(i));
+            continue;
+        }
+        if (auto* node = dynamic_cast<PointLightNode*>(ctx.scene.find(light.node_id))) {
+            node->intensity = light.intensity * flash;
+        }
+    }
+
+    // Thunder arrives when it arrives.
+    for (size_t i = pending_thunder_.size(); i-- > 0;) {
+        PendingThunder& thunder = pending_thunder_[i];
+        thunder.delay -= ctx.dt;
+        if (thunder.delay > 0.0f) continue;
+        if (audio_ != nullptr) {
+            audio_->engine().play_oneshot(thunder.clip, thunder.position, thunder.volume,
+                                          1.0f, ctx.project);
+        }
+        pending_thunder_.erase(pending_thunder_.begin() + static_cast<long>(i));
+    }
+}
+
 void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
     // Only while playing: an editor scrub is not something a script should
     // be told about, and nothing is running to hear it.
@@ -337,6 +430,7 @@ void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
     stop_beds(active_beds_);
     stop_beds(outgoing_beds_);
     stop_precipitation(ctx.scene);
+    stop_lightning(ctx.scene);
     phases_seen_ = false;
 }
 

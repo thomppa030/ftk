@@ -89,6 +89,21 @@ public:
     [[nodiscard]] float wetness() const { return wetness_; }
     [[nodiscard]] float snow() const { return snow_; }
 
+    /// A strike, for whoever makes it visible and audible: where it landed
+    /// relative to the listener, and how bright it was.
+    struct Strike {
+        glm::vec3 position{0.0f};   // relative to the listener
+        float intensity{1.0f};
+        const WeatherAsset* asset{nullptr};   // whose lightning it is
+    };
+    /// The strike that happened this tick, if one did.
+    [[nodiscard]] const Strike* strike_this_tick() const {
+        return struck_this_tick_ ? &last_strike_ : nullptr;
+    }
+    /// Strike now rather than waiting for the roll: what a script's call and
+    /// an editor's button reach.
+    void strike(const glm::vec3& relative_position, float intensity);
+
 private:
     static void advance(Playing& p, float dt);
     static void begin_tail(Playing& p);
@@ -101,6 +116,14 @@ private:
     float snow_{0.0f};
     float gust_time_{0.0f};
     glm::vec2 wind_drift_{0.0f};
+
+    // Lightning: when the next strike falls, and how far through the
+    // authored flash the last one is.
+    float strike_countdown_{-1.0f};
+    float flash_time_{-1.0f};
+    bool struck_this_tick_{false};
+    Strike last_strike_{};
+    uint32_t strike_seed_{1};
 };
 
 } // namespace fjell

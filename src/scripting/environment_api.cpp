@@ -156,3 +156,8 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index) {
     auto handle = resources->load_weather_asset(path);
     return handle ? handle->id : 0u;
 }
+
+extern "C" FJELL_SDK_EXPORT void fjell_weather_strike(float x, float y, float z, float intensity) {
+    auto* env = fjell::script_services().environment;
+    if (env) env->strike_lightning(glm::vec3{x, y, z}, intensity);
+}

@@ -14,6 +14,7 @@ namespace fjell {
 
 class AudioSubsystem;
 class ScriptSubsystem;
+class VfxSubsystem;
 class ResourceManager;
 class Scene;
 struct DayProfileAsset;
@@ -58,6 +59,10 @@ public:
     /// rolled until it is let go.
     /// Hand the weather to a climate, or to nothing with an invalid handle.
     void set_climate(ClimateAssetHandle climate);
+    /// Strike lightning now: the playing event's, somewhere around the
+    /// listener, or at `relative_position` when one is given.
+    void strike_lightning(const glm::vec3& relative_position = glm::vec3(0.0f, 0.0f, 250.0f),
+                          float intensity = 1.0f);
     void hold_weather(bool held) { director_.hold(held); }
     [[nodiscard]] bool weather_held() const { return director_.held(); }
     [[nodiscard]] const ClimateDirector& director() const { return director_; }
@@ -77,6 +82,9 @@ public:
     /// without it the changes still happen, no script hears about them.
     void set_scripts(ScriptSubsystem* scripts) { scripts_ = scripts; }
 
+    /// Where a strike's bolt effect is spawned. Optional.
+    void set_vfx(VfxSubsystem* vfx) { vfx_ = vfx; }
+
 protected:
     void on_play_stop(const TickContext& ctx) override;
 
@@ -94,6 +102,9 @@ private:
     /// during a handoff, each at its own weight, so rain fades into snow.
     void update_precipitation(const TickContext& ctx);
     void stop_precipitation(Scene& scene);
+    /// Light the world from a strike and set its thunder on its way.
+    void update_lightning(const TickContext& ctx);
+    void stop_lightning(Scene& scene);
     /// Fire the script hooks for whatever changed since last frame.
     void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);
@@ -119,6 +130,7 @@ private:
     WeatherRates rates_;
     AudioSubsystem* audio_{nullptr};
     ScriptSubsystem* scripts_{nullptr};
+    VfxSubsystem* vfx_{nullptr};
     // What the last frame reported, so a change is what fires a hook.
     uint32_t last_event_{0};
     WeatherPhase last_weather_phase_{WeatherPhase::Sustain};
@@ -135,6 +147,23 @@ private:
     };
     Precipitation active_fall_;
     Precipitation outgoing_fall_;
+
+    // A strike's light, alive for the flash's length, and the thunder still
+    // travelling toward the listener.
+    struct StrikeLight {
+        uint32_t node_id{0};
+        float remaining{0.0f};
+        float duration{1.0f};
+        float intensity{0.0f};
+    };
+    std::vector<StrikeLight> strike_lights_;
+    struct PendingThunder {
+        float delay{0.0f};
+        float volume{1.0f};
+        glm::vec3 position{0.0f};
+        std::string clip;
+    };
+    std::vector<PendingThunder> pending_thunder_;
     uint32_t play_count_{0};   // seeds the rolled durations
     std::vector<NamedValue> script_sky_uniforms_;
 };

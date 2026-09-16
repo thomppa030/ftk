@@ -159,6 +159,13 @@ WeatherSkyOverride WeatherPlayer::sky_override() const {
     return result;
 }
 
+void WeatherPlayer::strike(const glm::vec3& relative_position, float intensity) {
+    last_strike_ = Strike{.position = relative_position, .intensity = intensity,
+                          .asset = has_active_ ? active_.asset : nullptr};
+    struck_this_tick_ = true;
+    flash_time_ = 0.0f;
+}
+
 void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRates& rates) {
     WeatherParams& w = state.weather;
     w.params.clear();
@@ -281,6 +288,52 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
     if (raining && snow_ > 0.0f) snow_ = approach(snow_, 0.0f, dt, rates.melting_seconds * 0.25f);
     w.wetness = wetness_;
     w.snow = snow_;
+
+    // ── Lightning ──
+    // The rate is strikes a minute, from the event's track, so a storm
+    // builds and passes. What a strike looks like is the event's to author.
+    struck_this_tick_ = false;
+    const WeatherAsset* lightning_asset = has_active_ ? active_.asset : nullptr;
+    if (w.lightning_rate > 0.0f && lightning_asset != nullptr) {
+        if (strike_countdown_ < 0.0f) strike_countdown_ = 60.0f / w.lightning_rate;
+        strike_countdown_ -= dt;
+        if (strike_countdown_ <= 0.0f) {
+            strike_countdown_ = -1.0f;
+            const auto& l = lightning_asset->lightning;
+            // Somewhere around the listener, biased toward the far end so
+            // most strikes are distant and a close one is an event.
+            strike_seed_ = strike_seed_ * 1664525U + 1013904223U;
+            const float u1 = static_cast<float>((strike_seed_ >> 8) & 0xFFFFU) / 65535.0f;
+            strike_seed_ = strike_seed_ * 1664525U + 1013904223U;
+            const float u2 = static_cast<float>((strike_seed_ >> 8) & 0xFFFFU) / 65535.0f;
+            const float distance = glm::mix(l.min_distance, l.max_distance, u1 * u1);
+            const float bearing = u2 * glm::two_pi<float>();
+            strike(glm::vec3(std::sin(bearing) * distance, 0.0f, std::cos(bearing) * distance), 1.0f);
+        }
+    } else {
+        strike_countdown_ = -1.0f;
+    }
+
+    // The flash follows the event's curve over its own duration: a stutter
+    // if that is what was authored, a single pulse when it was not.
+    w.lightning = 0.0f;
+    if (flash_time_ >= 0.0f && lightning_asset != nullptr) {
+        const auto& l = lightning_asset->lightning;
+        flash_time_ += dt;
+        const float t = l.duration > 0.0f ? flash_time_ / l.duration : 1.0f;
+        if (t >= 1.0f) {
+            flash_time_ = -1.0f;
+        } else {
+            const float shape = l.flash.keyframes.empty()
+                // No curve authored: one pulse that fades.
+                ? (1.0f - t) * (1.0f - t)
+                : l.flash.evaluate(t);
+            // Distance dims the flash, so a strike on the horizon lights the
+            // sky rather than the scene.
+            const float reach = glm::clamp(1.0f - glm::length(last_strike_.position) / std::max(l.max_distance, 1.0f), 0.0f, 1.0f);
+            w.lightning = glm::clamp(shape * last_strike_.intensity * glm::mix(0.35f, 1.0f, reach), 0.0f, 1.0f);
+        }
+    }
 
     // Playback, for scripts and the inspector.
     if (has_active_) {

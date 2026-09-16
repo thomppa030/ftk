@@ -60,6 +60,8 @@ void sky() {
                              FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
                              SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT + cloud_color * 0.2 * daylight);
     SKY = mix(SKY, cloud.rgb, cloud.a);
+    // A strike lights the clouds from within.
+    SKY += cloud.rgb * cloud.a * LIGHTNING * 3.0;
 
     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.9994);
 

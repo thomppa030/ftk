@@ -10,6 +10,8 @@
 #include "scene/scene.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "ui/imgui_curve_editor.hpp"
+#include "ui/inspector_widgets.hpp"
 
 #include <imgui.h>
 
@@ -252,12 +254,55 @@ void WeatherEditorContext::draw_properties() {
     ImGui::TextDisabled("The event's own sky (optional)");
     InspectorContext ictx{};
     ictx.project_mgr = deps_.project_mgr;
+    (void)ictx;
     static const std::string sky_exts[] = {".fjsl"};
     if (asset_ref_field({.label = "Sky Shader", .id = "##WeatherSky", .extensions = sky_exts, .ctx = &ictx},
                         e.sky_shader)) changed = true;
     static const std::string day_exts[] = {".fjday"};
     if (asset_ref_field({.label = "Day Profile", .id = "##WeatherDay", .extensions = day_exts, .ctx = &ictx},
                         e.day_profile)) changed = true;
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Lightning");
+    ImGui::TextDisabled("How often it strikes is the lightning_rate track");
+    auto& l = e.lightning;
+    if (color_edit_linear("Color##Lightning", l.color)) changed = true;
+    if (ImGui::DragFloat("Intensity##Lightning", &l.intensity, 25.0f, 0.0f, 100000.0f, "%.0f")) changed = true;
+    if (ImGui::DragFloat("Radius##Lightning", &l.radius, 5.0f, 1.0f, 5000.0f, "%.0f m")) changed = true;
+    if (ImGui::DragFloat("Flash Length##Lightning", &l.duration, 0.01f, 0.02f, 5.0f, "%.2f s")) changed = true;
+    float range[2] = {l.min_distance, l.max_distance};
+    if (ImGui::DragFloat2("Distance##Lightning", range, 5.0f, 1.0f, 20000.0f, "%.0f m")) {
+        l.min_distance = std::min(range[0], range[1]);
+        l.max_distance = std::max(range[0], range[1]);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("How near and how far strikes land from the listener");
+    static const std::string bolt_exts[] = {".fjvfx"};
+    if (asset_ref_field({.label = "Bolt", .id = "##LightningVfx", .extensions = bolt_exts, .ctx = &ictx},
+                        l.vfx)) changed = true;
+
+    // The flash's shape over its own length: a strike is a stutter, and that
+    // is what this curve is for.
+    ImGui::TextDisabled("Flash shape");
+    if (l.flash.keyframes.empty()) {
+        ImGui::TextDisabled("A single pulse. Add a curve to shape the stutter.");
+        if (ImGui::SmallButton("Add flash curve")) {
+            l.flash = Curve::linear(1.0f, 0.0f);
+            changed = true;
+        }
+    } else {
+        if (CurveEditor("##LightningFlash", l.flash, ImVec2(-1, 110), 0.0f, 1.0f)) changed = true;
+        if (ImGui::SmallButton("Clear flash curve")) {
+            l.flash.keyframes.clear();
+            changed = true;
+        }
+    }
+    if (deps_.environment != nullptr && is_playing_here()) {
+        if (ImGui::SmallButton("Strike now")) deps_.environment->strike_lightning();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Fire one strike of this event's lightning in the scene");
+        }
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled("Effects");

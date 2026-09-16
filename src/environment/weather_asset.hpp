@@ -3,6 +3,8 @@
 #include "core/result.hpp"
 #include "environment/track_set.hpp"
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -88,6 +90,31 @@ struct WeatherAsset {
     /// being +Z; `wind_veer` adds to it over the event. The front comes
     /// from upwind of that heading.
     float wind_heading{0.0f};
+
+    /// What a strike of this event's lightning looks like. The rate comes
+    /// from the `lightning_rate` track, so a storm can build and pass; this
+    /// is what each strike is when one happens.
+    struct Lightning {
+        /// The flash over its own life, 0..1 in and 0..1 out. A strike is a
+        /// stutter rather than a fade: two or three quick pulses is what
+        /// tells lightning apart from a light being switched on, and that
+        /// shape is authored here rather than fixed in the engine. Empty
+        /// falls back to a single pulse.
+        Curve flash;
+        /// How long one strike's flash lasts, in seconds.
+        float duration{0.35f};
+        /// The colour it throws, linear. A cold front and a dust storm do
+        /// not flash the same colour.
+        glm::vec3 color{0.75f, 0.82f, 1.0f};
+        /// How bright the light at the strike is, and how far it reaches.
+        float intensity{2000.0f};
+        float radius{400.0f};
+        /// How far from the listener strikes land, in metres.
+        float min_distance{200.0f};
+        float max_distance{3000.0f};
+        /// A bolt effect spawned at the strike, optional.
+        std::string vfx;
+    } lightning;
 
     /// Optional: the event brings its own sky and day profile, faded in by
     /// the `sky_blend` track. Empty keeps the scene's.

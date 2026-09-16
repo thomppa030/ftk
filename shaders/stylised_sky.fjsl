@@ -44,4 +44,6 @@ void sky() {
                              WIND_DRIFT, FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
                              SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT);
     SKY = mix(SKY, cloud.rgb, step(0.5, cloud.a));
+    // Hard-edged sky, hard-edged flash.
+    SKY += cloud.rgb * step(0.5, cloud.a) * step(0.35, LIGHTNING) * 2.0;
 }

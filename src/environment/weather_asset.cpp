@@ -106,6 +106,36 @@ Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
     asset.wetness_target = std::clamp(j.value("wetness_target", 1.0f), 0.0f, 1.0f);
     asset.snow_target = std::clamp(j.value("snow_target", 1.0f), 0.0f, 1.0f);
     asset.wind_heading = j.value("wind_heading", 0.0f);
+    if (j.contains("lightning") && j["lightning"].is_object()) {
+        const auto& jl = j["lightning"];
+        auto& l = asset.lightning;
+        l.duration = std::max(jl.value("duration", l.duration), 0.01f);
+        if (jl.contains("color")) {
+            const auto c = color_space::srgb_to_linear(
+                glm::vec3{jl["color"][0].get<float>(), jl["color"][1].get<float>(),
+                          jl["color"][2].get<float>()});
+            l.color = c;
+        }
+        l.intensity = jl.value("intensity", l.intensity);
+        l.radius = jl.value("radius", l.radius);
+        l.min_distance = jl.value("min_distance", l.min_distance);
+        l.max_distance = std::max(jl.value("max_distance", l.max_distance), l.min_distance);
+        l.vfx = jl.value("vfx", std::string{});
+        if (jl.contains("flash") && jl["flash"].is_array()) {
+            for (const auto& k : jl["flash"]) {
+                CurveKeyframe key;
+                key.time = std::clamp(k.value("t", 0.0f), 0.0f, 1.0f);
+                key.value = k.value("v", 0.0f);
+                key.tangent_in = k.value("in", 0.0f);
+                key.tangent_out = k.value("out", 0.0f);
+                l.flash.keyframes.push_back(key);
+            }
+            std::stable_sort(l.flash.keyframes.begin(), l.flash.keyframes.end(),
+                             [](const CurveKeyframe& a, const CurveKeyframe& b) {
+                                 return a.time < b.time;
+                             });
+        }
+    }
     asset.sky_shader = j.value("sky_shader", std::string{});
     asset.day_profile = j.value("day_profile", std::string{});
     if (j.contains("vfx") && j["vfx"].is_object()) {
@@ -140,6 +170,26 @@ Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& as
     j["wetness_target"] = asset.wetness_target;
     j["snow_target"] = asset.snow_target;
     j["wind_heading"] = asset.wind_heading;
+    {
+        const auto& l = asset.lightning;
+        nlohmann::json jl;
+        jl["duration"] = l.duration;
+        const glm::vec3 srgb = color_space::linear_to_srgb(l.color);
+        jl["color"] = {srgb.r, srgb.g, srgb.b};
+        jl["intensity"] = l.intensity;
+        jl["radius"] = l.radius;
+        jl["min_distance"] = l.min_distance;
+        jl["max_distance"] = l.max_distance;
+        if (!l.vfx.empty()) jl["vfx"] = l.vfx;
+        if (!l.flash.keyframes.empty()) {
+            auto& keys = jl["flash"] = nlohmann::json::array();
+            for (const auto& k : l.flash.keyframes) {
+                keys.push_back({{"t", k.time}, {"v", k.value},
+                                {"in", k.tangent_in}, {"out", k.tangent_out}});
+            }
+        }
+        j["lightning"] = std::move(jl);
+    }
     if (!asset.sky_shader.empty()) j["sky_shader"] = asset.sky_shader;
     if (!asset.day_profile.empty()) j["day_profile"] = asset.day_profile;
     nlohmann::json jv = nlohmann::json::object();

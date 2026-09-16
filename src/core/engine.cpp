@@ -140,6 +140,7 @@ void Engine::init_subsystems() {
     environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
     environment_subsystem_->set_audio(audio_subsystem_);
     environment_subsystem_->set_scripts(script_subsystem_);
+    environment_subsystem_->set_vfx(vfx_subsystem_);
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
     physics_subsystem_->set_environment(environment_subsystem_);
