@@ -1,0 +1,30 @@
+# FJSL — Spatial Shaders
+
+> Stub — fill in.
+
+## Scope
+The Godot-inspired shader format. Author a `fragment()` (and optionally `vertex()`) that extends the engine's PBR pipeline by writing to built-in outputs. Empty `fragment()` = standard PBR.
+
+Two other shader types share the format: `shader_type sky;` for the sky pass, and `shader_type ui;` for game UI quads, documented in [Game-UI/Materials](../Game-UI/Materials.md).
+
+## Planned sections
+- File anatomy
+  - `shader_type spatial;`
+  - `render_mode unlit;` and other modes
+  - `uniform` declarations with hints
+- Built-in fragment inputs
+  - `UV`, `WORLD_POS`, `WORLD_NORMAL`, `TBN`, `VIEW_DIR`, `COLOR`, `TIME`
+- Built-in outputs
+  - `ALBEDO`, `ROUGHNESS`, `METALLIC`, `NORMAL`, `EMISSION`, `AO`, `ALPHA`
+- Uniform hints (drive inspector UI)
+  - `hint_color`, `hint_range(min, max, step)`, `hint_black`, `hint_normal`, asset hints
+- The vertex stage — `vertex()` for displacement (meshlet-compatible)
+- Texture sampling — `uniform sampler2D` + `texture(...)`
+- Compilation pipeline — `.fjsl` → GLSL → SPIR-V via `glslc`
+- Per-shader pipeline variants — opaque / transparent / mesh-shader / shadow
+- Hot-reload behavior
+- Worked examples
+  - Tint
+  - Animated UV scroll
+  - Triplanar
+  - Vertex wave displacement
