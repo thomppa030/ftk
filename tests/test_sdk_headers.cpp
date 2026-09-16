@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "fjell/registry.hpp"
+#include "fjell/environment_api.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =

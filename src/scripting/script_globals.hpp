@@ -8,6 +8,7 @@ class AudioSubsystem;
 class CameraSubsystem;
 class Clock;
 class DebugDrawQueue;
+class EnvironmentSubsystem;
 class Input;
 class InputActionMap;
 class NetManager;
@@ -28,6 +29,7 @@ struct ScriptServices {
     VfxSubsystem* vfx{};
     AudioSubsystem* audio{};
     CameraSubsystem* camera{};
+    EnvironmentSubsystem* environment{};
     VulkanContext* vulkan{};
     InputActionMap* input_actions{};
     TimerManager* timers{};

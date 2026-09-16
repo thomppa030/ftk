@@ -296,6 +296,7 @@ void Engine::init_resources() {
     ss.vfx = vfx_subsystem_;
     ss.audio = audio_subsystem_;
     ss.camera = camera_subsystem_;
+    ss.environment = environment_subsystem_;
     ss.vulkan = vulkan_context_.get();
     ss.input_actions = &input_action_map_;
     ss.timers = &script_subsystem_->manager().timers();
