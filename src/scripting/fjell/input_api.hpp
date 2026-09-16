@@ -79,6 +79,14 @@ struct InputAPI {
     /// Bind a `void(glm::vec2)` method — the form for 2D axis actions such as
     /// movement or look. The argument is the stick/WASD vector.
     /// Pair with `EInputTrigger::Triggered` to receive it every frame.
+    ///
+    /// @warning A mouse-motion source and a stick source deliver different
+    ///          kinds of quantity through this one callback, and a look action
+    ///          bound to both has to scale them separately. A mouse delta is a
+    ///          displacement in pixels — already independent of frame rate, so
+    ///          multiplying it by `dt` makes it frame-rate dependent, which is
+    ///          the opposite of the intent. A stick is a rate and must be
+    ///          multiplied by `dt`. Use `active_device()` to tell them apart.
     template <auto Method, typename T>
         requires requires(T* t) { (t->*Method)(glm::vec2{}); }
     static void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance) {

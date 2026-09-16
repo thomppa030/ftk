@@ -92,7 +92,11 @@ float InputActionMap::read_source_value(InputSource source, const Input& raw) co
         return raw.is_mouse_button_held(btn) ? 1.0f : 0.0f;
     }
     if (source == InputSource::mouse_move_x) return static_cast<float>(raw.mouse_delta().x);
-    if (source == InputSource::mouse_move_y) return static_cast<float>(raw.mouse_delta().y);
+    // Cursor coordinates grow downward, so a mouse pushed forward reports
+    // negative Y. Flipped here for the same reason stick Y is flipped below:
+    // up is +1 everywhere, and one action bound to both a mouse and a stick
+    // must not mean opposite things depending on which the player picks up.
+    if (source == InputSource::mouse_move_y) return -static_cast<float>(raw.mouse_delta().y);
     if (source == InputSource::mouse_scroll_x) return static_cast<float>(raw.scroll_delta().x);
     if (source == InputSource::mouse_scroll_y) return static_cast<float>(raw.scroll_delta().y);
     if (is_pad_button_source(source)) {
@@ -104,9 +108,9 @@ float InputActionMap::read_source_value(InputSource source, const Input& raw) co
         float value = raw.pad_axis(axis);
         // Sticks report -1 when pushed up, following SDL. The composite
         // binding defines up as +1 (see evaluate_binding), so flip stick Y
-        // here to keep one action from meaning opposite things on keyboard
-        // and pad. Done before modifiers so deadzone maths is unaffected,
-        // and triggers are left alone — they are unipolar.
+        // here to keep one action from meaning opposite things across
+        // keyboard, mouse and pad. Done before modifiers so deadzone maths
+        // is unaffected, and triggers are left alone — they are unipolar.
         if (source == InputSource::pad_lstick_y
             || source == InputSource::pad_rstick_y) {
             value = -value;
