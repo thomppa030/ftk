@@ -232,6 +232,9 @@ struct GravityModule final : VfxModule {
 struct WindModule final : VfxModule {
     glm::vec3 direction{1.0f, 0.0f, 0.0f};
     float strength{1.0f};
+    // Follow the environment's wind: direction from the weather, strength
+    // scaled by its speed and gusts, so every effect leans the same way.
+    bool use_global{false};
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::wind; }
     [[nodiscard]] const char* name() const override { return "Wind"; }

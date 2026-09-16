@@ -35,9 +35,11 @@ layout(std430, set = 0, binding = 7) buffer SubEmitterEventCounters {
 
 #include "include/particle_modules.glsl"
 #include "fjell_global_ubo.glsl"
+#include "fjell_environment.glsl"
 
 // Set 1 = global descriptors (for SDF + depth access)
 FJELL_DECLARE_GLOBAL_UBO(1, 0, global_ubo);
+FJELL_DECLARE_ENVIRONMENT_UBO(1, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
 
 layout(set = 1, binding = 4) uniform sampler2D depth_texture;
 layout(set = 1, binding = 9) uniform sampler3D scene_sdf;
@@ -172,6 +174,12 @@ void main() {
         else if (mtype == MOD_WIND) {
             vec3 dir = MOD_VEC3(mo, 2);
             float str = MOD_FLOAT(mo, 5);
+            if (module_data[mo + 6] != 0u) {
+                // The environment's wind: its direction, its speed with the
+                // gust folded in, scaled by the module's strength.
+                dir = env_ubo.wind_dir_speed_gust.xyz;
+                str *= env_ubo.wind_dir_speed_gust.w;
+            }
             p.velocity += dir * str * dt;
         }
         else if (mtype == MOD_ORBITAL) {

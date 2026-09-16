@@ -914,6 +914,7 @@ void VfxEditorContext::draw_context_menu() {
                 add_expr("Time",       ExprNodeType::time);
                 add_expr("Delta Time", ExprNodeType::delta_time);
                 add_expr("Random",     ExprNodeType::random);
+                add_expr("Global Wind", ExprNodeType::global_wind);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Math")) {

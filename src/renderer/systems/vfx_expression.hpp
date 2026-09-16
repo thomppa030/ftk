@@ -40,6 +40,8 @@ enum class ExprNodeType : uint8_t {
     combine_vec3, // x, y, z → vec3
     split_vec4,   // vec4 → x, y, z, w
     combine_vec4, // x, y, z, w → vec4
+    // Sources, continued
+    global_wind,  // the environment's wind as a vec3: direction * speed * gust
 };
 
 struct ExprNodePinDef {

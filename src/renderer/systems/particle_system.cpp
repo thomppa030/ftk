@@ -1,4 +1,5 @@
 #include "renderer/systems/particle_system.hpp"
+#include "environment/environment_state.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
@@ -1504,7 +1505,11 @@ void ParticleSystem::update(const RenderSubsystemContext& ctx) {
 void ParticleSystem::record_compute(const FrameContext& ctx) {
     if (!ctx.scene) return;
     auto& scene_ref = const_cast<Scene&>(*ctx.scene);
-    dispatch_compute(ctx.cmd, ctx.delta_time, scene_ref,
+    const glm::vec3 wind = ctx.environment != nullptr
+        ? ctx.environment->weather.wind_direction *
+              (ctx.environment->weather.wind_speed * ctx.environment->weather.wind_gust)
+        : glm::vec3{0.0f};
+    dispatch_compute(ctx.cmd, ctx.delta_time, scene_ref, wind,
                      ctx.global_descriptor_set,
                      ctx.camera_position,
                      cached_view_projection_);
@@ -1775,7 +1780,7 @@ static float max_velocity_magnitude(const VfxEmitter& emitter) {
     return max_speed;
 }
 
-void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
+void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene, const glm::vec3& wind,
                                       VkDescriptorSet global_set,
                                       const glm::vec3& camera_pos,
                                       const glm::mat4& view_projection) {
@@ -2093,7 +2098,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // time instead of sampling whatever phase the engine's shared clock
         // happens to be at.
         float expr_time = sub.instanced_time ? sub.local_elapsed : accumulated_time_;
-        evaluate_expression_graph(sub, expr_time, dt);
+        evaluate_expression_graph(sub, expr_time, dt, wind);
 
         // Write module data. Each emitter gets a fixed MODULE_BUDGET_BYTES
         // window; write_gpu_modules() itself enforces that budget (dropping

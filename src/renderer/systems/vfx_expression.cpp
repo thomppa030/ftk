@@ -98,6 +98,8 @@ std::vector<ExprNodePinDef> expr_node_pins(ExprNodeType type) {
                 {"w", PinDataType::float_type, false},
                 {"vec", PinDataType::vec4_type, true},
             };
+        case ExprNodeType::global_wind:
+            return {{"wind", PinDataType::vec3_type, true}};
     }
     return {};
 }
@@ -125,6 +127,7 @@ const char* expr_node_name(ExprNodeType type) {
         case ExprNodeType::combine_vec3:   return "Combine Vec3";
         case ExprNodeType::split_vec4:     return "Split Vec4";
         case ExprNodeType::combine_vec4:   return "Combine Vec4";
+        case ExprNodeType::global_wind:    return "Global Wind";
     }
     return "???";
 }

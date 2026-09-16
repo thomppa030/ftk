@@ -489,16 +489,24 @@ std::vector<PinDescriptor> WindModule::pin_descriptors() {
 }
 
 uint32_t WindModule::write_gpu_data(uint8_t* buffer) const {
-    // header(2) + direction(3) + strength(1) = 6 words
-    uint32_t total = write_header(buffer, type(), 6);
+    // header(2) + direction(3) + strength(1) + use_global(1) = 7 words
+    uint32_t total = write_header(buffer, type(), 7);
     write_vec3(buffer, 8, direction);
     write_float(buffer, 20, strength);
+    write_uint(buffer, 24, use_global ? 1u : 0u);
     return total;
 }
 
 bool WindModule::draw_inspector() {
     bool changed = false;
+    if (ImGui::Checkbox("Use Global Wind", &use_global)) changed = true;
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Blow with the environment's wind: its direction, its speed and gusts\n"
+                          "times Strength. Direction below is ignored.");
+    }
+    ImGui::BeginDisabled(use_global);
     if (ImGui::DragFloat3("Direction", &direction.x, 0.01f, -1.0f, 1.0f)) changed = true;
+    ImGui::EndDisabled();
     if (ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f)) changed = true;
     return changed;
 }
@@ -507,6 +515,7 @@ void WindModule::to_json(nlohmann::json& j) const {
     j["type"] = "Wind";
     j["direction"] = {direction.x, direction.y, direction.z};
     j["strength"] = strength;
+    if (use_global) j["use_global"] = true;
 }
 
 void WindModule::from_json(const nlohmann::json& j) {
@@ -515,6 +524,7 @@ void WindModule::from_json(const nlohmann::json& j) {
         direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
     }
     strength = j.value("strength", 1.0f);
+    use_global = j.value("use_global", false);
 }
 
 // ─── Orbital ────────────────────────────────────────────────────────────

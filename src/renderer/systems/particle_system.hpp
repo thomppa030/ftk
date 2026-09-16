@@ -117,7 +117,7 @@ public:
     void release_scene(uint64_t scene_id);
 
 private:
-    void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
+    void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene, const glm::vec3& wind,
                           VkDescriptorSet global_set,
                           const glm::vec3& camera_pos,
                           const glm::mat4& view_projection);

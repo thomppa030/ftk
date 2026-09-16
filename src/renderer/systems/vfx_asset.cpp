@@ -80,6 +80,7 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
                     {"combine_vec3",   ExprNodeType::combine_vec3},
                     {"split_vec4",     ExprNodeType::split_vec4},
                     {"combine_vec4",   ExprNodeType::combine_vec4},
+                    {"global_wind",    ExprNodeType::global_wind},
                 };
                 auto it = type_map.find(type_str);
                 if (it == type_map.end()) continue;
@@ -171,6 +172,7 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
             "negate", "abs", "sin", "cos",
             "lerp", "remap", "clamp",
             "split_vec3", "combine_vec3", "split_vec4", "combine_vec4",
+            "global_wind",
         };
 
         nlohmann::json jex;

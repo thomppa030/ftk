@@ -38,6 +38,7 @@ struct EvalContext {
     ExpressionGraph& graph;
     float time;
     float dt;
+    glm::vec3 wind;
     std::vector<EvalState> states; // indexed parallel to graph.nodes
 };
 
@@ -95,6 +96,9 @@ static PinValue evaluate_node(EvalContext& ctx, int node_idx) {
 
         case ExprNodeType::delta_time:
             result = ctx.dt;
+            break;
+        case ExprNodeType::global_wind:
+            result = ctx.wind;
             break;
 
         case ExprNodeType::random: {
@@ -232,12 +236,12 @@ static void write_pin_value(PinDescriptor& pin, const PinValue& val) {
 
 // ── Public entry point ──────────────────────────────────────────────────
 
-void evaluate_expression_graph(VfxEmitter& emitter, float time, float dt) {
+void evaluate_expression_graph(VfxEmitter& emitter, float time, float dt, const glm::vec3& wind) {
     auto& graph = emitter.expression_graph;
     if (graph.links.empty()) return;
 
     // Reset evaluation state
-    EvalContext ctx{graph, time, dt, {}};
+    EvalContext ctx{graph, time, dt, wind, {}};
     ctx.states.resize(graph.nodes.size(), EvalState::unvisited);
 
     // For each link that targets a module input pin (pin_id < 50000*100),
