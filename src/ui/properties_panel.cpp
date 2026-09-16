@@ -152,6 +152,23 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
     } else {
         ImGui::TextDisabled("No weather playing");
     }
+    // With a climate running, what it will play next.
+    if (!env.climate.empty()) {
+        std::string line;
+        for (uint32_t i = 0; i < 2; ++i) {
+            const std::string path = environment_->forecast_event(i);
+            if (path.empty()) break;
+            if (!line.empty()) line += ", ";
+            line += std::filesystem::path(path).stem().string();
+        }
+        if (!line.empty()) ImGui::TextDisabled("Next: %s", line.c_str());
+        bool held = environment_->weather_held();
+        if (ImGui::Checkbox("Hold##EnvWeatherHold", &held)) environment_->hold_weather(held);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Freeze the climate: what plays keeps playing and nothing new is rolled");
+        }
+        ImGui::SameLine();
+    }
     if (!env.weather.empty() && ImGui::SmallButton("Replay##EnvWeatherReplay")) {
         if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
             environment_->play_weather(*handle);
@@ -552,6 +569,12 @@ void PropertiesPanel::draw() {
                                  .extensions = weather_exts,
                                  .ctx = &ictx},
                                 env->weather);
+                static const std::string climate_exts[] = {".fjclimate"};
+                asset_ref_field({.label = "Climate",
+                                 .id = "##EnvClimate",
+                                 .extensions = climate_exts,
+                                 .ctx = &ictx},
+                                env->climate);
                 draw_weather_controls(*env, ictx);
 
                 const bool gradient_mode = env->hdri_path.empty();

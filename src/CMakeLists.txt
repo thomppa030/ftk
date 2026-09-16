@@ -47,6 +47,8 @@ add_executable(fjell
     environment/day_profile_asset.cpp
     environment/weather_asset.cpp
     environment/weather_player.cpp
+    environment/climate_asset.cpp
+    environment/climate_director.cpp
     ui/track_timeline_editor.cpp
     ui/day_profile_editor_context.cpp
     ui/weather_editor_context.cpp
@@ -223,6 +225,7 @@ add_executable(fjell
     physics/collision_build.cpp
     physics/collision_shape.cpp
     physics/physics_world.cpp
+    physics/physics_subsystem.cpp
     scene/scene.cpp
     scene/scene_io.cpp
     scene/node_serializer.cpp

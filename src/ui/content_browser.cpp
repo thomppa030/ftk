@@ -1,5 +1,6 @@
 #include "ui/content_browser.hpp"
 #include "core/asset_identity.hpp"
+#include "core/input_context_io.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
@@ -147,6 +148,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjsurface") return FileType::surface;
     if (ext == ".fjday") return FileType::day_profile;
     if (ext == ".fjweather") return FileType::weather;
+    if (ext == ".fjclimate") return FileType::climate;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -173,6 +175,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::surface:      return "node";
         case FileType::day_profile:  return "node";
         case FileType::weather:      return "node";
+        case FileType::climate:      return "node";
         case FileType::unknown:      return "node";
     }
     return "node";
@@ -675,6 +678,15 @@ void ContentBrowser::draw_file_grid() {
                         std::filesystem::rename(
                             from_side, asset_identity::sidecar_path(new_path), sc);
                     }
+                    // An action is addressed by the name inside it, not by its
+                    // file name, so a rename that left the field alone would
+                    // quietly keep binding the old one.
+                    if (new_path.extension() == ".fjaction") {
+                        auto def = parse_action_file(new_path.string());
+                        def.name = new_path.stem().string();
+                        write_action_file(def, new_path.string());
+                    }
+
                     if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
                         asset_thumbnails_->invalidate(entry.path.string());
                     }
@@ -974,11 +986,14 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::input_config:
-                    if (ImGui::MenuItem("Open in Input Editor")) {
-                        auto rel = std::filesystem::relative(entry.path, root_);
-                        auto ext = entry.path.extension().string();
-                        on_open_asset.broadcast(rel.string(),
-                            ext == ".fjinput" ? "input_mapping" : "input_action");
+                    if (entry.path.extension() == ".fjinput") {
+                        if (ImGui::MenuItem("Open in Input Editor")) {
+                            auto rel = std::filesystem::relative(entry.path, root_);
+                            on_open_asset.broadcast(rel.string(), "input_mapping");
+                            ImGui::CloseCurrentPopup();
+                        }
+                    } else if (ImGui::MenuItem("Open in Code Editor")) {
+                        (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -1011,6 +1026,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::surface:
                 case FileType::day_profile:
                 case FileType::weather:
+                case FileType::climate:
                     if (ImGui::MenuItem("Open in Code Editor")) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
@@ -1269,16 +1285,14 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             break;
         }
 
-        case FileType::input_config: {
-            auto rel = std::filesystem::relative(entry.path, root_);
-            auto ext = entry.path.extension().string();
-            if (ext == ".fjinput") {
+        case FileType::input_config:
+            if (entry.path.extension() == ".fjinput") {
+                auto rel = std::filesystem::relative(entry.path, root_);
                 on_open_asset.broadcast(rel.string(), "input_mapping");
-            } else if (ext == ".fjaction") {
-                on_open_asset.broadcast(rel.string(), "input_action");
+            } else {
+                (void)platform::open_path(entry.path);
             }
             break;
-        }
 
         case FileType::font:
             if (entry.path.extension() == ".fjfont") {
@@ -1304,6 +1318,10 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             on_open_asset.broadcast(rel.string(), "weather");
             break;
         }
+
+        case FileType::climate:
+            (void)platform::open_path(entry.path);
+            break;
 
         case FileType::unknown:
             break;

@@ -26,7 +26,13 @@ namespace fjell {
 // track scales what the scene authors underneath, an override replaces it,
 // and a track the event leaves out leaves the value alone.
 
-enum class WeatherPhase : uint8_t { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 };
+// Also declared in the SDK's environment_api.hpp for scripts; the two are
+// one type when both are compiled into the engine, so they agree down to
+// the underlying type.
+#ifndef FJELL_WEATHER_PHASE_DEFINED
+#define FJELL_WEATHER_PHASE_DEFINED
+enum class WeatherPhase : int { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 };
+#endif
 inline constexpr uint32_t WEATHER_PHASE_COUNT = 4;
 
 enum class PrecipitationType : uint8_t { None = 0, Rain = 1, Snow = 2 };

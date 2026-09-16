@@ -115,6 +115,26 @@ static const bool reg_weather = [] {
     return true;
 }();
 
+static const bool reg_climate = [] {
+    AssetTypeRegistry::instance().register_type({
+        .type_name = "ClimateAsset",
+        .extension = ".fjclimate",
+        .label     = "Climate",
+        .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
+            return rm.get(fjell::ClimateAssetHandle{id});
+        },
+        .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
+            return rm.asset_path_of(fjell::ClimateAssetHandle{id});
+        },
+        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+            auto r = rm.load_climate_asset(path);
+            if (!r) return fjell::make_error(r.error());
+            return r->id;
+        },
+    });
+    return true;
+}();
+
 static const bool reg_material = [] {
     AssetTypeRegistry::instance().register_type({
         .type_name = "Material",

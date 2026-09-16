@@ -32,6 +32,8 @@ inline constexpr std::array kAssetTemplates = {
     // ── Environment ──
     AssetTemplate{"Day Profile (.fjday)", "new_day", ".fjday",
                   R"({"name":"new_day","tracks":{"length":24,"wrap":true,"tracks":[]}})"},
+    AssetTemplate{"Climate (.fjclimate)", "new_climate", ".fjclimate",
+                  R"({"name":"new_climate","seed":1,"states":[]})"},
     AssetTemplate{"Weather (.fjweather)", "new_weather", ".fjweather",
                   R"({"name":"new_weather","precipitation":"none","phases":{"approach":{"min":60,"max":120},"onset":{"min":20,"max":40},"sustain":{"min":300,"max":600,"indefinite":true},"tail":{"min":60,"max":120}},"tracks":{"length":4,"wrap":false,"tracks":[]}})"},
     AssetTemplate{nullptr, {}, {}, {}},

@@ -188,6 +188,9 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         if (!env->weather.empty()) {
             j["weather"] = env->weather;
         }
+        if (!env->climate.empty()) {
+            j["climate"] = env->climate;
+        }
         if (!env->sky_uniforms.empty()) {
             auto& ju = j["sky_uniforms"] = nlohmann::json::object();
             for (const auto& u : env->sky_uniforms) {
@@ -435,6 +438,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             }
             env->day_profile = j.value("day_profile", std::string{});
             env->weather = j.value("weather", std::string{});
+            env->climate = j.value("climate", std::string{});
             if (j.contains("sky_uniforms") && j["sky_uniforms"].is_object()) {
                 for (const auto& [uniform_name, values] : j["sky_uniforms"].items()) {
                     if (!values.is_array() || values.empty()) continue;

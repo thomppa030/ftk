@@ -2,15 +2,18 @@
 
 #include "core/subsystem.hpp"
 #include "environment/environment_state.hpp"
+#include "environment/climate_director.hpp"
 #include "environment/weather_player.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace fjell {
 
 class AudioSubsystem;
+class ScriptSubsystem;
 class ResourceManager;
 class Scene;
 struct DayProfileAsset;
@@ -49,6 +52,17 @@ public:
     void play_weather(WeatherAssetHandle event);
     [[nodiscard]] const WeatherPlayer& weather() const { return player_; }
 
+    /// Freeze the climate: whatever plays keeps playing and nothing new is
+    /// rolled until it is let go.
+    /// Hand the weather to a climate, or to nothing with an invalid handle.
+    void set_climate(ClimateAssetHandle climate);
+    void hold_weather(bool held) { director_.hold(held); }
+    [[nodiscard]] bool weather_held() const { return director_.held(); }
+    [[nodiscard]] const ClimateDirector& director() const { return director_; }
+    /// The `.fjweather` path the climate's `index`-th forecast roll plays,
+    /// empty past the end of the forecast.
+    [[nodiscard]] std::string forecast_event(uint32_t index) const;
+
     /// A sky shader uniform value set from a script, laid over the node's
     /// overrides and the profile's tracks until cleared by an empty count.
     void set_sky_uniform(const NamedValue& value);
@@ -56,6 +70,10 @@ public:
     /// Where the weather's rain and wind beds play. Optional; without it the
     /// weather is silent.
     void set_audio(AudioSubsystem* audio) { audio_ = audio; }
+
+    /// Where the weather and time-phase hooks are dispatched. Optional;
+    /// without it the changes still happen, no script hears about them.
+    void set_scripts(ScriptSubsystem* scripts) { scripts_ = scripts; }
 
 protected:
     void on_play_stop(const TickContext& ctx) override;
@@ -69,6 +87,8 @@ private:
         uint32_t wind{0};
     };
     void update_beds(const TickContext& ctx);
+    /// Fire the script hooks for whatever changed since last frame.
+    void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);
     void follow_event(Beds& beds, const WeatherPlayer::Playing* playing, const TickContext& ctx);
 
@@ -76,6 +96,9 @@ private:
     static void bind_day_profile(WorldEnvironmentNode& env, ResourceManager* resources);
     // Keep the node's weather pointer following its path; a new path plays.
     void bind_weather(WorldEnvironmentNode& env, ResourceManager* resources);
+    void bind_climate(WorldEnvironmentNode& env, ResourceManager* resources);
+    /// Start whatever the director's current roll names.
+    void play_directed(ResourceManager* resources);
     [[nodiscard]] const DayProfileAsset* profile_for(const WeatherAsset& event) const;
 
     Scene* scene_{nullptr};
@@ -85,8 +108,15 @@ private:
     bool moon_led_{false};
 
     WeatherPlayer player_;
+    ClimateDirector director_;
     WeatherRates rates_;
     AudioSubsystem* audio_{nullptr};
+    ScriptSubsystem* scripts_{nullptr};
+    // What the last frame reported, so a change is what fires a hook.
+    uint32_t last_event_{0};
+    WeatherPhase last_weather_phase_{WeatherPhase::Sustain};
+    TimePhase last_time_phase_{TimePhase::Day};
+    bool phases_seen_{false};
     Beds active_beds_;
     Beds outgoing_beds_;
     uint32_t play_count_{0};   // seeds the rolled durations

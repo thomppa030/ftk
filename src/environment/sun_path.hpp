@@ -84,7 +84,11 @@ struct SunPath {
 }
 
 /// The part of the day a sun elevation and hour fall in.
+// Also declared in the SDK's environment_api.hpp for scripts.
+#ifndef FJELL_TIME_PHASE_DEFINED
+#define FJELL_TIME_PHASE_DEFINED
 enum class TimePhase : int { Night = 0, Dawn = 1, Day = 2, Dusk = 3 };
+#endif
 
 /// Twilight is the band within six degrees of the horizon either way: dawn
 /// before noon, dusk after. Above it is day, below it night.

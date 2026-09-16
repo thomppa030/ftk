@@ -11,6 +11,7 @@
 namespace fjell {
 
 struct DayProfileAsset;
+struct ClimateAsset;
 struct WeatherAsset;
 
 // ── Light nodes ─────────────────────────────────────────────────────────
@@ -206,6 +207,14 @@ struct WorldEnvironmentNode : Node3D {
     const WeatherAsset* weather_asset{nullptr};
     std::string weather_bound;
 
+    // Who decides the weather: a .fjclimate whose states the director rolls
+    // between. With one set, the weather field above is only the event the
+    // scene opens on. Bound at runtime like the others.
+    std::string climate;
+    ClimateAssetHandle climate_handle{};
+    const ClimateAsset* climate_asset{nullptr};
+    std::string climate_bound;
+
     // Values for the sky shader's uniforms, by name, as the picker shows
     // them (colours in sRGB). A uniform without an entry keeps the .fjsl
     // default; a day profile track of the same name takes precedence.
@@ -248,6 +257,7 @@ struct WorldEnvironmentNode : Node3D {
         copy->moon_intensity = moon_intensity;
         copy->day_profile = day_profile;
         copy->weather = weather;
+        copy->climate = climate;
         copy->sky_uniforms = sky_uniforms;
         return copy;
     }

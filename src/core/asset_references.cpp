@@ -21,7 +21,7 @@ bool is_text_asset(const std::string& ext) {
     static const std::unordered_set<std::string> exts = {
         ".fjmat", ".fjvfx", ".fjanimset", ".fjblend1D", ".fjblend2D",
         ".fjaction", ".fjinput", ".fjanim", ".fjaudio",
-        ".fjday", ".fjweather",
+        ".fjday", ".fjweather", ".fjclimate",
         ".fjp", ".fjell", ".fjui", ".fjss", ".fjwidget", ".fjgraph",
     };
     return exts.contains(ext);

@@ -3,7 +3,9 @@
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
 #include "audio/audio_subsystem.hpp"
+#include "scripting/script_subsystem.hpp"
 #include "core/project.hpp"
+#include "environment/climate_asset.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "environment/environment_resolver.hpp"
@@ -25,6 +27,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     auto* env = find_world_environment(ctx.scene);
     if (env != nullptr) {
         bind_day_profile(*env, ctx.resources);
+        bind_climate(*env, ctx.resources);
         bind_weather(*env, ctx.resources);
     }
     if (env != nullptr && env->time_of_day_enabled) {
@@ -36,6 +39,12 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
 
     // Weather runs on game time like the clock: paused with it, scaled with it.
     player_.tick(ctx.dt);
+    // A climate keeps the weather going: when an event runs out, the
+    // director rolls the next one for the hour it ends at.
+    if (director_.active() && player_.active() == nullptr) {
+        (void)director_.advance(state_.hour);
+        play_directed(ctx.resources);
+    }
     const WeatherSkyOverride sky = player_.sky_override();
     state_ = resolve_environment(ctx.scene, moon_led_, &sky);
     player_.composite(state_, ctx.dt, rates_);
@@ -47,6 +56,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     }
     moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
     update_beds(ctx);
+    dispatch_changes(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
     // the node's direction at the resolved value so everything that reads
@@ -111,6 +121,68 @@ void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManag
     play_weather(*handle);
 }
 
+void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManager* resources) {
+    if (env.climate == env.climate_bound) {
+        if (resources != nullptr && env.climate_handle.valid()) {
+            env.climate_asset = resources->get(env.climate_handle);
+        }
+        return;
+    }
+    env.climate_bound = env.climate;
+    env.climate_handle = {};
+    env.climate_asset = nullptr;
+    if (env.climate.empty()) {
+        director_.set_climate(nullptr, state_.hour);
+        return;
+    }
+    if (resources == nullptr) return;
+
+    auto handle = resources->load_climate_asset(env.climate);
+    if (!handle) {
+        FJELL_CORE_ERROR("World environment: {}", handle.error());
+        return;
+    }
+    env.climate_handle = *handle;
+    env.climate_asset = resources->get(*handle);
+    director_.set_climate(env.climate_asset, state_.hour);
+    // The climate decides from here; its first state starts now rather than
+    // waiting for the scene's own weather to run out.
+    play_directed(resources);
+}
+
+void EnvironmentSubsystem::set_climate(ClimateAssetHandle climate) {
+    if (resources_ == nullptr) return;
+    // The node keeps naming the scene's climate; a script's choice replaces
+    // the director's table without rewriting the scene.
+    const ClimateAsset* asset = climate.valid() ? resources_->get(climate) : nullptr;
+    director_.set_climate(asset, state_.hour);
+    if (asset != nullptr) play_directed(resources_);
+}
+
+void EnvironmentSubsystem::play_directed(ResourceManager* resources) {
+    const ClimateAsset* climate = director_.climate();
+    if (climate == nullptr || resources == nullptr) return;
+    const ClimateRoll& roll = director_.current();
+    if (!roll.valid() || static_cast<size_t>(roll.state_index) >= climate->states.size()) return;
+    const std::string& event = climate->states[static_cast<size_t>(roll.state_index)].event;
+    auto handle = resources->load_weather_asset(event);
+    if (!handle) {
+        FJELL_CORE_ERROR("Climate '{}': {}", climate->name, handle.error());
+        return;
+    }
+    play_weather(*handle);
+}
+
+std::string EnvironmentSubsystem::forecast_event(uint32_t index) const {
+    const ClimateAsset* climate = director_.climate();
+    if (climate == nullptr) return {};
+    const auto& forecast = director_.forecast();
+    if (index >= forecast.size()) return {};
+    const int state = forecast[index].state_index;
+    if (state < 0 || static_cast<size_t>(state) >= climate->states.size()) return {};
+    return climate->states[static_cast<size_t>(state)].event;
+}
+
 const DayProfileAsset* EnvironmentSubsystem::profile_for(const WeatherAsset& event) const {
     if (event.day_profile.empty() || resources_ == nullptr) return nullptr;
     auto handle = resources_->load_day_profile(event.day_profile);
@@ -146,9 +218,36 @@ void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
     else script_sky_uniforms_.push_back(value);
 }
 
+void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
+    // Only while playing: an editor scrub is not something a script should
+    // be told about, and nothing is running to hear it.
+    if (!playing() || scripts_ == nullptr) {
+        phases_seen_ = false;
+        return;
+    }
+    const uint32_t event = state_.weather.event_id;
+    const WeatherPhase weather_phase = state_.weather.phase;
+    const TimePhase time_phase = state_.phase;
+    if (!phases_seen_) {
+        // The first playing frame is the baseline, not a change.
+        phases_seen_ = true;
+    } else {
+        if (event != last_event_ || weather_phase != last_weather_phase_) {
+            scripts_->manager().dispatch_weather_changed(ctx.scene, event, static_cast<int>(weather_phase));
+        }
+        if (time_phase != last_time_phase_) {
+            scripts_->manager().dispatch_time_phase_changed(ctx.scene, static_cast<int>(time_phase));
+        }
+    }
+    last_event_ = event;
+    last_weather_phase_ = weather_phase;
+    last_time_phase_ = time_phase;
+}
+
 void EnvironmentSubsystem::on_play_stop(const TickContext& /*ctx*/) {
     stop_beds(active_beds_);
     stop_beds(outgoing_beds_);
+    phases_seen_ = false;
 }
 
 void EnvironmentSubsystem::stop_beds(Beds& beds) {

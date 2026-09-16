@@ -49,6 +49,7 @@ private:
         surface,
         day_profile,
         weather,
+        climate,
         unknown
     };
 
