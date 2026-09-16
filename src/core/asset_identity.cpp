@@ -21,7 +21,7 @@ bool is_fjell_json_ext(const std::string& ext) {
     static const std::unordered_set<std::string> exts = {
         ".fjmat", ".fjvfx", ".fjanimset", ".fjblend1D", ".fjblend2D",
         ".fjaction", ".fjinput", ".fjanim", ".fjaudio",
-        ".fjday",
+        ".fjday", ".fjweather",
         ".fjp", ".fjell",
     };
     return exts.contains(ext);

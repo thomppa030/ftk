@@ -11,6 +11,7 @@
 namespace fjell {
 
 struct DayProfileAsset;
+struct WeatherAsset;
 
 // ── Light nodes ─────────────────────────────────────────────────────────
 // Every colour below is linear light, ready for the renderer to multiply.
@@ -197,6 +198,14 @@ struct WorldEnvironmentNode : Node3D {
     const DayProfileAsset* day_profile_asset{nullptr};
     std::string day_profile_bound;     // the path day_profile_asset was loaded from
 
+    // The weather that plays when nothing else decides: a .fjweather event,
+    // started when the scene loads or the path changes and held in its
+    // sustain. Bound at runtime like the day profile.
+    std::string weather;
+    WeatherAssetHandle weather_handle{};
+    const WeatherAsset* weather_asset{nullptr};
+    std::string weather_bound;
+
     // Values for the sky shader's uniforms, by name, as the picker shows
     // them (colours in sRGB). A uniform without an entry keeps the .fjsl
     // default; a day profile track of the same name takes precedence.
@@ -238,6 +247,7 @@ struct WorldEnvironmentNode : Node3D {
         copy->moon_color = moon_color;
         copy->moon_intensity = moon_intensity;
         copy->day_profile = day_profile;
+        copy->weather = weather;
         copy->sky_uniforms = sky_uniforms;
         return copy;
     }

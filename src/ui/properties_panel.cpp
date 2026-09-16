@@ -495,6 +495,13 @@ void PropertiesPanel::draw() {
                                  .ctx = &ictx},
                                 env->day_profile);
 
+                static const std::string weather_exts[] = {".fjweather"};
+                asset_ref_field({.label = "Weather",
+                                 .id = "##EnvWeather",
+                                 .extensions = weather_exts,
+                                 .ctx = &ictx},
+                                env->weather);
+
                 const bool gradient_mode = env->hdri_path.empty();
                 ImGui::BeginDisabled(!gradient_mode);
                 if (auto t = PropertyTable("##env_sky")) {

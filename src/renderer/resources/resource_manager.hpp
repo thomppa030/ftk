@@ -8,6 +8,7 @@
 #include "audio/audio_asset.hpp"
 #include "physics/surface_asset.hpp"
 #include "environment/day_profile_asset.hpp"
+#include "environment/weather_asset.hpp"
 // Complete type required: Pool<TerrainAsset> destroys unique_ptrs inline.
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -120,6 +121,10 @@ public:
     Result<DayProfileAssetHandle> load_day_profile(const std::string& path);
     Result<> reload_day_profile(const std::string& path);
 
+    // Weather events (.fjweather). Reloads replace the pooled asset in place.
+    Result<WeatherAssetHandle> load_weather_asset(const std::string& path);
+    Result<> reload_weather_asset(const std::string& path);
+
     // Input action assets (.fjaction)
     Result<InputActionHandle> load_input_action(const std::string& path);
 
@@ -138,6 +143,7 @@ public:
     [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(SurfaceAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(DayProfileAssetHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(WeatherAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
     [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
     [[nodiscard]] std::string asset_path_of(PresetAssetHandle handle) const;
@@ -151,6 +157,7 @@ public:
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
     [[nodiscard]] SurfaceAsset* get(SurfaceAssetHandle handle) const;
     [[nodiscard]] DayProfileAsset* get(DayProfileAssetHandle handle) const;
+    [[nodiscard]] WeatherAsset* get(WeatherAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
     [[nodiscard]] struct PresetAsset* get(PresetAssetHandle handle) const;
 
@@ -229,6 +236,7 @@ private:
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
     Pool<SurfaceAsset, SurfaceAssetHandle> surface_assets_;
     Pool<DayProfileAsset, DayProfileAssetHandle> day_profiles_;
+    Pool<WeatherAsset, WeatherAssetHandle> weather_assets_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
     Pool<PresetAsset, PresetAssetHandle> preset_assets_;
 

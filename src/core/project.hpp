@@ -46,6 +46,15 @@ struct ProjectConfig {
         bool fullscreen{false};
     } play;
 
+    struct EnvironmentConfig {
+        // How fast surfaces take on and shed the weather, in seconds to get
+        // most of the way there. The same for every weather event.
+        float wetting_seconds{60.0f};
+        float drying_seconds{600.0f};
+        float snowing_seconds{300.0f};
+        float melting_seconds{1200.0f};
+    } environment;
+
     struct UiConfig {
         // The resolution game UI is designed at. The UI editor previews at
         // this size, and screen-space widgets scale so a viewport of any

@@ -95,6 +95,26 @@ static const bool reg_day_profile = [] {
     return true;
 }();
 
+static const bool reg_weather = [] {
+    AssetTypeRegistry::instance().register_type({
+        .type_name = "WeatherAsset",
+        .extension = ".fjweather",
+        .label     = "Weather",
+        .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
+            return rm.get(fjell::WeatherAssetHandle{id});
+        },
+        .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
+            return rm.asset_path_of(fjell::WeatherAssetHandle{id});
+        },
+        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+            auto r = rm.load_weather_asset(path);
+            if (!r) return fjell::make_error(r.error());
+            return r->id;
+        },
+    });
+    return true;
+}();
+
 static const bool reg_material = [] {
     AssetTypeRegistry::instance().register_type({
         .type_name = "Material",

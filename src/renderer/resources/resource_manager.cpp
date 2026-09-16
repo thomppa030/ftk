@@ -783,6 +783,39 @@ std::string ResourceManager::asset_path_of(DayProfileAssetHandle handle) const {
     return day_profiles_.path_of(handle);
 }
 
+// ── Weather events ───────────────────────────────────────────────────────
+
+Result<WeatherAssetHandle> ResourceManager::load_weather_asset(const std::string& path) {
+    auto it = weather_assets_.name_to_handle.find(path);
+    if (it != weather_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto result = load_weather_asset_file(base_path::resolve_asset(path, project_));
+    if (!result) return make_error(result.error());
+    auto asset = std::make_unique<WeatherAsset>(std::move(*result));
+    return weather_assets_.insert(path, std::move(asset));
+}
+
+Result<> ResourceManager::reload_weather_asset(const std::string& path) {
+    auto it = weather_assets_.name_to_handle.find(path);
+    if (it == weather_assets_.name_to_handle.end()) return {};
+    auto result = load_weather_asset_file(base_path::resolve_asset(path, project_));
+    if (!result) return make_error(result.error());
+    if (auto* live = weather_assets_.get(it->second)) {
+        *live = std::move(*result);
+    }
+    return {};
+}
+
+WeatherAsset* ResourceManager::get(WeatherAssetHandle handle) const {
+    return weather_assets_.get(handle);
+}
+
+std::string ResourceManager::asset_path_of(WeatherAssetHandle handle) const {
+    return weather_assets_.path_of(handle);
+}
+
 AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
     return audio_assets_.get(handle);
 }

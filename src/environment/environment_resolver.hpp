@@ -6,6 +6,7 @@ namespace fjell {
 
 class Scene;
 struct WorldEnvironmentNode;
+struct WeatherSkyOverride;
 
 /// The scene's world environment node, or null when it has none. The first
 /// one found is the scene's; a second is ignored, as the renderer ignores it.
@@ -27,6 +28,11 @@ struct WorldEnvironmentNode;
 /// without a directional light gets a fixed default sun so it still renders
 /// lit; a scene without the other nodes gets their defaults with fog disabled.
 /// `moon_led` carries the shadow-caster choice across frames, see moon_leads().
-[[nodiscard]] EnvironmentState resolve_environment(const Scene& scene, bool moon_led = false);
+/// `weather_sky_override` is the day profile and sky shader the active
+/// weather brings, faded in by its weight: the scene's profile is blended
+/// toward it, and past half weight the event's sky shader and custom tracks
+/// take over.
+[[nodiscard]] EnvironmentState resolve_environment(const Scene& scene, bool moon_led = false,
+                                                   const WeatherSkyOverride* weather_sky_override = nullptr);
 
 } // namespace fjell

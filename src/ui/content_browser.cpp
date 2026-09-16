@@ -146,6 +146,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjfont" || ext == ".ttf" || ext == ".otf") return FileType::font;
     if (ext == ".fjsurface") return FileType::surface;
     if (ext == ".fjday") return FileType::day_profile;
+    if (ext == ".fjweather") return FileType::weather;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -171,6 +172,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::font:         return "font";
         case FileType::surface:      return "node";
         case FileType::day_profile:  return "node";
+        case FileType::weather:      return "node";
         case FileType::unknown:      return "node";
     }
     return "node";
@@ -1008,6 +1010,7 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::surface:
                 case FileType::day_profile:
+                case FileType::weather:
                     if (ImGui::MenuItem("Open in Code Editor")) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
@@ -1293,6 +1296,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::day_profile: {
             auto rel = std::filesystem::relative(entry.path, root_);
             on_open_asset.broadcast(rel.string(), "day_profile");
+            break;
+        }
+
+        case FileType::weather: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_open_asset.broadcast(rel.string(), "weather");
             break;
         }
 

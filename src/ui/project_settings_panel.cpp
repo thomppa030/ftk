@@ -34,6 +34,7 @@ void ProjectSettingsPanel::draw(const char* title) {
             ImGui::Separator();
             draw_render_section();
             draw_ui_section();
+            draw_environment_section();
             draw_debug_section();
         }
     }
@@ -58,6 +59,18 @@ void ProjectSettingsPanel::draw_ui_section() {
     if (ImGui::SmallButton("2560x1440")) { ui.design_width = 2560; ui.design_height = 1440; }
     ImGui::SameLine();
     if (ImGui::SmallButton("1280x720")) { ui.design_width = 1280; ui.design_height = 720; }
+}
+
+void ProjectSettingsPanel::draw_environment_section() {
+    if (!ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    auto& env = projects_->active()->config().environment;
+    ImGui::TextDisabled("Seconds for surfaces to take on and shed the weather");
+    ImGui::DragFloat("Wetting", &env.wetting_seconds, 1.0f, 1.0f, 3600.0f, "%.0f s");
+    ImGui::DragFloat("Drying", &env.drying_seconds, 1.0f, 1.0f, 7200.0f, "%.0f s");
+    ImGui::DragFloat("Snowing", &env.snowing_seconds, 1.0f, 1.0f, 3600.0f, "%.0f s");
+    ImGui::DragFloat("Melting", &env.melting_seconds, 1.0f, 1.0f, 7200.0f, "%.0f s");
 }
 
 // Any edit in this section writes to the project's RenderSettings AND

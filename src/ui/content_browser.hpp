@@ -48,6 +48,7 @@ private:
         font,
         surface,
         day_profile,
+        weather,
         unknown
     };
 

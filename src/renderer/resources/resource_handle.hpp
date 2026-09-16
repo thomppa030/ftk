@@ -35,6 +35,7 @@ using PresetAssetHandle   = Handle<struct PresetAssetTag>;
 using TerrainAssetHandle  = Handle<struct TerrainAssetTag>;
 using SurfaceAssetHandle  = Handle<struct SurfaceAssetTag>;
 using DayProfileAssetHandle = Handle<struct DayProfileAssetTag>;
+using WeatherAssetHandle  = Handle<struct WeatherAssetTag>;
 
 enum class LoadState : uint8_t {
     Loading,

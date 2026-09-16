@@ -125,9 +125,10 @@ TEST_CASE("The environment UBO packs both bodies", "[environment]") {
     REQUIRE(ubo.secondary_dir_intensity.x == Approx(1.0f));
     REQUIRE(ubo.secondary_dir_intensity.w == Approx(0.25f));
     REQUIRE(ubo.moon_dir_intensity.w == Approx(0.0f));
-    // Slots nothing drives are neutral: no tint, no weather.
+    // Slots nothing drives are neutral: no tint, no clouds, nothing falling.
     REQUIRE(ubo.sky_tint_star.r == Approx(1.0f));
-    REQUIRE(ubo.weather0 == glm::vec4(0.0f));
+    REQUIRE(ubo.weather0.x == Approx(0.0f));
+    REQUIRE(ubo.weather0.z == Approx(0.0f));
 }
 
 TEST_CASE("The sun path puts noon overhead and sunrise in the east", "[environment][sun_path]") {

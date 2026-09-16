@@ -45,6 +45,8 @@ add_executable(fjell
     environment/color_gradient.cpp
     environment/track_set.cpp
     environment/day_profile_asset.cpp
+    environment/weather_asset.cpp
+    environment/weather_player.cpp
     ui/track_timeline_editor.cpp
     ui/day_profile_editor_context.cpp
     core/math/spline.cpp

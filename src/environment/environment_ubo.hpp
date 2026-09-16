@@ -68,11 +68,13 @@ static_assert(sizeof(EnvironmentUbo) == 336);
     ubo.moon_color = glm::vec4(env.moon.color, env.moon_phase);
     ubo.secondary_dir_intensity = glm::vec4(env.secondary.direction, env.secondary.intensity);
     ubo.secondary_color = glm::vec4(env.secondary.color, 0.0f);
-    ubo.wind_dir_speed_gust = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-    ubo.weather0 = glm::vec4(0.0f);
-    ubo.weather1 = glm::vec4(0.0f, 0.0f, 0.0f, env.hour);
-    ubo.front = glm::vec4(1.0f, 0.0f, 1.0f, 0.0f);
-    ubo.sky_tint_star = glm::vec4(1.0f, 1.0f, 1.0f, env.star_intensity);
+    const WeatherParams& w = env.weather;
+    ubo.wind_dir_speed_gust = glm::vec4(w.wind_direction, w.wind_speed * w.wind_gust);
+    ubo.weather0 = glm::vec4(w.cloud_coverage, w.cloud_density, w.precipitation,
+                             static_cast<float>(w.precipitation_type));
+    ubo.weather1 = glm::vec4(w.wetness, w.snow, w.lightning, env.hour);
+    ubo.front = glm::vec4(w.front_direction, w.front_edge, w.front_softness);
+    ubo.sky_tint_star = glm::vec4(w.sky_tint, env.star_intensity);
     ubo.celestial_axis = glm::vec4(env.celestial_axis, env.celestial_angle);
     ubo.cloud_shadow_vp = glm::mat4(1.0f);
     ubo.overhead_vp = glm::mat4(1.0f);

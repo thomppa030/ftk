@@ -1,6 +1,7 @@
 #include "environment/environment_resolver.hpp"
 
 #include "environment/day_profile_asset.hpp"
+#include "environment/weather_player.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -62,7 +63,28 @@ bool moon_leads(const DirectionalBody& sun, const DirectionalBody& moon, bool mo
     return moon_light > sun_light * HANDOFF_MARGIN;
 }
 
-EnvironmentState resolve_environment(const Scene& scene, bool moon_led) {
+namespace {
+
+// Blend everything a day profile shapes from `from` toward `to`.
+void blend_profiled(EnvironmentState& from, const EnvironmentState& to, float t) {
+    from.sun.color = glm::mix(from.sun.color, to.sun.color, t);
+    from.sun.intensity = glm::mix(from.sun.intensity, to.sun.intensity, t);
+    from.moon.color = glm::mix(from.moon.color, to.moon.color, t);
+    from.moon.intensity = glm::mix(from.moon.intensity, to.moon.intensity, t);
+    from.ambient_color = glm::mix(from.ambient_color, to.ambient_color, t);
+    from.ambient_intensity = glm::mix(from.ambient_intensity, to.ambient_intensity, t);
+    from.sky.top_color = glm::mix(from.sky.top_color, to.sky.top_color, t);
+    from.sky.bottom_color = glm::mix(from.sky.bottom_color, to.sky.bottom_color, t);
+    from.fog.color = glm::mix(from.fog.color, to.fog.color, t);
+    from.fog.density = glm::mix(from.fog.density, to.fog.density, t);
+    from.exposure_bias = glm::mix(from.exposure_bias, to.exposure_bias, t);
+    from.star_intensity = glm::mix(from.star_intensity, to.star_intensity, t);
+    if (t >= 0.5f) from.sky_uniforms = to.sky_uniforms;
+}
+
+} // namespace
+
+EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const WeatherSkyOverride* weather_sky_override) {
     EnvironmentState state;
     state.sun = body_from_travel(DEFAULT_SUN_TRAVEL, DEFAULT_SUN_COLOR, DEFAULT_SUN_INTENSITY);
     state.ambient_color = DEFAULT_AMBIENT_COLOR;
@@ -172,7 +194,19 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led) {
         for (const auto& u : env->sky_uniforms) {
             state.sky_uniforms.push_back(NamedValue{.name = u.name, .count = u.count, .values = u.values});
         }
-        if (env->day_profile_asset != nullptr) {
+        const WeatherSkyOverride* wso = weather_sky_override;
+        const bool weather_sky = wso != nullptr && wso->weight > 0.0f &&
+                                 (wso->profile != nullptr || !wso->sky_shader.empty());
+        if (weather_sky) {
+            // The weather's own look, faded in over the scene's: both
+            // profiles start from the same authored values.
+            EnvironmentState theirs = state;
+            if (env->day_profile_asset != nullptr) env->day_profile_asset->apply(state.hour, state);
+            if (wso->profile != nullptr) wso->profile->apply(state.hour, theirs);
+            else if (env->day_profile_asset != nullptr) env->day_profile_asset->apply(state.hour, theirs);
+            blend_profiled(state, theirs, wso->weight);
+            if (!wso->sky_shader.empty() && wso->weight >= 0.5f) state.sky.sky_shader = wso->sky_shader;
+        } else if (env->day_profile_asset != nullptr) {
             env->day_profile_asset->apply(state.hour, state);
         }
     }

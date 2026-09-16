@@ -76,6 +76,13 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         if (j.contains("play")) {
             config.play.fullscreen = j["play"].value("fullscreen", false);
         }
+        if (j.contains("environment")) {
+            const auto& e = j["environment"];
+            config.environment.wetting_seconds = e.value("wetting_seconds", 60.0f);
+            config.environment.drying_seconds = e.value("drying_seconds", 600.0f);
+            config.environment.snowing_seconds = e.value("snowing_seconds", 300.0f);
+            config.environment.melting_seconds = e.value("melting_seconds", 1200.0f);
+        }
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
@@ -171,6 +178,12 @@ void Project::save() const {
     };
     j["play"] = {
         {"fullscreen", config_.play.fullscreen},
+    };
+    j["environment"] = {
+        {"wetting_seconds", config_.environment.wetting_seconds},
+        {"drying_seconds", config_.environment.drying_seconds},
+        {"snowing_seconds", config_.environment.snowing_seconds},
+        {"melting_seconds", config_.environment.melting_seconds},
     };
 
     std::ofstream file(path);

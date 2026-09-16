@@ -1,6 +1,7 @@
 #pragma once
 
 #include "environment/sun_path.hpp"
+#include "environment/weather_asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -93,6 +94,42 @@ struct SunShaftSettings {
     float halo_outer{0.6f};
 };
 
+/// The weather as composited from the playing events: what the sky, the
+/// surfaces, the particles and the scripts read this frame.
+struct WeatherParams {
+    float cloud_coverage{0.0f};
+    float cloud_density{0.5f};
+    float precipitation{0.0f};
+    PrecipitationType precipitation_type{PrecipitationType::None};
+
+    glm::vec3 wind_direction{0.0f, 0.0f, 1.0f};   // the way the wind blows
+    float wind_speed{0.0f};                       // m/s before the gust
+    float wind_gust{1.0f};                        // multiplier on the speed this frame
+
+    /// Integrated over time: how wet and how snow-covered exposed surfaces are.
+    float wetness{0.0f};
+    float snow{0.0f};
+
+    float lightning{0.0f};        // flash ramp, 0..1
+    float lightning_rate{0.0f};   // strikes per minute
+
+    /// The front's travel direction on the ground plane, its edge across the
+    /// sky (-1 windward horizon .. 1 leeward) and how soft that edge is.
+    glm::vec2 front_direction{0.0f, 1.0f};
+    float front_edge{-1.35f};
+    float front_softness{0.35f};
+
+    glm::vec3 sky_tint{1.0f};
+
+    /// The active event's id (a resource handle id, 0 when none), phase and
+    /// progress through it, for scripts.
+    uint32_t event_id{0};
+    WeatherPhase phase{WeatherPhase::Sustain};
+    float phase_progress{1.0f};
+    /// The events' custom tracks by name.
+    std::vector<NamedValue> params;
+};
+
 struct EnvironmentState {
     /// The hour of the day, 0..24, and the part of the day it falls in. A
     /// scene without a time of day sits at its authored noon.
@@ -129,6 +166,8 @@ struct EnvironmentState {
     ContactShadowSettings contact_shadows;
     FogSettings fog;
     SunShaftSettings sun_shafts;
+
+    WeatherParams weather;
 };
 
 } // namespace fjell
