@@ -39,6 +39,13 @@ public:
     void pause_all();
     void resume_all();
 
+    // Beds: looping, non-spatial sounds that live until stopped — weather
+    // rain and wind. The id names the bed for volume changes and stopping.
+    [[nodiscard]] uint32_t play_bed(const std::string& clip_path, float volume,
+                                    const Project* project = nullptr);
+    void set_bed_volume(uint32_t bed_id, float volume);
+    void stop_bed(uint32_t bed_id);
+
     // Fire-and-forget spatial sound (not tied to any node)
     void play_oneshot(const std::string& clip_path, const glm::vec3& position,
                       float volume = 1.0f, float pitch = 1.0f,

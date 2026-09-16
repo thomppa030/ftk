@@ -10,6 +10,7 @@
 
 namespace fjell {
 
+class AudioSubsystem;
 class ResourceManager;
 class Scene;
 struct DayProfileAsset;
@@ -52,7 +53,25 @@ public:
     /// overrides and the profile's tracks until cleared by an empty count.
     void set_sky_uniform(const NamedValue& value);
 
+    /// Where the weather's rain and wind beds play. Optional; without it the
+    /// weather is silent.
+    void set_audio(AudioSubsystem* audio) { audio_ = audio; }
+
+protected:
+    void on_play_stop(const TickContext& ctx) override;
+
 private:
+    // The looping sounds a playing event brings, and the event they belong to.
+    struct Beds {
+        uint32_t event_id{0};
+        const WeatherAsset* asset{nullptr};
+        uint32_t bed{0};
+        uint32_t wind{0};
+    };
+    void update_beds(const TickContext& ctx);
+    void stop_beds(Beds& beds);
+    void follow_event(Beds& beds, const WeatherPlayer::Playing* playing, const TickContext& ctx);
+
     // Keep the node's day profile pointer following its path.
     static void bind_day_profile(WorldEnvironmentNode& env, ResourceManager* resources);
     // Keep the node's weather pointer following its path; a new path plays.
@@ -67,6 +86,9 @@ private:
 
     WeatherPlayer player_;
     WeatherRates rates_;
+    AudioSubsystem* audio_{nullptr};
+    Beds active_beds_;
+    Beds outgoing_beds_;
     uint32_t play_count_{0};   // seeds the rolled durations
     std::vector<NamedValue> script_sky_uniforms_;
 };

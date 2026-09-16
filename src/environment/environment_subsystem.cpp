@@ -2,6 +2,7 @@
 
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
+#include "audio/audio_subsystem.hpp"
 #include "core/project.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -45,6 +46,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         else state_.sky_uniforms.push_back(value);
     }
     moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
+    update_beds(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
     // the node's direction at the resolved value so everything that reads
@@ -142,6 +144,56 @@ void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
     }
     if (it != script_sky_uniforms_.end()) *it = value;
     else script_sky_uniforms_.push_back(value);
+}
+
+void EnvironmentSubsystem::on_play_stop(const TickContext& /*ctx*/) {
+    stop_beds(active_beds_);
+    stop_beds(outgoing_beds_);
+}
+
+void EnvironmentSubsystem::stop_beds(Beds& beds) {
+    if (audio_ != nullptr) {
+        if (beds.bed != 0) audio_->engine().stop_bed(beds.bed);
+        if (beds.wind != 0) audio_->engine().stop_bed(beds.wind);
+    }
+    beds = Beds{};
+}
+
+void EnvironmentSubsystem::follow_event(Beds& beds, const WeatherPlayer::Playing* playing,
+                                        const TickContext& ctx) {
+    if (playing == nullptr || playing->asset == nullptr) {
+        stop_beds(beds);
+        return;
+    }
+    if (beds.event_id != playing->event_id || beds.asset != playing->asset) {
+        stop_beds(beds);
+        beds.event_id = playing->event_id;
+        beds.asset = playing->asset;
+        auto& engine = audio_->engine();
+        if (!playing->asset->audio.bed.empty()) beds.bed = engine.play_bed(playing->asset->audio.bed, 0.0f, ctx.project);
+        if (!playing->asset->audio.wind.empty()) beds.wind = engine.play_bed(playing->asset->audio.wind, 0.0f, ctx.project);
+    }
+    // The bed follows the event's presence and, when it precipitates, how
+    // hard; the wind bed follows the wind itself.
+    const auto& w = state_.weather;
+    const float weight = playing->weight();
+    const bool precipitates = playing->asset->precipitation_type != PrecipitationType::None;
+    const float bed_volume = weight * (precipitates ? w.precipitation : 1.0f);
+    const float wind_volume = glm::clamp(w.wind_speed * w.wind_gust / 12.0f, 0.0f, 1.0f) * weight;
+    if (beds.bed != 0) audio_->engine().set_bed_volume(beds.bed, bed_volume);
+    if (beds.wind != 0) audio_->engine().set_bed_volume(beds.wind, wind_volume);
+}
+
+void EnvironmentSubsystem::update_beds(const TickContext& ctx) {
+    if (audio_ == nullptr) return;
+    // Weather sounds belong to play, like every other sound in the scene.
+    if (!playing()) {
+        stop_beds(active_beds_);
+        stop_beds(outgoing_beds_);
+        return;
+    }
+    follow_event(active_beds_, player_.active(), ctx);
+    follow_event(outgoing_beds_, player_.outgoing(), ctx);
 }
 
 void EnvironmentSubsystem::set_hour(float hour) {

@@ -136,6 +136,7 @@ void Engine::init_subsystems() {
         vulkan_context_->device(), vulkan_context_->allocator());
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
     environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
+    environment_subsystem_->set_audio(audio_subsystem_);
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();

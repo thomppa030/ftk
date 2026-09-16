@@ -24,6 +24,8 @@ struct AudioEngine::Impl {
 
     std::unordered_map<uint32_t, SoundEntry> sounds;
     std::vector<ma_sound> oneshots;
+    std::unordered_map<uint32_t, std::unique_ptr<ma_sound>> beds;
+    uint32_t next_bed_id{1};
 };
 
 AudioEngine::AudioEngine() : impl_(std::make_unique<Impl>()) {
@@ -138,6 +140,43 @@ void AudioEngine::stop_all() {
         ma_sound_uninit(&s);
     }
     impl_->oneshots.clear();
+
+    for (auto& [id, bed] : impl_->beds) {
+        ma_sound_uninit(bed.get());
+    }
+    impl_->beds.clear();
+}
+
+uint32_t AudioEngine::play_bed(const std::string& clip_path, float volume, const Project* project) {
+    if (!is_initialized()) return 0;
+    std::string resolved = base_path::resolve_asset(clip_path, project);
+    auto bed = std::make_unique<ma_sound>();
+    ma_result result = ma_sound_init_from_file(&impl_->engine, resolved.c_str(),
+                                               MA_SOUND_FLAG_DECODE, nullptr, nullptr, bed.get());
+    if (result != MA_SUCCESS) {
+        FJELL_CORE_WARN("Failed to play bed: {}", clip_path);
+        return 0;
+    }
+    ma_sound_set_volume(bed.get(), volume);
+    ma_sound_set_looping(bed.get(), MA_TRUE);
+    ma_sound_set_spatialization_enabled(bed.get(), MA_FALSE);
+    ma_sound_start(bed.get());
+    const uint32_t id = impl_->next_bed_id++;
+    impl_->beds.emplace(id, std::move(bed));
+    return id;
+}
+
+void AudioEngine::set_bed_volume(uint32_t bed_id, float volume) {
+    auto it = impl_->beds.find(bed_id);
+    if (it == impl_->beds.end()) return;
+    ma_sound_set_volume(it->second.get(), volume);
+}
+
+void AudioEngine::stop_bed(uint32_t bed_id) {
+    auto it = impl_->beds.find(bed_id);
+    if (it == impl_->beds.end()) return;
+    ma_sound_uninit(it->second.get());
+    impl_->beds.erase(it);
 }
 
 void AudioEngine::pause_all() {
