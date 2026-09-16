@@ -54,13 +54,16 @@ std::vector<WaterWave> generate_water_waves(const WaterWaveGenerator& settings) 
 
         // Wavelengths halve down the list, so a few trains span a wide range
         // of scales: the long ones carry the swell, the short ones the detail.
-        float scale = std::pow(0.62f, static_cast<float>(i));
+        float scale = std::pow(std::clamp(settings.wavelength_falloff, 0.1f, 0.98f),
+                               static_cast<float>(i));
         wave.wavelength = std::max(settings.longest_wavelength * scale, 0.5f);
 
         // Amplitude falls faster than wavelength, which is what keeps short
         // waves from turning the surface to noise. Steeper than linear so the
         // biggest train stays the one you read.
-        wave.amplitude = settings.swell * std::pow(0.68f, static_cast<float>(i));
+        wave.amplitude = settings.swell
+                       * std::pow(std::clamp(settings.amplitude_falloff, 0.1f, 0.98f),
+                                  static_cast<float>(i));
 
         // Shorter waves pinch harder: chop lives in the small stuff.
         wave.steepness = std::clamp(settings.chop * (0.6f + 0.4f * static_cast<float>(i)
@@ -92,6 +95,7 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
     FjWaterData water;
     water.amplitude_scale = j.value("amplitude_scale", 1.0f);
     water.speed_scale = j.value("speed_scale", 1.0f);
+    water.steepness_headroom = j.value("steepness_headroom", 1.10f);
 
     if (j.contains("generator") && j["generator"].is_object()) {
         const auto& g = j["generator"];
@@ -101,6 +105,8 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         water.generator.longest_wavelength = g.value("longest_wavelength", 30.0f);
         water.generator.wave_count = g.value("wave_count", 6u);
         water.generator.spread_degrees = g.value("spread_degrees", 40.0f);
+        water.generator.wavelength_falloff = g.value("wavelength_falloff", 0.62f);
+        water.generator.amplitude_falloff = g.value("amplitude_falloff", 0.68f);
     }
 
     if (j.contains("waves") && j["waves"].is_array()) {
@@ -128,6 +134,7 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
     nlohmann::json j;
     j["amplitude_scale"] = water.amplitude_scale;
     j["speed_scale"] = water.speed_scale;
+    j["steepness_headroom"] = water.steepness_headroom;
 
     nlohmann::json g = nlohmann::json::object();
     g["wind_direction"] = write_vec2(water.generator.wind_direction);
@@ -136,6 +143,8 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
     g["longest_wavelength"] = water.generator.longest_wavelength;
     g["wave_count"] = water.generator.wave_count;
     g["spread_degrees"] = water.generator.spread_degrees;
+    g["wavelength_falloff"] = water.generator.wavelength_falloff;
+    g["amplitude_falloff"] = water.generator.amplitude_falloff;
     j["generator"] = g;
 
     nlohmann::json waves = nlohmann::json::array();

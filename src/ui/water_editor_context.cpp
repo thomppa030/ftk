@@ -4,9 +4,12 @@
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/resources/fjwater_io.hpp"
+#include "renderer/components/water_component.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "scene/node.hpp"
+#include "scene/scene.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -113,8 +116,27 @@ float WaterEditorContext::total_amplitude() const {
 
 void WaterEditorContext::push_live() {
     dirty_ = true;
-    // Phase 2 lands the water node that reads this asset; until then there is
-    // nothing in the scene to push to, and the panels are the whole editor.
+
+    // A water node holds its own copy of the field it was loaded with, and
+    // the pass draws from that copy — so a sea does not change because the
+    // file did. Hand every node that names this asset the edited field, and
+    // the viewport shows the sea being shaped rather than the one last
+    // saved.
+    if (deps_.scene == nullptr) return;
+    const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active()
+                                                          : nullptr;
+    for (const auto& node : deps_.scene->objects()) {
+        auto* water = node->components.get<WaterComponent>();
+        if (water == nullptr) continue;
+        // Compare where the references land, not how they are written: a
+        // saved scene stores an asset id while the editor was handed a path,
+        // and the two name the same file.
+        if (base_path::resolve_asset(water->water_path, project) != water_abs_path_) {
+            continue;
+        }
+        water->water = water_;
+        water->water_loaded = true;
+    }
 }
 
 void WaterEditorContext::draw(float dt) {
@@ -154,7 +176,18 @@ void WaterEditorContext::draw_generator_panel() {
                                   2.0f, 200.0f, "%.1f m");
     changed |= ImGui::SliderFloat("Spread", &g.spread_degrees, 0.0f, 90.0f, "%.0f deg");
     ImGui::SetItemTooltip("How far the trains fan either side of the wind. "
-                          "0 reads as a canal rather than open sea.");
+                          "0 reads as a canal rather than open sea; a swell "
+                          "that has travelled stays inside about 10.");
+    changed |= ImGui::SliderFloat("Wavelength falloff", &g.wavelength_falloff,
+                                  0.30f, 0.95f, "%.2f");
+    ImGui::SetItemTooltip("How much shorter each train is than the last. Low "
+                          "buries the long waves under chop, which reads as a "
+                          "wind sea; high keeps them and the surface rolls.");
+    changed |= ImGui::SliderFloat("Amplitude falloff", &g.amplitude_falloff,
+                                  0.30f, 0.95f, "%.2f");
+    ImGui::SetItemTooltip("How much lower each train is than the last. Below "
+                          "the wavelength falloff the short waves fade out "
+                          "and the swell reads smooth.");
 
     int count = static_cast<int>(g.wave_count);
     if (ImGui::SliderInt("Trains", &count, 1, static_cast<int>(MAX_WATER_WAVES))) {
@@ -168,7 +201,13 @@ void WaterEditorContext::draw_generator_panel() {
         water_.waves = generate_water_waves(g);
         push_live();
     }
-    if (changed) dirty_ = true;
+    // Moving a generator slider regenerates as it is dragged. The generator
+    // is deterministic, so this is the same list the button would make, and
+    // shaping a sea by watching it beats shaping it by pressing a button.
+    if (changed) {
+        water_.waves = generate_water_waves(g);
+        push_live();
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled("Whole sea");
@@ -180,6 +219,37 @@ void WaterEditorContext::draw_generator_panel() {
     if (ImGui::SliderFloat("Speed scale", &water_.speed_scale, 0.0f, 3.0f, "%.2f")) {
         push_live();
     }
+    if (ImGui::SliderFloat("Steepness headroom", &water_.steepness_headroom,
+                           0.5f, 4.0f, "%.2f")) {
+        push_live();
+    }
+    ImGui::SetItemTooltip("How much of the fold limit the trains share. 1 can "
+                          "never fold whatever they do; past the measured "
+                          "ceiling the sharpest crests turn inside out, which "
+                          "reads as dark facets in the foam.");
+
+    // What that setting costs, measured rather than asserted: sample the
+    // surface and count where it has folded. A number beats a warning here,
+    // because a little folding at a distance may be a trade worth making.
+    if (!water_.waves.empty()) {
+        int folded = 0;
+        int total = 0;
+        for (float x = -120.0f; x <= 120.0f; x += 6.0f) {
+            for (float z = -120.0f; z <= 120.0f; z += 6.0f) {
+                for (float t : {0.0f, 5.5f, 13.7f}) {
+                    ++total;
+                    if (water::crest(water_, {x, z}, t) >= 0.999f) ++folded;
+                }
+            }
+        }
+        float pct = 100.0f * static_cast<float>(folded) / static_cast<float>(total);
+        if (pct <= 0.0f) {
+            ImGui::TextDisabled("no folding");
+        } else {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                               "%.2f%% of the surface folds", pct);
+        }
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled("Measures");
@@ -188,6 +258,21 @@ void WaterEditorContext::draw_generator_panel() {
         float longest = 0.0f;
         for (const auto& w : water_.waves) longest = std::max(longest, w.wavelength);
         ImGui::Text("Longest train:   %.1f m", longest);
+        // The period is what says whether a sea rolls. Wind chop comes in at
+        // two to five seconds and reads as busy; swell that has travelled from
+        // a storm arrives at eight to fourteen and reads as a procession of
+        // ridges. The wavelength decides it, so this is a consequence rather
+        // than a setting — but it is the number to steer by.
+        {
+            float omega = water::wave_frequency(longest) * water_.speed_scale;
+            if (omega > 1e-4f) {
+                float period = glm::two_pi<float>() / omega;
+                const char* reads = period < 6.0f ? "wind chop"
+                                  : (period < 8.0f ? "building" : "rolling swell");
+                ImGui::Text("Longest period:  %.1f s", period);
+                ImGui::TextDisabled("reads as %s", reads);
+            }
+        }
         // The shortest train is what decides how finely the surface has to be
         // tessellated: under about four vertices per wavelength it cannot be
         // drawn and comes out as noise instead of chop.
