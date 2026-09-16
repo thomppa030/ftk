@@ -49,27 +49,47 @@ void ViewportBrush::cancel(BrushTarget& target) {
     target.end_stroke();
 }
 
+void ViewportBrush::resize(Knob knob, float steps) {
+    const float linear = BrushSettings::LINEAR_STEP * steps;
+    switch (knob) {
+    case Knob::radius:
+        // Geometric steps: one notch means the same relative change whether
+        // the brush is a metre or a hundred across.
+        settings_.radius =
+            std::clamp(settings_.radius * std::pow(BrushSettings::RADIUS_STEP, steps),
+                       BrushSettings::MIN_RADIUS, BrushSettings::MAX_RADIUS);
+        break;
+    case Knob::strength:
+        settings_.strength = std::clamp(settings_.strength + linear, 0.0f, 1.0f);
+        break;
+    case Knob::hardness:
+        settings_.hardness = std::clamp(settings_.hardness + linear, 0.0f, 1.0f);
+        break;
+    }
+}
+
 void ViewportBrush::handle_shortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
+
+    // Ctrl is what keeps the wheel off the camera, which bails out whenever
+    // Ctrl or Alt is held, so it is the brush's baseline rather than a knob
+    // of its own. Shift and Alt pick the other two from there.
+    if (io.KeyCtrl && io.MouseWheel != 0.0f) {
+        const Knob knob = io.KeyShift  ? Knob::strength
+                          : io.KeyAlt  ? Knob::hardness
+                                       : Knob::radius;
+        resize(knob, io.MouseWheel);
+    }
 
     // Repeat while held, so a long press sweeps the value.
     const bool shrink = ImGui::IsKeyPressed(ImGuiKey_LeftBracket, true);
     const bool grow = ImGui::IsKeyPressed(ImGuiKey_RightBracket, true);
     if (!shrink && !grow) return;
-    const float direction = grow ? 1.0f : -1.0f;
-
-    if (io.KeyShift) {
-        settings_.strength = std::clamp(settings_.strength + (0.05f * direction), 0.0f, 1.0f);
-    } else if (io.KeyCtrl) {
-        settings_.hardness = std::clamp(settings_.hardness + (0.05f * direction), 0.0f, 1.0f);
-    } else {
-        // Geometric steps: the same key press means the same relative change
-        // whether the brush is a metre or a hundred across.
-        const float factor = grow ? 1.15f : 1.0f / 1.15f;
-        settings_.radius = std::clamp(settings_.radius * factor, BrushSettings::MIN_RADIUS,
-                                      BrushSettings::MAX_RADIUS);
-    }
+    const Knob knob = io.KeyShift ? Knob::strength
+                      : io.KeyCtrl ? Knob::hardness
+                                   : Knob::radius;
+    resize(knob, grow ? 1.0f : -1.0f);
 }
 
 void ViewportBrush::draw_cursor(const Frame& frame, const BrushTarget& target,

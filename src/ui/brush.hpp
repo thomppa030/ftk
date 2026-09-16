@@ -18,6 +18,11 @@ struct BrushSettings {
 
     static constexpr float MIN_RADIUS = 0.5f;
     static constexpr float MAX_RADIUS = 200.0f;
+
+    /// One notch of the wheel or one key press: the radius scales by this,
+    /// the other two move by a flat amount.
+    static constexpr float RADIUS_STEP = 1.15f;
+    static constexpr float LINEAR_STEP = 0.05f;
 };
 
 /// Where the brush sits on the target this frame.
@@ -58,11 +63,16 @@ public:
 /// lands, and takes the resize shortcuts. It knows nothing about what a
 /// stroke does; that is the target's.
 ///
-/// Shortcuts while the brush is over a viewport: `[` and `]` shrink and grow
-/// the radius, with Shift they lower and raise the strength, with Ctrl the
-/// hardness.
+/// Shortcuts while the brush is over a viewport. Ctrl+wheel sizes the brush,
+/// with Shift the strength and with Alt the hardness — Ctrl throughout,
+/// because the editor camera gives up the wheel exactly when Ctrl is held.
+/// `[` and `]` do the same without the wheel: bare for the radius, Shift for
+/// the strength, Ctrl for the hardness.
 class ViewportBrush {
 public:
+    /// The three knobs, for the shortcuts that drive them.
+    enum class Knob : uint8_t { radius, strength, hardness };
+
     /// What one frame of the brush needs, gathered by the viewport that owns it.
     struct Frame {
         glm::vec3 ray_origin{0.0f};
@@ -76,6 +86,10 @@ public:
     };
 
     void update(const Frame& frame, BrushTarget& target);
+
+    /// Nudge one knob by `steps` notches — a wheel detent or a key press,
+    /// fractional where the wheel reports it that way. Negative shrinks.
+    void resize(Knob knob, float steps);
 
     /// Ends any stroke in progress without a dab, for when the tool goes away
     /// under the brush.

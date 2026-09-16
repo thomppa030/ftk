@@ -17,7 +17,9 @@ inline bool draw_brush_settings(BrushSettings& brush) {
     }
     if (ImGui::SliderFloat("Strength", &brush.strength, 0.0f, 1.0f, "%.2f")) changed = true;
     if (ImGui::SliderFloat("Hardness", &brush.hardness, 0.0f, 1.0f, "%.2f")) changed = true;
-    ImGui::TextDisabled("[ ] radius   Shift+[ ] strength   Ctrl+[ ] hardness");
+    ImGui::TextDisabled("Ctrl+wheel radius   +Shift strength   +Alt hardness");
+    ImGui::SetItemTooltip("Or [ and ]: bare for the radius, Shift for the strength,\n"
+                          "Ctrl for the hardness.");
     return changed;
 }
 
