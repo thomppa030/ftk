@@ -61,8 +61,16 @@ public:
     /// Start an event. The event playing so far, if any, moves to its tail
     /// and plays out underneath. `seed` decides the rolled durations, so a
     /// director that replays a seed gets the same weather.
+    ///
+    /// `from` starts the event partway through rather than at its approach,
+    /// for an editor that wants the storm now instead of in two minutes. The
+    /// phases before it are skipped outright, not fast-forwarded: what they
+    /// would have brought the world to is the integrator's business, and a
+    /// jump to the sustain looks like weather that set in while you were
+    /// away, which is what the control is for.
     void play(const WeatherAsset* asset, uint32_t event_id, uint32_t seed,
-              const DayProfileAsset* profile = nullptr);
+              const DayProfileAsset* profile = nullptr,
+              WeatherPhase from = WeatherPhase::Approach);
     /// Move the active event to its tail with nothing to follow.
     void stop();
 

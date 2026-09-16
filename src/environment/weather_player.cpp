@@ -69,7 +69,7 @@ float WeatherPlayer::Playing::weight() const {
 }
 
 void WeatherPlayer::play(const WeatherAsset* asset, uint32_t event_id, uint32_t seed,
-                         const DayProfileAsset* profile) {
+                         const DayProfileAsset* profile, WeatherPhase from) {
     if (asset == nullptr) {
         stop();
         return;
@@ -96,6 +96,7 @@ void WeatherPlayer::play(const WeatherAsset* asset, uint32_t event_id, uint32_t 
         std::uniform_real_distribution<float> roll(d.min_seconds, std::max(d.max_seconds, d.min_seconds));
         next.durations[i] = std::max(roll(rng), 0.001f);
     }
+    next.phase = from;
     active_ = next;
     has_active_ = true;
 }

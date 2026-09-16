@@ -279,6 +279,13 @@ void WeatherEditorContext::draw_properties() {
     }
 }
 
+void WeatherEditorContext::play_from(WeatherPhase phase) {
+    push_live();
+    if (auto handle = live_handle(); handle.valid()) {
+        deps_.environment->play_weather(handle, phase);
+    }
+}
+
 void WeatherEditorContext::draw_event_panel() {
     if (!ImGui::Begin(ctx_title("Weather").c_str())) {
         ImGui::End();
@@ -313,12 +320,25 @@ void WeatherEditorContext::draw_event_panel() {
             if (ImGui::SmallButton("Stop")) deps_.environment->play_weather({});
             ImGui::SameLine();
             ImGui::TextDisabled("%s", format_phase_time(cursor_).c_str());
-        } else if (ImGui::SmallButton("Play in scene")) {
-            push_live();
-            if (auto handle = live_handle(); handle.valid()) deps_.environment->play_weather(handle);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Start this event over the open scene; the preview and the timeline follow it");
+        } else {
+            // The button plays from the start; the arrow beside it plays from
+            // a phase. Picking one starts the event, rather than arming a
+            // choice for a second press.
+            if (ImGui::SmallButton("Play in scene")) play_from(WeatherPhase::Approach);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Start this event over the open scene; the preview and the timeline follow it");
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+            if (ImGui::SmallButton("v##play_from")) ImGui::OpenPopup("##play_from_menu");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play from a later phase");
+            if (ImGui::BeginPopup("##play_from_menu")) {
+                for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
+                    const auto phase = static_cast<WeatherPhase>(i);
+                    std::string label = std::string("Play from ") + weather_phase_name(phase);
+                    if (ImGui::MenuItem(label.c_str())) play_from(phase);
+                }
+                ImGui::EndPopup();
+            }
         }
     }
     ImGui::Separator();

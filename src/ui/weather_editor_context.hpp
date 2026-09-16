@@ -62,6 +62,8 @@ private:
     void draw_event_panel();
     void draw_timeline_panel(float dt);
     void draw_properties();
+    /// Start the edited event over the open scene at `phase`.
+    void play_from(WeatherPhase phase);
     /// Copy the edited event into the asset the scene plays, so the
     /// viewport follows without a save.
     void push_live();

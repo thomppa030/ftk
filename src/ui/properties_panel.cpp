@@ -169,12 +169,28 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
         }
         ImGui::SameLine();
     }
-    if (!env.weather.empty() && ImGui::SmallButton("Replay##EnvWeatherReplay")) {
-        if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
-            environment_->play_weather(*handle);
+    if (!env.weather.empty()) {
+        auto replay = [&](WeatherPhase phase) {
+            if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
+                environment_->play_weather(*handle, phase);
+            }
+        };
+        // The button replays from the start; the arrow plays from a phase,
+        // on the pick rather than on a second press.
+        if (ImGui::SmallButton("Replay##EnvWeatherReplay")) replay(WeatherPhase::Approach);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Start the scene's weather event again");
+        ImGui::SameLine(0.0f, 2.0f);
+        if (ImGui::SmallButton("v##EnvWeatherFrom")) ImGui::OpenPopup("##EnvWeatherFromMenu");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replay from a later phase");
+        if (ImGui::BeginPopup("##EnvWeatherFromMenu")) {
+            for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
+                const auto phase = static_cast<WeatherPhase>(i);
+                std::string label = std::string("Replay from ") + weather_phase_name(phase);
+                if (ImGui::MenuItem(label.c_str())) replay(phase);
+            }
+            ImGui::EndPopup();
         }
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Start the scene's weather event again from its approach");
 }
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
