@@ -49,6 +49,7 @@ add_executable(fjell
     environment/weather_player.cpp
     ui/track_timeline_editor.cpp
     ui/day_profile_editor_context.cpp
+    ui/weather_editor_context.cpp
     core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp
