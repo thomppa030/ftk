@@ -70,8 +70,10 @@ void WaterEditorContext::setup_dockspace(ImGuiID main_area) {
 }
 
 std::vector<ViewportRenderRequest> WaterEditorContext::build_render_requests() {
-    // The scene's own sky, not the studio backdrop: a sea is lit by the sky
-    // over it and reflects it, so the two are judged together.
+    // The sky, not the studio backdrop the material and VFX editors use. A
+    // sea is lit by what is above it and reflects it — the Fresnel term reads
+    // the sky directly — so previewing one against a grey studio card would
+    // show a material the sea never has.
     return viewport_manager_.build_render_requests();
 }
 
@@ -95,6 +97,32 @@ void WaterEditorContext::open_water(const std::string& path) {
     water_ = std::move(*loaded);
     loaded_ = true;
     dirty_ = false;
+
+    setup_preview();
+    if (auto* cam = viewport_manager_.active_camera()) {
+        // Stand off and look along the sea rather than down at it: a wave
+        // field is read by how its crests march past, which is invisible from
+        // overhead.
+        cam->focus({0.0f, 0.0f, 0.0f}, 90.0f);
+    }
+}
+
+void WaterEditorContext::setup_preview() {
+    preview_scene_.clear();
+
+    auto node = std::make_unique<SceneNode>();
+    node->name = "water_preview";
+    auto& wc = node->components.add<WaterComponent>();
+    wc.water_path = water_path_;
+    wc.water = water_;
+    wc.water_loaded = loaded_;
+    // Big enough that the longest trains have room to read as a procession,
+    // and tessellated for the shortest one the field carries.
+    wc.size = 500.0f;
+    wc.patches_per_side = 46;
+
+    preview_node_id_ = preview_scene_.add_node(std::move(node));
+    preview_scene_.compute_world_matrices(nullptr);
 }
 
 bool WaterEditorContext::save() {
@@ -122,6 +150,14 @@ void WaterEditorContext::push_live() {
     // file did. Hand every node that names this asset the edited field, and
     // the viewport shows the sea being shaped rather than the one last
     // saved.
+    // The editor's own sea first: it is what the viewport shows.
+    if (auto* node = preview_scene_.find(preview_node_id_)) {
+        if (auto* water = node->components.get<WaterComponent>()) {
+            water->water = water_;
+            water->water_loaded = true;
+        }
+    }
+
     if (deps_.scene == nullptr) return;
     const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active()
                                                           : nullptr;
@@ -140,6 +176,7 @@ void WaterEditorContext::push_live() {
 }
 
 void WaterEditorContext::draw(float dt) {
+    preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_generator_panel();
     draw_wave_list_panel();

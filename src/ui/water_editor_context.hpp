@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/fjwater.hpp"
+#include "scene/scene.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
 
@@ -20,9 +21,9 @@ struct WaterEditorDeps {
     ResourceManager* resource_manager;
     ProjectManager* project_mgr;
     Input* input;
-    /// The scene the engine ticks. Water is a thing placed in a scene rather
-    /// than a property of one, so the preview shows the open scene and the
-    /// edited sea appears in it wherever a water node references this asset.
+    /// The scene the engine ticks. The editor previews a sea of its own, but
+    /// a water node in the open scene that names this asset follows the edits
+    /// too, so the two stay in step.
     Scene* scene;
 };
 
@@ -51,7 +52,10 @@ public:
     void draw(float dt) override;
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override { return false; }
-    // The preview renders the engine's scene, so render_scene() stays null.
+    /// The editor previews a sea of its own rather than whichever scene
+    /// happens to be open: a .fjwater is an asset, and what it looks like
+    /// should not depend on what was loaded last.
+    [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
 
@@ -59,6 +63,9 @@ public:
     void open_water(const std::string& path);
 
 private:
+    /// Build the preview: one water node over a floor, carrying this asset.
+    void setup_preview();
+
     void draw_generator_panel();
     void draw_wave_list_panel();
     /// Copy the edited field into the loaded asset so the viewport follows
@@ -78,6 +85,8 @@ private:
     bool dirty_{false};
 
     ViewportManager viewport_manager_;
+    Scene preview_scene_;
+    std::uint32_t preview_node_id_{0};
 };
 
 } // namespace fjell
