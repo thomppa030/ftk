@@ -15,6 +15,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjterrain_io.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjinst_io.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjwater_io.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_gpu.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_surface.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp

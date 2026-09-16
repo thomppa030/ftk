@@ -1,5 +1,6 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/fjwater_io.hpp"
+#include "renderer/resources/water_gpu.hpp"
 #include "renderer/resources/water_surface.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -404,4 +405,88 @@ TEST_CASE("A .fjwater keeps at most MAX_WATER_WAVES trains", "[fjwater]") {
     REQUIRE(loaded->waves.size() == MAX_WATER_WAVES);
 
     std::filesystem::remove_all(dir);
+}
+
+// --- The buffer the shader reads ---
+//
+// The field reaches the GPU as a uniform buffer, so a third description of it
+// exists: the C++ struct that fills the buffer, next to the GLSL struct that
+// reads it. Matching sizeof() is not enough to know two layouts agree — the
+// engine has been caught by that before — so compare them member by member,
+// which is possible here because the shim compiles the real GLSL as C++.
+
+TEST_CASE("The GPU field matches the shader's struct", "[fjwater]") {
+    REQUIRE(sizeof(GpuWaterWave) == sizeof(FjellWaterWave));
+    REQUIRE(sizeof(GpuWaterField) == sizeof(FjellWaterField));
+
+    REQUIRE(offsetof(GpuWaterWave, direction) == offsetof(FjellWaterWave, direction));
+    REQUIRE(offsetof(GpuWaterWave, wavelength) == offsetof(FjellWaterWave, wavelength));
+    REQUIRE(offsetof(GpuWaterWave, amplitude) == offsetof(FjellWaterWave, amplitude));
+    REQUIRE(offsetof(GpuWaterWave, steepness) == offsetof(FjellWaterWave, steepness));
+    REQUIRE(offsetof(GpuWaterWave, speed) == offsetof(FjellWaterWave, speed));
+
+    REQUIRE(offsetof(GpuWaterField, waves) == offsetof(FjellWaterField, waves));
+    REQUIRE(offsetof(GpuWaterField, wave_count) == offsetof(FjellWaterField, wave_count));
+    REQUIRE(offsetof(GpuWaterField, amplitude_scale)
+            == offsetof(FjellWaterField, amplitude_scale));
+    REQUIRE(offsetof(GpuWaterField, speed_scale) == offsetof(FjellWaterField, speed_scale));
+
+    // The array stride is what a matching sizeof() can still hide: two
+    // structs of equal size whose arrays step differently put every wave
+    // after the first in the wrong place.
+    GpuWaterField cpu{};
+    FjellWaterField gpu{};
+    auto cpu_stride = reinterpret_cast<const char*>(&cpu.waves[1])
+                    - reinterpret_cast<const char*>(&cpu.waves[0]);
+    auto gpu_stride = reinterpret_cast<const char*>(&gpu.waves[1])
+                    - reinterpret_cast<const char*>(&gpu.waves[0]);
+    REQUIRE(cpu_stride == gpu_stride);
+}
+
+TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
+    FjWaterData water;
+    water.amplitude_scale = 1.6f;
+    water.speed_scale = 0.7f;
+    water.waves = {
+        wave({1.0f, 0.3f}, 28.0f, 1.4f, 0.85f, 1.1f),
+        wave({0.0f, 0.0f}, 20.0f, 1.0f, 0.5f),    // no direction, dropped
+        wave({-0.4f, 1.0f}, 13.0f, 0.6f, 0.7f, 1.3f),
+        wave({1.0f, 0.0f}, 0.0f, 1.0f, 0.5f),     // no wavelength, dropped
+    };
+
+    auto field = to_gpu_field(water);
+    REQUIRE(field.wave_count == 2);
+    REQUIRE(field.amplitude_scale == Approx(1.6f));
+    REQUIRE(field.speed_scale == Approx(0.7f));
+    REQUIRE(field.waves[0].wavelength == Approx(28.0f));
+    REQUIRE(field.waves[1].wavelength == Approx(13.0f));
+
+    // The packed field and the authored one describe the same surface: the
+    // dropped trains were the ones neither evaluator would have summed.
+    FjellWaterField shader_field{};
+    shader_field.wave_count = field.wave_count;
+    shader_field.amplitude_scale = field.amplitude_scale;
+    shader_field.speed_scale = field.speed_scale;
+    for (std::uint32_t i = 0; i < field.wave_count; ++i) {
+        shader_field.waves[i].direction = field.waves[i].direction;
+        shader_field.waves[i].wavelength = field.waves[i].wavelength;
+        shader_field.waves[i].amplitude = field.waves[i].amplitude;
+        shader_field.waves[i].steepness = field.waves[i].steepness;
+        shader_field.waves[i].speed = field.waves[i].speed;
+    }
+
+    for (float x = -20.0f; x <= 20.0f; x += 5.0f) {
+        glm::vec2 p(x, x * 0.4f);
+        INFO("at x=" << x);
+        REQUIRE(water::displace(water, p, 3.0f).y
+                == Approx(fjell_water_displace(shader_field, p, 3.0f).y).margin(1e-3));
+    }
+}
+
+TEST_CASE("Packing drops trains past the limit", "[fjwater]") {
+    FjWaterData water;
+    for (int i = 0; i < 40; ++i) {
+        water.waves.push_back(wave({1.0f, 0.0f}, 10.0f + static_cast<float>(i), 0.1f, 0.5f));
+    }
+    REQUIRE(to_gpu_field(water).wave_count == MAX_WATER_WAVES);
 }
