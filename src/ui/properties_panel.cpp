@@ -7,11 +7,8 @@
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
-#include "renderer/components/mesh_component.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "renderer/components/skeletal_mesh_component.hpp"
-#include "renderer/components/terrain_component.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/component_registry.hpp"
@@ -341,13 +338,12 @@ void PropertiesPanel::draw() {
                 if (ImGui::CollapsingHeader(meta->display_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                     meta->draw(*obj, ptr, ictx);
 
-                    // Material inspector for mesh components
-                    if (id == component_type_id<MeshComponent>())
-                        draw_material_inspector(*obj);
-                    else if (id == component_type_id<SkeletalMeshComponent>())
-                        draw_material_inspector_for(static_cast<SkeletalMeshComponent*>(ptr)->material);
-                    else if (id == component_type_id<TerrainComponent>())
-                        draw_material_inspector_for(static_cast<TerrainComponent*>(ptr)->material);
+                    // A component that paints itself with a material shows
+                    // that material's own parameters here, so a surface is
+                    // tuned where it is placed.
+                    if (meta->material != nullptr) {
+                        draw_material_inspector_for(meta->material(ptr));
+                    }
 
                     std::string remove_label = "Remove " + meta->display_name;
                     if (remove_button(remove_label.c_str())) {
@@ -786,12 +782,6 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
     if (draw_material_params(meta, *bindless_, *mat)) {
         scene_->mark_dirty();
     }
-}
-
-void PropertiesPanel::draw_material_inspector(Node3D& obj) {
-    auto* mesh = obj.components.get<MeshComponent>();
-    if (!mesh) return;
-    draw_material_inspector_for(mesh->material);
 }
 
 } // namespace fjell

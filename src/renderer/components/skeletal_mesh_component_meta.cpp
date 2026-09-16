@@ -87,6 +87,9 @@ static const bool registered = [] {
             }
         },
 
+        .material = [](void* ptr) -> Material* {
+            return static_cast<SkeletalMeshComponent*>(ptr)->material;
+        },
         .script_type_name = {},
     });
     return true;

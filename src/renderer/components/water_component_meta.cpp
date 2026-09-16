@@ -153,6 +153,9 @@ const bool registered = [] {
             load_water_field(water, proj);
         },
 
+        .material = [](void* ptr) -> Material* {
+            return static_cast<WaterComponent*>(ptr)->material;
+        },
         .script_type_name = "WaterComponent",
         .script_get = [](Node& node) -> void* { return node.components.get<WaterComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<WaterComponent>(); },

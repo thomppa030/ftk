@@ -44,7 +44,6 @@ public:
     void set_environment(EnvironmentSubsystem* environment) { environment_ = environment; }
 
 private:
-    void draw_material_inspector(struct Node3D& obj);
     void draw_weather_controls(struct WorldEnvironmentNode& env, const struct InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);
 

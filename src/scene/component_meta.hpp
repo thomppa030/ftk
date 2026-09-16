@@ -16,6 +16,7 @@ class CommandHistory;
 class ContentBrowser;
 class FileBrowser;
 class IconCache;
+class Material;
 class PipelineCache;
 class ProjectManager;
 class ResourceManager;
@@ -52,6 +53,17 @@ struct ComponentMeta {
     std::function<void(const void* component, const Node& node, nlohmann::json& out,
                        const Project* proj)> serialize;
     std::function<void(Node& node, const nlohmann::json& j, ResourceManager& res, const Project* proj)> deserialize;
+
+    /// The material this component paints itself with, or null if it has
+    /// none. The inspector draws that material's own parameters under the
+    /// component, so a surface is tuned where it is placed rather than by
+    /// going to find its `.fjmat`.
+    ///
+    /// A component says whether it has a material rather than the inspector
+    /// knowing the list: the panel asked `if mesh, else if skeletal, else if
+    /// terrain` and every new surface type had to be added to a chain that
+    /// had no reason to know about it.
+    Material* (*material)(void* component){nullptr};
 
     // Script API dispatch (null = not script-accessible)
     std::string script_type_name;
