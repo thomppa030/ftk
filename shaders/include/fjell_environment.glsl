@@ -19,6 +19,7 @@ layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
     vec4 secondary_dir_intensity;  /* lit without cascaded shadows */          \
     vec4 secondary_color;                                                      \
     vec4 wind_dir_speed_gust;      /* xyz direction, w speed * gust */         \
+    vec4 wind_drift;               /* xy metres the wind has carried things */ \
     vec4 weather0;                 /* cloud coverage, cloud density, precipitation, precipitation type */ \
     vec4 weather1;                 /* wetness, snow, lightning ramp, time of day (hours) */ \
     vec4 front;                    /* xy front dir on xz, z edge position, w edge softness */ \

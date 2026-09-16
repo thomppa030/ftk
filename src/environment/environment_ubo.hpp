@@ -27,6 +27,7 @@ struct EnvironmentUbo {
     alignas(16) glm::vec4 secondary_dir_intensity;  // the body lit without cascaded shadows
     alignas(16) glm::vec4 secondary_color;
     alignas(16) glm::vec4 wind_dir_speed_gust;      // xyz direction, w speed × gust
+    alignas(16) glm::vec4 wind_drift;               // xy metres the wind has carried things on the ground plane
     alignas(16) glm::vec4 weather0;                 // x cloud coverage, y cloud density, z precipitation, w precipitation type
     alignas(16) glm::vec4 weather1;                 // x wetness, y snow, z lightning ramp, w time of day in hours
     alignas(16) glm::vec4 front;                    // xy front direction on the xz plane, z edge position, w edge softness
@@ -48,16 +49,17 @@ static_assert(offsetof(EnvironmentUbo, moon_color) == 48);
 static_assert(offsetof(EnvironmentUbo, secondary_dir_intensity) == 64);
 static_assert(offsetof(EnvironmentUbo, secondary_color) == 80);
 static_assert(offsetof(EnvironmentUbo, wind_dir_speed_gust) == 96);
-static_assert(offsetof(EnvironmentUbo, weather0) == 112);
-static_assert(offsetof(EnvironmentUbo, weather1) == 128);
-static_assert(offsetof(EnvironmentUbo, front) == 144);
-static_assert(offsetof(EnvironmentUbo, sky_tint_star) == 160);
-static_assert(offsetof(EnvironmentUbo, celestial_axis) == 176);
-static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 192);
-static_assert(offsetof(EnvironmentUbo, overhead_vp) == 256);
-static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 320);
-static_assert(offsetof(EnvironmentUbo, overhead_depth_texture) == 324);
-static_assert(sizeof(EnvironmentUbo) == 336);
+static_assert(offsetof(EnvironmentUbo, wind_drift) == 112);
+static_assert(offsetof(EnvironmentUbo, weather0) == 128);
+static_assert(offsetof(EnvironmentUbo, weather1) == 144);
+static_assert(offsetof(EnvironmentUbo, front) == 160);
+static_assert(offsetof(EnvironmentUbo, sky_tint_star) == 176);
+static_assert(offsetof(EnvironmentUbo, celestial_axis) == 192);
+static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 208);
+static_assert(offsetof(EnvironmentUbo, overhead_vp) == 272);
+static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 336);
+static_assert(offsetof(EnvironmentUbo, overhead_depth_texture) == 340);
+static_assert(sizeof(EnvironmentUbo) == 352);
 
 /// Pack the resolved environment for upload.
 [[nodiscard]] inline EnvironmentUbo make_environment_ubo(const EnvironmentState& env) {
@@ -70,6 +72,7 @@ static_assert(sizeof(EnvironmentUbo) == 336);
     ubo.secondary_color = glm::vec4(env.secondary.color, 0.0f);
     const WeatherParams& w = env.weather;
     ubo.wind_dir_speed_gust = glm::vec4(w.wind_direction, w.wind_speed * w.wind_gust);
+    ubo.wind_drift = glm::vec4(w.wind_drift, 0.0f, 0.0f);
     ubo.weather0 = glm::vec4(w.cloud_coverage, w.cloud_density, w.precipitation,
                              static_cast<float>(w.precipitation_type));
     ubo.weather1 = glm::vec4(w.wetness, w.snow, w.lightning, env.hour);

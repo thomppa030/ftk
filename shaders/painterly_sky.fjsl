@@ -9,7 +9,6 @@ uniform vec3 sky_color : hint_color = vec3(0.665, 0.798, 0.955);
 uniform vec3 night_color : hint_color = vec3(0.04, 0.05, 0.12);
 uniform vec3 cloud_color : hint_color = vec3(1.0, 0.978, 0.955);
 uniform float cloud_density : hint_range(0.0, 1.0, 0.01) = 0.55;
-uniform float cloud_scale : hint_range(0.5, 8.0, 0.1) = 2.4;
 uniform float cloud_speed : hint_range(0.0, 1.0, 0.01) = 0.05;
 uniform float sun_glow : hint_range(0.0, 4.0, 0.05) = 1.5;
 
@@ -53,17 +52,14 @@ void sky() {
 
     SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE);
 
-    // Cloud band: project view dir into a panorama, sample fbm scrolled by
-    // TIME along the wind; weather coverage thickens it.
-    if (VIEW_DIR.y > 0.05) {
-        vec2 pan = vec2(atan(VIEW_DIR.z, VIEW_DIR.x), VIEW_DIR.y);
-        vec2 uv = pan * cloud_scale + vec2(TIME * cloud_speed * (1.0 + WIND_SPEED * 0.1), 0.0);
-        float n = fbm(uv);
-        float density = clamp(cloud_density + CLOUD_COVERAGE * 0.5, 0.0, 1.0);
-        float cover = smoothstep(1.0 - density, 1.0, n);
-        vec3 lit_cloud = cloud_color * mix(0.15, 1.0, daylight) + MOON_COLOR * 2.0;
-        SKY = mix(SKY, lit_cloud, cover * smoothstep(0.05, 0.4, VIEW_DIR.y));
-    }
+    // The weather's cloud layer, thickened by the shader's own density so
+    // the painterly look has clouds even on a clear day.
+    float density = clamp(cloud_density, 0.0, 1.0);
+    vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, max(CLOUD_COVERAGE, density * 0.6), max(CLOUD_DENSITY, 0.5),
+                             WIND_DRIFT + vec2(TIME * cloud_speed * 40.0, 0.0),
+                             FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
+                             SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT + cloud_color * 0.2 * daylight);
+    SKY = mix(SKY, cloud.rgb, cloud.a);
 
     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.9994);
 

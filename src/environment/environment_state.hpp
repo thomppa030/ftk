@@ -105,6 +105,10 @@ struct WeatherParams {
     glm::vec3 wind_direction{0.0f, 0.0f, 1.0f};   // the way the wind blows
     float wind_speed{0.0f};                       // m/s before the gust
     float wind_gust{1.0f};                        // multiplier on the speed this frame
+    /// How far the wind has carried things so far, in metres on the ground
+    /// plane: the integral of the wind, so clouds and anything else that
+    /// rides it move smoothly through the gusts instead of sloshing.
+    glm::vec2 wind_drift{0.0f};
 
     /// Integrated over time: how wet and how snow-covered exposed surfaces are.
     float wetness{0.0f};

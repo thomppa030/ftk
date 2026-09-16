@@ -30,4 +30,10 @@ void sky() {
     if (!SKY_FOR_LIGHTING) {
         SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo);
     }
+
+    // The weather's clouds over everything, arriving from the front.
+    vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
+                             WIND_DRIFT, FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
+                             SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT);
+    SKY = mix(SKY, cloud.rgb, cloud.a);
 }

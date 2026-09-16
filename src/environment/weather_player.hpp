@@ -92,6 +92,7 @@ private:
     float wetness_{0.0f};
     float snow_{0.0f};
     float gust_time_{0.0f};
+    glm::vec2 wind_drift_{0.0f};
 };
 
 } // namespace fjell

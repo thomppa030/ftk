@@ -38,4 +38,10 @@ void sky() {
         float sun = step(sun_size, dot(VIEW_DIR, SUN_DIR));
         SKY += SUN_COLOR * sun * 2.0;
     }
+
+    // Clouds as flat cut-outs: the layer's coverage, hard-edged.
+    vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
+                             WIND_DRIFT, FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
+                             SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT);
+    SKY = mix(SKY, cloud.rgb, step(0.5, cloud.a));
 }

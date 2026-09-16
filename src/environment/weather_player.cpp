@@ -240,6 +240,8 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         w.wind_direction = glm::normalize(wind_dir);
     }
     w.wind_gust = std::max(1.0f + wind_gust_strength * 0.6f * gust_noise(gust_time_), 0.0f);
+    wind_drift_ += glm::vec2(w.wind_direction.x, w.wind_direction.z) * (w.wind_speed * w.wind_gust * dt);
+    w.wind_drift = wind_drift_;
 
     // The front travels with the wind. During the approach its edge sweeps
     // from the windward horizon to the leeward one; through onset and

@@ -23,6 +23,7 @@
 #include "fjell_environment.glsl"
 #include "fjell_gpu_types.glsl"
 #include "fjell_sky_bodies.glsl"
+#include "fjell_clouds_2d.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
@@ -86,6 +87,10 @@ vec3 fjell_sky(vec3 VIEW_DIR, bool SKY_FOR_LIGHTING) {
     float MOON_ELEVATION = asin(clamp(MOON_DIR.y, -1.0, 1.0));
     float MOON_PHASE = env_ubo.moon_color.w;
 
+    // ── Scene ──
+    vec3 CAMERA_POS = ubo.camera_position.xyz;
+    vec3 AMBIENT_LIGHT = ubo.ambient_color.rgb * ubo.ambient_color.w;
+
     // ── Time ──
     float TIME = ubo.time;
     float TIME_OF_DAY = env_ubo.weather1.w;
@@ -101,8 +106,10 @@ vec3 fjell_sky(vec3 VIEW_DIR, bool SKY_FOR_LIGHTING) {
     float PRECIPITATION = env_ubo.weather0.z;
     vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
     float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
+    vec2 WIND_DRIFT = env_ubo.wind_drift.xy;
     vec2 FRONT_DIR = env_ubo.front.xy;
     float FRONT_EDGE = env_ubo.front.z;
+    float FRONT_SOFTNESS = env_ubo.front.w;
     vec3 SKY_TINT = env_ubo.sky_tint_star.rgb;
     float LIGHTNING = env_ubo.weather1.z;
 
