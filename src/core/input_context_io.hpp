@@ -18,6 +18,9 @@ void write_input_context(const InputMappingContext& ctx, const std::string& path
 /// Returns a default-constructed def with empty name on failure.
 [[nodiscard]] InputActionDef parse_action_file(const std::string& path);
 
+/// Write an InputActionDef to a .fjaction JSON file.
+void write_action_file(const InputActionDef& def, const std::string& path);
+
 /// Scan a directory for .fjaction files and return all action definitions.
 [[nodiscard]] std::vector<InputActionDef> scan_action_files(const std::string& dir);
 

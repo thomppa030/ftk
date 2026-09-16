@@ -139,6 +139,32 @@ InputActionDef parse_action_file(const std::string& path) {
     return def;
 }
 
+static const char* action_type_string(ActionType type) {
+    switch (type) {
+        case ActionType::button: return "button";
+        case ActionType::axis1d: return "axis1d";
+        case ActionType::axis2d: return "axis2d";
+    }
+    return "button";
+}
+
+// Reads the file back first so fields this format does not model — the
+// __uuid asset identity above all — survive a write that only means to
+// change the name or the type.
+void write_action_file(const InputActionDef& def, const std::string& path) {
+    nlohmann::json j;
+    if (std::ifstream in(path); in.is_open()) {
+        j = nlohmann::json::parse(in, nullptr, false);
+    }
+    if (!j.is_object()) j = nlohmann::json::object();
+
+    j["name"] = def.name;
+    j["type"] = action_type_string(def.type);
+
+    std::ofstream out(path);
+    out << j.dump(4) << "\n";
+}
+
 std::vector<InputActionDef> scan_action_files(const std::string& dir) {
     namespace fs = std::filesystem;
     std::vector<InputActionDef> result;
