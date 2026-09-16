@@ -16,6 +16,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/light_node.hpp"
+#include "environment/environment_resolver.hpp"
 #include "scene/scene.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "scripting/script_manager.hpp"
@@ -27,6 +28,9 @@
 #include "ui/panel_widget.hpp"
 
 #include <imgui.h>
+
+#include <algorithm>
+#include <cstdio>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cmath>
@@ -258,9 +262,16 @@ void PropertiesPanel::draw() {
             // Light properties
             if (auto* dl = dynamic_cast<DirectionalLightNode*>(obj)) {
                 section_header("DIRECTIONAL LIGHT", ICON_LC_SUN);
+                const auto* world = scene_ != nullptr ? find_world_environment(*scene_) : nullptr;
+                const bool sun_driven = world != nullptr && world->time_of_day_enabled;
                 if (auto t = PropertyTable("##dirlight")) {
                     prop_row("Direction", [&] {
+                        ImGui::BeginDisabled(sun_driven);
                         ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
+                        ImGui::EndDisabled();
+                        if (sun_driven && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip("Driven by the World Environment's time of day");
+                        }
                     });
                     prop_row("Color", [&] {
                         color_edit_linear("##LightColor", dl->color);
@@ -443,6 +454,36 @@ void PropertiesPanel::draw() {
                         });
                         prop_row("Steps", [&] {
                             ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
+                        });
+                    }
+                }
+
+                ImGui::Checkbox("Time of Day##EnvTod", &env->time_of_day_enabled);
+                if (env->time_of_day_enabled) {
+                    if (auto t = PropertyTable("##env_tod")) {
+                        prop_row("Hour", [&] {
+                            const int minutes = static_cast<int>(env->time_of_day * 60.0f + 0.5f) % (24 * 60);
+                            char label[8];
+                            std::snprintf(label, sizeof(label), "%02d:%02d", minutes / 60, minutes % 60);
+                            ImGui::SliderFloat("##TodHour", &env->time_of_day, 0.0f, 24.0f, label);
+                        });
+                        prop_row("Day Length (min)", [&] {
+                            float minutes = env->day_length / 60.0f;
+                            if (ImGui::DragFloat("##TodDayLength", &minutes, 0.5f, 0.0f, 24.0f * 60.0f, "%.1f")) {
+                                env->day_length = std::max(minutes, 0.0f) * 60.0f;
+                            }
+                        });
+                        prop_row("Run in Editor", [&] {
+                            ImGui::Checkbox("##TodAdvance", &env->advance_in_editor);
+                        });
+                        prop_row("Path Tilt", [&] {
+                            ImGui::SliderFloat("##TodTilt", &env->sun_path_tilt, 0.0f, 90.0f, "%.0f°");
+                        });
+                        prop_row("North", [&] {
+                            ImGui::SliderFloat("##TodNorth", &env->north_yaw, -180.0f, 180.0f, "%.0f°");
+                        });
+                        prop_row("Noon Hour", [&] {
+                            ImGui::SliderFloat("##TodNoon", &env->noon_hour, 0.0f, 24.0f, "%.1f");
                         });
                     }
                 }

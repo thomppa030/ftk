@@ -28,9 +28,40 @@ DirectionalBody body_from_travel(const glm::vec3& travel, const glm::vec3& color
     return body;
 }
 
+// A body's light on the ground: its intensity once the horizon fade has
+// taken the part below the ground away.
+float ground_intensity(const DirectionalBody& body) {
+    return body.intensity * horizon_fade(body.elevation);
+}
+
 } // namespace
 
-EnvironmentState resolve_environment(const Scene& scene) {
+WorldEnvironmentNode* find_world_environment(Scene& scene) {
+    for (const auto& obj : scene.objects()) {
+        if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj.get())) return env;
+    }
+    return nullptr;
+}
+
+const WorldEnvironmentNode* find_world_environment(const Scene& scene) {
+    for (const auto& obj : scene.objects()) {
+        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) return env;
+    }
+    return nullptr;
+}
+
+bool moon_leads(const DirectionalBody& sun, const DirectionalBody& moon, bool moon_led) {
+    // The leader keeps the role until the other body outshines it by a clear
+    // margin, so the two never trade places every frame around twilight.
+    constexpr float HANDOFF_MARGIN = 1.25f;
+    const float sun_light = ground_intensity(sun);
+    const float moon_light = ground_intensity(moon);
+    if (moon_light <= 0.0f) return false;
+    if (moon_led) return moon_light * HANDOFF_MARGIN >= sun_light;
+    return moon_light > sun_light * HANDOFF_MARGIN;
+}
+
+EnvironmentState resolve_environment(const Scene& scene, bool moon_led) {
     EnvironmentState state;
     state.sun = body_from_travel(DEFAULT_SUN_TRAVEL, DEFAULT_SUN_COLOR, DEFAULT_SUN_INTENSITY);
     state.ambient_color = DEFAULT_AMBIENT_COLOR;
@@ -105,10 +136,25 @@ EnvironmentState resolve_environment(const Scene& scene) {
         if (sun_found && env_found && fog_found) break;
     }
 
-    // A scene has one body, the sun: it casts the shadows and the secondary
-    // slot stays dark.
-    state.primary = state.sun;
-    state.secondary = state.moon;
+    if (const auto* env = find_world_environment(scene); env != nullptr && env->time_of_day_enabled) {
+        // The sun follows the path for the hour; its authored colour,
+        // intensity and ambient stay, and the light fades out across the
+        // horizon so night is dark without anyone turning the sun down.
+        const SunPath path{.tilt_degrees = env->sun_path_tilt,
+                           .north_yaw_degrees = env->north_yaw,
+                           .noon_hour = env->noon_hour};
+        state.hour = wrap_hour(env->time_of_day);
+        state.sun.direction = sun_direction(path, state.hour);
+        state.sun.elevation = elevation_of(state.sun.direction);
+        state.sun.intensity *= horizon_fade(state.sun.elevation);
+        state.phase = time_phase(state.sun.elevation, state.hour, env->noon_hour);
+    }
+
+    // One body casts the shadows and fills the global UBO's directional
+    // light; the other is lit without cascades.
+    const bool moon_first = moon_leads(state.sun, state.moon, moon_led);
+    state.primary = moon_first ? state.moon : state.sun;
+    state.secondary = moon_first ? state.sun : state.moon;
     return state;
 }
 

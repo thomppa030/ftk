@@ -1,5 +1,6 @@
 #include "environment/environment_resolver.hpp"
 #include "environment/environment_ubo.hpp"
+#include "environment/sun_path.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -127,4 +128,107 @@ TEST_CASE("The environment UBO packs both bodies", "[environment]") {
     // Slots nothing drives are neutral: no tint, no weather.
     REQUIRE(ubo.sky_tint_star.r == Approx(1.0f));
     REQUIRE(ubo.weather0 == glm::vec4(0.0f));
+}
+
+TEST_CASE("The sun path puts noon overhead and sunrise in the east", "[environment][sun_path]") {
+    SunPath flat{.tilt_degrees = 0.0f, .north_yaw_degrees = 0.0f, .noon_hour = 12.0f};
+    REQUIRE(close(sun_direction(flat, 12.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+    REQUIRE(close(sun_direction(flat, 6.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
+    REQUIRE(close(sun_direction(flat, 18.0f), glm::vec3(-1.0f, 0.0f, 0.0f)));
+    REQUIRE(close(sun_direction(flat, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)));
+
+    // Tilting leans the noon sun toward the south and lowers it by the tilt;
+    // sunrise and sunset stay on the horizon, twelve hours apart.
+    SunPath tilted{.tilt_degrees = 40.0f, .north_yaw_degrees = 0.0f, .noon_hour = 12.0f};
+    const glm::vec3 noon = sun_direction(tilted, 12.0f);
+    REQUIRE(elevation_of(noon) == Approx(glm::radians(50.0f)).margin(1e-4));
+    REQUIRE(noon.z > 0.0f);
+    REQUIRE(elevation_of(sun_direction(tilted, 6.0f)) == Approx(0.0f).margin(1e-4));
+    REQUIRE(elevation_of(sun_direction(tilted, 18.0f)) == Approx(0.0f).margin(1e-4));
+    REQUIRE(elevation_of(sun_direction(tilted, 9.0f)) ==
+            Approx(elevation_of(sun_direction(tilted, 15.0f))).margin(1e-4));
+
+    // Turning north swings the compass without changing the height.
+    SunPath turned{.tilt_degrees = 40.0f, .north_yaw_degrees = 90.0f, .noon_hour = 12.0f};
+    REQUIRE(elevation_of(sun_direction(turned, 12.0f)) == Approx(glm::radians(50.0f)).margin(1e-4));
+    REQUIRE(close(sun_direction(turned, 6.0f), glm::vec3(0.0f, 0.0f, -1.0f)));
+
+    // A later noon shifts the whole day and hours wrap.
+    SunPath late{.tilt_degrees = 0.0f, .north_yaw_degrees = 0.0f, .noon_hour = 14.0f};
+    REQUIRE(close(sun_direction(late, 14.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+    REQUIRE(close(sun_direction(late, 26.0f), sun_direction(late, 2.0f)));
+    REQUIRE(wrap_hour(25.5f) == Approx(1.5f));
+    REQUIRE(wrap_hour(-1.0f) == Approx(23.0f));
+}
+
+TEST_CASE("Horizon fade and time phase follow the sun's height", "[environment][sun_path]") {
+    REQUIRE(horizon_fade(glm::radians(30.0f)) == Approx(1.0f));
+    REQUIRE(horizon_fade(glm::radians(-30.0f)) == Approx(0.0f));
+    REQUIRE(horizon_fade(0.0f) > 0.0f);
+    REQUIRE(horizon_fade(0.0f) < 1.0f);
+
+    REQUIRE(time_phase(glm::radians(30.0f), 12.0f, 12.0f) == TimePhase::Day);
+    REQUIRE(time_phase(glm::radians(-30.0f), 0.0f, 12.0f) == TimePhase::Night);
+    REQUIRE(time_phase(0.0f, 6.0f, 12.0f) == TimePhase::Dawn);
+    REQUIRE(time_phase(0.0f, 18.0f, 12.0f) == TimePhase::Dusk);
+}
+
+TEST_CASE("A time of day drives the sun from the hour", "[environment]") {
+    Scene scene;
+    auto sun = std::make_unique<DirectionalLightNode>();
+    sun->direction = glm::vec3(1.0f, 0.0f, 0.0f);   // ignored while the clock runs
+    sun->intensity = 2.0f;
+    scene.add_node(std::move(sun));
+    auto world = std::make_unique<WorldEnvironmentNode>();
+    world->time_of_day_enabled = true;
+    world->sun_path_tilt = 0.0f;
+    world->time_of_day = 12.0f;
+    auto* world_ptr = world.get();
+    scene.add_node(std::move(world));
+
+    auto noon = resolve_environment(scene);
+    REQUIRE(noon.hour == Approx(12.0f));
+    REQUIRE(close(noon.sun.direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+    REQUIRE(noon.sun.intensity == Approx(2.0f));
+    REQUIRE(noon.phase == TimePhase::Day);
+    REQUIRE(close(noon.primary.direction, noon.sun.direction));
+
+    world_ptr->time_of_day = 0.0f;
+    auto midnight = resolve_environment(scene);
+    REQUIRE(midnight.sun.elevation < 0.0f);
+    REQUIRE(midnight.sun.intensity == Approx(0.0f));
+    REQUIRE(midnight.phase == TimePhase::Night);
+
+    world_ptr->time_of_day_enabled = false;
+    auto authored = resolve_environment(scene);
+    REQUIRE(close(authored.sun.direction, glm::vec3(-1.0f, 0.0f, 0.0f)));
+}
+
+TEST_CASE("The shadow caster hands over with hysteresis", "[environment]") {
+    DirectionalBody sun;
+    sun.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    sun.elevation = glm::half_pi<float>();
+    DirectionalBody moon = sun;
+
+    sun.intensity = 1.0f;
+    moon.intensity = 0.0f;
+    REQUIRE_FALSE(moon_leads(sun, moon, false));
+    REQUIRE_FALSE(moon_leads(sun, moon, true));   // an unlit moon never leads
+
+    // Slightly brighter is not enough to take over, clearly brighter is.
+    moon.intensity = 1.1f;
+    REQUIRE_FALSE(moon_leads(sun, moon, false));
+    moon.intensity = 1.5f;
+    REQUIRE(moon_leads(sun, moon, false));
+
+    // Once leading, the moon keeps the role until the sun clearly wins.
+    moon.intensity = 0.9f;
+    REQUIRE(moon_leads(sun, moon, true));
+    moon.intensity = 0.5f;
+    REQUIRE_FALSE(moon_leads(sun, moon, true));
+
+    // A set sun leaves the moon in charge at any brightness.
+    sun.elevation = glm::radians(-20.0f);
+    moon.intensity = 0.05f;
+    REQUIRE(moon_leads(sun, moon, false));
 }

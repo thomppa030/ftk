@@ -182,6 +182,15 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         if (!env->sky_shader.empty()) {
             j["sky"]["sky_shader"] = env->sky_shader;
         }
+        j["time_of_day"] = {
+            {"enabled", env->time_of_day_enabled},
+            {"hour", env->time_of_day},
+            {"day_length", env->day_length},
+            {"advance_in_editor", env->advance_in_editor},
+            {"sun_path_tilt", env->sun_path_tilt},
+            {"north_yaw", env->north_yaw},
+            {"noon_hour", env->noon_hour}
+        };
     }
 
     return j;
@@ -405,6 +414,16 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 if (js.contains("sky_shader")) {
                     env->sky_shader = js["sky_shader"].get<std::string>();
                 }
+            }
+            if (j.contains("time_of_day")) {
+                auto& jt = j["time_of_day"];
+                env->time_of_day_enabled = jt.value("enabled", false);
+                env->time_of_day = jt.value("hour", 12.0f);
+                env->day_length = jt.value("day_length", 1200.0f);
+                env->advance_in_editor = jt.value("advance_in_editor", false);
+                env->sun_path_tilt = jt.value("sun_path_tilt", 40.0f);
+                env->north_yaw = jt.value("north_yaw", 0.0f);
+                env->noon_hour = jt.value("noon_hour", 12.0f);
             }
             node = std::move(env);
         } else if (node_type == "game_ui") {

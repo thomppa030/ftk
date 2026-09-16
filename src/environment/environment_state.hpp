@@ -1,5 +1,7 @@
 #pragma once
 
+#include "environment/sun_path.hpp"
+
 #include <glm/glm.hpp>
 
 #include <string>
@@ -79,6 +81,11 @@ struct SunShaftSettings {
 };
 
 struct EnvironmentState {
+    /// The hour of the day, 0..24, and the part of the day it falls in. A
+    /// scene without a time of day sits at its authored noon.
+    float hour{12.0f};
+    TimePhase phase{TimePhase::Day};
+
     DirectionalBody sun;
     DirectionalBody moon;
 

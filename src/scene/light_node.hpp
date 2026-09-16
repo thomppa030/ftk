@@ -161,6 +161,18 @@ struct WorldEnvironmentNode : Node3D {
     float atmosphere_sun_intensity{22.0f};      // multiplies directional light color
     float atmosphere_hdri_floor{0.1f};          // minimum HDRI visibility; HDRI × max(tint, floor)
 
+    // Time of day. When enabled, the scene's sun (its first directional light)
+    // follows the sun path for the current hour instead of its authored
+    // direction; its colour, intensity and ambient stay authored. The hour
+    // advances while playing, and in the editor only on request.
+    bool time_of_day_enabled{false};
+    float time_of_day{12.0f};          // hours, 0..24
+    float day_length{1200.0f};         // real seconds per 24 hours; 0 freezes the clock
+    bool advance_in_editor{false};
+    float sun_path_tilt{40.0f};        // degrees: 0 = noon sun overhead, 90 = circling the horizon
+    float north_yaw{0.0f};             // degrees the whole path turns about the up axis
+    float noon_hour{12.0f};            // the hour the sun peaks
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<WorldEnvironmentNode>();
         clone_3d_into(*copy);
@@ -180,6 +192,13 @@ struct WorldEnvironmentNode : Node3D {
         copy->atmosphere_mie_coeff = atmosphere_mie_coeff;
         copy->atmosphere_sun_intensity = atmosphere_sun_intensity;
         copy->atmosphere_hdri_floor = atmosphere_hdri_floor;
+        copy->time_of_day_enabled = time_of_day_enabled;
+        copy->time_of_day = time_of_day;
+        copy->day_length = day_length;
+        copy->advance_in_editor = advance_in_editor;
+        copy->sun_path_tilt = sun_path_tilt;
+        copy->north_yaw = north_yaw;
+        copy->noon_hour = noon_hour;
         return copy;
     }
 };
