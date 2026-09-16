@@ -149,6 +149,21 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led) {
         state.sun.direction = sun_direction(path, state.hour);
         state.sun.elevation = elevation_of(state.sun.direction);
         state.phase = time_phase(state.sun.elevation, state.hour, env->noon_hour);
+        state.celestial_axis = sun_path_axis(path);
+        state.celestial_angle = sun_path_angle(path, state.hour);
+
+        // The moon follows the same path some hours behind, as bright as its
+        // phase allows.
+        state.moon.direction = sun_direction(path, state.hour + env->moon_offset_hours);
+        state.moon.elevation = elevation_of(state.moon.direction);
+        state.moon.color = env->moon_color;
+        state.moon.intensity = env->moon_intensity * moon_phase_brightness(env->moon_phase);
+        state.moon_phase = env->moon_phase;
+
+        // Stars come out as the sun goes down: none while it is up, all of
+        // them once it is well below the horizon. A profile's star track
+        // shapes this further.
+        state.star_intensity = 1.0f - glm::smoothstep(-0.15f, 0.0f, std::sin(state.sun.elevation));
     }
 
     if (env != nullptr) {

@@ -200,7 +200,11 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"advance_in_editor", env->advance_in_editor},
             {"sun_path_tilt", env->sun_path_tilt},
             {"north_yaw", env->north_yaw},
-            {"noon_hour", env->noon_hour}
+            {"noon_hour", env->noon_hour},
+            {"moon_offset_hours", env->moon_offset_hours},
+            {"moon_phase", env->moon_phase},
+            {"moon_color", color_to_json(env->moon_color)},
+            {"moon_intensity", env->moon_intensity}
         };
     }
 
@@ -446,6 +450,10 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 env->sun_path_tilt = jt.value("sun_path_tilt", 40.0f);
                 env->north_yaw = jt.value("north_yaw", 0.0f);
                 env->noon_hour = jt.value("noon_hour", 12.0f);
+                env->moon_offset_hours = jt.value("moon_offset_hours", 12.0f);
+                env->moon_phase = jt.value("moon_phase", 0.5f);
+                if (jt.contains("moon_color")) env->moon_color = color_from_json(jt["moon_color"]);
+                env->moon_intensity = jt.value("moon_intensity", 0.08f);
             }
             node = std::move(env);
         } else if (node_type == "game_ui") {

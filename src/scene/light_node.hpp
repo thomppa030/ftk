@@ -181,6 +181,14 @@ struct WorldEnvironmentNode : Node3D {
     float north_yaw{0.0f};             // degrees the whole path turns about the up axis
     float noon_hour{12.0f};            // the hour the sun peaks
 
+    // The moon rides the same path, so many hours behind the sun, and its
+    // phase sets how bright it is: new at 0 and 1, full at 0.5. Colour and
+    // intensity are its light at full, before the day profile's moon tracks.
+    float moon_offset_hours{12.0f};
+    float moon_phase{0.5f};
+    glm::vec3 moon_color{0.55f, 0.65f, 0.9f};
+    float moon_intensity{0.08f};
+
     // The look over the day: a .fjday whose tracks shape the sun, ambient,
     // sky, fog and exposure by the hour. The environment subsystem binds the
     // path to the loaded asset; the binding is runtime state, not saved.
@@ -225,6 +233,10 @@ struct WorldEnvironmentNode : Node3D {
         copy->sun_path_tilt = sun_path_tilt;
         copy->north_yaw = north_yaw;
         copy->noon_hour = noon_hour;
+        copy->moon_offset_hours = moon_offset_hours;
+        copy->moon_phase = moon_phase;
+        copy->moon_color = moon_color;
+        copy->moon_intensity = moon_intensity;
         copy->day_profile = day_profile;
         copy->sky_uniforms = sky_uniforms;
         return copy;

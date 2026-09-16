@@ -15,7 +15,7 @@ layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
     vec4 sun_dir_intensity;        /* xyz toward the sun, w intensity */       \
     vec4 sun_color;                                                            \
     vec4 moon_dir_intensity;                                                   \
-    vec4 moon_color;                                                           \
+    vec4 moon_color;               /* rgb, w moon phase 0..1 */                \
     vec4 secondary_dir_intensity;  /* lit without cascaded shadows */          \
     vec4 secondary_color;                                                      \
     vec4 wind_dir_speed_gust;      /* xyz direction, w speed * gust */         \
@@ -23,6 +23,7 @@ layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
     vec4 weather1;                 /* wetness, snow, lightning ramp, time of day (hours) */ \
     vec4 front;                    /* xy front dir on xz, z edge position, w edge softness */ \
     vec4 sky_tint_star;            /* rgb sky tint, w star intensity */        \
+    vec4 celestial_axis;           /* xyz sky rotation axis, w radians since noon */ \
     mat4 cloud_shadow_vp;                                                      \
     mat4 overhead_vp;                                                          \
     uint cloud_shadow_texture;     /* bindless index, 0 = none */              \

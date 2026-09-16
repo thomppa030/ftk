@@ -47,6 +47,29 @@ struct SunPath {
     return glm::normalize(glm::vec3{tilted.x * c + tilted.z * s, tilted.y, -tilted.x * s + tilted.z * c});
 }
 
+/// The axis the sun path turns about: the normal of its circle, after the
+/// tilt and the compass turn. Every body on the path, and the star field,
+/// rotates about it.
+[[nodiscard]] inline glm::vec3 sun_path_axis(const SunPath& path) {
+    const float tilt = glm::radians(path.tilt_degrees);
+    const float yaw = glm::radians(path.north_yaw_degrees);
+    const glm::vec3 axis{0.0f, -std::sin(tilt), std::cos(tilt)};
+    return glm::normalize(glm::vec3{axis.x * std::cos(yaw) + axis.z * std::sin(yaw), axis.y,
+                                    -axis.x * std::sin(yaw) + axis.z * std::cos(yaw)});
+}
+
+/// The rotation about sun_path_axis() that carries the noon sun to where it
+/// is at `hour`, in radians.
+[[nodiscard]] inline float sun_path_angle(const SunPath& path, float hour) {
+    return (hour - path.noon_hour) / 24.0f * glm::two_pi<float>();
+}
+
+/// How bright the moon is for its phase, 0..1: nothing at new (0 or 1),
+/// full at 0.5.
+[[nodiscard]] inline float moon_phase_brightness(float phase) {
+    return 0.5f - 0.5f * std::cos(phase * glm::two_pi<float>());
+}
+
 /// Angle of a direction above the horizon, in radians; negative below it.
 [[nodiscard]] inline float elevation_of(const glm::vec3& direction) {
     return std::asin(glm::clamp(direction.y, -1.0f, 1.0f));

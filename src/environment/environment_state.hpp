@@ -101,6 +101,12 @@ struct EnvironmentState {
 
     DirectionalBody sun;
     DirectionalBody moon;
+    /// 0..1 through the lunar month: new at 0 and 1, full at 0.5.
+    float moon_phase{0.5f};
+    /// The axis the sky turns about and how far it has turned since noon,
+    /// for anything fixed to the celestial sphere.
+    glm::vec3 celestial_axis{0.0f, 0.0f, 1.0f};
+    float celestial_angle{0.0f};
 
     /// The body that casts the cascaded shadows and fills the global UBO's
     /// directional light this frame.

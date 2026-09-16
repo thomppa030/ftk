@@ -559,6 +559,22 @@ void PropertiesPanel::draw() {
                             ImGui::SliderFloat("##TodNoon", &env->noon_hour, 0.0f, 24.0f, "%.1f");
                         });
                     }
+                    ImGui::TextDisabled("Moon");
+                    if (auto t = PropertyTable("##env_moon")) {
+                        prop_row("Hours Behind Sun", [&] {
+                            ImGui::SliderFloat("##MoonOffset", &env->moon_offset_hours, 0.0f, 24.0f, "%.1f");
+                        });
+                        prop_row("Phase", [&] {
+                            ImGui::SliderFloat("##MoonPhase", &env->moon_phase, 0.0f, 1.0f, "%.2f");
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 and 1 are new, 0.5 is full");
+                        });
+                        prop_row("Color", [&] {
+                            color_edit_linear("##MoonColor", env->moon_color);
+                        });
+                        prop_row("Intensity", [&] {
+                            ImGui::DragFloat("##MoonIntensity", &env->moon_intensity, 0.005f, 0.0f, 2.0f, "%.3f");
+                        });
+                    }
                 }
 
                 ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled);

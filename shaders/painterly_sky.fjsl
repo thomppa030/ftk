@@ -1,10 +1,12 @@
 shader_type sky;
 
 // Animated noise cloud bands modulated by sun direction. Exercises TIME,
-// SUN_DIR, and VIEW_DIR together. Looks closer to Wind Waker / Genshin
+// SUN_DIR, and VIEW_DIR together, and reads the weather's cloud coverage so
+// an overcast day thickens the bands. Looks closer to Wind Waker / Genshin
 // than to physical atmospheric scattering.
 
 uniform vec3 sky_color : hint_color = vec3(0.665, 0.798, 0.955);
+uniform vec3 night_color : hint_color = vec3(0.04, 0.05, 0.12);
 uniform vec3 cloud_color : hint_color = vec3(1.0, 0.978, 0.955);
 uniform float cloud_density : hint_range(0.0, 1.0, 0.01) = 0.55;
 uniform float cloud_scale : hint_range(0.5, 8.0, 0.1) = 2.4;
@@ -40,22 +42,36 @@ float fbm(vec2 p) {
 }
 
 void sky() {
-    // Background gradient skewed by SUN_DIR so the horizon warms near the sun.
+    // Day fades to night with the sun's height; the gradient is skewed by
+    // SUN_DIR so the horizon warms near the sun.
+    float daylight = smoothstep(-0.15, 0.25, SUN_ELEVATION);
+    vec3 base = mix(night_color, sky_color, daylight) * SKY_TINT;
     float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
     float warmth = clamp(dot(VIEW_DIR, SUN_DIR) * 0.5 + 0.5, 0.0, 1.0);
-    SKY = mix(sky_color * 0.85, sky_color, t);
+    SKY = mix(base * 0.85, base, t);
     SKY = mix(SKY, SUN_COLOR * 0.4, warmth * (1.0 - t) * 0.5);
 
-    // Cloud band: project view dir into a panorama, sample fbm scrolled by TIME.
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE);
+
+    // Cloud band: project view dir into a panorama, sample fbm scrolled by
+    // TIME along the wind; weather coverage thickens it.
     if (VIEW_DIR.y > 0.05) {
         vec2 pan = vec2(atan(VIEW_DIR.z, VIEW_DIR.x), VIEW_DIR.y);
-        vec2 uv = pan * cloud_scale + vec2(TIME * cloud_speed, 0.0);
+        vec2 uv = pan * cloud_scale + vec2(TIME * cloud_speed * (1.0 + WIND_SPEED * 0.1), 0.0);
         float n = fbm(uv);
-        float cover = smoothstep(1.0 - cloud_density, 1.0, n);
-        SKY = mix(SKY, cloud_color, cover * smoothstep(0.05, 0.4, VIEW_DIR.y));
+        float density = clamp(cloud_density + CLOUD_COVERAGE * 0.5, 0.0, 1.0);
+        float cover = smoothstep(1.0 - density, 1.0, n);
+        vec3 lit_cloud = cloud_color * mix(0.15, 1.0, daylight) + MOON_COLOR * 2.0;
+        SKY = mix(SKY, lit_cloud, cover * smoothstep(0.05, 0.4, VIEW_DIR.y));
     }
 
-    // Sun glow blooms through the painterly clouds.
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.9994);
+
+    // Sun glow blooms through the painterly clouds; the disc itself is the
+    // direct light's job when this sky is captured for lighting.
     float sun_dot = max(dot(VIEW_DIR, SUN_DIR), 0.0);
-    SKY += SUN_COLOR * pow(sun_dot, 16.0) * sun_glow;
+    SKY += SUN_COLOR * pow(sun_dot, 16.0) * sun_glow * 0.25;
+    if (!SKY_FOR_LIGHTING) {
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, 0.9993, sun_glow);
+    }
 }

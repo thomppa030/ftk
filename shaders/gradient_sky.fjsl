@@ -1,24 +1,33 @@
 shader_type sky;
 
-// Two-color zenith/horizon gradient with a soft sun disc and halo.
-// Set on a WorldEnvironmentNode via the Sky Shader inspector field.
+// Two-colour zenith/horizon gradient that follows the day: a day profile's
+// zenith_color and horizon_color tracks animate the colours, the sun warms
+// the horizon around it, the moon and stars come out at night. Set on a
+// WorldEnvironmentNode via the Sky Shader inspector field.
 
 uniform vec3 zenith_color : hint_color = vec3(0.349, 0.584, 0.767);
 uniform vec3 horizon_color : hint_color = vec3(0.978, 0.827, 0.626);
 uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
-uniform float sun_size : hint_range(0.99, 0.99995, 0.0001) = 0.998;
-uniform float sun_halo : hint_range(0.9, 1.0, 0.001) = 0.985;
-uniform float sun_intensity : hint_range(0.0, 10.0, 0.1) = 3.0;
+uniform float sun_size : hint_range(0.99, 0.99995, 0.0001) = 0.9995;
+uniform float sun_halo : hint_range(0.0, 4.0, 0.05) = 1.0;
+uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
+uniform float moon_size : hint_range(0.99, 0.99995, 0.0001) = 0.9994;
 
 void sky() {
     // Vertical blend driven by view-up dot. Power shapes the horizon band.
     float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
     t = pow(t, horizon_softness);
-    SKY = mix(horizon_color, zenith_color, t);
+    SKY = mix(horizon_color, zenith_color, t) * SKY_TINT;
 
-    // Sun disc + glow.
-    float sun_dot = dot(VIEW_DIR, SUN_DIR);
-    float disc = smoothstep(sun_size, mix(sun_size, 1.0, 0.5), sun_dot);
-    float halo = pow(smoothstep(sun_halo, sun_size, sun_dot), 3.0);
-    SKY += SUN_COLOR * (disc * sun_intensity + halo * 0.4);
+    // The horizon warms toward the sun while it is near it.
+    float low_sun = 1.0 - smoothstep(0.0, 0.35, SUN_ELEVATION);
+    float toward = pow(max(dot(normalize(vec3(VIEW_DIR.x, 0.0, VIEW_DIR.z)),
+                            normalize(vec3(SUN_DIR.x, 0.0, SUN_DIR.z))), 0.0), 3.0);
+    SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward * (1.0 - t);
+
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE);
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size);
+    if (!SKY_FOR_LIGHTING) {
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo);
+    }
 }

@@ -23,7 +23,7 @@ struct EnvironmentUbo {
     alignas(16) glm::vec4 sun_dir_intensity;        // xyz toward the sun, w intensity
     alignas(16) glm::vec4 sun_color;                // rgb linear
     alignas(16) glm::vec4 moon_dir_intensity;
-    alignas(16) glm::vec4 moon_color;
+    alignas(16) glm::vec4 moon_color;                // rgb linear, w moon phase 0..1
     alignas(16) glm::vec4 secondary_dir_intensity;  // the body lit without cascaded shadows
     alignas(16) glm::vec4 secondary_color;
     alignas(16) glm::vec4 wind_dir_speed_gust;      // xyz direction, w speed × gust
@@ -31,11 +31,14 @@ struct EnvironmentUbo {
     alignas(16) glm::vec4 weather1;                 // x wetness, y snow, z lightning ramp, w time of day in hours
     alignas(16) glm::vec4 front;                    // xy front direction on the xz plane, z edge position, w edge softness
     alignas(16) glm::vec4 sky_tint_star;            // rgb sky tint (1 = none), w star intensity
+    alignas(16) glm::vec4 celestial_axis;           // xyz the sky's rotation axis, w radians turned since noon
     alignas(16) glm::mat4 cloud_shadow_vp;
     alignas(16) glm::mat4 overhead_vp;
     uint32_t cloud_shadow_texture{0};               // bindless index, 0 = none
     uint32_t overhead_depth_texture{0};
     uint32_t ubo_pad[2]{};
+
+    bool operator==(const EnvironmentUbo&) const = default;
 };
 
 static_assert(offsetof(EnvironmentUbo, sun_dir_intensity) == 0);
@@ -49,11 +52,12 @@ static_assert(offsetof(EnvironmentUbo, weather0) == 112);
 static_assert(offsetof(EnvironmentUbo, weather1) == 128);
 static_assert(offsetof(EnvironmentUbo, front) == 144);
 static_assert(offsetof(EnvironmentUbo, sky_tint_star) == 160);
-static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 176);
-static_assert(offsetof(EnvironmentUbo, overhead_vp) == 240);
-static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 304);
-static_assert(offsetof(EnvironmentUbo, overhead_depth_texture) == 308);
-static_assert(sizeof(EnvironmentUbo) == 320);
+static_assert(offsetof(EnvironmentUbo, celestial_axis) == 176);
+static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 192);
+static_assert(offsetof(EnvironmentUbo, overhead_vp) == 256);
+static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 320);
+static_assert(offsetof(EnvironmentUbo, overhead_depth_texture) == 324);
+static_assert(sizeof(EnvironmentUbo) == 336);
 
 /// Pack the resolved environment for upload.
 [[nodiscard]] inline EnvironmentUbo make_environment_ubo(const EnvironmentState& env) {
@@ -61,14 +65,15 @@ static_assert(sizeof(EnvironmentUbo) == 320);
     ubo.sun_dir_intensity = glm::vec4(env.sun.direction, env.sun.intensity);
     ubo.sun_color = glm::vec4(env.sun.color, 0.0f);
     ubo.moon_dir_intensity = glm::vec4(env.moon.direction, env.moon.intensity);
-    ubo.moon_color = glm::vec4(env.moon.color, 0.0f);
+    ubo.moon_color = glm::vec4(env.moon.color, env.moon_phase);
     ubo.secondary_dir_intensity = glm::vec4(env.secondary.direction, env.secondary.intensity);
     ubo.secondary_color = glm::vec4(env.secondary.color, 0.0f);
     ubo.wind_dir_speed_gust = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
     ubo.weather0 = glm::vec4(0.0f);
-    ubo.weather1 = glm::vec4(0.0f);
+    ubo.weather1 = glm::vec4(0.0f, 0.0f, 0.0f, env.hour);
     ubo.front = glm::vec4(1.0f, 0.0f, 1.0f, 0.0f);
-    ubo.sky_tint_star = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+    ubo.sky_tint_star = glm::vec4(1.0f, 1.0f, 1.0f, env.star_intensity);
+    ubo.celestial_axis = glm::vec4(env.celestial_axis, env.celestial_angle);
     ubo.cloud_shadow_vp = glm::mat4(1.0f);
     ubo.overhead_vp = glm::mat4(1.0f);
     return ubo;

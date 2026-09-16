@@ -188,6 +188,7 @@ TEST_CASE("A time of day drives the sun from the hour", "[environment]") {
 
     auto noon = resolve_environment(scene);
     REQUIRE(noon.hour == Approx(12.0f));
+    REQUIRE(noon.star_intensity == Approx(0.0f));
     REQUIRE(close(noon.sun.direction, glm::vec3(0.0f, 1.0f, 0.0f)));
     REQUIRE(noon.sun.intensity == Approx(2.0f));
     REQUIRE(noon.phase == TimePhase::Day);
@@ -231,4 +232,50 @@ TEST_CASE("The shadow caster hands over with hysteresis", "[environment]") {
     sun.elevation = glm::radians(-20.0f);
     moon.intensity = 0.05f;
     REQUIRE(moon_leads(sun, moon, false));
+}
+
+TEST_CASE("The moon rides the sun path behind the sun and the sky turns about its axis", "[environment]") {
+    SunPath path{.tilt_degrees = 40.0f, .north_yaw_degrees = 30.0f, .noon_hour = 12.0f};
+
+    // Rotating the noon sun about the path axis by the hour's angle lands on
+    // the sun for that hour, so the star field can follow the same turn.
+    const glm::vec3 axis = sun_path_axis(path);
+    const glm::vec3 noon = sun_direction(path, 12.0f);
+    for (float hour : {3.0f, 9.0f, 15.0f, 20.5f}) {
+        const float a = sun_path_angle(path, hour);
+        const glm::vec3 rotated = noon * std::cos(a) + glm::cross(axis, noon) * std::sin(a)
+                                  + axis * glm::dot(axis, noon) * (1.0f - std::cos(a));
+        REQUIRE(close(rotated, sun_direction(path, hour)));
+    }
+
+    REQUIRE(moon_phase_brightness(0.0f) == Approx(0.0f).margin(1e-6));
+    REQUIRE(moon_phase_brightness(0.5f) == Approx(1.0f));
+    REQUIRE(moon_phase_brightness(1.0f) == Approx(0.0f).margin(1e-6));
+
+    Scene scene;
+    scene.add_node(std::make_unique<DirectionalLightNode>());
+    auto world = std::make_unique<WorldEnvironmentNode>();
+    world->time_of_day_enabled = true;
+    world->sun_path_tilt = 0.0f;
+    world->time_of_day = 0.0f;         // midnight
+    world->moon_offset_hours = 12.0f;
+    world->moon_phase = 0.5f;
+    world->moon_intensity = 0.1f;
+    auto* world_ptr = world.get();
+    scene.add_node(std::move(world));
+
+    auto midnight = resolve_environment(scene);
+    REQUIRE(midnight.star_intensity == Approx(1.0f));
+    REQUIRE(close(midnight.moon.direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+    REQUIRE(midnight.moon.intensity == Approx(0.1f));
+    REQUIRE_FALSE(midnight.sun.lit());
+    // With the sun set, the full moon casts the shadows and the sun is the
+    // dark secondary.
+    REQUIRE(close(midnight.primary.direction, midnight.moon.direction));
+    REQUIRE(midnight.secondary.intensity == Approx(0.0f));
+
+    world_ptr->moon_phase = 0.0f;
+    auto new_moon = resolve_environment(scene);
+    REQUIRE(new_moon.moon.intensity == Approx(0.0f).margin(1e-6));
+    REQUIRE(close(new_moon.primary.direction, new_moon.sun.direction));
 }

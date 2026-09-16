@@ -1,0 +1,41 @@
+shader_type sky;
+
+// Hard-banded toon sky driven by the time of day: a handful of flat bands
+// whose colours pick from a dawn, day, dusk and night palette by
+// TIME_OF_DAY, a big soft sun and a large moon. Shows a sky that owes
+// nothing to physical scattering yet still lights the world through the
+// cubemap.
+
+uniform vec3 day_zenith : hint_color = vec3(0.25, 0.55, 0.95);
+uniform vec3 day_horizon : hint_color = vec3(0.85, 0.93, 1.0);
+uniform vec3 dusk_zenith : hint_color = vec3(0.35, 0.2, 0.5);
+uniform vec3 dusk_horizon : hint_color = vec3(1.0, 0.5, 0.2);
+uniform vec3 night_zenith : hint_color = vec3(0.02, 0.03, 0.08);
+uniform vec3 night_horizon : hint_color = vec3(0.1, 0.1, 0.2);
+uniform float bands : hint_range(2.0, 12.0, 1.0) = 5.0;
+uniform float sun_size : hint_range(0.95, 0.9999, 0.0001) = 0.997;
+uniform float moon_size : hint_range(0.95, 0.9999, 0.0001) = 0.998;
+
+void sky() {
+    // Which palette: night below the horizon, dusk around it, day above.
+    float day = smoothstep(0.05, 0.3, SUN_ELEVATION);
+    float twilight = 1.0 - smoothstep(0.0, 0.25, abs(SUN_ELEVATION - 0.05));
+    vec3 zenith = mix(mix(night_zenith, day_zenith, day), dusk_zenith, twilight);
+    vec3 horizon = mix(mix(night_horizon, day_horizon, day), dusk_horizon, twilight);
+
+    // Flat bands over the height instead of a smooth ramp.
+    float t = clamp(VIEW_DIR.y, 0.0, 1.0);
+    t = floor(t * bands) / bands;
+    SKY = mix(horizon, zenith, t) * SKY_TINT;
+
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE) * 1.5;
+
+    // A large, flat moon with a hard edge.
+    float moon = step(moon_size, dot(VIEW_DIR, MOON_DIR));
+    SKY += MOON_COLOR * moon * 8.0;
+
+    if (!SKY_FOR_LIGHTING) {
+        float sun = step(sun_size, dot(VIEW_DIR, SUN_DIR));
+        SKY += SUN_COLOR * sun * 2.0;
+    }
+}
