@@ -50,6 +50,7 @@ private:
         day_profile,
         weather,
         climate,
+        water,
         unknown
     };
 

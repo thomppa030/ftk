@@ -148,6 +148,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjsurface") return FileType::surface;
     if (ext == ".fjday") return FileType::day_profile;
     if (ext == ".fjweather") return FileType::weather;
+    if (ext == ".fjwater") return FileType::water;
     if (ext == ".fjclimate") return FileType::climate;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
@@ -176,6 +177,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::day_profile:  return "node";
         case FileType::weather:      return "node";
         case FileType::climate:      return "node";
+        case FileType::water:        return "node";
         case FileType::unknown:      return "node";
     }
     return "node";
@@ -1027,6 +1029,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::day_profile:
                 case FileType::weather:
                 case FileType::climate:
+                case FileType::water:
                     if (ImGui::MenuItem("Open in Code Editor")) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
@@ -1316,6 +1319,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::weather: {
             auto rel = std::filesystem::relative(entry.path, root_);
             on_open_asset.broadcast(rel.string(), "weather");
+            break;
+        }
+
+        case FileType::water: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_open_asset.broadcast(rel.string(), "water");
             break;
         }
 

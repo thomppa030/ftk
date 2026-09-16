@@ -36,6 +36,7 @@
 #include "ui/mesh_editor_context.hpp"
 #include "ui/day_profile_editor_context.hpp"
 #include "ui/font_editor_context.hpp"
+#include "ui/water_editor_context.hpp"
 #include "ui/weather_editor_context.hpp"
 #include "ui/ui_editor_context.hpp"
 #include "ui/input_mapping_editor_context.hpp"
@@ -664,6 +665,26 @@ void Engine::init_editor() {
             auto ctx = std::make_unique<WeatherEditorContext>(deps);
             ctx->init();
             ctx->open_weather(path);
+            return ctx;
+        },
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return ctx.asset_path() == path;
+        }
+    });
+
+    context_registry_.register_type("water", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            WaterEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .project_mgr = &project_mgr_,
+                .input = &input_,
+                .scene = &scene_,
+            };
+            auto ctx = std::make_unique<WaterEditorContext>(deps);
+            ctx->init();
+            ctx->open_water(path);
             return ctx;
         },
         .open = [](EditorContext&, const std::string&) {},

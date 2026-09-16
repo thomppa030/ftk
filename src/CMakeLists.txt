@@ -51,6 +51,7 @@ add_executable(fjell
     environment/climate_director.cpp
     ui/track_timeline_editor.cpp
     ui/day_profile_editor_context.cpp
+    ui/water_editor_context.cpp
     ui/weather_editor_context.cpp
     core/math/spline.cpp
     core/input.cpp
@@ -179,6 +180,8 @@ add_executable(fjell
     renderer/components/tilemap_component_meta.cpp
     renderer/components/terrain_component_meta.cpp
     renderer/resources/fjterrain_io.cpp
+    renderer/resources/fjwater_io.cpp
+    renderer/resources/water_surface.cpp
     renderer/resources/terrain_asset.cpp
     renderer/render_queue.cpp
     renderer/resources/asset_loader.cpp
