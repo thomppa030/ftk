@@ -6,6 +6,8 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/pass/water_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resource_registry.hpp"
@@ -270,6 +272,11 @@ void TransparentPass::record(const FrameContext& ctx) {
     VkRect2D sc{};
     sc.extent = target->extent();
     vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+
+    // Water first among the transparent things: it is the surface the rest of
+    // them float on or stand in, and it samples the opaque scene behind it,
+    // which nothing drawn here has touched yet.
+    ctx.passes->get<WaterPass>("water").record(ctx);
 
     record_draws(ctx);
 

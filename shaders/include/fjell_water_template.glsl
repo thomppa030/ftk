@@ -46,7 +46,7 @@ layout(push_constant) uniform PushConstants {
     uint  patches_per_side;
     uint  patch_quads;
     uint  water_material_id;
-    float prev_time;
+    float delta_time;
 } push;
 
 layout(location = 0) in vec3 frag_color;

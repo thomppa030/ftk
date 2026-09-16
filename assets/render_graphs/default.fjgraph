@@ -60,6 +60,7 @@
         { "class": "SkyCubemapPass",   "name": "sky_cubemap" },
 
         // ── Color ──────────────────────────────────────────────────────
+        { "class": "WaterPass",           "name": "water" },
         { "class": "TransparentPass",     "name": "transparent" },
         { "class": "OpaquePass",          "name": "opaque" },
         { "class": "ScreenColorCopyPass", "name": "screen_color_copy" },

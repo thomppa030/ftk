@@ -154,6 +154,7 @@ add_executable(fjell
     renderer/pass/local_shadow_pass.cpp
     renderer/pass/taa_resolve_pass.cpp
     renderer/pass/terrain_pass.cpp
+    renderer/pass/water_pass.cpp
     renderer/pass/tonemap_pass.cpp
     renderer/pass/transparent_pass.cpp
     renderer/pass/normal_pass.cpp
@@ -179,6 +180,7 @@ add_executable(fjell
     renderer/components/sprite_anim_component_meta.cpp
     renderer/components/tilemap_component_meta.cpp
     renderer/components/terrain_component_meta.cpp
+    renderer/components/water_component_meta.cpp
     renderer/resources/fjterrain_io.cpp
     renderer/resources/fjwater_io.cpp
     renderer/resources/water_gpu.cpp

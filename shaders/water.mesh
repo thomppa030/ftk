@@ -33,11 +33,10 @@ layout(push_constant) uniform PushConstants {
     uint  patches_per_side;
     uint  patch_quads;
     uint  water_material_id;
-    // The time the previous frame's surface was built at. The sea moves under
-    // a still camera, so motion vectors need where a vertex was rather than
-    // only where the camera was; the global UBO carries no delta, and the
-    // pass knows this without one.
-    float prev_time;
+    // Seconds since the previous frame. The sea moves under a still camera,
+    // so motion vectors need where a vertex was rather than only where the
+    // camera was, and the global UBO carries time but no delta.
+    float delta_time;
 } push;
 
 struct TaskPayload {
@@ -97,7 +96,7 @@ void main() {
         // The sea moves, so the previous frame's position is where this
         // vertex was one frame ago rather than where it is now — motion
         // vectors want the surface's own motion, not just the camera's.
-        vec3 prev_offset = fjell_water_displace(water.field, rest, push.prev_time);
+        vec3 prev_offset = fjell_water_displace(water.field, rest, time - push.delta_time);
         vec3 prev_world = vec3(rest.x + prev_offset.x,
                                push.surface_height + prev_offset.y,
                                rest.y + prev_offset.z);

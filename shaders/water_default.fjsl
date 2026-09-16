@@ -1,0 +1,36 @@
+shader_type water;
+
+// The engine's default water, drawn by any water node without a material of
+// its own. A clear sea over whatever is behind it: enough to see the wave
+// field is working, and a starting point to copy rather than a look to ship.
+
+uniform vec3 shallow : hint_color = vec3(0.30, 0.62, 0.66);
+uniform vec3 deep : hint_color = vec3(0.04, 0.16, 0.24);
+uniform float clarity : hint_range(0.0, 1.0, 0.01) = 0.55;
+// How fast the colour reaches `deep` with depth, in inverse metres.
+uniform float absorption : hint_range(0.01, 2.0, 0.01) = 0.18;
+uniform float foam_amount : hint_range(0.0, 1.0, 0.01) = 0.6;
+uniform vec3 foam_color : hint_color = vec3(1.0, 1.0, 1.0);
+
+void fragment() {
+    // Beer's law over the corrected depth: how much of what is behind the
+    // water still reaches the eye.
+    float transmitted = exp(-WATER_DEPTH * absorption);
+
+    vec3 behind = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
+    vec3 tint = mix(shallow, deep, 1.0 - transmitted);
+    ALBEDO = mix(tint, behind, transmitted * clarity);
+
+    // Whitecaps where the surface has pinched. CREST comes from the wave
+    // field's own Jacobian, so foam follows the waves rather than being
+    // painted on at a fixed height.
+    float whitecap = smoothstep(0.35, 0.85, CREST) * foam_amount;
+    ALBEDO = mix(ALBEDO, foam_color, whitecap);
+
+    ROUGHNESS = mix(0.04, 0.5, whitecap);
+    METALLIC = 0.0;
+
+    // Thin water at the edges reveals what it is over, so it fades out rather
+    // than ending in a hard line.
+    ALPHA = max(mix(0.25, 0.95, 1.0 - transmitted), whitecap);
+}
