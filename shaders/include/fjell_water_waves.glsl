@@ -39,14 +39,25 @@ struct FjellWaterField {
     uint  wave_count;
     float amplitude_scale;
     float speed_scale;
-    float _pad0;
+    float steepness_headroom;
 };
 
 // Steepness is authored 0..1; the Gerstner horizontal term wants Q, and Q past
 // 1/(k*A) folds the surface through itself. Matches steepness_to_q().
-float fjell_water_steepness_to_q(float steepness, float k, float amplitude) {
+float fjell_water_steepness_to_q(float steepness, float k, float amplitude,
+                                 float budget) {
     float max_q = 1.0 / max(k * amplitude, 1e-6);
-    return clamp(steepness, 0.0, 1.0) * max_q;
+    return clamp(steepness, 0.0, 1.0) * max_q * budget;
+}
+
+// The share of the fold limit one train may take. Matches
+// steepness_budget(): a single train folds at k*A*q = 1, but trains sum and
+// the surface folds on the sum, so with N trains each takes 1/N and the worst
+// case where every crest aligns lands on flat rather than inside out.
+float fjell_water_budget(uint wave_count, float headroom) {
+    // Matches steepness_budget(): 1/N is the worst case and never happens,
+    // so the field says how far past it this sea goes.
+    return wave_count > 0u ? headroom / float(wave_count) : 1.0;
 }
 
 struct FjellWaveTerms {
@@ -59,7 +70,7 @@ struct FjellWaveTerms {
 
 // Matches terms_for().
 FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
-                                 vec2 world_xz, float time) {
+                                 vec2 world_xz, float time, float budget) {
     FjellWaveTerms t;
     t.dir = vec2(1.0, 0.0);
     t.k = 0.0;
@@ -74,7 +85,7 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
     t.dir = wave.direction / len;
     t.k = FJELL_WATER_TAU / wave.wavelength;
     t.amplitude = wave.amplitude * field.amplitude_scale;
-    t.q = fjell_water_steepness_to_q(wave.steepness, t.k, t.amplitude);
+    t.q = fjell_water_steepness_to_q(wave.steepness, t.k, t.amplitude, budget);
 
     float omega = sqrt(FJELL_WATER_GRAVITY * t.k) * wave.speed * field.speed_scale;
     t.phase = dot(t.dir, world_xz) * t.k - omega * time;
@@ -85,8 +96,9 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
 vec3 fjell_water_displace(FjellWaterField field, vec2 world_xz, float time) {
     vec3 sum = vec3(0.0);
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
+    float budget = fjell_water_budget(count, field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time);
+        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
 
         float c = cos(t.phase);
@@ -104,8 +116,9 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
     vec3 tangent  = vec3(0.0, 0.0, 1.0);
 
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
+    float budget = fjell_water_budget(count, field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time);
+        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
 
         float c = cos(t.phase);
@@ -135,8 +148,9 @@ float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {
     float jxz = 0.0;
 
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
+    float budget = fjell_water_budget(count, field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time);
+        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
 
         float s = sin(t.phase);

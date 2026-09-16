@@ -41,7 +41,7 @@ struct GpuWaterField {
     std::uint32_t wave_count{0};
     float amplitude_scale{1.0f};
     float speed_scale{1.0f};
-    float _pad0{0.0f};
+    float steepness_headroom{1.10f};
 };
 static_assert(sizeof(GpuWaterField) == MAX_WATER_WAVES * 32 + 16,
               "must match FjellWaterField in GLSL");

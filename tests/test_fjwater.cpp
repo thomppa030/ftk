@@ -38,6 +38,7 @@ struct FieldPair {
     pair.gpu.wave_count = static_cast<unsigned int>(waves.size());
     pair.gpu.amplitude_scale = amplitude_scale;
     pair.gpu.speed_scale = speed_scale;
+    pair.gpu.steepness_headroom = pair.cpu.steepness_headroom;
     for (std::size_t i = 0; i < waves.size() && i < MAX_WATER_WAVES; ++i) {
         pair.gpu.waves[i].direction = waves[i].direction;
         pair.gpu.waves[i].wavelength = waves[i].wavelength;
@@ -430,6 +431,8 @@ TEST_CASE("The GPU field matches the shader's struct", "[fjwater]") {
     REQUIRE(offsetof(GpuWaterField, amplitude_scale)
             == offsetof(FjellWaterField, amplitude_scale));
     REQUIRE(offsetof(GpuWaterField, speed_scale) == offsetof(FjellWaterField, speed_scale));
+    REQUIRE(offsetof(GpuWaterField, steepness_headroom)
+            == offsetof(FjellWaterField, steepness_headroom));
 
     // The array stride is what a matching sizeof() can still hide: two
     // structs of equal size whose arrays step differently put every wave
@@ -467,6 +470,7 @@ TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
     shader_field.wave_count = field.wave_count;
     shader_field.amplitude_scale = field.amplitude_scale;
     shader_field.speed_scale = field.speed_scale;
+    shader_field.steepness_headroom = field.steepness_headroom;
     for (std::uint32_t i = 0; i < field.wave_count; ++i) {
         shader_field.waves[i].direction = field.waves[i].direction;
         shader_field.waves[i].wavelength = field.waves[i].wavelength;

@@ -68,6 +68,24 @@ struct WaterWaveGenerator {
     /// 0 makes every train travel the same way, which reads as a canal rather
     /// than open water.
     float spread_degrees{40.0f};
+
+    /// How quickly the trains shrink down the list, as the ratio between one
+    /// wavelength and the next.
+    ///
+    /// This is what separates a wind sea from a swell. Near 0.5 each train is
+    /// half the last, so the long ones are quickly buried under chop and the
+    /// surface reads as locally whipped up. Near 0.85 the trains stay close in
+    /// size, the long ones keep the surface, and what arrives is a procession
+    /// of broad ridges — the rolling swell of water that has travelled from a
+    /// storm somewhere else and sorted itself on the way.
+    float wavelength_falloff{0.62f};
+
+    /// How quickly the trains lose height down the list.
+    ///
+    /// Held separate from the wavelength falloff because the two say different
+    /// things: a swell is long *and* smooth, so its short trains want to fade
+    /// faster than its long ones shorten.
+    float amplitude_falloff{0.68f};
 };
 
 /// A `.fjwater`: the wave field of a body of water.
@@ -96,6 +114,23 @@ struct FjWaterData {
     /// Multiplies every train's speed, for slowing or hastening the whole sea
     /// at once.
     float speed_scale{1.0f};
+
+    /// How much of the fold limit the trains may share, as a multiple of the
+    /// safe 1/N.
+    ///
+    /// A Gerstner train folds when its steepness term reaches 1, and trains
+    /// sum, so N trains sharing 1/N each can never fold however they line up.
+    /// That bound assumes every crest aligned at one instant at one point,
+    /// which trains travelling at different speeds and angles never manage,
+    /// and holding a sea to it costs the pinch that makes a crest read as
+    /// relief rather than a bump.
+    ///
+    /// 1.10 is the measured ceiling for a typical six-train sea: nothing
+    /// folds anywhere. Past about 1.15 the surface starts turning inside out
+    /// at the sharpest crests, which looks like dark flat facets sitting in
+    /// the foam. Raise it to trade that risk for sharper waves; the editor
+    /// says how much of the surface folds at the current setting.
+    float steepness_headroom{1.10f};
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

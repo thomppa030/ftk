@@ -17,9 +17,34 @@ constexpr float TAU = 6.28318530717958647692f;
 // past 1/(k*A) folds the surface back through itself. Convert here so the
 // asset's dial cannot produce a broken surface however it is set, and so both
 // evaluators share the definition.
-[[nodiscard]] float steepness_to_q(float steepness, float k, float amplitude) {
+[[nodiscard]] float steepness_to_q(float steepness, float k, float amplitude,
+                                   float budget) {
     float max_q = 1.0f / std::max(k * amplitude, 1e-6f);
-    return std::clamp(steepness, 0.0f, 1.0f) * max_q;
+    return std::clamp(steepness, 0.0f, 1.0f) * max_q * budget;
+}
+
+// The share of the fold limit one train may take.
+//
+// A single Gerstner train folds when k*A*q reaches 1, which steepness_to_q
+// caps it at. Trains sum, though, and the surface folds on the sum: six
+// trains each at a safe 0.5 add to 3, and where their crests line up the
+// surface turns inside out — dark facets on the peaks, back-facing, exactly
+// where the foam is. Capping each train alone does not prevent that, so the
+// budget is shared: with N trains each may take 1/N of the limit, and the
+// worst case where every crest aligns lands exactly on flat rather than
+// past it.
+//
+// The cost is that steepness 1 on one train of six is a sixth as steep as
+// steepness 1 on a lone train. That is the honest reading — it is the
+// steepest that train can be while the sea it belongs to still holds
+// together.
+[[nodiscard]] float steepness_budget(std::size_t wave_count, float headroom) {
+    // 1/N is the worst case: every crest aligned, at one instant, at one
+    // point. Trains travel at different speeds and angles, so they never all
+    // line up, and holding the sea to that bound costs it the pinch that
+    // makes a crest read as relief rather than a bump. The asset says how far
+    // past it to go; see FjWaterData::steepness_headroom.
+    return wave_count > 0 ? headroom / static_cast<float>(wave_count) : 1.0f;
 }
 
 struct WaveTerms {
@@ -32,7 +57,7 @@ struct WaveTerms {
 
 // Everything both the displacement and its derivatives need, computed once.
 [[nodiscard]] WaveTerms terms_for(const WaterWave& wave, const FjWaterData& water,
-                                  glm::vec2 world_xz, float time) {
+                                  glm::vec2 world_xz, float time, float budget) {
     WaveTerms t;
     float len = glm::length(wave.direction);
     if (len < 1e-6f || wave.wavelength < 1e-4f) {
@@ -41,7 +66,7 @@ struct WaveTerms {
     t.dir = wave.direction / len;
     t.k = TAU / wave.wavelength;
     t.amplitude = wave.amplitude * water.amplitude_scale;
-    t.q = steepness_to_q(wave.steepness, t.k, t.amplitude);
+    t.q = steepness_to_q(wave.steepness, t.k, t.amplitude, budget);
 
     float omega = std::sqrt(GRAVITY * t.k) * wave.speed * water.speed_scale;
     t.phase = glm::dot(t.dir, world_xz) * t.k - omega * time;
@@ -58,8 +83,9 @@ float wave_frequency(float wavelength) {
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
+    float budget = steepness_budget(count, water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time);
+        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
 
         float c = std::cos(t.phase);
@@ -80,8 +106,9 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 tangent{0.0f, 0.0f, 1.0f};   // d/dz
 
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
+    float budget = steepness_budget(count, water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time);
+        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
 
         float c = std::cos(t.phase);
@@ -113,8 +140,9 @@ float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
     float jxz = 0.0f;
 
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
+    float budget = steepness_budget(count, water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time);
+        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
 
         float s = std::sin(t.phase);
@@ -164,8 +192,9 @@ glm::vec2 rest_position_for(const FjWaterData& water, glm::vec2 world_xz, float 
         float jzz = 1.0f;
         float jxz = 0.0f;
         std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
+        float budget = steepness_budget(count, water.steepness_headroom);
         for (std::size_t w = 0; w < count; ++w) {
-            WaveTerms t = terms_for(water.waves[w], water, rest, time);
+            WaveTerms t = terms_for(water.waves[w], water, rest, time, budget);
             if (t.amplitude == 0.0f) continue;
             float s = std::sin(t.phase);
             float wa = t.k * t.amplitude * t.q;

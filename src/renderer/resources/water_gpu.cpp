@@ -8,6 +8,7 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
     GpuWaterField field;
     field.amplitude_scale = water.amplitude_scale;
     field.speed_scale = water.speed_scale;
+    field.steepness_headroom = water.steepness_headroom;
 
     std::uint32_t count = 0;
     for (const auto& wave : water.waves) {
