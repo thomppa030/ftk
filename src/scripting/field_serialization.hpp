@@ -49,6 +49,9 @@ inline void serialize_reflected_fields(const std::vector<OwnedFieldDesc>& fields
             case FJELL_FIELD_STRING:
                 out[f.name] = static_cast<const char*>(ptr);
                 break;
+            case FJELL_FIELD_STD_STRING:
+                out[f.name] = *static_cast<const std::string*>(ptr);
+                break;
             default:
                 break; // Ref types not handled here
         }
@@ -106,6 +109,9 @@ inline void deserialize_reflected_fields(const std::vector<OwnedFieldDesc>& fiel
                 static_cast<char*>(ptr)[f.size - 1] = '\0';
                 break;
             }
+            case FJELL_FIELD_STD_STRING:
+                *static_cast<std::string*>(ptr) = in[f.name].get<std::string>();
+                break;
             default:
                 break; // Ref types not handled here
         }

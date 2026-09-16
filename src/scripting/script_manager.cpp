@@ -25,6 +25,7 @@
 extern "C" void fjell_input_clear_connections();
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <array>
@@ -731,6 +732,9 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_STRING:
                 out[f.name] = static_cast<const char*>(ptr);
                 break;
+            case FJELL_FIELD_STD_STRING:
+                out[f.name] = *static_cast<const std::string*>(ptr);
+                break;
             case FJELL_FIELD_WEAK_REF: {
                 const auto* ref = static_cast<const WeakRefData*>(ptr);
                 out[f.name] = {{"id", ref->id}, {"generation", ref->generation}};
@@ -805,6 +809,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 static_cast<char*>(ptr)[f.size - 1] = '\0';
                 break;
             }
+            case FJELL_FIELD_STD_STRING:
+                *static_cast<std::string*>(ptr) = in[f.name].get<std::string>();
+                break;
             case FJELL_FIELD_WEAK_REF: {
                 auto* ref = static_cast<WeakRefData*>(ptr);
                 auto& j = in[f.name];
@@ -934,6 +941,9 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                 break;
             case FJELL_FIELD_STRING:
                 ImGui::InputText(lbl, static_cast<char*>(ptr), f.size);
+                break;
+            case FJELL_FIELD_STD_STRING:
+                ImGui::InputText(lbl, static_cast<std::string*>(ptr));
                 break;
             case FJELL_FIELD_ENUM:
                 if (!f.enum_labels.empty()) {

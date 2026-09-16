@@ -907,7 +907,8 @@ void UiEditorContext::draw_inspector() {
                                 case FJELL_FIELD_FLOAT: type_name = "float"; break;
                                 case FJELL_FIELD_INT: type_name = "int"; break;
                                 case FJELL_FIELD_BOOL: type_name = "bool"; break;
-                                case FJELL_FIELD_STRING: type_name = "string"; break;
+                                case FJELL_FIELD_STRING:
+                                case FJELL_FIELD_STD_STRING: type_name = "string"; break;
                                 case FJELL_FIELD_VEC2: type_name = "vec2"; break;
                                 case FJELL_FIELD_VEC3: type_name = "vec3"; break;
                                 case FJELL_FIELD_VEC4: type_name = "vec4"; break;

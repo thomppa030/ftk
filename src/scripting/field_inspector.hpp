@@ -4,6 +4,7 @@
 #include "core/string_utils.hpp"
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -72,6 +73,9 @@ inline void draw_reflected_fields(const std::vector<OwnedFieldDesc>& fields, voi
                 break;
             case FJELL_FIELD_STRING:
                 ImGui::InputText(lbl, static_cast<char*>(ptr), f.size);
+                break;
+            case FJELL_FIELD_STD_STRING:
+                ImGui::InputText(lbl, static_cast<std::string*>(ptr));
                 break;
             case FJELL_FIELD_ENUM:
                 if (!f.enum_labels.empty()) {

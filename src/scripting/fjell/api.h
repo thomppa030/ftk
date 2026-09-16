@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 19
+#define FJELL_API_VERSION 20
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -66,11 +66,14 @@ typedef enum FjellFieldType {
     FJELL_FIELD_VEC4,
     FJELL_FIELD_COLOR3,
     FJELL_FIELD_COLOR4,
-    FJELL_FIELD_STRING,
+    FJELL_FIELD_STRING,        // fixed char[N] buffer; `size` is its capacity
     FJELL_FIELD_ENUM,
     FJELL_FIELD_WEAK_REF,
     FJELL_FIELD_REF,
-    FJELL_FIELD_WIDGET_PTR     // [[fj::bind]] WidgetType* — resolved by UiSubsystem
+    FJELL_FIELD_WIDGET_PTR,    // [[fj::bind]] WidgetType* — resolved by UiSubsystem
+    // New enumerators go at the end: inserting one mid-enum renumbers the rest
+    // and silently misreads every already-compiled game module.
+    FJELL_FIELD_STD_STRING     // std::string, owned by the component
 } FjellFieldType;
 
 typedef struct FjellFieldDesc {

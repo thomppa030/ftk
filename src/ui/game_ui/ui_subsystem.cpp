@@ -330,11 +330,12 @@ void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
             case FJELL_FIELD_BOOL:
                 wi.widget_context->set_bool(key, *static_cast<const bool*>(ptr));
                 break;
-            case FJELL_FIELD_STRING: {
-                const auto* str = reinterpret_cast<const std::string*>(ptr);
-                wi.widget_context->set(key, *str);
+            case FJELL_FIELD_STRING:
+                wi.widget_context->set(key, static_cast<const char*>(ptr));
                 break;
-            }
+            case FJELL_FIELD_STD_STRING:
+                wi.widget_context->set(key, *static_cast<const std::string*>(ptr));
+                break;
             default:
                 break;
         }

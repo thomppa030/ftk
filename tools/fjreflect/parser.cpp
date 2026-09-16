@@ -33,7 +33,7 @@ static std::string map_field_type(const std::string& cpp_type,
     if (bare == "glm::vec2") return "FJELL_FIELD_VEC2";
     if (bare == "glm::vec3") return "FJELL_FIELD_VEC3";
     if (bare == "glm::vec4") return "FJELL_FIELD_VEC4";
-    if (bare == "std::string") return "FJELL_FIELD_STRING";
+    if (bare == "std::string") return "FJELL_FIELD_STD_STRING";
 
     // WeakRef<T>
     if (bare.starts_with("WeakRef<")) {
@@ -800,11 +800,12 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "#define FJELL_PRINTF_FMT(fmt_idx, va_idx)\n";
         out << "#include <cstdint>\n";
         out << "#include <cstddef>\n";
+        // Mirrors FjellFieldType in fjell/api.h and must keep the same order.
         out << "enum FjellFieldType { FJELL_FIELD_FLOAT=0, FJELL_FIELD_INT, FJELL_FIELD_BOOL,\n"
                "    FJELL_FIELD_VEC2, FJELL_FIELD_VEC3, FJELL_FIELD_VEC4,\n"
                "    FJELL_FIELD_COLOR3, FJELL_FIELD_COLOR4, FJELL_FIELD_STRING,\n"
                "    FJELL_FIELD_ENUM, FJELL_FIELD_WEAK_REF, FJELL_FIELD_REF,\n"
-               "    FJELL_FIELD_SHARED_REF, FJELL_FIELD_WIDGET_PTR };\n";
+               "    FJELL_FIELD_WIDGET_PTR, FJELL_FIELD_STD_STRING };\n";
         out << "struct FjellFieldDesc { const char* name; FjellFieldType type;\n"
                "    uint32_t offset; uint32_t size; const char* const* enum_labels;\n"
                "    float min; float max; float speed; const char* ref_type_name;\n"
