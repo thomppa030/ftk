@@ -839,6 +839,55 @@ TEST_CASE("Water reaches its material row through the push block", "[fjsl][water
     REQUIRE(result.find("push.water_material_id") != std::string::npos);
 }
 
+TEST_CASE("The water template accepts every built-in it offers", "[fjsl][water][glslc]") {
+    // The template is the only place a water shader's built-ins exist, and a
+    // shader naming one that quietly went away fails at the moment someone
+    // assigns the material rather than at build time. So write one that uses
+    // all of them and put it through the real template.
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_water_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto meta = parse_fjsl(R"(
+        shader_type water;
+        uniform vec3 deep : hint_color = vec3(0.16, 0.19, 0.21);
+        uniform float clarity : hint_range(0.0, 1.0, 0.01) = 0.3;
+        uniform sampler2D foam_tex : hint_white;
+        void light() {
+            DIFFUSE_LIGHT += ALBEDO * NdotL * LIGHT_COLOR;
+        }
+        void fragment() {
+            float fade = exp(-WATER_DEPTH * 0.35);
+            vec3 behind = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
+            ALBEDO = mix(deep, behind, fade * clarity);
+            ALBEDO = mix(ALBEDO, texture(foam_tex, UV * 0.1).rgb, CREST);
+            ALBEDO += vec3(WAVE_HEIGHT) * 0.01;
+            ALBEDO += FLOOR_POS * 0.0 + WORLD_POS * 0.0 + vec3(WATER_UV, 0.0) * 0.0;
+            NORMAL = normalize(WORLD_NORMAL + TBN[0] * 0.01);
+            EMISSION = vec3(TIME) * 0.0;
+            ROUGHNESS = 0.06;
+            METALLIC = 0.0;
+            AO = 1.0;
+            ALPHA = mix(0.9, 0.2, fade);
+        }
+    )");
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-water-template-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "water_builtins.frag";
+    std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+
+    auto spv = out_dir / "water_builtins.spv";
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=frag -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o " + quoted(spv));
+    INFO(output);
+    REQUIRE(status == 0);
+}
+
 TEST_CASE("Terrain params read the pushed material row", "[fjsl][terrain]") {
     auto meta = parse_fjsl(R"(
         shader_type terrain;
