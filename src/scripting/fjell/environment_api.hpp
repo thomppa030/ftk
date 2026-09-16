@@ -59,6 +59,10 @@ FJELL_SDK_EXPORT void     fjell_weather_wind(float* x, float* y, float* z);
 FJELL_SDK_EXPORT void     fjell_weather_front_direction(float* x, float* z);
 FJELL_SDK_EXPORT float    fjell_weather_param(const char* name, float fallback);
 FJELL_SDK_EXPORT void     fjell_weather_set_sky_param(const char* name, int count, const float* values);
+FJELL_SDK_EXPORT void     fjell_weather_set_climate(uint32_t climate_handle_id);
+FJELL_SDK_EXPORT void     fjell_weather_hold(int held);
+FJELL_SDK_EXPORT int      fjell_weather_is_held();
+FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index);
 }
 
 namespace fjell {
@@ -67,12 +71,22 @@ namespace fjell {
 struct DayProfileAsset;
 /// A `.fjweather` weather event, for `[[fj::property]] Ref<WeatherAsset>` fields.
 struct WeatherAsset;
+/// A `.fjclimate`, for `[[fj::property]] Ref<ClimateAsset>` fields.
+struct ClimateAsset;
 
+#ifndef FJELL_WEATHER_PHASE_DEFINED
+#define FJELL_WEATHER_PHASE_DEFINED
 enum class WeatherPhase : int { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 };
+#endif
 enum class Precipitation : int { None = 0, Rain = 1, Snow = 2 };
 
-/// Same values as the FjellTimePhase constants above.
+/// Same values as the FjellTimePhase constants above. The engine declares
+/// the same enum for its own use; the guard keeps them one type when both
+/// headers reach the same translation unit.
+#ifndef FJELL_TIME_PHASE_DEFINED
+#define FJELL_TIME_PHASE_DEFINED
 enum class TimePhase : int { Night = 0, Dawn = 1, Day = 2, Dusk = 3 };
+#endif
 
 /// The scene's clock and sun. The World Environment node owns the time of
 /// day: its hour, how many real seconds a day takes, and the sun path the
@@ -216,6 +230,27 @@ struct Weather {
     }
     /// Hand a uniform back to the node and profile.
     static void clear_sky_param(const char* name) { fjell_weather_set_sky_param(name, 0, nullptr); }
+
+    /// Hand the weather to a climate: it rolls what comes next when an event
+    /// ends, so the sky keeps having weather without a script deciding each
+    /// turn. An unassigned ref leaves whatever plays to run out.
+    static void set_climate(const Ref<ClimateAsset>& climate) {
+        fjell_weather_set_climate(climate.handle_id());
+    }
+
+    /// Freeze the climate: whatever plays keeps playing and nothing new is
+    /// rolled. `play()` still works, for weather a script drives itself.
+    static void hold(bool held = true) { fjell_weather_hold(held ? 1 : 0); }
+    [[nodiscard]] static bool is_held() { return fjell_weather_is_held() != 0; }
+
+    /// What the climate will play after this, soonest first: the handle id
+    /// of that event, 0 past the end of the forecast or without a climate.
+    /// Compare it with a `Ref<WeatherAsset>`'s `handle_id()` to see a storm
+    /// coming and act before it arrives.
+    /// @param index 0 is the next event, 1 the one after it.
+    [[nodiscard]] static uint32_t forecast(uint32_t index = 0) {
+        return fjell_weather_forecast(index);
+    }
 };
 
 } // namespace fjell

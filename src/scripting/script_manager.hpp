@@ -117,6 +117,12 @@ public:
     // Network connection events: call every script component's on_player_*
     // virtual. Fired on the server when a peer connects/disconnects. peer is the
     // connecting/leaving PeerId (uint32_t in the SDK).
+    /// Tell every script the weather or the part of the day changed. The
+    /// phases are the SDK's WeatherPhase and TimePhase as ints, so this
+    /// header does not pull the SDK in.
+    void dispatch_weather_changed(Scene& scene, uint32_t event, int phase);
+    void dispatch_time_phase_changed(Scene& scene, int phase);
+
     void dispatch_player_connected(Scene& scene, uint32_t peer);
     void dispatch_player_disconnected(Scene& scene, uint32_t peer);
 

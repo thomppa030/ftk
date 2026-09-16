@@ -2,6 +2,7 @@
 #include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "environment/environment_subsystem.hpp"
+#include "renderer/resources/resource_manager.hpp"
 
 #include <algorithm>
 
@@ -129,4 +130,29 @@ extern "C" FJELL_SDK_EXPORT void fjell_weather_set_sky_param(const char* name, i
     value.count = static_cast<uint32_t>(std::clamp(count, 0, 4));
     for (uint32_t i = 0; i < value.count && values; ++i) value.values[i] = values[i];
     env->set_sky_uniform(value);
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_weather_set_climate(uint32_t climate_handle_id) {
+    auto* env = fjell::script_services().environment;
+    if (env) env->set_climate(fjell::ClimateAssetHandle{climate_handle_id});
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_weather_hold(int held) {
+    auto* env = fjell::script_services().environment;
+    if (env) env->hold_weather(held != 0);
+}
+
+extern "C" FJELL_SDK_EXPORT int fjell_weather_is_held() {
+    auto* env = fjell::script_services().environment;
+    return env && env->weather_held() ? 1 : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index) {
+    auto* env = fjell::script_services().environment;
+    auto* resources = fjell::script_services().resources;
+    if (!env || !resources) return 0;
+    const std::string path = env->forecast_event(index);
+    if (path.empty()) return 0;
+    auto handle = resources->load_weather_asset(path);
+    return handle ? handle->id : 0u;
 }

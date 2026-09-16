@@ -678,6 +678,24 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
     }
 }
 
+void ScriptManager::dispatch_weather_changed(Scene& scene, uint32_t event, int phase) {
+    const auto weather_phase = static_cast<WeatherPhase>(phase);
+    for (const auto& obj : scene.objects()) {
+        for (auto& comp : obj->scripts) {
+            if (comp.instance) comp.instance->on_weather_changed(event, weather_phase);
+        }
+    }
+}
+
+void ScriptManager::dispatch_time_phase_changed(Scene& scene, int phase) {
+    const auto time_phase = static_cast<TimePhase>(phase);
+    for (const auto& obj : scene.objects()) {
+        for (auto& comp : obj->scripts) {
+            if (comp.instance) comp.instance->on_time_phase_changed(time_phase);
+        }
+    }
+}
+
 void ScriptManager::dispatch_player_connected(Scene& scene, uint32_t peer) {
     for (const auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {

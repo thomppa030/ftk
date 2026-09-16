@@ -1,6 +1,7 @@
 // component.hpp — ScriptComponent base class for Fjell game code
 #pragma once
 
+#include "fjell/environment_api.hpp"
 #include "fjell/world.hpp"
 #include "fjell/transform.hpp"
 
@@ -89,6 +90,22 @@ public:
     /// Fires on the SERVER only, when a client finishes connecting. Spawn and
     /// assign that peer's player here via `NetAPI::spawn(preset, pos, peer)`.
     /// @param peer The connecting peer's ID — pass as the owner when spawning.
+    /// The weather changed: a new event started, or the one playing moved
+    /// into its next phase. `event` is the event's handle id, matching a
+    /// `Ref<WeatherAsset>`'s; `phase` is where it now is.
+    /// @code
+    /// void on_weather_changed(uint32_t event, fjell::WeatherPhase phase) override {
+    ///     if (phase == fjell::WeatherPhase::Onset) close_the_shutters();
+    /// }
+    /// @endcode
+    virtual void on_weather_changed(uint32_t event, WeatherPhase phase) {
+        (void)event;
+        (void)phase;
+    }
+
+    /// The day moved into another part: dawn, day, dusk or night.
+    virtual void on_time_phase_changed(TimePhase phase) { (void)phase; }
+
     virtual void on_player_connected(PeerId peer) { (void)peer; }
 
     /// Fires on the SERVER only, when a client disconnects. Despawn anything
