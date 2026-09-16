@@ -1,6 +1,8 @@
 #include "core/input_source.hpp"
 
+#include <iterator>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
@@ -176,6 +178,20 @@ std::string input_source_to_string(InputSource source) {
     const auto& map = source_to_entry_map();
     auto it = map.find(static_cast<uint16_t>(source));
     return it != map.end() ? it->second->json_name : "none";
+}
+
+std::span<const InputSource> input_source_all() {
+    // Derived from SOURCE_TABLE rather than listed again, so a source added
+    // there shows up in every picker without a second edit.
+    static const std::vector<InputSource> sources = [] {
+        std::vector<InputSource> v;
+        v.reserve(std::size(SOURCE_TABLE));
+        for (const auto& e : SOURCE_TABLE) {
+            v.push_back(e.source);
+        }
+        return v;
+    }();
+    return sources;
 }
 
 } // namespace fjell

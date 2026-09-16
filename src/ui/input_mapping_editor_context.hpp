@@ -43,7 +43,6 @@ public:
     void apply_resize(VulkanContext&) override {}
 
     void open_context(const std::string& fjinput_path);
-    void open_action(const std::string& fjaction_path);
 
 private:
     enum class RebindTarget { source, up, down, left, right };
@@ -55,8 +54,20 @@ private:
                             RebindTarget target);
     void draw_modifier_chips(int binding_idx);
     void draw_add_action_popup();
+    void accept_action_drop();
 
     void scan_actions();
+
+    /// The key, mouse button or pad button the player is pressing to claim the
+    /// armed rebind, or `none` while they have not pressed anything.
+    ///
+    /// Reads raw input deliberately: the editor runs with the game unfocused,
+    /// and the gated queries report nothing there.
+    ///
+    /// Axis sources (mouse motion, scroll, sticks, triggers) cannot be offered
+    /// here — there is no press to wait for, and a gesture does not say which
+    /// of them was meant. They are picked explicitly instead.
+    [[nodiscard]] InputSource poll_rebind_source() const;
 
     InputMappingEditorDeps deps_;
     std::string name_{"Input Mapping"};

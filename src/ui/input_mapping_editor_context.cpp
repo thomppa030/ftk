@@ -7,6 +7,7 @@
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "ui/grouped_picker.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -97,6 +98,81 @@ ImU32 source_kind_color(SrcKind k) {
     return col_text_muted();
 }
 
+const char* source_kind_group(SrcKind k) {
+    switch (k) {
+        case SrcKind::keyboard: return "Keyboard";
+        case SrcKind::mouse:    return "Mouse";
+        case SrcKind::pad:      return "Gamepad";
+        case SrcKind::none:     return "Other";
+    }
+    return "Other";
+}
+
+// What an axis source means, said once here rather than in every game's
+// script. An axis has no press, so the row is the only place a picker can
+// explain what the action will receive.
+const char* source_hint(InputSource s) {
+    switch (s) {
+        case InputSource::mouse_move_x:
+        case InputSource::mouse_move_y:
+            return "Pixels moved, up is +Y — do not scale by delta time";
+        case InputSource::mouse_scroll_x:
+        case InputSource::mouse_scroll_y:
+            return "Wheel notches this frame";
+        case InputSource::pad_lstick_x:
+        case InputSource::pad_lstick_y:
+        case InputSource::pad_rstick_x:
+        case InputSource::pad_rstick_y:
+            return "Stick deflection -1..1 — a rate, scale by delta time";
+        case InputSource::pad_lt:
+        case InputSource::pad_rt:
+            return "Trigger pull 0..1";
+        default:
+            return "";
+    }
+}
+
+// Sources an axis2d binding pairs automatically, so offering the Y half would
+// bind a stick's vertical to an action's horizontal. See
+// InputActionMap::evaluate_binding.
+bool is_paired_y_source(InputSource s) {
+    return s == InputSource::mouse_move_y || s == InputSource::mouse_scroll_y
+           || s == InputSource::pad_lstick_y || s == InputSource::pad_rstick_y;
+}
+
+std::vector<grouped_picker::Group> build_source_groups() {
+    using Kind = SrcKind;
+    static constexpr Kind ORDER[] = {Kind::keyboard, Kind::mouse, Kind::pad};
+
+    std::vector<grouped_picker::Group> groups;
+    for (Kind kind : ORDER) {
+        grouped_picker::Group group;
+        group.label = source_kind_group(kind);
+        // Keyboard is long enough that an open header buries the other two.
+        group.open = (kind != Kind::keyboard);
+
+        for (InputSource source : input_source_all()) {
+            if (source_kind(source) != kind || is_paired_y_source(source)) {
+                continue;
+            }
+            const std::string name = input_source_to_string(source);
+            group.items.push_back({
+                .value = name,
+                .label = input_source_display_name(source),
+                .sublabel = source_hint(source),
+                .preview = 0,
+                .tag = source_kind_tag(kind),
+                .tag_color = source_kind_color(kind),
+                // The JSON name is what a .fjinput holds, so someone who has
+                // read the file can search the spelling they saw there.
+                .search_text = name,
+            });
+        }
+        groups.push_back(std::move(group));
+    }
+    return groups;
+}
+
 // Draw a small colored pill (used for action type and source kind tags).
 void draw_pill(const char* text, ImU32 color) {
     ImVec2 text_size = ImGui::CalcTextSize(text);
@@ -150,11 +226,6 @@ void InputMappingEditorContext::open_context(const std::string& fjinput_path) {
     scan_actions();
 }
 
-void InputMappingEditorContext::open_action(const std::string& /*fjaction_path*/) {
-    scan_actions();
-    name_ = "Input Mapping";
-}
-
 void InputMappingEditorContext::scan_actions() {
     std::string actions_dir = "assets/input/actions";
     if (deps_.project_mgr->active()) {
@@ -197,38 +268,39 @@ void InputMappingEditorContext::setup_dockspace(ImGuiID main_area) {
     build_dockspace(main_area, layout, docked_window_names());
 }
 
+// ── Rebind capture ──────────────────────────────────────────────────
+
+InputSource InputMappingEditorContext::poll_rebind_source() const {
+    // raw_* throughout: the editor runs with the game unfocused, and the
+    // gated queries deliberately report nothing in that state. Reading them
+    // here made the listener look armed while it could never capture at all.
+    for (int k = 32; k < 349; ++k) {
+        if (k == GLFW_KEY_ESCAPE) continue;
+        if (deps_.input->raw_key_pressed(k)) {
+            return static_cast<InputSource>(k);
+        }
+    }
+    for (int b = 0; b < 5; ++b) {
+        if (deps_.input->raw_mouse_button_pressed(b)) {
+            return static_cast<InputSource>(
+                static_cast<int>(InputSource::mouse_left) + b);
+        }
+    }
+    for (int b = 0; b < 15; ++b) {
+        if (deps_.input->raw_pad_button_pressed(b)) {
+            return static_cast<InputSource>(
+                static_cast<int>(InputSource::pad_a) + b);
+        }
+    }
+    return InputSource::none;
+}
+
 // ── Draw ────────────────────────────────────────────────────────────
 
 void InputMappingEditorContext::draw(float dt) {
     // Poll raw Input for rebind completion
     if (rebinding_) {
-        InputSource captured = InputSource::none;
-
-        for (int k = 32; k < 349; ++k) {
-            if (k == GLFW_KEY_ESCAPE) continue;
-            if (deps_.input->is_key_pressed(k)) {
-                captured = static_cast<InputSource>(k);
-                break;
-            }
-        }
-        if (captured == InputSource::none) {
-            for (int b = 0; b < 5; ++b) {
-                if (deps_.input->is_mouse_button_pressed(b)) {
-                    captured = static_cast<InputSource>(
-                        static_cast<int>(InputSource::mouse_left) + b);
-                    break;
-                }
-            }
-        }
-        if (captured == InputSource::none) {
-            for (int b = 0; b < 15; ++b) {
-                if (deps_.input->pad_button_pressed(b)) {
-                    captured = static_cast<InputSource>(
-                        static_cast<int>(InputSource::pad_a) + b);
-                    break;
-                }
-            }
-        }
+        InputSource captured = poll_rebind_source();
 
         if (captured != InputSource::none && rebind_binding_idx_ >= 0 &&
             rebind_binding_idx_ < static_cast<int>(context_.bindings.size())) {
@@ -374,7 +446,7 @@ void InputMappingEditorContext::draw_mappings() {
         ImGui::Dummy({0.0F, 24.0F});
         ImVec2 win_size = ImGui::GetContentRegionAvail();
         const char* msg = "No actions mapped yet.";
-        const char* hint = "Click \"+ Add Action\" above to start binding inputs.";
+        const char* hint = "Drop a .fjaction here, or click \"+ Add Action\" above.";
         float msg_w = ImGui::CalcTextSize(msg).x;
         float hint_w = ImGui::CalcTextSize(hint).x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (win_size.x - msg_w) * 0.5F);
@@ -402,7 +474,58 @@ void InputMappingEditorContext::draw_mappings() {
         }
     }
 
+    accept_action_drop();
+
     ImGui::End();
+}
+
+// A .fjaction dragged from the content browser lands as a binding on the
+// action it names. The file is the authority on that name, not its stem: an
+// action renamed inside the JSON would otherwise map to a name the runtime
+// never resolves.
+void InputMappingEditorContext::accept_action_drop() {
+    if (!ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect,
+                                          ImGui::GetID("##action_drop"))) {
+        return;
+    }
+
+    if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+        const std::string rel_path(static_cast<const char*>(payload->Data),
+                                   static_cast<size_t>(payload->DataSize - 1));
+
+        if (std::filesystem::path(rel_path).extension() == ".fjaction") {
+            const auto def = parse_action_file(
+                base_path::resolve_asset(rel_path, deps_.project_mgr->active()));
+
+            if (def.name.empty()) {
+                FJELL_CORE_WARN("Input mapping: {} has no action name", rel_path);
+            } else {
+                const bool already = std::any_of(
+                    context_.bindings.begin(), context_.bindings.end(),
+                    [&](const InputBinding& b) { return b.action == def.name; });
+
+                if (!already) {
+                    InputBinding binding;
+                    binding.action = def.name;
+                    context_.bindings.push_back(std::move(binding));
+                    dirty_ = true;
+
+                    // A drop can name an action the picker never listed, because
+                    // it scans one directory and the browser reaches anywhere.
+                    if (std::none_of(discovered_actions_.begin(), discovered_actions_.end(),
+                                     [&](const InputActionDef& a) { return a.name == def.name; })) {
+                        discovered_actions_.push_back(def);
+                        std::sort(discovered_actions_.begin(), discovered_actions_.end(),
+                                  [](const InputActionDef& a, const InputActionDef& b) {
+                                      return a.name < b.name;
+                                  });
+                    }
+                }
+            }
+        }
+    }
+
+    ImGui::EndDragDropTarget();
 }
 
 void InputMappingEditorContext::draw_action_section(const std::string& action_name,
@@ -646,6 +769,72 @@ bool InputMappingEditorContext::draw_source_button(const char* label, InputSourc
         rebind_binding_idx_ = binding_idx;
         rebind_target_ = target;
     }
+
+    // The picker beside the listener, for a source there is no way to press
+    // here: an axis, or a pad button with no pad plugged in.
+    ImGui::SameLine(0.0F, 4.0F);
+    ImGui::PushID(binding_idx);
+    ImGui::PushID(static_cast<int>(target));
+
+    // grouped_picker tracks which picker is open by this string alone — it
+    // does not consult ImGui's ID stack — so every field needs its own, or
+    // they all read as open at once and the first one drawn takes the pick.
+    char picker_id[48];
+    std::snprintf(picker_id, sizeof(picker_id), "src_%d_%d", binding_idx,
+                  static_cast<int>(target));
+
+    ImGui::PushStyleColor(ImGuiCol_Button,        theme::srgb(0.118F, 0.122F, 0.133F));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.169F, 0.176F, 0.192F));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::srgb(0.090F, 0.094F, 0.106F));
+    ImGui::PushStyleColor(ImGuiCol_Text,          theme::srgb(0.55F, 0.56F, 0.60F));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{5.0F, 5.0F});
+    const bool open_picker = ImGui::Button("v");
+    ImGui::PopStyleVar(1);
+    ImGui::PopStyleColor(4);
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Pick a source from a list");
+    }
+    if (open_picker) {
+        // Arming both at once would have the listener take whatever key the
+        // player presses to drive the list.
+        rebinding_ = false;
+        grouped_picker::open(picker_id);
+    }
+
+    // Drawn right after the button it hangs from, as grouped_picker requires.
+    // Gated on is_open() because the argument is built before the call: every
+    // source button would otherwise rebuild the whole source list every
+    // frame, and a row carries several strings.
+    static constexpr grouped_picker::Config PICKER_CONFIG{
+        .search_hint = "Search sources",
+        .empty_message = "No matching source.",
+        .loading_message = "",
+        .loading = false,
+        .hide_group_headers = false,
+        .size = {300.0F, 420.0F},
+    };
+    if (std::string picked;
+        grouped_picker::is_open(picker_id)
+        && grouped_picker::draw(picker_id, build_source_groups(), PICKER_CONFIG,
+                                picked)) {
+        if (const InputSource chosen = input_source_from_string(picked);
+            chosen != InputSource::none && binding_idx >= 0
+            && binding_idx < static_cast<int>(context_.bindings.size())) {
+            auto& bound = context_.bindings[binding_idx];
+            switch (target) {
+                case RebindTarget::source: bound.source = chosen; break;
+                case RebindTarget::up:     bound.up = chosen; break;
+                case RebindTarget::down:   bound.down = chosen; break;
+                case RebindTarget::left:   bound.left = chosen; break;
+                case RebindTarget::right:  bound.right = chosen; break;
+            }
+            dirty_ = true;
+        }
+    }
+
+    ImGui::PopID();
+    ImGui::PopID();
 
     return clicked;
 }

@@ -51,7 +51,9 @@ public:
     /// use these for anything the player's game itself should react to.
     [[nodiscard]] bool raw_key_pressed(int key) const;
     [[nodiscard]] bool raw_key_held(int key) const;
+    [[nodiscard]] bool raw_mouse_button_pressed(int button) const;
     [[nodiscard]] bool raw_mouse_button_held(int button) const;
+    [[nodiscard]] bool raw_pad_button_pressed(int button) const;
     [[nodiscard]] glm::dvec2 raw_mouse_delta() const { return mouse_delta_; }
     [[nodiscard]] glm::dvec2 raw_scroll_delta() const { return scroll_delta_; }
 

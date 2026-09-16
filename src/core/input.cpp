@@ -311,13 +311,17 @@ bool Input::is_key_released(int key) const {
 
 bool Input::is_mouse_button_pressed(int button) const {
     if (!game_focus_) return false;
-    if (button < 0 || button >= MAX_BUTTONS) return false;
-    return mouse_buttons_[button] == KeyState::Pressed;
+    return raw_mouse_button_pressed(button);
 }
 
 bool Input::is_mouse_button_held(int button) const {
     if (!game_focus_) return false;
     return raw_mouse_button_held(button);
+}
+
+bool Input::raw_mouse_button_pressed(int button) const {
+    if (button < 0 || button >= MAX_BUTTONS) return false;
+    return mouse_buttons_[button] == KeyState::Pressed;
 }
 
 bool Input::raw_key_pressed(int key) const {
@@ -422,6 +426,10 @@ bool Input::pad_button_held(int button) const {
 
 bool Input::pad_button_pressed(int button) const {
     if (!game_focus_) return false;
+    return raw_pad_button_pressed(button);
+}
+
+bool Input::raw_pad_button_pressed(int button) const {
     if (button < 0 || button >= MAX_PAD_BUTTONS) return false;
     return pad_buttons_[button] != 0 && pad_buttons_prev_[button] == 0;
 }

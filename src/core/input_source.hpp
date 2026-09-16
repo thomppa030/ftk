@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -115,6 +116,15 @@ enum class InputSource : uint16_t {
 
 /// Convert InputSource to the JSON string name (e.g., "key_w", "mouse_left", "pad_a").
 [[nodiscard]] std::string input_source_to_string(InputSource source);
+
+/// Every source that can be bound, in the order a picker should offer them:
+/// keyboard, then mouse, then gamepad, and within each the order they sit on
+/// the device rather than the enum's numeric order. Excludes
+/// `InputSource::none`, which means "unbound" and is not a choice.
+///
+/// Sorting or grouping the result is the caller's business — use the
+/// `is_*_source()` predicates below.
+[[nodiscard]] std::span<const InputSource> input_source_all();
 
 /// Returns true if the source is a keyboard key.
 [[nodiscard]] constexpr bool is_keyboard_source(InputSource s) {
