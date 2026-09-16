@@ -778,9 +778,10 @@ uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
 
 bool CollisionModule::draw_inspector() {
     bool changed = false;
-    const char* sources[] = {"SDF (static geometry)", "Depth Buffer (displaced)", "Both"};
+    const char* sources[] = {"SDF (static geometry)", "Depth Buffer (displaced)", "Both",
+                             "Overhead (shelter above)"};
     int s = static_cast<int>(source);
-    if (ImGui::Combo("Source", &s, sources, 3)) {
+    if (ImGui::Combo("Source", &s, sources, 4)) {
         source = static_cast<Source>(s);
         changed = true;
     }
@@ -801,7 +802,7 @@ bool CollisionModule::draw_inspector() {
 void CollisionModule::to_json(nlohmann::json& j) const {
     j["type"] = "Collision";
     const char* mode_names[] = {"bounce", "slide", "kill"};
-    const char* src_names[] = {"sdf", "depth", "both"};
+    const char* src_names[] = {"sdf", "depth", "both", "overhead"};
     j["response"] = mode_names[static_cast<int>(response)];
     j["source"] = src_names[static_cast<int>(source)];
     j["restitution"] = restitution;
@@ -817,6 +818,7 @@ void CollisionModule::from_json(const nlohmann::json& j) {
     std::string s = j.value("source", "sdf");
     if (s == "depth") source = Source::depth;
     else if (s == "both") source = Source::both;
+    else if (s == "overhead") source = Source::overhead;
     else source = Source::sdf;
     restitution = j.value("restitution", 0.5f);
     friction = j.value("friction", 0.2f);

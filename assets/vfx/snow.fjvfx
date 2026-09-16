@@ -1,0 +1,83 @@
+{
+    "name": "snow",
+    "emitters": [
+        {
+            "name": "Snow",
+            "max_particles": 20000,
+            "blend_mode": 1,
+            "spawn": [
+                {
+                    "type": "SpawnRate",
+                    "rate": 1600.0
+                },
+                {
+                    "type": "InitialLifetime",
+                    "min": 4.0,
+                    "max": 6.0
+                },
+                {
+                    "type": "InitialPosition",
+                    "shape": "box",
+                    "half_extents": [
+                        24.0,
+                        0.5,
+                        24.0
+                    ]
+                },
+                {
+                    "type": "InitialVelocity",
+                    "mode": "random",
+                    "velocity_min": [
+                        -0.6,
+                        -2.2,
+                        -0.6
+                    ],
+                    "velocity_max": [
+                        0.6,
+                        -1.2,
+                        0.6
+                    ]
+                },
+                {
+                    "type": "InitialColor",
+                    "color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.85
+                    ]
+                },
+                {
+                    "type": "InitialSize",
+                    "min": 0.05,
+                    "max": 0.11
+                }
+            ],
+            "update": [
+                {
+                    "type": "Wind",
+                    "use_global": true,
+                    "direction": [
+                        1.0,
+                        0.0,
+                        0.0
+                    ],
+                    "strength": 1.0
+                },
+                {
+                    "type": "Collision",
+                    "source": "overhead",
+                    "response": "kill",
+                    "restitution": 0.0,
+                    "friction": 0.0,
+                    "radius_scale": 0.5
+                }
+            ],
+            "render": [
+                {
+                    "type": "Billboard"
+                }
+            ]
+        }
+    ]
+}

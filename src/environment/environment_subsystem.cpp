@@ -4,7 +4,11 @@
 #include "core/log.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
+#include "core/base_path.hpp"
 #include "core/project.hpp"
+#include "renderer/components/particle_emitter.hpp"
+#include "renderer/systems/vfx_asset.hpp"
+#include "scene/camera_node.hpp"
 #include "environment/climate_asset.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -56,6 +60,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     }
     moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
     update_beds(ctx);
+    update_precipitation(ctx);
     dispatch_changes(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
@@ -193,7 +198,7 @@ const DayProfileAsset* EnvironmentSubsystem::profile_for(const WeatherAsset& eve
     return resources_->get(*handle);
 }
 
-void EnvironmentSubsystem::play_weather(WeatherAssetHandle event) {
+void EnvironmentSubsystem::play_weather(WeatherAssetHandle event, WeatherPhase from) {
     if (!event.valid() || resources_ == nullptr) {
         player_.stop();
         return;
@@ -204,7 +209,7 @@ void EnvironmentSubsystem::play_weather(WeatherAssetHandle event) {
         return;
     }
     ++play_count_;
-    player_.play(asset, event.id, play_count_ * 7919u + event.id, profile_for(*asset));
+    player_.play(asset, event.id, play_count_ * 7919u + event.id, profile_for(*asset), from);
 }
 
 void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
@@ -216,6 +221,90 @@ void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
     }
     if (it != script_sky_uniforms_.end()) *it = value;
     else script_sky_uniforms_.push_back(value);
+}
+
+namespace {
+// How far above the camera the falling volume sits. Far enough that drops
+// have fallen into their stride by the time they pass the eye, close enough
+// that they are still alive when they land.
+constexpr float PRECIPITATION_HEIGHT = 15.0f;
+} // namespace
+
+void EnvironmentSubsystem::stop_precipitation(Scene& scene) {
+    for (Precipitation* fall : {&active_fall_, &outgoing_fall_}) {
+        if (fall->node_id != 0) scene.queue_destroy(fall->node_id);
+        *fall = Precipitation{};
+    }
+}
+
+void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
+    if (resources_ == nullptr) return;
+    // Falling weather belongs to play, like the sounds: an editor scrub
+    // should not fill the viewport with rain nobody asked for.
+    if (!playing()) {
+        stop_precipitation(ctx.scene);
+        return;
+    }
+
+    // Where the rain falls: around whoever is looking.
+    glm::vec3 centre = state_.weather.wind_direction * 0.0f;
+    for (const auto& obj : ctx.scene.objects()) {
+        if (const auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
+            centre = glm::vec3(cam->world_matrix_[3]);
+            break;
+        }
+    }
+
+    auto follow = [&](Precipitation& fall, const WeatherPlayer::Playing* playing_event) {
+        // Which effect this event drops, if any.
+        std::string wanted;
+        uint32_t event_id = 0;
+        float rate = 0.0f;
+        if (playing_event != nullptr && playing_event->asset != nullptr) {
+            const WeatherAsset& asset = *playing_event->asset;
+            event_id = playing_event->event_id;
+            if (asset.precipitation_type == PrecipitationType::Rain) wanted = asset.vfx.rain;
+            else if (asset.precipitation_type == PrecipitationType::Snow) wanted = asset.vfx.snow;
+            rate = state_.weather.precipitation * playing_event->weight();
+        }
+
+        if (wanted.empty() || rate <= 0.001f) {
+            if (fall.node_id != 0) {
+                ctx.scene.queue_destroy(fall.node_id);
+                fall = Precipitation{};
+            }
+            return;
+        }
+
+        if (fall.node_id == 0 || fall.path != wanted || fall.event_id != event_id) {
+            if (fall.node_id != 0) ctx.scene.queue_destroy(fall.node_id);
+            fall = Precipitation{};
+            auto handle = resources_->load_vfx_asset(base_path::resolve_asset(wanted, ctx.project));
+            if (!handle) {
+                FJELL_CORE_ERROR("Weather precipitation: {}", handle.error());
+                return;
+            }
+            auto node = std::make_unique<Node3D>();
+            node->name = "Weather Precipitation";
+            auto& emitter = node->components.add<EmitterComponent>();
+            emitter.vfx_path = wanted;
+            emitter.effect = std::shared_ptr<VfxEffect>(resources_->get(*handle), [](VfxEffect*) {});
+            emitter.looping = true;
+            fall.node_id = ctx.scene.add_node(std::move(node));
+            fall.path = wanted;
+            fall.event_id = event_id;
+        }
+
+        // Park it above the camera. The effect's own spawn volume decides
+        // how wide and how high the drops start, so authoring stays in the
+        // VFX editor; this only keeps that volume overhead.
+        if (auto* node = ctx.scene.find_spatial(fall.node_id)) {
+            node->transform.position = centre + glm::vec3(0.0f, PRECIPITATION_HEIGHT, 0.0f);
+        }
+    };
+
+    follow(active_fall_, player_.active());
+    follow(outgoing_fall_, player_.outgoing());
 }
 
 void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
@@ -244,9 +333,10 @@ void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
     last_time_phase_ = time_phase;
 }
 
-void EnvironmentSubsystem::on_play_stop(const TickContext& /*ctx*/) {
+void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
     stop_beds(active_beds_);
     stop_beds(outgoing_beds_);
+    stop_precipitation(ctx.scene);
     phases_seen_ = false;
 }
 

@@ -49,7 +49,9 @@ public:
     // ── Weather control ──
     /// Start a weather event now; the one playing tails out underneath it.
     /// A null handle tails the current event out with nothing to follow.
-    void play_weather(WeatherAssetHandle event);
+    /// Start an event, optionally partway through: `from` skips the phases
+    /// before it, for an editor that wants the weather now.
+    void play_weather(WeatherAssetHandle event, WeatherPhase from = WeatherPhase::Approach);
     [[nodiscard]] const WeatherPlayer& weather() const { return player_; }
 
     /// Freeze the climate: whatever plays keeps playing and nothing new is
@@ -87,6 +89,11 @@ private:
         uint32_t wind{0};
     };
     void update_beds(const TickContext& ctx);
+    /// Keep a hidden emitter per falling effect parked at the camera, its
+    /// spawn rate following how hard it falls. Both events' effects run
+    /// during a handoff, each at its own weight, so rain fades into snow.
+    void update_precipitation(const TickContext& ctx);
+    void stop_precipitation(Scene& scene);
     /// Fire the script hooks for whatever changed since last frame.
     void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);
@@ -119,6 +126,15 @@ private:
     bool phases_seen_{false};
     Beds active_beds_;
     Beds outgoing_beds_;
+
+    // The node carrying one event's falling effect, and which event it is.
+    struct Precipitation {
+        uint32_t event_id{0};
+        uint32_t node_id{0};
+        std::string path;
+    };
+    Precipitation active_fall_;
+    Precipitation outgoing_fall_;
     uint32_t play_count_{0};   // seeds the rolled durations
     std::vector<NamedValue> script_sky_uniforms_;
 };

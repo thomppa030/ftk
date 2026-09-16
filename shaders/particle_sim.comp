@@ -40,6 +40,8 @@ layout(std430, set = 0, binding = 7) buffer SubEmitterEventCounters {
 // Set 1 = global descriptors (for SDF + depth access)
 FJELL_DECLARE_GLOBAL_UBO(1, 0, global_ubo);
 FJELL_DECLARE_ENVIRONMENT_UBO(1, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 1, binding = 16) uniform sampler2D overhead_depth_tex;
+#include "fjell_sky_exposure.glsl"
 
 layout(set = 1, binding = 4) uniform sampler2D depth_texture;
 layout(set = 1, binding = 9) uniform sampler3D scene_sdf;
@@ -277,6 +279,16 @@ void main() {
 
             bool collided = false;
             vec3 normal = vec3(0, 1, 0);
+
+            // Source 3 = whatever shelters this point from the sky. One
+            // fetch of the overhead map: rain that meets a roof is done,
+            // wherever the roof happens to be.
+            if (collision_source == 3u) {
+                if (sky_exposure(p.position) < 0.5) {
+                    collided = true;
+                    normal = vec3(0.0, 1.0, 0.0);
+                }
+            }
 
             // Source 0 = SDF, 2 = Both (try SDF first)
             if (collision_source == 0u || collision_source == 2u) {
