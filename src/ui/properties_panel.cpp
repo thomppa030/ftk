@@ -43,7 +43,7 @@ static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
 }
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
-                           DirectionalLight* light, ScriptManager* scripts,
+                           ScriptManager* scripts,
                            CommandHistory* history, GridSettings* grid_settings,
                            PipelineCache* pipeline_cache,
                            BindlessTextures* bindless,
@@ -54,7 +54,6 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
                            IconCache* icons, TerrainSculptTool* sculpt) {
     scene_ = scene;
     selected_id_ = selected_id;
-    light_ = light;
     scripts_ = scripts;
     history_ = history;
     grid_settings_ = grid_settings;

@@ -17,7 +17,8 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
+#include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -1088,13 +1089,11 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         }
     }
 
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-            light_direction_ = glm::normalize(-dl->direction);
-            light_intensity_ = dl->intensity;
-            light_color_ = dl->color;
-            break;
-        }
+    if (ctx.environment != nullptr) {
+        const auto& sun = ctx.environment->primary;
+        light_direction_ = sun.direction;
+        light_intensity_ = sun.intensity;
+        light_color_ = sun.color;
     }
 }
 

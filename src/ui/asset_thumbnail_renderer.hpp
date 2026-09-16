@@ -119,7 +119,7 @@ public:
 
     /// Serve or render at most one queued thumbnail. Call once per frame in
     /// the offscreen preview window.
-    void tick(const Deps& deps, const DirectionalLight& light, float dt);
+    void tick(const Deps& deps, float dt);
 
     /// Release GPU resources and retire every descriptor. Call after the
     /// device is idle and before the icon cache is destroyed.
@@ -177,10 +177,10 @@ public:
         /// Render the stage's scene framed on `framing`, through the stage's
         /// own graph or `graph` when given, and read it back into `out`. A
         /// null `out` only advances what the render simulates.
-        bool render(const Deps& deps, const DirectionalLight& light, float dt,
+        bool render(const Deps& deps, float dt,
                     const Framing& framing, Pixels* out, const FjGraph* graph = nullptr);
         /// Render any scene from an explicit camera into the stage's target.
-        bool render_view(const Deps& deps, const DirectionalLight& light, float dt,
+        bool render_view(const Deps& deps, float dt,
                          Scene& scene, const View& view, Pixels* out,
                          const RenderOptions& options);
         void shutdown(const Deps& deps);
@@ -204,8 +204,7 @@ public:
         [[nodiscard]] virtual std::filesystem::file_time_type source_time(
             const std::filesystem::path& path, const Project* project) const = 0;
         /// Produce the thumbnail. False when the asset could not be loaded.
-        virtual bool render(const Deps& deps, SceneStage& stage, const DirectionalLight& light,
-                            float dt, const std::string& path, Pixels& out) = 0;
+        virtual bool render(const Deps& deps, SceneStage& stage, float dt, const std::string& path, Pixels& out) = 0;
         /// Whether render() can produce the thumbnail from the file alone.
         [[nodiscard]] virtual bool renders_on_demand() const { return true; }
         /// False while something render() needs is still on its way — a
@@ -222,8 +221,7 @@ public:
     /// says what to frame, the stage does the rest.
     class SceneSubject : public Subject {
     public:
-        bool render(const Deps& deps, SceneStage& stage, const DirectionalLight& light,
-                    float dt, const std::string& path, Pixels& out) final;
+        bool render(const Deps& deps, SceneStage& stage, float dt, const std::string& path, Pixels& out) final;
         /// Add the asset to `scene` and say what to frame. False when the
         /// asset could not be loaded.
         virtual bool populate(Scene& scene, const Deps& deps, const std::string& path,
@@ -255,13 +253,13 @@ private:
 
     bool serve_from_cache(const Deps& deps, const std::string& path,
                           std::filesystem::file_time_type newest);
-    bool render(const Deps& deps, const DirectionalLight& light, float dt,
+    bool render(const Deps& deps, float dt,
                 Subject& subject, const std::string& path,
                 std::filesystem::file_time_type newest);
     // Write the cache file and upload the pixels as the asset's thumbnail.
     bool store_pixels(const Deps& deps, const std::string& path, const Pixels& pixels,
                       std::filesystem::file_time_type newest);
-    void render_pending_capture(const Deps& deps, const DirectionalLight& light, float dt);
+    void render_pending_capture(const Deps& deps, float dt);
     void retire(const Deps& deps, Entry& entry);
     void evict_least_recent(const Deps& deps);
     // Store a fresh upload, or fail it when ImGui could not register it.

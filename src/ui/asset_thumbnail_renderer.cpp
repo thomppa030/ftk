@@ -1,4 +1,6 @@
 #include "ui/asset_thumbnail_renderer.hpp"
+
+#include "environment/environment_resolver.hpp"
 #include "ui/game_ui/font_sample.hpp"
 #include "ui/game_ui/font_library.hpp"
 #include "ui/game_ui/fjfont.hpp"
@@ -332,7 +334,7 @@ public:
     }
 
     bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& stage,
-                const DirectionalLight& light, float /*dt*/, const std::string& path,
+                float /*dt*/, const std::string& path,
                 AssetThumbnailRenderer::Pixels& out) override {
         auto& vk = *deps.vulkan_context;
         if (!stage.ensure(deps)) return false;
@@ -372,7 +374,7 @@ public:
         float warm = std::clamp(effect->max_lifetime(), MIN_WARMUP_SECONDS, MAX_WARMUP_SECONDS);
         int steps = static_cast<int>(std::ceil(warm / WARMUP_STEP));
         for (int i = 0; i < steps; ++i) {
-            if (!stage.render(deps, light, WARMUP_STEP, FRAMING, nullptr, graph)) return false;
+            if (!stage.render(deps, WARMUP_STEP, FRAMING, nullptr, graph)) return false;
         }
         // The simulation advances the effect's own clock, so this says
         // whether the steps reached the emitter at all.
@@ -384,7 +386,7 @@ public:
                              sub.emission_rate(), sub.burst_count(), sub.lifetime_max(),
                              sub.paused, sub.finished);
         }
-        return stage.render(deps, light, WARMUP_STEP, FRAMING, &out, graph);
+        return stage.render(deps, WARMUP_STEP, FRAMING, &out, graph);
     }
 
 private:
@@ -413,7 +415,7 @@ public:
     }
 
     bool render(const AssetThumbnailRenderer::Deps& /*deps*/, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                const DirectionalLight& /*light*/, float /*dt*/, const std::string& /*path*/,
+                float /*dt*/, const std::string& /*path*/,
                 AssetThumbnailRenderer::Pixels& /*out*/) override {
         return false;
     }
@@ -584,7 +586,7 @@ public:
     }
 
     bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
+                float /*dt*/, const std::string& path,
                 AssetThumbnailRenderer::Pixels& out) override {
         auto frame = prepare(deps);
 
@@ -652,7 +654,7 @@ public:
     }
 
     bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                const DirectionalLight& /*light*/, float /*dt*/, const std::string& path,
+                float /*dt*/, const std::string& path,
                 AssetThumbnailRenderer::Pixels& out) override {
         if (deps.vulkan_context->font_library().status(path) != FontLibrary::Status::ready) {
             return false;
@@ -741,7 +743,7 @@ void AssetThumbnailRenderer::invalidate(const std::string& path) {
     entries_.erase(it);
 }
 
-void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& light, float dt) {
+void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
     if (!deps.vulkan_context || !deps.resource_manager || !deps.icon_cache || !deps.thread_pool) return;
 
     ++ticks_;
@@ -755,7 +757,7 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
     }
 
     if (pending_capture_) {
-        render_pending_capture(deps, light, dt);
+        render_pending_capture(deps, dt);
         if (stage_.draining()) return;
     }
 
@@ -788,7 +790,7 @@ void AssetThumbnailRenderer::tick(const Deps& deps, const DirectionalLight& ligh
             refresh(path);
             return;
         }
-        if (!render(deps, light, dt, *subject, path, newest)) {
+        if (!render(deps, dt, *subject, path, newest)) {
             entries_[path] = Entry{.source_time = newest, .failed = true};
         }
         return;
@@ -871,8 +873,7 @@ Scene& AssetThumbnailRenderer::SceneStage::begin() {
     return scene_;
 }
 
-bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const DirectionalLight& light,
-                                                float dt, const Framing& framing, Pixels* out,
+bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, float dt, const Framing& framing, Pixels* out,
                                                 const FjGraph* graph) {
     Camera camera(framing.center,
                   std::max(framing.radius * CAMERA_DISTANCE_PER_RADIUS, CAMERA_MIN_DISTANCE),
@@ -880,11 +881,10 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, const Directio
     View view{.view = camera.view_matrix(),
               .projection = camera.projection_matrix(1.0F),
               .position = camera.position()};
-    return render_view(deps, light, dt, scene_, view, out, RenderOptions{.graph = graph});
+    return render_view(deps, dt, scene_, view, out, RenderOptions{.graph = graph});
 }
 
-bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, const DirectionalLight& light,
-                                                     float dt, Scene& scene, const View& view,
+bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt, Scene& scene, const View& view,
                                                      Pixels* out, const RenderOptions& options) {
     if (!target_ || !pp_) return false;
     auto& vk = *deps.vulkan_context;
@@ -908,7 +908,10 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, const Dir
         tonemap.set_auto_exposure(false);
         tonemap.set_exposure(0.0F);
     }
-    vk.render_preview(req, light, &scene, dt, 0, *deps.thread_pool);
+    // The stage's own scene carries its own sun; the environment comes from it,
+    // never from whatever scene the editor has open.
+    const EnvironmentState environment = resolve_environment(scene);
+    vk.render_preview(req, environment, &scene, dt, 0, *deps.thread_pool);
     tonemap.set_exposure(saved_exposure);
     tonemap.set_auto_exposure(saved_auto);
     if (out == nullptr) return true;
@@ -941,26 +944,25 @@ void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
 }
 
 bool AssetThumbnailRenderer::SceneSubject::render(const Deps& deps, SceneStage& stage,
-                                                  const DirectionalLight& light, float dt,
+                                                  float dt,
                                                   const std::string& path, Pixels& out) {
     if (!stage.ensure(deps)) return false;
     Framing framing;
     if (!populate(stage.begin(), deps, path, framing)) return false;
-    return stage.render(deps, light, dt, framing, &out);
+    return stage.render(deps, dt, framing, &out);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
-bool AssetThumbnailRenderer::render(const Deps& deps, const DirectionalLight& light, float dt,
+bool AssetThumbnailRenderer::render(const Deps& deps, float dt,
                                     Subject& subject, const std::string& path,
                                     fs::file_time_type newest) {
     Pixels pixels;
-    if (!subject.render(deps, stage_, light, dt, path, pixels)) return false;
+    if (!subject.render(deps, stage_, dt, path, pixels)) return false;
     return store_pixels(deps, path, pixels, newest);
 }
 
-void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, const DirectionalLight& light,
-                                                    float dt) {
+void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) {
     if (!stage_.ensure(deps) || stage_.draining()) return;
     PendingCapture capture = std::move(*pending_capture_);
     pending_capture_.reset();
@@ -971,7 +973,7 @@ void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, const Dire
         return;
     }
     Pixels pixels;
-    if (!stage_.render_view(deps, light, dt, *capture.scene, capture.view, &pixels,
+    if (!stage_.render_view(deps, dt, *capture.scene, capture.view, &pixels,
                             RenderOptions{.graph = graph, .backdrop = nullptr,
                                           .skip_shadows = false, .pin_exposure = false})) {
         return;

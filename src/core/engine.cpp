@@ -9,6 +9,8 @@
 #include "core/profiler.hpp"
 #include "animation/animation_subsystem.hpp"
 #include "audio/audio_subsystem.hpp"
+#include "environment/environment_resolver.hpp"
+#include "environment/environment_subsystem.hpp"
 #include "net/net_manager.hpp"
 #include "net/net_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
@@ -132,6 +134,7 @@ void Engine::init_subsystems() {
     animation_subsystem_ = add_subsystem<AnimationSubsystem>(
         vulkan_context_->device(), vulkan_context_->allocator());
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
+    environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();
@@ -164,6 +167,9 @@ void Engine::init_subsystems() {
     // playing it runs ahead of the play phases rather than with the always
     // subsystems. Outside play it still ticks every frame so the animation
     // editor can scrub.
+    // The environment resolves before anything renders: the frame's sun,
+    // sky and fog come from it, not from the scene's nodes.
+    early_always_.push_back(environment_subsystem_);
     early_always_.push_back(sprite_anim_subsystem_);
     // NetSend runs after physics + compute_world_matrices so it transmits final
     // post-physics transforms, at its own fixed network rate.
@@ -542,7 +548,6 @@ void Engine::init_editor() {
             .script_subsystem = script_subsystem_,
             .project_mgr = &project_mgr_,
             .icon_cache = icon_cache_.get(),
-            .light = &light_,
             .game_ui = &game_ui_,
             .thread_pool = &thread_pool_,
             .window = &window_,
@@ -1945,6 +1950,15 @@ void Engine::run() {
         Scene* render_scene = active_context().render_scene();
         if (!render_scene) render_scene = &scene_;
 
+        // The environment the render scene is lit by. The ticked scene's is
+        // the subsystem's; an editor rendering its own scene resolves it here.
+        EnvironmentState own_environment;
+        const EnvironmentState* environment = &environment_subsystem_->state();
+        if (render_scene != &scene_) {
+            own_environment = resolve_environment(*render_scene);
+            environment = &own_environment;
+        }
+
         vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_, project_mgr_.active());
         vulkan_context_->sync_tilemap_textures(*render_scene, *resource_manager_, project_mgr_.active());
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
@@ -1952,15 +1966,15 @@ void Engine::run() {
         // Render scene viewports (render-to-texture, must complete before main frame)
         vulkan_context_->render_scene_viewports(render_scene, clock_.game_delta_time(),
                                                  scene_context_->selected_id(),
-                                                 light_, thread_pool_);
+                                                 *environment, thread_pool_);
 
         // Render auxiliary viewports (camera preview) in separate command buffers
         active_context().render_previews(*vulkan_context_, render_scene,
-                                          clock_.game_delta_time(), light_, thread_pool_);
+                                          clock_.game_delta_time(), *environment, thread_pool_);
 
         // Same window for asset thumbnails: their one-shot submit needs the
         // frame fence behind it and the main command buffer still unrecorded.
-        asset_thumbnails_.tick(asset_thumbnail_deps(), light_, clock_.game_delta_time());
+        asset_thumbnails_.tick(asset_thumbnail_deps(), clock_.game_delta_time());
 
         // Tell the controller what rect the scene image actually occupied
         // this frame — the docked panel or the fullscreen play view,
@@ -1977,7 +1991,7 @@ void Engine::run() {
         vulkan_context_->set_active_render_scene(active_context().render_scene());
 
         // Phase 4: Record commands
-        vulkan_context_->record_frame(requests, light_, render_scene, clock_.game_delta_time(),
+        vulkan_context_->record_frame(requests, *environment, render_scene, clock_.game_delta_time(),
                                        scene_context_->selected_id(), thread_pool_);
 
         // Age out screen debug text after the overlay has drawn it, so a

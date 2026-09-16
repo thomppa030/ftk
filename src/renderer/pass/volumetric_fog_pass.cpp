@@ -26,7 +26,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -356,22 +356,18 @@ void FogCore::resize(uint32_t width, uint32_t height) {
 
 void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     enabled_ = false;
-    if (ctx.scene == nullptr) { return; }
+    if (ctx.environment == nullptr) { return; }
 
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-            enabled_ = true;
-            density_ = fog->density;
-            height_ = glm::vec3(fog->world_matrix_[3]).y;
-            height_falloff_ = fog->height_falloff;
-            scattering_ = fog->scattering;
-            anisotropy_ = fog->anisotropy;
-            max_distance_ = fog->max_distance;
-            temporal_blend_ = fog->temporal_blend;
-            fog_color_ = fog->fog_color;
-            break;
-        }
-    }
+    const auto& fog = ctx.environment->fog;
+    enabled_ = fog.enabled;
+    density_ = fog.density;
+    height_ = fog.height;
+    height_falloff_ = fog.height_falloff;
+    scattering_ = fog.scattering;
+    anisotropy_ = fog.anisotropy;
+    max_distance_ = fog.max_distance;
+    temporal_blend_ = fog.temporal_blend;
+    fog_color_ = fog.color;
 }
 
 FogCore::PushConstants FogCore::make_push(const Images& imgs,

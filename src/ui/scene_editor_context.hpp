@@ -39,7 +39,7 @@ class PlayController;
 class ScreenDebugQueue;
 class VulkanContext;
 class Window;
-struct DirectionalLight;
+struct EnvironmentState;
 
 struct SceneEditorDeps {
     Scene* scene;
@@ -51,7 +51,6 @@ struct SceneEditorDeps {
     ScriptSubsystem* script_subsystem;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
-    DirectionalLight* light;
     GameUi* game_ui;
     ThreadPool* thread_pool;
     Window* window;
@@ -88,7 +87,7 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
     void render_previews(VulkanContext& vk, Scene* scene, float dt,
-                          const DirectionalLight& light, ThreadPool& pool) override;
+                          const EnvironmentState& environment, ThreadPool& pool) override;
 
     // Scene mutation (called from Engine delegate bindings)
     void add_model(const std::string& path);

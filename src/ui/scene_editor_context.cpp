@@ -240,7 +240,7 @@ void SceneEditorContext::init() {
 
     hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_,
                           &command_history(), deps_.icon_cache);
-    properties_panel_.init(deps_.scene, &selected_id_, deps_.light,
+    properties_panel_.init(deps_.scene, &selected_id_,
                            &deps_.script_subsystem->manager(), &command_history(),
                            &deps_.vulkan_context->grid_pass().settings(),
                            deps_.vulkan_context->pipeline_cache(),
@@ -1475,7 +1475,7 @@ std::vector<ViewportRenderRequest> SceneEditorContext::build_render_requests() {
 }
 
 void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float dt,
-                                          const DirectionalLight& light, ThreadPool& pool) {
+                                          const EnvironmentState& environment, ThreadPool& pool) {
     if (camera_preview_skip_frames_ > 0) {
         --camera_preview_skip_frames_;
         return;
@@ -1495,7 +1495,7 @@ void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float 
     req.viewport_graph = camera_preview_graph_;
     req.global_set = camera_preview_global_set_;
 
-    vk.render_preview(req, light, scene, dt, selected_id_, pool);
+    vk.render_preview(req, environment, scene, dt, selected_id_, pool);
 
     // Signal that at least one render completed — overlay reads < 0
     camera_preview_skip_frames_ = -1;

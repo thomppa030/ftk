@@ -45,6 +45,7 @@ class AnimationEditorContext;
 class AnimationSubsystem;
 class AssetLoader;
 class AudioSubsystem;
+class EnvironmentSubsystem;
 class DebugDrawQueue;
 class ScreenDebugQueue;
 class EditorContext;
@@ -148,6 +149,7 @@ private:
     // Typed access (non-owning, into subsystems_)
     AnimationSubsystem* animation_subsystem_{};
     AudioSubsystem*     audio_subsystem_{};
+    EnvironmentSubsystem* environment_subsystem_{};
     ScriptSubsystem*    script_subsystem_{};
     PhysicsSubsystem*   physics_subsystem_{};
     VfxSubsystem*       vfx_subsystem_{};
@@ -186,9 +188,6 @@ private:
 
     // Default texture handle (preloaded)
     TextureHandle default_texture_;
-
-    // Lighting
-    DirectionalLight light_;
 
     // Play mode
     bool play_immediate_{false};

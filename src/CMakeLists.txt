@@ -40,6 +40,8 @@ add_executable(fjell
     core/game_builder.cpp
     core/capture_service.cpp
     core/engine.cpp
+    environment/environment_resolver.cpp
+    environment/environment_subsystem.cpp
     core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp

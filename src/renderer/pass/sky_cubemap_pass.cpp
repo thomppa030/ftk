@@ -11,7 +11,7 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "core/project.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -141,83 +141,69 @@ void SkyCubemapPass::destroy() {
 }
 
 void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
-    if (!ctx.scene) return;
+    if (ctx.environment == nullptr) return;
 
-    // Pull the sun direction / color from the first directional light in the
-    // scene so the atmospheric cubemap matches the sky pass and the direct
-    // lighting term. Falls back to straight-up sun if none exists.
-    glm::vec3 sun_dir{0.0f, 1.0f, 0.0f};
-    glm::vec3 sun_color{1.0f};
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-            sun_dir = glm::normalize(-dl->direction);
-            sun_color = dl->color;
-            break;
+    // The shadow-casting body lights the atmospheric cubemap, so IBL matches
+    // the sky pass and the direct lighting term.
+    const auto& sun = ctx.environment->primary;
+    const auto& sky = ctx.environment->sky;
+    set_colors(sky.top_color, sky.bottom_color);
+    set_atmosphere(sky.atmosphere_enabled, sun.direction, sun.color,
+                   sky.atmosphere_sun_intensity,
+                   sky.atmosphere_rayleigh_scale,
+                   sky.atmosphere_mie_scale,
+                   sky.atmosphere_mie_g,
+                   sky.atmosphere_mie_coeff);
+
+    // Load HDRI if path changed (works regardless of atmosphere mode —
+    // atmosphere modulates the HDRI color rather than replacing it).
+    if (!sky.hdri_path.empty() && sky.hdri_path != loaded_hdri_path_) {
+        auto resolved = base_path::resolve_asset(sky.hdri_path, project_);
+        load_hdri(resolved);
+        loaded_hdri_path_ = sky.hdri_path;
+
+        // Update global descriptor binding to point to HDRI cubemap
+        auto& gb = gpu.global_bindings();
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            gb.write_image(i, "sky_cubemap",
+                hdri_cubemap_view_, hdri_cubemap_sampler_,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.flush_writes();
         }
-    }
 
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-            set_colors(env->sky_top_color, env->sky_bottom_color);
-            set_atmosphere(env->atmosphere_enabled, sun_dir, sun_color,
-                           env->atmosphere_sun_intensity,
-                           env->atmosphere_rayleigh_scale,
-                           env->atmosphere_mie_scale,
-                           env->atmosphere_mie_g,
-                           env->atmosphere_mie_coeff);
-
-            // Load HDRI if path changed (works regardless of atmosphere mode —
-            // atmosphere modulates the HDRI color rather than replacing it).
-            if (!env->hdri_path.empty() && env->hdri_path != loaded_hdri_path_) {
-                auto resolved = base_path::resolve_asset(env->hdri_path, project_);
-                load_hdri(resolved);
-                loaded_hdri_path_ = env->hdri_path;
-
-                // Update global descriptor binding to point to HDRI cubemap
-                auto& gb = gpu.global_bindings();
-                for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-                    gb.write_image(i, "sky_cubemap",
-                        hdri_cubemap_view_, hdri_cubemap_sampler_,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    gb.flush_writes();
-                }
-
-                // Update ResourceRegistry + bump version so consumers (DDGI)
-                // rewrite their cached sky_cubemap descriptor.
-                if (registry_ != nullptr) {
-                    registry_->register_image("sky_cubemap",
-                        {.frame_graph_id = 0, .image = hdri_cubemap_image_,
-                         .view = hdri_cubemap_view_, .sampler = hdri_cubemap_sampler_});
-                }
-                ++binding_version_;
-            } else if (env->hdri_path.empty() && !loaded_hdri_path_.empty()) {
-                // HDRI was cleared — revert to gradient cubemap.
-                // The sky_cubemap binding (on both the global set and DDGI's
-                // RT set) isn't UPDATE_AFTER_BIND, so we must wait for
-                // in-flight frames before rewriting the descriptor and
-                // destroying the HDRI image/sampler it referenced.
-                vkDeviceWaitIdle(device_);
-
-                auto& gb = gpu.global_bindings();
-                for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-                    gb.write_image(i, "sky_cubemap",
-                        cubemap_view_, cubemap_sampler_,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    gb.flush_writes();
-                }
-
-                if (registry_ != nullptr) {
-                    registry_->register_image("sky_cubemap",
-                        {.frame_graph_id = 0, .image = cubemap_image_,
-                         .view = cubemap_view_, .sampler = cubemap_sampler_});
-                }
-                ++binding_version_;
-
-                destroy_hdri();
-                dirty_ = true;
-            }
-            break;
+        // Update ResourceRegistry + bump version so consumers (DDGI)
+        // rewrite their cached sky_cubemap descriptor.
+        if (registry_ != nullptr) {
+            registry_->register_image("sky_cubemap",
+                {.frame_graph_id = 0, .image = hdri_cubemap_image_,
+                 .view = hdri_cubemap_view_, .sampler = hdri_cubemap_sampler_});
         }
+        ++binding_version_;
+    } else if (sky.hdri_path.empty() && !loaded_hdri_path_.empty()) {
+        // HDRI was cleared — revert to gradient cubemap.
+        // The sky_cubemap binding (on both the global set and DDGI's
+        // RT set) isn't UPDATE_AFTER_BIND, so we must wait for
+        // in-flight frames before rewriting the descriptor and
+        // destroying the HDRI image/sampler it referenced.
+        vkDeviceWaitIdle(device_);
+
+        auto& gb = gpu.global_bindings();
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            gb.write_image(i, "sky_cubemap",
+                cubemap_view_, cubemap_sampler_,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.flush_writes();
+        }
+
+        if (registry_ != nullptr) {
+            registry_->register_image("sky_cubemap",
+                {.frame_graph_id = 0, .image = cubemap_image_,
+                 .view = cubemap_view_, .sampler = cubemap_sampler_});
+        }
+        ++binding_version_;
+
+        destroy_hdri();
+        dirty_ = true;
     }
 }
 

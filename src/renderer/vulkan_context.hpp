@@ -67,6 +67,7 @@ namespace fjell {
 
 class Project;
 class Scene;
+struct EnvironmentState;
 class Input;
 class ResourceManager;
 class ThreadPool;
@@ -97,7 +98,7 @@ public:
   /// Record commands for the current frame. Call after begin_frame() and
   /// after any resize/ImGui work.
   void record_frame(const std::vector<ViewportRenderRequest> &viewports,
-                    const struct DirectionalLight &light, Scene *scene,
+                    const EnvironmentState &environment, Scene *scene,
                     float dt, uint32_t selected_id, ThreadPool &pool);
 
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
@@ -348,7 +349,7 @@ public:
 
   /// Render all scene viewports. Call before the main frame's record_frame().
   void render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
-                              const DirectionalLight& light, ThreadPool& pool);
+                              const EnvironmentState& environment, ThreadPool& pool);
 
   /// Render a single viewport in its own command buffer (submitted + waited).
   /// Used for camera preview to avoid singleton state conflicts with the main
@@ -360,7 +361,7 @@ public:
                            OffscreenPass& target, uint32_t frame_index);
 
   void render_preview(const ViewportRenderRequest& req,
-                      const DirectionalLight& light, Scene* scene,
+                      const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
 
   /// The swapchain image index of the last frame submitted for present.
@@ -371,7 +372,7 @@ private:
   void
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                         const std::vector<ViewportRenderRequest> &viewports,
-                        const struct DirectionalLight &light, Scene *scene,
+                        const EnvironmentState &environment, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool);
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
                        float dt, uint32_t selected_id, ThreadPool &pool,
@@ -386,7 +387,7 @@ private:
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
-                             const struct DirectionalLight &light, Scene *scene,
+                             const EnvironmentState &environment, Scene *scene,
                              VkExtent2D extent, PostProcessResources &pp);
 
   // `global_set` overrides the per-frame global descriptor set bound for the
@@ -408,6 +409,9 @@ private:
   ResourceRegistry resource_registry_;
   RenderTargetPool target_pool_;
   FrameContext current_ctx_{};
+  // The environment of the scene being recorded, handed to every FrameContext
+  // built until the next record_frame or render_preview call replaces it.
+  const EnvironmentState* current_environment_{nullptr};
 
   // ── Passes (owned by registry) ─────────────────────────────────────
   PassRegistry passes_;

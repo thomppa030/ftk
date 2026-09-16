@@ -56,14 +56,6 @@ enum class DebugLightChannel : int {
     SunShafts     = 13, // sun shaft buffer alone, replaces the frame at the shafts composite
 };
 
-struct DirectionalLight {
-    glm::vec3 direction{-0.3f, -1.0f, -0.5f};
-    glm::vec3 color{1.0f, 1.0f, 0.95f};
-    float intensity{1.5f};
-    glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
-    float ambient_intensity{0.4f};
-};
-
 struct PointLight {
     glm::vec3 position{0.0f};
     float radius{10.0f};

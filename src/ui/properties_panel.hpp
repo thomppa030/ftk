@@ -19,13 +19,12 @@ class ResourceManager;
 class Scene;
 class ScriptManager;
 class TerrainSculptTool;
-struct DirectionalLight;
 struct GridSettings;
 
 class PropertiesPanel {
 public:
     void init(Scene* scene, uint32_t* selected_id,
-              DirectionalLight* light, ScriptManager* scripts,
+              ScriptManager* scripts,
               CommandHistory* history, GridSettings* grid_settings = nullptr,
               PipelineCache* pipeline_cache = nullptr,
               BindlessTextures* bindless = nullptr,
@@ -44,7 +43,6 @@ private:
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
-    DirectionalLight* light_{nullptr};
     ScriptManager* scripts_{nullptr};
     CommandHistory* history_{nullptr};
     GridSettings* grid_settings_{nullptr};

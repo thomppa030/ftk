@@ -11,7 +11,7 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -337,17 +337,12 @@ void ContactShadowPass::resize(uint32_t w, uint32_t h) {
 }
 
 void ContactShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (ctx.scene != nullptr) {
-        for (const auto& obj : ctx.scene->objects()) {
-            if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-                enabled_ = env->contact_shadows_enabled;
-                max_distance_ = env->contact_shadow_distance;
-                thickness_ = env->contact_shadow_thickness;
-                step_count_ = env->contact_shadow_steps;
-                break;
-            }
-        }
-    }
+    if (ctx.environment == nullptr) return;
+    const auto& cs = ctx.environment->contact_shadows;
+    enabled_ = cs.enabled;
+    max_distance_ = cs.distance;
+    thickness_ = cs.thickness;
+    step_count_ = cs.steps;
 }
 
 PassSetup ContactShadowPass::setup() const {

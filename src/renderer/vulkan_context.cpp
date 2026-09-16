@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "environment/environment_state.hpp"
 
 #include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
@@ -372,6 +373,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
+    ctx.environment = current_environment_;
     ctx.delta_time = dt;
     ctx.selected_id = selected_id;
     ctx.show_colliders = show_colliders_;
@@ -477,6 +479,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     {
         FrameContext pre_ctx{};
         pre_ctx.frame_index = current_frame_;
+        pre_ctx.environment = current_environment_;
         pre_ctx.indirect_batch = gatherer_.indirect_batch();
         pre_ctx.pp_resources = pp;
         pre_ctx.target = &target;
@@ -578,9 +581,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 }
 
 void VulkanContext::render_preview(const ViewportRenderRequest& req,
-                                    const DirectionalLight& light, Scene* scene,
+                                    const EnvironmentState& environment, Scene* scene,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
     if (!req.target) return;
+    current_environment_ = &environment;
 
     auto vk = gpu_.device();
     VkCommandBuffer cmd{};
@@ -677,7 +681,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
-                          req.camera_position, light, scene, req.target->extent(), *pp);
+                          req.camera_position, environment, scene, req.target->extent(), *pp);
     update_light_ssbo(current_frame_, scene);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
                     req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
@@ -709,10 +713,11 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                           const std::vector<ViewportRenderRequest>& viewports,
-                                          const DirectionalLight& light,
+                                          const EnvironmentState& environment,
                                           Scene* scene, float dt,
                                           uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_command_buffer");
+    current_environment_ = &environment;
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -750,6 +755,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     {
         FrameContext prep_ctx{};
         prep_ctx.scene = scene;
+        prep_ctx.environment = &environment;
         prep_ctx.frame_index = current_frame_;
         // Terrain uploads its ray mesh here: this is the pass hook that carries
         // the scene, and geometry has to reach the mega-buffer before the TLAS
@@ -764,23 +770,16 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         passes_.prepare_frame_all(prep_ctx, gpu_);
     }
 
-    // IBL intensity from world environment (consumed by update_uniform_buffer)
-    if (scene) {
-        for (const auto& obj : scene->objects()) {
-            if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-                ibl_intensity_ = env->ibl_intensity;
-                sky_wants_hdri_ = !env->hdri_path.empty();
-                break;
-            }
-        }
-    }
+    // IBL intensity from the environment (consumed by update_uniform_buffer)
+    ibl_intensity_ = environment.sky.ibl_intensity;
+    sky_wants_hdri_ = !environment.sky.hdri_path.empty();
 
     // --- Render scene once per viewport ---
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
         auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
-                              vp.camera_position, light, scene, vp.target->extent(), *pp);
+                              vp.camera_position, environment, scene, vp.target->extent(), *pp);
         update_light_ssbo(current_frame_, scene);
         render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
                         vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph,
@@ -882,7 +881,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& view,
                                           const glm::mat4& projection,
                                           const glm::vec3& camera_position,
-                                          const DirectionalLight& light,
+                                          const EnvironmentState& environment,
                                           Scene* scene, VkExtent2D extent,
                                           PostProcessResources& pp) {
     FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
@@ -920,19 +919,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.prev_unjittered_vp = history.unjittered_view_proj;
     ubo.jitter_x = jx;
     ubo.jitter_y = jy;
-    // Find directional light from scene nodes, fall back to passed-in light
-    DirectionalLight dir_light = light;
+    // Point and spot lights are counted here; the directional light comes
+    // resolved from the environment.
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
     if (scene) {
         for (const auto& obj : scene->objects()) {
-            if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-                dir_light.direction = dl->direction;
-                dir_light.color = dl->color;
-                dir_light.intensity = dl->intensity;
-                dir_light.ambient_color = dl->ambient_color;
-                dir_light.ambient_intensity = dl->ambient_intensity;
-            } else if (dynamic_cast<const PointLightNode*>(obj.get())) {
+            if (dynamic_cast<const PointLightNode*>(obj.get())) {
                 ++point_count;
             } else if (dynamic_cast<const SpotLightNode*>(obj.get())) {
                 ++spot_count;
@@ -951,14 +944,17 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         spot_count = 1024;
     }
 
-    ubo.light_direction = glm::vec4(glm::normalize(-dir_light.direction), dir_light.intensity);
-    ubo.light_color = glm::vec4(dir_light.color, 0.0f);
+    const DirectionalBody& sun = environment.primary;
+    ubo.light_direction = glm::vec4(sun.direction, sun.intensity);
+    ubo.light_color = glm::vec4(sun.color, 0.0f);
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
-    ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity * ibl_intensity_);
+    ubo.ambient_color = glm::vec4(environment.ambient_color,
+                                  environment.ambient_intensity * ibl_intensity_);
 
-    // Forward sun data to SS-GI pass for closest-hit direct lighting
-    ss_gi_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
-    rt_reflection_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
+    // Forward sun data to the trace passes for closest-hit direct lighting;
+    // they take the direction the light travels.
+    ss_gi_pass().set_sun_light(-sun.direction, sun.color, sun.intensity);
+    rt_reflection_pass().set_sun_light(-sun.direction, sun.color, sun.intensity);
 
     // Keep DDGI's copy of the SDF bounds current for the RT burial test —
     // the volume can move while the probe grid stays frozen.
@@ -1563,7 +1559,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
 }
 
 void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewports,
-                                 const DirectionalLight& light,
+                                 const EnvironmentState& environment,
                                  Scene* scene, float dt,
                                  uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_frame");
@@ -1826,7 +1822,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
     record_command_buffer(gpu_.command_buffer(current_frame_), pending_image_index_,
-                          viewports, light, scene, dt, selected_id, pool);
+                          viewports, environment, scene, dt, selected_id, pool);
 
     recorded_frame_ = current_frame_;
     recorded_image_index_ = pending_image_index_;
@@ -2106,11 +2102,11 @@ uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) c
 }
 
 void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
-                                            const DirectionalLight& light, ThreadPool& pool) {
+                                            const EnvironmentState& environment, ThreadPool& pool) {
     for (auto& [name, viewport] : scene_viewports_) {
         ViewportRenderRequest req = viewport->build_request();
         req.global_set = viewport->global_set();
-        render_preview(req, light, scene, dt, selected_id, pool);
+        render_preview(req, environment, scene, dt, selected_id, pool);
         viewport->sync_bindless(gpu_.bindless_textures());
     }
 }

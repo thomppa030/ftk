@@ -16,7 +16,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -136,17 +136,10 @@ static glm::mat4 compute_light_matrix(const glm::mat4& inv_view_proj,
 }
 
 void ShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!ctx.scene) return;
+    if (ctx.environment == nullptr) return;
 
-    // Find directional light direction from scene
-    glm::vec3 light_dir{-0.3f, -1.0f, -0.5f};
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-            light_dir = dl->direction;
-            break;
-        }
-    }
-
+    // Cascades follow the shadow-casting body; the light travels away from it.
+    const glm::vec3 light_dir = -ctx.environment->primary.direction;
     update_cascades(ctx.view, ctx.projection, light_dir, 0.1f, 1000.0f);
 }
 

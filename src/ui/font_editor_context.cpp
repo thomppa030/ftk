@@ -344,7 +344,7 @@ void FontEditorContext::draw_preview_panel() {
 }
 
 void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, float /*dt*/,
-                                        const DirectionalLight& /*light*/, ThreadPool& /*pool*/) {
+                                        const EnvironmentState& /*environment*/, ThreadPool& /*pool*/) {
     if (!loaded_) return;
     auto& fonts = vk.font_library();
     // A rebuild in flight means the sample would draw in the fallback; wait

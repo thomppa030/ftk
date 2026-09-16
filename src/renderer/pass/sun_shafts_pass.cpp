@@ -7,7 +7,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -395,24 +395,20 @@ void SunShaftsPass::destroy() {
 
 void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     enabled_ = false;
-    if (ctx.scene == nullptr) return;
+    if (ctx.environment == nullptr) return;
 
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-            enabled_ = fog->shafts_enabled;
-            intensity_ = fog->shaft_intensity;
-            density_mult_ = fog->shaft_density_mult;
-            max_reach_ = fog->shaft_max_reach;
-            step_count_ = fog->shaft_step_count;
-            anisotropy_ = fog->shaft_anisotropy;
-            directionality_ = fog->shaft_directionality;
-            threshold_ = fog->shaft_threshold;
-            halo_inner_ = fog->shaft_halo_inner;
-            halo_outer_ = fog->shaft_halo_outer;
-            fog_density_ = fog->density;
-            break;
-        }
-    }
+    const auto& shafts = ctx.environment->sun_shafts;
+    enabled_ = ctx.environment->fog.enabled && shafts.enabled;
+    intensity_ = shafts.intensity;
+    density_mult_ = shafts.density_mult;
+    max_reach_ = shafts.max_reach;
+    step_count_ = shafts.step_count;
+    anisotropy_ = shafts.anisotropy;
+    directionality_ = shafts.directionality;
+    threshold_ = shafts.threshold;
+    halo_inner_ = shafts.halo_inner;
+    halo_outer_ = shafts.halo_outer;
+    fog_density_ = ctx.environment->fog.density;
 }
 
 PassSetup SunShaftsPass::setup() const {

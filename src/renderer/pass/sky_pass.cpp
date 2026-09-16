@@ -10,7 +10,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/project.hpp"
-#include "scene/light_node.hpp"
+#include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -18,32 +18,28 @@
 namespace fjell {
 
 void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!ctx.scene) return;
+    if (ctx.environment == nullptr) return;
 
-    for (const auto& obj : ctx.scene->objects()) {
-        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-            top_color_ = env->sky_top_color;
-            bottom_color_ = env->sky_bottom_color;
-            sky_shader_ = env->sky_shader;
-            if (!sky_shader_.empty()) {
-                mode_ = Mode::Fjsl;
-            } else if (env->atmosphere_enabled) {
-                mode_ = Mode::Atmosphere;
-            } else if (!env->hdri_path.empty()) {
-                mode_ = Mode::Hdri;
-            } else {
-                mode_ = Mode::Gradient;
-            }
-            has_hdri_ = !env->hdri_path.empty();
-            atm_rayleigh_scale_ = env->atmosphere_rayleigh_scale;
-            atm_mie_scale_      = env->atmosphere_mie_scale;
-            atm_mie_g_          = env->atmosphere_mie_g;
-            atm_mie_coeff_      = env->atmosphere_mie_coeff;
-            atm_sun_intensity_  = env->atmosphere_sun_intensity;
-            atm_hdri_floor_     = env->atmosphere_hdri_floor;
-            break;
-        }
+    const auto& sky = ctx.environment->sky;
+    top_color_ = sky.top_color;
+    bottom_color_ = sky.bottom_color;
+    sky_shader_ = sky.sky_shader;
+    if (!sky_shader_.empty()) {
+        mode_ = Mode::Fjsl;
+    } else if (sky.atmosphere_enabled) {
+        mode_ = Mode::Atmosphere;
+    } else if (!sky.hdri_path.empty()) {
+        mode_ = Mode::Hdri;
+    } else {
+        mode_ = Mode::Gradient;
     }
+    has_hdri_ = !sky.hdri_path.empty();
+    atm_rayleigh_scale_ = sky.atmosphere_rayleigh_scale;
+    atm_mie_scale_      = sky.atmosphere_mie_scale;
+    atm_mie_g_          = sky.atmosphere_mie_g;
+    atm_mie_coeff_      = sky.atmosphere_mie_coeff;
+    atm_sun_intensity_  = sky.atmosphere_sun_intensity;
+    atm_hdri_floor_     = sky.atmosphere_hdri_floor;
 
     if (mode_ == Mode::Fjsl) {
         ensure_fjsl_pipeline(cached_resources_);

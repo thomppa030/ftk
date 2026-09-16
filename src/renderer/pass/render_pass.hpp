@@ -16,6 +16,7 @@
 namespace fjell {
 
 struct DrawCommand;
+struct EnvironmentState;
 struct RenderStats;
 class Device;
 class DebugDraw;
@@ -80,6 +81,9 @@ struct FrameContext {
     glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
     const Scene* scene{nullptr};
+    // The scene's resolved environment: sun, sky, fog, shafts. Passes read
+    // their lighting and atmosphere from here, never from the scene's nodes.
+    const EnvironmentState* environment{nullptr};
     float delta_time{0.0f};
     uint32_t selected_id{0};
     bool show_colliders{false};

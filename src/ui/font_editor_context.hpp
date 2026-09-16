@@ -46,7 +46,7 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext& /*vk*/) override {}
     void render_previews(VulkanContext& vk, Scene* scene, float dt,
-                         const DirectionalLight& light, ThreadPool& pool) override;
+                         const EnvironmentState& environment, ThreadPool& pool) override;
 
     /// Opens a recipe by its project-relative path.
     void open_font(const std::string& recipe_path);
