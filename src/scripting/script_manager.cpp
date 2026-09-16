@@ -112,6 +112,27 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
     return ofd;
 }
 
+/// Copy a generated field table into `out`, stopping at the first null name.
+///
+/// A null name means `field_count` overruns the descriptor array, which happens
+/// when register_all.cpp's hardcoded count is older than the regenerated table.
+/// Walking off the end segfaults somewhere unrelated, so stop at the boundary
+/// and name the type whose codegen is stale.
+static void copy_fields(const FjellFieldDesc* fields, uint32_t count,
+                        const char* type_name,
+                        std::vector<OwnedFieldDesc>& out) {
+    for (uint32_t i = 0; i < count; ++i) {
+        if (fields == nullptr || fields[i].name == nullptr) {
+            FJELL_CORE_ERROR(
+                "Script '{}' declares {} reflected fields but its table ends at "
+                "{} — generated code is stale. Rebuild scripts from the editor.",
+                type_name ? type_name : "<unnamed>", count, i);
+            return;
+        }
+        out.push_back(copy_field(fields[i]));
+    }
+}
+
 } // namespace fjell
 
 // ── C exports called by game .so during registration ────────────────────
@@ -144,9 +165,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.create = desc->create;
     owned.trace = desc->trace;
     owned.loaded = true;
-    for (uint32_t i = 0; i < desc->field_count; ++i) {
-        owned.fields.push_back(fjell::copy_field(desc->fields[i]));
-    }
+    fjell::copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     // Attach the generated RPC table (same .so), if this type declares any.
     if (const auto* gen = fjell_find_generated(desc->name)) {
         owned.rpcs = gen->rpcs;
@@ -164,9 +183,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const 
     };
     info.trace = desc->trace;
     info.is_state = desc->is_state;
-    for (uint32_t i = 0; i < desc->field_count; ++i) {
-        info.fields.push_back(fjell::copy_field(desc->fields[i]));
-    }
+    fjell::copy_fields(desc->fields, desc->field_count, desc->name, info.fields);
     reg->notifies.push_back(std::move(info));
 }
 
@@ -196,9 +213,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_ui_component(FjellTypeRegistry* reg, 
     owned.create = desc->create;
     owned.trace = desc->trace;
     owned.loaded = true;
-    for (uint32_t i = 0; i < desc->field_count; ++i) {
-        owned.fields.push_back(fjell::copy_field(desc->fields[i]));
-    }
+    fjell::copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     for (uint32_t i = 0; i < desc->action_count; ++i) {
         fjell::OwnedUiActionDesc a;
         a.name = desc->actions[i].name;
