@@ -178,8 +178,14 @@ void PipelineCache::compile_entry(Entry& entry) {
     next.fjsl_path = entry.fjsl_path;
 
     try {
-        // Read the .fjsl source
-        std::string full_path = base_path::resolve(entry.fjsl_path);
+        // Read the .fjsl source. A material names its shader the same way
+        // whether the engine or the game owns it, so look in the project
+        // first and fall back to the engine.
+        std::string full_path = base_path::resolve_shared(entry.fjsl_path, project_);
+        if (full_path.empty()) {
+            throw std::runtime_error("FJSL file not found in project or engine: "
+                                     + entry.fjsl_path);
+        }
         std::ifstream f(full_path);
         if (!f.is_open()) {
             throw std::runtime_error("Failed to open FJSL file: " + full_path);

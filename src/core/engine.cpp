@@ -319,6 +319,13 @@ void Engine::init_resources() {
     vulkan_context_->set_project(project_mgr_.active());
     capture_service_.set_project(project_mgr_.active());
     resource_manager_->set_project(project_mgr_.active());
+#ifndef NDEBUG
+    if (shader_watcher_) {
+        const auto* project = project_mgr_.active();
+        shader_watcher_->watch_project(
+            project ? project->resolve("shaders") : std::string{});
+    }
+#endif
 }
 
 void Engine::init_scene() {

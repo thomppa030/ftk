@@ -30,6 +30,21 @@ namespace base_path {
 [[nodiscard]] std::string resolve_asset(const std::string& reference,
                                         const Project* project);
 
+/// Resolves a file that either tree may own, preferring the project's copy.
+///
+/// Some references name a file that could belong to the project or to the
+/// engine and look identical either way — `shaders/standard.fjsl` ships with
+/// the engine, `shaders/water.fjsl` is the game's, and the string says
+/// nothing about which. resolve_asset() cannot decide: given a project it
+/// always answers with the project's root, whether or not anything is there.
+///
+/// So try the project, take it if the file exists, and fall back to the
+/// engine. A project that wants to replace an engine file does it by putting
+/// one at the same relative path. Returns empty when neither tree has it, so
+/// the caller reports a missing file rather than opening the wrong one.
+[[nodiscard]] std::string resolve_shared(const std::string& reference,
+                                         const Project* project);
+
 /// True if a reference is an asset id rather than a path.
 [[nodiscard]] bool is_asset_id(const std::string& reference);
 

@@ -335,6 +335,11 @@ public:
     project_ = p;
     sky_cubemap_pass().set_project(p);
     sky_pass().set_project(p);
+    // The cache resolves every .fjsl it compiles, and a game's shaders are
+    // named exactly like the engine's, so it cannot find them without this.
+    if (auto* cache = pipeline_cache()) {
+      cache->set_project(p);
+    }
   }
   void set_debug_draw_queue(class DebugDrawQueue* q) { debug_draw_queue_ = q; }
   [[nodiscard]] class DebugDrawQueue* debug_draw_queue() const { return debug_draw_queue_; }

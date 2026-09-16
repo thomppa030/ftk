@@ -13,6 +13,7 @@
 namespace fjell {
 
 class Device;
+class Project;
 
 // Manages one VkPipeline (opaque + transparent + mesh shader) per unique .fjsl shader.
 // All pipelines share the same VkPipelineLayout — only the fragment module differs.
@@ -79,6 +80,16 @@ public:
     [[nodiscard]] const std::string& compile_error(uint32_t id) const { return entries_[id].compile_error; }
     [[nodiscard]] bool has_compile_error(uint32_t id) const { return !entries_[id].compile_error.empty(); }
     [[nodiscard]] const std::string& shader_path(uint32_t id) const { return entries_[id].fjsl_path; }
+
+    /// The project whose shaders take precedence over the engine's own.
+    ///
+    /// A material names its shader the same way whichever tree owns it —
+    /// `shaders/standard.fjsl` is the engine's, `shaders/water.fjsl` is the
+    /// game's — so without a project the cache can only ever find the
+    /// engine's, and a game's shader silently resolves to whatever the
+    /// engine happens to have at that path. Set this when a project opens,
+    /// and clear it when one closes.
+    void set_project(const Project* project) { project_ = project; }
 
     // Recreate all pipelines (e.g. after hot-reload of shared shaders)
     void recreate_all();
@@ -155,6 +166,7 @@ private:
     std::string outline_vertex_template_;
     std::string shader_source_dir_;
     std::string generated_dir_;
+    const Project* project_{nullptr};
     VkPipelineCache vk_cache_{VK_NULL_HANDLE};
 };
 

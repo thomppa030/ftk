@@ -67,6 +67,27 @@ std::string asset_display_path(const std::string& reference, const Project* proj
     return project->path_of(AssetId::from_string(reference));
 }
 
+std::string resolve_shared(const std::string& reference, const Project* project) {
+    // An id is always the project's — the engine's own files are not in its
+    // database — so that case is resolve_asset's already.
+    if (is_asset_id(reference)) {
+        return resolve_asset(reference, project);
+    }
+
+    if (project) {
+        auto in_project = project->resolve(reference);
+        if (!in_project.empty() && std::filesystem::exists(in_project)) {
+            return in_project;
+        }
+    }
+
+    auto in_engine = resolve(reference);
+    if (std::filesystem::exists(in_engine)) {
+        return in_engine;
+    }
+    return {};
+}
+
 std::string resolve_asset(const std::string& reference, const Project* project) {
     if (is_asset_id(reference)) {
         if (!project) {
