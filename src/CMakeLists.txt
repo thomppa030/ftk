@@ -131,6 +131,7 @@ add_executable(fjell
     renderer/pass/volumetric_fog_pass.cpp
     renderer/pass/sun_shafts_pass.cpp
     renderer/pass/contact_shadow_pass.cpp
+    renderer/pass/cloud_shadow_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp

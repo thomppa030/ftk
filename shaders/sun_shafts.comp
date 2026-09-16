@@ -23,6 +23,10 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+#include "fjell_environment.glsl"
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
+#include "fjell_cloud_shadow.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
@@ -99,7 +103,7 @@ float sample_cascade_shadow(vec3 world_pos) {
     }
 
     float bias = 0.002 * (1.0 + float(cascade));
-    return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias));
+    return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias)) * cloud_shadow_factor(world_pos);
 }
 
 void main() {

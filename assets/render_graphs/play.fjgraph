@@ -84,6 +84,7 @@
         { "class": "FogCompositePass", "name": "fog_composite" },
         { "class": "SunShaftsPass",    "name": "sun_shafts" },
         { "class": "ContactShadowPass","name": "contact_shadow" },
+        { "class": "CloudShadowPass",  "name": "cloud_shadow" },
         { "class": "DdgiPass",         "name": "ddgi" },
         { "class": "SsGiPass",         "name": "ss_gi" },
 

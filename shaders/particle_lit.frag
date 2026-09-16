@@ -68,6 +68,8 @@ layout(location = 2) out vec2 out_normal;
 #include "include/fjell_lighting.glsl"
 #include "include/fjell_environment.glsl"
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
+#include "include/fjell_cloud_shadow.glsl"
 
 // ── Depth linearization (same as particle.frag) ─────────────────────────
 
@@ -176,6 +178,7 @@ void main() {
 
     // Cascade shadows
     float shadow = shadow_factor(frag_world_pos, N, NdotL);
+    shadow *= cloud_shadow_factor(frag_world_pos);
 
     vec3 radiance = ubo.light_color.xyz * light_intensity;
     vec3 Lo = (diffuse + specular) * radiance * NdotL * shadow;

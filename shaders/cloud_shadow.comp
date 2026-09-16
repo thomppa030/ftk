@@ -1,0 +1,58 @@
+#version 460
+
+// Cloud shadow map: the sun's transmittance through the cloud layer over a
+// square of ground that follows the camera. Each texel is a ground point;
+// the cloud that shadows it is where the ray from that point toward the
+// shadow-casting body meets the cloud sheet, so the shadows lean with a low
+// sun and drift with the wind like the clouds in the sky do.
+
+#include "fjell_global_ubo.glsl"
+#include "fjell_environment.glsl"
+#include "fjell_clouds_2d.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+
+layout(set = 1, binding = 0, r8) uniform writeonly image2D shadow_out;
+
+layout(push_constant) uniform PushConstants {
+    vec2  min_xz;        // world corner of the map
+    float size;          // metres across
+    float texture_size;  // texels across
+    float ground_y;      // height the ground is assumed at
+    float time;
+    vec2  pad;
+} push;
+
+// How dark the thickest cloud gets: a little light always scatters through.
+const float MAX_OCCLUSION = 0.85;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(push.texture_size) || coord.y >= int(push.texture_size)) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / push.texture_size;
+    vec3 ground = vec3(push.min_xz.x + uv.x * push.size, push.ground_y, push.min_xz.y + uv.y * push.size);
+
+    vec3 light_dir = normalize(ubo.light_direction.xyz);
+    float coverage = env_ubo.weather0.x;
+    if (light_dir.y <= 0.02 || coverage <= 0.0) {
+        imageStore(shadow_out, coord, vec4(1.0));
+        return;
+    }
+
+    // The cloud point on the sun's ray through this ground point.
+    float to_sheet = (FJELL_CLOUD_HEIGHT - ground.y) / light_dir.y;
+    vec3 cloud = ground + light_dir * to_sheet;
+    vec2 sheet = fjell_cloud_sheet_pos(cloud.xz, env_ubo.wind_drift.xy);
+
+    // The front is judged from the camera, as the sky does.
+    vec3 from_camera = normalize(cloud - ubo.camera_position.xyz);
+    float amount = fjell_cloud_amount(sheet, coverage, env_ubo.weather0.y)
+                 * fjell_cloud_front_mask(from_camera, env_ubo.front.xy, env_ubo.front.z, env_ubo.front.w);
+
+    float transmittance = 1.0 - clamp(amount, 0.0, 1.0) * MAX_OCCLUSION;
+    imageStore(shadow_out, coord, vec4(transmittance));
+}

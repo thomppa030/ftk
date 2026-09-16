@@ -61,6 +61,8 @@ layout(location = 3) out vec2 out_velocity;
 #include "fjell_lighting.glsl"
 #include "fjell_environment.glsl"
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
+#include "fjell_cloud_shadow.glsl"
 
 void main() {
     uint material_id = draws[frag_draw_index].material_id;
@@ -149,6 +151,7 @@ void main() {
     vec3 diffuse = kD * albedo / PI;
 
     float shadow = shadow_factor(frag_world_pos, N, NdotL);
+    shadow *= cloud_shadow_factor(frag_world_pos);
     // Screen-space contact shadows: multiplies sub-cascade occlusion from
     // small geometry the cascade shadow map can't resolve (character feet,
     // small props on a surface, etc.).

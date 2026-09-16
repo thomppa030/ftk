@@ -24,6 +24,8 @@ layout(set = 0, binding = 13) uniform sampler2D contact_shadow_tex;
 
 #include "fjell_environment.glsl"
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
+#include "fjell_cloud_shadow.glsl"
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuPointLight point_lights[1024];
@@ -85,6 +87,7 @@ void fjell_shade_surface(vec3 NORMAL, vec3 VIEW_DIR, vec3 WORLD_POS, vec3 geomet
                     N, V, ALBEDO, METALLIC, ROUGHNESS, F0, d, s);
 
         float shadow = shadow_factor(WORLD_POS, N, NdotL);
+        shadow *= cloud_shadow_factor(WORLD_POS);
         // See mesh.frag: the shared image may be smaller than this viewport,
         // and an out-of-range fetch reads zero, i.e. fully occluded.
         ivec2 cs_size = textureSize(contact_shadow_tex, 0);

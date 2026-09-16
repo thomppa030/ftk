@@ -12,6 +12,7 @@
 #include "renderer/pass_factory.hpp"
 
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/cloud_shadow_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
 #include "renderer/pass/cull_viz_pass.hpp"
@@ -60,6 +61,7 @@ namespace fjell {
 // ── Default-constructible passes ──────────────────────────────────────
 FJELL_REGISTER_PASS(BloomDs0Pass)
 FJELL_REGISTER_PASS(ContactShadowPass)
+FJELL_REGISTER_PASS(CloudShadowPass)
 FJELL_REGISTER_PASS(CullPass)
 FJELL_REGISTER_PASS(CullVizPass)
 FJELL_REGISTER_PASS(DdgiPass)

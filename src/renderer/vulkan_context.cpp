@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "environment/environment_ubo.hpp"
+#include "renderer/pass/cloud_shadow_pass.hpp"
 
 #include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
@@ -991,7 +992,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.time = elapsed_time_;
 
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
-    const EnvironmentUbo env_ubo = make_environment_ubo(environment);
+    EnvironmentUbo env_ubo = make_environment_ubo(environment);
+    // The cloud shadow map's placement is the renderer's, following the
+    // camera, so it joins the block here rather than in the resolved state.
+    if (auto* clouds = passes_.try_get<CloudShadowPass>("cloud_shadow")) {
+        env_ubo.cloud_shadow_vp = clouds->world_to_uv();
+        env_ubo.cloud_shadow_texture = clouds->active() ? 1u : 0u;
+    }
     gpu_.environment_buffer(frame_index).write(&env_ubo, sizeof(env_ubo));
 
     history.advance(view, jittered_projection, projection);

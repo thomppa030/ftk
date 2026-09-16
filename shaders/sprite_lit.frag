@@ -47,6 +47,8 @@ layout(location = 3) out vec2 out_velocity;
 #include "include/fjell_lighting.glsl"
 #include "include/fjell_environment.glsl"
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
+#include "include/fjell_cloud_shadow.glsl"
 
 void main() {
     vec4 tex_color = texture(textures[nonuniformEXT(frag_tex_index)], frag_uv);
@@ -94,6 +96,7 @@ void main() {
     vec3 diffuse = kD * albedo / PI;
 
     float shadow = shadow_factor(frag_world_pos, N, NdotL);
+    shadow *= cloud_shadow_factor(frag_world_pos);
     float contact = texelFetch(contact_shadow_tex, ivec2(gl_FragCoord.xy), 0).r;
     shadow *= contact;
 

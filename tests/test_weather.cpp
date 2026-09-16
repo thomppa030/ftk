@@ -1,12 +1,14 @@
 #include "environment/environment_state.hpp"
 #include "environment/weather_asset.hpp"
 #include "environment/weather_player.hpp"
+#include "environment/cloud_shadow_frame.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <glm/glm.hpp>
 
+#include <cmath>
 #include <filesystem>
 
 using namespace fjell;
@@ -139,6 +141,11 @@ TEST_CASE("Compositing shapes the environment and integrates wetness", "[weather
     REQUIRE(state.weather.wetness == Approx(0.8f).margin(0.02f));
     REQUIRE(state.weather.snow == Approx(0.0f));
     REQUIRE(state.weather.wind_speed == Approx(8.0f));
+    // The drift is the wind integrated: fifty seconds at 8 m/s toward +X,
+    // give or take the gusts, and always forward.
+    REQUIRE(state.weather.wind_drift.x > 200.0f);
+    REQUIRE(state.weather.wind_drift.x < 600.0f);
+    REQUIRE(std::abs(state.weather.wind_drift.y) < 1e-3f);
     REQUIRE(state.weather.front_edge < -1.0f);        // covered everywhere
     REQUIRE(state.sun.intensity == Approx(0.6f).margin(1e-3));
 
@@ -183,4 +190,30 @@ TEST_CASE("Weather assets round-trip through their file", "[weather]") {
     REQUIRE(back->tracks.find("temperature") != nullptr);
     REQUIRE(weather_track::kind_of(weather_track::SKY_TINT) == TrackKind::Color);
     REQUIRE_FALSE(weather_track::is_builtin("temperature"));
+}
+
+TEST_CASE("The cloud shadow frame follows the camera in whole texels", "[weather]") {
+    const float size = 512.0f;
+    const uint32_t res = 256;   // two metres per texel
+    auto a = cloud_shadow_frame(glm::vec3(100.0f, 5.0f, -40.0f), size, res);
+    REQUIRE(a.size == Approx(size));
+    // The camera sits inside the square, near its middle.
+    REQUIRE(a.min_xz.x <= 100.0f - size * 0.5f + 2.0f);
+    REQUIRE(a.min_xz.x >= 100.0f - size * 0.5f - 2.0f);
+    REQUIRE(a.min_xz.y <= -40.0f - size * 0.5f + 2.0f);
+    // Corners are on the texel grid.
+    REQUIRE(std::fmod(a.min_xz.x, 2.0f) == Approx(0.0f));
+    REQUIRE(std::fmod(a.min_xz.y, 2.0f) == Approx(0.0f));
+    // A sub-texel camera move does not move the map; a full texel does.
+    auto b = cloud_shadow_frame(glm::vec3(100.9f, 5.0f, -40.0f), size, res);
+    REQUIRE(b.min_xz == a.min_xz);
+    auto c = cloud_shadow_frame(glm::vec3(102.5f, 5.0f, -40.0f), size, res);
+    REQUIRE(c.min_xz.x == Approx(a.min_xz.x + 2.0f));
+    // The matrix maps the square's corners to uv 0 and 1.
+    glm::vec4 lo = a.world_to_uv * glm::vec4(a.min_xz.x, 0.0f, a.min_xz.y, 1.0f);
+    glm::vec4 hi = a.world_to_uv * glm::vec4(a.min_xz.x + size, 30.0f, a.min_xz.y + size, 1.0f);
+    REQUIRE(lo.x == Approx(0.0f));
+    REQUIRE(lo.y == Approx(0.0f));
+    REQUIRE(hi.x == Approx(1.0f));
+    REQUIRE(hi.y == Approx(1.0f));
 }
