@@ -3,39 +3,39 @@
     "emitters": [
         {
             "name": "Snow",
-            "max_particles": 20000,
+            "max_particles": 6000,
             "blend_mode": 1,
             "spawn": [
                 {
                     "type": "SpawnRate",
-                    "rate": 1600.0
+                    "rate": 420.0
                 },
                 {
                     "type": "InitialLifetime",
-                    "min": 4.0,
-                    "max": 6.0
+                    "min": 5.0,
+                    "max": 8.0
                 },
                 {
                     "type": "InitialPosition",
                     "shape": "box",
                     "half_extents": [
-                        24.0,
+                        22.0,
                         0.5,
-                        24.0
+                        22.0
                     ]
                 },
                 {
                     "type": "InitialVelocity",
                     "mode": "random",
                     "velocity_min": [
-                        -0.6,
-                        -2.2,
-                        -0.6
+                        -0.35,
+                        -1.6,
+                        -0.35
                     ],
                     "velocity_max": [
-                        0.6,
-                        -1.2,
-                        0.6
+                        0.35,
+                        -0.9,
+                        0.35
                     ]
                 },
                 {
@@ -44,13 +44,17 @@
                         1.0,
                         1.0,
                         1.0,
-                        0.85
+                        0.75
                     ]
                 },
                 {
                     "type": "InitialSize",
-                    "min": 0.05,
-                    "max": 0.11
+                    "min": 0.035,
+                    "max": 0.085
+                },
+                {
+                    "type": "InitialTexture",
+                    "texture": "assets/textures/snowflake.png"
                 }
             ],
             "update": [
@@ -63,6 +67,16 @@
                         0.0
                     ],
                     "strength": 1.0
+                },
+                {
+                    "type": "Noise",
+                    "strength": 0.55,
+                    "frequency": 0.35,
+                    "scroll_speed": 0.4
+                },
+                {
+                    "type": "Drag",
+                    "drag": 0.6
                 },
                 {
                     "type": "Collision",
