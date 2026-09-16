@@ -170,6 +170,7 @@ add_executable(fjell
     renderer/components/mesh_component_meta.cpp
     renderer/components/spline_component_meta.cpp
     renderer/components/spline_mesh_component_meta.cpp
+    renderer/components/instanced_mesh_component.cpp
     renderer/components/instanced_mesh_component_meta.cpp
     renderer/components/skeletal_mesh_component_meta.cpp
     renderer/components/particle_emitter_meta.cpp
