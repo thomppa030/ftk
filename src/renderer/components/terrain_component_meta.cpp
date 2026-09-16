@@ -241,7 +241,9 @@ static const bool registered = [] {
                      "Paint a material layer onto the ground"},
                 };
                 // Clicking the active brush puts it down again, so the row
-                // needs no separate "none" entry.
+                // needs no separate "none" entry. A stroke finishes with the
+                // operation it began with, so the row is dead while one runs.
+                ImGui::BeginDisabled(tool.stroking());
                 bool first = true;
                 for (const auto& entry : brushes) {
                     if (!first) ImGui::SameLine();
@@ -251,6 +253,7 @@ static const bool registered = [] {
                         tool.set_tool(on ? BrushTool::none : entry.tool);
                     }
                 }
+                ImGui::EndDisabled();
                 if (tool.active()) {
                     if (tool.tool() == BrushTool::paint) {
                         const uint32_t layers = terrain->terrain->layer_count();

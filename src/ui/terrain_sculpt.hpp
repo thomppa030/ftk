@@ -125,6 +125,9 @@ public:
 
     [[nodiscard]] ViewportBrush& brush() { return brush_; }
     [[nodiscard]] BrushTool tool() const { return tool_; }
+    /// Ignored while a stroke is in progress: the operation a stroke started
+    /// with is the one it finishes with, and its undo entry is written from
+    /// that. Ask `stroking()` first to grey the buttons out.
     void set_tool(BrushTool tool);
     [[nodiscard]] bool active() const { return tool_ != BrushTool::none; }
     [[nodiscard]] bool stroking() const { return brush_.stroking(); }
@@ -146,10 +149,25 @@ private:
     void paint_dab(const glm::vec3& hit_world, float dt);
     void end_sculpt_stroke();
     void end_paint_stroke();
+    /// Whether the tool in hand paints. A stroke asks `stroke_.painting`
+    /// instead, so switching tools cannot send it down the other branch.
     [[nodiscard]] bool painting() const { return tool_ == BrushTool::paint; }
+
+    /// What a stroke needs to write its undo entry, taken at begin_stroke.
+    /// end_stroke can be called after the frame is gone — a tool change or a
+    /// deselect under the brush — so it must not read `frame_`.
+    struct StrokeContext {
+        TerrainAsset* terrain{nullptr};
+        UploadContext* upload{nullptr};
+        PhysicsSubsystem* physics{nullptr};
+        CommandHistory* history{nullptr};
+        uint32_t node_id{0};
+        bool painting{false};
+    };
 
     ViewportBrush& brush_;
     const Frame* frame_{nullptr};  ///< the frame being updated, for the BrushTarget calls
+    StrokeContext stroke_;         ///< valid between begin_stroke and end_stroke
     BrushTool tool_{BrushTool::none};
     uint32_t paint_layer_{0};
     bool flatten_target_set_{false};

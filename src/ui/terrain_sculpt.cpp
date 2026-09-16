@@ -166,6 +166,10 @@ std::string PaintStrokeCommand::description() const {
 // ── TerrainSculptTool ──
 
 void TerrainSculptTool::set_tool(BrushTool tool) {
+    // A stroke keeps the operation it began with. Switching under a held
+    // button would end the stroke from outside the frame and hand the undo
+    // entry the wrong snapshot.
+    if (brush_.stroking()) return;
     tool_ = tool;
     // Green sculpts, blue paints; the brush shows which is in hand.
     brush_.set_cursor_colour(painting() ? glm::vec4{0.4f, 0.65f, 1.0f, 1.0f}
@@ -173,12 +177,13 @@ void TerrainSculptTool::set_tool(BrushTool tool) {
 }
 
 void TerrainSculptTool::update(const Frame& frame) {
-    frame_ = &frame;
     if (!active() || frame.terrain == nullptr || frame.upload == nullptr) {
+        // The stroke still lands in history: cancel ends it through the
+        // context it captured, not through this frame.
         brush_.cancel(*this);
-        frame_ = nullptr;
         return;
     }
+    frame_ = &frame;
     brush_.update(frame.brush, *this);
     frame_ = nullptr;
 }
@@ -196,10 +201,13 @@ float TerrainSculptTool::surface_height(float x, float z) const {
 }
 
 void TerrainSculptTool::begin_stroke(const BrushHit& /*hit*/) {
+    stroke_ = {frame_->terrain, frame_->upload, frame_->physics,
+               frame_->history, frame_->node_id, painting()};
+
     // One copy of the whole grid is far simpler than tracking which cells a
     // stroke has already captured, and a few megabytes per click is nothing.
     TerrainAsset& terrain = *frame_->terrain;
-    if (painting()) {
+    if (stroke_.painting) {
         const uint32_t side = terrain.weight_count();
         weight_snapshot_.resize(static_cast<size_t>(side) * side * 4);
         terrain.copy_weights(0, 0, side, side, weight_snapshot_.data());
@@ -212,7 +220,7 @@ void TerrainSculptTool::begin_stroke(const BrushHit& /*hit*/) {
 }
 
 void TerrainSculptTool::dab(const BrushHit& hit, float dt) {
-    if (painting()) {
+    if (stroke_.painting) {
         paint_dab(hit.position, dt);
     } else {
         sculpt_dab(hit.position, dt);
@@ -372,22 +380,24 @@ void TerrainSculptTool::sculpt_dab(const glm::vec3& hit_world, float dt) {
 }
 
 void TerrainSculptTool::end_stroke() {
-    if (touched_.empty() || frame_ == nullptr || frame_->history == nullptr ||
-        frame_->terrain == nullptr) {
+    if (touched_.empty() || stroke_.history == nullptr || stroke_.terrain == nullptr ||
+        stroke_.upload == nullptr) {
         snapshot_.clear();
         weight_snapshot_.clear();
+        stroke_ = {};
         return;
     }
-    if (painting()) {
+    if (stroke_.painting) {
         end_paint_stroke();
     } else {
         end_sculpt_stroke();
     }
+    stroke_ = {};
 }
 
 void TerrainSculptTool::end_paint_stroke() {
-    const Frame& frame = *frame_;
-    const uint32_t side = frame.terrain->weight_count();
+    const StrokeContext& stroke = stroke_;
+    const uint32_t side = stroke.terrain->weight_count();
     std::vector<uint8_t> before(touched_.count() * 4);
     for (uint32_t row = 0; row < touched_.height; ++row) {
         const uint8_t* src =
@@ -396,32 +406,32 @@ void TerrainSculptTool::end_paint_stroke() {
                   &before[static_cast<size_t>(row) * touched_.width * 4]);
     }
     std::vector<uint8_t> after(touched_.count() * 4);
-    frame.terrain->copy_weights(touched_.x, touched_.z, touched_.width, touched_.height,
-                                after.data());
+    stroke.terrain->copy_weights(touched_.x, touched_.z, touched_.width, touched_.height,
+                                 after.data());
     weight_snapshot_.clear();
 
-    frame.history->execute(std::make_unique<PaintStrokeCommand>(
-        *frame.terrain, *frame.upload, frame.physics, frame.node_id, touched_,
+    stroke.history->execute(std::make_unique<PaintStrokeCommand>(
+        *stroke.terrain, *stroke.upload, stroke.physics, stroke.node_id, touched_,
         std::move(before), std::move(after)));
 }
 
 void TerrainSculptTool::end_sculpt_stroke() {
-    const Frame& frame = *frame_;
-    const uint32_t samples = frame.terrain->sample_count();
+    const StrokeContext& stroke = stroke_;
+    const uint32_t samples = stroke.terrain->sample_count();
     std::vector<float> before(touched_.count());
     for (uint32_t row = 0; row < touched_.height; ++row) {
         const float* src = &snapshot_[(static_cast<size_t>(touched_.z + row) * samples) + touched_.x];
         std::copy(src, src + touched_.width, &before[static_cast<size_t>(row) * touched_.width]);
     }
     std::vector<float> after(touched_.count());
-    frame.terrain->copy_heights(touched_.x, touched_.z, touched_.width, touched_.height,
-                                after.data());
+    stroke.terrain->copy_heights(touched_.x, touched_.z, touched_.width, touched_.height,
+                                 after.data());
     snapshot_.clear();
 
     // The stroke has already been applied live; the history's execute() call
     // re-applies the same data once, which is the price of one entry per stroke.
-    frame.history->execute(std::make_unique<SculptStrokeCommand>(
-        *frame.terrain, *frame.upload, frame.physics, frame.node_id, touched_,
+    stroke.history->execute(std::make_unique<SculptStrokeCommand>(
+        *stroke.terrain, *stroke.upload, stroke.physics, stroke.node_id, touched_,
         std::move(before), std::move(after)));
 }
 
