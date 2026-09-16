@@ -535,6 +535,7 @@ void Engine::init_editor() {
         .camera = camera_subsystem_,
         .audio = audio_subsystem_,
         .sprite_anim = sprite_anim_subsystem_,
+        .environment = environment_subsystem_,
         .ui = ui_subsystem_,
     }, game_mode_);
 

@@ -13,6 +13,7 @@ namespace fjell {
 class AudioSubsystem;
 class CameraSubsystem;
 class Clock;
+class EnvironmentSubsystem;
 class GameUi;
 class Input;
 class InputActionMap;
@@ -52,6 +53,7 @@ struct PlayServices {
     CameraSubsystem* camera{nullptr};
     AudioSubsystem* audio{nullptr};
     SpriteAnimSubsystem* sprite_anim{nullptr};
+    EnvironmentSubsystem* environment{nullptr};
     UiSubsystem* ui{nullptr};
 };
 

@@ -12,6 +12,7 @@ extern "C" void fjell_input_clear_connections();
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "audio/audio_subsystem.hpp"
+#include "environment/environment_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/systems/sprite_anim_subsystem.hpp"
@@ -340,6 +341,7 @@ void PlayController::start() {
         s_.camera->notify_play_start(ctx);
         s_.audio->notify_play_start(ctx);
         s_.sprite_anim->notify_play_start(ctx);
+        s_.environment->notify_play_start(ctx);
 
         // Contexts before scripts: begin_play binds actions through InputAPI.
         load_input_contexts();
@@ -394,6 +396,7 @@ void PlayController::stop() {
     s_.camera->notify_play_stop(ctx);
     s_.audio->notify_play_stop(ctx);
     s_.sprite_anim->notify_play_stop(ctx);
+    s_.environment->notify_play_stop(ctx);
     s_.scripts->notify_play_stop(ctx);
     s_.vfx->notify_play_stop(ctx);
 
