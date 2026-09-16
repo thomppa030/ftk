@@ -287,7 +287,8 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
 
     if (meta.shader_type != "spatial" && meta.shader_type != "sky" &&
-        meta.shader_type != "ui" && meta.shader_type != "terrain") {
+        meta.shader_type != "ui" && meta.shader_type != "terrain" &&
+        meta.shader_type != "water") {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
@@ -377,9 +378,11 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // A hook that a shader type cannot run is an error rather than silently
     // ignored code. A ui shader paints one screen-aligned quad: there is no
     // geometry to displace and no light to shade. Terrain geometry is
-    // generated in a mesh shader from the height texture, so there is
-    // nothing for vertex() to move. layers() decides how the painted layer
-    // weights blend and only terrain has layers.
+    // generated in a mesh shader from the height texture, and water's from
+    // its wave field, so neither has anything for vertex() to move — a water
+    // surface is shaped by its .fjwater, not by its material. layers()
+    // decides how the painted layer weights blend and only terrain has
+    // layers.
     static const std::regex vertex_hook_re(R"(\bvoid\s+vertex\s*\()");
     static const std::regex light_hook_re(R"(\bvoid\s+light\s*\()");
     static const std::regex layers_hook_re(R"(\bvoid\s+layers\s*\()");
@@ -393,6 +396,10 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
     if (meta.shader_type == "terrain" && std::regex_search(source, vertex_hook_re)) {
         throw std::runtime_error("FJSL: shader_type terrain has no vertex() stage");
+    }
+    if (meta.shader_type == "water" && std::regex_search(source, vertex_hook_re)) {
+        throw std::runtime_error("FJSL: shader_type water has no vertex() stage — "
+                                 "the surface comes from the .fjwater wave field");
     }
     if (meta.shader_type != "terrain" && std::regex_search(source, layers_hook_re)) {
         throw std::runtime_error("FJSL: only shader_type terrain has a layers() stage");
@@ -422,12 +429,13 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     std::string param_defines;
     // Each shader type reaches its material row differently. Sky is a single
     // fullscreen pass with no draws[] SSBO, so the row index is pushed as
-    // `push.sky_material_id`; terrain likewise pushes its row per node; a ui
-    // quad carries its row in the quad record; spatial shaders look up the
-    // material via per-draw data.
+    // `push.sky_material_id`; terrain and water likewise push their row per
+    // node; a ui quad carries its row in the quad record; spatial shaders
+    // look up the material via per-draw data.
     const std::string mat_expr =
         meta.shader_type == "sky" ? "materials[push.sky_material_id]"
         : meta.shader_type == "terrain" ? "materials[push.terrain_material_id]"
+        : meta.shader_type == "water" ? "materials[push.water_material_id]"
         : meta.shader_type == "ui" ? "materials[quads[frag_quad_index].material_id]"
         : "materials[draws[frag_draw_index].material_id]";
     for (const auto& u : meta.uniforms) {

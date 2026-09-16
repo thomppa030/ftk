@@ -802,6 +802,43 @@ TEST_CASE("Terrain rejects vertex(), other types reject layers()", "[fjsl][terra
     REQUIRE_NOTHROW(parse_fjsl("shader_type terrain;\nvoid light() {}\nvoid fragment() {}"));
 }
 
+// --- shader_type water ---
+
+TEST_CASE("Parse shader_type water", "[fjsl][water]") {
+    auto meta = parse_fjsl(R"(
+        shader_type water;
+        uniform vec3 deep : hint_color = vec3(0.1, 0.2, 0.3);
+        uniform float clarity : hint_range(0.0, 1.0, 0.01) = 0.5;
+        void fragment() {
+            ALBEDO = deep;
+        }
+    )");
+    REQUIRE(meta.shader_type == "water");
+    REQUIRE(meta.uniforms.size() == 2);
+    REQUIRE(meta.fragment_body.find("ALBEDO = deep") != std::string::npos);
+    REQUIRE(meta.vertex_body.empty());
+}
+
+TEST_CASE("Water rejects vertex() and layers()", "[fjsl][water]") {
+    // A water surface is shaped by its .fjwater, generated in the mesh
+    // shader from the wave field, so a material has no geometry to move.
+    REQUIRE_THROWS(parse_fjsl("shader_type water;\nvoid vertex() {}\nvoid fragment() {}"));
+    REQUIRE_THROWS(parse_fjsl("shader_type water;\nvoid layers() {}\nvoid fragment() {}"));
+    // light() works as it does for spatial and terrain.
+    REQUIRE_NOTHROW(parse_fjsl("shader_type water;\nvoid light() {}\nvoid fragment() {}"));
+}
+
+TEST_CASE("Water reaches its material row through the push block", "[fjsl][water]") {
+    auto meta = parse_fjsl(R"(
+        shader_type water;
+        uniform float murk = 0.5;
+        void fragment() { ALPHA = murk; }
+    )");
+    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_CUSTOM_PARAMS*/\n/*FJSL_USER_CODE*/\n";
+    auto result = generate_fragment_shader(meta, tmpl);
+    REQUIRE(result.find("push.water_material_id") != std::string::npos);
+}
+
 TEST_CASE("Terrain params read the pushed material row", "[fjsl][terrain]") {
     auto meta = parse_fjsl(R"(
         shader_type terrain;

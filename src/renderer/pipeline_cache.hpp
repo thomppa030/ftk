@@ -158,6 +158,7 @@ private:
     std::string sky_template_;
     std::string ui_template_;
     std::string terrain_template_;
+    std::string water_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;
