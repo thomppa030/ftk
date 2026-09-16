@@ -310,7 +310,7 @@ void TransparentPass::record_draws(const FrameContext& ctx) {
 
     ctx.mega_buffer->bind(ctx.cmd);
 
-    uint32_t base_index = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+    uint32_t base_index = ctx.indirect_batch->transparent_draw_base(ctx.frame_index);
 
     bool current_skinned = false;
     bool mega_bound = true;

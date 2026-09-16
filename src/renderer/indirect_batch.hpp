@@ -158,6 +158,15 @@ public:
         return skinned_draw_indices_[frame_index];
     }
 
+    /// Index of the first transparent entry in the draw data buffer.
+    /// Transparent draws are staged after the static opaque draws and the
+    /// skinned opaque draws that follow them, so this is where a transparent
+    /// draw's firstInstance starts counting.
+    [[nodiscard]] uint32_t transparent_draw_base(uint32_t frame_index) const {
+        return opaque_counts_[frame_index] +
+               static_cast<uint32_t>(skinned_draw_indices_[frame_index].size());
+    }
+
     [[nodiscard]] VkBuffer instance_transform_buffer(uint32_t frame_index) const {
         return instance_transform_buffers_[frame_index]
                    ? instance_transform_buffers_[frame_index]->handle()
