@@ -1,0 +1,86 @@
+# fjell::Audio
+
+Plays audio clips at world positions.
+
+| | |
+|---|---|
+| Header | `fjell/audio_api.hpp` |
+| Source | `src/scripting/audio_api.cpp` |
+
+## Syntax
+
+```cpp
+namespace fjell {
+struct Audio {
+    static void play(const Ref<AudioAsset>& clip,
+                     const glm::vec3& pos,
+                     float volume = 1.0f,
+                     float pitch  = 1.0f);
+};
+}
+```
+
+## Remarks
+
+One-shot fire-and-forget. The clip plays once and self-destructs — there is no script-side handle to stop, pause, or query it. For persistent looping sounds attached to a node, use a scene-side `AudioComponent` (placed in the editor) instead.
+
+The listener follows the active camera (see [`CameraAPI`](CameraAPI.md)). 3D attenuation is applied based on the source-to-listener distance.
+
+Backed by miniaudio. Decoded synchronously on first play; subsequent plays of the same clip reuse the decoded buffer.
+
+## Functions
+
+| Name | Description |
+|---|---|
+| [`play`](#audioplay) | Play a one-shot clip at a world position |
+
+---
+
+## Audio::play
+
+### Syntax
+```cpp
+static void play(const Ref<AudioAsset>& clip,
+                 const glm::vec3& pos,
+                 float volume = 1.0f,
+                 float pitch  = 1.0f);
+```
+
+### Parameters
+| Name | Type | Description |
+|---|---|---|
+| `clip` | `const Ref<AudioAsset>&` | Audio asset reference. If null (`clip.handle_id() == 0`), the call is a no-op. |
+| `pos` | `const glm::vec3&` | World-space position the sound is played from. |
+| `volume` | `float` | Linear volume multiplier. `1.0` = unattenuated, `0.0` = silent. Default `1.0`. |
+| `pitch` | `float` | Playback rate / pitch. `1.0` = original, `2.0` = double-speed (one octave up), `0.5` = half. Default `1.0`. |
+
+### Remarks
+Skips silently if `clip` is null — the engine logs nothing, the call returns. Validate refs in `begin_play()` if you want to catch unassigned slots.
+
+Volume above `1.0` is permitted and audible until clipping occurs in the mix. Extremely low pitches stretch the clip; extremely high pitches compress it — both alter perceived duration.
+
+## Example
+
+```cpp
+class Coin : public fjell::ScriptComponent {
+    FJELL_COMPONENT(Coin)
+
+    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+
+    void on_trigger_enter(uint32_t /*other*/) override {
+        fjell::Audio::play(collect_sound, transform().position);
+        self().destroy();
+    }
+};
+```
+
+Randomized pitch for repeated sounds:
+
+```cpp
+float p = 0.95f + (rand() / float(RAND_MAX)) * 0.1f;  // 0.95..1.05
+fjell::Audio::play(footstep_sound, foot_pos, /*volume*/ 0.6f, p);
+```
+
+## See also
+- [`Ref`](Ref.md) — how `Ref<AudioAsset>` is resolved
+- [`Vfx`](Vfx.md) — same `(asset, position)` shape for particle systems
