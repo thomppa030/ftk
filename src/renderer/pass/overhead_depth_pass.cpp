@@ -75,6 +75,14 @@ Result<> OverheadDepthPass::create(Device& device, const PassResources& resource
     config.cull_mode = VK_CULL_MODE_NONE;
     config.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
     config.depth_clamp = true;
+    // The ground draws itself into this map and then shades against it, so
+    // without a bias it shelters itself wherever its own depth rounds the
+    // wrong way, which reads as dark patches on open terrain. Push what is
+    // recorded slightly toward the sky; the slope term covers ground seen
+    // at a glancing angle, where the error is largest.
+    config.depth_bias = true;
+    config.depth_bias_constant = 2.0f;
+    config.depth_bias_slope = 3.0f;
     config.pipeline_cache = vk_pipeline_cache_;
     pipeline_ = create_depth_vertex_pipeline(device_, base_path::resolve("shaders/shadow.vert.spv"), config);
     if (pipeline_ == VK_NULL_HANDLE) {
