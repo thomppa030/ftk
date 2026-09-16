@@ -1,4 +1,4 @@
-#include "core/math/ddgi_clipmap.hpp"
+#include "core/math/clipmap.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -8,20 +8,20 @@
 using namespace fjell;
 using Catch::Approx;
 
-TEST_CASE("First recenter always reports moved and clears full_reset", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("First recenter always reports moved and clears full_reset", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(4, 4, 4);
+    level.cell_counts = glm::ivec3(4, 4, 4);
 
     REQUIRE(level.full_reset == true);
     bool moved = level.recenter(glm::vec3(0.0f));
     REQUIRE(moved == true);
 }
 
-TEST_CASE("Recenter at the same camera position twice is idempotent", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("Recenter at the same camera position twice is idempotent", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(4, 4, 4);
+    level.cell_counts = glm::ivec3(4, 4, 4);
 
     level.recenter(glm::vec3(5.0f, 0.0f, 5.0f));
     glm::vec3 origin_after_first = level.snapped_origin;
@@ -31,12 +31,12 @@ TEST_CASE("Recenter at the same camera position twice is idempotent", "[ddgi_cli
     REQUIRE(level.snapped_origin == origin_after_first);
 }
 
-TEST_CASE("Recenter within the same snapped cell does not move the origin", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("Recenter within the same snapped cell does not move the origin", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(4, 4, 4);
+    level.cell_counts = glm::ivec3(4, 4, 4);
 
-    // Deliberately NOT (0,0,0): with probe_counts=4 and cell_size=2,
+    // Deliberately NOT (0,0,0): with cell_counts=4 and cell_size=2,
     // half_extent=4 on every axis, so camera (0,0,0) puts
     // desired_origin exactly ON a cell boundary (-4.0, an exact
     // multiple of cell_size) — the worst possible starting point, since
@@ -54,10 +54,10 @@ TEST_CASE("Recenter within the same snapped cell does not move the origin", "[dd
     REQUIRE(level.snapped_origin == origin_after_first);
 }
 
-TEST_CASE("Crossing a cell boundary moves the origin by whole cells", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("Crossing a cell boundary moves the origin by whole cells", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(4, 4, 4);
+    level.cell_counts = glm::ivec3(4, 4, 4);
 
     level.recenter(glm::vec3(0.0f));
     glm::vec3 origin_before = level.snapped_origin;
@@ -76,10 +76,10 @@ TEST_CASE("Crossing a cell boundary moves the origin by whole cells", "[ddgi_cli
     REQUIRE(cells_shifted.z == Approx(std::round(cells_shifted.z)));
 }
 
-TEST_CASE("Level covers the camera after recentering", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("Level covers the camera after recentering", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
 
     glm::vec3 camera{13.0f, -4.0f, 27.5f};
     level.recenter(camera);
@@ -98,15 +98,15 @@ TEST_CASE("Level covers the camera after recentering", "[ddgi_clipmap]") {
     REQUIRE(camera.z <  hi.z);
 }
 
-TEST_CASE("Repeated small camera movement in one direction eventually covers a large traversal", "[ddgi_clipmap]") {
+TEST_CASE("Repeated small camera movement in one direction eventually covers a large traversal", "[clipmap]") {
     // Simulates a camera walking a long distance in small steps (as it
     // would in an actual play session) and checks the level always
     // covers the camera at every step, not just at the two endpoints —
     // guards against an off-by-one in recenter() that only shows up
     // after several consecutive shifts.
-    DdgiClipmapLevel level;
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
 
     for (int i = 0; i <= 200; ++i) {
         glm::vec3 camera{static_cast<float>(i) * 0.5f, 0.0f, 0.0f};
@@ -118,10 +118,10 @@ TEST_CASE("Repeated small camera movement in one direction eventually covers a l
     }
 }
 
-TEST_CASE("world_to_grid and covers agree with world_min/world_max", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("world_to_grid and covers agree with world_min/world_max", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(4, 4, 4);
+    level.cell_counts = glm::ivec3(4, 4, 4);
     level.recenter(glm::vec3(0.0f));
 
     // The camera's own cell must be covered.
@@ -144,12 +144,12 @@ namespace {
 /// Brute-force reference: walk every cell of the current level and count
 /// how many were NOT covered by the level at previous_origin. The closed
 /// form in newly_covered_cell_count() must agree with this everywhere.
-int brute_force_newly_covered(const fjell::DdgiClipmapLevel& level,
+int brute_force_newly_covered(const fjell::ClipmapLevel3D& level,
                               const glm::vec3& previous_origin) {
     int count = 0;
-    for (int z = 0; z < level.probe_counts.z; ++z) {
-        for (int y = 0; y < level.probe_counts.y; ++y) {
-            for (int x = 0; x < level.probe_counts.x; ++x) {
+    for (int z = 0; z < level.cell_counts.z; ++z) {
+        for (int y = 0; y < level.cell_counts.y; ++y) {
+            for (int x = 0; x < level.cell_counts.x; ++x) {
                 glm::ivec3 cell(x, y, z);
                 if (!level.covers(level.grid_to_previous_grid(cell, previous_origin))) {
                     ++count;
@@ -162,10 +162,10 @@ int brute_force_newly_covered(const fjell::DdgiClipmapLevel& level,
 
 } // namespace
 
-TEST_CASE("A level that has not moved reallocates nothing", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("A level that has not moved reallocates nothing", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
     level.recenter(glm::vec3(1.0f));
 
     glm::vec3 origin = level.snapped_origin;
@@ -176,10 +176,10 @@ TEST_CASE("A level that has not moved reallocates nothing", "[ddgi_clipmap]") {
     REQUIRE(level.newly_covered_cell_count(origin) == 0);
 }
 
-TEST_CASE("An axis-aligned one-cell shift reallocates exactly one slab", "[ddgi_clipmap]") {
-    DdgiClipmapLevel level;
+TEST_CASE("An axis-aligned one-cell shift reallocates exactly one slab", "[clipmap]") {
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
     level.recenter(glm::vec3(0.0f));
 
     glm::vec3 origin_before = level.snapped_origin;
@@ -193,14 +193,14 @@ TEST_CASE("An axis-aligned one-cell shift reallocates exactly one slab", "[ddgi_
             == brute_force_newly_covered(level, origin_before));
 }
 
-TEST_CASE("Diagonal shifts do not double-count the shared corner", "[ddgi_clipmap]") {
+TEST_CASE("Diagonal shifts do not double-count the shared corner", "[clipmap]") {
     // A naive "sum of three slabs" would count the overlapping edges
     // and corner more than once on a diagonal shift. The
     // closed form subtracts the retained box instead, so it must match
     // the brute-force walk exactly.
-    DdgiClipmapLevel level;
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
     level.recenter(glm::vec3(0.0f));
 
     glm::vec3 origin_before = level.snapped_origin;
@@ -213,14 +213,14 @@ TEST_CASE("Diagonal shifts do not double-count the shared corner", "[ddgi_clipma
             == brute_force_newly_covered(level, origin_before));
 }
 
-TEST_CASE("A shift larger than the level extent reallocates every cell", "[ddgi_clipmap]") {
+TEST_CASE("A shift larger than the level extent reallocates every cell", "[clipmap]") {
     // The teleport / large-jump case. Overlap must clamp at zero rather
     // than going negative, which would make the closed form report a
     // count larger than the volume (and, in the shader, walk off the end
     // of the slot pool).
-    DdgiClipmapLevel level;
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.cell_counts = glm::ivec3(8, 8, 8);
     level.recenter(glm::vec3(0.0f));
 
     glm::vec3 origin_before = level.snapped_origin;
@@ -232,14 +232,14 @@ TEST_CASE("A shift larger than the level extent reallocates every cell", "[ddgi_
             == brute_force_newly_covered(level, origin_before));
 }
 
-TEST_CASE("Closed-form reallocation count matches brute force across many shifts", "[ddgi_clipmap]") {
+TEST_CASE("Closed-form reallocation count matches brute force across many shifts", "[clipmap]") {
     // Sweep a range of shifts including negative, mixed-sign, and
     // exactly-at-extent magnitudes. The pairing of freed slots to
     // newly-covered cells in the allocation pass depends on this
     // identity holding everywhere, not just on the cases above.
-    DdgiClipmapLevel level;
+    ClipmapLevel3D level;
     level.cell_size = glm::vec3(2.0f);
-    level.probe_counts = glm::ivec3(6, 4, 6);
+    level.cell_counts = glm::ivec3(6, 4, 6);
 
     for (int dx = -8; dx <= 8; dx += 2) {
         for (int dy = -6; dy <= 6; dy += 2) {
@@ -256,7 +256,7 @@ TEST_CASE("Closed-form reallocation count matches brute force across many shifts
 
                 // The identity the allocation pass actually relies on:
                 // as many slots are freed as there are cells to fill.
-                int total = level.probe_counts.x * level.probe_counts.y * level.probe_counts.z;
+                int total = level.cell_counts.x * level.cell_counts.y * level.cell_counts.z;
                 REQUIRE(closed_form >= 0);
                 REQUIRE(closed_form <= total);
             }
@@ -264,12 +264,54 @@ TEST_CASE("Closed-form reallocation count matches brute force across many shifts
     }
 }
 
-TEST_CASE("snap_to_grid handles negative coordinates via floor, not truncation", "[ddgi_clipmap]") {
+TEST_CASE("snap_to_grid handles negative coordinates via floor, not truncation", "[clipmap]") {
     // Lumen's SnapToGrid explicitly uses floor() "to round negative
     // numbers down" rather than toward zero — verify Fjell's port keeps
     // that behavior, since a truncating version would place -0.5 in the
     // same cell as 0.5 instead of the cell below it.
     glm::vec3 cell_size(2.0f);
-    glm::vec3 snapped = DdgiClipmapLevel::snap_to_grid(glm::vec3(-0.5f, 0.0f, 0.0f), cell_size);
+    glm::vec3 snapped = ClipmapLevel3D::snap_to_grid(glm::vec3(-0.5f, 0.0f, 0.0f), cell_size);
     REQUIRE(snapped.x == Approx(-2.0f));
+}
+
+// --- Two dimensions ---
+//
+// A level laid over the ground plane spans XZ, so its vectors are
+// vec2(x, z). The geometry is the same code as the volume case; these
+// check that it stays the same behaviour when a whole axis is gone —
+// particularly the cell counting, which multiplies over N axes rather
+// than a hardcoded three.
+
+TEST_CASE("A 2D level recenters and covers the camera", "[clipmap]") {
+    ClipmapLevel2D level;
+    level.cell_size = glm::vec2(4.0f);
+    level.cell_counts = glm::ivec2(8);
+
+    REQUIRE(level.recenter(glm::vec2(37.0f, -19.0f)));
+
+    glm::ivec2 camera_cell = level.world_to_grid(glm::vec2(37.0f, -19.0f));
+    REQUIRE(level.covers(camera_cell));
+
+    // Idempotent within the same cell, as in 3D.
+    REQUIRE_FALSE(level.recenter(glm::vec2(37.5f, -18.5f)));
+}
+
+TEST_CASE("A 2D level counts newly covered cells over two axes", "[clipmap]") {
+    ClipmapLevel2D level;
+    level.cell_size = glm::vec2(2.0f);
+    level.cell_counts = glm::ivec2(16);
+    level.recenter(glm::vec2(0.0f));
+
+    glm::vec2 origin_before = level.snapped_origin;
+    REQUIRE(level.newly_covered_cell_count(origin_before) == 0);
+
+    // One cell along X: a single 1x16 column is new, not a 1x16x16 slab.
+    level.recenter(glm::vec2(2.0f, 0.0f));
+    REQUIRE(level.shift_in_cells(origin_before) == glm::ivec2(1, 0));
+    REQUIRE(level.newly_covered_cell_count(origin_before) == 16);
+
+    // A jump past the whole extent leaves nothing retained.
+    glm::vec2 before_jump = level.snapped_origin;
+    level.recenter(glm::vec2(1000.0f, 1000.0f));
+    REQUIRE(level.newly_covered_cell_count(before_jump) == 16 * 16);
 }
