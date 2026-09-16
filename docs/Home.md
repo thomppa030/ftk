@@ -6,7 +6,6 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 
 ### Getting Started
 - [Building & Running](Building-and-Running.md)
-- [CI Guide](CI-Guide.md) — building, testing, and driving the GitHub workflows from the terminal
 - [Project Structure](Project-Structure.md)
 - [Creating a Project](Creating-a-Project.md)
 
