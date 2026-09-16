@@ -107,6 +107,12 @@ void main() {
     vec2 SCREEN_UV = gl_FragCoord.xy / vec2(textureSize(screen_color_texture, 0));
     #define DEPTH_TEXTURE depth_texture
     #define SDF_TEXTURE scene_sdf
+    // The sun, as the spatial template offers it. Water reaches for it more
+    // than most surfaces do: its specular is a sun glint, and the light that
+    // carries through the body of a wave is strongest looking into it.
+    vec3 LIGHT_DIR = normalize(ubo.light_direction.xyz);
+    vec3 LIGHT_COLOR = ubo.light_color.xyz;
+    float LIGHT_INTENSITY = ubo.light_direction.w;
 
     // How pinched the surface is here: 0 on flat water, rising toward 1 where
     // the trains have bunched to a point. Whitecaps live at the top of this.
