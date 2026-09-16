@@ -19,6 +19,8 @@ FJELL_SDK_EXPORT void fjell_input_push_context(const char* name);
 FJELL_SDK_EXPORT void fjell_input_pop_context(const char* name);
 FJELL_SDK_EXPORT int fjell_input_active_device();
 FJELL_SDK_EXPORT bool fjell_input_pad_connected();
+FJELL_SDK_EXPORT void fjell_input_set_cursor_locked(bool locked);
+FJELL_SDK_EXPORT bool fjell_input_cursor_locked();
 }
 
 namespace fjell {
@@ -107,6 +109,26 @@ struct InputAPI {
     /// Whether a gamepad is connected at all, regardless of which device the
     /// player last used.
     [[nodiscard]] static bool pad_connected() { return fjell_input_pad_connected(); }
+
+    /// Hide the cursor and free it from the window edge, which a mouse-look
+    /// needs — an unlocked cursor stops producing movement once it reaches the
+    /// side of the screen. Lock it when mouse-look starts and unlock it for
+    /// menus, so the player gets a pointer back.
+    ///
+    /// The lock lifts by itself while the editor holds focus (docked play) and
+    /// comes back when the game does, so a script locks once and does not have
+    /// to track focus. Stopping play clears it.
+    ///
+    /// @param locked true to lock and hide, false to restore the normal cursor.
+    static void set_cursor_locked(bool locked) {
+        fjell_input_set_cursor_locked(locked);
+    }
+
+    /// Whether the cursor is locked right now. This is the state in force, not
+    /// the request: it reads false while the editor has focus even though the
+    /// game asked for a lock, so a script that must know what it asked for
+    /// should remember that itself.
+    [[nodiscard]] static bool cursor_locked() { return fjell_input_cursor_locked(); }
 };
 
 } // namespace fjell

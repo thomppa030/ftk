@@ -62,8 +62,25 @@ public:
     void set_game_focus(bool focused) { game_focus_ = focused; }
     [[nodiscard]] bool game_focus() const { return game_focus_; }
 
+    /// Hide the cursor and let it move without bound, so a mouse-look never
+    /// runs out of screen. Applies the mode immediately; prefer the intent
+    /// pair below for anything that has to survive losing focus.
     void set_cursor_captured(GLFWwindow* window, bool captured);
     [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
+
+    /// What the game asked for, as opposed to what is in force. A script
+    /// locks the cursor for as long as it wants mouse-look; the editor may
+    /// still take focus away, and the lock has to lift while it does or the
+    /// cursor is unusable over editor chrome. Keeping the request separate
+    /// from the mode is what lets focus come back without the script having
+    /// to notice it ever left and ask again.
+    void set_cursor_lock_wanted(bool wanted) { cursor_lock_wanted_ = wanted; }
+    [[nodiscard]] bool cursor_lock_wanted() const { return cursor_lock_wanted_; }
+
+    /// Bring the cursor mode in line with the request and whether the game may
+    /// honour it. Called once per frame by PlayController, which owns the
+    /// focus decision; nothing else needs to reconcile the two.
+    void apply_cursor_lock(bool allowed);
 
     /// Load SDL gamepad mappings so controllers GLFW does not know are
     /// still usable. Call once before the first update(). Without a mapping
@@ -131,6 +148,7 @@ private:
     GLFWwindow* window_{nullptr};
     bool first_mouse_{true};
     bool cursor_captured_{false};
+    bool cursor_lock_wanted_{false};
 
     // true outside docked play (fullscreen play, or not playing at all) so
     // every other caller keeps working unchanged; PlayController is the only

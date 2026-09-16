@@ -124,3 +124,17 @@ extern "C" FJELL_SDK_EXPORT bool fjell_input_pad_connected() {
     auto* input = fjell::script_services().input;
     return input != nullptr && input->pad_connected();
 }
+
+extern "C" FJELL_SDK_EXPORT void fjell_input_set_cursor_locked(bool locked) {
+    auto* input = fjell::script_services().input;
+    if (!input) return;
+    // Records the request only. PlayController applies it once per frame
+    // against the game's focus, so a lock asked for here survives the editor
+    // taking focus away and returning without the script being involved.
+    input->set_cursor_lock_wanted(locked);
+}
+
+extern "C" FJELL_SDK_EXPORT bool fjell_input_cursor_locked() {
+    auto* input = fjell::script_services().input;
+    return input != nullptr && input->is_cursor_captured();
+}

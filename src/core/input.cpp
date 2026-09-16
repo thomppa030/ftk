@@ -354,6 +354,14 @@ void Input::set_cursor_captured(GLFWwindow* window, bool captured) {
     }
 }
 
+void Input::apply_cursor_lock(bool allowed) {
+    const bool locked = cursor_lock_wanted_ && allowed;
+    if (locked == cursor_captured_ || window_ == nullptr) {
+        return;
+    }
+    set_cursor_captured(window_, locked);
+}
+
 static Input* get_input(GLFWwindow* window) {
     auto* win = static_cast<Window*>(glfwGetWindowUserPointer(window));
     return win ? win->input() : nullptr;
