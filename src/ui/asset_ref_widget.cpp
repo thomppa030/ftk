@@ -91,7 +91,10 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     float buttons_total = static_cast<float>(num_buttons) * (button_width + ImGui::GetStyle().ItemSpacing.x);
 
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons_total);
-    ImGui::InputText("##display", display.data(), display.size(),
+    // The buffer size counts the terminator std::string keeps behind its
+    // characters; ImGui asserts on a buffer with no room for one the moment
+    // the field is clicked into.
+    ImGui::InputText("##display", display.data(), display.size() + 1,
                      ImGuiInputTextFlags_ReadOnly);
 
     // Tooltip: full path
