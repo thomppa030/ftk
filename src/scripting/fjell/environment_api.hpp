@@ -3,7 +3,11 @@
 
 #include "fjell/api.h"
 
+#include "fjell/ref.hpp"
+
 #include <glm/glm.hpp>
+
+#include <cstdint>
 
 /// The part of the day the sun's height puts the scene in. Twilight is the
 /// band within six degrees of the horizon: dawn before noon, dusk after.
@@ -14,6 +18,24 @@ enum FjellTimePhase : int {
     FJELL_TIME_DUSK  = 3,
 };
 
+/// Where a weather event is in its life. Approach: the front is coming, wind
+/// rising, sky thickening from windward. Onset: the front passes overhead and
+/// precipitation ramps. Sustain: the weather proper. Tail: it tapers and the
+/// sky opens from the same side it closed from.
+enum FjellWeatherPhase : int {
+    FJELL_WEATHER_APPROACH = 0,
+    FJELL_WEATHER_ONSET    = 1,
+    FJELL_WEATHER_SUSTAIN  = 2,
+    FJELL_WEATHER_TAIL     = 3,
+};
+
+/// What is falling, if anything.
+enum FjellPrecipitation : int {
+    FJELL_PRECIPITATION_NONE = 0,
+    FJELL_PRECIPITATION_RAIN = 1,
+    FJELL_PRECIPITATION_SNOW = 2,
+};
+
 extern "C" {
 FJELL_SDK_EXPORT void  fjell_time_of_day_set_hour(float hour);
 FJELL_SDK_EXPORT float fjell_time_of_day_hour();
@@ -22,12 +44,32 @@ FJELL_SDK_EXPORT float fjell_time_of_day_day_length();
 FJELL_SDK_EXPORT int   fjell_time_of_day_phase();
 FJELL_SDK_EXPORT float fjell_time_of_day_sun_elevation();
 FJELL_SDK_EXPORT void  fjell_time_of_day_sun_direction(float* x, float* y, float* z);
+
+FJELL_SDK_EXPORT void     fjell_weather_play(uint32_t event_handle_id);
+FJELL_SDK_EXPORT void     fjell_weather_stop();
+FJELL_SDK_EXPORT uint32_t fjell_weather_current();
+FJELL_SDK_EXPORT int      fjell_weather_phase();
+FJELL_SDK_EXPORT float    fjell_weather_phase_progress();
+FJELL_SDK_EXPORT float    fjell_weather_precipitation();
+FJELL_SDK_EXPORT int      fjell_weather_precipitation_type();
+FJELL_SDK_EXPORT float    fjell_weather_wetness();
+FJELL_SDK_EXPORT float    fjell_weather_snow();
+FJELL_SDK_EXPORT float    fjell_weather_cloud_coverage();
+FJELL_SDK_EXPORT void     fjell_weather_wind(float* x, float* y, float* z);
+FJELL_SDK_EXPORT void     fjell_weather_front_direction(float* x, float* z);
+FJELL_SDK_EXPORT float    fjell_weather_param(const char* name, float fallback);
+FJELL_SDK_EXPORT void     fjell_weather_set_sky_param(const char* name, int count, const float* values);
 }
 
 namespace fjell {
 
 /// A `.fjday` day profile, for `[[fj::property]] Ref<DayProfileAsset>` fields.
 struct DayProfileAsset;
+/// A `.fjweather` weather event, for `[[fj::property]] Ref<WeatherAsset>` fields.
+struct WeatherAsset;
+
+enum class WeatherPhase : int { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 };
+enum class Precipitation : int { None = 0, Rain = 1, Snow = 2 };
 
 /// Same values as the FjellTimePhase constants above.
 enum class TimePhase : int { Night = 0, Dawn = 1, Day = 2, Dusk = 3 };
@@ -80,6 +122,100 @@ struct TimeOfDay {
         fjell_time_of_day_sun_direction(&d.x, &d.y, &d.z);
         return d;
     }
+};
+
+/// The weather over the scene. A weather is an event with a life of its own:
+/// it approaches, sets in, holds and tails off, on the tracks its `.fjweather`
+/// authored, and one event fades into the next by playing its tail under the
+/// newcomer's approach. Scripts read what it has done to the world, wetness
+/// and snow on surfaces, wind, precipitation, and can start an event.
+///
+/// @code
+/// [[fj::property]] fjell::Ref<fjell::WeatherAsset> storm;
+/// void on_trigger_enter(uint32_t) override { fjell::Weather::play(storm); }
+/// void tick(float) override {
+///     footsteps_.set_wet(fjell::Weather::wetness() > 0.5f);
+/// }
+/// @endcode
+struct Weather {
+    /// Start an event now. Whatever is playing tails out underneath it.
+    /// @param event Event asset, normally a `[[fj::property]] Ref<WeatherAsset>`.
+    ///              An unassigned ref is ignored.
+    static void play(const Ref<WeatherAsset>& event) {
+        if (event.handle_id() != 0) fjell_weather_play(event.handle_id());
+    }
+
+    /// Let the current event tail out with nothing to follow: clear weather.
+    static void stop() { fjell_weather_stop(); }
+
+    /// Handle id of the event playing, 0 when the sky is clear. Compare with
+    /// a ref's `handle_id()` to know which one it is.
+    [[nodiscard]] static uint32_t current() { return fjell_weather_current(); }
+
+    /// Where the playing event is in its life.
+    [[nodiscard]] static WeatherPhase phase() {
+        return static_cast<WeatherPhase>(fjell_weather_phase());
+    }
+
+    /// 0..1 through the current phase.
+    [[nodiscard]] static float phase_progress() { return fjell_weather_phase_progress(); }
+
+    /// How hard it is raining or snowing, 0..1.
+    [[nodiscard]] static float precipitation() { return fjell_weather_precipitation(); }
+
+    /// What is falling.
+    [[nodiscard]] static Precipitation precipitation_type() {
+        return static_cast<Precipitation>(fjell_weather_precipitation_type());
+    }
+
+    /// How wet exposed surfaces are, 0..1. Rises while it rains and dries
+    /// off slowly afterwards.
+    [[nodiscard]] static float wetness() { return fjell_weather_wetness(); }
+
+    /// How snow-covered exposed surfaces are, 0..1.
+    [[nodiscard]] static float snow() { return fjell_weather_snow(); }
+
+    /// How much of the sky the clouds cover, 0..1.
+    [[nodiscard]] static float cloud_coverage() { return fjell_weather_cloud_coverage(); }
+
+    /// The wind this frame: direction times speed in metres per second,
+    /// gusts included.
+    [[nodiscard]] static glm::vec3 wind() {
+        glm::vec3 w;
+        fjell_weather_wind(&w.x, &w.y, &w.z);
+        return w;
+    }
+
+    /// Which way the weather front travels over the ground, as a unit
+    /// direction on the XZ plane (x, z).
+    [[nodiscard]] static glm::vec2 front_direction() {
+        glm::vec2 d;
+        fjell_weather_front_direction(&d.x, &d.y);
+        return d;
+    }
+
+    /// A custom track of the playing event, by name: temperature, danger,
+    /// anything the designer keyed alongside the clouds.
+    /// @param fallback Returned when no playing event has the track.
+    [[nodiscard]] static float param(const char* name, float fallback = 0.0f) {
+        return fjell_weather_param(name, fallback);
+    }
+
+    /// Set a sky shader uniform by name, over the node's value and the day
+    /// profile's tracks. Colours as sRGB, as the picker shows them.
+    static void set_sky_param(const char* name, float v) {
+        fjell_weather_set_sky_param(name, 1, &v);
+    }
+    static void set_sky_param(const char* name, float x, float y, float z) {
+        const float v[3] = {x, y, z};
+        fjell_weather_set_sky_param(name, 3, v);
+    }
+    static void set_sky_param(const char* name, float x, float y, float z, float w) {
+        const float v[4] = {x, y, z, w};
+        fjell_weather_set_sky_param(name, 4, v);
+    }
+    /// Hand a uniform back to the node and profile.
+    static void clear_sky_param(const char* name) { fjell_weather_set_sky_param(name, 0, nullptr); }
 };
 
 } // namespace fjell
