@@ -1,4 +1,5 @@
 #include "ui/asset_ref_widget.hpp"
+#include "ui/asset_picker.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/file_browser.hpp"
 #include "ui/icon_cache.hpp"
@@ -97,9 +98,23 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     ImGui::InputText("##display", display.data(), display.size() + 1,
                      ImGuiInputTextFlags_ReadOnly);
 
+    // Clicking the field picks an asset. The read-only InputText still takes
+    // the click to place a caret; the picker opening over it is what the user
+    // sees, and the caret goes with the focus when the popup takes it.
+    if (ImGui::IsItemClicked()) {
+        asset_picker::open(config.id);
+    }
+
     // Tooltip: full path
     if (ImGui::IsItemHovered() && !shown_path.empty()) {
         ImGui::SetTooltip("%s", shown_path.c_str());
+    }
+
+    // The picker draws here so it opens under the field rather than wherever
+    // the row happens to end.
+    if (std::string chosen; asset_picker::draw(config.id, config.extensions, project, chosen)) {
+        path = to_reference(chosen);
+        changed = true;
     }
 
     // Drag-and-drop target

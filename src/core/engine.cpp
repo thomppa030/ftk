@@ -1,6 +1,7 @@
 #include "core/engine.hpp"
 #include "core/asset_references.hpp"
 #include "core/base_path.hpp"
+#include "ui/asset_picker.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "core/input_component.hpp"
 #include "core/commands.hpp"
@@ -373,6 +374,7 @@ void Engine::init_content_browser() {
     IconCache::set_instance(icon_cache_.get());
 
     AssetThumbnailRenderer::set_instance(&asset_thumbnails_);
+    asset_picker::set_thread_pool(&thread_pool_);
     content_browser_.init(icon_cache_.get(), &asset_thumbnails_,
                           vulkan_context_.get(), resource_manager_.get());
     connections_.push_back(content_browser_.on_add_model.bind(
@@ -883,6 +885,10 @@ Engine::~Engine() {
     vulkan_context_->set_overlay_callback(nullptr);
     game_ui_.destroy();
     AssetThumbnailRenderer::set_instance(nullptr);
+    // Drops any directory walk still in flight, so nothing is waiting on the
+    // pool once it goes.
+    asset_picker::set_thread_pool(nullptr);
+    asset_picker::invalidate();
     asset_thumbnails_.shutdown(asset_thumbnail_deps());
     for (auto& ctx : contexts_) ctx->shutdown();
     contexts_.clear();

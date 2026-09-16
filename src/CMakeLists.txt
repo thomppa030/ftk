@@ -261,6 +261,8 @@ add_executable(fjell
     net/rpc_router.cpp
     net/replication_graph.cpp
     net/net_subsystem.cpp
+    ui/asset_picker.cpp
+    ui/grouped_picker.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp
     ui/console.cpp
