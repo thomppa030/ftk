@@ -95,6 +95,11 @@ public:
 
     // RenderSubsystem lifecycle
     void sync(const RenderSubsystemContext& ctx) override;
+    /// Every effect in the scene shares this many particles: the ceiling the
+    /// mega-buffer can grow to. An emitter that would take the scene past it
+    /// is refused with a warning rather than allowed to exhaust the buffer.
+    static constexpr uint32_t MAX_SCENE_PARTICLES = 65536;
+
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;
     void record_opaque(const FrameContext& ctx) override;

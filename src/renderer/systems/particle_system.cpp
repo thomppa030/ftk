@@ -74,6 +74,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     // already far more headroom than any realistic emitter count needs.
     constexpr VkDeviceSize INITIAL_PARTICLES = 512;
     constexpr VkDeviceSize MAX_PARTICLES = 65536;
+    static_assert(MAX_PARTICLES == ParticleSystem::MAX_SCENE_PARTICLES,
+                  "the emitter budget and the buffer's ceiling are the same number");
     constexpr VkDeviceSize INITIAL_EMITTERS = 8;
     constexpr VkDeviceSize MAX_EMITTERS = 512;
     constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
@@ -1648,6 +1650,19 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     // at emit time and use it to look up EmitterData in the sim shader)
     uint32_t first_new = static_cast<uint32_t>(emitters_.size());
     for (const auto& ne : new_emitters) {
+        // Every effect in the scene shares one particle budget. An emitter
+        // that would take the scene past it is refused here, naming itself
+        // and what it asked for, rather than growing the buffer until it
+        // throws with nothing to act on: a greedy effect is an authoring
+        // mistake and the scene should keep running while it is fixed.
+        if (next_offset + ne.max_particles > MAX_SCENE_PARTICLES) {
+            FJELL_GFX_WARN("Particles: emitter {} of node {} asked for {} particles, "
+                           "but only {} of the scene's {} are left — it will not emit. "
+                           "Lower its Max Particles, or another effect's.",
+                           ne.emitter_index, ne.object_id, ne.max_particles,
+                           MAX_SCENE_PARTICLES - next_offset, MAX_SCENE_PARTICLES);
+            continue;
+        }
         EmitterGpu gpu{};
         gpu.scene_id = scene_id;
         gpu.object_id = ne.object_id;
