@@ -4,6 +4,9 @@
 #include "fjell_gpu_types.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+#include "fjell_environment.glsl"
+#include "fjell_wind.glsl"
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
@@ -47,6 +50,9 @@ void main() {
     vec2 UV = in_tex_coord;
     mat4 MODEL = model;
     float TIME = ubo.time;
+    vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
+    float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
+    float TIME_OF_DAY = env_ubo.weather1.w;
 
     if (is_spline) {
         SplineSegment seg = spline_segments[dd.spline_segment_offset + instance_id];

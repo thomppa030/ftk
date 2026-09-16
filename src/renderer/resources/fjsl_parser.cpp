@@ -305,6 +305,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             std::string mode = token.substr(s, e - s + 1);
 
             if (mode == "unlit") meta.render_mode = RenderMode::Unlit;
+            else if (mode == "no_weather") meta.no_weather = true;
             else if (mode == "cull_disabled") meta.render_state.cull_disabled = true;
             else if (mode == "cull_front") meta.render_state.cull_front = true;
             else if (mode == "depth_write_disabled") meta.render_state.depth_write_disabled = true;
@@ -487,6 +488,14 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     replace("/*FJSL_USER_GLOBALS*/", meta.user_globals);
     replace("/*FJSL_USER_CODE*/", meta.fragment_body);
     replace("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
+
+    // The weather's default response to the surface: rain wets it, snow
+    // covers it. Off for unlit shaders, which have no surface to speak of,
+    // and for shaders that answer the weather themselves.
+    replace("/*FJSL_WEATHER*/",
+            (meta.render_mode == RenderMode::Unlit || meta.no_weather) ? std::string{} :
+            std::string("    fjell_apply_weather(ALBEDO, ROUGHNESS, METALLIC, NORMAL, normalize(frag_world_normal), WORLD_POS,\n"
+                        "                        WETNESS, SNOW, PRECIPITATION, SKY_EXPOSURE, TIME);\n"));
 
     // light() body — user-provided replaces the default PBR. The default
     // mirrors the standard GGX math so shaders without a custom light()

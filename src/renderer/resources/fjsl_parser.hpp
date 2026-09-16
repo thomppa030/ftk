@@ -87,6 +87,9 @@ struct ShaderMetadata {
     std::string light_body;    // contents of light() { ... } (empty = default PBR)
     std::string layers_body;   // terrain only: contents of layers() { ... } (empty = painted weights as-is)
     std::string user_globals;  // top-level helpers / constants the user authored
+    // render_mode no_weather: the surface takes no rain or snow from the
+    // environment; fragment() reads the weather built-ins and decides itself.
+    bool no_weather{false};
     uint32_t custom_texture_count{0};
     uint32_t custom_param_count{0}; // total floats needed for scalar uniforms
 };
