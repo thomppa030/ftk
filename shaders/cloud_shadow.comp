@@ -26,8 +26,18 @@ layout(push_constant) uniform PushConstants {
     vec2  pad;
 } push;
 
-// How dark the thickest cloud gets: a little light always scatters through.
-const float MAX_OCCLUSION = 0.85;
+// How dark the thickest cloud gets under a high sun: a little light always
+// scatters through. Softer than it looks, because this multiplies a sun that
+// is itself the brightest thing in the scene.
+const float MAX_OCCLUSION = 0.7;
+
+// Below this the sun is too low for a cloud shadow to mean anything: the ray
+// to the cloud sheet travels kilometres sideways, so the shadow under your
+// feet belongs to a cloud far over the horizon. Rather than snapping off at
+// some threshold, the shadow fades out across this band, which is roughly the
+// last twenty degrees before the horizon.
+const float GRAZING_FADE_START = 0.34;   // sin(20 degrees)
+const float GRAZING_FADE_END = 0.05;     // sin(3 degrees)
 
 void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
@@ -38,7 +48,9 @@ void main() {
 
     vec3 light_dir = normalize(ubo.light_direction.xyz);
     float coverage = env_ubo.weather0.x;
-    if (light_dir.y <= 0.02 || coverage <= 0.0) {
+    // How much of a cloud shadow this sun can cast at all.
+    float grazing = smoothstep(GRAZING_FADE_END, GRAZING_FADE_START, light_dir.y);
+    if (grazing <= 0.0 || coverage <= 0.0) {
         imageStore(shadow_out, coord, vec4(1.0));
         return;
     }
@@ -50,9 +62,21 @@ void main() {
 
     // The front is judged from the camera, as the sky does.
     vec3 from_camera = normalize(cloud - ubo.camera_position.xyz);
-    float amount = fjell_cloud_amount(sheet, coverage, env_ubo.weather0.y)
-                 * fjell_cloud_front_mask(from_camera, env_ubo.front.xy, env_ubo.front.z, env_ubo.front.w);
+    float mask = fjell_cloud_front_mask(from_camera, env_ubo.front.xy, env_ubo.front.z, env_ubo.front.w);
 
-    float transmittance = 1.0 - clamp(amount, 0.0, 1.0) * MAX_OCCLUSION;
+    // A cloud shadow is not a stencil: the cloud has depth, the sun has an
+    // angular size, and a kilometre and a half of air lies between them and
+    // the ground. Averaging a few taps across the sheet is what turns the
+    // crisp edge the sky wants into the soft one the ground wants.
+    const float SOFTEN = 0.045;   // in sheet units, a few hundred metres
+    float amount = 0.0;
+    amount += fjell_cloud_amount(sheet, coverage, env_ubo.weather0.y) * 0.4;
+    amount += fjell_cloud_amount(sheet + vec2( SOFTEN, 0.0), coverage, env_ubo.weather0.y) * 0.15;
+    amount += fjell_cloud_amount(sheet + vec2(-SOFTEN, 0.0), coverage, env_ubo.weather0.y) * 0.15;
+    amount += fjell_cloud_amount(sheet + vec2(0.0,  SOFTEN), coverage, env_ubo.weather0.y) * 0.15;
+    amount += fjell_cloud_amount(sheet + vec2(0.0, -SOFTEN), coverage, env_ubo.weather0.y) * 0.15;
+    amount *= mask;
+
+    float transmittance = 1.0 - clamp(amount, 0.0, 1.0) * MAX_OCCLUSION * grazing;
     imageStore(shadow_out, coord, vec4(transmittance));
 }

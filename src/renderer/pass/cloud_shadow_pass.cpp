@@ -287,7 +287,11 @@ void CloudShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/
     active_ = false;
     if (ctx.environment == nullptr) return;
     const auto& env = *ctx.environment;
-    active_ = env.weather.cloud_coverage > 0.0f && env.primary.lit() && env.primary.direction.y > 0.02f;
+    // Above the grazing band the compute shader fades the shadow out on its
+    // own; below it there is nothing to draw, so the map holds full
+    // transmittance and the dispatch is skipped entirely.
+    active_ = env.weather.cloud_coverage > 0.0f && env.primary.lit() &&
+              env.primary.direction.y > 0.05f;
     frame_ = cloud_shadow_frame(ctx.camera_position, EXTENT_METRES, RESOLUTION);
     // The ground the sun's rays are traced from: the camera's height is the
     // one height the map knows about the terrain under it.
