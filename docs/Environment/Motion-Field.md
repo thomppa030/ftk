@@ -40,8 +40,13 @@ it happened.
 nothing else, because grass springs back in a moment and fog settles over
 seconds. It remembers for four seconds — long enough for the slowest reader —
 and a faster one fades its own reading sooner. A reader wanting "the air here
-is still being pushed" rather than "something passed here at some point" should
-take the top of the range, not the whole of it: fog uses the freshest quarter.
+is still being pushed" rather than "something passed here at some point" wants
+the top of the range and not the whole of it — but be careful what that drives.
+Recency is re-stamped whenever a source passes and decays in between, so it is
+a noisy thing to steer anything the eye reads as steady: driving how strongly
+fog filters itself over time by it makes the filtering wobble, which shows as
+flicker. Let it pick *what* a reader does, rather than how hard something
+smooths.
 
 A mark is not a line. It widens as it ages, and rolls as it widens, so a wake
 opens out behind whatever left it and breaks into eddies rather than softening
@@ -81,6 +86,36 @@ and sharpen when it stopped.
 Past the square's edge nothing is known to have moved, and the edge fades so
 the border does not read as a line across the world.
 
+## The fog density field
+
+The motion field's second reader, and the one that shows. It is a box of air
+around the camera holding how stirred each part of it is — written by
+`FogDensityFieldPass`, read by fog, and documented here because the two belong
+together: the map says something passed, the field says what the air did about
+it afterwards.
+
+A texel holds a signed share of the fog around it: negative where the air was
+shoved out of the way, positive where it piled up. Air is displaced rather than
+destroyed, so a wake carries its own heaps beside its trough — and because the
+two very nearly cancel, the disturbance settles by spreading into itself rather
+than being faded out from under the viewer.
+
+Each frame the field is carried forward: advected along a curl of noise (which
+turns a wake rather than blurring it), drifted downwind, leaned upward a little
+where the air piled up, spread into its neighbours and faded. Whatever moved
+through is then carved in. So a wake keeps drifting and fraying for seconds
+after whatever made it has gone.
+
+This is what dragging a fog volume's noise about cannot do. That drag can only
+move structure the volume already had, and a wisp is metres across where a wake
+is not; here the wake *is* the structure, at the size of a texel. 128 × 32 × 128
+over 64 m × 16 m — half a metre a texel, 2 MB for the pair.
+
+Fog reads it as a share of whatever fog is already there, so a wake is as strong
+as the bank it is carved in and cannot light up clear air. It reaches the global
+height fog as well as placed volumes, and needs no property raised: a scene
+nobody has walked through costs nothing.
+
 ## For engine work
 
 `MotionFieldPass` (`RenderPhase::Environment`, sub-order 70) owns two images and
@@ -95,3 +130,11 @@ gated on `env_ubo.motion_field_texture`.
 
 Sources are gathered from the scene into `EnvironmentState::motion_sources`, so
 the renderer never reaches into physics. The cap is 64 in a frame.
+
+`FogDensityFieldPass` (sub-order 71) follows the same shape one dimension up,
+with two rules of its own. It is carried forward once a frame however many
+viewports draw it — it is one thing in the world, not one per view, and
+stepping it twice would advance it over the same span of time twice. And its
+box only moves on a frame that dispatches: moving it without a dispatch to
+resample into it would leave the contents describing one patch of world while
+everything reading them assumed another.

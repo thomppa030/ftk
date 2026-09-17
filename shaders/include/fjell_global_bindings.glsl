@@ -24,6 +24,9 @@
 //   13 contact_shadow      COMBINED_IMAGE_SAMPLER
 //   14 environment_ubo     UNIFORM_BUFFER  (fjell_environment.glsl)
 //   15 cloud_shadow        COMBINED_IMAGE_SAMPLER  (fjell_cloud_shadow.glsl)
+//   16 motion_field        COMBINED_IMAGE_SAMPLER  (fjell_motion_field.glsl)
+//   17 fog_volume_ssbo     STORAGE_BUFFER
+//   18 fog_density_field   COMBINED_IMAGE_SAMPLER  (fjell_fog_density_field.glsl)
 //
 // To add a new binding:
 //   1. Call gpu_.global_bindings().declare({...}) in C++ before finalize

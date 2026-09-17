@@ -187,6 +187,10 @@ GpuContext::~GpuContext() {
     if (depth_sampler_ != VK_NULL_HANDLE)
         vkDestroySampler(vk_device, depth_sampler_, nullptr);
 
+    if (volume_fallback_view_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(vk_device, volume_fallback_view_, nullptr);
+    }
+    destroy_vma_image(core_.allocator(), volume_fallback_image_, volume_fallback_alloc_);
     if (gi_fallback_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk_device, gi_fallback_view_, nullptr);
     if (gi_fallback_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_device, gi_fallback_sampler_, nullptr);
     destroy_vma_image(core_.allocator(), gi_fallback_image_, gi_fallback_alloc_);
@@ -297,6 +301,21 @@ void GpuContext::create_descriptor_resources() {
 
         create_vma_image(core_.allocator(), &gi_img_ci, &gi_fallback_image_, &gi_fallback_alloc_);
 
+        // The same, with a depth axis, for the 3D samplers.
+        VkImageCreateInfo vol_img_ci = gi_img_ci;
+        vol_img_ci.imageType = VK_IMAGE_TYPE_3D;
+        vol_img_ci.format = VK_FORMAT_R16_SFLOAT;
+        create_vma_image(core_.allocator(), &vol_img_ci,
+                         &volume_fallback_image_, &volume_fallback_alloc_);
+
+        VkImageViewCreateInfo vol_view_ci{};
+        vol_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        vol_view_ci.image = volume_fallback_image_;
+        vol_view_ci.viewType = VK_IMAGE_VIEW_TYPE_3D;
+        vol_view_ci.format = VK_FORMAT_R16_SFLOAT;
+        vol_view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(vk_device, &vol_view_ci, nullptr, &volume_fallback_view_);
+
         VkImageViewCreateInfo gi_view_ci{};
         gi_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         gi_view_ci.image = gi_fallback_image_;
@@ -327,6 +346,11 @@ void GpuContext::create_descriptor_resources() {
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(init_cmd, &begin);
         vk_utils::transition_image(init_cmd, gi_fallback_image_,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT);
+        vk_utils::transition_image(init_cmd, volume_fallback_image_,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
@@ -372,6 +396,9 @@ void GpuContext::finalize_descriptors() {
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         global_bindings_.write_image(i, "ss_gi_emissive",
             gi_fallback_view_, gi_fallback_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        global_bindings_.write_image(i, "fog_density_field",
+            volume_fallback_view_, gi_fallback_sampler_,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         global_bindings_.flush_writes();
     }

@@ -41,6 +41,7 @@ void GlobalBindings::register_builtins() {
     declare({"cloud_shadow",    15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"motion_field",    16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"fog_volume_ssbo", 17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
+    declare({"fog_density_field", 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
 }
 
 void GlobalBindings::declare(GlobalBindingDecl decl) {

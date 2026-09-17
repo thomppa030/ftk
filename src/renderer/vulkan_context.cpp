@@ -1,6 +1,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "environment/environment_ubo.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
+#include "renderer/pass/fog_density_field_pass.hpp"
 #include "renderer/pass/motion_field_pass.hpp"
 
 #include "renderer/fjgraph_parser.hpp"
@@ -1008,6 +1009,10 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     if (auto* motion = passes_.try_get<MotionFieldPass>("motion_field")) {
         env_ubo.motion_field_vp = motion->world_to_uv();
         env_ubo.motion_field_texture = motion->active() ? 1u : 0u;
+    }
+    if (auto* density = passes_.try_get<FogDensityFieldPass>("fog_density_field")) {
+        env_ubo.fog_density_field_vp = density->world_to_uv();
+        env_ubo.fog_density_field_texture = density->active() ? 1u : 0u;
     }
     gpu_.environment_buffer(frame_index).write(&env_ubo, sizeof(env_ubo));
 

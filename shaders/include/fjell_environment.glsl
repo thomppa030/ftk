@@ -27,8 +27,10 @@ layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
     vec4 celestial_axis;           /* xyz sky rotation axis, w radians since noon */ \
     mat4 cloud_shadow_vp;                                                      \
     mat4 motion_field_vp;          /* world -> motion field uv */               \
+    mat4 fog_density_field_vp;     /* world -> fog density field uvw */         \
     uint cloud_shadow_texture;     /* bindless index, 0 = none */              \
     uint motion_field_texture;     /* 1 when the map holds anything */          \
+    uint fog_density_field_texture; /* 1 when the field holds anything */       \
 } NAME
 
 #define FJELL_ENVIRONMENT_UBO_BINDING 14

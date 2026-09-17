@@ -17,6 +17,8 @@ layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
 #include "fjell_cloud_shadow.glsl"
 layout(set = 0, binding = 16) uniform sampler2D motion_field_tex;
 #include "fjell_motion_field.glsl"
+layout(set = 0, binding = 18) uniform sampler3D fog_density_field_tex;
+#include "fjell_fog_density_field.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
@@ -114,6 +116,14 @@ const float MOTION_FADE_METRES = 1.0;
 // along the ray for the same thinning to read plainly, which is why the volume
 // path leans on it. Height fog wants something that changes what the fog looks
 // like rather than how much of it there is.
+// What a stirred texel is worth to the fog around it. A full-strength wake
+// takes the air to somewhat over half and a full-strength heap to somewhat
+// under half again, which is a plain change in a bank of fog without either
+// end reading as a hole punched through it or a wall built beside it.
+const float FOG_DENSITY_STRENGTH = 0.8;
+const float FOG_DENSITY_FLOOR = 0.2;
+const float FOG_DENSITY_CEIL = 1.8;
+
 const float GLOBAL_MOTION_THIN = 0.5;
 const float GLOBAL_MOTION_HEAP = 0.35;
 
@@ -405,6 +415,25 @@ void main() {
         density_sum += d;
         color_sum += vol.color_density.xyz * d;
         scatter_sum += vol.scatter_params.x * d;
+    }
+
+    // What the air here has actually been through, as it stands now. Applied
+    // to everything that makes fog rather than inside the volume loop: the
+    // field does not know which fog it is stirring, and the height fog is as
+    // much fog as a placed bank is.
+    //
+    // A share of what is here rather than an amount of its own, so a wake is
+    // as strong as the fog it is carved in and cannot light up clear air above
+    // a bank. Scaled well below one so that the air thins where it was pushed
+    // aside and thickens where it piled up without either reaching a hole or a
+    // wall — displaced air, not removed air.
+    float stir = fog_density_stir(world_pos);
+    if (stir != 0.0) {
+        float scale = clamp(1.0 + stir * FOG_DENSITY_STRENGTH, FOG_DENSITY_FLOOR,
+                            FOG_DENSITY_CEIL);
+        density_sum *= scale;
+        color_sum *= scale;
+        scatter_sum *= scale;
     }
 
     // Colour and scattering are averages over the fog present here, weighted

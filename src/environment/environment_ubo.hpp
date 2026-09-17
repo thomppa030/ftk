@@ -37,9 +37,13 @@ struct EnvironmentUbo {
     /// World position -> motion field uv. The slot the removed overhead
     /// depth map left behind; the layout is unchanged.
     alignas(16) glm::mat4 motion_field_vp;
+    /// World position -> fog density field uvw. All three axes carry, unlike
+    /// the flat map above.
+    alignas(16) glm::mat4 fog_density_field_vp;
     uint32_t cloud_shadow_texture{0};               // bindless index, 0 = none
     uint32_t motion_field_texture{0};               // 1 when the map holds anything
-    uint32_t ubo_pad[2]{};
+    uint32_t fog_density_field_texture{0};          // 1 when the field holds anything
+    uint32_t ubo_pad[1]{};
 
     bool operator==(const EnvironmentUbo&) const = default;
 };
@@ -59,9 +63,11 @@ static_assert(offsetof(EnvironmentUbo, sky_tint_star) == 176);
 static_assert(offsetof(EnvironmentUbo, celestial_axis) == 192);
 static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 208);
 static_assert(offsetof(EnvironmentUbo, motion_field_vp) == 272);
-static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 336);
-static_assert(offsetof(EnvironmentUbo, motion_field_texture) == 340);
-static_assert(sizeof(EnvironmentUbo) == 352);
+static_assert(offsetof(EnvironmentUbo, fog_density_field_vp) == 336);
+static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 400);
+static_assert(offsetof(EnvironmentUbo, motion_field_texture) == 404);
+static_assert(offsetof(EnvironmentUbo, fog_density_field_texture) == 408);
+static_assert(sizeof(EnvironmentUbo) == 416);
 
 /// Pack the resolved environment for upload.
 [[nodiscard]] inline EnvironmentUbo make_environment_ubo(const EnvironmentState& env) {
@@ -83,6 +89,7 @@ static_assert(sizeof(EnvironmentUbo) == 352);
     ubo.celestial_axis = glm::vec4(env.celestial_axis, env.celestial_angle);
     ubo.cloud_shadow_vp = glm::mat4(1.0f);
     ubo.motion_field_vp = glm::mat4(1.0f);
+    ubo.fog_density_field_vp = glm::mat4(1.0f);
     return ubo;
 }
 

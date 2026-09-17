@@ -219,6 +219,15 @@ private:
     VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     // 1x1 black fallback for GI indirect (binding 10 when DDGI disabled)
+    // A single empty texel for any 3D sampler whose writer is not in the graph
+    // being drawn. A binding is only written by the pass that owns it, and a
+    // graph need not contain that pass — a shader sampling an unwritten
+    // descriptor is undefined, so every one of them needs somewhere harmless to
+    // point.
+    VkImage volume_fallback_image_{VK_NULL_HANDLE};
+    VmaAllocation volume_fallback_alloc_{VK_NULL_HANDLE};
+    VkImageView volume_fallback_view_{VK_NULL_HANDLE};
+
     VkImage gi_fallback_image_{VK_NULL_HANDLE};
     VmaAllocation gi_fallback_alloc_{VK_NULL_HANDLE};
     VkImageView gi_fallback_view_{VK_NULL_HANDLE};

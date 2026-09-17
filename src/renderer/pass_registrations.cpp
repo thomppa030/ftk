@@ -13,6 +13,7 @@
 
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
+#include "renderer/pass/fog_density_field_pass.hpp"
 #include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
@@ -65,6 +66,7 @@ FJELL_REGISTER_PASS(BloomDs0Pass)
 FJELL_REGISTER_PASS(ContactShadowPass)
 FJELL_REGISTER_PASS(CloudShadowPass)
 FJELL_REGISTER_PASS(MotionFieldPass)
+FJELL_REGISTER_PASS(FogDensityFieldPass)
 FJELL_REGISTER_PASS(CullPass)
 FJELL_REGISTER_PASS(CullVizPass)
 FJELL_REGISTER_PASS(DdgiPass)
