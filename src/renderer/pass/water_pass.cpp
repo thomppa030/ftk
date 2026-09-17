@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/components/water_component.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -383,9 +384,19 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     }
 
     if (it != material_pipelines_.end() && it->second.pipeline != VK_NULL_HANDLE) {
-        // The old pipeline is still referenced by frames in flight; the device
-        // idles before a recompile reaches here, so destroying now is safe.
-        vkDestroyPipeline(device_, it->second.pipeline, nullptr);
+        // Retired rather than destroyed: a hot reload idles the device first,
+        // but a material first seen while the scene is already drawing does
+        // not, and the frame slot's own fence only proves that slot is done —
+        // another slot's command buffer can still reference this pipeline.
+        // The deleter holds it until every slot has cycled.
+        VkPipeline doomed = it->second.pipeline;
+        if (resources_.deferred_deleter != nullptr) {
+            resources_.deferred_deleter->defer(
+                [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
+        } else {
+            vkDeviceWaitIdle(device_);
+            vkDestroyPipeline(device_, doomed, nullptr);
+        }
     }
     material_pipelines_[pipeline_id] = MaterialPipeline{pipeline, generation};
     return pipeline;
