@@ -114,6 +114,56 @@ TEST_CASE("Shader and CPU wave fields agree", "[fjwater]") {
             }
         }
     }
+
+    // Not a function of position or time, so it is checked once rather than
+    // over the grid — but it is half of a pair like the rest, and the pass
+    // hands the CPU answer to the shader through a push constant, so a drift
+    // here would point foam the wrong way with nothing to catch it.
+    glm::vec2 cpu_dir = water::dominant_direction(field.cpu);
+    vec2 gpu_dir = fjell_water_dominant_dir(field.gpu);
+    REQUIRE(cpu_dir.x == Approx(gpu_dir.x).margin(1e-4));
+    REQUIRE(cpu_dir.y == Approx(gpu_dir.y).margin(1e-4));
+}
+
+TEST_CASE("A sea's dominant direction follows its biggest trains", "[fjwater]") {
+    SECTION("one train travels the way it points") {
+        auto field = make_field({wave({0.0f, 1.0f}, 20.0f, 1.0f, 0.5f)});
+        glm::vec2 dir = water::dominant_direction(field.cpu);
+        REQUIRE(dir.x == Approx(0.0f).margin(1e-5));
+        REQUIRE(dir.y == Approx(1.0f).margin(1e-5));
+    }
+
+    SECTION("amplitude decides, not train count") {
+        // Four ripples pulling one way do not outvote the swell carrying the
+        // surface. This is the property that makes WAVE_DIR mean "the way
+        // this sea runs" rather than "the average of its entries".
+        auto field = make_field({
+            wave({1.0f, 0.0f}, 45.0f, 2.0f, 0.5f),
+            wave({0.0f, 1.0f}, 4.0f, 0.05f, 0.5f),
+            wave({0.0f, 1.0f}, 4.0f, 0.05f, 0.5f),
+            wave({0.0f, 1.0f}, 4.0f, 0.05f, 0.5f),
+            wave({0.0f, 1.0f}, 4.0f, 0.05f, 0.5f),
+        });
+        glm::vec2 dir = water::dominant_direction(field.cpu);
+        REQUIRE(dir.x > 0.99f);
+        REQUIRE(dir.y == Approx(0.1f).margin(0.02f));
+    }
+
+    SECTION("opposed trains cancel to no direction") {
+        // A sea running equally both ways has no direction of travel, and the
+        // zero is the honest answer. Shaders fade their directional terms out
+        // on it rather than dividing by it.
+        auto field = make_field({
+            wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f),
+            wave({-1.0f, 0.0f}, 20.0f, 1.0f, 0.5f),
+        });
+        REQUIRE(glm::length(water::dominant_direction(field.cpu)) == Approx(0.0f).margin(1e-5));
+    }
+
+    SECTION("an empty field has no direction") {
+        auto field = make_field({});
+        REQUIRE(glm::length(water::dominant_direction(field.cpu)) == Approx(0.0f).margin(1e-5));
+    }
 }
 
 TEST_CASE("The generated fan spans the spread it was given", "[fjwater]") {

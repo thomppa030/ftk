@@ -17,6 +17,9 @@ layout(push_constant) uniform PushConstants {
     uint  patch_quads;
     uint  water_material_id;
     float delta_time;
+    // Where the sea travels. Unused by this stage; present so the push block
+    // matches WaterPushConstants and the fragment stage, which does read it.
+    vec2  wave_direction;
 } push;
 
 struct TaskPayload {

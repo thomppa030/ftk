@@ -45,6 +45,21 @@ namespace water {
 /// being painted separately.
 [[nodiscard]] float crest(const FjWaterData& water, glm::vec2 world_xz, float time);
 
+/// The way this sea travels, as the amplitude-weighted mean of its trains,
+/// or (0,0) when they cancel.
+///
+/// A property of the field rather than of a point, so it costs nothing to ask
+/// and every point on the surface gets the same answer. The shader hands it to
+/// water materials as WAVE_DIR, which is what lets foam gather on the face of
+/// a wave that is advancing rather than sitting evenly along the crest.
+///
+/// Weighted by amplitude because the train carrying the surface is the one
+/// that sets the sea's direction; a ripple a hundredth its height does not get
+/// an equal vote. Trains pointing opposite ways cancel, and a sea with two
+/// equal opposed swells genuinely has no direction of travel — the zero says
+/// so, and callers should fall back to something non-directional.
+[[nodiscard]] glm::vec2 dominant_direction(const FjWaterData& water);
+
 /// Height of the surface above `world_xz`, for buoyancy and swimming.
 ///
 /// Note this evaluates the field at `world_xz` as a rest position, so under

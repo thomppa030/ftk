@@ -140,6 +140,30 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
     return n / len;
 }
 
+// Matches dominant_direction(): the way this sea travels, as the
+// amplitude-weighted mean of its trains.
+//
+// Weighted by amplitude because that is what "this sea travels that way"
+// means to a viewer: the train carrying the surface sets the direction and a
+// ripple a hundredth its height does not get an equal vote.
+//
+// Summed as vectors, not axes, so trains pointing opposite ways cancel. That
+// is the correct answer rather than a flaw — a sea with two equal opposed
+// swells has no direction of travel, and the zero it returns says so. Callers
+// get (0,0) in that case and should fall back to something non-directional.
+vec2 fjell_water_dominant_dir(FjellWaterField field) {
+    vec2 sum = vec2(0.0);
+    uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
+    for (uint i = 0u; i < count; ++i) {
+        FjellWaterWave w = field.waves[i];
+        float len = length(w.direction);
+        if (len < 1e-6 || w.wavelength < 1e-4) continue;
+        sum += (w.direction / len) * w.amplitude;
+    }
+    float len = length(sum);
+    return len < 1e-6 ? vec2(0.0) : sum / len;
+}
+
 // Matches crest(): 0 on flat water, rising toward 1 where the surface has
 // bunched to a point. Use it directly as a whitecap mask.
 float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {

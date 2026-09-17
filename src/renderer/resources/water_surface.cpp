@@ -157,6 +157,19 @@ float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
     return std::clamp(1.0f - jacobian, 0.0f, 1.0f);
 }
 
+glm::vec2 dominant_direction(const FjWaterData& water) {
+    glm::vec2 sum(0.0f);
+    std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto& w = water.waves[i];
+        float len = glm::length(w.direction);
+        if (len < 1e-6f || w.wavelength < 1e-4f) continue;
+        sum += (w.direction / len) * w.amplitude;
+    }
+    float len = glm::length(sum);
+    return len < 1e-6f ? glm::vec2(0.0f) : sum / len;
+}
+
 float height_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     return displace(water, world_xz, time).y;
 }

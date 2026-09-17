@@ -13,6 +13,7 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/resources/water_gpu.hpp"
+#include "renderer/resources/water_surface.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/scene.hpp"
 
@@ -490,6 +491,7 @@ void WaterPass::record(const FrameContext& ctx) {
         push.patch_quads = 11;   // matches PATCH_QUADS in water.mesh
         push.water_material_id = material_id;
         push.delta_time = ctx.delta_time;
+        push.wave_direction = water::dominant_direction(wc->water);
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, patches * patches, 1, 1);

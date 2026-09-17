@@ -28,8 +28,13 @@ struct WaterPushConstants {
     uint32_t patch_quads;
     uint32_t water_material_id;  ///< material row of the water's own .fjmat
     float delta_time;            ///< seconds since the previous frame
+    /// Amplitude-weighted direction of travel of the wave field, world XZ, or
+    /// (0,0) when the trains cancel. Constant across the surface, so it rides
+    /// here rather than costing a varying — and the fragment stage gets it
+    /// without the wave field having to reach past the mesh stage.
+    glm::vec2 wave_direction;
 };
-static_assert(sizeof(WaterPushConstants) == 32, "push block layout must match the shaders");
+static_assert(sizeof(WaterPushConstants) == 40, "push block layout must match the shaders");
 
 /// Draws water. The surface is generated in the mesh shader from the node's
 /// `.fjwater` wave field, so this pass uploads that field and dispatches one

@@ -37,6 +37,9 @@ layout(push_constant) uniform PushConstants {
     // so motion vectors need where a vertex was rather than only where the
     // camera was, and the global UBO carries time but no delta.
     float delta_time;
+    // Where the sea travels. Unused by this stage; present so the push block
+    // matches WaterPushConstants and the fragment stage, which does read it.
+    vec2  wave_direction;
 } push;
 
 struct TaskPayload {

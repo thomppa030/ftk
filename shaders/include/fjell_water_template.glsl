@@ -5,9 +5,10 @@
 // node's .fjwater wave field; this fragment stage shades it.
 //
 // One hook. fragment() sees the surface the waves made — WORLD_POS,
-// WORLD_NORMAL, and the two the wave field alone can answer: CREST, how
-// pinched the surface is here, which is where whitecaps belong, and
-// WAVE_HEIGHT, how far this point was lifted above the flat sea. It writes
+// WORLD_NORMAL, and the three the wave field alone can answer: CREST, how
+// pinched the surface is here, which is where whitecaps belong, WAVE_HEIGHT,
+// how far this point was lifted above the flat sea, and WAVE_DIR, which way
+// the sea travels, which is what tells a leading face from a trailing one. It writes
 // ALBEDO, ALPHA and the rest exactly as a spatial shader does. light() works
 // as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
 // by its material, and saying otherwise is a parse error rather than code
@@ -47,6 +48,7 @@ layout(push_constant) uniform PushConstants {
     uint  patch_quads;
     uint  water_material_id;
     float delta_time;
+    vec2  wave_direction;
 } push;
 
 layout(location = 0) in vec3 frag_color;
@@ -120,6 +122,24 @@ void main() {
     // How far the waves lifted this point above the flat sea. Negative in a
     // trough.
     float WAVE_HEIGHT = frag_wave_lift;
+
+    // Which way this sea travels, world XZ, amplitude-weighted across its
+    // trains. Constant over the surface, so it arrives in the push block
+    // rather than as a varying.
+    //
+    // What it is for: foam gathers on the face of a wave that is advancing,
+    // not evenly around a crest. Compare it against the surface's own
+    // horizontal tilt — dot(normalize(NORMAL.xz), WAVE_DIR) — and the sign
+    // separates the leading face from the one sliding away behind it.
+    //
+    // Zero when the trains cancel, which is a sea with no direction of travel
+    // rather than an error. Anything reading it should stay sensible there,
+    // which is what WAVE_DIR_STRENGTH is for.
+    vec2 WAVE_DIR = push.wave_direction;
+    // 0 when the sea has no net direction, 1 when its trains agree. Fade any
+    // directional foam term out by this and an opposed sea gets the even
+    // treatment that is correct for it.
+    float WAVE_DIR_STRENGTH = length(push.wave_direction);
 
     // Tangent frame, U along world +X and V along world +Z, so a normal map
     // on water lines up with the metres UV is measured in.
