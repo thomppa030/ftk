@@ -17,6 +17,10 @@ layout(push_constant) uniform PushConstants {
     uint viewport_height;
     float intensity;
     uint source; // 0 = ssr, 1 = rt
+    // Diagnostic: show the reflection buffer as-is, unattenuated, instead of
+    // adding it through the Fresnel/roughness response. The response scales a
+    // dielectric's reflection by 0.04, which makes a debug view unreadable.
+    uint passthrough;
 };
 
 void main() {
@@ -26,6 +30,12 @@ void main() {
     vec4 refl = (source == 1u)
         ? texelFetch(rt_reflection_texture, coord, 0)
         : texelFetch(ssr_texture, coord, 0);
+
+    if (passthrough != 0u) {
+        imageStore(scene_color, coord, vec4(refl.rgb, 1.0));
+        return;
+    }
+
     if (refl.a <= 0.001) return;
 
     vec4 color = imageLoad(scene_color, coord);

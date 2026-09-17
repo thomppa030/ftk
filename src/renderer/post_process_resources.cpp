@@ -86,6 +86,8 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
     if (config_.rt_reflection && width > 0 && height > 0) {
         rt_reflection_images_.create(device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
+                                      passes_->rt_reflection.denoise_set_layout(),
+                                      passes_->rt_reflection.depth_format(),
                                       width, height);
     }
     // DDGI images are NOT created in the constructor — they're created on first
@@ -197,6 +199,8 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     if (config_.rt_reflection) {
         rt_reflection_images_.resize(device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
+                                      passes_->rt_reflection.denoise_set_layout(),
+                                      passes_->rt_reflection.depth_format(),
                                       width, height);
     }
     if (config_.ddgi) {

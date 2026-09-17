@@ -15,6 +15,19 @@ namespace fjell {
 
 class AccelStructureManager;
 
+/// Reprojection matrices for the reflection denoise.
+///
+/// Three mat4s do not fit the guaranteed 128-byte push constant range, so
+/// they travel in a UBO (the same reason `GpuSsGiConstants` exists).
+struct GpuReflectionDenoiseConstants {
+    glm::mat4 projection{1.0F};
+    glm::mat4 inv_view_proj{1.0F};
+    glm::mat4 prev_view_proj{1.0F};
+    glm::mat4 prev_inv_view_proj{1.0F};
+    glm::vec3 camera_position{0.0F};
+    float pad0{0.0F};
+};
+
 // Ray-traced reflections. Slots into the same composite as SSR by writing
 // rt_reflection_output (RGBA16F, viewport-sized). The composite picks
 // between ssr_output and rt_reflection_output based on the active mode
@@ -34,11 +47,50 @@ public:
     /// PostProcessResources, one instance per viewport. Pass singleton
     /// owns shared state (samplers, set layout, RT pipeline, SBT).
     struct Images {
+        // Denoised result. This is what the composite reads.
         VkImage out_image{VK_NULL_HANDLE};
         VmaAllocation out_alloc{VK_NULL_HANDLE};
         VkImageView out_view{VK_NULL_HANDLE};
         VkExtent2D out_extent{};
         VkImageLayout out_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+
+        // Raw trace output, before accumulation.
+        VkImage raw_image{VK_NULL_HANDLE};
+        VmaAllocation raw_alloc{VK_NULL_HANDLE};
+        VkImageView raw_view{VK_NULL_HANDLE};
+
+        // Previous frame's denoised result, blended into this one.
+        VkImage history_image{VK_NULL_HANDLE};
+        VmaAllocation history_alloc{VK_NULL_HANDLE};
+        VkImageView history_view{VK_NULL_HANDLE};
+
+        // Depth as the denoise saw it, for the disocclusion test. Two images,
+        // ping-ponged: the dispatch samples last frame's at an arbitrary
+        // reprojected texel while writing this frame's, so one image would race
+        // itself. R32F colour, written by the shader — see the note in
+        // rt_reflection_denoise.comp on why this is not a copy of the depth
+        // buffer.
+        std::array<VkImage, 2> prev_depth_image{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        std::array<VmaAllocation, 2> prev_depth_alloc{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        std::array<VkImageView, 2> prev_depth_view{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        uint32_t prev_depth_slot{0};
+        VkExtent2D depth_extent{};
+        bool prev_depth_valid{false};
+        bool history_valid{false};
+
+        // Per-viewport camera history. Each viewport reprojects through its own
+        // previous camera — a shared copy would let the last viewport to render
+        // decide what "previous frame" means for all the others (see
+        // ViewHistory's own note).
+        glm::mat4 inv_view_proj{1.0F};
+        glm::mat4 prev_view_proj{1.0F};
+        glm::mat4 prev_inv_view_proj{1.0F};
+
+        // History images are genuinely sequential, not per-frame-in-flight:
+        // one frame's result is the next frame's input. Only the UBO and
+        // descriptor sets are per-frame.
+        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> denoise_ubo;
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> denoise_set{};
 
         // One uniform buffer and one trace set per frame in flight. The UBO
         // is host-written every frame and the set binds the slot's TLAS and
@@ -52,10 +104,14 @@ public:
 
         void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
+                     VkDescriptorSetLayout denoise_layout,
+                     VkFormat depth_format,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
+                     VkDescriptorSetLayout denoise_layout,
+                     VkFormat depth_format,
                      uint32_t width, uint32_t height);
     };
 
@@ -82,9 +138,12 @@ public:
     [[nodiscard]] float intensity() const { return intensity_; }
 
     [[nodiscard]] VkDescriptorSetLayout trace_set_layout() const { return trace_set_layout_; }
+    [[nodiscard]] VkDescriptorSetLayout denoise_set_layout() const { return denoise_set_layout_; }
+    [[nodiscard]] VkFormat depth_format() const { return depth_format_; }
 
 private:
     void record_into(const FrameContext& ctx, Images& imgs);
+    void record_denoise(const FrameContext& ctx, Images& imgs);
 
     Device* device_{nullptr};
     VkDevice vk_device_{VK_NULL_HANDLE};
@@ -94,6 +153,12 @@ private:
     Mode mode_{Mode::ScreenSpace};
     float intensity_{1.0F};
     uint32_t frame_counter_{0};
+
+    // Temporal blend: how much of the accumulated history survives each frame.
+    // 0.9 converges in roughly ten frames. Tune against the rain scene rather
+    // than a static one — the ripples animate the reflected image on their own,
+    // and a value picked while nothing moves will visibly smear them.
+    float hysteresis_{0.9F};
 
     glm::vec3 sun_direction_{0.0F, -1.0F, 0.0F};
     glm::vec3 sun_color_{1.0F};
@@ -105,6 +170,12 @@ private:
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout rt_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline rt_pipeline_{VK_NULL_HANDLE};
+
+    // Temporal denoise (compute). Built alongside the RT pipeline.
+    VkDescriptorSetLayout denoise_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout denoise_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline denoise_pipeline_{VK_NULL_HANDLE};
+    VkFormat depth_format_{VK_FORMAT_UNDEFINED};
 
     // Shader binding table (shared)
     std::unique_ptr<Buffer> sbt_buffer_;

@@ -20,6 +20,8 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
+
+#include <cstdlib>
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -48,6 +50,7 @@ struct CompositePushConstants {
     uint32_t viewport_height;
     float intensity;
     uint32_t source; // 0 = ssr, 1 = rt
+    uint32_t passthrough;
 };
 
 VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
@@ -579,6 +582,14 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     comp_push.viewport_height = height;
     comp_push.intensity = core_->intensity();
     comp_push.source = (core_->ray_traced_active() && rt_ready) ? 1u : 0u;
+    // A denoise debug view writes diagnostic colours into the reflection
+    // buffer; show them as-is rather than through the Fresnel response, which
+    // would scale them by 0.04 on a dielectric and leave them invisible.
+    static const bool debug_passthrough = [] {
+        const char* v = std::getenv("FJELL_RT_DENOISE_DEBUG");
+        return v != nullptr && v[0] != '0' && v[0] != '\0';
+    }();
+    comp_push.passthrough = debug_passthrough ? 1u : 0u;
 
     vkCmdPushConstants(cmd, core_->composite_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);

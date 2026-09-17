@@ -1,0 +1,190 @@
+#version 460
+
+// ── Ray-traced reflections: temporal denoise ───────────────────────────
+// One GGX sample per pixel per frame is far too noisy to composite raw:
+// a rough surface spreads neighbouring pixels' rays across a wide cone,
+// and a small bright emitter turns that into a hit/miss decision with
+// orders of magnitude between the two outcomes. Accumulate over frames
+// instead, reprojecting through the previous camera so the history that
+// is blended in belongs to the same surface point.
+//
+// Mirrors ss_gi_resolve.comp, which solves the same problem for a
+// stochastic RT trace. Reflections differ in one way that matters: the
+// reprojection is exact for the *surface* but not for what the surface
+// reflects, so history is clamped to the neighbourhood of the current
+// samples rather than trusted outright.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D raw_reflection;
+layout(set = 0, binding = 1) uniform sampler2D history;
+layout(set = 0, binding = 2) uniform sampler2D depth_tex;
+layout(set = 0, binding = 3) uniform sampler2D prev_depth_tex;
+layout(set = 0, binding = 4) uniform sampler2D mr_tex;
+layout(rgba16f, set = 0, binding = 5) uniform writeonly image2D resolved_out;
+// This frame's depth, stored for next frame's disocclusion test. Written here
+// rather than copied from the depth buffer: vkCmdCopyImage would transition the
+// shared depth image behind the framegraph's back, leaving its tracked layout
+// stale so it skips the barrier that orders later depth readers (the contact
+// shadow pass among them) against the copy.
+layout(r32f, set = 0, binding = 7) uniform writeonly image2D prev_depth_out;
+
+// Three mat4s exceed the guaranteed 128-byte push constant range, so the
+// reprojection matrices travel in a UBO (same reason as SsGiConstants).
+layout(std140, set = 0, binding = 6) uniform DenoiseConstants {
+    mat4 projection;
+    mat4 inv_view_proj;       // this frame, to reconstruct world position
+    mat4 prev_view_proj;      // last frame, to find that point on screen
+    mat4 prev_inv_view_proj;  // last frame, to unproject last frame's depth
+    vec3 camera_position;
+    float pad0;
+} dc;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 resolution;
+    uint frame_index;
+    float hysteresis;
+    // Diagnostic (FJELL_RT_DENOISE_DEBUG): 0 = off, 1 = surviving blend as
+    // green/red, 2 = which test rejected history (red reprojected off-screen,
+    // blue disocclusion, yellow first frames). The composite shows these
+    // unattenuated; see its `passthrough`.
+    uint debug_mode;
+};
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(resolution.x) || coord.y >= int(resolution.y)) return;
+
+    vec4 current = texelFetch(raw_reflection, coord, 0);
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(resolution);
+    // Depth and MR are the render target's own images, whose extent need not
+    // match the reflection output's — sample by UV, never by texel index.
+    float curr_depth = textureLod(depth_tex, uv, 0).r;
+
+    float blend = hysteresis;
+
+    // Store this frame's depth for next frame's reprojection. Unconditional:
+    // the early-out below still has to leave a valid depth behind, or the next
+    // frame reads a stale one and rejects history where it should have kept it.
+    imageStore(prev_depth_out, coord, vec4(curr_depth, 0.0, 0.0, 0.0));
+
+    // Background has no surface to track, and the trace wrote nothing there.
+    if (curr_depth >= 1.0) {
+        imageStore(resolved_out, coord, current);
+        return;
+    }
+
+    // ── Reproject ──
+    vec4 world_h = dc.inv_view_proj * vec4(uv * 2.0 - 1.0, curr_depth, 1.0);
+    vec3 world_pos = world_h.xyz / world_h.w;
+
+    vec4 prev_clip = dc.prev_view_proj * vec4(world_pos, 1.0);
+    vec3 prev_ndc = prev_clip.xyz / max(prev_clip.w, 1e-6);
+    vec2 prev_uv = prev_ndc.xy * 0.5 + 0.5;
+
+    uint reject_reason = 0u;
+    if (prev_clip.w <= 0.0
+        || any(lessThan(prev_uv, vec2(0.0)))
+        || any(greaterThan(prev_uv, vec2(1.0)))) {
+        blend = 0.0;
+        reject_reason = 1u;
+    }
+
+    // ── Disocclusion ──
+    // The surface visible here now may not be the one that was visible at the
+    // reprojected position. Unproject last frame's depth with last frame's
+    // matrix and reject when the two world positions disagree.
+    //
+    // The tolerance scales with view distance: a pixel's world footprint grows
+    // linearly with depth, so a fixed metre threshold is far tighter far away
+    // than up close, and rejects history on any camera motion at distance —
+    // exactly where ray variance is highest. projection[1][1] is
+    // 1/tan(fov_y/2), so view_dist / that is the world height of one NDC unit.
+    float view_dist = distance(world_pos, dc.camera_position);
+    float texel_world = (view_dist / max(dc.projection[1][1], 1e-6))
+                      * (2.0 / max(float(resolution.y), 1.0));
+    float reject_dist = max(0.05, texel_world * 4.0);
+
+    // Test the 2x2 texels around the reprojected point and keep history if any
+    // of them matches this surface, rather than trusting the single nearest.
+    // On a silhouette the nearest texel routinely belongs to the *other*
+    // surface — a sub-pixel reprojection offset is enough — so a single-tap
+    // test rejects a thin line of pixels along every edge in the scene, and
+    // those are exactly the pixels whose reflection stays noisy. A neighbour
+    // matching within the same tolerance is the same surface; taking the best
+    // of the four costs three extra taps and removes the band.
+    vec2 texel = 1.0 / vec2(resolution);
+    float best = 1e30;
+    for (int dy = 0; dy <= 1; ++dy) {
+        for (int dx = 0; dx <= 1; ++dx) {
+            vec2 uv_s = prev_uv + (vec2(dx, dy) - 0.5) * texel;
+            float d = textureLod(prev_depth_tex, uv_s, 0).r;
+            vec4 wh = dc.prev_inv_view_proj * vec4(uv_s * 2.0 - 1.0, d, 1.0);
+            best = min(best, distance(wh.xyz / wh.w, world_pos));
+        }
+    }
+    if (best > reject_dist) {
+        blend = 0.0;
+        if (reject_reason == 0u) reject_reason = 2u;
+    }
+
+    if (frame_index < 2u) {
+        blend = 0.0;
+        if (reject_reason == 0u) reject_reason = 3u;
+    }
+
+    vec3 prev = textureLod(history, prev_uv, 0).rgb;
+
+    // ── Neighbourhood clamp ──
+    // Reprojection tracks the surface, not the reflected image. A moving
+    // object in the reflection, or the rain ripples animating the normal,
+    // legitimately change what this pixel reflects while the surface itself
+    // holds still — history would smear that. Bound the carried-forward
+    // colour to the range the current frame's neighbours actually span.
+    // Bounded by the neighbourhood's mean and standard deviation, not its
+    // min/max. A min/max box collapses at exactly the place this has to work:
+    // on the silhouette of a reflected emitter, where the neighbours straddle
+    // hit and miss, the box spans black to full emission, admits any history at
+    // all, and those pixels never accumulate — the edge stays noisy while the
+    // interior converges. Mean ± k·sigma widens far more gracefully there,
+    // because a handful of outliers move sigma much less than they move max.
+    vec3 m1 = vec3(0.0);
+    vec3 m2 = vec3(0.0);
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 c = clamp(coord + ivec2(dx, dy),
+                            ivec2(0), ivec2(resolution) - 1);
+            vec3 s = texelFetch(raw_reflection, c, 0).rgb;
+            m1 += s;
+            m2 += s * s;
+        }
+    }
+    const float inv_n = 1.0 / 9.0;
+    vec3 mean = m1 * inv_n;
+    vec3 sigma = sqrt(max(m2 * inv_n - mean * mean, vec3(0.0)));
+
+    // One sample per pixel makes the neighbourhood itself noisy, so the box has
+    // to be loose enough not to undo the accumulation it is guarding.
+    const float k = 2.0;
+    prev = clamp(prev, mean - sigma * k - vec3(1e-4),
+                       mean + sigma * k + vec3(1e-4));
+
+    if (debug_mode == 1u) {
+        // Green where history survives, red where the pixel runs unaccumulated.
+        // Noise that persists on green pixels is not a rejection problem.
+        imageStore(resolved_out, coord, vec4(1.0 - blend, blend, 0.0, 1.0));
+        return;
+    }
+    if (debug_mode == 2u) {
+        vec3 c = vec3(0.0, 1.0, 0.0);
+        if (reject_reason == 1u) c = vec3(1.0, 0.0, 0.0);
+        if (reject_reason == 2u) c = vec3(0.0, 0.0, 1.0);
+        if (reject_reason == 3u) c = vec3(1.0, 1.0, 0.0);
+        imageStore(resolved_out, coord, vec4(c, 1.0));
+        return;
+    }
+    vec3 result = mix(current.rgb, prev, blend);
+
+    imageStore(resolved_out, coord, vec4(result, current.a));
+}
