@@ -26,6 +26,7 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 - [Time of Day](Environment/Time-of-Day.md) — the clock, the sun's path, the moon and the stars
 - [Day Profiles](Environment/Day-Profiles.md) — `.fjday`, the look of a day keyed over 24 hours
 - [Weather](Environment/Weather.md) — `.fjweather` events, `.fjclimate`, wetness, wind, lightning and shelter
+- [Fog Volumes](Environment/Fog-Volumes.md) — placed banks of fog, with drifting noise for creeping mist
 - [Sky Shaders](Environment/Sky-Shaders.md) — `shader_type sky`, its built-ins, and how the sky lights the world
 
 ### Scripting
