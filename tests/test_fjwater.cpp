@@ -12,6 +12,8 @@
 #include "glsl_shim.hpp"
 #include "../shaders/include/fjell_water_waves.glsl"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -111,6 +113,37 @@ TEST_CASE("Shader and CPU wave fields agree", "[fjwater]") {
                         == Approx(fjell_water_crest(field.gpu, p, time)).margin(1e-3));
             }
         }
+    }
+}
+
+TEST_CASE("The generated fan spans the spread it was given", "[fjwater]") {
+    // The outermost train should reach spread_degrees. It used to stop short
+    // of it — at six trains it reached three quarters — which left every
+    // train near enough the wind that the crests read as parallel ridges and
+    // foam ran along one axis however the shader composed it.
+    WaterWaveGenerator gen;
+    gen.wind_direction = {1.0f, 0.0f};
+    gen.spread_degrees = 40.0f;
+
+    for (std::uint32_t count : {2u, 3u, 4u, 5u, 6u, 7u, 8u, 16u}) {
+        gen.wave_count = count;
+        auto waves = generate_water_waves(gen);
+        REQUIRE(waves.size() == count);
+
+        float widest = 0.0f;
+        for (const auto& w : waves) {
+            widest = std::max(widest, std::abs(glm::degrees(std::atan2(w.direction.y,
+                                                                      w.direction.x))));
+        }
+        INFO("wave_count=" << count << " widest=" << widest);
+        REQUIRE(widest == Approx(40.0f).margin(0.01f));
+    }
+
+    SECTION("a single train travels straight downwind") {
+        gen.wave_count = 1;
+        auto waves = generate_water_waves(gen);
+        REQUIRE(waves.size() == 1);
+        REQUIRE(waves[0].direction.y == Approx(0.0f).margin(1e-5));
     }
 }
 

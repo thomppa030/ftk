@@ -39,8 +39,17 @@ std::vector<WaterWave> generate_water_waves(const WaterWaveGenerator& settings) 
         // Trains come in pairs, one either side of the wind, each pair a step
         // further out: 0, +1, -1, +2, -2... Both divisions are meant to be
         // integer — they are counting pairs, not measuring an angle.
+        //
+        // pair_count is how many steps out the fan goes, which is the highest
+        // pair_index any train reaches: count/2. Dividing by more than that
+        // leaves the outermost train short of the spread it was promised — it
+        // used to divide by count/2 + 1, so at six trains the fan reached
+        // three quarters of the angle and a sea authored at 40 degrees never
+        // opened past 30. Every train then sat near enough the wind that the
+        // crests read as parallel ridges, and foam ran along one axis however
+        // the shader composed it.
         std::uint32_t pair_index = (i + 1) / 2;
-        std::uint32_t pair_count = count / 2 + 1;
+        std::uint32_t pair_count = std::max(count / 2, 1u);
         float side = (i % 2 == 0) ? 1.0f : -1.0f;
         float step = (count <= 1) ? 0.0f
                                   : static_cast<float>(pair_index) / static_cast<float>(pair_count);
