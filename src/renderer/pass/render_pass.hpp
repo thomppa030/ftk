@@ -163,10 +163,6 @@ struct FrameContext {
     std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};
     std::array<VkDescriptorSet, MAX_SHADOW_CASCADES> shadow_cascade_draw_data{};
 
-    // What stands over the ground near the camera, culled against the
-    // overhead map's box rather than the view. Null when nothing needs it.
-    IndirectBatch* overhead_batch{nullptr};
-    VkDescriptorSet overhead_draw_data{VK_NULL_HANDLE};
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };
 

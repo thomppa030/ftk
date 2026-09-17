@@ -38,11 +38,6 @@ struct GatherInput {
     /// acceleration structure. Empty when no ray-traced GI runs, and then
     /// nothing is kept.
     std::optional<AABB> gi_reach;
-    /// The box the overhead depth map covers. Geometry in it is gathered
-    /// whether or not the camera can see it: a roof only shelters the ground
-    /// under it if it is drawn, and the camera is usually looking the other
-    /// way. Empty when nothing needs the map, and then nothing is gathered.
-    std::optional<AABB> overhead_box;
 };
 
 /// Extracts renderable data from the scene: frustum culling, draw command
@@ -63,8 +58,6 @@ public:
     }
     [[nodiscard]] DrawDataDescriptor& draw_data_descriptor() { return draw_data_descriptor_; }
     [[nodiscard]] DrawDataDescriptor& shadow_draw_data(uint32_t cascade) { return shadow_draw_data_[cascade]; }
-    [[nodiscard]] IndirectBatch* overhead_batch() { return overhead_batch_.get(); }
-    [[nodiscard]] DrawDataDescriptor& overhead_draw_data() { return overhead_draw_data_; }
 
     [[nodiscard]] const glm::vec3& camera_position() const { return camera_position_; }
     [[nodiscard]] const glm::mat4& view_matrix() const { return view_matrix_; }
@@ -90,19 +83,12 @@ private:
     std::array<std::unique_ptr<IndirectBatch>, FrameContext::MAX_SHADOW_CASCADES> shadow_batches_;
     std::array<DrawDataDescriptor, FrameContext::MAX_SHADOW_CASCADES> shadow_draw_data_;
 
-    // What stands over the ground near the camera, for the overhead depth
-    // map. Culled against its own box rather than the view.
-    std::unique_ptr<IndirectBatch> overhead_batch_;
-    DrawDataDescriptor overhead_draw_data_;
-
     // Reusable per-frame scratch (avoid heap allocs every frame)
     std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES> shadow_commands_;
-    std::vector<DrawCommand> overhead_commands_;
     std::vector<std::vector<DrawCommand>> local_commands_;
     std::vector<std::vector<DrawCommand>> local_gi_commands_;
     // Per-chunk, per-cascade shadow command scratch
     std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
-    std::vector<std::vector<DrawCommand>> local_overhead_commands_;
     // Per-chunk scratch for de-duplicating a mesh's material slots
     std::vector<std::vector<uint32_t>> local_slot_scratch_;
     std::vector<uint32_t> local_total_;

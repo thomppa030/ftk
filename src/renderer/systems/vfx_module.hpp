@@ -389,9 +389,9 @@ struct CollisionModule final : VfxModule {
         sdf   = 0,  // 3D SDF volume (rest-pose geometry, works everywhere)
         depth = 1,  // depth buffer (handles displacement, screen-space only)
         both  = 2,  // SDF + depth fallback
-        // What stands between the particle and the sky, from the overhead
-        // depth map: one fetch, no march. For rain and snow, which only
-        // need to know that a roof is above them.
+        // What stands between the particle and the sky. Nothing measures
+        // shelter at present, so a particle set to this collides with
+        // nothing; the value is kept so effects that name it still load.
         overhead = 3,
     };
 
