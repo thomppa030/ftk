@@ -39,7 +39,6 @@ void GlobalBindings::register_builtins() {
     declare({"contact_shadow",  13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
     declare({"environment_ubo", 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1, ALL_GFX});
     declare({"cloud_shadow",    15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"overhead_depth",  16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"fog_volume_ssbo", 17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
 }
 

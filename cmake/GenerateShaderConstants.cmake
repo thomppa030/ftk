@@ -41,16 +41,6 @@ if(_shadow_text MATCHES "constexpr[ \t]+uint32_t[ \t]+MAP_SIZE[ \t]*=[ \t]*([0-9
     set(_const_kv_SHADOW_MAP_SIZE ${CMAKE_MATCH_1})
 endif()
 
-# The overhead map's slab depth: shaders compare depths against it, and a
-# hand-copied number here would drift the moment the pass changed.
-file(READ "${CMAKE_SOURCE_DIR}/src/renderer/pass/overhead_depth_pass.hpp" _overhead_text)
-if(_overhead_text MATCHES "constexpr[ \t]+float[ \t]+HEIGHT_ABOVE[ \t]*=[ \t]*([0-9.]+)f")
-    set(_overhead_above ${CMAKE_MATCH_1})
-endif()
-if(_overhead_text MATCHES "constexpr[ \t]+float[ \t]+DEPTH_BELOW[ \t]*=[ \t]*([0-9.]+)f")
-    set(_overhead_below ${CMAKE_MATCH_1})
-endif()
-
 # Build the generated file body.
 set(_glsl_body "")
 string(APPEND _glsl_body "#ifndef FJELL_RENDERER_CONSTANTS_GLSL\n")
@@ -70,13 +60,6 @@ endforeach()
 string(APPEND _glsl_body "\n")
 string(APPEND _glsl_body "const float LOCAL_SHADOW_ATLAS_SIZE_F = float(LOCAL_SHADOW_ATLAS_SIZE);\n")
 string(APPEND _glsl_body "const float SHADOW_MAP_SIZE_F = float(SHADOW_MAP_SIZE);\n")
-if(DEFINED _overhead_above AND DEFINED _overhead_below)
-    # cmake's math() is integer-only, so the sum is left to GLSL.
-    string(APPEND _glsl_body
-           "const float OVERHEAD_SLAB_METRES = ${_overhead_above} + ${_overhead_below};\n")
-else()
-    message(WARNING "GenerateShaderConstants: overhead slab depth not found")
-endif()
 string(APPEND _glsl_body "\n#endif // FJELL_RENDERER_CONSTANTS_GLSL\n")
 
 set(_out_path "${CMAKE_SOURCE_DIR}/shaders/include/fjell_renderer_constants.glsl")
