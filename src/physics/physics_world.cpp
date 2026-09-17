@@ -1490,6 +1490,14 @@ void PhysicsWorld::apply_force(uint32_t object_id, const glm::vec3& force) {
     impl_->physics_system->GetBodyInterface().AddForce(it->second, to_jolt(force));
 }
 
+void PhysicsWorld::apply_force_at(uint32_t object_id, const glm::vec3& force,
+                                  const glm::vec3& point) {
+    auto it = impl_->object_to_body.find(object_id);
+    if (it == impl_->object_to_body.end()) return;
+    impl_->physics_system->GetBodyInterface().AddForce(it->second, to_jolt(force),
+                                                       to_jolt(point));
+}
+
 void PhysicsWorld::apply_impulse(uint32_t object_id, const glm::vec3& impulse) {
     auto it = impl_->object_to_body.find(object_id);
     if (it == impl_->object_to_body.end()) return;

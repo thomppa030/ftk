@@ -39,6 +39,12 @@ public:
     void step(float dt, Scene& scene);
 
     void apply_force(uint32_t object_id, const glm::vec3& force);
+    /// Apply a force at a world-space point rather than at the centre of
+    /// mass, so it turns the body as well as moving it. This is what lets
+    /// several forces on one body disagree — a hull lifted harder at the bow
+    /// than the stern pitches, where the same forces summed at the centre
+    /// would only heave.
+    void apply_force_at(uint32_t object_id, const glm::vec3& force, const glm::vec3& point);
     void apply_impulse(uint32_t object_id, const glm::vec3& impulse);
     void set_linear_velocity(uint32_t object_id, const glm::vec3& vel);
     [[nodiscard]] glm::vec3 get_linear_velocity(uint32_t object_id) const;
