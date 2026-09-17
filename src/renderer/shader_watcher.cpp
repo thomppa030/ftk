@@ -37,6 +37,20 @@ void ShaderWatcher::rewatch() {
     });
     FJELL_GFX_INFO("Shader hot-reload watching: {}", source_dir_);
 
+    // Includes sit in their own directory and inotify does not recurse, so
+    // they need a watch of their own. What an include reaches is not written
+    // down anywhere — the templates every .fjsl is generated against live
+    // here — so any edit means rebuild everything.
+    const std::string include_dir = source_dir_ + "/include";
+    if (std::filesystem::is_directory(include_dir)) {
+        watcher_.watch(include_dir, [this](const std::filesystem::path& path) {
+            if (path.extension() != ".glsl") return;
+            FJELL_GFX_INFO("Shader include changed: {}", path.filename().string());
+            changes_.rebuild_everything = true;
+        });
+        FJELL_GFX_INFO("Shader hot-reload watching includes: {}", include_dir);
+    }
+
     if (project_dir_.empty() || !std::filesystem::is_directory(project_dir_)) return;
 
     watcher_.watch(project_dir_, [this](const std::filesystem::path& path) {
