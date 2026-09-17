@@ -267,6 +267,11 @@ void main() {
                                            world_pos, vol.shape_falloff.y);
         if (occupancy <= 0.0) continue;
 
+        // The noise rides on top of the shape, so the edge still fades and the
+        // wisps live inside it rather than eating their way through it.
+        occupancy *= volume_noise(world_pos, vol.noise_drift.xyz, vol.noise_drift.w,
+                                  vol.noise_shape.x, int(vol.noise_shape.y));
+
         float d = vol.color_density.w * occupancy;
         density_sum += d;
         color_sum += vol.color_density.xyz * d;

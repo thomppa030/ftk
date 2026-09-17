@@ -582,6 +582,39 @@ void PropertiesPanel::draw() {
                     });
                 }
                 ImGui::TextDisabled("Size comes from the node's scale.");
+
+                section_header("NOISE", ICON_LC_AUDIO_WAVEFORM);
+                if (auto t = PropertyTable("##fog_volume_noise")) {
+                    prop_row("Contrast", [&] {
+                        if (ImGui::SliderFloat("##FogVolNoise", &fv->noise_contrast, 0.0f, 1.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                }
+                if (fv->noise_contrast > 0.0f) {
+                    if (auto t = PropertyTable("##fog_volume_noise_params")) {
+                        prop_row("Scale", [&] {
+                            if (ImGui::SliderFloat("##FogVolNoiseScale", &fv->noise_scale, 0.5f, 64.0f, "%.1f m")) {
+                                scene_->mark_dirty();
+                            }
+                        });
+                        prop_row("Speed", [&] {
+                            if (ImGui::DragFloat3("##FogVolNoiseSpeed", &fv->noise_speed.x, 0.01f, -5.0f, 5.0f, "%.2f")) {
+                                scene_->mark_dirty();
+                            }
+                        });
+                        prop_row("Wind", [&] {
+                            if (ImGui::SliderFloat("##FogVolWind", &fv->wind_influence, 0.0f, 1.0f)) {
+                                scene_->mark_dirty();
+                            }
+                        });
+                        prop_row("Octaves", [&] {
+                            if (ImGui::SliderInt("##FogVolOctaves", &fv->noise_octaves, 1, 4)) {
+                                scene_->mark_dirty();
+                            }
+                        });
+                    }
+                }
             }
 
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {

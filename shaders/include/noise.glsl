@@ -43,4 +43,23 @@ vec3 curl_noise(vec3 p) {
     return vec3(n2 - m1, n3 - m2, m3 - n1) * inv_e2;
 }
 
+// Fractal noise: octaves of value_noise at doubling frequency and halving
+// amplitude. Returns roughly [-1, 1] — the weights are normalised by the sum
+// they could reach, so octave count changes how detailed the field is without
+// changing how strong it is.
+float fbm_noise(vec3 p, int octaves) {
+    float sum = 0.0;
+    float amplitude = 1.0;
+    float total = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        sum += value_noise(p) * amplitude;
+        total += amplitude;
+        p *= 2.0;
+        amplitude *= 0.5;
+    }
+
+    return sum / max(total, 1e-6);
+}
+
 #endif

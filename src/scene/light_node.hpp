@@ -127,12 +127,33 @@ struct FogVolumeNode : VolumeNode {
     /// scattering as the baseline: brighter or dimmer without being thicker.
     float scattering_mult{1.0f};
 
+    // The fog inside the volume is broken up by a noise field that drifts, so
+    // a bank churns rather than sitting still.
+    /// How broken up the fog looks, 0 for none. Does not change how much fog
+    /// there is: the field averages to one whatever this is set to.
+    float noise_contrast{0.0f};
+    /// Metres per noise period — the size of a wisp.
+    float noise_scale{8.0f};
+    /// How fast the field drifts through the world, in metres per second, on
+    /// top of whatever the wind contributes.
+    glm::vec3 noise_speed{0.3f, 0.02f, 0.1f};
+    /// How much the weather's sustained wind carries the field as well. 0 is
+    /// a still cave, 1 is fog fully driven by the weather.
+    float wind_influence{0.0f};
+    /// Octaves of detail. Each one doubles the cost of sampling the field.
+    int noise_octaves{2};
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<FogVolumeNode>();
         clone_volume_into(*copy);
         copy->density = density;
         copy->fog_color = fog_color;
         copy->scattering_mult = scattering_mult;
+        copy->noise_contrast = noise_contrast;
+        copy->noise_scale = noise_scale;
+        copy->noise_speed = noise_speed;
+        copy->wind_influence = wind_influence;
+        copy->noise_octaves = noise_octaves;
         return copy;
     }
 };

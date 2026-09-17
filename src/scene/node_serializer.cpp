@@ -165,7 +165,12 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"density", fv->density},
             {"color", color_to_json(fv->fog_color)},
             {"scattering_mult", fv->scattering_mult},
-            {"edge_falloff", fv->edge_falloff}
+            {"edge_falloff", fv->edge_falloff},
+            {"noise_contrast", fv->noise_contrast},
+            {"noise_scale", fv->noise_scale},
+            {"noise_speed", {fv->noise_speed.x, fv->noise_speed.y, fv->noise_speed.z}},
+            {"wind_influence", fv->wind_influence},
+            {"noise_octaves", fv->noise_octaves}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
@@ -425,6 +430,14 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 fv->scattering_mult = jv.value("scattering_mult", 1.0f);
                 fv->edge_falloff = jv.value("edge_falloff", 0.2f);
+                fv->noise_contrast = jv.value("noise_contrast", 0.0f);
+                fv->noise_scale = jv.value("noise_scale", 8.0f);
+                if (jv.contains("noise_speed")) {
+                    auto& s = jv["noise_speed"];
+                    fv->noise_speed = {s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
+                }
+                fv->wind_influence = jv.value("wind_influence", 0.0f);
+                fv->noise_octaves = jv.value("noise_octaves", 2);
             }
             node = std::move(fv);
         } else if (node_type == "world_environment") {

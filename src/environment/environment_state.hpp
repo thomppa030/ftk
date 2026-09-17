@@ -92,6 +92,12 @@ struct FogVolume {
     float scattering_mult{1.0f};
     float edge_falloff{0.2f};
     ColliderShape shape{ColliderShape::Box};
+
+    float noise_contrast{0.0f};
+    float noise_scale{8.0f};
+    glm::vec3 noise_speed{0.0f};
+    float wind_influence{0.0f};
+    int noise_octaves{2};
 };
 
 struct SunShaftSettings {
