@@ -39,6 +39,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/environment/weather_player.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/climate_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/climate_director.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment/environment_scenario.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_curve.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/buoyancy.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
@@ -133,6 +134,7 @@ add_executable(fjell-tests
     test_tracks.cpp
     test_weather.cpp
     test_climate.cpp
+    test_environment_scenario.cpp
     test_input_source.cpp
 )
 

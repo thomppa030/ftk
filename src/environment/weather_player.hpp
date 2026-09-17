@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -88,6 +89,17 @@ public:
     [[nodiscard]] const Playing* outgoing() const { return has_outgoing_ ? &outgoing_ : nullptr; }
     [[nodiscard]] float wetness() const { return wetness_; }
     [[nodiscard]] float snow() const { return snow_; }
+
+    /// Put the integrators where they would have got to, instead of waiting
+    /// for them. They start at zero and take minutes to reach a target, so a
+    /// scene that opens mid-storm otherwise opens on dry ground; and a
+    /// measured run wants to start at the state it means to measure rather
+    /// than spend the capture fading into it.
+    ///
+    /// They keep integrating from here: set wetness with no rain falling and
+    /// the ground dries off as it should.
+    void set_wetness(float wetness) { wetness_ = std::clamp(wetness, 0.0f, 1.0f); }
+    void set_snow(float snow) { snow_ = std::clamp(snow, 0.0f, 1.0f); }
 
     /// A strike, for whoever makes it visible and audible: where it landed
     /// relative to the listener, and how bright it was.

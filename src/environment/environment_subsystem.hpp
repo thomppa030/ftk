@@ -65,6 +65,14 @@ public:
     void strike_lightning(const glm::vec3& relative_position = glm::vec3(0.0f, 0.0f, 250.0f),
                           float intensity = 1.0f);
     void hold_weather(bool held) { director_.hold(held); }
+    /// Fix what every weather roll derives from, so two runs of the same
+    /// scene roll the same phase durations. For a measured run; zero, the
+    /// default, lets each play roll freshly.
+    void set_seed_base(uint32_t seed) { seed_base_ = seed; }
+    /// Put the wetness and snow integrators where they would have got to.
+    /// See WeatherPlayer::set_wetness.
+    void set_wetness(float wetness) { player_.set_wetness(wetness); }
+    void set_snow(float snow) { player_.set_snow(snow); }
     [[nodiscard]] bool weather_held() const { return director_.held(); }
     [[nodiscard]] const ClimateDirector& director() const { return director_; }
     /// The `.fjweather` path the climate's `index`-th forecast roll plays,
@@ -178,6 +186,10 @@ private:
     };
     std::vector<PendingThunder> pending_thunder_;
     uint32_t play_count_{0};   // seeds the rolled durations
+    // Mixed into every roll's seed. Zero lets the play count alone decide,
+    // which is what an ordinary session wants: replaying an event gives it
+    // fresh durations. A capture sets it so two runs roll identically.
+    uint32_t seed_base_{0};
     std::vector<NamedValue> script_sky_uniforms_;
 };
 

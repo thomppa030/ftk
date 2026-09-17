@@ -1820,8 +1820,26 @@ void Engine::set_scene_override(const std::string& scene_name) {
     }
 }
 
+Result<> Engine::set_scenario(const std::string& path) {
+    auto scenario = load_environment_scenario(path);
+    if (!scenario) return make_error(scenario.error());
+    FJELL_CORE_INFO("Scenario {}: {} steps over {:.0f}s", path,
+                    scenario->steps.size(), scenario->duration());
+    scenario_.set_scenario(std::move(*scenario));
+    return {};
+}
+
 void Engine::run() {
     FJELL_CORE_INFO("Entering main loop");
+
+    // After the scene is loaded and its environment bound, since binding is
+    // what starts the scene's own weather — an override applied earlier
+    // would be the thing that got overridden.
+    if (environment_overrides_.any() && environment_subsystem_ != nullptr
+        && resource_manager_ != nullptr) {
+        apply_environment_overrides(environment_overrides_, scene_,
+                                    *environment_subsystem_, *resource_manager_);
+    }
 
     // Game mode or --play: start playing immediately
     if (game_mode_ || play_immediate_) {
@@ -1863,6 +1881,16 @@ void Engine::run() {
 #endif
 
         auto ctx = make_frame_context();
+
+        // Unscaled time deliberately: a scenario's seconds are the seconds
+        // the capture runs for, so pausing or slowing the game does not
+        // stretch the schedule the measurement is lined up against.
+        if (!scenario_.empty() && environment_subsystem_ != nullptr
+            && resource_manager_ != nullptr) {
+            scenario_.tick(clock_.delta_time(), scene_, *environment_subsystem_,
+                           *resource_manager_);
+            if (scenario_.finished()) window_.request_close();
+        }
 
         if (play_controller_.playing()) {
             // Update camera state for worldspace UI billboard computation

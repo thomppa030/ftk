@@ -15,6 +15,8 @@
 #include "scene/scene.hpp"
 #include "import/import_dialog.hpp"
 #include "core/capture_service.hpp"
+#include "environment/environment_overrides.hpp"
+#include "environment/environment_scenario.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
@@ -79,6 +81,15 @@ public:
     void run();
     void set_play_immediate(bool v) { play_immediate_ = v; }
     void set_scene_override(const std::string& scene_name);
+    /// What this run asks of the environment on top of the scene, applied
+    /// once the scene is loaded. For a measured run; see
+    /// EnvironmentOverrides.
+    void set_environment_overrides(const EnvironmentOverrides& overrides) {
+        environment_overrides_ = overrides;
+    }
+    /// Play a timed scenario against the environment from the first frame.
+    /// Its `quit` step closes the engine, which is what bounds a capture.
+    [[nodiscard]] Result<> set_scenario(const std::string& path);
 
 private:
     void init_subsystems();
@@ -177,6 +188,11 @@ private:
     std::optional<ShaderWatcher> shader_watcher_;
     std::optional<FjGraphWatcher> fjgraph_watcher_;
 #endif
+
+    // What the command line asked of the environment, and a scenario to
+    // play against it. Both empty for an ordinary session.
+    EnvironmentOverrides environment_overrides_;
+    ScenarioPlayer scenario_;
 
     // Project
     ProjectManager project_mgr_;

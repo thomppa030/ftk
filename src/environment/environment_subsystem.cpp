@@ -217,7 +217,11 @@ void EnvironmentSubsystem::play_weather(WeatherAssetHandle event, WeatherPhase f
         return;
     }
     ++play_count_;
-    player_.play(asset, event.id, play_count_ * 7919u + event.id, profile_for(*asset), from);
+    // A fixed base replaces the play count rather than adding to it, so the
+    // seed does not depend on how many events happened to play before this
+    // one — which is the whole point of fixing it.
+    const uint32_t roll = seed_base_ != 0 ? seed_base_ : play_count_ * 7919u;
+    player_.play(asset, event.id, roll + event.id, profile_for(*asset), from);
 
     // Starting partway through is someone asking to see that moment, not
     // weather arriving: the editor jumping to a phase, or a scene opening
