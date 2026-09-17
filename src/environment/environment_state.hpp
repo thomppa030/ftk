@@ -120,6 +120,8 @@ struct FogVolume {
     /// the node, so everything downstream only copies it.
     glm::vec3 noise_drift{0.0f};
     int noise_octaves{2};
+    /// How far the volume answers things moving through it, 0 for not at all.
+    float motion_response{0.0f};
 };
 
 /// A day profile and a weather event both reach fog volumes by the same

@@ -15,6 +15,8 @@ FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
 layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
 #include "fjell_cloud_shadow.glsl"
+layout(set = 0, binding = 16) uniform sampler2D motion_field_tex;
+#include "fjell_motion_field.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
@@ -63,6 +65,27 @@ float slice_to_depth(float t) {
 // 1/4π, whatever the medium's asymmetry — the phase function integrates to
 // one over the sphere, so an even distribution leaves only the average.
 const float ISOTROPIC_PHASE = 0.0795774715;
+
+// What answering movement is worth, at a volume's full response.
+//
+// The drag is a fraction of the volume's own noise period per metre-per-second,
+// not an absolute distance: a wisp is only displaced visibly if it moves a
+// real share of its own size, and a volume with 32 m wisps needs a far bigger
+// shift than one with 2 m wisps to read the same. A walk lands near a fifth of
+// a wisp, a run near a half.
+//
+// The thinning is deliberately slight. Air shoved aside is displaced, not
+// destroyed, and a strong thinning reads as a hole following the character
+// rather than as fog moving out of their way — the drag is what should carry
+// the effect.
+const float MOTION_DRAG = 0.25;
+const float MOTION_THIN = 0.15;
+const float MOTION_THIN_SMOOTH = 0.6;
+// How hard the two sides of a wake are pushed apart, against how hard the
+// whole thing is dragged along. This is what separates turning from sliding,
+// so it is deliberately the larger of the two.
+const float MOTION_CURL = 1.2;
+const float MOTION_FADE_METRES = 1.0;
 
 // Henyey-Greenstein phase function. Isotropic baseline is ~0.08 (1/4π);
 // clamping at 0.1 keeps the forward-scatter peak gentle and prevents the
@@ -261,15 +284,68 @@ void main() {
     vec3 color_sum = global_color * global_density;
     float scatter_sum = global_density;   // the global fog's own multiplier is 1
 
+    // What has come through here lately, for the volumes that answer it. One
+    // lookup for the froxel rather than one per volume: the map does not vary
+    // between them.
+    MotionSample motion = motion_at(world_pos);
+    // Which way the wake weakens, for telling its two sides apart. One
+    // lookup for the froxel; the volumes differ in how far they answer it,
+    // not in where the wake is.
+    vec2 motion_falloff = motion.recency > 0.0
+        ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M) : vec2(0.0);
+
     for (uint i = 0; i < pc.volume_count; ++i) {
         GpuFogVolume vol = fog_volumes[i];
         float occupancy = volume_occupancy(int(vol.shape_falloff.x), vol.inv_transform,
                                            world_pos, vol.shape_falloff.y);
         if (occupancy <= 0.0) continue;
 
+        // Something that came through pushes the fog along with it and leaves
+        // the air behind it briefly thinner. The drag is an offset into the
+        // noise, so the wisps themselves move rather than the volume dimming
+        // in a disc — displaced air rather than a hole punched in it.
+        vec3 motion_offset = vec3(0.0);
+        float response = vol.noise_shape.z;
+        if (response > 0.0 && motion.recency > 0.0) {
+            // Nothing stirs the air above what passed through it: a walker
+            // leaves the fog over their head alone. `motion.height` is the
+            // world Y of the top of what came through, so this is a plain
+            // comparison rather than a guess at where the ground was.
+            float reach = 1.0 - smoothstep(motion.height, motion.height + MOTION_FADE_METRES,
+                                           world_pos.y);
+            float stir = response * motion.recency * reach;
+            vec2 along = motion.velocity * stir * MOTION_DRAG * vol.noise_drift.w;
+
+            // Dragging alone slides the whole field, and a sheet that slides
+            // reads as a patch moving rather than as air turning — most
+            // plainly when the wind is pushing the fog another way and the
+            // two offsets simply add.
+            //
+            // So the sides of the wake are also pushed apart, across the
+            // path rather than along it. The wake's falloff points away from
+            // where the thing went, so its cross product with the heading is
+            // positive on one side and negative on the other: the field is
+            // sheared about the path instead of carried with it.
+            vec2 heading = length(motion.velocity) > 1e-4
+                ? normalize(motion.velocity) : vec2(0.0);
+            vec2 across = vec2(-heading.y, heading.x);
+            float side = heading.x * motion_falloff.y - heading.y * motion_falloff.x;
+            vec2 curl = across * side * stir * MOTION_CURL * vol.noise_drift.w;
+
+            motion_offset = vec3(along.x + curl.x, 0.0, along.y + curl.y);
+
+            // Smooth fog has no wisps to displace, so nothing about the drag
+            // would show: there the thinning is the whole effect and carries
+            // it alone. Where there is noise it stays a hint, because a hole
+            // following a walker is what this is trying not to look like.
+            float thin = mix(MOTION_THIN_SMOOTH, MOTION_THIN,
+                             clamp(vol.noise_shape.x, 0.0, 1.0));
+            occupancy *= max(1.0 - stir * thin, 0.0);
+        }
+
         // The noise rides on top of the shape, so the edge still fades and the
         // wisps live inside it rather than eating their way through it.
-        occupancy *= volume_noise(world_pos, vol.noise_drift.xyz, vol.noise_drift.w,
+        occupancy *= volume_noise(world_pos - motion_offset, vol.noise_drift.xyz, vol.noise_drift.w,
                                   vol.noise_shape.x, int(vol.noise_shape.y));
 
         float d = vol.color_density.w * occupancy;

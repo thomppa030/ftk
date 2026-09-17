@@ -174,7 +174,8 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"noise_speed", fv->noise_speed},
             {"wind_influence", fv->wind_influence},
             {"wind_speed_scale", fv->wind_speed_scale},
-            {"noise_octaves", fv->noise_octaves}
+            {"noise_octaves", fv->noise_octaves},
+            {"motion_response", fv->motion_response}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
@@ -458,6 +459,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 fv->wind_influence = jv.value("wind_influence", 0.0f);
                 fv->wind_speed_scale = jv.value("wind_speed_scale", 0.15f);
                 fv->noise_octaves = jv.value("noise_octaves", 2);
+                fv->motion_response = jv.value("motion_response", 0.0f);
             }
             node = std::move(fv);
         } else if (node_type == "world_environment") {

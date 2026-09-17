@@ -1140,7 +1140,8 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
         // Already integrated by EnvironmentSubsystem::advance_fog_volumes, so
         // that drift stays continuous while the wind turns it.
         gpu.noise_drift = glm::vec4(v.noise_drift, v.noise_scale);
-        gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves), 0.0f, 0.0f);
+        gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves),
+                                    v.motion_response, 0.0f);
         dst[i] = gpu;
     }
 }

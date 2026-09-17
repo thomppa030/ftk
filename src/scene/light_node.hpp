@@ -163,6 +163,12 @@ struct FogVolumeNode : VolumeNode {
     /// Octaves of detail. Each one doubles the cost of sampling the field.
     int noise_octaves{2};
 
+    /// How far the volume answers things moving through it, 0 for not at all.
+    /// A runner drags the fog along behind them and leaves it briefly thinner
+    /// where they passed; both fade as the motion field forgets. Ground mist
+    /// wants this, a distant bank does not.
+    float motion_response{0.0f};
+
     /// How far the field has drifted so far, in world metres. Integrated each
     /// frame rather than derived from a clock, because the direction and the
     /// speed both move with the wind and a field that jumped when the weather
@@ -183,6 +189,7 @@ struct FogVolumeNode : VolumeNode {
         copy->wind_influence = wind_influence;
         copy->wind_speed_scale = wind_speed_scale;
         copy->noise_octaves = noise_octaves;
+        copy->motion_response = motion_response;
         return copy;
     }
 };

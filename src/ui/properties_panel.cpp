@@ -669,6 +669,18 @@ void PropertiesPanel::draw() {
                         });
                     }
                 }
+
+                section_header("MOTION", ICON_LC_AUDIO_WAVEFORM);
+                if (auto t = PropertyTable("##fog_volume_motion")) {
+                    prop_row("Response", [&] {
+                        if (ImGui::SliderFloat("##FogVolMotion", &fv->motion_response, 0.0f, 1.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                }
+                if (fv->motion_response <= 0.0f) {
+                    ImGui::TextDisabled("Ignores things moving through it.");
+                }
             }
 
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
