@@ -79,11 +79,24 @@ inline constexpr float SEA_FALL_SECONDS = 45.0f;
 /// field as defined.
 [[nodiscard]] glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time);
 
+/// The Jacobian of the horizontal displacement: 1 on flat water, falling as
+/// the trains bunch together, 0 where the surface has pinched to a point and
+/// **negative where it has folded through itself**.
+///
+/// crest() is this mapped into 0..1 for shaders, and the clamp it does throws
+/// away the sign — which is the one thing a fold check needs. Anything asking
+/// whether a field folds, and by how much, reads this instead.
+[[nodiscard]] float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz,
+                                        float time);
+
 /// How pinched the surface is here, 0 on flat water rising toward 1 at a
-/// crest about to fold. This is the Jacobian of the horizontal displacement:
-/// where it approaches zero the surface has bunched to a point, which is
-/// exactly where whitecaps form, so foam reads off the wave field rather than
-/// being painted separately.
+/// crest about to fold. This is horizontal_jacobian() mapped for shaders to
+/// use directly as a foam mask: where it approaches 1 the surface has bunched
+/// to a point, which is exactly where whitecaps form, so foam reads off the
+/// wave field rather than being painted separately.
+///
+/// Clamped, so a folded surface and one pinched exactly to a point both read
+/// as 1. Use horizontal_jacobian() to tell them apart.
 [[nodiscard]] float crest(const FjWaterData& water, glm::vec2 world_xz, float time);
 
 /// The way this sea travels, as the amplitude-weighted mean of its trains,

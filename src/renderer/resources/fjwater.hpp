@@ -170,22 +170,27 @@ struct FjWaterData {
     /// at once.
     float speed_scale{1.0f};
 
-    /// How much of the fold limit the trains may share, as a multiple of the
-    /// safe 1/N.
+    /// How far past a single train's fold limit the whole field may be
+    /// pushed, as a multiplier on every train's steepness.
     ///
-    /// A Gerstner train folds when its steepness term reaches 1, and trains
-    /// sum, so N trains sharing 1/N each can never fold however they line up.
-    /// That bound assumes every crest aligned at one instant at one point,
-    /// which trains travelling at different speeds and angles never manage,
-    /// and holding a sea to it costs the pinch that makes a crest read as
-    /// relief rather than a bump.
+    /// At 1 each train's `steepness` means exactly what it says: 1.0 is that
+    /// train at its own fold limit, and a lone train can never fold. Trains
+    /// sum, though, and the surface folds on the sum, so a field of several
+    /// steep trains can still fold where their crests meet — that is not
+    /// prevented here, it is measured. The editor samples the surface and
+    /// reports what percentage of it folds at the current settings.
     ///
-    /// 1.10 is the measured ceiling for a typical six-train sea: nothing
-    /// folds anywhere. Past about 1.15 the surface starts turning inside out
-    /// at the sharpest crests, which looks like dark flat facets sitting in
-    /// the foam. Raise it to trade that risk for sharper waves; the editor
-    /// says how much of the surface folds at the current setting.
-    float steepness_headroom{1.10f};
+    /// Raising it is a deliberate trade: sharper crests everywhere in exchange
+    /// for the sharpest of them turning inside out, which looks like dark flat
+    /// facets sitting in the foam. Some folding at distance is often worth it.
+    ///
+    /// 0.30 is the default because a field is many trains and they sum: on the
+    /// generator's own six-train sea, measured over a 80 m square across eight
+    /// seconds, nothing folds at 0.35 and 14% of the surface folds at 1.0. So
+    /// the default sits just under the measured ceiling for the sea the
+    /// generator makes, and a sea of fewer or gentler trains can go far higher.
+    /// The editor measures yours rather than guessing from this number.
+    float steepness_headroom{0.30f};
 
     /// How the sea answers the weather's wind.
     WaterWindResponse wind;

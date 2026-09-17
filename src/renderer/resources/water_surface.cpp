@@ -23,28 +23,31 @@ constexpr float TAU = 6.28318530717958647692f;
     return std::clamp(steepness, 0.0f, 1.0f) * max_q * budget;
 }
 
-// The share of the fold limit one train may take.
+// How much of a single train's fold limit each train may spend.
 //
-// A single Gerstner train folds when k*A*q reaches 1, which steepness_to_q
-// caps it at. Trains sum, though, and the surface folds on the sum: six
-// trains each at a safe 0.5 add to 3, and where their crests line up the
-// surface turns inside out — dark facets on the peaks, back-facing, exactly
-// where the foam is. Capping each train alone does not prevent that, so the
-// budget is shared: with N trains each may take 1/N of the limit, and the
-// worst case where every crest aligns lands exactly on flat rather than
-// past it.
+// A Gerstner train folds when k*A*q reaches 1, which steepness_to_q caps it
+// at, so steepness 1 is that train exactly at its own limit and nothing here
+// scales it down for having company.
 //
-// The cost is that steepness 1 on one train of six is a sixth as steep as
-// steepness 1 on a lone train. That is the honest reading — it is the
-// steepest that train can be while the sea it belongs to still holds
-// together.
-[[nodiscard]] float steepness_budget(std::size_t wave_count, float headroom) {
-    // 1/N is the worst case: every crest aligned, at one instant, at one
-    // point. Trains travel at different speeds and angles, so they never all
-    // line up, and holding the sea to that bound costs it the pinch that
-    // makes a crest read as relief rather than a bump. The asset says how far
-    // past it to go; see FjWaterData::steepness_headroom.
-    return wave_count > 0 ? headroom / static_cast<float>(wave_count) : 1.0f;
+// It used to. The budget was shared 1/N, on the reasoning that trains sum and
+// the surface folds on the sum, so N trains each at the single-train limit
+// could reach N. That bound is real but it is the worst case — every crest
+// aligned, at one instant, at one point — and trains travelling at different
+// speeds, angles and wavelengths do not arrange that. Designing to it cost
+// the sea the pinch that is the whole reason for choosing Gerstner over a sum
+// of sines: on a six-train sea it held every train below an eighth of its own
+// steepness, and dragging every slider to maximum still could not produce a
+// sharp crest. Worse, dividing by the count meant adding a small train for
+// surface detail flattened every train already there, which is backwards from
+// how a sea is authored.
+//
+// So steepness now means what the asset always claimed it meant, and whether
+// a particular field folds is measured rather than prevented — the editor
+// samples the surface and reports the percentage, and horizontal_jacobian()
+// is what anything else asks. `headroom` scales the whole field past a single
+// train's limit for a sea that wants to fold somewhere on purpose.
+[[nodiscard]] float steepness_budget(float headroom) {
+    return headroom;
 }
 
 struct WaveTerms {
@@ -157,7 +160,7 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(count, water.steepness_headroom);
+    float budget = steepness_budget(water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
         WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
@@ -180,7 +183,7 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 tangent{0.0f, 0.0f, 1.0f};   // d/dz
 
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(count, water.steepness_headroom);
+    float budget = steepness_budget(water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
         WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
@@ -204,17 +207,15 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     return n / len;
 }
 
-float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
-    // The Jacobian of the horizontal displacement. At rest it is 1; as trains
-    // bunch together it falls, reaching 0 where the surface has pinched to a
-    // point and going negative where it would fold. Map that to 0..1 rising
-    // into the crest so shaders can use it directly as a foam mask.
+float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz, float time) {
+    // At rest it is 1; as trains bunch together it falls, reaching 0 where the
+    // surface has pinched to a point and going negative where it has folded.
     float jxx = 1.0f;
     float jzz = 1.0f;
     float jxz = 0.0f;
 
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(count, water.steepness_headroom);
+    float budget = steepness_budget(water.steepness_headroom);
     for (std::size_t i = 0; i < count; ++i) {
         WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
         if (t.amplitude == 0.0f) continue;
@@ -227,8 +228,14 @@ float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
         jxz -= wa * t.dir.x * t.dir.y * s;
     }
 
-    float jacobian = jxx * jzz - jxz * jxz;
-    return std::clamp(1.0f - jacobian, 0.0f, 1.0f);
+    return jxx * jzz - jxz * jxz;
+}
+
+float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
+    // Mapped to 0..1 rising into the crest so shaders can use it directly as a
+    // foam mask. The clamp means a folded surface reads the same as one
+    // pinched exactly to a point; horizontal_jacobian() keeps the difference.
+    return std::clamp(1.0f - horizontal_jacobian(water, world_xz, time), 0.0f, 1.0f);
 }
 
 glm::vec2 dominant_direction(const FjWaterData& water) {
@@ -279,7 +286,7 @@ glm::vec2 rest_position_for(const FjWaterData& water, glm::vec2 world_xz, float 
         float jzz = 1.0f;
         float jxz = 0.0f;
         std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-        float budget = steepness_budget(count, water.steepness_headroom);
+        float budget = steepness_budget(water.steepness_headroom);
         for (std::size_t w = 0; w < count; ++w) {
             WaveTerms t = terms_for(water.waves[w], water, rest, time, budget);
             if (t.amplitude == 0.0f) continue;

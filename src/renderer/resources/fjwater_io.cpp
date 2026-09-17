@@ -104,7 +104,14 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
     FjWaterData water;
     water.amplitude_scale = j.value("amplitude_scale", 1.0f);
     water.speed_scale = j.value("speed_scale", 1.0f);
-    water.steepness_headroom = j.value("steepness_headroom", 1.10f);
+    water.steepness_headroom = j.value("steepness_headroom",
+                                       FjWaterData{}.steepness_headroom);
+
+    // Files written before the steepness budget stopped being divided by the
+    // train count. Their headroom was a multiplier on a 1/N share, so the
+    // budget they were actually tuned at is headroom/N — migrated below, once
+    // the wave list has been read and N is known.
+    const bool pre_shared_budget = !j.contains("version");
 
     if (j.contains("wind") && j["wind"].is_object()) {
         const auto& wj = j["wind"];
@@ -145,11 +152,23 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         }
     }
 
+    // Carry an old file onto the undivided budget at the surface it already
+    // had. Dividing by the count it was tuned with reproduces the exact q
+    // every train was getting, so a sea an artist signed off on comes back
+    // looking the way they left it rather than folding on load.
+    if (pre_shared_budget && !water.waves.empty()) {
+        water.steepness_headroom /= static_cast<float>(water.waves.size());
+    }
+
     return water;
 }
 
 Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
     nlohmann::json j;
+    // Present from the version the steepness budget stopped being divided by
+    // the train count. Its absence is what marks a file whose headroom still
+    // means a share of 1/N, and is the whole reason it is written.
+    j["version"] = 2;
     j["amplitude_scale"] = water.amplitude_scale;
     j["speed_scale"] = water.speed_scale;
     j["steepness_headroom"] = water.steepness_headroom;

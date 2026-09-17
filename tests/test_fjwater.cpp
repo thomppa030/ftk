@@ -279,11 +279,55 @@ TEST_CASE("Steepness cannot fold the surface over itself", "[fjwater]") {
     // Steepness is authored 0..1 precisely so a slider at its maximum still
     // gives a surface, rather than one that has turned inside out. The
     // Jacobian reaching exactly 0 is the limit; negative is folded.
+    //
+    // Asserted on the raw Jacobian rather than on crest(), which clamps to
+    // 0..1 and so cannot report a fold at all: `crest(...) <= 1.0` holds for
+    // every input including a surface inside out, and this test passed
+    // vacuously for as long as it was written that way.
     FjWaterData water;
     water.waves = {wave({1.0f, 0.0f}, 10.0f, 2.0f, 1.0f)};
 
+    float worst = 1.0f;
     for (float x = 0.0f; x < 20.0f; x += 0.01f) {
-        REQUIRE(water::crest(water, {x, 0.0f}, 0.0f) <= 1.0f);
+        worst = std::min(worst, water::horizontal_jacobian(water, {x, 0.0f}, 0.0f));
+    }
+    REQUIRE(worst >= 0.0f);
+}
+
+TEST_CASE("A field past its fold limit is reported as folded", "[fjwater]") {
+    // The negative case, which is what makes the test above mean something.
+    // Headroom is the dial that spends fold budget, so a field pushed far past
+    // its ceiling must actually come back folded — if it does not, the fold
+    // check is not measuring anything.
+    FjWaterData water;
+    water.waves = {wave({1.0f, 0.0f}, 10.0f, 2.0f, 1.0f)};
+    water.steepness_headroom = 4.0f;
+
+    float worst = 1.0f;
+    for (float x = 0.0f; x < 20.0f; x += 0.01f) {
+        worst = std::min(worst, water::horizontal_jacobian(water, {x, 0.0f}, 0.0f));
+    }
+    REQUIRE(worst < 0.0f);
+}
+
+TEST_CASE("Both evaluators agree on the Jacobian", "[fjwater]") {
+    // crest() is a clamp over this, so the pairing test on crest() cannot see
+    // drift between the two once either side has folded. Pin the raw value.
+    FieldPair field = make_field({
+        wave({1.0f, 0.0f}, 12.0f, 1.0f, 0.9f),
+        wave({0.3f, 0.8f}, 5.0f, 0.4f, 0.7f, 1.3f),
+    });
+    field.cpu.steepness_headroom = 3.0f;
+    field.gpu.steepness_headroom = 3.0f;
+
+    for (float time : {0.0f, 1.7f, 9.25f}) {
+        for (float x = -20.0f; x <= 20.0f; x += 2.5f) {
+            for (float z = -20.0f; z <= 20.0f; z += 2.5f) {
+                glm::vec2 p{x, z};
+                REQUIRE(water::horizontal_jacobian(field.cpu, p, time)
+                        == Approx(fjell_water_jacobian(field.gpu, p, time)).margin(1e-3));
+            }
+        }
     }
 }
 
@@ -648,6 +692,44 @@ TEST_CASE("A .fjwater survives a round trip", "[fjwater]") {
     // The generator settings come back so the editor can generate again.
     REQUIRE(loaded->generator.swell == Approx(2.2f));
     REQUIRE(loaded->generator.wave_count == 5);
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("An old .fjwater keeps the surface it was tuned to", "[fjwater]") {
+    // Before the steepness budget stopped being divided by the train count,
+    // a file's headroom was a multiplier on a 1/N share. Loading one of those
+    // at face value would put every train N times steeper than the artist saw
+    // and fold the sea on open. The migration divides it back, and what pins
+    // that is the surface itself: the same field, evaluated either side of the
+    // change, has to land in the same place.
+    auto dir = std::filesystem::temp_directory_path() / "fjell-fjwater-legacy";
+    std::filesystem::create_directories(dir);
+    auto path = (dir / "old.fjwater").string();
+
+    // A pre-version file: no "version" key, headroom meaning a 1/N share.
+    std::ofstream(path) << R"({
+        "amplitude_scale": 1.0,
+        "speed_scale": 1.0,
+        "steepness_headroom": 1.1,
+        "waves": [
+            {"direction": [1.0, 0.0], "wavelength": 30.0, "amplitude": 1.0,
+             "steepness": 0.45, "speed": 1.0},
+            {"direction": [0.5, 0.8], "wavelength": 12.0, "amplitude": 0.5,
+             "steepness": 0.6, "speed": 1.1}
+        ]
+    })";
+
+    auto loaded = load_fjwater_file(path);
+    REQUIRE(loaded);
+    REQUIRE(loaded->steepness_headroom == Approx(1.1f / 2.0f));
+
+    // A file the current writer produced is taken at face value.
+    auto fresh_path = (dir / "new.fjwater").string();
+    REQUIRE(save_fjwater_file(fresh_path, *loaded));
+    auto reloaded = load_fjwater_file(fresh_path);
+    REQUIRE(reloaded);
+    REQUIRE(reloaded->steepness_headroom == Approx(loaded->steepness_headroom));
 
     std::filesystem::remove_all(dir);
 }

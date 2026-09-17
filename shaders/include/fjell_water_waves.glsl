@@ -50,14 +50,14 @@ float fjell_water_steepness_to_q(float steepness, float k, float amplitude,
     return clamp(steepness, 0.0, 1.0) * max_q * budget;
 }
 
-// The share of the fold limit one train may take. Matches
-// steepness_budget(): a single train folds at k*A*q = 1, but trains sum and
-// the surface folds on the sum, so with N trains each takes 1/N and the worst
-// case where every crest aligns lands on flat rather than inside out.
-float fjell_water_budget(uint wave_count, float headroom) {
-    // Matches steepness_budget(): 1/N is the worst case and never happens,
-    // so the field says how far past it this sea goes.
-    return wave_count > 0u ? headroom / float(wave_count) : 1.0;
+// How much of a single train's fold limit each train may spend. Matches
+// steepness_budget(): steepness 1 is a train exactly at its own limit, and
+// nothing scales it down for having company. Trains sum, so a field of steep
+// trains can still fold where their crests meet — that is measured rather
+// than prevented, and `headroom` is what pushes the whole field past the
+// limit on purpose.
+float fjell_water_budget(float headroom) {
+    return headroom;
 }
 
 struct FjellWaveTerms {
@@ -96,7 +96,7 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
 vec3 fjell_water_displace(FjellWaterField field, vec2 world_xz, float time) {
     vec3 sum = vec3(0.0);
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(count, field.steepness_headroom);
+    float budget = fjell_water_budget(field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
         FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
@@ -116,7 +116,7 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
     vec3 tangent  = vec3(0.0, 0.0, 1.0);
 
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(count, field.steepness_headroom);
+    float budget = fjell_water_budget(field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
         FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
@@ -164,15 +164,16 @@ vec2 fjell_water_dominant_dir(FjellWaterField field) {
     return len < 1e-6 ? vec2(0.0) : sum / len;
 }
 
-// Matches crest(): 0 on flat water, rising toward 1 where the surface has
-// bunched to a point. Use it directly as a whitecap mask.
-float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {
+// Matches horizontal_jacobian(): 1 on flat water, falling as the trains bunch
+// together, 0 where the surface has pinched to a point and negative where it
+// has folded through itself.
+float fjell_water_jacobian(FjellWaterField field, vec2 world_xz, float time) {
     float jxx = 1.0;
     float jzz = 1.0;
     float jxz = 0.0;
 
     uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(count, field.steepness_headroom);
+    float budget = fjell_water_budget(field.steepness_headroom);
     for (uint i = 0u; i < count; ++i) {
         FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
         if (t.amplitude == 0.0) continue;
@@ -185,8 +186,14 @@ float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {
         jxz -= wa * t.dir.x * t.dir.y * s;
     }
 
-    float jacobian = jxx * jzz - jxz * jxz;
-    return clamp(1.0 - jacobian, 0.0, 1.0);
+    return jxx * jzz - jxz * jxz;
+}
+
+// Matches crest(): 0 on flat water, rising toward 1 where the surface has
+// bunched to a point. Use it directly as a whitecap mask. Clamped, so a folded
+// surface reads the same as one pinched to a point.
+float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {
+    return clamp(1.0 - fjell_water_jacobian(field, world_xz, time), 0.0, 1.0);
 }
 
 #endif // FJELL_WATER_WAVES_GLSL

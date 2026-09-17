@@ -39,20 +39,31 @@ ridges — water that has travelled from a storm somewhere else.
 
 ## Folding, and the headroom dial
 
-A single Gerstner train turns inside out when its steepness term reaches 1.
-Trains *sum*, though, and the surface folds on the sum: six trains each at a
-safe 0.5 add to 3, and where their crests line up the surface turns through
-itself — dark flat facets on the peaks, back-facing, exactly where the foam is.
+A single Gerstner train turns inside out when its steepness term reaches 1, so
+**steepness 1 is that train exactly at its own limit** and a lone train can
+never fold whatever you set.
 
-So the budget is shared. With N trains each may take 1/N of the limit, and the
-worst case where every crest aligns lands exactly on flat rather than past it.
+Trains *sum*, though, and the surface folds on the sum: several steep trains
+whose crests meet can turn the surface through itself — dark flat facets on the
+peaks, back-facing, exactly where the foam is.
 
-That worst case assumes every crest aligned, at one instant, at one point —
-which trains travelling at different speeds and angles never actually manage.
-Holding a sea to it costs the pinch that makes a crest read as relief rather
-than a bump. **`steepness_headroom`** is how far past it you are willing to go,
-and the editor measures what your setting actually costs: it samples the
-surface over time and tells you what percentage of it folds.
+That is **not prevented, it is measured.** The budget used to be shared 1/N,
+which bounded the worst case but priced it wrongly: the worst case is every
+crest aligned at one instant at one point, and trains travelling at different
+speeds, angles and wavelengths do not arrange that. Designing to it held every
+train on a six-train sea below an eighth of its own steepness, so the slider an
+artist reaches for to get a pinched crest could not produce one — and adding a
+small train for detail flattened every train already there.
+
+So steepness now means what it says, and the editor tells you what your field
+actually costs: it samples the surface over time and reports what percentage of
+it folds.
+
+**`steepness_headroom`** scales the whole field past a single train's limit. It
+defaults to 0.30, which is just under the measured ceiling for the sea the
+generator makes — nothing folds there, and 1.0 folds about 14% of it. A sea of
+fewer or gentler trains can go far higher, which is why the dial is a
+measurement rather than a rule.
 
 Some folding is not a bug. A little of it at distance is often the trade worth
 making, and it is what gives a sea the connected ridges that read as weather
