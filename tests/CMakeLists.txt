@@ -15,6 +15,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjterrain_io.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjinst_io.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjwater_io.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_clipmap.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_gpu.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_surface.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
@@ -113,6 +114,7 @@ add_executable(fjell-tests
     test_fjterrain_io.cpp
     test_fjinst_io.cpp
     test_fjwater.cpp
+    test_water_clipmap.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp
