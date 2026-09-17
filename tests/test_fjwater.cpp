@@ -345,6 +345,210 @@ TEST_CASE("A sea travels in the direction its waves do", "[fjwater]") {
 
 // --- Generator ---
 
+TEST_CASE("Wind leaves a sea alone until it is asked not to", "[fjwater]") {
+    // Off by default, because most water is a pond, a canal or a pool and an
+    // artist who has not thought about wind should get the sea they tuned.
+    FjWaterData water;
+    water.waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)};
+    REQUIRE_FALSE(water.wind.enabled);
+
+    FjWaterData blown = water::apply_wind(water, {30.0f, 0.0f});
+    REQUIRE(blown.amplitude_scale == Approx(water.amplitude_scale));
+    REQUIRE(blown.steepness_headroom == Approx(water.steepness_headroom));
+    REQUIRE(blown.waves[0].direction.x == Approx(water.waves[0].direction.x));
+    REQUIRE(blown.waves[0].direction.y == Approx(water.waves[0].direction.y));
+}
+
+TEST_CASE("The reference wind is the sea as authored", "[fjwater]") {
+    // The authored field is the sea at the reference wind, not in a calm, so
+    // an artist tuning at 8 m/s sees exactly what they tuned when the weather
+    // blows 8 m/s. Anything else and the look they signed off on is a look
+    // that never actually occurs.
+    FjWaterData water;
+    water.waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)};
+    water.wind.enabled = true;
+    water.wind.reference_speed = 8.0f;
+
+    FjWaterData same = water::apply_wind(water, {8.0f, 0.0f});
+    REQUIRE(same.amplitude_scale == Approx(water.amplitude_scale));
+    REQUIRE(same.steepness_headroom == Approx(water.steepness_headroom));
+    REQUIRE(same.waves[0].direction.x == Approx(1.0f));
+    REQUIRE(same.waves[0].direction.y == Approx(0.0f).margin(1e-6));
+}
+
+TEST_CASE("Wind raises and calms a sea", "[fjwater]") {
+    FjWaterData water;
+    water.waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)};
+    water.wind.enabled = true;
+    water.wind.reference_speed = 8.0f;
+    water.wind.amplitude_response = 1.6f;
+    water.wind.direction_response = 0.0f;
+
+    // Quoted at twice the reference, so double the wind is exactly the
+    // response and the dial means what it says.
+    REQUIRE(water::apply_wind(water, {16.0f, 0.0f}).amplitude_scale == Approx(1.6f));
+    // Half the reference is as far the other way.
+    REQUIRE(water::apply_wind(water, {4.0f, 0.0f}).amplitude_scale == Approx(0.7f));
+
+    // A dead calm never inverts the sea, which a naive ramp through zero
+    // would do, but it does not necessarily flatten it either: a swell
+    // outlives the wind that raised it, and at the default response a
+    // windless sea still stands at 40% of its authored height.
+    REQUIRE(water::apply_wind(water, {0.0f, 0.0f}).amplitude_scale == Approx(0.4f));
+
+    // An artist who wants a millpond in a calm says so with a stronger
+    // response, and the floor is what keeps that from going negative.
+    water.wind.amplitude_response = 4.0f;
+    REQUIRE(water::apply_wind(water, {0.0f, 0.0f}).amplitude_scale == Approx(0.0f));
+}
+
+TEST_CASE("Wind turns the chop and leaves the swell", "[fjwater]") {
+    // The point of the direction response: a long swell was raised by a storm
+    // somewhere else and holds its heading for days, while the chop on top
+    // answers the wind it is actually in. One wind direction for the whole
+    // sea would turn it like a sheet of plywood.
+    FjWaterData water;
+    water.waves = {
+        wave({1.0f, 0.0f}, 60.0f, 1.0f, 0.5f),   // the swell
+        wave({1.0f, 0.0f}, 30.0f, 0.5f, 0.5f),
+        wave({1.0f, 0.0f}, 4.0f, 0.2f, 0.5f),    // the chop
+    };
+    water.wind.enabled = true;
+    water.wind.direction_response = 1.0f;
+
+    // Wind square across the authored heading, at the reference speed so only
+    // direction is in play.
+    FjWaterData blown = water::apply_wind(water, {0.0f, water.wind.reference_speed});
+
+    // The longest train does not move at all.
+    REQUIRE(blown.waves[0].direction.x == Approx(1.0f));
+    REQUIRE(blown.waves[0].direction.y == Approx(0.0f).margin(1e-6));
+    // The shortest is fully onto the wind.
+    REQUIRE(blown.waves[2].direction.x == Approx(0.0f).margin(1e-6));
+    REQUIRE(blown.waves[2].direction.y == Approx(1.0f));
+    // The middle one is partway, and still a unit vector — turning toward a
+    // direction rather than lerping to it is what keeps this normalized.
+    REQUIRE(blown.waves[1].direction.y > 0.0f);
+    REQUIRE(blown.waves[1].direction.y < 1.0f);
+    REQUIRE(glm::length(blown.waves[1].direction) == Approx(1.0f));
+}
+
+TEST_CASE("Wind cannot leave a train without a direction", "[fjwater]") {
+    // Turning a train onto a wind blowing straight back at it passes through
+    // the midpoint where the two cancel. Normalizing a zero there would give
+    // a NaN heading, and a NaN in the wave field is a sea that vanishes.
+    FjWaterData water;
+    water.waves = {
+        wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f),
+        wave({1.0f, 0.0f}, 10.0f, 0.5f, 0.5f),
+        wave({1.0f, 0.0f}, 4.0f, 0.2f, 0.5f),
+    };
+    water.wind.enabled = true;
+
+    for (float response = 0.0f; response <= 1.0f; response += 0.01f) {
+        water.wind.direction_response = response;
+        FjWaterData blown = water::apply_wind(water, {-water.wind.reference_speed, 0.0f});
+        for (const auto& w : blown.waves) {
+            INFO("direction_response " << response);
+            REQUIRE(std::isfinite(w.direction.x));
+            REQUIRE(std::isfinite(w.direction.y));
+            REQUIRE(glm::length(w.direction) == Approx(1.0f));
+        }
+    }
+}
+
+TEST_CASE("A sea of one wavelength turns as one", "[fjwater]") {
+    // The swell/chop ramp is relative to the wavelengths present, so a field
+    // with nothing to distinguish has no swell to hold back and every train
+    // answers the wind.
+    FjWaterData water;
+    water.waves = {
+        wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f),
+        wave({1.0f, 0.0f}, 20.0f, 0.5f, 0.5f),
+    };
+    water.wind.enabled = true;
+    water.wind.direction_response = 1.0f;
+
+    FjWaterData blown = water::apply_wind(water, {0.0f, water.wind.reference_speed});
+    for (const auto& w : blown.waves) {
+        REQUIRE(w.direction.y == Approx(1.0f));
+    }
+}
+
+TEST_CASE("A sea takes time to answer the wind", "[fjwater]") {
+    // Without the lag a weather event stepping its wind at a phase boundary
+    // steps the whole sea with it, and the gust — which breathes about once a
+    // second — heaves the entire ocean. The sea has to arrive late.
+    const glm::vec2 calm{0.0f, 0.0f};
+    const glm::vec2 gale{20.0f, 0.0f};
+
+    glm::vec2 sea = calm;
+    sea = water::advance_sea_wind(sea, gale, 1.0f);
+    REQUIRE(sea.x > 0.0f);
+    REQUIRE(sea.x < gale.x * 0.2f);   // nowhere near there after a second
+
+    // And it does get there, given its time.
+    for (int i = 0; i < 600; ++i) sea = water::advance_sea_wind(sea, gale, 0.5f);
+    REQUIRE(sea.x == Approx(gale.x).margin(0.01f));
+}
+
+TEST_CASE("A sea dies slower than it builds", "[fjwater]") {
+    // A wind raises a sea over hours; when it drops, the swell it made keeps
+    // rolling for longer still. Asymmetric on purpose.
+    const glm::vec2 gale{20.0f, 0.0f};
+
+    glm::vec2 rising = glm::vec2(0.0f);
+    glm::vec2 falling = gale;
+    for (int i = 0; i < 20; ++i) {
+        rising = water::advance_sea_wind(rising, gale, 1.0f);
+        falling = water::advance_sea_wind(falling, glm::vec2(0.0f), 1.0f);
+    }
+    // After the same twenty seconds the rising sea has covered more of its
+    // distance than the dying one has of its.
+    const float risen = rising.x / gale.x;
+    const float remaining = falling.x / gale.x;
+    REQUIRE(risen > 1.0f - remaining);
+}
+
+TEST_CASE("The sea answers the same at any frame rate", "[fjwater]") {
+    // An exponential approach written as a per-frame lerp is the classic way
+    // to make a sea that builds faster on a better machine. Ten seconds is
+    // ten seconds.
+    const glm::vec2 gale{20.0f, 0.0f};
+
+    glm::vec2 fast = glm::vec2(0.0f);
+    for (int i = 0; i < 600; ++i) fast = water::advance_sea_wind(fast, gale, 1.0f / 60.0f);
+
+    glm::vec2 slow = glm::vec2(0.0f);
+    for (int i = 0; i < 100; ++i) slow = water::advance_sea_wind(slow, gale, 0.1f);
+
+    glm::vec2 one_step = water::advance_sea_wind(glm::vec2(0.0f), gale, 10.0f);
+
+    REQUIRE(fast.x == Approx(slow.x).margin(0.01f));
+    REQUIRE(fast.x == Approx(one_step.x).margin(0.01f));
+}
+
+TEST_CASE("Wind response survives a round trip", "[fjwater]") {
+    FjWaterData water;
+    water.waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)};
+    water.wind.enabled = true;
+    water.wind.reference_speed = 11.0f;
+    water.wind.amplitude_response = 2.2f;
+    water.wind.steepness_response = 1.4f;
+    water.wind.direction_response = 0.35f;
+
+    auto path = std::filesystem::temp_directory_path() / "fjell_wind_roundtrip.fjwater";
+    REQUIRE(save_fjwater_file(path.string(), water));
+    auto loaded = load_fjwater_file(path.string());
+    REQUIRE(loaded);
+    REQUIRE(loaded->wind.enabled);
+    REQUIRE(loaded->wind.reference_speed == Approx(11.0f));
+    REQUIRE(loaded->wind.amplitude_response == Approx(2.2f));
+    REQUIRE(loaded->wind.steepness_response == Approx(1.4f));
+    REQUIRE(loaded->wind.direction_response == Approx(0.35f));
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("The generator is deterministic", "[fjwater]") {
     WaterWaveGenerator settings;
     settings.wind_direction = {0.6f, 0.8f};

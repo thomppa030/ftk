@@ -88,6 +88,61 @@ struct WaterWaveGenerator {
     float amplitude_falloff{0.68f};
 };
 
+/// How a sea answers the wind the weather system is blowing.
+///
+/// The authored wave list is the sea at the reference wind, not the sea in a
+/// dead calm: an artist tunes a `.fjwater` until it looks right, and that is
+/// the look they signed off on. Wind then moves it either side of that.
+/// Authoring the calm instead would mean tuning a sea nobody ever sees.
+///
+/// Nothing here is applied unless a scene has weather driving it. A
+/// `.fjwater` opened in the editor, or placed in a scene with no wind, is
+/// exactly the field that was authored.
+struct WaterWindResponse {
+    /// Whether the weather's wind reaches this water at all. Off for a pool,
+    /// a canal, anything indoors, and for a sea an artist wants to hold still
+    /// while they tune it.
+    bool enabled{false};
+
+    /// The wind speed the authored field describes, in m/s. Wind at this
+    /// speed changes nothing.
+    ///
+    /// 8 m/s is a fresh breeze — whitecaps forming, the condition most open
+    /// water is authored at, and the middle of the range a sea spends its
+    /// time in.
+    float reference_speed{8.0f};
+
+    /// How much wind speed drives wave height, as the amplitude multiplier at
+    /// twice the reference wind.
+    ///
+    /// Real wave height grows steeply with wind — roughly with its square in
+    /// a fully developed sea — but a sea that quadruples in a gust reads as a
+    /// bug rather than as weather, so this is a straight ramp through the
+    /// reference point and an artist's number rather than an oceanographer's.
+    /// 1 leaves height alone and lets wind steer direction only.
+    float amplitude_response{1.6f};
+
+    /// How much of the fold budget a strong wind may additionally spend, at
+    /// twice the reference wind.
+    ///
+    /// Wind does not only raise a sea, it sharpens it: the same swell under a
+    /// gale is pinched where under a breeze it is round. This multiplies
+    /// `steepness_headroom`, so a sea authored near its fold ceiling will
+    /// fold in a storm — which is the intent, and why it is a separate dial
+    /// from height rather than folded into it.
+    float steepness_response{1.25f};
+
+    /// How far the wind turns the trains, 0 leaving every train on its
+    /// authored heading and 1 turning the shortest all the way onto the wind.
+    ///
+    /// Only the short trains turn. A long swell was raised by a storm
+    /// somewhere else and holds its direction for days after the local wind
+    /// has changed; the chop riding on it answers the wind it is in. The ramp
+    /// runs by wavelength between the longest and shortest train, so a sea
+    /// keeps its swell while the wind combs the surface.
+    float direction_response{0.7f};
+};
+
 /// A `.fjwater`: the wave field of a body of water.
 ///
 /// The waves are the whole runtime asset. Colour, foam look, refraction and
@@ -131,6 +186,9 @@ struct FjWaterData {
     /// the foam. Raise it to trade that risk for sharper waves; the editor
     /// says how much of the surface folds at the current setting.
     float steepness_headroom{1.10f};
+
+    /// How the sea answers the weather's wind.
+    WaterWindResponse wind;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

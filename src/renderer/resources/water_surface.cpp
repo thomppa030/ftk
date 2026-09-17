@@ -80,6 +80,80 @@ float wave_frequency(float wavelength) {
     return std::sqrt(GRAVITY * (TAU / wavelength));
 }
 
+glm::vec2 advance_sea_wind(glm::vec2 sea_wind, glm::vec2 blowing, float dt) {
+    float seconds = glm::length(blowing) > glm::length(sea_wind) ? SEA_RISE_SECONDS
+                                                                 : SEA_FALL_SECONDS;
+    float alpha = 1.0f - std::exp(-dt / std::max(seconds, 1e-3f));
+    return sea_wind + (blowing - sea_wind) * alpha;
+}
+
+FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
+    const WaterWindResponse& wind = water.wind;
+    if (!wind.enabled || water.waves.empty()) {
+        return water;
+    }
+
+    float reference = std::max(wind.reference_speed, 0.1f);
+    float speed = glm::length(wind_xz);
+
+    // Every response is quoted at twice the reference wind, so this is how far
+    // along that span the weather currently sits: 0 at the reference, 1 at
+    // double it, negative below it. Not clamped above — a storm past double
+    // keeps building the sea rather than hitting a ceiling.
+    float t = speed / reference - 1.0f;
+
+    // Each response is a straight ramp through the reference point, floored at
+    // zero so a calm can flatten a sea but never invert it. A dead calm does
+    // not necessarily flatten it: at the default response a windless sea is
+    // still 40% of its authored height, which is right — a swell outlives the
+    // wind that raised it by days, and water that went glassy the moment the
+    // wind dropped would read as a switch being thrown. An artist who wants a
+    // millpond in a calm sets the response past 2.
+    FjWaterData out = water;
+    out.amplitude_scale *= std::max(1.0f + t * (wind.amplitude_response - 1.0f), 0.0f);
+    out.steepness_headroom *= std::max(1.0f + t * (wind.steepness_response - 1.0f), 0.0f);
+
+    if (speed < 1e-4f || wind.direction_response <= 0.0f) {
+        // No wind is no direction to turn onto, and the sea keeps the heading
+        // it was authored with.
+        return out;
+    }
+    glm::vec2 wind_dir = wind_xz / speed;
+
+    // Only the short trains turn. Find the span of wavelengths present so the
+    // ramp is relative to this sea rather than to an absolute length that
+    // would mean different things in a pond and an ocean.
+    float shortest = water.waves.front().wavelength;
+    float longest = shortest;
+    for (const auto& w : water.waves) {
+        shortest = std::min(shortest, w.wavelength);
+        longest = std::max(longest, w.wavelength);
+    }
+
+    float span = longest - shortest;
+    for (auto& w : out.waves) {
+        float len = glm::length(w.direction);
+        if (len < 1e-6f) continue;
+
+        // 0 on the longest train, 1 on the shortest. A sea whose trains are
+        // all one length has no swell to distinguish from chop, so it turns
+        // as one.
+        float shortness = (span < 1e-4f) ? 1.0f : (longest - w.wavelength) / span;
+        float turn = std::clamp(wind.direction_response * shortness, 0.0f, 1.0f);
+
+        // Turn toward the wind rather than snapping to it, and normalize:
+        // a train half-turned onto a wind blowing straight back at it would
+        // otherwise shrink to nothing through the midpoint.
+        glm::vec2 turned = glm::mix(w.direction / len, wind_dir, turn);
+        float turned_len = glm::length(turned);
+        // Exactly opposed at exactly half a turn is the one case with no
+        // answer; leave that train as it was authored.
+        if (turned_len < 1e-4f) continue;
+        w.direction = turned / turned_len;
+    }
+    return out;
+}
+
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
     std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);

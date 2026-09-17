@@ -106,6 +106,15 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
     water.speed_scale = j.value("speed_scale", 1.0f);
     water.steepness_headroom = j.value("steepness_headroom", 1.10f);
 
+    if (j.contains("wind") && j["wind"].is_object()) {
+        const auto& wj = j["wind"];
+        water.wind.enabled = wj.value("enabled", false);
+        water.wind.reference_speed = wj.value("reference_speed", 8.0f);
+        water.wind.amplitude_response = wj.value("amplitude_response", 1.6f);
+        water.wind.steepness_response = wj.value("steepness_response", 1.25f);
+        water.wind.direction_response = wj.value("direction_response", 0.7f);
+    }
+
     if (j.contains("generator") && j["generator"].is_object()) {
         const auto& g = j["generator"];
         water.generator.wind_direction = read_vec2(g, "wind_direction", glm::vec2(1.0f, 0.0f));
@@ -144,6 +153,18 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
     j["amplitude_scale"] = water.amplitude_scale;
     j["speed_scale"] = water.speed_scale;
     j["steepness_headroom"] = water.steepness_headroom;
+
+    // Only written once a sea actually answers the weather, so a .fjwater
+    // that does not care about wind stays as short as it reads.
+    if (water.wind.enabled) {
+        j["wind"] = {
+            {"enabled", water.wind.enabled},
+            {"reference_speed", water.wind.reference_speed},
+            {"amplitude_response", water.wind.amplitude_response},
+            {"steepness_response", water.wind.steepness_response},
+            {"direction_response", water.wind.direction_response},
+        };
+    }
 
     nlohmann::json g = nlohmann::json::object();
     g["wind_direction"] = write_vec2(water.generator.wind_direction);

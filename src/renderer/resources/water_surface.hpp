@@ -28,6 +28,47 @@ namespace water {
 /// looking like one rigid sheet. omega = sqrt(g * k).
 [[nodiscard]] float wave_frequency(float wavelength);
 
+/// The authored field as the wind has made it: heights raised or dropped,
+/// crests sharpened, and the short trains turned onto the wind while the
+/// swell holds its heading.
+///
+/// A derivation rather than an edit. The `.fjwater` on disk stays the sea the
+/// artist tuned, and this produces what the world actually has right now, so
+/// the same asset can be a millpond and a gale without being two files.
+///
+/// Everything downstream — both evaluators, the GPU packing, buoyancy — reads
+/// the result of this rather than the authored field, which is the only way
+/// the surface a boat floats on stays the surface the player sees. Returns
+/// its input unchanged when the response is disabled or the wind is the
+/// reference wind.
+///
+/// `wind_xz` is the wind on the ground plane in m/s, direction and magnitude
+/// together; the caller has already folded in the gust.
+[[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz);
+
+/// How much of a rise or a fall in wave height a sea takes on per second,
+/// as the seconds a change takes to mostly arrive.
+///
+/// Building is slower than dying because that is the way round it happens: a
+/// wind raises a sea over hours, and when the wind drops the swell it made
+/// keeps rolling for longer still. These are seconds rather than hours
+/// because a storm in a game passes in minutes, and a sea answering on the
+/// real timescale would never visibly answer at all.
+inline constexpr float SEA_RISE_SECONDS = 25.0f;
+inline constexpr float SEA_FALL_SECONDS = 45.0f;
+
+/// One step of the sea catching up to the wind that is blowing.
+///
+/// Water has mass, and a wave field driven straight from the weather does not
+/// show it: a weather event stepping its wind at a phase boundary would step
+/// the whole sea with it, and the gust — which breathes about once a second —
+/// would heave the entire ocean up and down. This lags the wind the field is
+/// built from so a front raises a sea over its passage rather than at its
+/// arrival.
+///
+/// Frame-rate independent: the same curve at any `dt`.
+[[nodiscard]] glm::vec2 advance_sea_wind(glm::vec2 sea_wind, glm::vec2 blowing, float dt);
+
 /// Where the surface at rest position `world_xz` has moved to at `time`.
 /// The x and z components are the horizontal bunching toward crests, y the
 /// height. Add this to a flat vertex to get the water surface.
