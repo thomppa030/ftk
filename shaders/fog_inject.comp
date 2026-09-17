@@ -23,6 +23,8 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuSpotLight spot_lights[1024];
 };
 
+layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
+
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 
 layout(set = 0, binding = 17) readonly buffer FogVolumeBuffer {
@@ -56,6 +58,11 @@ layout(push_constant) uniform PushConstants {
 float slice_to_depth(float t) {
     return pc.near_plane * pow(pc.far_plane / pc.near_plane, t);
 }
+
+// Light arriving equally from every direction scatters toward the eye by
+// 1/4π, whatever the medium's asymmetry — the phase function integrates to
+// one over the sphere, so an even distribution leaves only the average.
+const float ISOTROPIC_PHASE = 0.0795774715;
 
 // Henyey-Greenstein phase function. Isotropic baseline is ~0.08 (1/4π);
 // clamping at 0.1 keeps the forward-scatter peak gentle and prevents the
@@ -349,8 +356,17 @@ void main() {
         light_contrib += sl.color_intensity.xyz * sl.color_intensity.w * sl.vol_params.x * sl_phase * atten * sl_shadow;
     }
 
-    // Ambient contribution (isotropic)
-    vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w;
+    // Ambient in-scatter: the sky, arriving from everywhere at once. It reads
+    // the same irradiance mip of the cubemap that lit surfaces sample, so
+    // ambient_intensity means one thing across the engine and fog takes its
+    // colour from the sky rather than from a flat value nothing else uses.
+    //
+    // The isotropic phase is what keeps it in proportion: every other term
+    // here is scaled by a phase function, and ambient used to be added raw,
+    // entering the sum more than ten times too strong and turning the fog
+    // into a readout of the ambient level.
+    vec3 sky_ambient = textureLod(sky_cubemap, ray_dir, 5.0).rgb;
+    vec3 ambient = sky_ambient * ubo.ambient_color.w * ISOTROPIC_PHASE;
 
     vec3 in_scattered = fog_color * scatter_coeff * (light_contrib + ambient);
 
