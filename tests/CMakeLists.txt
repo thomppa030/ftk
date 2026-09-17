@@ -114,6 +114,7 @@ add_executable(fjell-tests
     test_fjterrain_io.cpp
     test_fjinst_io.cpp
     test_fjwater.cpp
+    test_particle_budget.cpp
     test_water_clipmap.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp

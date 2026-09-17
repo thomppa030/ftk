@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/systems/particle_budget.hpp"
+
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/growable_buffer.hpp"
 #include "renderer/components/particle_emitter.hpp"
@@ -95,10 +97,9 @@ public:
 
     // RenderSubsystem lifecycle
     void sync(const RenderSubsystemContext& ctx) override;
-    /// Every effect in the scene shares this many particles: the ceiling the
-    /// mega-buffer can grow to. An emitter that would take the scene past it
-    /// is refused with a warning rather than allowed to exhaust the buffer.
-    static constexpr uint32_t MAX_SCENE_PARTICLES = 65536;
+    /// The scene-wide particle and emitter budgets; see particle_budget.hpp.
+    static constexpr uint32_t MAX_SCENE_PARTICLES = fjell::MAX_SCENE_PARTICLES;
+    static constexpr uint32_t MAX_SCENE_EMITTERS = fjell::MAX_SCENE_EMITTERS;
 
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;

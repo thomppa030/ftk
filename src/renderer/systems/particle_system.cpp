@@ -78,6 +78,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
                   "the emitter budget and the buffer's ceiling are the same number");
     constexpr VkDeviceSize INITIAL_EMITTERS = 8;
     constexpr VkDeviceSize MAX_EMITTERS = 512;
+    static_assert(MAX_EMITTERS == ParticleSystem::MAX_SCENE_EMITTERS,
+                  "the emitter budget and the buffer's ceiling are the same number");
     constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
 
     auto& upload = *resources.upload_context;
@@ -1814,10 +1816,8 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     // own init command buffer regardless of this branch, so neither path
     // needs an additional wait beforehand.
     if (needs_realloc) {
-        uint32_t new_total = std::max(total, total_particle_capacity_ * 2);
-        uint32_t new_count = std::max(count, emitter_capacity_ * 2);
-        if (new_total == 0) new_total = total;
-        if (new_count == 0) new_count = count;
+        uint32_t new_total = grow_buffer_to(total, total_particle_capacity_, MAX_SCENE_PARTICLES);
+        uint32_t new_count = grow_buffer_to(count, emitter_capacity_, MAX_SCENE_EMITTERS);
         rebuild_mega_buffers(new_total, new_count);
     }
     init_emitter_range(first_new, count);
