@@ -182,6 +182,8 @@ GpuContext::~GpuContext() {
         lb.reset();
     for (auto& tb : tile_light_ssbo_)
         tb.reset();
+    for (auto& fv : fog_volume_ssbo_)
+        fv.reset();
     if (depth_sampler_ != VK_NULL_HANDLE)
         vkDestroySampler(vk_device, depth_sampler_, nullptr);
 
@@ -226,6 +228,8 @@ void GpuContext::create_descriptor_resources() {
     // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
     constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                              MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
+    // Fog volume SSBO: the scene's local fog volumes (~7 KB)
+    constexpr VkDeviceSize fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
@@ -255,6 +259,14 @@ void GpuContext::create_descriptor_resources() {
             core_.allocator(), tile_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO);
+
+        // Fog volume SSBO (host-visible for CPU upload)
+        fog_volume_ssbo_[i] = std::make_unique<Buffer>(
+            core_.allocator(), fog_volume_ssbo_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        fog_volume_ssbo_[i]->map();
     }
 
     // Depth sampler for compute light culling (nearest, clamp-to-edge)
@@ -342,6 +354,7 @@ void GpuContext::finalize_descriptors() {
     constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
     constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                              MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
+    constexpr VkDeviceSize fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         global_bindings_.write_buffer(i, "global_ubo",
@@ -352,6 +365,8 @@ void GpuContext::finalize_descriptors() {
             light_ssbo_[i]->handle(), 0, light_ssbo_size);
         global_bindings_.write_buffer(i, "tile_light_ssbo",
             tile_light_ssbo_[i]->handle(), 0, tile_ssbo_size);
+        global_bindings_.write_buffer(i, "fog_volume_ssbo",
+            fog_volume_ssbo_[i]->handle(), 0, fog_volume_ssbo_size);
         global_bindings_.write_image(i, "gi_indirect",
             gi_fallback_view_, gi_fallback_sampler_,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

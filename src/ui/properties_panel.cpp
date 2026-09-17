@@ -549,6 +549,41 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            if (auto* fv = dynamic_cast<FogVolumeNode*>(obj)) {
+                section_header("FOG VOLUME", ICON_LC_CLOUD);
+                if (auto t = PropertyTable("##fog_volume")) {
+                    prop_row("Shape", [&] {
+                        int shape = static_cast<int>(fv->shape);
+                        const char* shapes[] = {"Box", "Sphere"};
+                        if (ImGui::Combo("##FogVolShape", &shape, shapes, 2)) {
+                            fv->shape = static_cast<ColliderShape>(shape);
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Density", [&] {
+                        if (ImGui::SliderFloat("##FogVolDensity", &fv->density, 0.0f, 1.0f, "%.4f")) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Color", [&] {
+                        if (color_edit_linear("##FogVolColor", fv->fog_color)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Scattering", [&] {
+                        if (ImGui::SliderFloat("##FogVolScatter", &fv->scattering_mult, 0.0f, 4.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Edge Falloff", [&] {
+                        if (ImGui::SliderFloat("##FogVolFalloff", &fv->edge_falloff, 0.0f, 1.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                }
+                ImGui::TextDisabled("Size comes from the node's scale.");
+            }
+
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
                 section_header("WORLD ENVIRONMENT", ICON_LC_GLOBE);
                 static const std::string hdri_exts[] = {".hdr", ".exr"};

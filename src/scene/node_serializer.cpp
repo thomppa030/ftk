@@ -158,6 +158,15 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"shaft_halo_inner", vf->shaft_halo_inner},
             {"shaft_halo_outer", vf->shaft_halo_outer}
         };
+    } else if (auto* fv = dynamic_cast<const FogVolumeNode*>(&node)) {
+        j["node_type"] = "fog_volume";
+        j["fog_volume"] = {
+            {"shape", static_cast<int>(fv->shape)},
+            {"density", fv->density},
+            {"color", color_to_json(fv->fog_color)},
+            {"scattering_mult", fv->scattering_mult},
+            {"edge_falloff", fv->edge_falloff}
+        };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
         j["sky"] = {
@@ -405,6 +414,19 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->shaft_halo_outer = jf.value("shaft_halo_outer", 0.6f);
             }
             node = std::move(vf);
+        } else if (node_type == "fog_volume") {
+            auto fv = std::make_unique<FogVolumeNode>();
+            if (j.contains("fog_volume")) {
+                auto& jv = j["fog_volume"];
+                fv->shape = static_cast<ColliderShape>(jv.value("shape", 0));
+                fv->density = jv.value("density", 0.05f);
+                if (jv.contains("color")) {
+                    fv->fog_color = color_from_json(jv["color"]);
+                }
+                fv->scattering_mult = jv.value("scattering_mult", 1.0f);
+                fv->edge_falloff = jv.value("edge_falloff", 0.2f);
+            }
+            node = std::move(fv);
         } else if (node_type == "world_environment") {
             auto env = std::make_unique<WorldEnvironmentNode>();
             if (j.contains("sky")) {

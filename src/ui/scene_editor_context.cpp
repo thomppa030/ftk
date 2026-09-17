@@ -1722,6 +1722,15 @@ void SceneEditorContext::add_primitive(const std::string& type) {
         selected_id_ = deps_.scene->add_node(std::move(node));
         return;
     }
+    if (type == "fog_volume") {
+        auto node = std::make_unique<FogVolumeNode>();
+        node->name = "Fog Volume";
+        // A unit volume is a metre across, which is far too small to see as
+        // fog; place it at a size a bank is actually authored at.
+        node->transform.scale = glm::vec3(10.0f, 3.0f, 10.0f);
+        selected_id_ = deps_.scene->add_node(std::move(node));
+        return;
+    }
     if (type == "world_environment") {
         auto node = std::make_unique<WorldEnvironmentNode>();
         node->name = "World Environment";

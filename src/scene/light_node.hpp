@@ -1,5 +1,6 @@
 #pragma once
 
+#include "physics/physics_types.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
@@ -85,6 +86,53 @@ struct SpotLightNode : Node3D {
         copy->vol_scatter_intensity = vol_scatter_intensity;
         copy->cast_shadows = cast_shadows;
         copy->shadow_bias = shadow_bias;
+        return copy;
+    }
+};
+
+// ── Volumes ──────────────────────────────────────────────────────────────
+
+// A region of the world, placed by its transform: the unit box or the unit
+// sphere in the node's own space, so position, rotation and extent all come
+// from the transform and there is no separate size to keep in step with it.
+//
+// What a volume *does* is the derived node's business — fog adds density,
+// others will override render settings. What they share is the region and how
+// far inside it a point sits, which is `volume_occupancy()` in
+// shaders/include/fjell_volume.glsl. A CPU mirror of that function belongs
+// here when a volume needs answering on the CPU; fog does not.
+struct VolumeNode : Node3D {
+    /// Box and Sphere are the analytic shapes a volume can be; Capsule and
+    /// Mesh are not implemented and read as Box.
+    ColliderShape shape{ColliderShape::Box};
+    /// Fraction of the extent the edge fades across, so scaling a volume
+    /// keeps its edge proportionally soft. 0 is a hard edge.
+    float edge_falloff{0.2f};
+
+protected:
+    void clone_volume_into(VolumeNode& target) const {
+        clone_3d_into(target);
+        target.shape = shape;
+        target.edge_falloff = edge_falloff;
+    }
+};
+
+// Extra fog inside the volume, on top of the global height fog from the
+// VolumetricFogNode. Volumes add: overlapping ones are thicker, and colour and
+// scattering average across them by how much density each contributes.
+struct FogVolumeNode : VolumeNode {
+    float density{0.05f};
+    glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
+    /// Scales this volume's share of the scattering, leaving the global
+    /// scattering as the baseline: brighter or dimmer without being thicker.
+    float scattering_mult{1.0f};
+
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
+        auto copy = std::make_unique<FogVolumeNode>();
+        clone_volume_into(*copy);
+        copy->density = density;
+        copy->fog_color = fog_color;
+        copy->scattering_mult = scattering_mult;
         return copy;
     }
 };

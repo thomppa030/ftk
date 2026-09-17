@@ -135,7 +135,9 @@ public:
         float jitter_x;
         float jitter_y;
         float jitter_z;
-        float padding;
+        // How many entries of fog_volume_ssbo the inject pass should read.
+        // The other three fog shaders share this block and ignore it.
+        uint32_t volume_count;
     };
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
@@ -155,6 +157,7 @@ private:
     float max_distance_{130.0f};
     float temporal_blend_{0.9f};
     glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
+    uint32_t volume_count_{0};
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

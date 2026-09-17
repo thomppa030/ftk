@@ -23,6 +23,16 @@ struct GpuSpotLight {
     vec4 vol_params;            // x = volumetric scatter intensity multiplier
 };
 
+// A local fog volume. inv_transform takes a world position into the volume's
+// own space, where the shape is the unit box or the unit sphere; how far
+// inside it a point sits is fjell_volume.glsl's volume_occupancy().
+struct GpuFogVolume {
+    mat4 inv_transform;     // world -> unit volume space
+    vec4 color_density;     // xyz = linear color, w = density
+    vec4 shape_falloff;     // x = FJELL_VOLUME_SHAPE_*, y = edge falloff
+    vec4 scatter_params;    // x = scattering multiplier
+};
+
 // 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
 //   texture_indices[0..3]  : PBR slots (base color, normal, MR, emissive)
 //   texture_indices[4..7]  : custom FJSL sampler2D uniforms

@@ -2,6 +2,7 @@
 
 #include "environment/sun_path.hpp"
 #include "environment/weather_asset.hpp"
+#include "physics/physics_types.hpp"
 
 #include <glm/glm.hpp>
 
@@ -16,9 +17,10 @@ namespace fjell {
 //
 // Everything the renderer needs to know about the world's lighting and
 // atmosphere for one frame, resolved once from the scene's authoring nodes
-// (directional light, world environment, volumetric fog). Passes read this
-// struct and never the nodes: the value a pass sees is the finished one, after
-// every rule that shapes it has run, and a new rule is added in one place.
+// (directional light, world environment, volumetric fog, fog volumes). Passes
+// read this struct and never the nodes: the value a pass sees is the finished
+// one, after every rule that shapes it has run, and a new rule is added in one
+// place.
 //
 // Colours are linear light, ready to multiply. Directions toward a body are
 // normalized and point from the surface to the sun or moon.
@@ -79,6 +81,17 @@ struct FogSettings {
     float max_distance{130.0f};
     float temporal_blend{0.9f};
     glm::vec3 color{0.8f, 0.85f, 0.9f};
+};
+
+/// One placed fog volume, resolved from a FogVolumeNode. The transform is the
+/// world matrix as authored; the renderer inverts it on the way to the GPU.
+struct FogVolume {
+    glm::mat4 transform{1.0f};
+    glm::vec3 color{0.8f, 0.85f, 0.9f};
+    float density{0.05f};
+    float scattering_mult{1.0f};
+    float edge_falloff{0.2f};
+    ColliderShape shape{ColliderShape::Box};
 };
 
 struct SunShaftSettings {
@@ -169,6 +182,9 @@ struct EnvironmentState {
     SkySettings sky;
     ContactShadowSettings contact_shadows;
     FogSettings fog;
+    /// Every fog volume in the scene, in scene order. They add, so the order
+    /// is not meaningful and nothing sorts them.
+    std::vector<FogVolume> fog_volumes;
     SunShaftSettings sun_shafts;
 
     WeatherParams weather;

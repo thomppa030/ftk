@@ -20,6 +20,7 @@
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/uniform_types.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
@@ -368,6 +369,8 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     max_distance_ = fog.max_distance;
     temporal_blend_ = fog.temporal_blend;
     fog_color_ = fog.color;
+    volume_count_ = std::min(static_cast<uint32_t>(ctx.environment->fog_volumes.size()),
+                             MAX_FOG_VOLUMES);
 }
 
 FogCore::PushConstants FogCore::make_push(const Images& imgs,
@@ -395,6 +398,7 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.jitter_x = halton(frame_idx, 3) - 0.5F;
     push.jitter_y = halton(frame_idx, 5) - 0.5F;
     push.jitter_z = halton(frame_idx, 2) - 0.5F;
+    push.volume_count = volume_count_;
     return push;
 }
 

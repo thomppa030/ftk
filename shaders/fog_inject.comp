@@ -6,6 +6,7 @@
 #include "fjell_global_ubo.glsl"
 #include "fjell_gpu_types.glsl"
 #include "fjell_renderer_constants.glsl"
+#include "fjell_volume.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -23,6 +24,10 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
 };
 
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
+
+layout(set = 0, binding = 17) readonly buffer FogVolumeBuffer {
+    GpuFogVolume fog_volumes[];
+};
 
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter_volume;
 
@@ -44,7 +49,7 @@ layout(push_constant) uniform PushConstants {
     float jitter_x;         // precomputed Halton jitter from CPU
     float jitter_y;
     float jitter_z;
-    float padding;
+    uint volume_count;
 } pc;
 
 // Exponential depth distribution
@@ -232,19 +237,50 @@ void main() {
 
     // Height fog density: exponential falloff above base height
     float h = world_pos.y - pc.height;
-    float fog_density = pc.density * exp(-pc.height_falloff * max(h, 0.0));
+    float global_density = pc.density * exp(-pc.height_falloff * max(h, 0.0));
 
     // Add some density below the base height too (denser near ground)
     if (h < 0.0) {
-        fog_density = pc.density * (1.0 + abs(h) * pc.height_falloff * 0.5);
+        global_density = pc.density * (1.0 + abs(h) * pc.height_falloff * 0.5);
     }
+
+    // Local fog volumes add their density on top of the height fog, and their
+    // colour and scattering average in by how much density each contributes —
+    // so a warm bank reads warm where it is thick and fades to the global
+    // colour as it thins. Adding means overlaps are thicker and the order the
+    // volumes arrive in cannot matter.
+    vec3 global_color = vec3(pc.fog_color_r, pc.fog_color_g, pc.fog_color_b);
+    float density_sum = global_density;
+    vec3 color_sum = global_color * global_density;
+    float scatter_sum = global_density;   // the global fog's own multiplier is 1
+
+    for (uint i = 0; i < pc.volume_count; ++i) {
+        GpuFogVolume vol = fog_volumes[i];
+        float occupancy = volume_occupancy(int(vol.shape_falloff.x), vol.inv_transform,
+                                           world_pos, vol.shape_falloff.y);
+        if (occupancy <= 0.0) continue;
+
+        float d = vol.color_density.w * occupancy;
+        density_sum += d;
+        color_sum += vol.color_density.xyz * d;
+        scatter_sum += vol.scatter_params.x * d;
+    }
+
+    // Colour and scattering are averages over the fog present here, weighted
+    // by how much density each source contributes. Taken before the distance
+    // fade below, which scales how much fog there is and not what colour it is.
+    float inv_density = 1.0 / max(density_sum, 1e-6);
+    vec3 fog_color = color_sum * inv_density;
+    float scatter_mult = scatter_sum * inv_density;
 
     // Fade density to zero near max distance to prevent uniform grey wall.
     // Use view-space depth (not ray_dist) so the fade is uniform across the
     // screen — otherwise edge froxels fade earlier than center ones and the
-    // volume's frustum silhouette becomes visible against the sky.
+    // volume's frustum silhouette becomes visible against the sky. Volumes
+    // fade with it: one sitting at the far plane would otherwise punch a
+    // sharp edge through the fade.
     float dist_ratio = linear_depth / pc.far_plane;
-    fog_density *= 1.0 - smoothstep(0.7, 1.0, dist_ratio);
+    float fog_density = density_sum * (1.0 - smoothstep(0.7, 1.0, dist_ratio));
 
     // Early out for negligible density
     if (fog_density < 1e-6) {
@@ -256,7 +292,7 @@ void main() {
     // Scattering controls in-scattered light brightness independently,
     // so god rays can be bright without making the fog opaque.
     float extinction = fog_density * 0.1;
-    float scatter_coeff = fog_density * pc.scattering;
+    float scatter_coeff = fog_density * pc.scattering * scatter_mult;
 
     // Directional light contribution
     float cos_theta = dot(ray_dir, ubo.light_direction.xyz);
@@ -264,7 +300,6 @@ void main() {
 
     float shadow = sample_shadow(world_pos);
 
-    vec3 fog_color = vec3(pc.fog_color_r, pc.fog_color_g, pc.fog_color_b);
     vec3 light_contrib = ubo.light_color.xyz * ubo.light_direction.w * phase * shadow;
 
     // Per-froxel rotation for PCF jitter (varies per froxel + frame for temporal smoothing)

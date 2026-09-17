@@ -156,7 +156,19 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
                 continue;
             }
         }
-        if (sun_found && env_found && fog_found) break;
+        if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get())) {
+            state.fog_volumes.push_back(FogVolume{
+                .transform = volume->world_matrix_,
+                .color = volume->fog_color,
+                .density = volume->density,
+                .scattering_mult = volume->scattering_mult,
+                .edge_falloff = volume->edge_falloff,
+                .shape = volume->shape,
+            });
+            continue;
+        }
+        // Volumes are a list, so the walk cannot stop until it has seen every
+        // node; the singular nodes above keep their own found flags.
     }
 
     const auto* env = find_world_environment(scene);

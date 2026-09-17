@@ -696,6 +696,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     update_uniform_buffer(current_frame_, req.view, req.projection,
                           req.camera_position, environment, scene, req.target->extent(), *pp);
     update_light_ssbo(current_frame_, scene);
+    update_fog_volume_ssbo(current_frame_);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
                     req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
                     req.global_set, req.backdrop);
@@ -794,6 +795,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, environment, scene, vp.target->extent(), *pp);
         update_light_ssbo(current_frame_, scene);
+        update_fog_volume_ssbo(current_frame_);
         render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
                         vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph,
                         VK_NULL_HANDLE, vp.backdrop);
@@ -1123,6 +1125,27 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         ++spot_count;
     }
 
+}
+
+void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("update_fog_volume_ssbo");
+    if (current_environment_ == nullptr) return;
+
+    const auto& volumes = current_environment_->fog_volumes;
+    auto* dst = static_cast<GpuFogVolume*>(gpu_.fog_volume_ssbo(frame_index).mapped());
+
+    const uint32_t count = std::min(static_cast<uint32_t>(volumes.size()), MAX_FOG_VOLUMES);
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& v = volumes[i];
+        GpuFogVolume gpu{};
+        // The shader takes a world position into the volume's own space, where
+        // the shape is the unit box or sphere, so the inverse is what it needs.
+        gpu.inv_transform = glm::inverse(v.transform);
+        gpu.color_density = glm::vec4(v.color, v.density);
+        gpu.shape_falloff = glm::vec4(static_cast<float>(v.shape), v.edge_falloff, 0.0f, 0.0f);
+        gpu.scatter_params = glm::vec4(v.scattering_mult, 0.0f, 0.0f, 0.0f);
+        dst[i] = gpu;
+    }
 }
 
 void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world) {

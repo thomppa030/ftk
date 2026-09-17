@@ -93,6 +93,25 @@ struct GpuSpotLight {
     alignas(16) glm::vec4 vol_params;           // x = vol_scatter_intensity
 };
 
+// A local fog volume: extra density in a box or sphere, on top of the global
+// height fog. The froxel's world position is taken into the volume's space by
+// inv_transform and tested against the unit shape, so rotation and non-uniform
+// scale come from the node's transform and need no separate extent.
+//
+// shape_falloff.x is a ColliderShape; the shader tests the unit shape for it,
+// and the occupancy it computes is fjell_volume.glsl's, shared with any other
+// volume that comes to need it.
+struct GpuFogVolume {
+    alignas(16) glm::mat4 inv_transform;   // world -> unit volume space
+    alignas(16) glm::vec4 color_density;   // xyz = linear color, w = density
+    alignas(16) glm::vec4 shape_falloff;   // x = ColliderShape, y = edge falloff
+    alignas(16) glm::vec4 scatter_params;  // x = scattering multiplier
+};
+
+// Fog volumes are gathered per frame into one SSBO; past this many in a scene
+// the extras are dropped rather than growing the buffer mid-frame.
+inline constexpr uint32_t MAX_FOG_VOLUMES = 64;
+
 struct PbrPushConstants {
     glm::mat4 model;
     uint32_t material_id{0};

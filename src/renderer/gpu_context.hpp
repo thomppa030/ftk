@@ -164,6 +164,7 @@ public:
     // ── Light data (global descriptor bindings) ─────────────────────────
     [[nodiscard]] Buffer& light_ssbo(uint32_t frame_index) { return *light_ssbo_[frame_index]; }
     [[nodiscard]] Buffer& tile_light_ssbo(uint32_t frame_index) { return *tile_light_ssbo_[frame_index]; }
+    [[nodiscard]] Buffer& fog_volume_ssbo(uint32_t frame_index) { return *fog_volume_ssbo_[frame_index]; }
     [[nodiscard]] VkSampler depth_sampler() const { return depth_sampler_; }
     [[nodiscard]] VkImageView gi_fallback_view() const { return gi_fallback_view_; }
     [[nodiscard]] VkSampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
@@ -214,6 +215,7 @@ private:
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> fog_volume_ssbo_;
     VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     // 1x1 black fallback for GI indirect (binding 10 when DDGI disabled)

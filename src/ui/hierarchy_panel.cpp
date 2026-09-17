@@ -41,6 +41,9 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const VolumetricFogNode*>(&obj)) {
         return {{0.55f, 0.70f, 0.85f, 1.0f}, "node"};
     }
+    if (dynamic_cast<const FogVolumeNode*>(&obj)) {
+        return {{0.62f, 0.76f, 0.88f, 1.0f}, "node"};
+    }
     if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) {
         return {{0.4f, 0.6f, 0.9f, 1.0f}, "node"};
     }
@@ -76,6 +79,7 @@ void draw_add_object_menu(Delegate<void(const std::string&)>& on_add) {
     if (ImGui::MenuItem("Spot Light")) on_add.broadcast("light:spot");
     ImGui::Separator();
     if (ImGui::MenuItem("Volumetric Fog")) on_add.broadcast("volumetric_fog");
+    if (ImGui::MenuItem("Fog Volume")) on_add.broadcast("fog_volume");
     if (ImGui::MenuItem("World Environment")) on_add.broadcast("world_environment");
 }
 
