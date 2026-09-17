@@ -32,7 +32,11 @@ struct WeatherSkyOverride;
 /// weather brings, faded in by its weight: the scene's profile is blended
 /// toward it, and past half weight the event's sky shader and custom tracks
 /// take over.
+/// `dt` is how long the frame took, for measuring what a node without a
+/// stated velocity did by where it was. Zero leaves those sources still,
+/// which is what a caller resolving outside the frame loop wants.
 [[nodiscard]] EnvironmentState resolve_environment(const Scene& scene, bool moon_led = false,
-                                                   const WeatherSkyOverride* weather_sky_override = nullptr);
+                                                   const WeatherSkyOverride* weather_sky_override = nullptr,
+                                                   float dt = 0.0f);
 
 } // namespace fjell

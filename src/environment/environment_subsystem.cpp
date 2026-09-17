@@ -54,7 +54,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         play_directed(ctx.resources);
     }
     const WeatherSkyOverride sky = player_.sky_override();
-    state_ = resolve_environment(ctx.scene, moon_led_, &sky);
+    state_ = resolve_environment(ctx.scene, moon_led_, &sky, ctx.dt);
     player_.composite(state_, ctx.dt, rates_);
     for (const auto& value : script_sky_uniforms_) {
         auto it = std::find_if(state_.sky_uniforms.begin(), state_.sky_uniforms.end(),

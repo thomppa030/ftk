@@ -95,7 +95,8 @@ void blend_profiled(EnvironmentState& from, const EnvironmentState& to, float t)
 
 } // namespace
 
-EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const WeatherSkyOverride* weather_sky_override) {
+EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
+                                    const WeatherSkyOverride* weather_sky_override, float dt) {
     EnvironmentState state;
     state.sun = body_from_travel(DEFAULT_SUN_TRAVEL, DEFAULT_SUN_COLOR, DEFAULT_SUN_INTENSITY);
     state.ambient_color = DEFAULT_AMBIENT_COLOR;
@@ -206,7 +207,18 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
 
                 MotionSource source;
                 source.position = glm::vec3(spatial->world_matrix_[3]);
-                source.velocity = character != nullptr ? character->velocity : glm::vec3(0.0f);
+                // A character states its velocity; anything else is measured
+                // by where it was. `prev_world_matrix_` is kept for motion
+                // vectors and costs nothing to read, so a rigid body, an
+                // animated prop and a scripted mover all stir the world
+                // without physics having to reach into this.
+                source.velocity = glm::vec3(0.0f);
+                if (character != nullptr) {
+                    source.velocity = character->velocity;
+                } else if (dt > 0.0f) {
+                    source.velocity = (glm::vec3(spatial->world_matrix_[3]) -
+                                       glm::vec3(spatial->prev_world_matrix_[3])) / dt;
+                }
                 source.radius = explicit_source != nullptr && explicit_source->radius > 0.0f
                                     ? explicit_source->radius : default_radius;
                 source.height = explicit_source != nullptr && explicit_source->height > 0.0f
