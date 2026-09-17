@@ -90,6 +90,36 @@ gust breathes about once a second, and fog has more mass than that. And the
 drift is accumulated frame by frame rather than computed from the clock, so
 when the weather turns the field curves round instead of jumping.
 
+## Answering what moves through it
+
+**Response**, under Motion, is how far a volume answers things moving through
+it. At 0 it ignores them, which is what a distant bank or a volume nobody walks
+into wants. Raise it and something crossing the volume drags the wisps along
+behind it, shears the two sides of its wake apart, and leaves the air briefly
+thinner where it passed — all of it fading as the [motion
+field](Motion-Field.md) forgets.
+
+Three things worth knowing:
+
+- **It needs noise to drag.** The drag and the shear move the volume's own
+  wisps, so a volume with Contrast at 0 has nothing to displace and answers by
+  thinning alone. That still reads, but the churn is what sells it — give a
+  volume meant to be walked through some noise.
+- **It reaches no higher than what came through.** The motion field records how
+  high a mark reached, so a walker stirs the fog around their legs and leaves
+  what is over their head alone.
+- **It only answers things that say they move.** A node needs a Motion Source
+  component to be noticed; a character gets one with its capsule.
+
+The same Response exists on the **Volumetric Fog** node, for the global height
+fog, but expect much less from it. How bright a haze looks along a ray is set
+by the whole column, and a walker disturbs a few metres of it: what is lost to
+thinner air is very nearly repaid by light arriving from the fog behind, so in
+an open scene the two cancel almost exactly however high Response is set. A
+volume is a large enough share of the fog along the ray for the same thinning
+to show plainly. **If you want a wake that carries, put a fog volume where it
+should happen.**
+
 ## Letting the hour drive it
 
 Fog is a property of weather rather than a weather of its own: a dawn has mist
