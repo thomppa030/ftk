@@ -27,6 +27,7 @@ that wireframe is the only way to see where it actually reaches.
 | **Color** | The fog's colour where this volume is thick. |
 | **Scattering** | Multiplies how brightly this volume's fog scatters light, without changing how thick it is. Brighter or dimmer, not more or less. |
 | **Edge Falloff** | How much of the volume's extent the edge fades across, as a fraction. 0 is a hard edge and looks like one. 0.2 is the default. |
+| **Group** | Ties the volume to `fog_density.<group>` tracks in a day profile or a weather event, so the hour can drive it. Empty means nothing but the scene does. See below. |
 
 ### Volumes add
 
@@ -89,6 +90,38 @@ gust breathes about once a second, and fog has more mass than that. And the
 drift is accumulated frame by frame rather than computed from the clock, so
 when the weather turns the field curves round instead of jumping.
 
+## Letting the hour drive it
+
+Fog is a property of weather rather than a weather of its own: a dawn has mist
+whether it is clear or overcast. So a volume is driven by **the clock first and
+the conditions second**, and both reach it through the same naming convention.
+
+Give the volume a **Group** — `valley`, say. Then in a
+[day profile](Day-Profiles.md), add a track called `fog_density.valley`: it
+scales the density of every volume in that group, hour by hour. Thick at five,
+thinning by eight, gone by nine. `fog_color.valley` does the same for colour.
+
+A `.fjweather` event can carry tracks of the same names, and they apply **on
+top** of whatever the hour already made of the volume, weighted by how present
+the event is. So a storm at dawn is thicker than a clear dawn, and an event
+fading out relaxes its hold rather than dropping it.
+
+```
+volume density = what you authored
+               × fog_density.valley   from the day profile
+               × fog_density.valley   from the playing event
+```
+
+Two things worth knowing when you author one:
+
+- A density track wants **Multiply** mode, so it scales what the volume
+  authors. A track added by name in the editor starts as Override, which would
+  replace the density outright — the mode is a combo on the track, one click.
+- A group is just a string. Volumes sharing one move together, which is the
+  point: tag every low-lying bank `valley` and one track raises them all.
+
+Volumes with no group are reached by neither, and stay exactly as authored.
+
 ## What a volume does not affect
 
 - **Sun shafts.** The shaft march uses the global fog's density alone, so a
@@ -98,9 +131,10 @@ when the weather turns the field curves round instead of jumping.
   shafts are. Judge fog in the main viewport or in play mode.
 - **Occlusion.** Fog receives ambient light wherever it is, so a volume deep
   inside a building is lit by the sky as much as one in the open.
-- **The clock.** The `fog_density` track in a [day profile](Day-Profiles.md) or
-  a `.fjweather` event scales the global fog and does not reach volumes, so a
-  bank does not thicken over a morning on its own.
+- **The ungrouped `fog_density` track.** In a [day profile](Day-Profiles.md) or
+  a `.fjweather` event it means the global haze and nothing else, so a profile
+  written before volumes existed still does exactly what it did. Reaching a
+  volume takes a group, below.
 
 ## For engine work
 

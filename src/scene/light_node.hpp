@@ -123,6 +123,12 @@ protected:
 struct FogVolumeNode : VolumeNode {
     float density{0.05f};
     glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
+    /// Which volumes a day profile or a weather event moves together. A
+    /// `fog_density.<group>` track scales every volume tagged with it and
+    /// leaves the rest alone, so one profile can raise the river mist without
+    /// touching the fog in a cellar. Empty means nothing but the scene drives
+    /// this volume.
+    std::string fog_group;
     /// Scales this volume's share of the scattering, leaving the global
     /// scattering as the baseline: brighter or dimmer without being thicker.
     float scattering_mult{1.0f};
@@ -161,6 +167,7 @@ struct FogVolumeNode : VolumeNode {
         clone_volume_into(*copy);
         copy->density = density;
         copy->fog_color = fog_color;
+        copy->fog_group = fog_group;
         copy->scattering_mult = scattering_mult;
         copy->noise_contrast = noise_contrast;
         copy->noise_scale = noise_scale;

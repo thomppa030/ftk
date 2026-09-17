@@ -127,3 +127,34 @@ TEST_CASE("A day profile folds into the environment and leaves the rest alone", 
     REQUIRE(day_track::is_builtin(day_track::STAR_INTENSITY));
     REQUIRE_FALSE(day_track::is_builtin("haze"));
 }
+
+TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {
+    DayProfileAsset profile;
+    Track& valley = profile.tracks.add("fog_density.valley", TrackKind::Float, TrackMode::Multiply);
+    valley.curve.keyframes = {{0.5f, 3.0f, 0.0f, 0.0f}};
+    Track& tint = profile.tracks.add("fog_color.valley", TrackKind::Color, TrackMode::Override);
+    tint.gradient.keys = {{0.5f, glm::vec3(0.9f, 0.5f, 0.2f)}};
+    Track& global = profile.tracks.add("fog_density", TrackKind::Float, TrackMode::Multiply);
+    global.curve.keyframes = {{0.5f, 2.0f, 0.0f, 0.0f}};
+
+    EnvironmentState state;
+    state.fog.density = 0.01f;
+    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "valley"});
+    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "cave"});
+    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = ""});
+    const glm::vec3 authored_color = state.fog_volumes[1].color;
+
+    profile.apply(12.0f, state);
+
+    // The ungrouped track is the global fog's alone; it does not reach volumes.
+    REQUIRE(state.fog.density == Approx(0.02f));
+    REQUIRE(state.fog_volumes[0].density == Approx(0.15f));   // tagged: scaled
+    REQUIRE(state.fog_volumes[1].density == Approx(0.05f));   // another group
+    REQUIRE(state.fog_volumes[2].density == Approx(0.05f));   // untagged
+
+    REQUIRE(close(state.fog_volumes[0].color, glm::vec3(0.9f, 0.5f, 0.2f)));
+    REQUIRE(close(state.fog_volumes[1].color, authored_color));
+
+    // A grouped track is not a sky uniform, however unknown its name looks.
+    REQUIRE(state.sky_uniforms.empty());
+}

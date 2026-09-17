@@ -580,8 +580,20 @@ void PropertiesPanel::draw() {
                             scene_->mark_dirty();
                         }
                     });
+                    prop_row("Group", [&] {
+                        char group_buf[64];
+                        std::snprintf(group_buf, sizeof(group_buf), "%s", fv->fog_group.c_str());
+                        if (ImGui::InputText("##FogVolGroup", group_buf, sizeof(group_buf))) {
+                            fv->fog_group = group_buf;
+                        }
+                        if (ImGui::IsItemDeactivatedAfterEdit()) scene_->mark_dirty();
+                    });
                 }
                 ImGui::TextDisabled("Size comes from the node's scale.");
+                if (!fv->fog_group.empty()) {
+                    ImGui::TextDisabled("Driven by fog_density.%s and fog_color.%s.",
+                                        fv->fog_group.c_str(), fv->fog_group.c_str());
+                }
 
                 section_header("NOISE", ICON_LC_AUDIO_WAVEFORM);
                 if (auto t = PropertyTable("##fog_volume_noise")) {

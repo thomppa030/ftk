@@ -92,6 +92,9 @@ struct FogVolume {
     float scattering_mult{1.0f};
     float edge_falloff{0.2f};
     ColliderShape shape{ColliderShape::Box};
+    /// The volume's group, for the `fog_density.<group>` tracks a day profile
+    /// and a weather event scale it by. Empty means neither reaches it.
+    std::string group;
 
     float noise_contrast{0.0f};
     float noise_scale{8.0f};
@@ -100,6 +103,25 @@ struct FogVolume {
     glm::vec3 noise_drift{0.0f};
     int noise_octaves{2};
 };
+
+/// A day profile and a weather event both reach fog volumes by the same
+/// naming convention: a track called `fog_density.valley` scales the density
+/// of every volume whose group is `valley`, and `fog_color.valley` sets their
+/// colour. The ungrouped `fog_density` and `fog_color` keep meaning the global
+/// fog alone, so a profile written before volumes existed still does what it
+/// always did.
+namespace fog_group_track {
+
+/// The group a track name addresses, or empty when it addresses none. The
+/// prefix must be `fog_density.` or `fog_color.`, which is what keeps these
+/// out of the sky-uniform fallthrough that takes every other unknown name.
+[[nodiscard]] std::string_view group_of(std::string_view track_name,
+                                        std::string_view prefix);
+
+inline constexpr std::string_view DENSITY_PREFIX = "fog_density.";
+inline constexpr std::string_view COLOR_PREFIX = "fog_color.";
+
+} // namespace fog_group_track
 
 struct SunShaftSettings {
     bool enabled{false};

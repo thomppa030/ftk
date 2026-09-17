@@ -50,11 +50,43 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     tracks.apply(EXPOSURE_BIAS, hour, state.exposure_bias);
     tracks.apply(STAR_INTENSITY, hour, state.star_intensity);
 
+    // Grouped fog tracks reach the scene's fog volumes: `fog_density.valley`
+    // scales every volume grouped `valley`, leaving the global fog and every
+    // other group alone. The hour gives a mist its shape; a weather event
+    // scales what the hour decided, later and on top.
+    for (const auto& track : tracks.tracks) {
+        const auto density_group =
+            fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX);
+        if (!density_group.empty()) {
+            if (const auto v = tracks.value_of(track.name, hour)) {
+                for (auto& volume : state.fog_volumes) {
+                    if (volume.group != density_group) continue;
+                    volume.density = track.mode == TrackMode::Multiply ? volume.density * *v : *v;
+                }
+            }
+            continue;
+        }
+        const auto color_group =
+            fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX);
+        if (!color_group.empty()) {
+            if (const auto c = tracks.color_of(track.name, hour)) {
+                for (auto& volume : state.fog_volumes) {
+                    if (volume.group != color_group) continue;
+                    volume.color = track.mode == TrackMode::Multiply ? volume.color * *c : *c;
+                }
+            }
+        }
+    }
+
     // Anything else is a sky uniform. A later value of the same name, from a
     // profile or a node override applied before this, is replaced: the
     // profile is the animated source and wins over a static override.
     for (const auto& track : tracks.tracks) {
         if (is_builtin(track.name)) continue;
+        if (!fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX).empty() ||
+            !fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX).empty()) {
+            continue;
+        }
         NamedValue value;
         value.name = track.name;
         if (track.kind == TrackKind::Color) {

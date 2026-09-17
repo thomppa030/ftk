@@ -164,6 +164,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"shape", static_cast<int>(fv->shape)},
             {"density", fv->density},
             {"color", color_to_json(fv->fog_color)},
+            {"group", fv->fog_group},
             {"scattering_mult", fv->scattering_mult},
             {"edge_falloff", fv->edge_falloff},
             {"noise_contrast", fv->noise_contrast},
@@ -430,6 +431,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 if (jv.contains("color")) {
                     fv->fog_color = color_from_json(jv["color"]);
                 }
+                fv->fog_group = jv.value("group", std::string{});
                 fv->scattering_mult = jv.value("scattering_mult", 1.0f);
                 fv->edge_falloff = jv.value("edge_falloff", 0.2f);
                 fv->noise_contrast = jv.value("noise_contrast", 0.0f);

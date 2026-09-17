@@ -9,6 +9,15 @@
 
 namespace fjell {
 
+namespace fog_group_track {
+
+std::string_view group_of(std::string_view track_name, std::string_view prefix) {
+    if (!track_name.starts_with(prefix)) return {};
+    return track_name.substr(prefix.size());
+}
+
+} // namespace fog_group_track
+
 namespace {
 
 // The sun a scene gets when it has no directional light: a warm key light
@@ -164,6 +173,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
                 .scattering_mult = volume->scattering_mult,
                 .edge_falloff = volume->edge_falloff,
                 .shape = volume->shape,
+                .group = volume->fog_group,
                 .noise_contrast = volume->noise_contrast,
                 .noise_scale = volume->noise_scale,
                 .noise_drift = volume->noise_drift_,

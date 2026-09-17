@@ -206,6 +206,30 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         over(LIGHTNING_RATE, w.lightning_rate);
         over(FOG_DENSITY, state.fog.density);
         over_color(FOG_COLOR, state.fog.color);
+
+        // Grouped fog tracks scale the scene's fog volumes, on top of whatever
+        // the hour's day profile already made of them: a storm at dawn is
+        // thicker than a clear dawn. They ride the same weight as every other
+        // track, so an event fading out relaxes its hold rather than dropping it.
+        for (const auto& track : t.tracks) {
+            const auto density_group =
+                fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX);
+            if (!density_group.empty()) {
+                for (auto& volume : state.fog_volumes) {
+                    if (volume.group != density_group) continue;
+                    over(track.name, volume.density);
+                }
+                continue;
+            }
+            const auto color_group =
+                fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX);
+            if (!color_group.empty()) {
+                for (auto& volume : state.fog_volumes) {
+                    if (volume.group != color_group) continue;
+                    over_color(track.name, volume.color);
+                }
+            }
+        }
         over(SUN_INTENSITY, state.sun.intensity);
         over(AMBIENT_INTENSITY, state.ambient_intensity);
         over_color(SKY_TINT, w.sky_tint);
