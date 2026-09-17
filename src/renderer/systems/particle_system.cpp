@@ -1058,6 +1058,133 @@ void ParticleSystem::recreate_pipelines() {
     render_lit_trail_additive_ = create_lit_pipeline(VK_BLEND_FACTOR_ONE);
     render_lit_trail_alpha_ = create_lit_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
 
+    // ── Opaque, billboard and mesh ──
+    //
+    // These were destroyed at the top of this function and, until now, never
+    // built again: after any shader reload every opaque particle draw bound a
+    // null pipeline, which leaves whatever was bound before in place. The
+    // validation layer reports it as a mesh-shader pipeline on an indexed
+    // draw, which is a stale binding rather than the pipeline it names, and
+    // the device is lost shortly after.
+    auto mesh_vert_mod = create_shader_module(
+        device_, read_spirv(base_path::resolve("shaders/particle_mesh.vert.spv")));
+
+    VkPipelineDepthStencilStateCreateInfo opaque_depth{};
+    opaque_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    opaque_depth.depthTestEnable = VK_TRUE;
+    opaque_depth.depthWriteEnable = VK_TRUE;
+    opaque_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineRasterizationStateCreateInfo opaque_rasterizer{};
+    opaque_rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    opaque_rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    opaque_rasterizer.lineWidth = 1.0f;
+    opaque_rasterizer.cullMode = VK_CULL_MODE_NONE;
+    opaque_rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    auto create_opaque_pipeline = [&](VkPipelineShaderStageCreateInfo* pStages,
+                                      VkPipelineVertexInputStateCreateInfo* pVertexInput,
+                                      VkPipelineInputAssemblyStateCreateInfo* pInputAssembly,
+                                      VkPipelineLayout layout) -> VkPipeline {
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState mr_blend{};
+        mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        mr_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState opaque_normal_blend = mr_blend;
+        VkPipelineColorBlendAttachmentState opaque_vel_blend{};
+        opaque_vel_blend.colorWriteMask = 0;
+        opaque_vel_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState atts[] = {blend, mr_blend, opaque_normal_blend,
+                                                      opaque_vel_blend};
+
+        VkPipelineColorBlendStateCreateInfo opaque_blending{};
+        opaque_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        opaque_blending.attachmentCount = 4;
+        opaque_blending.pAttachments = atts;
+
+        VkGraphicsPipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        ci.pNext = &rendering_info;
+        ci.stageCount = 2;
+        ci.pStages = pStages;
+        ci.pVertexInputState = pVertexInput;
+        ci.pInputAssemblyState = pInputAssembly;
+        ci.pViewportState = &viewport_state;
+        ci.pRasterizationState = &opaque_rasterizer;
+        ci.pMultisampleState = &multisampling;
+        ci.pDepthStencilState = &opaque_depth;
+        ci.pColorBlendState = &opaque_blending;
+        ci.pDynamicState = &dynamic_state;
+        ci.layout = layout;
+
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr,
+                                      &pipeline) != VK_SUCCESS) {
+            FJELL_GFX_ERROR("Failed to recreate particle opaque pipeline");
+            return VkPipeline{VK_NULL_HANDLE};
+        }
+        return pipeline;
+    };
+
+    {
+        VkPipelineShaderStageCreateInfo mesh_stages[2]{};
+        mesh_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        mesh_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        mesh_stages[0].module = mesh_vert_mod;
+        mesh_stages[0].pName = "main";
+        mesh_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        mesh_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        mesh_stages[1].pName = "main";
+
+        auto binding_desc = Vertex::get_binding_description();
+        auto attr_descs = Vertex::get_attribute_descriptions();
+        VkPipelineVertexInputStateCreateInfo mesh_vertex_input{};
+        mesh_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        mesh_vertex_input.vertexBindingDescriptionCount = 1;
+        mesh_vertex_input.pVertexBindingDescriptions = &binding_desc;
+        mesh_vertex_input.vertexAttributeDescriptionCount =
+            static_cast<uint32_t>(attr_descs.size());
+        mesh_vertex_input.pVertexAttributeDescriptions = attr_descs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo mesh_input_assembly{};
+        mesh_input_assembly.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        mesh_input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        mesh_stages[1].module = frag_mod;
+        render_mesh_opaque_ = create_opaque_pipeline(mesh_stages, &mesh_vertex_input,
+                                                     &mesh_input_assembly,
+                                                     render_opaque_layout_);
+        mesh_stages[1].module = lit_frag_mod;
+        render_mesh_opaque_lit_ = create_opaque_pipeline(mesh_stages, &mesh_vertex_input,
+                                                         &mesh_input_assembly,
+                                                         render_opaque_lit_layout_);
+
+        VkPipelineShaderStageCreateInfo billboard_stages[2]{};
+        billboard_stages[0] = stages[0];
+        billboard_stages[0].module = vert_mod;
+        billboard_stages[1] = stages[1];
+
+        VkPipelineVertexInputStateCreateInfo empty_input{};
+        empty_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        VkPipelineInputAssemblyStateCreateInfo billboard_assembly{};
+        billboard_assembly.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        billboard_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        billboard_stages[1].module = frag_mod;
+        render_opaque_ = create_opaque_pipeline(billboard_stages, &empty_input,
+                                                &billboard_assembly, render_opaque_layout_);
+        billboard_stages[1].module = lit_frag_mod;
+        render_opaque_lit_ = create_opaque_pipeline(billboard_stages, &empty_input,
+                                                    &billboard_assembly,
+                                                    render_opaque_lit_layout_);
+    }
+
+    vkDestroyShaderModule(device_, mesh_vert_mod, nullptr);
     vkDestroyShaderModule(device_, lit_frag_mod, nullptr);
     vkDestroyShaderModule(device_, trail_vert_mod, nullptr);
     vkDestroyShaderModule(device_, vert_mod, nullptr);
