@@ -139,15 +139,19 @@ void Engine::init_subsystems() {
         vulkan_context_->device(), vulkan_context_->allocator());
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
     environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
-    environment_subsystem_->set_audio(audio_subsystem_);
-    environment_subsystem_->set_scripts(script_subsystem_);
-    environment_subsystem_->set_vfx(vfx_subsystem_);
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
-    physics_subsystem_->set_environment(environment_subsystem_);
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();
     sprite_anim_subsystem_ = add_subsystem<SpriteAnimSubsystem>();
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
+
+    // Subsystems that hold each other are wired once they all exist: these
+    // are pointers into subsystems_, and one taken before its subsystem is
+    // constructed is null for the run.
+    environment_subsystem_->set_audio(audio_subsystem_);
+    environment_subsystem_->set_scripts(script_subsystem_);
+    environment_subsystem_->set_vfx(vfx_subsystem_);
+    physics_subsystem_->set_environment(environment_subsystem_);
 
     net_manager_ = std::make_unique<NetManager>();
     // Forward connection events to script components (server-side). These fire
