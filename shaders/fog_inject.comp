@@ -54,6 +54,7 @@ layout(push_constant) uniform PushConstants {
     float jitter_y;
     float jitter_z;
     uint volume_count;
+    float motion_response;
 } pc;
 
 // Exponential depth distribution
@@ -93,6 +94,28 @@ const float MOTION_THIN_SMOOTH = 0.6;
 // looking like one thing moving.
 const float MOTION_CURL = 0.4;
 const float MOTION_FADE_METRES = 1.0;
+
+// What the height fog gives up along a path, and how much of it piles along
+// the flanks instead. Far more than a volume's MOTION_THIN, because with no
+// wisps to drag the thinning is the whole of what shows rather than a hint on
+// top of it. The heap is what keeps the trough from reading as fog deleted
+// rather than moved.
+//
+// Expect little from these in an open scene, and do not reach for them when
+// it does not show: how bright fog looks along a ray is set by the whole
+// column, and what a walker disturbs is a few metres of it. Taking density
+// out of those metres loses a little in-scatter and gains back nearly the
+// same amount of light from the fog behind, because fog thin enough to see
+// through is also thin enough to let that light past. Against a haze reaching
+// hundreds of metres the two cancel to within a fraction of a percent, and
+// emptying the wake completely is no more visible than thinning it.
+//
+// A fog volume is the other case: the bank is a large enough share of the fog
+// along the ray for the same thinning to read plainly, which is why the volume
+// path leans on it. Height fog wants something that changes what the fog looks
+// like rather than how much of it there is.
+const float GLOBAL_MOTION_THIN = 0.5;
+const float GLOBAL_MOTION_HEAP = 0.35;
 
 // Henyey-Greenstein phase function. Isotropic baseline is ~0.08 (1/4π);
 // clamping at 0.1 keeps the forward-scatter peak gentle and prevents the
@@ -272,6 +295,17 @@ void main() {
     float ray_dist = (linear_depth - near_dist) / max(cos_angle, 1e-6);
     vec3 world_pos = near_world.xyz + ray_dir * ray_dist;
 
+    // What has come through here lately, for everything that answers it. One
+    // lookup for the froxel rather than one per source of fog: the map does
+    // not vary between them.
+    MotionSample motion = motion_at(world_pos);
+    // Which way the wake weakens, for telling its two sides apart. One
+    // lookup for the froxel; readers differ in how far they answer it, not in
+    // where the wake is.
+    MotionGradient motion_falloff = motion.recency > 0.0
+        ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M)
+        : MotionGradient(vec2(0.0), 0.0);
+
     // Height fog density: exponential falloff above base height
     float h = world_pos.y - pc.height;
     float global_density = pc.density * exp(-pc.height_falloff * max(h, 0.0));
@@ -279,6 +313,27 @@ void main() {
     // Add some density below the base height too (denser near ground)
     if (h < 0.0) {
         global_density = pc.density * (1.0 + abs(h) * pc.height_falloff * 0.5);
+    }
+
+    // The height fog is a smooth function of height with no wisps in it, so
+    // there is nothing in it to displace — what it can do is give way. The air
+    // along the path is briefly thinner and what was shoved aside piles a
+    // little along the flanks, which very nearly cancel over the wake: a
+    // walker crossing a misty field parts it rather than draining it.
+    //
+    // The wake's falloff runs across the heading along its flanks and along
+    // the heading through its middle, so one cross product separates the
+    // trough from the heaps beside it.
+    if (pc.motion_response > 0.0 && motion.recency > 0.0) {
+        float reach = 1.0 - smoothstep(motion.height, motion.height + MOTION_FADE_METRES,
+                                       world_pos.y);
+        float stir = pc.motion_response * motion.recency * reach;
+        vec2 heading = length(motion.velocity) > 1e-4
+            ? normalize(motion.velocity) : vec2(0.0);
+        float flank = abs(heading.x * motion_falloff.direction.y
+                        - heading.y * motion_falloff.direction.x);
+        global_density *= max(1.0 - stir * (GLOBAL_MOTION_THIN - GLOBAL_MOTION_HEAP * flank),
+                              0.0);
     }
 
     // Local fog volumes add their density on top of the height fog, and their
@@ -290,17 +345,6 @@ void main() {
     float density_sum = global_density;
     vec3 color_sum = global_color * global_density;
     float scatter_sum = global_density;   // the global fog's own multiplier is 1
-
-    // What has come through here lately, for the volumes that answer it. One
-    // lookup for the froxel rather than one per volume: the map does not vary
-    // between them.
-    MotionSample motion = motion_at(world_pos);
-    // Which way the wake weakens, for telling its two sides apart. One
-    // lookup for the froxel; the volumes differ in how far they answer it,
-    // not in where the wake is.
-    MotionGradient motion_falloff = motion.recency > 0.0
-        ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M)
-        : MotionGradient(vec2(0.0), 0.0);
 
     for (uint i = 0; i < pc.volume_count; ++i) {
         GpuFogVolume vol = fog_volumes[i];

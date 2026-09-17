@@ -151,6 +151,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                 f.anisotropy = fog->anisotropy;
                 f.max_distance = fog->max_distance;
                 f.temporal_blend = fog->temporal_blend;
+                f.motion_response = fog->motion_response;
                 f.color = fog->fog_color;
 
                 auto& s = state.sun_shafts;

@@ -80,6 +80,8 @@ struct FogSettings {
     float anisotropy{0.7f};
     float max_distance{130.0f};
     float temporal_blend{0.9f};
+    /// How far the height fog answers things moving through it, 0 for none.
+    float motion_response{0.0f};
     glm::vec3 color{0.8f, 0.85f, 0.9f};
 };
 

@@ -138,6 +138,9 @@ public:
         // How many entries of fog_volume_ssbo the inject pass should read.
         // The other three fog shaders share this block and ignore it.
         uint32_t volume_count;
+        // How far the height fog answers things moving through it. Read by
+        // the inject pass; shared with the other three the same way.
+        float motion_response;
     };
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
@@ -156,6 +159,7 @@ private:
     float anisotropy_{0.7f};
     float max_distance_{130.0f};
     float temporal_blend_{0.9f};
+    float motion_response_{0.0f};
     glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
     uint32_t volume_count_{0};
 

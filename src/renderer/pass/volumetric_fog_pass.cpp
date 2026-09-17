@@ -368,6 +368,7 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     anisotropy_ = fog.anisotropy;
     max_distance_ = fog.max_distance;
     temporal_blend_ = fog.temporal_blend;
+    motion_response_ = fog.motion_response;
     fog_color_ = fog.color;
     volume_count_ = std::min(static_cast<uint32_t>(ctx.environment->fog_volumes.size()),
                              MAX_FOG_VOLUMES);
@@ -390,6 +391,7 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.scattering = scattering_;
     push.anisotropy = anisotropy_;
     push.temporal_blend = temporal_blend_;
+    push.motion_response = motion_response_;
     push.viewport_width = width;
     push.viewport_height = height;
     push.fog_color_r = fog_color_.r;

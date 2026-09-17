@@ -577,6 +577,21 @@ void PropertiesPanel::draw() {
                         });
                     }
                 }
+
+                section_header("MOTION", ICON_LC_AUDIO_WAVEFORM);
+                if (auto t = PropertyTable("##fog_motion")) {
+                    prop_row("Response", [&] {
+                        if (ImGui::SliderFloat("##FogMotion", &vf->motion_response, 0.0f, 1.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                }
+                if (vf->motion_response <= 0.0f) {
+                    ImGui::TextDisabled("Ignores things moving through it.");
+                } else {
+                    ImGui::TextDisabled("Faint in open haze — a few metres of a\n"
+                                        "long column. Fog volumes carry a wake.");
+                }
             }
 
             if (auto* fv = dynamic_cast<FogVolumeNode*>(obj)) {

@@ -147,6 +147,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"anisotropy", vf->anisotropy},
             {"max_distance", vf->max_distance},
             {"temporal_blend", vf->temporal_blend},
+            {"motion_response", vf->motion_response},
             {"color", color_to_json(vf->fog_color)},
             {"shafts_enabled", vf->shafts_enabled},
             {"shaft_intensity", vf->shaft_intensity},
@@ -411,6 +412,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->anisotropy = jf.value("anisotropy", 0.7f);
                 vf->max_distance = jf.value("max_distance", 130.0f);
                 vf->temporal_blend = jf.value("temporal_blend", 0.9f);
+                vf->motion_response = jf.value("motion_response", 0.0f);
                 if (jf.contains("color")) {
                     auto& c = jf["color"];
                     vf->fog_color = color_from_json(c);

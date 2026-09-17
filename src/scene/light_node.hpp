@@ -205,6 +205,21 @@ struct VolumetricFogNode : Node3D {
     float temporal_blend{0.9f};
     glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
 
+    /// How far the height fog answers things moving through it, 0 for not at
+    /// all. Having no wisps of its own to displace, it answers by giving way:
+    /// thinner along the path something took and a little heavier along the
+    /// flanks, so the air reads as having been shoved rather than removed.
+    /// Reaches no higher than what came through did, so it is a clearing at a
+    /// walker's knees and not a tube bored through the haze.
+    ///
+    /// Reads faintly in an open scene however high it is set, because the
+    /// brightness of a haze reaching hundreds of metres is set by the whole
+    /// column and a walker disturbs a few metres of it — what is lost to
+    /// thinner air is very nearly repaid by light from the fog behind it.
+    /// Somewhere close and enclosed it has a share of the column worth
+    /// noticing. A fog volume is the place to look for a wake that carries.
+    float motion_response{0.0f};
+
     // Analytic sun shafts (directional light crepuscular rays, screen-space ray-march)
     bool shafts_enabled{true};
     float shaft_intensity{1.0f};
@@ -236,6 +251,7 @@ struct VolumetricFogNode : Node3D {
         copy->max_distance = max_distance;
         copy->temporal_blend = temporal_blend;
         copy->fog_color = fog_color;
+        copy->motion_response = motion_response;
         copy->shafts_enabled = shafts_enabled;
         copy->shaft_intensity = shaft_intensity;
         copy->shaft_density_mult = shaft_density_mult;
