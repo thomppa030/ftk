@@ -8,6 +8,10 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+#include "fjell_environment.glsl"
+FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
+layout(set = 0, binding = 16) uniform sampler2D motion_field_tex;
+#include "fjell_motion_field.glsl"
 
 layout(set = 1, binding = 0, rgba16f) uniform image3D scatter_volume;
 layout(set = 1, binding = 1) uniform sampler3D history_volume;
@@ -44,6 +48,24 @@ float depth_to_slice(float z) {
 // The six face neighbours, which with the centre bound what this froxel's
 // surroundings currently scatter. A full 3×3×3 costs 27 loads per froxel for
 // bounds that are barely wider; the cross is the usual trade.
+// The most of itself a froxel keeps from history where something has just
+// come through. Taken as a ceiling rather than a setting: fog authored to
+// hold less history than this already answers movement quickly enough, and
+// raising its blend to meet this would make it answer more slowly.
+const float MOTION_HISTORY_FLOOR = 0.45;
+
+// How far the neighbourhood window closes on a froxel's own value where a
+// wake runs through it. Short of 1 so a disturbed froxel still has somewhere
+// to admit history from, and so the bounds keep rejecting a value that is
+// merely stale rather than standing in for the measurement itself.
+const float MOTION_CLAMP_NARROW = 0.8;
+
+// Above what recency the air counts as still being pushed. The motion field
+// fades a mark out over seconds so that slow readers like settling fog have
+// something to read; what is changing fast enough to outrun the temporal
+// filter is only the newest of it.
+const float MOTION_SETTLED_RECENCY = 0.75;
+
 const ivec3 NEIGHBOUR_OFFSETS[6] = ivec3[](
     ivec3(-1, 0, 0), ivec3(1, 0, 0),
     ivec3(0, -1, 0), ivec3(0, 1, 0),
@@ -111,6 +133,15 @@ void main() {
         all(lessThanEqual(history_uvw, vec3(1.0)))) {
         vec4 history = texture(history_volume, history_uvw);
 
+        // How recently something passed tells how long ago, not whether the
+        // fog here is still changing: the map remembers for seconds, so a
+        // walker leaves a corridor metres long that reads as disturbed well
+        // after the air in it has settled. Only the freshest of it is worth
+        // rejecting history over — behind that the fog is steady again and
+        // wants every bit of its filtering.
+        float recency = motion_at(world_pos).recency;
+        float disturbed = smoothstep(MOTION_SETTLED_RECENCY, 1.0, recency);
+
         // Leaving the frustum used to be the only thing that could reject
         // history, which is enough while the fog is a fixed function of world
         // position: every sample is then of the same unchanging field. It is
@@ -118,10 +149,50 @@ void main() {
         // frame coming from history, anything that moves smears over roughly
         // ten frames. Clamping into the neighbourhood is what rejects history
         // that no longer describes what is here.
-        history = clamp(history, nb_min, nb_max);
+        //
+        // The bounds come from neighbours a concurrent workgroup may already
+        // have written, which is harmless while every froxel keeps most of its
+        // history: a written neighbour then sits close to an unwritten one. It
+        // stops being harmless where a wake makes the two disagree, because a
+        // bound taken with min and max moves outward whichever neighbour won
+        // the race — and an upper bound that drifts up admits brighter history
+        // than is here, which reads as fog lighting up around whatever walked
+        // through it. So the window narrows toward this froxel's own value as
+        // the disturbance rises.
+        //
+        // Never all the way: a froxel is sampled at a jitter that moves it
+        // about a third of its own width every frame, and blending across
+        // those samples is what turns them into one steady value. A window
+        // closed completely would leave a wake as the one part of the fog
+        // measured once and never averaged, which trades a glow for a
+        // sparkle.
+        float narrow = disturbed * MOTION_CLAMP_NARROW;
+        vec4 lo = mix(nb_min, current, narrow);
+        vec4 hi = mix(nb_max, current, narrow);
+        history = clamp(history, min(lo, hi), max(lo, hi));
 
-        // Blend current with history
-        current = mix(current, history, pc.temporal_blend);
+        // Where something came through, the history describes air that had not
+        // been disturbed yet, so it is worth less here than anywhere else. A
+        // froxel is about a hand across, crossed in a few frames, and at nine
+        // tenths of each frame coming from history a walker's wake arrives at
+        // something like two fifths of its strength and a runner's at less
+        // than a fifth — the faster a thing moves, the less the fog answers
+        // it, which is backwards. Discounting history by how recently
+        // something passed lets a wake arrive whole whatever its speed.
+        //
+        // The clamp above cannot do this. Inside a wake every tap it gathers
+        // has been stirred together, so its bounds open wide enough to admit
+        // the stale value: it catches a wake's edges and this catches its
+        // middle.
+        //
+        // Held short of throwing history away entirely, because the
+        // injection's own per-froxel jitter is what temporal blending exists
+        // to hide, and a wake is the last place that should start to boil.
+        float blend = mix(pc.temporal_blend,
+                          min(pc.temporal_blend, MOTION_HISTORY_FLOOR),
+                          disturbed);
+
+        current = mix(current, history, blend);
     }
 
     imageStore(scatter_volume, coord, current);
