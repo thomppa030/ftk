@@ -835,6 +835,45 @@ void PipelineCache::reload(uint32_t id) {
     FJELL_GFX_INFO("Reloaded FJSL pipeline {}", id);
 }
 
+namespace {
+
+// Whether a registered shader path and a path from the file watcher name the
+// same file. The registered one may be engine-relative ("shaders/toon.fjsl")
+// while the watcher always reports absolute, so the test is whether one ends
+// with the other — anchored to a separator, so "water.fjsl" does not match a
+// project's "deep_water.fjsl".
+bool same_shader_file(std::string_view registered, std::string_view changed) {
+    if (registered == changed) return true;
+    if (registered.size() >= changed.size()) return false;
+    if (!changed.ends_with(registered)) return false;
+    return changed[changed.size() - registered.size() - 1] == '/';
+}
+
+} // namespace
+
+uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_paths) {
+    if (changed_paths.empty()) return 0;
+
+    std::vector<uint32_t> to_reload;
+    for (uint32_t id = 0; id < entries_.size(); ++id) {
+        for (const auto& changed : changed_paths) {
+            if (!same_shader_file(entries_[id].fjsl_path, changed)) continue;
+            to_reload.push_back(id);
+            break;
+        }
+    }
+    if (to_reload.empty()) return 0;
+
+    // One wait for the whole batch rather than one per pipeline: every entry
+    // here is about to have its old pipelines destroyed.
+    vkDeviceWaitIdle(device_.handle());
+    for (uint32_t id : to_reload) {
+        compile_entry(entries_[id]);
+        FJELL_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].fjsl_path);
+    }
+    return static_cast<uint32_t>(to_reload.size());
+}
+
 void PipelineCache::recreate_all() {
     vkDeviceWaitIdle(device_.handle());
     int failures = 0;

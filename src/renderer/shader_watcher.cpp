@@ -27,9 +27,11 @@ void ShaderWatcher::rewatch() {
         if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".fjsl") {
             FJELL_GFX_INFO("Shader changed: {}", path.filename().string());
             if (ext == ".fjsl") {
-                changed_ = true;
+                changes_.fjsl_paths.push_back(path.string());
             } else if (recompile(path.filename().string())) {
-                changed_ = true;
+                // A raw stage is one of the engine's own, and what reads it is
+                // not written down anywhere: rebuild everything.
+                changes_.rebuild_everything = true;
             }
         }
     });
@@ -44,15 +46,15 @@ void ShaderWatcher::rewatch() {
         // includes and silently overwrite an engine .spv — skip them.
         if (path.extension() != ".fjsl") return;
         FJELL_GFX_INFO("Project shader changed: {}", path.filename().string());
-        changed_ = true;
+        changes_.fjsl_paths.push_back(path.string());
     });
     FJELL_GFX_INFO("Shader hot-reload also watching project: {}", project_dir_);
 }
 
-bool ShaderWatcher::poll() {
-    changed_ = false;
+ShaderWatcher::Changes ShaderWatcher::poll() {
+    changes_ = {};
     (void)watcher_.poll();
-    return changed_;
+    return std::move(changes_);
 }
 
 bool ShaderWatcher::recompile(const std::string& filename) {

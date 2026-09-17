@@ -108,6 +108,11 @@ public:
   void wait_idle();
   void release_imgui_textures();
   void reload_pipeline();
+  /// Rebuild only the FJSL pipelines naming one of `changed_paths`. What does
+  /// not name a changed file keeps its pipelines and its generation, so a
+  /// consumer watching one — the sky, a UI material — is not told to rebuild
+  /// something that did not change.
+  void reload_shaders(const std::vector<std::string>& changed_paths);
   void sync_custom_depth_pipelines();
 
   /// Re-parse `path` and apply its `enabled` flags to the live pipeline.

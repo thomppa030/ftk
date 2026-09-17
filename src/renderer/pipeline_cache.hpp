@@ -94,6 +94,16 @@ public:
     // Recreate all pipelines (e.g. after hot-reload of shared shaders)
     void recreate_all();
 
+    /// Rebuild only the pipelines whose shader is one of `changed_paths`,
+    /// each an absolute path from the file watcher. Registered paths are a
+    /// mix — engine shaders are registered relative, a project's absolute —
+    /// so a path matches when one is a suffix of the other on a path-segment
+    /// boundary. Returns how many were rebuilt.
+    ///
+    /// A shader nothing has registered matches nothing and rebuilds nothing,
+    /// which is correct: no pipeline uses it yet.
+    uint32_t reload_changed(const std::vector<std::string>& changed_paths);
+
 private:
     struct Entry {
         std::string fjsl_path;

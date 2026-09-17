@@ -5,6 +5,7 @@
 #include "platform/file_watcher.hpp"
 
 #include <string>
+#include <vector>
 
 namespace fjell {
 
@@ -27,7 +28,20 @@ public:
     ShaderWatcher(ShaderWatcher&&) = delete;
     ShaderWatcher& operator=(ShaderWatcher&&) = delete;
 
-    [[nodiscard]] bool poll();
+    /// What changed since the last call. Empty when nothing did.
+    struct Changes {
+        /// Absolute paths of the `.fjsl` files edited, so a reload can rebuild
+        /// only the pipelines that name them.
+        std::vector<std::string> fjsl_paths;
+        /// A raw GLSL stage or a shared include was recompiled. Which
+        /// pipelines that reaches is not knowable from the file — an include
+        /// fans out to everything that pulls it in — so it means rebuild all.
+        bool rebuild_everything{false};
+
+        [[nodiscard]] bool any() const { return rebuild_everything || !fjsl_paths.empty(); }
+    };
+
+    [[nodiscard]] Changes poll();
 
 private:
     bool recompile(const std::string& filename);
@@ -40,7 +54,7 @@ private:
     std::string output_dir_;
     std::string project_dir_;
     platform::FileWatcher watcher_;
-    bool changed_{false};
+    Changes changes_;
 };
 
 } // namespace fjell

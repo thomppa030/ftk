@@ -1875,11 +1875,23 @@ void Engine::run() {
         play_controller_.begin_frame();
 
 #ifndef NDEBUG
-        if (shader_watcher_ && shader_watcher_->poll()) {
-            vulkan_context_->reload_pipeline();
-            // Which thumbnails a shader edit touches is not known here; the
-            // timestamp check on each of them finds out.
-            asset_thumbnails_.refresh_all();
+        if (shader_watcher_) {
+            const auto changes = shader_watcher_->poll();
+            if (changes.any()) {
+                // An .fjsl is one pipeline; a raw stage is shared and reaches
+                // whatever happens to read it. Rebuilding everything for a
+                // single material edit bumps every pipeline's generation, and
+                // every consumer watching one — the sky, a UI material —
+                // rebuilds for a shader that did not change.
+                if (changes.rebuild_everything) {
+                    vulkan_context_->reload_pipeline();
+                } else {
+                    vulkan_context_->reload_shaders(changes.fjsl_paths);
+                }
+                // Which thumbnails a shader edit touches is not known here; the
+                // timestamp check on each of them finds out.
+                asset_thumbnails_.refresh_all();
+            }
         }
         if (fjgraph_watcher_) { (void)fjgraph_watcher_->poll(); }
 #endif

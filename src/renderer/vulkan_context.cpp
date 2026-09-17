@@ -2068,6 +2068,16 @@ void VulkanContext::apply_ddgi_settle_rebuild() {
     rebuild_ddgi_resources();
 }
 
+void VulkanContext::reload_shaders(const std::vector<std::string>& changed_paths) {
+    auto* cache = gpu_.pipeline_cache();
+    if (cache == nullptr) return;
+    if (cache->reload_changed(changed_paths) == 0) return;
+    // Depth variants are built from the same entries, so they follow whatever
+    // was rebuilt. The graphics pipeline and the particle system read raw
+    // stages rather than FJSL and are untouched by a .fjsl edit.
+    sync_custom_depth_pipelines();
+}
+
 void VulkanContext::reload_pipeline() {
     gpu_.pipeline()->recreate();
     gpu_.pipeline_cache()->recreate_all();
