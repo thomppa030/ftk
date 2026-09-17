@@ -43,9 +43,13 @@ struct TaskPayload {
     // the same way in either mode.
     vec2  patch_origin;
     float cell_size;
-    // Which level this patch belongs to, and the level's own extent, for the
-    // geomorph that lands with the level transitions.
+    // Which level this patch belongs to.
     uint  level;
+    // Which of the patch's four edges face a level sampled more coarsely than
+    // this one: bit 0 -X, bit 1 +X, bit 2 -Z, bit 3 +Z. Those edges are the
+    // seams, and the mesh stage drops their odd vertices onto the line
+    // between their even neighbours so the two levels meet exactly.
+    uint  coarse_edges;
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -60,6 +64,19 @@ void main() {
         payload.patch_origin = level.origin + vec2(addr.coord) * span;
         payload.cell_size = level.cell_size;
         payload.level = addr.level;
+
+        // A patch on the outer rim of its level meets the coarser level
+        // outside it. The outermost level has nothing beyond it, so its rim
+        // is the edge of the sea and needs no stitch.
+        uint edges = 0u;
+        uint last = clip.clipmap.ring - 1u;
+        if (addr.level + 1u < clip.clipmap.level_count) {
+            if (addr.coord.x == 0u)   edges |= 1u;
+            if (addr.coord.x == last) edges |= 2u;
+            if (addr.coord.y == 0u)   edges |= 4u;
+            if (addr.coord.y == last) edges |= 8u;
+        }
+        payload.coarse_edges = edges;
     } else {
         uint patch_x = patch_index % push.patches_per_side;
         uint patch_z = patch_index / push.patches_per_side;
@@ -69,6 +86,9 @@ void main() {
         payload.patch_origin = push.world_origin + vec2(patch_x, patch_z) * span;
         payload.cell_size = span / float(push.patch_quads);
         payload.level = 0u;
+        // A placed square is one level throughout; nothing of it borders a
+        // coarser sampling.
+        payload.coarse_edges = 0u;
     }
 
     EmitMeshTasksEXT(1, 1, 1);

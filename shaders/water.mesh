@@ -57,6 +57,7 @@ struct TaskPayload {
     vec2  patch_origin;
     float cell_size;
     uint  level;
+    uint  coarse_edges;
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -89,6 +90,47 @@ void main() {
 
         // The flat surface this vertex belongs to, before any wave moves it.
         vec2 rest = payload.patch_origin + vec2(ix, iz) * payload.cell_size;
+
+        // Close the seam against a coarser neighbour.
+        //
+        // The level outside this one samples at twice the spacing, so only
+        // this patch's even vertices exist over there. An odd vertex on a
+        // shared edge sits on the fine surface, which is not the straight
+        // line the coarse edge draws between its neighbours — the gap between
+        // them is the crack, and on transparent water it is a slit through to
+        // the sky rather than a hairline.
+        //
+        // Dropping the odd vertex to the midpoint of its two even neighbours
+        // puts it exactly on that line, so the two levels meet with no gap at
+        // all rather than nearly none. It costs the edge its finest detail,
+        // which is the right trade: that detail is what the coarse level
+        // could not represent in the first place.
+        //
+        // Only the vertex's rest position moves. The wave field is still
+        // evaluated at it, so the edge is displaced water and not a flat
+        // ribbon.
+        // Which cell of the level this vertex is, counted from the level's
+        // own origin rather than from this patch's corner. A patch is 11
+        // cells wide, an odd number, so a vertex's parity within its patch
+        // flips from one patch to the next and says nothing about whether the
+        // coarse level has a vertex there. Its parity in level cells does.
+        ivec2 level_cell = ivec2(round(rest / payload.cell_size));
+        bvec2 odd = notEqual(level_cell & 1, ivec2(0));
+
+        vec2 seam = rest;
+        if ((payload.coarse_edges & 1u) != 0u && ix == 0u && odd.y) {
+            seam.y -= payload.cell_size;
+        }
+        if ((payload.coarse_edges & 2u) != 0u && ix == PATCH_QUADS && odd.y) {
+            seam.y -= payload.cell_size;
+        }
+        if ((payload.coarse_edges & 4u) != 0u && iz == 0u && odd.x) {
+            seam.x -= payload.cell_size;
+        }
+        if ((payload.coarse_edges & 8u) != 0u && iz == PATCH_QUADS && odd.x) {
+            seam.x -= payload.cell_size;
+        }
+        rest = seam;
 
         // Where the surface is measured across, for a shader that wants it.
         // A placed square has a 0..1 across itself; an infinite one has no

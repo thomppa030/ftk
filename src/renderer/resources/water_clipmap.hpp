@@ -24,17 +24,16 @@ inline constexpr std::uint32_t WATER_CLIPMAP_RING = 12;
 
 /// How many patches of a level are left undrawn for the finer level inside it.
 ///
-/// Five rather than the six the spans would suggest. Each level snaps to its
-/// own patch grid, so level L-1 lands anywhere within one of level L's
-/// patches, and a six-wide hole — exactly the inner level's own span — is
-/// only covered when the two happen to align. The sixth patch is the one that
-/// falls half outside, so the hole gives it up and the ring draws it: one
-/// patch of overlap, which is invisible, instead of a band of sea no level
-/// draws, which is a tear straight through to the sky.
+/// Six, which is exactly the inner level's own span: a level is RING patches
+/// of its own size, and the level outside it is twice that size, so the inner
+/// level measures RING/2 of the outer one's patches. Because every level
+/// snaps in pairs of its patches, the two always line up on a whole patch —
+/// the hole and the level filling it have the same edges at every camera
+/// position, with no gap and no overlap.
 ///
-/// Where the hole sits is not fixed, which is the other half of the same
-/// point. See `WaterClipmap::hole_offset()`.
-inline constexpr std::uint32_t WATER_CLIPMAP_HOLE = 5;
+/// Where the hole sits still moves with the camera; only its size is fixed.
+/// See `WaterClipmap::recenter()`.
+inline constexpr std::uint32_t WATER_CLIPMAP_HOLE = WATER_CLIPMAP_RING / 2;
 
 /// Quads along one side of a patch, matching PATCH_QUADS in water.mesh.
 ///
@@ -54,9 +53,27 @@ struct GpuWaterClipmapLevel {
     glm::vec2 origin{0.0f};
     /// Metres between adjacent vertices on this level: 2^level.
     float cell_size{1.0f};
-    /// Which patch this level's hole starts at, on both axes. Zero on level
-    /// 0, which has no hole.
+    /// Which patch this level's hole starts at, per axis, packed low half x
+    /// and high half y.
+    ///
+    /// The two axes differ: each snaps on its own, so the inner level sits
+    /// three of this level's patches in along one and four along the other
+    /// most of the time. Packed rather than a second vec2 because the level
+    /// is a vec4 and a fifth float would double its std140 stride.
+    ///
+    /// Zero on level 0, which has no hole. Read through `hole_offset_xz()`;
+    /// `fjell_water_hole_offset()` is the shader's half of the same unpack.
     std::uint32_t hole_offset{0};
+
+    /// The packed offset as a pair. The shader unpacks it the same way.
+    [[nodiscard]] glm::uvec2 hole_offset_xz() const {
+        return {hole_offset & 0xFFFFU, hole_offset >> 16U};
+    }
+
+    /// Pack a per-axis offset into `hole_offset`.
+    void set_hole_offset(glm::uvec2 offset) {
+        hole_offset = (offset.x & 0xFFFFU) | (offset.y << 16U);
+    }
 };
 static_assert(sizeof(GpuWaterClipmapLevel) == 16,
               "must match FjellWaterClipmapLevel in GLSL");
@@ -80,12 +97,18 @@ static_assert(sizeof(GpuWaterClipmap) == WATER_CLIPMAP_LEVELS * 16 + 16,
 /// with a hole left for the finer level below, which is what makes the whole
 /// thing cost a ring per level rather than a square.
 ///
-/// **Levels snap to their patch grid, not their cell grid.** A level whose
-/// origin moved by one cell would shift its patch boundaries by a fraction of
-/// a patch, so a ring would stop being a ring. Snapping to `cell_size *
-/// WATER_PATCH_QUADS` keeps whole patches aligned across every shift, and is
-/// what stops the sea crawling as the camera moves: a vertex holds its world
-/// position, so it holds its place in the wave field.
+/// **Levels snap in pairs of patches, not in cells.** A level whose origin
+/// moved by one cell would shift its patch boundaries by a fraction of a
+/// patch, so a ring would stop being a ring; snapping in whole patches fixes
+/// that and is what stops the sea crawling as the camera moves, since a
+/// vertex holds its world position and so holds its place in the wave field.
+///
+/// Pairs rather than single patches because a patch is 11 cells wide, an odd
+/// number: a level at an odd multiple of its own cell size has its edge
+/// falling between two of the coarser level's vertices, which is a crack with
+/// nothing to close it against. Stepping in pairs keeps every level's origin
+/// at an even cell, which is what the mesh shader's seam stitch and the exact
+/// hole fit both rest on.
 class WaterClipmap {
 public:
     WaterClipmap();
@@ -140,8 +163,9 @@ struct WaterPatchAddress {
 ///
 /// Indices run level by level: level 0's full grid first, then each ring
 /// level's patches in row-major order with the hole skipped. `hole_offset`
-/// is where that level's hole starts, which moves with the camera.
+/// is where that level's hole starts on each axis, which moves with the
+/// camera and is not the same on both.
 [[nodiscard]] WaterPatchAddress water_patch_address(std::uint32_t patch_index,
-                                                    std::uint32_t hole_offset);
+                                                    glm::uvec2 hole_offset);
 
 } // namespace fjell

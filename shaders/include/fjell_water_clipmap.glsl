@@ -16,8 +16,17 @@
 struct FjellWaterClipmapLevel {
     vec2  origin;        // world XZ of the level's minimum corner
     float cell_size;     // metres between vertices: 2^level
-    uint  hole_offset;   // first patch of the hole, both axes
+    // First patch of the hole, per axis, packed as two 16-bit values. The
+    // two axes differ: each snaps on its own, so the inner level sits three
+    // of this level's patches in along one and four along the other.
+    uint  hole_offset;
 };
+
+// Unpack the per-axis hole offset. Mirrors the glm::u16vec2 the table is
+// filled from, which packs low half x, high half y.
+uvec2 fjell_water_hole_offset(FjellWaterClipmapLevel level) {
+    return uvec2(level.hole_offset & 0xFFFFu, level.hole_offset >> 16u);
+}
 
 struct FjellWaterClipmap {
     FjellWaterClipmapLevel levels[FJELL_WATER_CLIPMAP_LEVELS];
@@ -51,21 +60,21 @@ FjellWaterPatch fjell_water_patch(FjellWaterClipmap clipmap, uint patch_index) {
     result.level = 1u + ring_index / ring_patches;
     uint local = ring_index % ring_patches;
 
-    uint hole_offset = clipmap.levels[result.level].hole_offset;
-    uint hole_end = hole_offset + clipmap.hole;
+    uvec2 hole_offset = fjell_water_hole_offset(clipmap.levels[result.level]);
+    uvec2 hole_end = hole_offset + clipmap.hole;
 
     // Walk the rows, spending each row's drawn patches as we pass it. The
     // rows clear of the hole are full; the ones crossing it are short by the
     // hole's width.
     for (uint pz = 0u; pz < clipmap.ring; ++pz) {
-        bool row_crosses_hole = pz >= hole_offset && pz < hole_end;
+        bool row_crosses_hole = pz >= hole_offset.y && pz < hole_end.y;
         uint drawn = row_crosses_hole ? clipmap.ring - clipmap.hole : clipmap.ring;
         if (local >= drawn) {
             local -= drawn;
             continue;
         }
         uint px = local;
-        if (row_crosses_hole && px >= hole_offset) {
+        if (row_crosses_hole && px >= hole_offset.x) {
             px += clipmap.hole;
         }
         result.coord = uvec2(px, pz);
