@@ -155,6 +155,10 @@ void WaterEditorContext::push_live() {
         if (auto* water = node->components.get<WaterComponent>()) {
             water->water = water_;
             water->water_loaded = true;
+            // The preview scene has no weather to blow through it, so nothing
+            // will derive its effective field: the editor's sea is the
+            // authored one, which is the sea being tuned.
+            water->effective_water = water_;
         }
     }
 
@@ -172,6 +176,9 @@ void WaterEditorContext::push_live() {
         }
         water->water = water_;
         water->water_loaded = true;
+        // Shown at once rather than waiting a frame for the weather to
+        // rederive it; a scene with wind overwrites this on its next tick.
+        water->effective_water = water_;
     }
 }
 
@@ -285,6 +292,93 @@ void WaterEditorContext::draw_generator_panel() {
         } else {
             ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
                                "%.2f%% of the surface folds", pct);
+        }
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Wind response");
+    if (ImGui::Checkbox("Answers the weather", &water_.wind.enabled)) {
+        push_live();
+    }
+    ImGui::SetItemTooltip("Whether the weather's wind reaches this water. Off "
+                          "for a pool, a canal, anything indoors.");
+    if (water_.wind.enabled) {
+        if (ImGui::SliderFloat("Reference wind", &water_.wind.reference_speed,
+                               0.5f, 30.0f, "%.1f m/s")) {
+            push_live();
+        }
+        ImGui::SetItemTooltip("The wind this sea is authored at. At this speed "
+                              "nothing below changes anything, so it is the "
+                              "sea you are looking at now.");
+        if (ImGui::SliderFloat("Height at double wind", &water_.wind.amplitude_response,
+                               0.0f, 4.0f, "%.2fx")) {
+            push_live();
+        }
+        if (ImGui::SliderFloat("Headroom at double wind", &water_.wind.steepness_response,
+                               0.0f, 3.0f, "%.2fx")) {
+            push_live();
+        }
+        ImGui::SetItemTooltip("Wind sharpens a sea as well as raising it. This "
+                              "multiplies the fold headroom, so a sea tuned "
+                              "near its ceiling will fold in a storm.");
+        if (ImGui::SliderFloat("Turns onto wind", &water_.wind.direction_response,
+                               0.0f, 1.0f, "%.2f")) {
+            push_live();
+        }
+        ImGui::SetItemTooltip("How far the wind combs the trains around. Only "
+                              "the short ones turn: a long swell holds the "
+                              "heading the storm that raised it gave it.");
+
+        // A response is quoted at double the reference wind, which is a sea
+        // nobody is looking at while they tune. Show what it comes to at the
+        // winds that actually blow, folding measured rather than warned
+        // about — the same reading as above, at the storm end.
+        if (!water_.waves.empty()) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("At a given wind");
+            if (ImGui::BeginTable("wind_preview", 4,
+                                  ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("wind");
+                ImGui::TableSetupColumn("height");
+                ImGui::TableSetupColumn("headroom");
+                ImGui::TableSetupColumn("folds");
+                ImGui::TableHeadersRow();
+
+                const float reference = std::max(water_.wind.reference_speed, 0.1f);
+                for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
+                    const float speed = reference * factor;
+                    FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
+
+                    int folded = 0;
+                    int total = 0;
+                    for (float x = -120.0f; x <= 120.0f; x += 12.0f) {
+                        for (float z = -120.0f; z <= 120.0f; z += 12.0f) {
+                            for (float t : {0.0f, 7.3f}) {
+                                ++total;
+                                if (water::crest(blown, {x, z}, t) >= 0.999f) ++folded;
+                            }
+                        }
+                    }
+                    const float pct = 100.0f * static_cast<float>(folded)
+                                    / static_cast<float>(total);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.1f m/s", speed);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.2fx", blown.amplitude_scale);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.2f", blown.steepness_headroom);
+                    ImGui::TableNextColumn();
+                    if (pct <= 0.0f) {
+                        ImGui::TextDisabled("none");
+                    } else {
+                        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                                           "%.1f%%", pct);
+                    }
+                }
+                ImGui::EndTable();
+            }
         }
     }
 
