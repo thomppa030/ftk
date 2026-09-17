@@ -40,6 +40,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/environment/climate_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/climate_director.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_curve.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/buoyancy.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
@@ -115,6 +116,7 @@ add_executable(fjell-tests
     test_fjinst_io.cpp
     test_fjwater.cpp
     test_particle_budget.cpp
+    test_buoyancy.cpp
     test_water_clipmap.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp

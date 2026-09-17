@@ -1,4 +1,5 @@
 #include "physics/physics_world.hpp"
+#include "physics/buoyancy.hpp"
 #include "physics/collision_channel.hpp"
 #include "physics/collision_shape.hpp"
 #include "core/log.hpp"
@@ -1071,8 +1072,24 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
 
     if (effective_type == BodyType::Dynamic) {
         float mass = rb.mass > 0.0f ? rb.mass : 1.0f;
+
+        // A body that floats says how heavy it is twice — once as a mass and
+        // once as a density against water — and the two can disagree. They
+        // are the same property, so the density wins and the mass follows
+        // from it: that is the number an artist reasons about when they want
+        // something to float, and a cube set to a tenth of water's density
+        // that still weighed a tonne would sink while its dial promised
+        // otherwise.
+        if (const auto* buoyancy = node.components.get<BuoyancyComponent>()) {
+            const BuoyancySamples samples =
+                buoyancy_samples(*buoyancy, node.components.get<ColliderComponent>());
+            if (samples.volume > 0.0f && buoyancy->density > 0.0f) {
+                mass = samples.volume * buoyancy->density * WATER_DENSITY;
+            }
+        }
+
         body_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-        body_settings.mMassPropertiesOverride.mMass = mass;
+        body_settings.mMassPropertiesOverride.mMass = std::max(mass, 1e-3f);
     }
 
     auto body_id = bi.CreateAndAddBody(body_settings,

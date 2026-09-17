@@ -20,6 +20,7 @@ public:
         if (!world_) return;
         FJELL_PROFILE_SCOPE_N("physics_step");
         apply_wind(ctx);
+        apply_buoyancy(ctx);
         world_->step(ctx.dt, ctx.scene);
     }
 
@@ -43,6 +44,11 @@ private:
     /// character that lets it. A force, not an impulse, so a steady wind
     /// holds a body against gravity rather than kicking it once.
     void apply_wind(const TickContext& ctx);
+
+    /// Float every body that has buoyancy on the water it is in, sampling the
+    /// wave field at each of its points so a hull pitches and rolls with the
+    /// swell rather than riding it flat.
+    void apply_buoyancy(const TickContext& ctx);
 
     std::unique_ptr<PhysicsWorld> world_;
     const EnvironmentSubsystem* environment_{nullptr};

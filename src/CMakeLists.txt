@@ -232,6 +232,8 @@ add_executable(fjell
     physics/collision_channel.cpp
     physics/collision_filter_ui.cpp
     physics/collision_build.cpp
+    physics/buoyancy.cpp
+    physics/buoyancy_component_meta.cpp
     physics/collision_shape.cpp
     physics/physics_world.cpp
     physics/physics_subsystem.cpp

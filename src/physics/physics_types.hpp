@@ -27,6 +27,52 @@ struct RigidbodyComponent : NodeComponent {
     float wind_area{0.0f};
 };
 
+/// What makes a body float, and how it sits when it does.
+///
+/// Buoyancy is sampled at several points rather than one, because a single
+/// force at the centre of mass can only heave a body up and down. A hull
+/// lifted harder at the bow than at the stern pitches, and that difference —
+/// several forces disagreeing across one body — is the whole of why a boat
+/// rolls in a swell instead of bobbing like a cork.
+///
+/// The points come from the node's collider unless a list is authored here,
+/// so a crate floats correctly with one tick and no placement, and stays
+/// right when its collider is resized.
+struct BuoyancyComponent : NodeComponent {
+    /// How heavy this body is for its size, as a fraction of water. Below 1
+    /// it floats, at 1 it hangs wherever it is put, above it sinks.
+    ///
+    /// Density rather than a volume because it is the number with a knowable
+    /// answer: oak is about 0.75, a sealed steel drum nearer 0.2, a body in
+    /// water a little under 1. The volume the force is computed from comes
+    /// from the collider, which already knows the size.
+    float density{0.6f};
+
+    /// How hard the water resists a body moving through it, per sample point
+    /// under the surface. This is what stops a float oscillating forever:
+    /// without it a body dropped in water bounces on its own buoyancy, since
+    /// nothing takes the energy back out.
+    float drag{1.2f};
+
+    /// How hard the water resists a body turning. Held separate from `drag`
+    /// because a hull that should glide forward still ought to resist being
+    /// spun, and one number cannot say both.
+    float angular_drag{0.8f};
+
+    /// Sample points in the node's local space, overriding the ones derived
+    /// from the collider. Empty is the normal case.
+    ///
+    /// For a hull whose float points are not its corners: a keel that should
+    /// sit deep, a bow that should lift early. Authored points are used
+    /// exactly as given, so they are also the way to make a body list or
+    /// float bow-high on purpose.
+    std::vector<glm::vec3> points;
+
+    /// Whether the body is pushed along by the water it sits in, so a raft
+    /// drifts with a swell instead of staying put under it.
+    bool follow_current{true};
+};
+
 struct ColliderComponent : NodeComponent {
     /// Use the collision setup authored on the node's mesh instead of the
     /// fields below. Set collision up once on the asset rather than on every
