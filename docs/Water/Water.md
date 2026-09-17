@@ -98,4 +98,27 @@ fade. The split is by *does the CPU need to know*: shape and motion are the
 `.fjwater`, appearance is the material. Foam **colour** is material; foam
 **amount**, from crest steepness, is derived from the wave field.
 
+### The two depths
+
+`fragment()` gets two, and they answer different questions:
+
+| | |
+|---|---|
+| `WATER_DEPTH` | how far light travelled **through** the water to reach the eye — the view ray's length between the surface and whatever is behind it |
+| `WATER_DEPTH_VERTICAL` | how deep the water is **straight down** |
+
+Absorption wants the first: a shallow glance across a puddle tints more than a
+look straight down, because the light went further. Beer's law is about path
+length.
+
+Anything asking *how close is land* wants the second — shore foam, a shallows
+colour ramp, an alpha fade at the waterline. `WATER_DEPTH` cannot answer that,
+because it changes as the camera moves: the same stretch of shore reads 0.3 m
+from overhead and saturates at a standing eye height, which puts a foam band
+everywhere when you look down at it and nowhere when you look across it.
+
+Both are in metres. `WATER_DEPTH_VERTICAL` is large rather than zero over open
+water — with no seabed to hit, the depth buffer reads the far plane — so a
+shore term keyed on a small depth simply never fires out at sea.
+
 See [Wind Response](Wind-Response.md) for how a sea answers the weather.

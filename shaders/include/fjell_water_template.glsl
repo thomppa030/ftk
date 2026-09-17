@@ -13,6 +13,11 @@
 // as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
 // by its material, and saying otherwise is a parse error rather than code
 // that never runs.
+//
+// Two depths, and they are not interchangeable. WATER_DEPTH is the path the
+// light took through the water, which is what absorption reads. WATER_DEPTH_
+// VERTICAL is how deep the water is straight down, which is what a shore
+// reads. The first changes when the camera moves and the second does not.
 
 #include "fjell_common.glsl"
 #include "fjell_global_ubo.glsl"
@@ -154,8 +159,19 @@ void main() {
 
     // ── Depth of the water under this pixel ──
     //
-    // The distance from the surface to whatever is behind it, which is what
-    // Beer's law and the shore foam both read.
+    // Two of them, because "how deep is the water" has two different answers
+    // and using one where the other belongs is not a subtle error.
+    float raw_depth = texture(depth_texture, SCREEN_UV).r;
+    float scene_depth = linearize_depth(raw_depth);
+    float surface_depth = linearize_depth(gl_FragCoord.z);
+
+    // Where the bed under this pixel is, for anything projected onto it.
+    vec3 FLOOR_POS = reconstruct_world_pos(SCREEN_UV, raw_depth);
+
+    // How far light travels through the water to reach the eye: the length of
+    // the view ray between this surface and whatever is behind it. This is
+    // what Beer's law wants — absorption is a property of the path, so a
+    // shallow glance through a puddle tints more than a look straight down.
     //
     // Corrected for the wave, because the raw measurement is dominated by the
     // surface's own height once waves are metres tall: a crest stands higher,
@@ -167,14 +183,26 @@ void main() {
     // it converts before the two can meet. At a shallow angle a metre of lift
     // is many metres of ray; straight down it is one. Getting this wrong does
     // not look like an error, it looks like nothing happening at all.
-    float raw_depth = texture(depth_texture, SCREEN_UV).r;
-    float scene_depth = linearize_depth(raw_depth);
-    float surface_depth = linearize_depth(gl_FragCoord.z);
     float ray_descent = max(abs(VIEW_DIR.y), 0.15);
     float WATER_DEPTH = max(scene_depth - surface_depth - WAVE_HEIGHT / ray_descent, 0.0);
 
-    // Where the bed under this pixel is, for anything projected onto it.
-    vec3 FLOOR_POS = reconstruct_world_pos(SCREEN_UV, raw_depth);
+    // How deep the water is here, measured straight down. A property of the
+    // place rather than of where the camera is, which is what anything asking
+    // "how close is land" needs: shore foam, a shallows colour ramp, a wave
+    // that should die as it runs up a beach.
+    //
+    // WATER_DEPTH cannot answer that. It is a ray length, so it grows as the
+    // camera lowers — the same spot reads 0.30 m from overhead and saturates
+    // its clamp at a standing eye height, which put the shore foam band
+    // everywhere when looked down at and nowhere when looked across.
+    //
+    // Large, not zero, where there is nothing behind the water: with no bed
+    // to hit, the depth buffer reads the far plane and FLOOR_POS lands
+    // hundreds of metres down the view ray. That is the right sign — open
+    // water is deep water — and a shore term keying off it is asking for a
+    // small depth, so it simply never triggers out at sea. Do not read it as
+    // a real distance to a seabed that is not there.
+    float WATER_DEPTH_VERTICAL = max(WORLD_POS.y - FLOOR_POS.y, 0.0);
 
     // ── Surface defaults ──
     // Water is not a PBR surface until fragment() makes it one. These are a
