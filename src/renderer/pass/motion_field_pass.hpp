@@ -43,6 +43,18 @@ public:
     /// Below this, in metres per second, a source counts as standing still:
     /// it keeps its own ground marked but does not stir anything new.
     static constexpr float STILL_SPEED = 0.05f;
+    /// How wide a mark a source leaves, in multiples of its own width. Air a
+    /// body pushes through is disturbed well beyond the body itself, and a
+    /// mark the width of the body is a line rather than a wake.
+    static constexpr float WAKE_WIDTH = 3.0f;
+    /// How much of a texel bleeds into its neighbours each second. This is
+    /// what opens a wake out behind whatever left it instead of leaving the
+    /// ribbon it was painted as.
+    static constexpr float SPREAD_PER_SECOND = 0.3f;
+    /// How hard a wake rolls as it opens out, in metres per second. Spreading
+    /// alone only ever smooths — this is what turns the air instead, so a wake
+    /// breaks into eddies rather than softening into a band.
+    static constexpr float SWIRL_METRES_PER_SECOND = 0.6f;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -74,7 +86,10 @@ private:
         glm::vec4 scroll_decay;        // xy texels scrolled since last frame, z decay, w dt
         uint32_t source_count;
         uint32_t resolution;
-        float pad[2];
+        float spread;
+        float wake_width;
+        float swirl;
+        float time;
     };
 
     bool active_{false};
@@ -113,6 +128,8 @@ private:
     uint32_t moving_count_{0};
     float still_seconds_{0.0f};
     bool settled_{false};
+    /// Seconds the map has been running, for the curl field to creep by.
+    float elapsed_{0.0f};
 
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};

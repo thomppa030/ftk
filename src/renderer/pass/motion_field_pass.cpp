@@ -200,7 +200,10 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/
             const auto& s = sources[i];
             dst[i] = GpuSource{
                 .position_radius = glm::vec4(s.position, s.radius),
-                .velocity_height = glm::vec4(s.velocity, s.height),
+                // World Y of the top of what moved, not its height above
+                // itself: a consumer asking "is this froxel above what came
+                // through" needs somewhere to measure from.
+                .velocity_height = glm::vec4(s.velocity, s.position.y + s.height),
                 .strength = glm::vec4(s.strength, 0.0f, 0.0f, 0.0f),
             };
             // A source standing still keeps its own ground marked but stirs
@@ -225,11 +228,15 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/
 
     // World XZ → map uv, for the environment UBO. Consumers use it rather
     // than rebuilding the projection and drifting from it.
-    world_to_uv_ = glm::mat4(1.0f);
-    world_to_uv_[0][0] = 1.0f / EXTENT_METRES;
-    world_to_uv_[2][1] = 1.0f / EXTENT_METRES;
+    // World XZ -> map uv. Zero, not identity: an identity's [1][1] would
+    // carry world Y into v and send every froxel above a metre outside the
+    // map, where the lookup reads as nothing having moved.
+    world_to_uv_ = glm::mat4(0.0f);
+    world_to_uv_[0][0] = 1.0f / EXTENT_METRES;   // x -> u
+    world_to_uv_[2][1] = 1.0f / EXTENT_METRES;   // z -> v
     world_to_uv_[3][0] = -origin.x / EXTENT_METRES;
     world_to_uv_[3][1] = -origin.y / EXTENT_METRES;
+    world_to_uv_[3][3] = 1.0f;
 
     // Alive while anything moves, and for as long afterwards as the map takes
     // to fade. A scene where everyone has stood still for a while costs
@@ -303,6 +310,10 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     push.scroll_decay = glm::vec4(scroll.x, scroll.y, 1.0f / MEMORY_SECONDS, ctx.delta_time);
     push.source_count = source_count_;
     push.resolution = RESOLUTION;
+    push.spread = SPREAD_PER_SECOND;
+    push.wake_width = WAKE_WIDTH;
+    push.swirl = SWIRL_METRES_PER_SECOND;
+    push.time = elapsed_;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_,
@@ -322,6 +333,7 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     // Settled once nothing has moved for as long as the map remembers: by
     // then the last mark has decayed to nothing and further frames would
     // write the same empty map again.
+    elapsed_ += ctx.delta_time;
     still_seconds_ = moving_count_ > 0 ? 0.0f : still_seconds_ + ctx.delta_time;
     settled_ = still_seconds_ >= MEMORY_SECONDS;
 }

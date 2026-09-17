@@ -8,11 +8,13 @@
 // now. Reading the previous map rather than this one is what makes the scroll
 // safe: no invocation writes a texel another is reading.
 
+#include "noise.glsl"
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 struct GpuMotionSource {
     vec4 position_radius;   // xyz world, w metres
-    vec4 velocity_height;   // xyz m/s, w metres reached above the map's floor
+    vec4 velocity_height;   // xyz m/s, w world Y of the top of what moved
     vec4 strength;          // x scales the mark left
 };
 
@@ -28,7 +30,22 @@ layout(push_constant) uniform PushConstants {
     vec4 scroll_decay;        // xy texels scrolled since last frame, z decay per second, w dt
     uint source_count;
     uint resolution;
+    /// How much of a texel bleeds into its neighbours each second, which is
+    /// what makes a wake widen behind whatever left it.
+    float spread;
+    /// How many body-widths across the mark a source leaves is.
+    float wake_width;
+    /// How hard the wake rolls as it spreads, in metres per second.
+    float swirl;
+    /// Seconds, for the curl field to creep rather than stand still.
+    float time;
 } pc;
+
+// The eddies' size in the world, and how fast the field they come from
+// creeps. Metres per period and a slow crawl: a wake that reshuffled every
+// frame would boil rather than roll.
+const float SWIRL_SCALE = 0.35;
+const float SWIRL_DRIFT = 0.08;
 
 void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
@@ -46,6 +63,47 @@ void main() {
         field = texture(motion_prev, prev_uv);
     }
 
+    // Air that has been shoved does not spread evenly: it rolls. Each texel
+    // reads the previous map a little way *upstream* of itself along a curl
+    // field, which is divergence-free, so what it picks up has been turned
+    // rather than blurred — the wake breaks into eddies as it opens out
+    // instead of softening into a band.
+    //
+    // The curl is sampled in world space and creeps with time, so the eddies
+    // belong to the ground rather than to the screen, and a wake left in one
+    // place keeps turning the same way.
+    if (field.a > 0.0) {
+        vec3 swirl = curl_noise(vec3(world_xz.x, pc.time * SWIRL_DRIFT, world_xz.y) * SWIRL_SCALE);
+        // Stronger where the wake is fresh: old air has already given up its
+        // energy, so it settles rather than keeps rolling.
+        vec2 step_uv = swirl.xz * pc.swirl * field.a * pc.scroll_decay.w /
+                       pc.map_origin_extent.z;
+        vec2 rolled_uv = prev_uv - step_uv;
+        if (all(greaterThanEqual(rolled_uv, vec2(0.0))) &&
+            all(lessThanEqual(rolled_uv, vec2(1.0)))) {
+            field = texture(motion_prev, rolled_uv);
+        }
+    }
+
+    // Disturbed air pushes on the air beside it, so a wake widens as it ages
+    // rather than staying the ribbon it was painted as. Averaging a little of
+    // each neighbour in every frame is that spreading: the mark opens out
+    // behind whatever left it, and its velocity softens along with its shape.
+    //
+    // Taken from the previous map, so this is the state of a frame ago
+    // spreading into this one — a texel is never reading what another
+    // invocation is in the middle of writing.
+    if (field.a > 0.0) {
+        vec2 texel = vec2(1.0) / float(pc.resolution);
+        vec4 neighbours =
+            texture(motion_prev, prev_uv + vec2( texel.x, 0.0)) +
+            texture(motion_prev, prev_uv + vec2(-texel.x, 0.0)) +
+            texture(motion_prev, prev_uv + vec2(0.0,  texel.y)) +
+            texture(motion_prev, prev_uv + vec2(0.0, -texel.y));
+        float bleed = clamp(pc.spread * pc.scroll_decay.w * 60.0, 0.0, 1.0);
+        field = mix(field, neighbours * 0.25, bleed);
+    }
+
     // Fade toward still. Only the recency decays: a texel that is forgotten
     // keeps whatever velocity it had, but at zero recency no reader sees it,
     // and the next thing through overwrites it anyway.
@@ -57,7 +115,9 @@ void main() {
     // a doubled one, and the mark is the faster of them.
     for (uint i = 0; i < pc.source_count; ++i) {
         GpuMotionSource src = sources[i];
-        float radius = max(src.position_radius.w, 0.01);
+        // A body displaces a region several times its own width, not a disc
+        // its own size: a capsule-wide mark is a line drawn through the fog.
+        float radius = max(src.position_radius.w, 0.01) * pc.wake_width;
         float dist = distance(world_xz, src.position_radius.xz);
         if (dist >= radius) continue;
 

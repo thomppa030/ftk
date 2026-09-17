@@ -41,6 +41,21 @@ if(_shadow_text MATCHES "constexpr[ \t]+uint32_t[ \t]+MAP_SIZE[ \t]*=[ \t]*([0-9
     set(_const_kv_SHADOW_MAP_SIZE ${CMAKE_MATCH_1})
 endif()
 
+# The motion field's texel size: shaders read its gradient a texel either
+# side, and a hand-copied number here would drift the moment the map's
+# resolution or reach changed.
+file(READ "${CMAKE_SOURCE_DIR}/src/renderer/pass/motion_field_pass.hpp" _motion_text)
+if(_motion_text MATCHES "constexpr[ \t]+uint32_t[ \t]+RESOLUTION[ \t]*=[ \t]*([0-9]+)"
+   AND _motion_text MATCHES "constexpr[ \t]+float[ \t]+EXTENT_METRES[ \t]*=[ \t]*([0-9.]+)f")
+    set(_motion_res 0)
+    set(_motion_extent 0)
+    string(REGEX MATCH "constexpr[ \t]+uint32_t[ \t]+RESOLUTION[ \t]*=[ \t]*([0-9]+)" _m "${_motion_text}")
+    set(_motion_res ${CMAKE_MATCH_1})
+    string(REGEX MATCH "constexpr[ \t]+float[ \t]+EXTENT_METRES[ \t]*=[ \t]*([0-9.]+)f" _m "${_motion_text}")
+    set(_motion_extent ${CMAKE_MATCH_1})
+    math(EXPR _unused "0")
+endif()
+
 # Build the generated file body.
 set(_glsl_body "")
 string(APPEND _glsl_body "#ifndef FJELL_RENDERER_CONSTANTS_GLSL\n")
@@ -55,6 +70,15 @@ foreach(name ${FJELL_SHADER_CONSTS} SHADOW_MAP_SIZE)
         message(WARNING "GenerateShaderConstants: ${name} not found in C++ sources")
     endif()
 endforeach()
+
+if(DEFINED _motion_res AND NOT _motion_res STREQUAL "0")
+    string(APPEND _glsl_body "\n// The motion field's square and grid, for reading its gradient.\n")
+    string(APPEND _glsl_body "const float MOTION_FIELD_EXTENT_M = ${_motion_extent};\n")
+    string(APPEND _glsl_body "const float MOTION_FIELD_RESOLUTION_F = ${_motion_res}.0;\n")
+    string(APPEND _glsl_body "const float MOTION_FIELD_TEXEL_M = MOTION_FIELD_EXTENT_M / MOTION_FIELD_RESOLUTION_F;\n")
+else()
+    message(WARNING "GenerateShaderConstants: motion field extent/resolution not found")
+endif()
 
 # Provide a float alias for sizes that shaders divide by texel space.
 string(APPEND _glsl_body "\n")
