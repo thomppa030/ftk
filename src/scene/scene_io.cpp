@@ -110,7 +110,18 @@ Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
     uint32_t max_id = 0;
 
     for (const auto& jobj : j["objects"]) {
-        auto node = deserialize_node(jobj, resources, project);
+        std::unique_ptr<Node> node;
+        // A field of the wrong type throws rather than returning null, and one
+        // such field used to take the whole engine down on startup with
+        // nothing to say which node held it. Losing one node and naming it is
+        // the recoverable outcome.
+        try {
+            node = deserialize_node(jobj, resources, project);
+        } catch (const nlohmann::json::exception& e) {
+            FJELL_CORE_ERROR("Scene: node '{}' has a malformed field and was dropped: {}",
+                             jobj.value("name", "?"), e.what());
+            continue;
+        }
         if (!node) {
             FJELL_CORE_ERROR("Scene: node '{}' could not be deserialized and was dropped",
                              jobj.value("name", "?"));
