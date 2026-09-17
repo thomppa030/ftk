@@ -12,6 +12,12 @@
 // Snow is a white, rough layer whose edge is broken by noise so it never
 // reads as a flat cutoff.
 
+// How smooth a water film leaves a surface it fully covers. Ground, not
+// glass: wet earth and stone sit well short of a mirror, and a value low
+// enough to reflect cleanly makes every surface without a roughness map show
+// its base colour as specular.
+const float WET_ROUGHNESS = 0.35;
+
 float fjell_weather_hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -57,8 +63,17 @@ void fjell_apply_weather(inout vec3 albedo, inout float roughness, inout float m
     float wet = clamp(wetness, 0.0, 1.0) * exposed;
     float wet_here = wet * mix(0.35, 1.0, up);
     albedo *= mix(1.0, 0.55, wet_here * (1.0 - metallic));
-    // Glossy only once really wet: a damp surface stays matte.
-    roughness = mix(roughness, 0.08, wet_here * wet_here);
+    // Glossy only once really wet: a damp surface stays matte. Wet ground is
+    // not a mirror — a water film smooths the microsurface but the ground
+    // under it still scatters, and a target low enough to reflect cleanly
+    // turns whatever is painted into the base colour into visible specular,
+    // since a surface with no roughness map has nothing else to break the
+    // highlight up.
+    //
+    // Water can only smooth a surface, never roughen it, so the film is a
+    // floor and not a destination: a surface already glossier than the film
+    // keeps its own roughness rather than being dulled by the rain.
+    roughness = mix(roughness, min(roughness, WET_ROUGHNESS), wet_here * wet_here);
     if (precipitation > 0.0 && wet_here > 0.3) {
         vec2 tilt = fjell_rain_ripples(world_pos.xz, time) * precipitation * (wet_here - 0.3) * 0.5;
         normal = normalize(normal + vec3(tilt.x, 0.0, tilt.y));
