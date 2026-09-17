@@ -78,6 +78,14 @@ const char* weather_phase_name(WeatherPhase phase) {
     return "sustain";
 }
 
+std::optional<WeatherPhase> weather_phase_from_name(std::string_view name) {
+    for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
+        const auto phase = static_cast<WeatherPhase>(i);
+        if (name == weather_phase_name(phase)) return phase;
+    }
+    return std::nullopt;
+}
+
 Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {

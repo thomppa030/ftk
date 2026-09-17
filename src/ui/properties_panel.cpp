@@ -134,6 +134,36 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
         ImGui::EndCombo();
     }
 
+    // Which phase the scene opens in, saved with it. Unlike the Replay
+    // control below, this is not an action: it decides what the first frame
+    // of the scene looks like, in the editor and on launch alike.
+    if (!env.weather.empty()) {
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("Start Phase",
+                              weather_phase_name(env.weather_start_phase))) {
+            for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
+                const auto phase = static_cast<WeatherPhase>(i);
+                if (ImGui::Selectable(weather_phase_name(phase),
+                                      phase == env.weather_start_phase)) {
+                    env.weather_start_phase = phase;
+                    if (scene_ != nullptr) scene_->mark_dirty();
+                    // Show it at once rather than on the next scene load.
+                    if (environment_ != nullptr && ictx.resource_manager != nullptr) {
+                        if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
+                            environment_->play_weather(*handle, phase);
+                        }
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Where the event is when the scene opens. Approach is "
+                              "weather arriving; a later phase is weather that set in "
+                              "before the scene did.");
+        }
+    }
+
     if (environment_ == nullptr || ictx.resource_manager == nullptr) return;
     const auto& weather = environment_->state().weather;
     if (weather.event_id != 0) {

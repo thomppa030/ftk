@@ -15,6 +15,13 @@ struct DayProfileAsset;
 struct ClimateAsset;
 struct WeatherAsset;
 
+// The same guard weather_asset.hpp uses, so the enum has one definition
+// whichever header a translation unit reaches first.
+#ifndef FJELL_WEATHER_PHASE_DEFINED
+#define FJELL_WEATHER_PHASE_DEFINED
+enum class WeatherPhase : int { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 };
+#endif
+
 // ── Light nodes ─────────────────────────────────────────────────────────
 // Every colour below is linear light, ready for the renderer to multiply.
 // The scene file and the inspector hold sRGB and convert on the way in and
@@ -297,6 +304,13 @@ struct WorldEnvironmentNode : Node3D {
     WeatherAssetHandle weather_handle{};
     const WeatherAsset* weather_asset{nullptr};
     std::string weather_bound;
+
+    // Which phase that event opens in. Approach is weather arriving, and the
+    // scene spends the event's approach and onset getting there; any later
+    // phase is weather that set in before the scene did, so the storm is
+    // overhead on the first frame. The phases before it are skipped, not
+    // fast-forwarded — see WeatherPlayer::play.
+    WeatherPhase weather_start_phase{WeatherPhase::Approach};
 
     // Who decides the weather: a .fjclimate whose states the director rolls
     // between. With one set, the weather field above is only the event the

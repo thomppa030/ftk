@@ -19,6 +19,7 @@
 #include "core/math/color_space.hpp"
 #include "core/project.hpp"
 #include "core/log.hpp"
+#include "environment/weather_asset.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -204,6 +205,9 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         }
         if (!env->weather.empty()) {
             j["weather"] = env->weather;
+            if (env->weather_start_phase != WeatherPhase::Approach) {
+                j["weather_start_phase"] = weather_phase_name(env->weather_start_phase);
+            }
         }
         if (!env->climate.empty()) {
             j["climate"] = env->climate;
@@ -489,6 +493,16 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             }
             env->day_profile = j.value("day_profile", std::string{});
             env->weather = j.value("weather", std::string{});
+            env->weather_start_phase = WeatherPhase::Approach;
+            if (j.contains("weather_start_phase")) {
+                const auto phase_name = j.value("weather_start_phase", std::string{});
+                if (const auto phase = weather_phase_from_name(phase_name)) {
+                    env->weather_start_phase = *phase;
+                } else {
+                    FJELL_CORE_WARN("World environment: '{}' is not a weather phase, "
+                                    "starting at the approach", phase_name);
+                }
+            }
             env->climate = j.value("climate", std::string{});
             if (j.contains("sky_uniforms") && j["sky_uniforms"].is_object()) {
                 for (const auto& [uniform_name, values] : j["sky_uniforms"].items()) {

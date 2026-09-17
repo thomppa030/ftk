@@ -131,7 +131,7 @@ void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManag
     }
     env.weather_handle = *handle;
     env.weather_asset = resources->get(*handle);
-    play_weather(*handle);
+    play_weather(*handle, env.weather_start_phase);
 }
 
 void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManager* resources) {

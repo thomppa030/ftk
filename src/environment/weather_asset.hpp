@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -143,6 +144,11 @@ struct WeatherAsset {
 };
 
 [[nodiscard]] const char* weather_phase_name(WeatherPhase phase);
+
+/// The phase a name spells, for a scene file or a command line.
+/// Returns nothing for a name no phase answers to, so a typo reads as a
+/// typo rather than silently becoming the approach.
+[[nodiscard]] std::optional<WeatherPhase> weather_phase_from_name(std::string_view name);
 [[nodiscard]] Result<WeatherAsset> load_weather_asset_file(const std::string& path);
 [[nodiscard]] Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset);
 
