@@ -83,8 +83,15 @@ const float MOTION_THIN = 0.15;
 const float MOTION_THIN_SMOOTH = 0.6;
 // How hard the two sides of a wake are pushed apart, against how hard the
 // whole thing is dragged along. This is what separates turning from sliding,
-// so it is deliberately the larger of the two.
-const float MOTION_CURL = 1.2;
+// so it is deliberately the larger of the two — and because the wake's
+// direction is a unit vector, that ratio holds however wide the mark has
+// spread rather than fading out as it opens.
+//
+// Like the drag, a fraction of the volume's own noise period: half a wisp of
+// shear reads as the field being turned, and much past a whole one the wisp
+// lands somewhere uncorrelated with where it started and the wake stops
+// looking like one thing moving.
+const float MOTION_CURL = 0.4;
 const float MOTION_FADE_METRES = 1.0;
 
 // Henyey-Greenstein phase function. Isotropic baseline is ~0.08 (1/4π);
@@ -291,8 +298,9 @@ void main() {
     // Which way the wake weakens, for telling its two sides apart. One
     // lookup for the froxel; the volumes differ in how far they answer it,
     // not in where the wake is.
-    vec2 motion_falloff = motion.recency > 0.0
-        ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M) : vec2(0.0);
+    MotionGradient motion_falloff = motion.recency > 0.0
+        ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M)
+        : MotionGradient(vec2(0.0), 0.0);
 
     for (uint i = 0; i < pc.volume_count; ++i) {
         GpuFogVolume vol = fog_volumes[i];
@@ -329,7 +337,8 @@ void main() {
             vec2 heading = length(motion.velocity) > 1e-4
                 ? normalize(motion.velocity) : vec2(0.0);
             vec2 across = vec2(-heading.y, heading.x);
-            float side = heading.x * motion_falloff.y - heading.y * motion_falloff.x;
+            float side = heading.x * motion_falloff.direction.y
+                       - heading.y * motion_falloff.direction.x;
             vec2 curl = across * side * stir * MOTION_CURL * vol.noise_drift.w;
 
             motion_offset = vec3(along.x + curl.x, 0.0, along.y + curl.y);

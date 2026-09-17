@@ -43,19 +43,37 @@ MotionSample motion_at(vec3 world_pos) {
     return m;
 }
 
-/// Which way the wake gets weaker, on the ground plane. Because recency falls
-/// off from wherever the moving thing was, this points away from the path it
-/// took — which is what tells one side of a wake from the other without the
-/// map having to store where anything was.
-///
-/// Zero-length where the field is flat, which is everywhere nothing passed.
-vec2 motion_gradient(vec3 world_pos, float texel_metres) {
+/// Which way the wake gets weaker, on the ground plane, and how sharply.
+struct MotionGradient {
+    /// Unit length, pointing away from the path the moving thing took —
+    /// which is what tells one side of a wake from the other without the map
+    /// having to store where anything was. A direction rather than a slope,
+    /// so a reader asking which side of a wake it is on gets the same answer
+    /// whether the mark is fresh and narrow or has spread for seconds.
+    vec2 direction;
+    /// How fast recency falls off here, per metre. For a reader that wants
+    /// the edge of a mark rather than its sides.
+    float sharpness;
+};
+
+/// Zero direction and zero sharpness where the field is flat, which is
+/// everywhere nothing passed.
+MotionGradient motion_gradient(vec3 world_pos, float texel_metres) {
     float e = max(texel_metres, 0.01);
     float px = motion_at(world_pos + vec3(e, 0.0, 0.0)).recency;
     float nx = motion_at(world_pos - vec3(e, 0.0, 0.0)).recency;
     float pz = motion_at(world_pos + vec3(0.0, 0.0, e)).recency;
     float nz = motion_at(world_pos - vec3(0.0, 0.0, e)).recency;
-    return vec2(px - nx, pz - nz);
+
+    MotionGradient g;
+    // Over the span the two taps straddle, so this is a fall per metre and
+    // stays itself if the map's resolution ever changes.
+    vec2 slope = vec2(px - nx, pz - nz) / (2.0 * e);
+    g.sharpness = length(slope);
+    // Still air reaches here every frame, and normalising it would be a
+    // divide by zero rather than by something small.
+    g.direction = g.sharpness > 1e-5 ? slope / g.sharpness : vec2(0.0);
+    return g;
 }
 
 #endif // FJELL_MOTION_FIELD_GLSL
