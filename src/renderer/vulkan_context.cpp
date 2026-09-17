@@ -1145,17 +1145,9 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
         gpu.shape_falloff = glm::vec4(static_cast<float>(v.shape), v.edge_falloff, 0.0f, 0.0f);
         gpu.scatter_params = glm::vec4(v.scattering_mult, 0.0f, 0.0f, 0.0f);
 
-        // How far the noise field has drifted, in world metres. The authored
-        // speed is constant per volume so integrating it is just elapsed time;
-        // the wind is not, so it rides the weather's own accumulated drift and
-        // stays continuous when the wind changes. Sustained wind, not the gust
-        // — a gust breathes about once a second and fog has more mass than that.
-        glm::vec3 drift = v.noise_speed * elapsed_time_;
-        if (v.wind_influence > 0.0f && current_environment_ != nullptr) {
-            const auto& wind_drift = current_environment_->weather.wind_drift;
-            drift += glm::vec3(wind_drift.x, 0.0f, wind_drift.y) * v.wind_influence;
-        }
-        gpu.noise_drift = glm::vec4(drift, v.noise_scale);
+        // Already integrated by EnvironmentSubsystem::advance_fog_volumes, so
+        // that drift stays continuous while the wind turns it.
+        gpu.noise_drift = glm::vec4(v.noise_drift, v.noise_scale);
         gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves), 0.0f, 0.0f);
         dst[i] = gpu;
     }

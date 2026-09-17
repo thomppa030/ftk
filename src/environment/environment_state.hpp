@@ -95,8 +95,9 @@ struct FogVolume {
 
     float noise_contrast{0.0f};
     float noise_scale{8.0f};
-    glm::vec3 noise_speed{0.0f};
-    float wind_influence{0.0f};
+    /// Where the field has drifted to, in world metres. Already integrated by
+    /// the node, so everything downstream only copies it.
+    glm::vec3 noise_drift{0.0f};
     int noise_octaves{2};
 };
 

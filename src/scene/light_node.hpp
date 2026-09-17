@@ -134,14 +134,27 @@ struct FogVolumeNode : VolumeNode {
     float noise_contrast{0.0f};
     /// Metres per noise period — the size of a wisp.
     float noise_scale{8.0f};
-    /// How fast the field drifts through the world, in metres per second, on
-    /// top of whatever the wind contributes.
-    glm::vec3 noise_speed{0.3f, 0.02f, 0.1f};
-    /// How much the weather's sustained wind carries the field as well. 0 is
-    /// a still cave, 1 is fog fully driven by the weather.
+    /// The way the field drifts. Normalised on the way to the GPU, so its
+    /// length does not matter and speed is the only thing that sets the pace.
+    glm::vec3 noise_direction{1.0f, 0.05f, 0.3f};
+    /// How fast it drifts, in metres per second.
+    float noise_speed{0.3f};
+    /// How far the weather's wind takes over: it turns the drift toward the
+    /// wind's heading and trades the authored speed for the wind's own, so at
+    /// 1 the fog runs downwind at wind speed and a calm day nearly stills it.
+    /// 0 leaves the volume entirely authored, for a cave or an interior.
     float wind_influence{0.0f};
+    /// Metres per second of drift per metre per second of wind, at full
+    /// influence. Fog does not travel at the speed of the air that carries it.
+    float wind_speed_scale{0.15f};
     /// Octaves of detail. Each one doubles the cost of sampling the field.
     int noise_octaves{2};
+
+    /// How far the field has drifted so far, in world metres. Integrated each
+    /// frame rather than derived from a clock, because the direction and the
+    /// speed both move with the wind and a field that jumped when the weather
+    /// turned would tear. Runtime state, not saved.
+    glm::vec3 noise_drift_{0.0f};
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<FogVolumeNode>();
@@ -151,8 +164,10 @@ struct FogVolumeNode : VolumeNode {
         copy->scattering_mult = scattering_mult;
         copy->noise_contrast = noise_contrast;
         copy->noise_scale = noise_scale;
+        copy->noise_direction = noise_direction;
         copy->noise_speed = noise_speed;
         copy->wind_influence = wind_influence;
+        copy->wind_speed_scale = wind_speed_scale;
         copy->noise_octaves = noise_octaves;
         return copy;
     }

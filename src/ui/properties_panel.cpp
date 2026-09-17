@@ -598,8 +598,13 @@ void PropertiesPanel::draw() {
                                 scene_->mark_dirty();
                             }
                         });
+                        prop_row("Direction", [&] {
+                            if (ImGui::DragFloat3("##FogVolNoiseDir", &fv->noise_direction.x, 0.01f, -1.0f, 1.0f, "%.2f")) {
+                                scene_->mark_dirty();
+                            }
+                        });
                         prop_row("Speed", [&] {
-                            if (ImGui::DragFloat3("##FogVolNoiseSpeed", &fv->noise_speed.x, 0.01f, -5.0f, 5.0f, "%.2f")) {
+                            if (ImGui::SliderFloat("##FogVolNoiseSpeed", &fv->noise_speed, 0.0f, 5.0f, "%.2f m/s")) {
                                 scene_->mark_dirty();
                             }
                         });
@@ -608,6 +613,13 @@ void PropertiesPanel::draw() {
                                 scene_->mark_dirty();
                             }
                         });
+                        if (fv->wind_influence > 0.0f) {
+                            prop_row("Wind Scale", [&] {
+                                if (ImGui::SliderFloat("##FogVolWindScale", &fv->wind_speed_scale, 0.0f, 1.0f, "%.2f")) {
+                                    scene_->mark_dirty();
+                                }
+                            });
+                        }
                         prop_row("Octaves", [&] {
                             if (ImGui::SliderInt("##FogVolOctaves", &fv->noise_octaves, 1, 4)) {
                                 scene_->mark_dirty();

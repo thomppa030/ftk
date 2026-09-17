@@ -166,8 +166,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
                 .shape = volume->shape,
                 .noise_contrast = volume->noise_contrast,
                 .noise_scale = volume->noise_scale,
-                .noise_speed = volume->noise_speed,
-                .wind_influence = volume->wind_influence,
+                .noise_drift = volume->noise_drift_,
                 .noise_octaves = volume->noise_octaves,
             });
             continue;

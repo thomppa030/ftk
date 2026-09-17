@@ -168,8 +168,10 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"edge_falloff", fv->edge_falloff},
             {"noise_contrast", fv->noise_contrast},
             {"noise_scale", fv->noise_scale},
-            {"noise_speed", {fv->noise_speed.x, fv->noise_speed.y, fv->noise_speed.z}},
+            {"noise_direction", {fv->noise_direction.x, fv->noise_direction.y, fv->noise_direction.z}},
+            {"noise_speed", fv->noise_speed},
             {"wind_influence", fv->wind_influence},
+            {"wind_speed_scale", fv->wind_speed_scale},
             {"noise_octaves", fv->noise_octaves}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
@@ -432,11 +434,23 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 fv->edge_falloff = jv.value("edge_falloff", 0.2f);
                 fv->noise_contrast = jv.value("noise_contrast", 0.0f);
                 fv->noise_scale = jv.value("noise_scale", 8.0f);
-                if (jv.contains("noise_speed")) {
+                if (jv.contains("noise_direction")) {
+                    auto& d = jv["noise_direction"];
+                    fv->noise_direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+                }
+                // Drift was once one vector carrying both heading and pace.
+                // Split it back apart: its direction is the direction and its
+                // length is the speed.
+                if (jv.contains("noise_speed") && jv["noise_speed"].is_array()) {
                     auto& s = jv["noise_speed"];
-                    fv->noise_speed = {s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
+                    const glm::vec3 drift{s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
+                    fv->noise_speed = glm::length(drift);
+                    if (fv->noise_speed > 1e-4f) fv->noise_direction = drift / fv->noise_speed;
+                } else {
+                    fv->noise_speed = jv.value("noise_speed", 0.3f);
                 }
                 fv->wind_influence = jv.value("wind_influence", 0.0f);
+                fv->wind_speed_scale = jv.value("wind_speed_scale", 0.15f);
                 fv->noise_octaves = jv.value("noise_octaves", 2);
             }
             node = std::move(fv);
