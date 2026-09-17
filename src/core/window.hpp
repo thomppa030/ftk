@@ -25,6 +25,9 @@ public:
     Window& operator=(Window&&) = delete;
 
     [[nodiscard]] bool should_close() const;
+    /// Ask for the main loop to end, as closing the window does. For a run
+    /// that ends on its own, such as a scenario reaching its last step.
+    void request_close();
     void poll_events();
     void set_title(std::string_view title);
 
