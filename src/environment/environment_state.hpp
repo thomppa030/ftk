@@ -96,6 +96,9 @@ struct MotionSource {
     /// How far above `position` it reaches, so a consumer filling a volume can
     /// leave the air above a walker's head alone.
     float height{1.8f};
+    /// Scales the mark it leaves, for something that barely disturbs the air
+    /// or shoulders through it.
+    float strength{1.0f};
 };
 
 /// One placed fog volume, resolved from a FogVolumeNode. The transform is the

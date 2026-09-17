@@ -66,6 +66,7 @@ private:
     struct GpuSource {
         alignas(16) glm::vec4 position_radius;  // xyz world, w metres
         alignas(16) glm::vec4 velocity_height;  // xyz m/s, w metres reached
+        alignas(16) glm::vec4 strength;         // x scales the mark left
     };
 
     struct PushConstants {

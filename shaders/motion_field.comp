@@ -13,6 +13,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 struct GpuMotionSource {
     vec4 position_radius;   // xyz world, w metres
     vec4 velocity_height;   // xyz m/s, w metres reached above the map's floor
+    vec4 strength;          // x scales the mark left
 };
 
 layout(set = 0, binding = 0) readonly buffer SourceBuffer {
@@ -62,7 +63,7 @@ void main() {
 
         // Full strength in the middle, easing to nothing at the rim, so a
         // passing character leaves a soft mark rather than a stamped disc.
-        float strength = 1.0 - smoothstep(0.0, radius, dist);
+        float strength = (1.0 - smoothstep(0.0, radius, dist)) * src.strength.x;
         if (strength <= field.a) continue;
 
         field = vec4(src.velocity_height.xz, src.velocity_height.w, strength);

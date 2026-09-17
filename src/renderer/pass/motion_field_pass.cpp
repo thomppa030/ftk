@@ -201,6 +201,7 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/
             dst[i] = GpuSource{
                 .position_radius = glm::vec4(s.position, s.radius),
                 .velocity_height = glm::vec4(s.velocity, s.height),
+                .strength = glm::vec4(s.strength, 0.0f, 0.0f, 0.0f),
             };
             // A source standing still keeps its own ground marked but stirs
             // nothing new, which is the difference between the map needing

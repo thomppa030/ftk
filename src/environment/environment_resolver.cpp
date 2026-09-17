@@ -3,6 +3,7 @@
 #include "environment/day_profile_asset.hpp"
 #include "environment/weather_player.hpp"
 #include "physics/physics_types.hpp"
+#include "renderer/components/motion_source_component.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -182,23 +183,36 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
             });
             continue;
         }
-        // A character stirs whatever reads the motion field.
+        // Anything carrying a motion source writes into the motion field,
+        // which is what everything reacting to movement reads. A character
+        // gets one for free, because a capsule that walks is the common case
+        // and its own size answers both questions the source asks; anything
+        // else stirs the world by being given the component.
         //
-        // A standing character is a source too, at rest. Leaving it out would
+        // A source standing still is still a source. Leaving one out would
         // mean the ground under someone's feet is unmarked until they move, so
         // a first step begins a stride away from where they were standing.
-        if (const auto* character = obj->components.get<CharacterComponent>()) {
-            const auto* spatial = obj->as_spatial();
-            if (spatial != nullptr) {
-                state.motion_sources.push_back(MotionSource{
-                    .position = glm::vec3(spatial->world_matrix_[3]),
-                    .velocity = character->velocity,
-                    .radius = character->capsule_radius,
-                    // Feet at the origin is the usual setup; when the capsule
-                    // is centred instead, the body reaches half as far above.
-                    .height = character->feet_at_origin ? character->capsule_height
-                                                        : character->capsule_height * 0.5f,
-                });
+        if (const auto* spatial = obj->as_spatial()) {
+            const auto* explicit_source = obj->components.get<MotionSourceComponent>();
+            const auto* character = obj->components.get<CharacterComponent>();
+            if (explicit_source != nullptr || character != nullptr) {
+                // Where the node's own size answers, when the component does
+                // not: a capsule's girth and how far it stands above its feet.
+                const float default_radius = character != nullptr ? character->capsule_radius : 0.5f;
+                const float default_height =
+                    character == nullptr ? 1.8f
+                    : (character->feet_at_origin ? character->capsule_height
+                                                 : character->capsule_height * 0.5f);
+
+                MotionSource source;
+                source.position = glm::vec3(spatial->world_matrix_[3]);
+                source.velocity = character != nullptr ? character->velocity : glm::vec3(0.0f);
+                source.radius = explicit_source != nullptr && explicit_source->radius > 0.0f
+                                    ? explicit_source->radius : default_radius;
+                source.height = explicit_source != nullptr && explicit_source->height > 0.0f
+                                    ? explicit_source->height : default_height;
+                source.strength = explicit_source != nullptr ? explicit_source->strength : 1.0f;
+                state.motion_sources.push_back(source);
             }
         }
 

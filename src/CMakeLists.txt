@@ -138,6 +138,7 @@ add_executable(fjell
     renderer/pass/sun_shafts_pass.cpp
     renderer/pass/contact_shadow_pass.cpp
     renderer/pass/cloud_shadow_pass.cpp
+    renderer/components/motion_source_component_meta.cpp
     renderer/pass/motion_field_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
