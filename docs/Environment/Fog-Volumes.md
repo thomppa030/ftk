@@ -44,6 +44,30 @@ The deliberate cost: a volume cannot *remove* fog. There is no way to carve a
 clear pocket inside a thick haze — that needs a priority or override mode which
 does not exist yet.
 
+## Settling it on the ground
+
+Ground mist forms a shallow layer that follows the terrain. A box cannot do
+that on its own: flat-bottomed, it buries the low end of a slope and floats off
+the high end. The **Ground** section fixes that.
+
+| Field | What it does |
+|---|---|
+| **Layer** | How deep the layer is above the ground, in metres. The fog fades out across it. 0 turns this off and the volume fills its shape evenly. |
+| **Offset** | How far above the ground the layer starts, for mist that hangs clear of the grass rather than touching it. Only shown when Layer is above 0. |
+
+The ground comes from the scene's distance field, which covers meshes as well
+as terrain — so a layer settles on a rooftop or a bridge as readily as in a
+hollow.
+
+Two things follow from where that measurement comes from:
+
+- **The top edge is soft.** The distance field is a coarse grid, so a layer a
+  couple of metres deep sits inside only two or three cells. Turning on Noise
+  helps: it breaks the edge up, so what would read as blur reads as wisps.
+- **Outside the field there is no ground.** It follows the camera and is built
+  in regions, so a volume far from the camera may have no ground data and its
+  layer will be empty. If a layer does nothing, standing near it is the check.
+
 ## Making it move
 
 By itself a volume is a fixed bank. The **Noise** section breaks it into wisps
