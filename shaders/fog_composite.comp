@@ -32,8 +32,6 @@ layout(push_constant) uniform PushConstants {
     float jitter_y;
     float jitter_z;
     uint volume_count;
-    vec4 sdf_volume_min;    // xyz used; w is padding
-    vec4 sdf_volume_max;
 } pc;
 
 float depth_to_slice(float z) {

@@ -178,8 +178,6 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
                 .noise_scale = volume->noise_scale,
                 .noise_drift = volume->noise_drift_,
                 .noise_octaves = volume->noise_octaves,
-                .ground_layer = volume->ground_layer,
-                .ground_offset = volume->ground_offset,
             });
             continue;
         }

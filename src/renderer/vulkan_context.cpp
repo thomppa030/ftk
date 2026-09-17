@@ -977,7 +977,6 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     // readers cannot disagree about where the volume is.
     ddgi_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
     water_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
-    volumetric_fog_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
 
     const auto& matrices = shadow_pass().light_matrices();
     const auto& splits = shadow_pass().cascade_splits();
@@ -1152,8 +1151,7 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
         // Already integrated by EnvironmentSubsystem::advance_fog_volumes, so
         // that drift stays continuous while the wind turns it.
         gpu.noise_drift = glm::vec4(v.noise_drift, v.noise_scale);
-        gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves),
-                                    v.ground_layer, v.ground_offset);
+        gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves), 0.0f, 0.0f);
         dst[i] = gpu;
     }
 }

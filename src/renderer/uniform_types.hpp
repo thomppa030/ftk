@@ -107,8 +107,7 @@ struct GpuFogVolume {
     alignas(16) glm::vec4 shape_falloff;   // x = ColliderShape, y = edge falloff
     alignas(16) glm::vec4 scatter_params;  // x = scattering multiplier
     alignas(16) glm::vec4 noise_drift;     // xyz = world metres drifted, w = scale
-    alignas(16) glm::vec4 noise_shape;     // x = contrast (0 = off), y = octaves,
-                                           //   z = ground layer depth (0 = off), w = ground offset
+    alignas(16) glm::vec4 noise_shape;     // x = contrast (0 = off), y = octaves
 };
 
 // Fog volumes are gathered per frame into one SSBO; past this many in a scene
