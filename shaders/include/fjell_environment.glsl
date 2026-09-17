@@ -26,9 +26,9 @@ layout(set = SET, binding = BIND) uniform EnvironmentUbo {                     \
     vec4 sky_tint_star;            /* rgb sky tint, w star intensity */        \
     vec4 celestial_axis;           /* xyz sky rotation axis, w radians since noon */ \
     mat4 cloud_shadow_vp;                                                      \
-    mat4 overhead_vp;                                                          \
+    mat4 motion_field_vp;          /* world -> motion field uv */               \
     uint cloud_shadow_texture;     /* bindless index, 0 = none */              \
-    uint overhead_depth_texture;                                               \
+    uint motion_field_texture;     /* 1 when the map holds anything */          \
 } NAME
 
 #define FJELL_ENVIRONMENT_UBO_BINDING 14

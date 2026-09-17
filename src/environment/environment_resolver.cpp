@@ -2,6 +2,7 @@
 
 #include "environment/day_profile_asset.hpp"
 #include "environment/weather_player.hpp"
+#include "physics/physics_types.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -181,6 +182,26 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led, const We
             });
             continue;
         }
+        // A character stirs whatever reads the motion field.
+        //
+        // A standing character is a source too, at rest. Leaving it out would
+        // mean the ground under someone's feet is unmarked until they move, so
+        // a first step begins a stride away from where they were standing.
+        if (const auto* character = obj->components.get<CharacterComponent>()) {
+            const auto* spatial = obj->as_spatial();
+            if (spatial != nullptr) {
+                state.motion_sources.push_back(MotionSource{
+                    .position = glm::vec3(spatial->world_matrix_[3]),
+                    .velocity = character->velocity,
+                    .radius = character->capsule_radius,
+                    // Feet at the origin is the usual setup; when the capsule
+                    // is centred instead, the body reaches half as far above.
+                    .height = character->feet_at_origin ? character->capsule_height
+                                                        : character->capsule_height * 0.5f,
+                });
+            }
+        }
+
         // Volumes are a list, so the walk cannot stop until it has seen every
         // node; the singular nodes above keep their own found flags.
     }

@@ -234,6 +234,8 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
             auto* di = ctx.default_pp().ddgi();
             return di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
         }
+        case ViewportSource::motion_field:
+            return ctx.motion_field_pass().imgui_texture(ctx.ddgi_pass().linear_sampler());
     }
     return panel->offscreen->imgui_texture();
 }
@@ -345,6 +347,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     auto* di = ctx.default_pp().ddgi();
                     tex = di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
                 } break;
+                case ViewportSource::motion_field:
+                    tex = ctx.motion_field_pass().imgui_texture(ctx.ddgi_pass().linear_sampler());
+                    break;
             }
         }
 

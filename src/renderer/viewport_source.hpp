@@ -27,6 +27,7 @@ enum class ViewportSource : uint8_t {
     gpu_cull,
     gi_indirect,
     gi_irradiance,
+    motion_field,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
@@ -44,11 +45,17 @@ inline const char* viewport_source_name(ViewportSource source) {
         case ViewportSource::gpu_cull:       return "GPU Cull";
         case ViewportSource::gi_indirect:    return "GI Indirect";
         case ViewportSource::gi_irradiance:  return "GI Irradiance";
+        case ViewportSource::motion_field:   return "Motion Field";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 13;
+// How many sources the picker offers. Hand-kept, because a `count` sentinel
+// in the enum would have to be handled by every switch over it. The assert
+// below is what catches it falling behind: bump both together.
+constexpr int VIEWPORT_SOURCE_COUNT = 14;
+static_assert(static_cast<int>(ViewportSource::motion_field) == VIEWPORT_SOURCE_COUNT - 1,
+              "VIEWPORT_SOURCE_COUNT must match the last ViewportSource");
 
 /// A flat gradient drawn where the scene's sky would be, for a preview
 /// whose subject should not compete with an HDRI. Only the picture changes:

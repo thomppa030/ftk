@@ -85,7 +85,7 @@
         { "class": "SunShaftsPass",    "name": "sun_shafts" },
         { "class": "ContactShadowPass","name": "contact_shadow" },
         { "class": "CloudShadowPass",  "name": "cloud_shadow" },
-        { "class": "OverheadDepthPass","name": "overhead_depth" },
+        { "class": "MotionFieldPass",  "name": "motion_field" },
         { "class": "DdgiPass",         "name": "ddgi" },
         { "class": "SsGiPass",         "name": "ss_gi" },
 

@@ -83,6 +83,21 @@ struct FogSettings {
     glm::vec3 color{0.8f, 0.85f, 0.9f};
 };
 
+/// Something moving through the world that anything reacting to movement can
+/// read: fog stirred by a runner, grass bent aside, a track in the snow.
+/// Gathered from the scene so the renderer never reaches into physics.
+struct MotionSource {
+    glm::vec3 position{0.0f};
+    /// How fast and which way, in metres per second. The direction is what
+    /// makes a wake read as displaced air rather than as a hole.
+    glm::vec3 velocity{0.0f};
+    /// How wide a mark it leaves, in metres.
+    float radius{0.5f};
+    /// How far above `position` it reaches, so a consumer filling a volume can
+    /// leave the air above a walker's head alone.
+    float height{1.8f};
+};
+
 /// One placed fog volume, resolved from a FogVolumeNode. The transform is the
 /// world matrix as authored; the renderer inverts it on the way to the GPU.
 struct FogVolume {
@@ -214,6 +229,9 @@ struct EnvironmentState {
     /// Every fog volume in the scene, in scene order. They add, so the order
     /// is not meaningful and nothing sorts them.
     std::vector<FogVolume> fog_volumes;
+    /// Everything moving through the world this frame, for the motion field.
+    /// Empty when nothing moves, which is what lets the pass skip its work.
+    std::vector<MotionSource> motion_sources;
     SunShaftSettings sun_shafts;
 
     WeatherParams weather;

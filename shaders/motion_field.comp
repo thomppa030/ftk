@@ -1,0 +1,72 @@
+#version 460
+
+// The motion field: what has moved through the world lately and how fast.
+//
+// One invocation per texel of the map. It reads the same world position out of
+// last frame's map — which is a different texel, because the map has scrolled
+// with the camera — fades what it finds, and adds whatever is moving over it
+// now. Reading the previous map rather than this one is what makes the scroll
+// safe: no invocation writes a texel another is reading.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct GpuMotionSource {
+    vec4 position_radius;   // xyz world, w metres
+    vec4 velocity_height;   // xyz m/s, w metres reached above the map's floor
+};
+
+layout(set = 0, binding = 0) readonly buffer SourceBuffer {
+    GpuMotionSource sources[];
+};
+
+layout(set = 0, binding = 1) uniform sampler2D motion_prev;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D motion_out;
+
+layout(push_constant) uniform PushConstants {
+    vec4 map_origin_extent;   // xy min corner on the ground, z extent, w texel size
+    vec4 scroll_decay;        // xy texels scrolled since last frame, z decay per second, w dt
+    uint source_count;
+    uint resolution;
+} pc;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(coord, ivec2(pc.resolution)))) return;
+
+    // Where this texel sits in the world, at its centre.
+    vec2 world_xz = pc.map_origin_extent.xy + (vec2(coord) + 0.5) * pc.map_origin_extent.w;
+
+    // The same world position in last frame's map. Scrolling by whole texels
+    // means this lands on a texel centre rather than between two, so nothing
+    // is blurred by being carried along.
+    vec2 prev_uv = (vec2(coord) + 0.5 + pc.scroll_decay.xy) / float(pc.resolution);
+    vec4 field = vec4(0.0);
+    if (all(greaterThanEqual(prev_uv, vec2(0.0))) && all(lessThanEqual(prev_uv, vec2(1.0)))) {
+        field = texture(motion_prev, prev_uv);
+    }
+
+    // Fade toward still. Only the recency decays: a texel that is forgotten
+    // keeps whatever velocity it had, but at zero recency no reader sees it,
+    // and the next thing through overwrites it anyway.
+    field.a = max(field.a - pc.scroll_decay.z * pc.scroll_decay.w, 0.0);
+    if (field.a <= 0.0) field = vec4(0.0);
+
+    // What is moving over this texel now. The strongest source wins rather
+    // than the sum: two characters crossing the same spot leave one mark, not
+    // a doubled one, and the mark is the faster of them.
+    for (uint i = 0; i < pc.source_count; ++i) {
+        GpuMotionSource src = sources[i];
+        float radius = max(src.position_radius.w, 0.01);
+        float dist = distance(world_xz, src.position_radius.xz);
+        if (dist >= radius) continue;
+
+        // Full strength in the middle, easing to nothing at the rim, so a
+        // passing character leaves a soft mark rather than a stamped disc.
+        float strength = 1.0 - smoothstep(0.0, radius, dist);
+        if (strength <= field.a) continue;
+
+        field = vec4(src.velocity_height.xz, src.velocity_height.w, strength);
+    }
+
+    imageStore(motion_out, coord, field);
+}

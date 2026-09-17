@@ -28,6 +28,7 @@
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/rt_reflection_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
+#include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
@@ -192,6 +193,7 @@ public:
   [[nodiscard]] SsrCore &ssr_pass() { return passes_.get<SsrCore>("ssr_trace"); }
   [[nodiscard]] RtReflectionPass &rt_reflection_pass() { return passes_.get<RtReflectionPass>("rt_reflection"); }
   [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_inject"); }
+  [[nodiscard]] MotionFieldPass &motion_field_pass() { return passes_.get<MotionFieldPass>("motion_field"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
   [[nodiscard]] SsGiPass &ss_gi_pass() { return passes_.get<SsGiPass>("ss_gi"); }

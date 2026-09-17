@@ -34,9 +34,11 @@ struct EnvironmentUbo {
     alignas(16) glm::vec4 sky_tint_star;            // rgb sky tint (1 = none), w star intensity
     alignas(16) glm::vec4 celestial_axis;           // xyz the sky's rotation axis, w radians turned since noon
     alignas(16) glm::mat4 cloud_shadow_vp;
-    alignas(16) glm::mat4 overhead_vp;
+    /// World position -> motion field uv. The slot the removed overhead
+    /// depth map left behind; the layout is unchanged.
+    alignas(16) glm::mat4 motion_field_vp;
     uint32_t cloud_shadow_texture{0};               // bindless index, 0 = none
-    uint32_t overhead_depth_texture{0};
+    uint32_t motion_field_texture{0};               // 1 when the map holds anything
     uint32_t ubo_pad[2]{};
 
     bool operator==(const EnvironmentUbo&) const = default;
@@ -56,9 +58,9 @@ static_assert(offsetof(EnvironmentUbo, front) == 160);
 static_assert(offsetof(EnvironmentUbo, sky_tint_star) == 176);
 static_assert(offsetof(EnvironmentUbo, celestial_axis) == 192);
 static_assert(offsetof(EnvironmentUbo, cloud_shadow_vp) == 208);
-static_assert(offsetof(EnvironmentUbo, overhead_vp) == 272);
+static_assert(offsetof(EnvironmentUbo, motion_field_vp) == 272);
 static_assert(offsetof(EnvironmentUbo, cloud_shadow_texture) == 336);
-static_assert(offsetof(EnvironmentUbo, overhead_depth_texture) == 340);
+static_assert(offsetof(EnvironmentUbo, motion_field_texture) == 340);
 static_assert(sizeof(EnvironmentUbo) == 352);
 
 /// Pack the resolved environment for upload.
@@ -80,7 +82,7 @@ static_assert(sizeof(EnvironmentUbo) == 352);
     ubo.sky_tint_star = glm::vec4(w.sky_tint, env.star_intensity);
     ubo.celestial_axis = glm::vec4(env.celestial_axis, env.celestial_angle);
     ubo.cloud_shadow_vp = glm::mat4(1.0f);
-    ubo.overhead_vp = glm::mat4(1.0f);
+    ubo.motion_field_vp = glm::mat4(1.0f);
     return ubo;
 }
 
