@@ -91,6 +91,7 @@ public:
         // descriptor sets are per-frame.
         std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> denoise_ubo;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> denoise_set{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> spatial_set{};
 
         // One uniform buffer and one trace set per frame in flight. The UBO
         // is host-written every frame and the set binds the slot's TLAS and
@@ -105,12 +106,14 @@ public:
         void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      VkDescriptorSetLayout denoise_layout,
+                     VkDescriptorSetLayout spatial_layout,
                      VkFormat depth_format,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      VkDescriptorSetLayout denoise_layout,
+                     VkDescriptorSetLayout spatial_layout,
                      VkFormat depth_format,
                      uint32_t width, uint32_t height);
     };
@@ -139,11 +142,13 @@ public:
 
     [[nodiscard]] VkDescriptorSetLayout trace_set_layout() const { return trace_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout denoise_set_layout() const { return denoise_set_layout_; }
+    [[nodiscard]] VkDescriptorSetLayout spatial_set_layout() const { return spatial_set_layout_; }
     [[nodiscard]] VkFormat depth_format() const { return depth_format_; }
 
 private:
     void record_into(const FrameContext& ctx, Images& imgs);
     void record_denoise(const FrameContext& ctx, Images& imgs);
+    void record_spatial(const FrameContext& ctx, Images& imgs);
 
     Device* device_{nullptr};
     VkDevice vk_device_{VK_NULL_HANDLE};
@@ -176,6 +181,15 @@ private:
     VkPipelineLayout denoise_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline denoise_pipeline_{VK_NULL_HANDLE};
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
+
+    // Spatial filter (compute), run on the accumulated result.
+    VkDescriptorSetLayout spatial_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout spatial_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline spatial_pipeline_{VK_NULL_HANDLE};
+
+    // Scales the roughness-driven kernel radius. 0 disables the pass, leaving
+    // the composite reading the accumulated image directly.
+    float spatial_strength_{1.0F};
 
     // Shader binding table (shared)
     std::unique_ptr<Buffer> sbt_buffer_;

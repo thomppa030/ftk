@@ -87,6 +87,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
         rt_reflection_images_.create(device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
                                       passes_->rt_reflection.denoise_set_layout(),
+                                      passes_->rt_reflection.spatial_set_layout(),
                                       passes_->rt_reflection.depth_format(),
                                       width, height);
     }
@@ -200,6 +201,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         rt_reflection_images_.resize(device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
                                       passes_->rt_reflection.denoise_set_layout(),
+                                      passes_->rt_reflection.spatial_set_layout(),
                                       passes_->rt_reflection.depth_format(),
                                       width, height);
     }

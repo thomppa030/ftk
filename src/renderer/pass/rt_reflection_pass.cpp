@@ -50,6 +50,14 @@ struct DenoisePush {
     uint32_t debug_mode;
 };
 
+// Push constant for the spatial filter.
+struct SpatialPush {
+    uint32_t width;
+    uint32_t height;
+    float strength;
+    float depth_sigma;
+};
+
 // Round up to multiple of `alignment`.
 constexpr uint32_t align_up(uint32_t v, uint32_t alignment) {
     return (v + alignment - 1) & ~(alignment - 1);
@@ -344,6 +352,63 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
         vkDestroyShaderModule(vk_device_, mod, nullptr);
     }
 
+    // ── Spatial filter compute pipeline ──
+    // Reconciles neighbouring pixels the temporal pass converged
+    // independently. See shaders/rt_reflection_spatial.comp.
+    {
+        std::array<VkDescriptorSetLayoutBinding, 4> sp_bindings{};
+        for (uint32_t i = 0; i < 3; ++i) {
+            sp_bindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                              VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        }
+        sp_bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+
+        // depth and mr are the render target's views and change on resize.
+        std::array<VkDescriptorBindingFlags, 4> sp_flags{};
+        sp_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        sp_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+        VkDescriptorSetLayoutBindingFlagsCreateInfo sp_flags_ci{};
+        sp_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        sp_flags_ci.bindingCount = static_cast<uint32_t>(sp_flags.size());
+        sp_flags_ci.pBindingFlags = sp_flags.data();
+
+        VkDescriptorSetLayoutCreateInfo sp_lci{};
+        sp_lci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        sp_lci.pNext = &sp_flags_ci;
+        sp_lci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        sp_lci.bindingCount = static_cast<uint32_t>(sp_bindings.size());
+        sp_lci.pBindings = sp_bindings.data();
+        vk_check(vkCreateDescriptorSetLayout(vk_device_, &sp_lci, nullptr, &spatial_set_layout_),
+                 "RT reflection spatial descriptor set layout");
+
+        VkPushConstantRange sp_push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpatialPush)};
+        VkPipelineLayoutCreateInfo sp_pci{};
+        sp_pci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        sp_pci.setLayoutCount = 1;
+        sp_pci.pSetLayouts = &spatial_set_layout_;
+        sp_pci.pushConstantRangeCount = 1;
+        sp_pci.pPushConstantRanges = &sp_push;
+        vk_check(vkCreatePipelineLayout(vk_device_, &sp_pci, nullptr, &spatial_pipeline_layout_),
+                 "RT reflection spatial pipeline layout");
+
+        auto sp_spirv = read_spirv(base_path::resolve("shaders/rt_reflection_spatial.comp.spv"));
+        auto* sp_mod = create_shader_module(vk_device_, sp_spirv);
+        VkPipelineShaderStageCreateInfo sp_stage{};
+        sp_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        sp_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        sp_stage.module = sp_mod;
+        sp_stage.pName = "main";
+        VkComputePipelineCreateInfo sp_cci{};
+        sp_cci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        sp_cci.stage = sp_stage;
+        sp_cci.layout = spatial_pipeline_layout_;
+        vk_check(vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &sp_cci,
+                                          nullptr, &spatial_pipeline_),
+                 "RT reflection spatial pipeline");
+        vkDestroyShaderModule(vk_device_, sp_mod, nullptr);
+    }
+
     // Per-viewport state (image + descriptor pool + UBO) is owned by
     // PostProcessResources, created once per viewport at the right size.
 
@@ -356,6 +421,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
 void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
                                        VkDescriptorSetLayout set_layout,
                                        VkDescriptorSetLayout denoise_layout,
+                                       VkDescriptorSetLayout spatial_layout,
                                        VkFormat depth_format,
                                        uint32_t width, uint32_t height) {
     out_extent = {width, height};
@@ -463,15 +529,16 @@ void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
     pool_sizes[1] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, SLOTS};
     // trace: depth, normal, mr, sky, irr, vis, probe_off (7)
     // denoise: raw, history, depth, prev_depth, mr (5)
-    pool_sizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     12 * SLOTS};
+    // + spatial: reflection_in, depth, mr (3)
+    pool_sizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     15 * SLOTS};
     // trace: reflection_out; denoise: resolved_out
-    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              3 * SLOTS};
+    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              4 * SLOTS};
     pool_sizes[4] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,             4 * SLOTS}; // vertex, index, instance, probe_status
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    pool_ci.maxSets = 2 * SLOTS;
+    pool_ci.maxSets = 3 * SLOTS;
     pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
     pool_ci.pPoolSizes = pool_sizes.data();
     if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &desc_pool) != VK_SUCCESS) {
@@ -495,6 +562,13 @@ void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
     if (vkAllocateDescriptorSets(device, &set_alloc, denoise_set.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate RT reflection denoise sets");
     }
+
+    std::array<VkDescriptorSetLayout, SLOTS> spatial_layouts{};
+    spatial_layouts.fill(spatial_layout);
+    set_alloc.pSetLayouts = spatial_layouts.data();
+    if (vkAllocateDescriptorSets(device, &set_alloc, spatial_set.data()) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate RT reflection spatial sets");
+    }
 }
 
 void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -503,6 +577,7 @@ void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) 
         desc_pool = VK_NULL_HANDLE;
         trace_set.fill(VK_NULL_HANDLE);
         denoise_set.fill(VK_NULL_HANDLE);
+        spatial_set.fill(VK_NULL_HANDLE);
     }
     for (auto& ubo : reflection_ubo) ubo.reset();
     for (auto& ubo : denoise_ubo) ubo.reset();
@@ -541,13 +616,15 @@ void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) 
 void RtReflectionPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                        VkDescriptorSetLayout set_layout,
                                        VkDescriptorSetLayout denoise_layout,
+                                       VkDescriptorSetLayout spatial_layout,
                                        VkFormat depth_format,
                                        uint32_t width, uint32_t height) {
     if (out_extent.width == width && out_extent.height == height) return;
     vkDeviceWaitIdle(device);
     destroy(device, allocator);
     if (width > 0 && height > 0) {
-        create(device, allocator, set_layout, denoise_layout, depth_format, width, height);
+        create(device, allocator, set_layout, denoise_layout, spatial_layout,
+               depth_format, width, height);
     }
 }
 
@@ -556,6 +633,18 @@ void RtReflectionPass::destroy() {
 
     sbt_buffer_.reset();
 
+    if (spatial_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk_device_, spatial_pipeline_, nullptr);
+        spatial_pipeline_ = VK_NULL_HANDLE;
+    }
+    if (spatial_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vk_device_, spatial_pipeline_layout_, nullptr);
+        spatial_pipeline_layout_ = VK_NULL_HANDLE;
+    }
+    if (spatial_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(vk_device_, spatial_set_layout_, nullptr);
+        spatial_set_layout_ = VK_NULL_HANDLE;
+    }
     if (denoise_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(vk_device_, denoise_pipeline_, nullptr);
         denoise_pipeline_ = VK_NULL_HANDLE;
@@ -1026,6 +1115,78 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
     imgs.prev_view_proj = glm::inverse(ctx.inv_view_proj);
     imgs.prev_inv_view_proj = ctx.inv_view_proj;
     imgs.history_valid = true;
+
+    // Runs last: it samples out_image, which only reaches SHADER_READ_ONLY
+    // above, after the history copy has released it from TRANSFER_SRC.
+    record_spatial(ctx, imgs);
+}
+
+void RtReflectionPass::record_spatial(const FrameContext& ctx, Images& imgs) {
+    if (spatial_strength_ <= 0.0F) return;
+
+    auto cmd = ctx.cmd;
+    FJELL_GPU_ZONE(ctx, "RT Reflection Spatial");
+
+    // Filters the accumulated result into raw_image, which is free by now —
+    // the trace's output was consumed by the denoise. What history keeps is the
+    // *unfiltered* accumulation, so the neighbourhood clamp keeps measuring the
+    // real sample spread rather than one this pass already smoothed.
+    emit_image_barrier(cmd, imgs.raw_image,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+
+    {
+        VkDescriptorImageInfo in_info{linear_sampler_, imgs.out_view,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo depth_info{nearest_sampler_, ctx.target->depth_view(),
+                                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo mr_info{nearest_sampler_, ctx.target->mr_view(),
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo out_info{VK_NULL_HANDLE, imgs.raw_view, VK_IMAGE_LAYOUT_GENERAL};
+
+        std::array<VkWriteDescriptorSet, 4> w{};
+        for (auto& write : w) {
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = imgs.spatial_set[ctx.frame_index];
+            write.descriptorCount = 1;
+        }
+        w[0].dstBinding = 0; w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[0].pImageInfo = &in_info;
+        w[1].dstBinding = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[1].pImageInfo = &depth_info;
+        w[2].dstBinding = 2; w[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[2].pImageInfo = &mr_info;
+        w[3].dstBinding = 3; w[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          w[3].pImageInfo = &out_info;
+        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(w.size()), w.data(), 0, nullptr);
+    }
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, spatial_pipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, spatial_pipeline_layout_,
+                            0, 1, &imgs.spatial_set[ctx.frame_index], 0, nullptr);
+
+    SpatialPush push{};
+    push.width = imgs.out_extent.width;
+    push.height = imgs.out_extent.height;
+    push.strength = spatial_strength_;
+    push.depth_sigma = 0.01F;
+    vkCmdPushConstants(cmd, spatial_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(push), &push);
+
+    vkCmdDispatch(cmd,
+                  (imgs.out_extent.width + 7) / 8,
+                  (imgs.out_extent.height + 7) / 8, 1);
+
+    emit_image_barrier(cmd, imgs.raw_image,
+        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+    // The composite reads the filtered image, not the accumulated one.
+    if (ctx.registry != nullptr) {
+        ctx.registry->register_image("rt_reflection_output",
+            {.frame_graph_id = 0,
+             .image = imgs.raw_image,
+             .view = imgs.raw_view,
+             .sampler = linear_sampler_});
+    }
 }
 
 } // namespace fjell

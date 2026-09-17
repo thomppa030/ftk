@@ -1,0 +1,95 @@
+#version 460
+
+// ── Ray-traced reflections: spatial filter ────────────────────────────
+// Temporal accumulation converges each pixel independently, so what it
+// leaves behind is not per-pixel speckle but low-frequency blotching:
+// neighbouring pixels settle on different values and nothing reconciles
+// them. It also cannot help a pixel whose history was just rejected.
+// Both are what this pass is for — it reconciles neighbours, which is
+// the one thing accumulation over time structurally cannot do.
+//
+// The kernel is driven by roughness, not fixed: a near-mirror surface
+// must stay sharp, while a rough one is low-frequency anyway and can
+// gather widely. Depth and roughness similarity weights stop it
+// bleeding across edges, which would smear the silhouettes the temporal
+// pass just went to some trouble to accumulate correctly.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D reflection_in;
+layout(set = 0, binding = 1) uniform sampler2D depth_tex;
+layout(set = 0, binding = 2) uniform sampler2D mr_tex;
+layout(rgba16f, set = 0, binding = 3) uniform writeonly image2D filtered_out;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 resolution;
+    float strength;     // 0 disables, 1 is the full roughness-driven radius
+    float depth_sigma;  // relative depth difference that halves a tap's weight
+};
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(resolution.x) || coord.y >= int(resolution.y)) return;
+
+    vec4 centre = texelFetch(reflection_in, coord, 0);
+    vec2 uv = (vec2(coord) + 0.5) / vec2(resolution);
+
+    float centre_depth = textureLod(depth_tex, uv, 0).r;
+
+    // Background: the trace wrote nothing here, so there is nothing to filter.
+    if (centre_depth >= 1.0 || strength <= 0.0) {
+        imageStore(filtered_out, coord, centre);
+        return;
+    }
+
+    float roughness = textureLod(mr_tex, uv, 0).g;
+
+    // Radius in texels. Squaring roughness keeps low-roughness surfaces
+    // genuinely sharp — a linear ramp already blurs a near-mirror visibly.
+    float radius = strength * roughness * roughness * 4.0;
+    if (radius < 0.5) {
+        imageStore(filtered_out, coord, centre);
+        return;
+    }
+
+    int r = int(min(ceil(radius), 4.0));
+    float inv_sigma2 = 1.0 / max(2.0 * radius * radius, 1e-4);
+
+    vec3 sum = centre.rgb;
+    float weight_sum = 1.0;
+
+    for (int dy = -r; dy <= r; ++dy) {
+        for (int dx = -r; dx <= r; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+
+            ivec2 c = coord + ivec2(dx, dy);
+            if (c.x < 0 || c.y < 0 || c.x >= int(resolution.x) || c.y >= int(resolution.y)) {
+                continue;
+            }
+
+            float d2 = float(dx * dx + dy * dy);
+            if (d2 > radius * radius) continue;
+
+            // Spatial falloff.
+            float w = exp(-d2 * inv_sigma2);
+
+            // Depth similarity, relative so it behaves at any view distance:
+            // an absolute threshold is far too tight up close and far too loose
+            // in the distance, and either way the kernel crosses a silhouette.
+            vec2 tap_uv = (vec2(c) + 0.5) / vec2(resolution);
+            float tap_depth = textureLod(depth_tex, tap_uv, 0).r;
+            float rel = abs(tap_depth - centre_depth) / max(centre_depth, 1e-6);
+            w *= exp(-rel / max(depth_sigma, 1e-6));
+
+            // Roughness similarity: a tap on a differently-rough surface is a
+            // different material and its reflection does not belong here.
+            float tap_rough = textureLod(mr_tex, tap_uv, 0).g;
+            w *= exp(-abs(tap_rough - roughness) * 8.0);
+
+            sum += texelFetch(reflection_in, c, 0).rgb * w;
+            weight_sum += w;
+        }
+    }
+
+    imageStore(filtered_out, coord, vec4(sum / weight_sum, centre.a));
+}
