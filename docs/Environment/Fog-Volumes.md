@@ -98,16 +98,9 @@ when the weather turns the field curves round instead of jumping.
   shafts are. Judge fog in the main viewport or in play mode.
 - **Occlusion.** Fog receives ambient light wherever it is, so a volume deep
   inside a building is lit by the sky as much as one in the open.
-
-## Writing a volume from a script
-
-`FogVolumeNode` is an ordinary scene node, so a script can move it, scale it or
-change its density like any other. Thickening a bank over a morning is a
-handful of lines against its `density`.
-
-Tying fog to the hour through a [day profile](Day-Profiles.md) or a
-`.fjweather` event is not wired up yet: the profile's `fog_density` track scales
-the global fog and does not reach volumes.
+- **The clock.** The `fog_density` track in a [day profile](Day-Profiles.md) or
+  a `.fjweather` event scales the global fog and does not reach volumes, so a
+  bank does not thicken over a morning on its own.
 
 ## For engine work
 
