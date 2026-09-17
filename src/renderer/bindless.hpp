@@ -127,6 +127,9 @@ private:
     std::vector<GpuMaterial> materials_;
     std::unique_ptr<Buffer> material_ssbo_;
     bool materials_dirty_{false};
+    /// Set once the rows outgrow the buffer, so the error is said once
+    /// rather than every frame.
+    bool material_overflow_reported_{false};
 
     // Custom params SSBO (binding 2)
     std::vector<float> params_;

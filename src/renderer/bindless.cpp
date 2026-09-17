@@ -290,8 +290,21 @@ void BindlessTextures::update_descriptors() {
 void BindlessTextures::update_material_buffer() {
     FJELL_PROFILE_SCOPE_N("bindless_update_materials");
     if (materials_dirty_ && !materials_.empty()) {
+        // The rows are a growing vector and the buffer behind them is not:
+        // copying all of them writes past a mapped GPU allocation the moment
+        // there are more than it holds, which corrupts whatever follows and
+        // surfaces later as a lost device rather than as anything to do with
+        // materials. Copy what fits and say what was dropped.
+        const std::size_t capacity = material_ssbo_->size() / sizeof(GpuMaterial);
+        const std::size_t count = std::min(materials_.size(), capacity);
+        if (materials_.size() > capacity && !material_overflow_reported_) {
+            material_overflow_reported_ = true;
+            FJELL_GFX_ERROR("Bindless materials full: {} rows for {} slots. "
+                            "Everything past the limit draws with the wrong "
+                            "material.", materials_.size(), capacity);
+        }
         std::memcpy(material_ssbo_->mapped(), materials_.data(),
-                    materials_.size() * sizeof(GpuMaterial));
+                    count * sizeof(GpuMaterial));
         materials_dirty_ = false;
     }
 
