@@ -41,12 +41,40 @@ float depth_to_slice(float z) {
     return log(z / pc.near_plane) / log(pc.far_plane / pc.near_plane);
 }
 
+// The six face neighbours, which with the centre bound what this froxel's
+// surroundings currently scatter. A full 3×3×3 costs 27 loads per froxel for
+// bounds that are barely wider; the cross is the usual trade.
+const ivec3 NEIGHBOUR_OFFSETS[6] = ivec3[](
+    ivec3(-1, 0, 0), ivec3(1, 0, 0),
+    ivec3(0, -1, 0), ivec3(0, 1, 0),
+    ivec3(0, 0, -1), ivec3(0, 0, 1)
+);
+
 void main() {
     ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
     if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
 
     // Current value
     vec4 current = imageLoad(scatter_volume, coord);
+
+    // Bounds of what this froxel's neighbourhood scatters this frame. Gathered
+    // before anything is written back, so these are the injected values.
+    //
+    // Another workgroup may already have stored its blended result, which makes
+    // a neighbour either the injected value or one already pulled toward these
+    // same bounds. The clamp stays conservative either way — the window can
+    // come out slightly wider or narrower, never somewhere else — so the race
+    // costs nothing worth a second dispatch to avoid.
+    vec4 nb_min = current;
+    vec4 nb_max = current;
+    for (int i = 0; i < 6; ++i) {
+        ivec3 n = coord + NEIGHBOUR_OFFSETS[i];
+        if (any(lessThan(n, ivec3(0))) ||
+            any(greaterThanEqual(n, ivec3(pc.volume_dims.xyz)))) continue;
+        vec4 sample_value = imageLoad(scatter_volume, n);
+        nb_min = min(nb_min, sample_value);
+        nb_max = max(nb_max, sample_value);
+    }
 
     // Reconstruct world position (no jitter for reprojection)
     vec3 froxel_uv = (vec3(coord) + 0.5) / vec3(pc.volume_dims.xyz);
@@ -82,6 +110,15 @@ void main() {
     if (all(greaterThanEqual(history_uvw, vec3(0.0))) &&
         all(lessThanEqual(history_uvw, vec3(1.0)))) {
         vec4 history = texture(history_volume, history_uvw);
+
+        // Leaving the frustum used to be the only thing that could reject
+        // history, which is enough while the fog is a fixed function of world
+        // position: every sample is then of the same unchanging field. It is
+        // not enough once the field itself moves — with nine tenths of each
+        // frame coming from history, anything that moves smears over roughly
+        // ten frames. Clamping into the neighbourhood is what rejects history
+        // that no longer describes what is here.
+        history = clamp(history, nb_min, nb_max);
 
         // Blend current with history
         current = mix(current, history, pc.temporal_blend);
