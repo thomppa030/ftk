@@ -917,9 +917,11 @@ void SkyCubemapPass::destroy_fjsl_pipeline() {
 
 void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
     ensure_fjsl_pipeline();
-    if (fjsl_pipeline_ == VK_NULL_HANDLE) {
-        // The shader has no cubemap variant compiled; the built-in path
-        // keeps the cubemap valid rather than leaving it stale.
+    if (fjsl_pipeline_ == VK_NULL_HANDLE || sky_pass_->fjsl_material_id() == ~0u) {
+        // No cubemap variant compiled, or the sky has not taken a material
+        // row yet. Either way the built-in path keeps the cubemap valid
+        // rather than leaving it stale — and reading a row that does not
+        // exist would sample past the end of the material buffer.
         generate(ctx.cmd);
         return;
     }

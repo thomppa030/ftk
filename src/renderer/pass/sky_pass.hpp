@@ -101,7 +101,14 @@ private:
     std::string fjsl_pipeline_shader_;// last path we built the pipeline for
     uint32_t fjsl_pipeline_id_{0};
     uint32_t fjsl_pipeline_generation_{0}; // PipelineCache generation the pipeline was built at
-    uint32_t fjsl_material_id_{0};
+    /// The sky's row in the material buffer, and the params slice it points
+    /// at. Both are kept across a rebuild: the row is the sky's identity, not
+    /// the pipeline's, and taking a fresh one every recompile leaked one per
+    /// shader reload with nothing to give them back. ~0u is "never taken",
+    /// since zero is a real row.
+    uint32_t fjsl_material_id_{~0u};
+    uint32_t fjsl_param_offset_{0};
+    uint32_t fjsl_param_count_{0};
     VkPipelineLayout fjsl_layout_{VK_NULL_HANDLE};
     VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};
     PipelineCache* fjsl_pipeline_cache_{nullptr};

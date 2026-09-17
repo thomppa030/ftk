@@ -73,6 +73,10 @@ void SkyPass::write_default_params(const ShaderMetadata& meta, uint32_t param_of
 
 void SkyPass::apply_uniform_values() {
     if (fjsl_pipeline_ == VK_NULL_HANDLE || fjsl_pipeline_cache_ == nullptr || fjsl_bindless_ == nullptr) return;
+    // The pipeline and the material row are taken together, so one implies
+    // the other — but reading a row that was never taken would index past the
+    // end of the material buffer, which is worth a line to rule out.
+    if (fjsl_material_id_ == ~0u) return;
     if (uniform_values_applied_ && uniform_values_ == applied_uniform_values_) return;
 
     const auto& meta = fjsl_pipeline_cache_->metadata(fjsl_pipeline_id_);
@@ -334,7 +338,8 @@ void SkyPass::record(const FrameContext& ctx) {
     // the sky cubemap the surfaces reflect is built by SkyCubemapPass and
     // untouched by this.
     const bool has_backdrop = ctx.backdrop != nullptr;
-    if (!has_backdrop && mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE) {
+    if (!has_backdrop && mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE
+        && fjsl_material_id_ != ~0u) {
         struct {
             float viewport_width;
             float viewport_height;
@@ -430,17 +435,31 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     }
     const std::string& frag_spv = fjsl_pipeline_cache_->frag_spv_path(pid);
 
-    // Allocate a material SSBO row + params slice for this sky.
+    // The sky's material row and its params slice, taken once and kept. A
+    // rebuild reuses them: nothing hands a row back, so allocating on every
+    // recompile leaked one per shader reload, and the buffer behind them is
+    // not endless.
+    //
+    // A slice is only retaken when the shader wants more room than the last
+    // one had, which is the one case the old slice cannot serve.
     GpuMaterial gpu{};
     if (meta.custom_param_count > 0) {
-        gpu.param_offset = fjsl_bindless_->allocate_params(meta.custom_param_count);
+        if (meta.custom_param_count > fjsl_param_count_) {
+            fjsl_param_offset_ = fjsl_bindless_->allocate_params(meta.custom_param_count);
+            fjsl_param_count_ = meta.custom_param_count;
+        }
+        gpu.param_offset = fjsl_param_offset_;
         gpu.param_count  = meta.custom_param_count;
         write_default_params(meta, gpu.param_offset);
     }
-    // A fresh params slice holds defaults; the environment's values go back
-    // on top on the next apply.
+    // The slice holds defaults again; the environment's values go back on top
+    // on the next apply.
     uniform_values_applied_ = false;
-    fjsl_material_id_ = fjsl_bindless_->add_material(gpu);
+    if (fjsl_material_id_ == ~0u) {
+        fjsl_material_id_ = fjsl_bindless_->add_material(gpu);
+    } else {
+        fjsl_bindless_->update_material(fjsl_material_id_, gpu);
+    }
     fjsl_pipeline_id_ = pid;
     fjsl_pipeline_generation_ = fjsl_pipeline_cache_->generation(pid);
 
