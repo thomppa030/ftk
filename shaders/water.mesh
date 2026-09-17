@@ -51,6 +51,12 @@ layout(push_constant) uniform PushConstants {
     vec2  wave_direction;
     uint  infinite;
     uint  _pad;
+    // Unread by this stage; present so the block matches WaterPushConstants
+    // and the fragment stage, which samples the scene SDF for contact foam.
+    vec3  sdf_volume_min;
+    float _pad1;
+    vec3  sdf_volume_max;
+    float _pad2;
 } push;
 
 struct TaskPayload {

@@ -555,6 +555,8 @@ void WaterPass::record(const FrameContext& ctx) {
         push.delta_time = ctx.delta_time;
         push.wave_direction = water::dominant_direction(wc->effective_water);
         push.infinite = infinite ? 1U : 0U;
+        push.sdf_volume_min = sdf_volume_min_;
+        push.sdf_volume_max = sdf_volume_max_;
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,

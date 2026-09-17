@@ -121,4 +121,16 @@ Both are in metres. `WATER_DEPTH_VERTICAL` is large rather than zero over open
 water — with no seabed to hit, the depth buffer reads the far plane — so a
 shore term keyed on a small depth simply never fires out at sea.
 
+### Meeting solid things
+
+`SDF_DISTANCE` is how far the surface is from solid geometry, in metres, read
+from the scene SDF. A `smoothstep` on it is a foam collar against a cliff or a
+pier, following the real geometry with nothing painted.
+
+It sees **static geometry only** — the SDF is baked — so it answers for a cliff
+and not for a passing boat. It is also clamped a few metres out by the bake, so
+a large value means "nothing near" rather than a measured distance. Where the
+scene has no SDF at all it reads far, and a collar keyed on a small distance
+simply never appears.
+
 See [Wind Response](Wind-Response.md) for how a sea answers the weather.

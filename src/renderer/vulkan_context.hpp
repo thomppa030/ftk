@@ -21,6 +21,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/pass/water_pass.hpp"
 #include "renderer/pass/local_shadow_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
@@ -194,6 +195,7 @@ public:
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
   [[nodiscard]] SsGiPass &ss_gi_pass() { return passes_.get<SsGiPass>("ss_gi"); }
+  [[nodiscard]] WaterPass &water_pass() { return passes_.get<WaterPass>("water"); }
   [[nodiscard]] TaaResolvePass &taa_resolve_pass() { return passes_.get<TaaResolvePass>("taa_resolve"); }
   [[nodiscard]] LocalShadowPass &local_shadow_pass() { return passes_.get<LocalShadowPass>("local_shadows"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }

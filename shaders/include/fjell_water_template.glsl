@@ -18,6 +18,9 @@
 // light took through the water, which is what absorption reads. WATER_DEPTH_
 // VERTICAL is how deep the water is straight down, which is what a shore
 // reads. The first changes when the camera moves and the second does not.
+//
+// SDF_DISTANCE is how far the surface is from solid geometry, for foam that
+// gathers against rock. Static geometry only, and large where there is none.
 
 #include "fjell_common.glsl"
 #include "fjell_global_ubo.glsl"
@@ -56,6 +59,10 @@ layout(push_constant) uniform PushConstants {
     vec2  wave_direction;
     uint  infinite;
     uint  _pad;
+    vec3  sdf_volume_min;
+    float _pad1;
+    vec3  sdf_volume_max;
+    float _pad2;
 } push;
 
 layout(location = 0) in vec3 frag_color;
@@ -203,6 +210,29 @@ void main() {
     // small depth, so it simply never triggers out at sea. Do not read it as
     // a real distance to a seabed that is not there.
     float WATER_DEPTH_VERTICAL = max(WORLD_POS.y - FLOOR_POS.y, 0.0);
+
+    // How far this point is from solid geometry, in metres, from the scene
+    // SDF. What a foam collar reads: water gathers where it meets rock, and
+    // the distance to the rock is the mask.
+    //
+    // The SDF is baked and sees static geometry only, so this answers for a
+    // cliff and not for a boat. It is also clamped a few metres out by the
+    // bake, so treat a large value as "nothing near" rather than as a real
+    // measurement — which is what SHORE_DISTANCE below is shaped for.
+    //
+    // Far away when there is no SDF at all: an empty volume has min == max,
+    // and dividing by that extent would be a divide by zero, so the degenerate
+    // case is answered before the sample rather than after it.
+    float SDF_DISTANCE = 1000.0;
+    {
+        vec3 extent = push.sdf_volume_max - push.sdf_volume_min;
+        if (all(greaterThan(extent, vec3(1e-4)))) {
+            vec3 uvw = (WORLD_POS - push.sdf_volume_min) / extent;
+            if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
+                SDF_DISTANCE = texture(scene_sdf, uvw).r;
+            }
+        }
+    }
 
     // ── Surface defaults ──
     // Water is not a PBR surface until fragment() makes it one. These are a

@@ -39,8 +39,19 @@ struct WaterPushConstants {
     /// infinite sea has no corner and no size.
     uint32_t infinite;
     uint32_t _pad;
+    /// World bounds of the scene SDF, for the fragment stage to map a world
+    /// position into the volume. The same pair DdgiPass is handed, from the
+    /// same `SceneSdfPass::volume_min()` / `volume_max()`, because there is
+    /// one composite SDF and every reader has to agree on where it sits.
+    ///
+    /// Equal min and max mean there is no SDF this frame, which a reader must
+    /// treat as "no geometry near" rather than dividing by the zero extent.
+    glm::vec3 sdf_volume_min;
+    float _pad1;
+    glm::vec3 sdf_volume_max;
+    float _pad2;
 };
-static_assert(sizeof(WaterPushConstants) == 48, "push block layout must match the shaders");
+static_assert(sizeof(WaterPushConstants) == 80, "push block layout must match the shaders");
 
 /// Draws water. The surface is generated in the mesh shader from the node's
 /// `.fjwater` wave field, so this pass uploads that field and dispatches one
@@ -69,6 +80,18 @@ public:
     /// node exists — it is absent from the render queue — so passes that
     /// early-out on an empty queue ask this first.
     [[nodiscard]] static bool scene_has_water(const FrameContext& ctx);
+
+    /// Where the scene SDF sits in the world, so a water material can ask how
+    /// close solid geometry is and foam against it.
+    ///
+    /// Pushed rather than read from the pass directly for the same reason
+    /// DdgiPass takes it this way: the volume follows the camera and is
+    /// rebuilt in regions, so its bounds move between frames and every reader
+    /// has to be handed the current pair rather than caching one.
+    void set_sdf_bounds(const glm::vec3& min, const glm::vec3& max) {
+        sdf_volume_min_ = min;
+        sdf_volume_max_ = max;
+    }
 
 private:
     /// A colour pipeline built from one water FJSL entry.
@@ -106,6 +129,11 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     PassResources resources_{};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
+    /// Where the scene SDF sits, refreshed each frame through set_sdf_bounds().
+    /// Equal min and max mean no SDF, which the shader reads as no geometry
+    /// near rather than dividing by a zero extent.
+    glm::vec3 sdf_volume_min_{0.0F};
+    glm::vec3 sdf_volume_max_{0.0F};
     /// Kept alive after create(): every material pipeline is built from them.
     VkShaderModule task_module_{VK_NULL_HANDLE};
     VkShaderModule mesh_module_{VK_NULL_HANDLE};

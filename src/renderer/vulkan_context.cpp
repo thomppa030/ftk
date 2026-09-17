@@ -972,8 +972,11 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     rt_reflection_pass().set_sun_light(-sun.direction, sun.color, sun.intensity);
 
     // Keep DDGI's copy of the SDF bounds current for the RT burial test —
-    // the volume can move while the probe grid stays frozen.
+    // the volume can move while the probe grid stays frozen. Water takes the
+    // same pair, to foam where it meets solid geometry; one source so the two
+    // readers cannot disagree about where the volume is.
     ddgi_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
+    water_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
 
     const auto& matrices = shadow_pass().light_matrices();
     const auto& splits = shadow_pass().cascade_splits();
