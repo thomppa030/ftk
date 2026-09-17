@@ -419,7 +419,7 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     // is not enough to know nothing changed — compare what the shader will
     // actually read. Kept as a copy rather than read back out of the mapped
     // buffer: that memory is write-combined, and reading it is slow.
-    GpuWaterField field = to_gpu_field(comp.water);
+    GpuWaterField field = to_gpu_field(comp.effective_water);
     if (bound_water_ == &comp &&
         std::memcmp(&bound_field_, &field, sizeof(field)) == 0) {
         return;
@@ -491,7 +491,7 @@ void WaterPass::record(const FrameContext& ctx) {
         push.patch_quads = 11;   // matches PATCH_QUADS in water.mesh
         push.water_material_id = material_id;
         push.delta_time = ctx.delta_time;
-        push.wave_direction = water::dominant_direction(wc->water);
+        push.wave_direction = water::dominant_direction(wc->effective_water);
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, patches * patches, 1, 1);

@@ -7,6 +7,7 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "renderer/components/particle_emitter.hpp"
+#include "renderer/components/water_component.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
@@ -14,6 +15,7 @@
 #include "environment/climate_asset.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
+#include "renderer/resources/water_surface.hpp"
 #include "environment/environment_resolver.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
@@ -65,6 +67,8 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     update_precipitation(ctx);
     update_lightning(ctx);
     dispatch_changes(ctx);
+
+    update_water(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
     // the node's direction at the resolved value so everything that reads
@@ -213,6 +217,16 @@ void EnvironmentSubsystem::play_weather(WeatherAssetHandle event, WeatherPhase f
     }
     ++play_count_;
     player_.play(asset, event.id, play_count_ * 7919u + event.id, profile_for(*asset), from);
+
+    // Starting partway through is someone asking to see that moment, not
+    // weather arriving: the editor jumping to a phase, or a scene opening
+    // mid-storm. The sea belongs at that moment too, rather than spending the
+    // next half minute catching up to a front that is already overhead.
+    // An event started from the beginning is a front approaching normally,
+    // and that one the sea answers in its own time.
+    if (from != WeatherPhase::Approach) {
+        sea_wind_.reset();
+    }
 }
 
 void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
@@ -320,6 +334,40 @@ void EnvironmentSubsystem::stop_lightning(Scene& scene) {
     }
     strike_lights_.clear();
     pending_thunder_.clear();
+}
+
+void EnvironmentSubsystem::update_water(const TickContext& ctx) {
+    // The sustained wind, deliberately without the gust that a sail or a
+    // leaf gets. A gust breathes on about a one-second cycle, and a sea that
+    // answered it would swing its whole height with it — measured at a gale,
+    // between 0.93x and 2.27x every second, the entire ocean heaving. Real
+    // water does not work that way: wind takes minutes to hours to raise a
+    // sea, and what a gust does meanwhile is ruffle the surface, which is the
+    // material's business and not the wave field's.
+    const glm::vec3 wind = state_.weather.wind_direction * state_.weather.wind_speed;
+    const glm::vec2 blowing{wind.x, wind.z};
+
+    // Water has mass: the field follows the wind rather than tracking it, so
+    // a front raises a sea over its passage instead of at its arrival. The
+    // curve and its rates live beside the evaluator, where they are tested.
+    if (!sea_wind_.has_value()) {
+        // First tick: start at what is already blowing, so a scene opens with
+        // the sea its weather implies instead of building one up from calm.
+        sea_wind_ = blowing;
+    }
+    sea_wind_ = water::advance_sea_wind(*sea_wind_, blowing, ctx.dt);
+
+    const glm::vec2 wind_xz = *sea_wind_;
+
+    // Unlike rain and lightning this runs in the editor as well as in play.
+    // A sea's answer to the wind is something an artist tunes by watching it,
+    // and the weather editor scrubs a front past a scene precisely so they
+    // can; stopping at the play boundary would leave that dial blind.
+    for (const auto& obj : ctx.scene.objects()) {
+        auto* water = obj->components.get<WaterComponent>();
+        if (water == nullptr) continue;
+        water->effective_water = water::apply_wind(water->water, wind_xz);
+    }
 }
 
 void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
@@ -432,6 +480,9 @@ void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
     stop_precipitation(ctx.scene);
     stop_lightning(ctx.scene);
     phases_seen_ = false;
+    // Leaving play puts the editor's own weather back; the sea starts from
+    // that rather than easing down from whatever the session ended in.
+    sea_wind_.reset();
 }
 
 void EnvironmentSubsystem::stop_beds(Beds& beds) {

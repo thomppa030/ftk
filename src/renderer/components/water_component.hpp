@@ -59,6 +59,19 @@ struct WaterComponent : NodeComponent {
     FjWaterData water;
     bool water_loaded{false};
 
+    /// The field as the weather has made it: `water` after the wind response,
+    /// recomputed at the start of each frame.
+    ///
+    /// Everything that asks where this water is reads this and not `water` —
+    /// the renderer, and buoyancy when it arrives — because a boat has to
+    /// float on the sea the storm is blowing, not on the calm one on disk.
+    /// `water` stays exactly what was authored so that saving the asset does
+    /// not bake in whatever the weather happened to be doing.
+    ///
+    /// Equal to `water` when the wind response is off, which is the default
+    /// and the whole of the editor's world.
+    FjWaterData effective_water;
+
     /// The surface shader: a `.fjmat` whose shader is `shader_type water`.
     /// Empty draws with the engine's water.fjsl at its defaults.
     MaterialHandle material_handle;

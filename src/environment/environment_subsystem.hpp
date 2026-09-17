@@ -6,6 +6,7 @@
 #include "environment/weather_player.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -105,6 +106,9 @@ private:
     /// Light the world from a strike and set its thunder on its way.
     void update_lightning(const TickContext& ctx);
     void stop_lightning(Scene& scene);
+    /// Blow the resolved wind through every body of water, so each one's
+    /// effective wave field is the sea the weather is making of it.
+    void update_water(const TickContext& ctx);
     /// Fire the script hooks for whatever changed since last frame.
     void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);
@@ -124,6 +128,13 @@ private:
     EnvironmentState state_;
     // Which body cast the shadows last frame, so the handoff has hysteresis.
     bool moon_led_{false};
+
+    /// The wind the sea has caught up to, which lags the wind that is
+    /// blowing. Water has mass: a front does not raise a swell the instant
+    /// its wind arrives, and dropping the wind does not flatten one. Unset
+    /// until the first tick, which starts it at whatever is already blowing
+    /// rather than building the sea up from a calm the scene never had.
+    std::optional<glm::vec2> sea_wind_;
 
     WeatherPlayer player_;
     ClimateDirector director_;
