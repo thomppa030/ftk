@@ -179,17 +179,19 @@ void MotionFieldPass::destroy() {
 }
 
 void MotionFieldPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    // Published for every consumer through the global set. The map a reader
-    // sees is the one written last frame, which is the one the pass just
-    // finished with — rebound each frame in record().
+    // A first map for anything that reads before the pass has ever run. Which
+    // of the two a reader should see changes every frame, so the binding is
+    // rewritten in prepare_frame(); this only makes the very first frame's
+    // descriptor point at a real image rather than nothing.
     auto& gb = gpu.global_bindings();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         gb.write_image(i, "motion_field", maps_[cur_].view, sampler_,
                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
+    gb.flush_writes();
 }
 
-void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     source_count_ = 0;
     moving_count_ = 0;
     if (ctx.environment != nullptr) {
@@ -242,6 +244,24 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/
     // to fade. A scene where everyone has stood still for a while costs
     // nothing: the marks under their feet have faded and nothing replaces them.
     active_ = moving_count_ > 0 || !settled_;
+
+    // Which of the two maps this frame writes is decided here rather than
+    // while recording, because the map a reader sees is bound now and a
+    // descriptor may not be rewritten once a command buffer referencing it is
+    // in flight. The pass alternates, so without this the binding would keep
+    // pointing at whichever map it was given at startup: right on the frames
+    // that happen to land on it, and a read of the map being written on the
+    // rest.
+    if (active_) cur_ = prev_index();
+
+    // Readers are pointed at the map this frame writes, not the last one.
+    // Everything that reads it runs later in the same command buffer, behind
+    // the barrier record() ends with, so what they sample is this frame's
+    // finished map rather than a frame-old one.
+    auto& gb = gpu.global_bindings();
+    gb.write_image(ctx.frame_index, "motion_field", maps_[cur_].view, sampler_,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    gb.flush_writes();
 }
 
 PassSetup MotionFieldPass::setup() const {
@@ -264,8 +284,8 @@ void MotionFieldPass::record(const FrameContext& ctx) {
 
     if (moving_count_ == 0 && settled_) return;
 
-    const uint32_t prev = prev_index();
-    cur_ = prev;   // this frame writes the map last frame read from
+    // prepare_frame chose which map this frame writes, so that readers could
+    // be pointed at the other one before any of this was recorded.
     const uint32_t write = cur_;
     const uint32_t read = 1 - cur_;
 
