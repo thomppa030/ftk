@@ -156,6 +156,16 @@ struct FogVolumeNode : VolumeNode {
     /// Octaves of detail. Each one doubles the cost of sampling the field.
     int noise_octaves{2};
 
+    // Ground mist settles in a shallow layer that follows the ground rather
+    // than sitting at one height, so it pools in hollows and thins over a
+    // ridge. Off at zero, where the volume fills its shape evenly.
+    /// How deep the layer is above the surface, in metres. The fog fades out
+    /// across it.
+    float ground_layer{0.0f};
+    /// How far above the surface the layer starts, for mist that floats clear
+    /// of the ground rather than touching it.
+    float ground_offset{0.0f};
+
     /// How far the field has drifted so far, in world metres. Integrated each
     /// frame rather than derived from a clock, because the direction and the
     /// speed both move with the wind and a field that jumped when the weather
@@ -176,6 +186,8 @@ struct FogVolumeNode : VolumeNode {
         copy->wind_influence = wind_influence;
         copy->wind_speed_scale = wind_speed_scale;
         copy->noise_octaves = noise_octaves;
+        copy->ground_layer = ground_layer;
+        copy->ground_offset = ground_offset;
         return copy;
     }
 };

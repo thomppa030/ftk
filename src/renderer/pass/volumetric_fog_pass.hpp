@@ -138,9 +138,25 @@ public:
         // How many entries of fog_volume_ssbo the inject pass should read.
         // The other three fog shaders share this block and ignore it.
         uint32_t volume_count;
+        // World bounds of the scene SDF, for a volume that hugs the ground to
+        // map a froxel into it. Equal min and max mean there is no SDF this
+        // frame, which reads as "no ground near" rather than a zero divide.
+        alignas(16) glm::vec3 sdf_volume_min;
+        float _pad_sdf_min;
+        alignas(16) glm::vec3 sdf_volume_max;
+        float _pad_sdf_max;
     };
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
+
+    /// World bounds of the scene SDF this frame, for volumes that hug the
+    /// ground. Pushed rather than read from SceneSdfPass directly for the
+    /// reason DdgiPass and WaterPass take it this way: the volume follows the
+    /// camera and is rebuilt in regions, so its bounds move between frames.
+    void set_sdf_bounds(const glm::vec3& min, const glm::vec3& max) {
+        sdf_volume_min_ = min;
+        sdf_volume_max_ = max;
+    }
 
 private:
     static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
@@ -158,6 +174,8 @@ private:
     float temporal_blend_{0.9f};
     glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
     uint32_t volume_count_{0};
+    glm::vec3 sdf_volume_min_{0.0f};
+    glm::vec3 sdf_volume_max_{0.0f};
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

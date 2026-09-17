@@ -26,6 +26,32 @@
 // `contrast` is how broken up the fog looks, and it deliberately does not
 // change how much there is: the field is normalised back to an average of one,
 // so an artist can dial wisps in and out without re-tuning density.
+// How much of a ground-hugging layer reaches this point, 0..1. The layer
+// starts `offset` above the ground and fades out over `depth`, so mist settles
+// into a hollow and thins over a ridge instead of sitting at one altitude.
+//
+// `surface_dist` is the distance to the nearest surface in *any* direction and
+// `surface_grad` points away from it. Distance alone would read a gully's walls
+// as ground and fill it to the brim, so the vertical part of the gradient is
+// what separates ground underfoot from a wall alongside: straight down it
+// counts in full, and a surface off to the side barely counts at all. What is
+// left is a height above the ground rather than a proximity to anything.
+//
+// A point inside geometry reads as fully in the layer rather than empty — a
+// froxel a little under the surface is a sampling artifact of the distance
+// field, not a hole to be punched in the fog.
+float volume_ground_layer(float surface_dist, vec3 surface_grad, float depth, float offset) {
+    if (depth <= 0.0) return 1.0;
+
+    // Gradient up means the nearest surface lies below: that is ground. The
+    // floor keeps a near-vertical face from dividing the distance away
+    // entirely, which would hang fog off a cliff.
+    float groundness = max(surface_grad.y, 0.15);
+    float height = surface_dist / groundness;
+
+    return 1.0 - smoothstep(offset, offset + depth, height);
+}
+
 float volume_noise(vec3 world_pos, vec3 drift, float scale, float contrast, int octaves) {
     if (contrast <= 0.0) return 1.0;
 

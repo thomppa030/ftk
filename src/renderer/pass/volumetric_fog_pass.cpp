@@ -399,6 +399,8 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.jitter_y = halton(frame_idx, 5) - 0.5F;
     push.jitter_z = halton(frame_idx, 2) - 0.5F;
     push.volume_count = volume_count_;
+    push.sdf_volume_min = sdf_volume_min_;
+    push.sdf_volume_max = sdf_volume_max_;
     return push;
 }
 

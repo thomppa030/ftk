@@ -102,6 +102,11 @@ struct FogVolume {
     /// the node, so everything downstream only copies it.
     glm::vec3 noise_drift{0.0f};
     int noise_octaves{2};
+
+    /// Depth of the ground-hugging layer in metres, and how far above the
+    /// surface it starts. Zero depth fills the shape evenly instead.
+    float ground_layer{0.0f};
+    float ground_offset{0.0f};
 };
 
 /// A day profile and a weather event both reach fog volumes by the same

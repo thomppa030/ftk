@@ -595,6 +595,25 @@ void PropertiesPanel::draw() {
                                         fv->fog_group.c_str(), fv->fog_group.c_str());
                 }
 
+                section_header("GROUND", ICON_LC_GLOBE);
+                if (auto t = PropertyTable("##fog_volume_ground")) {
+                    prop_row("Layer", [&] {
+                        if (ImGui::SliderFloat("##FogVolGround", &fv->ground_layer, 0.0f, 20.0f, "%.1f m")) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    if (fv->ground_layer > 0.0f) {
+                        prop_row("Offset", [&] {
+                            if (ImGui::SliderFloat("##FogVolGroundOff", &fv->ground_offset, 0.0f, 20.0f, "%.1f m")) {
+                                scene_->mark_dirty();
+                            }
+                        });
+                    }
+                }
+                if (fv->ground_layer <= 0.0f) {
+                    ImGui::TextDisabled("Fills the shape evenly. Above 0, it follows the ground.");
+                }
+
                 section_header("NOISE", ICON_LC_AUDIO_WAVEFORM);
                 if (auto t = PropertyTable("##fog_volume_noise")) {
                     prop_row("Contrast", [&] {

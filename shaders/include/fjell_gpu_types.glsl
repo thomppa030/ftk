@@ -32,7 +32,8 @@ struct GpuFogVolume {
     vec4 shape_falloff;     // x = FJELL_VOLUME_SHAPE_*, y = edge falloff
     vec4 scatter_params;    // x = scattering multiplier
     vec4 noise_drift;       // xyz = world metres drifted, w = noise scale
-    vec4 noise_shape;       // x = contrast (0 = no noise), y = octaves
+    vec4 noise_shape;       // x = contrast (0 = no noise), y = octaves,
+                            //   z = ground layer depth (0 = off), w = ground offset
 };
 
 // 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
