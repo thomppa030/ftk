@@ -101,6 +101,8 @@ private:
     /// Keep a hidden emitter per falling effect parked at the camera, its
     /// spawn rate following how hard it falls. Both events' effects run
     /// during a handoff, each at its own weight, so rain fades into snow.
+    /// Carry each fog volume's noise field along by one frame's drift.
+    void advance_fog_volumes(const TickContext& ctx);
     void update_precipitation(const TickContext& ctx);
     void stop_precipitation(Scene& scene);
     /// Light the world from a strike and set its thunder on its way.

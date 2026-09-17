@@ -63,6 +63,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         else state_.sky_uniforms.push_back(value);
     }
     moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
+    advance_fog_volumes(ctx);
     update_beds(ctx);
     update_precipitation(ctx);
     update_lightning(ctx);
@@ -251,6 +252,35 @@ void EnvironmentSubsystem::stop_precipitation(Scene& scene) {
     for (Precipitation* fall : {&active_fall_, &outgoing_fall_}) {
         if (fall->node_id != 0) scene.queue_destroy(fall->node_id);
         *fall = Precipitation{};
+    }
+}
+
+void EnvironmentSubsystem::advance_fog_volumes(const TickContext& ctx) {
+    const auto& weather = state_.weather;
+    // Sustained wind, not the gust: a gust breathes about once a second and
+    // fog has more mass than that.
+    const glm::vec3 wind_dir = glm::length(weather.wind_direction) > 1e-4f
+                                   ? glm::normalize(weather.wind_direction)
+                                   : glm::vec3(0.0f, 0.0f, 1.0f);
+
+    for (const auto& obj : ctx.scene.objects()) {
+        auto* volume = dynamic_cast<FogVolumeNode*>(obj.get());
+        if (volume == nullptr || volume->noise_contrast <= 0.0f) continue;
+
+        const glm::vec3 authored = glm::length(volume->noise_direction) > 1e-4f
+                                       ? glm::normalize(volume->noise_direction)
+                                       : glm::vec3(0.0f, 0.0f, 1.0f);
+
+        // The wind takes over the heading and the pace together, so a volume
+        // fully given to it runs downwind at the wind's own speed and stalls
+        // when the air is still. Fog does not travel as fast as the air that
+        // carries it, hence the scale.
+        const float influence = glm::clamp(volume->wind_influence, 0.0f, 1.0f);
+        const glm::vec3 direction = glm::normalize(glm::mix(authored, wind_dir, influence));
+        const float wind_pace = weather.wind_speed * volume->wind_speed_scale;
+        const float speed = glm::mix(volume->noise_speed, wind_pace, influence);
+
+        volume->noise_drift_ += direction * speed * ctx.dt;
     }
 }
 
