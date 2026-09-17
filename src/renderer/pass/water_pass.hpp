@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/pass/render_pass.hpp"
 
@@ -21,8 +22,8 @@ struct WaterComponent;
 // Mirrors the push block in water.task / water.mesh and the water FJSL
 // template. Only the fragment stage reads past `patch_quads`.
 struct WaterPushConstants {
-    glm::vec2 world_origin;      ///< min corner of the surface, world XZ
-    float world_size;            ///< extent in metres (square)
+    glm::vec2 world_origin;      ///< min corner of the surface, world XZ (bounded)
+    float world_size;            ///< extent in metres, square (bounded)
     float surface_height;        ///< world Y of the surface at rest
     uint32_t patches_per_side;
     uint32_t patch_quads;
@@ -33,8 +34,13 @@ struct WaterPushConstants {
     /// here rather than costing a varying — and the fragment stage gets it
     /// without the wave field having to reach past the mesh stage.
     glm::vec2 wave_direction;
+    /// Nonzero when the surface is the camera-following clipmap rather than a
+    /// placed square. The bounded fields above are unread in that case: an
+    /// infinite sea has no corner and no size.
+    uint32_t infinite;
+    uint32_t _pad;
 };
-static_assert(sizeof(WaterPushConstants) == 40, "push block layout must match the shaders");
+static_assert(sizeof(WaterPushConstants) == 48, "push block layout must match the shaders");
 
 /// Draws water. The surface is generated in the mesh shader from the node's
 /// `.fjwater` wave field, so this pass uploads that field and dispatches one
@@ -76,6 +82,10 @@ private:
     /// changed, which is what lets the editor drive it live.
     void bind_water_field(const WaterComponent& comp);
 
+    /// Upload the clipmap level table for this frame. Early-outs unless a
+    /// level moved, which for the outer levels is most frames.
+    void bind_clipmap();
+
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a
     /// water shader, in which case the fallback pipeline draws instead.
@@ -111,6 +121,13 @@ private:
     /// memory is write-combined and reading it back to compare is slow.
     const WaterComponent* bound_water_{nullptr};
     GpuWaterField bound_field_{};
+    /// The levels an infinite surface is drawn from, recentered on the camera
+    /// once per frame. One set of levels for the scene rather than one per
+    /// node: they follow the camera, not the water, so two infinite seas at
+    /// different heights share them.
+    WaterClipmap clipmap_;
+    std::unique_ptr<Buffer> clipmap_buffer_;
+    GpuWaterClipmap bound_clipmap_{};
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
 
     PipelineCache* pipeline_cache_{nullptr};

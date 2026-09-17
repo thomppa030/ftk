@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/node_component.hpp"
 
@@ -26,9 +27,9 @@ struct WaterComponent : NodeComponent {
         /// A square centred on the node, `size` metres a side. A lake, a
         /// harbour, a pool.
         bounded,
-        /// Follows the camera to the horizon. Not yet implemented — the
-        /// clipmap that draws it is its own piece of work — and a node set to
-        /// it draws as bounded meanwhile.
+        /// Follows the camera to the horizon, drawn from nested clipmap
+        /// levels. `size` and `patches_per_side` do not apply: the levels are
+        /// fixed, and only the node's Y is read.
         infinite,
     };
 
@@ -80,9 +81,17 @@ struct WaterComponent : NodeComponent {
 
     /// Metres between vertices at the current settings, for the inspector to
     /// show against what the wave field asks for.
+    ///
+    /// For an infinite surface this is the spacing at the camera, on the
+    /// finest clipmap level. That is the one the shortest train has to be
+    /// measured against: the coarser levels are further away, where a train
+    /// too short to draw is also too small to see.
     [[nodiscard]] float vertex_spacing() const {
+        if (extent == Extent::infinite) {
+            return WaterClipmap::finest_spacing();
+        }
         std::uint32_t patches = patches_per_side > 0 ? patches_per_side : 1;
-        return size / static_cast<float>(patches * 11);
+        return size / static_cast<float>(patches * WATER_PATCH_QUADS);
     }
 };
 

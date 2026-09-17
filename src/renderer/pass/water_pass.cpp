@@ -52,16 +52,23 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     // per-node resource. Only the mesh stage reads it — the fragment stage
     // is handed what it needs through varyings rather than solving the field
     // a second time per pixel.
-    VkDescriptorSetLayoutBinding field_binding{};
-    field_binding.binding = 0;
-    field_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    field_binding.descriptorCount = 1;
-    field_binding.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+    std::array<VkDescriptorSetLayoutBinding, 2> set_bindings{};
+    set_bindings[0].binding = 0;
+    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    set_bindings[0].descriptorCount = 1;
+    set_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+    // The clipmap's level table. The task stage reads it to turn a workgroup
+    // into a patch of a level; the mesh stage declares it so both stages see
+    // the same set.
+    set_bindings[1].binding = 1;
+    set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    set_bindings[1].descriptorCount = 1;
+    set_bindings[1].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_layout_info.bindingCount = 1;
-    set_layout_info.pBindings = &field_binding;
+    set_layout_info.bindingCount = static_cast<uint32_t>(set_bindings.size());
+    set_layout_info.pBindings = set_bindings.data();
     if (vkCreateDescriptorSetLayout(device_, &set_layout_info, nullptr,
                                     &water_set_layout_) != VK_SUCCESS) {
         return make_error("Failed to create water set layout");
@@ -69,7 +76,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
 
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = 1;
+    pool_size.descriptorCount = 2;
 
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -95,20 +102,37 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
             VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    clipmap_buffer_ = std::make_unique<Buffer>(
+        allocator_, sizeof(GpuWaterClipmap), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = field_buffer_->handle();
-    buffer_info.offset = 0;
-    buffer_info.range = sizeof(GpuWaterField);
+    VkDescriptorBufferInfo field_info{};
+    field_info.buffer = field_buffer_->handle();
+    field_info.offset = 0;
+    field_info.range = sizeof(GpuWaterField);
 
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = water_set_;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write.pBufferInfo = &buffer_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    VkDescriptorBufferInfo clipmap_info{};
+    clipmap_info.buffer = clipmap_buffer_->handle();
+    clipmap_info.offset = 0;
+    clipmap_info.range = sizeof(GpuWaterClipmap);
+
+    std::array<VkWriteDescriptorSet, 2> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = water_set_;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &field_info;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = water_set_;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].pBufferInfo = &clipmap_info;
+    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0,
+                           nullptr);
 
     // A field of flat water until a node supplies one, so the buffer is never
     // read as uninitialised memory. write() maps on first use and keeps the
@@ -117,6 +141,9 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     GpuWaterField empty{};
     field_buffer_->write(&empty, sizeof(empty));
     bound_field_ = empty;
+
+    bound_clipmap_ = clipmap_.gpu();
+    clipmap_buffer_->write(&bound_clipmap_, sizeof(bound_clipmap_));
 
     auto task_code = read_spirv(base_path::resolve("shaders/water.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/water.mesh.spv"));
@@ -154,6 +181,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
 void WaterPass::destroy() {
     destroy_material_pipelines();
     field_buffer_.reset();
+    clipmap_buffer_.reset();
     if (mesh_module_ != VK_NULL_HANDLE) {
         vkDestroyShaderModule(device_, mesh_module_, nullptr);
         mesh_module_ = VK_NULL_HANDLE;
@@ -194,6 +222,12 @@ void WaterPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
 
 void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (ctx.scene == nullptr || pipeline_cache_ == nullptr) return;
+
+    // The levels follow the camera, not any particular body of water, so
+    // they are recentered once for the frame regardless of how many infinite
+    // seas the scene holds.
+    clipmap_.recenter(ctx.camera_position);
+
     // Pipelines are built here rather than in record(): a first sighting of a
     // material or a hot-reloaded shader means vkCreateGraphicsPipelines,
     // which does not belong inside command recording.
@@ -440,6 +474,19 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     bound_water_ = &comp;
 }
 
+void WaterPass::bind_clipmap() {
+    // Most frames move the inner levels and leave the outer ones alone, and
+    // a camera standing still moves none of them. Compared against a copy
+    // rather than read back from the buffer: that memory is write-combined,
+    // and reading it is slow.
+    const GpuWaterClipmap& table = clipmap_.gpu();
+    if (std::memcmp(&bound_clipmap_, &table, sizeof(table)) == 0) {
+        return;
+    }
+    clipmap_buffer_->write(&table, sizeof(table));
+    bound_clipmap_ = table;
+}
+
 bool WaterPass::scene_has_water(const FrameContext& ctx) {
     if (ctx.scene == nullptr) {
         return false;
@@ -473,6 +520,7 @@ void WaterPass::record(const FrameContext& ctx) {
         if (pipeline == VK_NULL_HANDLE) continue;
 
         bind_water_field(*wc);
+        bind_clipmap();
 
         if (!bound_sets) {
             std::array<VkDescriptorSet, 3> sets = {ctx.global_descriptor_set,
@@ -487,6 +535,7 @@ void WaterPass::record(const FrameContext& ctx) {
             current = pipeline;
         }
 
+        const bool infinite = wc->extent == WaterComponent::Extent::infinite;
         const uint32_t patches = wc->patches_per_side > 0 ? wc->patches_per_side : 1;
         const auto* spatial = node->as_spatial();
         const glm::mat4 world = spatial != nullptr ? spatial->world_matrix_ : glm::mat4{1.0F};
@@ -495,17 +544,21 @@ void WaterPass::record(const FrameContext& ctx) {
         WaterPushConstants push{};
         // The node's position is the middle of the surface, which is where a
         // placed thing is expected to be; the shaders generate from a corner.
+        // An infinite sea takes only the height from the node — it has no
+        // corner and no size, and the clipmap says where its patches are.
         push.world_origin = glm::vec2(centre.x, centre.z) - glm::vec2(wc->size * 0.5F);
         push.world_size = wc->size;
         push.surface_height = centre.y;
         push.patches_per_side = patches;
-        push.patch_quads = 11;   // matches PATCH_QUADS in water.mesh
+        push.patch_quads = static_cast<uint32_t>(WATER_PATCH_QUADS);
         push.water_material_id = material_id;
         push.delta_time = ctx.delta_time;
         push.wave_direction = water::dominant_direction(wc->effective_water);
+        push.infinite = infinite ? 1U : 0U;
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
-        draw_mesh_tasks_(ctx.cmd, patches * patches, 1, 1);
+        draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,
+                         1, 1);
 
         if (ctx.render_stats != nullptr) {
             ctx.render_stats->draw_calls++;

@@ -194,3 +194,50 @@ TEST_CASE("The surface reaches past the horizon a standing camera sees") {
     // 5 km at 2 m. The clipmap is sized to reach that without a skirt.
     REQUIRE(WaterClipmap::half_extent() > 4000.0F);
 }
+
+// ── The shader's half of the patch addressing ──
+//
+// The mesh pipeline resolves a workgroup index to a patch in GLSL, and the
+// table above resolves the same index in C++ for the tests to reason about.
+// Two walks of the same topology drift, and the drift shows as a square of
+// sea drawn twice while another is not drawn at all. Compiled here as C++ and
+// compared index by index, the same way test_fjwater.cpp pins the wave
+// field's two evaluators together.
+#include "glsl_shim.hpp"
+#include "../shaders/include/fjell_water_clipmap.glsl"
+
+TEST_CASE("The shader resolves every patch index to the same patch the CPU does") {
+    static_assert(FJELL_WATER_CLIPMAP_LEVELS == WATER_CLIPMAP_LEVELS,
+                  "level count must match between the shader and the table");
+
+    WaterClipmap clipmap;
+    for (int step = 0; step < 40; ++step) {
+        clipmap.recenter({static_cast<float>(step) * 37.0F, 0.0F,
+                          static_cast<float>(step) * -53.0F});
+
+        // The GPU table, read by the shader's own walk.
+        FjellWaterClipmap shader{};
+        shader.level_count = clipmap.gpu().level_count;
+        shader.ring = clipmap.gpu().ring;
+        shader.hole = clipmap.gpu().hole;
+        shader.patch_quads = clipmap.gpu().patch_quads;
+        for (std::uint32_t level = 0; level < WATER_CLIPMAP_LEVELS; ++level) {
+            shader.levels[level].origin = clipmap.gpu().levels[level].origin;
+            shader.levels[level].cell_size = clipmap.gpu().levels[level].cell_size;
+            shader.levels[level].hole_offset = clipmap.gpu().levels[level].hole_offset;
+        }
+
+        for (std::uint32_t i = 0; i < WaterClipmap::patch_count(); ++i) {
+            const FjellWaterPatch gpu = fjell_water_patch(shader, i);
+            // The shader reads the hole offset out of the table by level; the
+            // CPU side takes it as an argument, so the level the shader landed
+            // on is what says which offset to check it against.
+            const WaterPatchAddress cpu =
+                water_patch_address(i, clipmap.gpu().levels[gpu.level].hole_offset);
+
+            REQUIRE(gpu.level == cpu.level);
+            REQUIRE(gpu.coord.x == cpu.patch.x);
+            REQUIRE(gpu.coord.y == cpu.patch.y);
+        }
+    }
+}

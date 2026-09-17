@@ -2,6 +2,7 @@
 #extension GL_EXT_mesh_shader : require
 
 #include "fjell_global_ubo.glsl"
+#include "fjell_water_clipmap.glsl"
 #include "fjell_water_waves.glsl"
 
 // One workgroup emits one water patch. Same arithmetic as terrain.mesh, and
@@ -9,6 +10,10 @@
 // the mesh shader output limits — 2N^2 outgrows (N+1)^2 — so 11 quads a side
 // (144 verts, 242 prims) is the largest square patch that fits the 256/256
 // floor.
+//
+// The patch's place in the world arrives from the task stage, which is what
+// lets the same code generate a patch of a placed square and a patch of a
+// clipmap level.
 #define PATCH_QUADS 11
 #define PATCH_VERTS (PATCH_QUADS + 1)
 #define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)
@@ -26,6 +31,10 @@ layout(set = 2, binding = 0) uniform WaterFieldBuffer {
     FjellWaterField field;
 } water;
 
+layout(set = 2, binding = 1) uniform WaterClipmapBuffer {
+    FjellWaterClipmap clipmap;
+} clip;
+
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;
     float world_size;
@@ -40,11 +49,14 @@ layout(push_constant) uniform PushConstants {
     // Where the sea travels. Unused by this stage; present so the push block
     // matches WaterPushConstants and the fragment stage, which does read it.
     vec2  wave_direction;
+    uint  infinite;
+    uint  _pad;
 } push;
 
 struct TaskPayload {
-    uint patch_x;
-    uint patch_z;
+    vec2  patch_origin;
+    float cell_size;
+    uint  level;
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -67,9 +79,6 @@ layout(location = 7) out float frag_crest[];
 void main() {
     SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
 
-    vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
-    vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
-
     float time = ubo.time;
 
     // Vertices: position comes from the invocation index, not a vertex buffer.
@@ -77,11 +86,17 @@ void main() {
     for (uint i = gl_LocalInvocationIndex; i < MAX_VERTS; i += 64) {
         uint ix = i % PATCH_VERTS;
         uint iz = i / PATCH_VERTS;
-        vec2 local = vec2(float(ix), float(iz)) / float(PATCH_QUADS);
-        vec2 uv = patch_uv_min + local * patch_uv_size;
 
         // The flat surface this vertex belongs to, before any wave moves it.
-        vec2 rest = push.world_origin + uv * push.world_size;
+        vec2 rest = payload.patch_origin + vec2(ix, iz) * payload.cell_size;
+
+        // Where the surface is measured across, for a shader that wants it.
+        // A placed square has a 0..1 across itself; an infinite one has no
+        // edges to measure from, so it gets metres and the shader is told as
+        // much by the sea having no size.
+        vec2 surface_uv = push.infinite != 0u
+            ? rest
+            : (rest - push.world_origin) / push.world_size;
 
         vec3 offset = fjell_water_displace(water.field, rest, time);
         vec3 world_pos = vec3(rest.x + offset.x,
@@ -91,7 +106,7 @@ void main() {
         gl_MeshVerticesEXT[i].gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);
 
         frag_color[i] = vec3(1.0);
-        frag_tex_coord[i] = uv;
+        frag_tex_coord[i] = surface_uv;
         frag_world_pos[i] = world_pos;
         frag_world_normal[i] = fjell_water_normal(water.field, rest, time);
         frag_clip_pos[i] = ubo.unjittered_vp * vec4(world_pos, 1.0);

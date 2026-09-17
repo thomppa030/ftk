@@ -3,6 +3,7 @@
 #include "core/project_manager.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/resources/fjwater_io.hpp"
+#include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -94,6 +95,20 @@ const bool registered = [] {
 
             ImGui::Separator();
 
+            const char* const extents[] = {"Bounded", "Infinite"};
+            int extent = static_cast<int>(water->extent);
+            if (ImGui::Combo("Extent", &extent, extents, 2)) {
+                water->extent = static_cast<WaterComponent::Extent>(extent);
+                changed = true;
+            }
+            ImGui::SetItemTooltip("Bounded is a square centred on the node — a lake, a "
+                                  "harbour. Infinite follows the camera to the horizon.");
+
+            const bool bounded = water->extent == WaterComponent::Extent::bounded;
+
+            // Size and tessellation are the placed square's; an infinite sea
+            // has neither, and its levels are fixed rather than authored.
+            ImGui::BeginDisabled(!bounded);
             if (ImGui::DragFloat("Size", &water->size, 1.0f, 1.0f, 100000.0f, "%.0f m")) {
                 water->size = std::max(water->size, 1.0f);
                 changed = true;
@@ -104,13 +119,19 @@ const bool registered = [] {
                 water->patches_per_side = static_cast<std::uint32_t>(std::clamp(patches, 1, 512));
                 changed = true;
             }
+            ImGui::EndDisabled();
 
             // What the tessellation actually comes to, against what the wave
             // field needs. A train under about four vertices per wavelength
             // cannot be drawn and reads as noise instead of chop, and nothing
             // else in the editor puts those two numbers side by side.
             const float spacing = water->vertex_spacing();
-            ImGui::TextDisabled("%.2f m between vertices", spacing);
+            if (bounded) {
+                ImGui::TextDisabled("%.2f m between vertices", spacing);
+            } else {
+                ImGui::TextDisabled("%.2f m between vertices at the camera, %.0f m of sea",
+                                    spacing, WaterClipmap::half_extent());
+            }
             if (water->water_loaded && !water->water.waves.empty()) {
                 float shortest = water->water.waves.front().wavelength;
                 for (const auto& wave : water->water.waves) {
@@ -127,8 +148,11 @@ const bool registered = [] {
                 }
             }
 
-            const std::uint32_t verts = (water->patches_per_side * 11 + 1) *
-                                        (water->patches_per_side * 11 + 1);
+            const std::uint32_t verts =
+                bounded ? (water->patches_per_side * WATER_PATCH_QUADS + 1) *
+                              (water->patches_per_side * WATER_PATCH_QUADS + 1)
+                        : WaterClipmap::patch_count() * (WATER_PATCH_QUADS + 1) *
+                              (WATER_PATCH_QUADS + 1);
             ImGui::TextDisabled("%u vertices", verts);
 
             return changed;
@@ -149,6 +173,9 @@ const bool registered = [] {
             }
             out["size"] = water->size;
             out["patches_per_side"] = water->patches_per_side;
+            if (water->extent == WaterComponent::Extent::infinite) {
+                out["extent"] = "infinite";
+            }
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& res,
@@ -158,6 +185,9 @@ const bool registered = [] {
             water.material_path = j.value("material", std::string{});
             water.size = j.value("size", 200.0f);
             water.patches_per_side = j.value("patches_per_side", 24u);
+            water.extent = j.value("extent", std::string{}) == "infinite"
+                               ? WaterComponent::Extent::infinite
+                               : WaterComponent::Extent::bounded;
             load_water_material(water, &res, proj);
             load_water_field(water, proj);
         },

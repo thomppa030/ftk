@@ -49,6 +49,8 @@ layout(push_constant) uniform PushConstants {
     uint  water_material_id;
     float delta_time;
     vec2  wave_direction;
+    uint  infinite;
+    uint  _pad;
 } push;
 
 layout(location = 0) in vec3 frag_color;
@@ -102,7 +104,10 @@ void main() {
     vec3 WORLD_POS = frag_world_pos;
     vec3 WORLD_NORMAL = normalize(frag_world_normal);
     vec2 UV = frag_world_pos.xz;             // metres, so tiling is authored in metres
-    vec2 WATER_UV = frag_tex_coord;          // 0..1 across the whole surface
+    // 0..1 across a placed body of water. An infinite sea has no edges to
+    // measure from, so there it is world metres and a shader keying off it
+    // has to be told which kind of water it is drawing.
+    vec2 WATER_UV = frag_tex_coord;
     vec3 VIEW_DIR = normalize(ubo.camera_position.xyz - frag_world_pos);
     float TIME = ubo.time;
     #define SCREEN_TEXTURE screen_color_texture
