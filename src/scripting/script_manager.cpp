@@ -166,6 +166,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.create = desc->create;
     owned.trace = desc->trace;
     owned.loaded = true;
+    owned.is_functional_test = desc->is_functional_test;
     fjell::copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     // Attach the generated RPC table (same .so), if this type declares any.
     if (const auto* gen = fjell_find_generated(desc->name)) {

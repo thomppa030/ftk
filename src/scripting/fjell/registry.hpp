@@ -4,8 +4,11 @@
 #pragma once
 
 #include "fjell/component.hpp"
+#include "fjell/functional_test.hpp"
 #include "fjell/notify.hpp"
 #include "fjell/api.h"
+
+#include <type_traits>
 
 // The engine includes this header for the registry types below, and it has
 // the real engine components, which the game module's mirrors of them would
@@ -34,6 +37,7 @@ struct FjellComponentTypeOOP {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
+    bool is_functional_test;  // true for FunctionalTest subclasses
 };
 
 struct FjellNotifyTypeOOP {
@@ -75,6 +79,10 @@ void register_component(FjellTypeRegistry* reg) {
     FjellComponentTypeOOP desc{};
     desc.name = T::type_name;
     desc.create = []() -> ScriptComponent* { return new T(); };
+    // The engine holds every instance as a ScriptComponent*, and the C ABI
+    // carries no base-class information, so this is what tells the test runner
+    // which types it may treat as a FunctionalTest. Same trick as is_state.
+    desc.is_functional_test = std::is_base_of_v<FunctionalTest, T>;
 
     // Fields and trace come from fjreflect codegen
     const auto* gen = fjell_find_generated(T::type_name);

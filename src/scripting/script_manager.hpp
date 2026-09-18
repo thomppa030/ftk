@@ -57,6 +57,10 @@ struct OwnedScriptType {
     const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
     uint32_t rpc_count{0};
     bool loaded{true};
+    // Instances of this type may be treated as a FunctionalTest. The C ABI
+    // carries no base-class information, so the game module reports it at
+    // registration and this is the only thing that makes the cast sound.
+    bool is_functional_test{false};
 };
 
 struct OwnedUiActionDesc {
