@@ -61,19 +61,36 @@ void main() {
         float t1 = float(z + 1) * inv_depth_slices;
         float d1 = slice_to_depth(t1);
         float slice_thickness = d1 - d0;
-        d0 = d1;
 
-        // Frostbite energy-conserving integration
-        float dt = extinction * slice_thickness;
-        float tr = exp(-dt);
+        // Frostbite energy-conserving integration.
+        //
+        // The slice is integrated in two halves so the stored value is the
+        // integral up to the slice's *centre*, which is where trilinear
+        // filtering places the texel when the composite pass samples this
+        // volume at an arbitrary depth. Storing the integral to the slice's
+        // far edge instead leaves a half-slice offset, and a surface whose
+        // depth sweeps across slices — terrain on a slope — then reads the
+        // fog as a staircase. The error only shows where density changes
+        // sharply between neighbouring slices, which is a fog volume's edge.
+        float half_thickness = slice_thickness * 0.5;
+        float inv_extinction = 1.0 / max(extinction, 1e-7);
 
-        // Integral: scattering * (1 - exp(-extinction * thickness)) / extinction
-        vec3 slice_light = in_scattering * (1.0 - tr) / max(extinction, 1e-7);
+        // Front half: up to the centre. This is what gets stored.
+        float tr_half = exp(-extinction * half_thickness);
+        vec3 half_light = in_scattering * (1.0 - tr_half) * inv_extinction;
 
-        accumulated_light += transmittance * slice_light;
-        transmittance *= tr;
+        vec3 centre_light = accumulated_light + transmittance * half_light;
+        float centre_transmittance = transmittance * tr_half;
 
         imageStore(integrated_volume, ivec3(coord, z),
-                   vec4(accumulated_light, transmittance));
+                   vec4(centre_light, centre_transmittance));
+
+        // Back half: carry the full slice forward for the next iteration.
+        // Extinction is constant across the slice, so the second half repeats
+        // the first rather than needing its own exp().
+        accumulated_light = centre_light + centre_transmittance * half_light;
+        transmittance = centre_transmittance * tr_half;
+
+        d0 = d1;
     }
 }
