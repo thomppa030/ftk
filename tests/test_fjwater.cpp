@@ -572,6 +572,82 @@ TEST_CASE("The sea answers the same at any frame rate", "[fjwater]") {
     REQUIRE(fast.x == Approx(one_step.x).margin(0.01f));
 }
 
+TEST_CASE("A sea reaches the bed only as deep as its wavelength", "[fjwater]") {
+    // Orbital motion under a wave dies as exp(-k*d), so what clouds a coast
+    // is the long trains: a chop and a swell of the same height do very
+    // different things to a bed thirty metres down. Getting this backwards
+    // would cloud the open ocean and leave the shore clear.
+    FjWaterData chop;
+    chop.waves = {wave({1.0f, 0.0f}, 5.0f, 1.0f, 0.5f)};
+
+    FjWaterData swell;
+    swell.waves = {wave({1.0f, 0.0f}, 150.0f, 1.0f, 0.5f)};
+
+    // Shallow: both reach, and neither is idle.
+    REQUIRE(water::bed_agitation(chop, 1.5f) > 0.0f);
+    REQUIRE(water::bed_agitation(swell, 1.5f) > 0.0f);
+
+    // Deep: the swell still works the bed, the chop has nothing left.
+    REQUIRE(water::bed_agitation(swell, 30.0f) > water::bed_agitation(chop, 30.0f));
+    REQUIRE(water::bed_agitation(chop, 30.0f) == Approx(0.0f).margin(1e-4f));
+
+    // Flat water stirs nothing at any depth, and neither does dry land.
+    FjWaterData flat;
+    REQUIRE(water::bed_agitation(flat, 2.0f) == Approx(0.0f));
+    REQUIRE(water::bed_agitation(swell, 0.0f) == Approx(0.0f));
+}
+
+TEST_CASE("A bigger sea stirs a bed harder", "[fjwater]") {
+    FjWaterData calm;
+    calm.waves = {wave({1.0f, 0.0f}, 40.0f, 0.2f, 0.5f)};
+    FjWaterData storm;
+    storm.waves = {wave({1.0f, 0.0f}, 40.0f, 1.5f, 0.5f)};
+
+    REQUIRE(water::bed_agitation(storm, 4.0f) > water::bed_agitation(calm, 4.0f));
+
+    // And the same field scaled by the wind response stirs more than at rest,
+    // which is what makes a storm cloud the water and not merely raise it.
+    FjWaterData blown = calm;
+    blown.amplitude_scale = 3.0f;
+    REQUIRE(water::bed_agitation(blown, 4.0f) > water::bed_agitation(calm, 4.0f));
+}
+
+TEST_CASE("Silt settles far slower than it stirs", "[fjwater]") {
+    // The whole point of tracking a load rather than reading the wind: water
+    // does not go clear the moment a squall passes. Clouding is minutes,
+    // clearing is hours.
+    float stirring = 0.0f;
+    float settling = 1.0f;
+    for (int i = 0; i < 30; ++i) {
+        stirring = water::advance_silt(stirring, 1.0f, 1.0f);
+        settling = water::advance_silt(settling, 0.0f, 1.0f);
+    }
+    // After the same thirty seconds the clouding has covered much more of its
+    // distance than the clearing has of its.
+    REQUIRE(stirring > 1.0f - settling);
+
+    // It does get there eventually, both ways.
+    for (int i = 0; i < 2000; ++i) stirring = water::advance_silt(stirring, 1.0f, 1.0f);
+    REQUIRE(stirring == Approx(1.0f).margin(0.01f));
+    for (int i = 0; i < 5000; ++i) settling = water::advance_silt(settling, 0.0f, 1.0f);
+    REQUIRE(settling == Approx(0.0f).margin(0.01f));
+}
+
+TEST_CASE("Silt answers the same at any frame rate", "[fjwater]") {
+    // Same trap as the sea's own lag: a per-frame lerp would cloud the water
+    // faster on a better machine.
+    float fast = 0.0f;
+    for (int i = 0; i < 600; ++i) fast = water::advance_silt(fast, 1.0f, 1.0f / 60.0f);
+
+    float slow = 0.0f;
+    for (int i = 0; i < 100; ++i) slow = water::advance_silt(slow, 1.0f, 0.1f);
+
+    const float one_step = water::advance_silt(0.0f, 1.0f, 10.0f);
+
+    REQUIRE(fast == Approx(slow).margin(0.005f));
+    REQUIRE(fast == Approx(one_step).margin(0.005f));
+}
+
 TEST_CASE("Wind response survives a round trip", "[fjwater]") {
     FjWaterData water;
     water.waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)};

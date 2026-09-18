@@ -69,6 +69,59 @@ inline constexpr float SEA_FALL_SECONDS = 45.0f;
 /// Frame-rate independent: the same curve at any `dt`.
 [[nodiscard]] glm::vec2 advance_sea_wind(glm::vec2 sea_wind, glm::vec2 blowing, float dt);
 
+/// How long suspended sediment takes to stir up, and to settle back out.
+///
+/// Far more lopsided than the sea's own rise and fall, because the two
+/// processes are not each other's opposite: waves lift sediment off the bed
+/// in the minutes a squall takes to arrive, and then it falls back out under
+/// gravity over hours. Water going clear the moment a gust passes is the same
+/// error as a gust heaving the ocean — the sea state is the cause, and the
+/// cloud it leaves outlives it.
+///
+/// Compressed from the real timescale for the same reason the sea's rates
+/// are: a storm in a game passes in minutes.
+inline constexpr float SILT_STIR_SECONDS = 20.0f;
+inline constexpr float SILT_SETTLE_SECONDS = 240.0f;
+
+/// How strongly this sea stirs the bed under `depth` metres of water, 0 (no
+/// reach) to 1 (working the bed hard).
+///
+/// Waves stir sediment by the orbital motion of the water under them, and
+/// that motion dies off exponentially with depth — as exp(-k·depth) for
+/// wavenumber k. So this is a question about the bed rather than the surface,
+/// and it is answered per train: wavelength decides the reach, not height. A
+/// five-metre chop is spent by five metres down while a long swell of the
+/// same height still works a thirty-metre bed, which is why a storm clouds a
+/// coast and leaves an ocean clear.
+///
+/// `depth` is the still-water depth at the point asked about. Returns 0 for
+/// water deeper than the trains can reach, and for a flat sea at any depth.
+///
+/// The CPU has no depth map — how deep the water is at a pixel comes from the
+/// depth buffer, in the shader — so this answers for one depth at a time. The
+/// renderer asks at a reference depth to drive the lag, and the shader scales
+/// what it gets by the depth it can actually see. A CPU client that does know
+/// its depth, buoyancy or a gameplay query, can ask directly.
+[[nodiscard]] float bed_agitation(const FjWaterData& water, float depth);
+
+/// The depth at which the sea's stirring is quoted to the shader.
+///
+/// The load a material reads is the load over a bed this far down; the shader
+/// reweights it for the depth each pixel actually has. Shallow enough that a
+/// coast is the thing being described, deep enough that it is not saturated
+/// by every passing ripple.
+inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
+
+/// One step of suspended sediment answering the sea working the bed.
+///
+/// `load` is what is currently in suspension, 0 clear to 1 as thick as this
+/// water gets; `agitation` what the sea is doing to the bed right now, from
+/// `bed_agitation()`. Rises toward the agitation and falls toward nothing,
+/// on the two rates above.
+///
+/// Frame-rate independent: the same curve at any `dt`.
+[[nodiscard]] float advance_silt(float load, float agitation, float dt);
+
 /// Where the surface at rest position `world_xz` has moved to at `time`.
 /// The x and z components are the horizontal bunching toward crests, y the
 /// height. Add this to a flat vertex to get the water surface.

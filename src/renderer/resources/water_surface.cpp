@@ -90,6 +90,38 @@ glm::vec2 advance_sea_wind(glm::vec2 sea_wind, glm::vec2 blowing, float dt) {
     return sea_wind + (blowing - sea_wind) * alpha;
 }
 
+float bed_agitation(const FjWaterData& water, float depth) {
+    if (water.waves.empty() || depth <= 0.0f) return 0.0f;
+
+    // Each train reaches its own distance down. The orbital motion under a
+    // wave dies as exp(-k*d), so wavelength decides the reach and amplitude
+    // decides how hard it works when it gets there — a long swell stirs a bed
+    // that a chop of the same height cannot feel at all.
+    float stirred = 0.0f;
+    for (const auto& wave : water.waves) {
+        if (wave.wavelength < 1e-4f) continue;
+        const float k = TAU / wave.wavelength;
+        const float amplitude = wave.amplitude * water.amplitude_scale;
+        stirred += amplitude * std::exp(-k * depth);
+    }
+
+    // Quoted against the depth itself rather than an absolute: half a metre of
+    // orbital motion is nothing under thirty metres of water and is the whole
+    // water column in a one-metre shallow. Saturating means a bed being
+    // worked hard is being worked hard, however much harder it could be.
+    return std::clamp(stirred / depth, 0.0f, 1.0f);
+}
+
+float advance_silt(float load, float agitation, float dt) {
+    const float target = std::clamp(agitation, 0.0f, 1.0f);
+    // Stirring up and settling out are different processes on very different
+    // clocks, not one rate run in two directions: waves lift sediment in
+    // minutes and gravity returns it over hours.
+    const float seconds = target > load ? SILT_STIR_SECONDS : SILT_SETTLE_SECONDS;
+    const float alpha = 1.0f - std::exp(-dt / std::max(seconds, 1e-3f));
+    return load + (target - load) * alpha;
+}
+
 FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
     const WaterWindResponse& wind = water.wind;
     if (!wind.enabled || water.waves.empty()) {
