@@ -165,4 +165,209 @@ ivec3 ddgi_world_to_grid(vec3 world_pos) {
 #define PROBE_STATUS_ACTIVE         4
 #define PROBE_STATUS_UNINITIALIZED  6
 
+// ── The probe cage ──────────────────────────────────────────────────────
+//
+// How a world-space point reads the probe field: pick the cell it sits in,
+// weight its eight corner probes by trilinear position, which way the
+// surface faces and whether each probe can see the point, and blend.
+//
+// Every reader of the field goes through here. There were two hand-copied
+// versions of this once — the screen-space pass and the reflection hit
+// shader — and the copy silently missed fixes the original had grown: it
+// scaled the bias by a scalar instead of per axis, it never faded the view
+// term up close, and it blended probes the status pass had switched off.
+// A reflection lit by a different cage than the surface beside it is not a
+// difference anyone can author around, so the cage lives in one place.
+//
+// A caller declares the field's resources before including this file, at
+// whatever bindings its own set layout uses:
+//
+//     #define FJELL_DDGI_CAGE_SET 0
+//     #define FJELL_DDGI_CAGE_IRRADIANCE_BINDING 3
+//     #define FJELL_DDGI_CAGE_VISIBILITY_BINDING 4
+//     #define FJELL_DDGI_CAGE_OFFSET_BINDING     5
+//     #define FJELL_DDGI_CAGE_STATUS_BINDING     6
+//     #define FJELL_DDGI_CAGE
+//
+// Defining FJELL_DDGI_CAGE is what asks for the cage; a shader that only
+// wants the grid helpers above leaves it alone and declares nothing.
+
+#ifdef FJELL_DDGI_CAGE
+
+#ifndef FJELL_DDGI_CAGE_SET
+#define FJELL_DDGI_CAGE_SET 0
+#endif
+
+layout(set = FJELL_DDGI_CAGE_SET, binding = FJELL_DDGI_CAGE_IRRADIANCE_BINDING)
+    uniform sampler2D ddgi_irradiance_tex;
+layout(set = FJELL_DDGI_CAGE_SET, binding = FJELL_DDGI_CAGE_VISIBILITY_BINDING)
+    uniform sampler2D ddgi_visibility_tex;
+layout(set = FJELL_DDGI_CAGE_SET, binding = FJELL_DDGI_CAGE_OFFSET_BINDING)
+    uniform sampler2D ddgi_probe_offset_tex;
+layout(std430, set = FJELL_DDGI_CAGE_SET, binding = FJELL_DDGI_CAGE_STATUS_BINDING)
+    readonly buffer DdgiProbeStatusSSBO {
+    uint ddgi_probe_status[];
+};
+
+// What the cage did, for the diagnostics that want to see inside it. A
+// caller that only wants the light ignores it.
+struct DdgiCageTrace {
+    ivec3 base_grid;      // the cell the point landed in
+    vec3  alpha;          // where in that cell, 0..1 per axis
+    float sum_weight;     // what the blend divided by
+    float cheb_tested;    // cage probes the visibility test ran on, 0..8
+    float cheb_floored;   // of those, how many hit the weight floor
+};
+
+// Skip the Chebyshev visibility test. Only the screen-space pass's
+// NO_VISIBILITY diagnostic passes true.
+vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
+                      out DdgiCageTrace trace) {
+    vec3 Wo = normalize(ddgi.camera_position - world_pos);
+
+    // Bias the sample off the surface before the cage lookup. Lean on the
+    // normal so the offset lifts away from the surface; keep the view term
+    // small. A view-dominant bias goes tangential at grazing angles and
+    // skates the sample across probe cells, which reads as blocky shimmer.
+    //
+    // Scale by spacing PER AXIS. The grid is fitted to scene bounds, so
+    // spacing is not uniform — a wide flat scene gives a Y spacing far
+    // smaller than X and Z. Scaling the whole bias by the minimum axis
+    // makes the horizontal bias a small fraction of the horizontal probe
+    // distance, so the sample never moves far enough sideways to matter,
+    // while alpha and the cage geometry use the real per-axis spacing.
+    // Bias and cage have to agree on what a cell is.
+    vec3 cell = ddgi.probe_spacing;
+    float cell_min = min(cell.x, min(cell.y, cell.z));
+
+    // The view term fades out as the camera closes to within one cell.
+    // Lumen does this (LumenIrradianceFieldInterpolation.ush: "Reduce the
+    // view dependent bias as the camera gets closer than the distance
+    // between probes") because up close the bias would push the sample
+    // past the surface it is shading.
+    float camera_distance = length(ddgi.camera_position - world_pos);
+    float view_scale = clamp(camera_distance / cell_min, 0.0, 1.0);
+
+    // A flat surface gives a probe above it a perfectly consistent depth,
+    // so the Chebyshev variance is ~0 and any sample even slightly beyond
+    // mean_dist collapses to the 0.05 weight floor. That is a 24x drop
+    // right where the trilinear weight peaks — a dark spot at every probe.
+    // The view term is what avoids it: it moves the sample off the surface
+    // so the comparison is not made at exactly the recorded depth.
+    vec3 bias_vector = (normal * ddgi.normal_bias
+                      + Wo * ddgi.view_bias * view_scale) * cell;
+    vec3 biased_pos = world_pos + bias_vector;
+
+    // Select the cage cell and trilinear weights from the UNBIASED position.
+    // The bias (and the depth-reconstruction error it rides on) is noisy at
+    // grazing angles; feeding it into the integer grid lookup makes base_grid
+    // flip between adjacent pixels, swapping which 8 probes are sampled —
+    // that is the grazing-angle shimmer. The biased position is used only for
+    // the visibility distance below.
+    ivec3 base_grid = ddgi_world_to_grid(world_pos);
+    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
+    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing,
+                       vec3(0.0), vec3(1.0));
+
+    trace.base_grid = base_grid;
+    trace.alpha = alpha;
+    trace.sum_weight = 0.0;
+    trace.cheb_tested = 0.0;
+    trace.cheb_floored = 0.0;
+
+    vec3 sum_irradiance = vec3(0.0);
+    float sum_weight = 0.0;
+
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
+
+        // Skip probes the status pass disabled (buried in / behind geometry).
+        // Their irradiance is stale or meaningless, so let the other cage
+        // probes carry the interpolation instead of leaking it in.
+        if (ddgi_probe_status[probe_idx] == PROBE_STATUS_OFF) continue;
+
+        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx,
+                                            ddgi_probe_offset_tex, true);
+
+        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
+        float weight = 1.0;
+
+        // Smooth backface weight
+        vec3 dir_to_probe = normalize(probe_pos - world_pos);
+        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
+        weight *= (dir_dot_n * dir_dot_n) + 0.2;
+
+        // Chebyshev visibility
+        vec3 probe_to_biased = biased_pos - probe_pos;
+        float dist_to_biased = length(probe_to_biased);
+        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
+
+        vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx,
+                                   ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
+        vec2 visibility = textureLod(ddgi_visibility_tex, vis_uv, 0).rg;
+        float mean_dist = visibility.x;
+
+        if (dist_to_biased > mean_dist && !skip_visibility) {
+            trace.cheb_tested += 1.0;
+            // Floor the variance. A flat surface gives a probe an almost
+            // perfectly consistent depth, so the measured variance is
+            // ~0 and the Chebyshev ratio collapses for a sample only
+            // centimetres past mean_dist — a 125x weight drop from what
+            // is really depth-map precision, not occlusion. The floor is
+            // a fraction of a cell, small enough that a genuine occluder
+            // (which sits a large fraction of a cell closer) still
+            // rejects to zero.
+            float min_variance = 0.05 * cell_min;
+            float variance = max(abs(mean_dist * mean_dist - visibility.y),
+                                 min_variance * min_variance);
+            float diff = dist_to_biased - mean_dist;
+            float cheb = variance / (variance + diff * diff);
+            cheb = max(cheb * cheb, 0.0);
+            if (cheb < 0.05) trace.cheb_floored += 1.0;
+            weight *= max(0.05, cheb);
+        }
+
+        weight = max(0.000001, weight);
+
+        vec2 irr_uv = get_probe_uv(normal, probe_idx,
+                                   ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
+        vec3 probe_irradiance = ddgi_decode_irradiance(
+            textureLod(ddgi_irradiance_tex, irr_uv, 0).rgb);
+
+        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
+
+        sum_irradiance += weight * probe_irradiance;
+        sum_weight += weight;
+    }
+
+    trace.sum_weight = sum_weight;
+
+    // All cage probes disabled (e.g. deep inside geometry) — no indirect.
+    if (sum_weight < 1e-6) return vec3(0.0);
+
+    // sum_irradiance already holds albedo * incident_light (see the store
+    // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.rchit —
+    // no /PI there, matching how the surface composites this result: it
+    // multiplies by the RECEIVING surface's albedo directly, no /PI,
+    // matching both the Mastering Graphics Programming with Vulkan
+    // reference (ch14/15 pbr.glsl: indirect_irradiance * base_colour) and
+    // Unreal's Lumen composite (DiffuseIndirectComposite.usf: comment
+    // confirms the diffuse term "already has the 1/PI for Lambert" baked
+    // in upstream of the final multiply, same convention). A previous
+    // `0.5 * PI` factor here was an uncancelled extra term with no
+    // corresponding /PI anywhere upstream or downstream — verified
+    // numerically against an idealized fully-lit white Lambertian surface
+    // (energy conservation requires reflected irradiance <= incident
+    // irradiance for albedo=1; the old constant produced ~1.49x incident,
+    // a physically impossible gain, uniform across all albedo values).
+    // 0.95 is kept: it's the same deliberate small energy-loss damping
+    // factor used as `energy_conservation` in ddgi_irradiance_update.comp,
+    // unrelated to the PI error.
+    return (sum_irradiance / sum_weight) * 0.95;
+}
+
+#endif // FJELL_DDGI_CAGE
+
 #endif // FJELL_DDGI_GLSL

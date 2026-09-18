@@ -26,17 +26,17 @@ layout(std140, set = 0, binding = 14) uniform ReflectionConstants {
 } rc;
 
 // ── DDGI atlases for hit-point indirect ────────────────────────────────
+// The same cage the screen-space pass reads, so a reflection is lit by the
+// probe field the way the surface beside it is.
 
+#define FJELL_DDGI_CAGE
+#define FJELL_DDGI_CAGE_IRRADIANCE_BINDING 10
+#define FJELL_DDGI_CAGE_VISIBILITY_BINDING 11
+#define FJELL_DDGI_CAGE_OFFSET_BINDING     12
+#define FJELL_DDGI_CAGE_STATUS_BINDING     13
 #include "fjell_ddgi.glsl"
 
 #include "fjell_common.glsl"
-
-layout(set = 0, binding = 10) uniform sampler2D irradiance_tex;
-layout(set = 0, binding = 11) uniform sampler2D visibility_tex;
-layout(set = 0, binding = 12) uniform sampler2D probe_offset_tex;
-layout(std430, set = 0, binding = 13) readonly buffer ProbeStatusSSBO {
-    uint probe_status[];
-};
 
 // ── Material access (set 1 = bindless) ─────────────────────────────────
 
@@ -81,83 +81,6 @@ vec3 get_vertex_position(uint vertex_index) {
 vec2 get_vertex_texcoord(uint vertex_index) {
     uint base = vertex_index * FLOATS_PER_VERTEX + TEXCOORD_OFFSET;
     return vec2(vertex_data[base], vertex_data[base + 1]);
-}
-
-// ── DDGI 8-probe trilinear sampling (mirrors ddgi_sample_irradiance.comp) ──
-
-vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
-    vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    // Normal-leaning, spacing-scaled bias (see ddgi_sample_irradiance.comp).
-    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
-    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
-    vec3 biased_pos = world_pos + bias_vector;
-
-    // Cage cell + trilinear from the UNBIASED position; bias only feeds the
-    // visibility distance (see ddgi_sample_irradiance.comp).
-    ivec3 base_grid = ddgi_world_to_grid(world_pos);
-    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
-    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
-
-    vec3 sum_irradiance = vec3(0.0);
-    float sum_weight = 0.0;
-
-    for (int i = 0; i < 8; ++i) {
-        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
-        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
-        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
-
-        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
-        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
-        float weight = 1.0;
-
-        vec3 dir_to_probe = normalize(probe_pos - world_pos);
-        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
-        weight *= (dir_dot_n * dir_dot_n) + 0.2;
-
-        vec3 probe_to_biased = biased_pos - probe_pos;
-        float dist_to_biased = length(probe_to_biased);
-        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
-
-        vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
-        vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
-        float mean_dist = visibility.x;
-
-        if (dist_to_biased > mean_dist) {
-            // Floor the variance. A flat surface gives a probe an almost
-            // perfectly consistent depth, so the measured variance is
-            // ~0 and the Chebyshev ratio collapses for a sample only
-            // centimetres past mean_dist — a 125x weight drop from what
-            // is really depth-map precision, not occlusion. The floor is
-            // a fraction of a cell, small enough that a genuine occluder
-            // (which sits a large fraction of a cell closer) still
-            // rejects to zero.
-            float min_variance = 0.05 * cell;
-            float variance = max(abs(mean_dist * mean_dist - visibility.y),
-                                 min_variance * min_variance);
-            float diff = dist_to_biased - mean_dist;
-            float cheb = variance / (variance + diff * diff);
-            cheb = max(cheb * cheb, 0.0);
-            weight *= max(0.05, cheb);
-        }
-
-        weight = max(0.000001, weight);
-
-        vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
-        vec3 probe_irradiance = ddgi_decode_irradiance(textureLod(irradiance_tex, irr_uv, 0).rgb);
-
-        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
-
-        sum_irradiance += weight * probe_irradiance;
-        sum_weight += weight;
-    }
-
-    if (sum_weight < 1e-6) return vec3(0.0);
-    // See the canonical comment in ddgi_sample_irradiance.comp — a
-    // previous `0.5 * PI` factor here was an uncancelled extra term
-    // (verified numerically: ~1.49x incident irradiance for a fully-lit
-    // white surface, a physically impossible energy gain). 0.95 kept —
-    // matches `energy_conservation` in ddgi_irradiance_update.comp.
-    return (sum_irradiance / sum_weight) * 0.95;
 }
 
 // ── Main ───────────────────────────────────────────────────────────────
@@ -236,7 +159,8 @@ void main() {
     vec3 sun_radiance = albedo * rc.sun_color.rgb * rc.sun_dir_intensity.w * NdotL;
 
     // DDGI indirect at hit point
-    vec3 indirect = sample_ddgi_irradiance(world_pos, N) * albedo;
+    DdgiCageTrace cage;
+    vec3 indirect = ddgi_sample_cage(world_pos, N, false, cage) * albedo;
 
     // Emissive
     vec3 emissive_sample = textureLod(textures[nonuniformEXT(mat.texture_indices[3])], uv, 1.0).rgb;
