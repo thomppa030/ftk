@@ -265,6 +265,7 @@ add_executable(fjell
     scripting/vfx_api.cpp
     scripting/physics_api.cpp
     scripting/surface_api.cpp
+    scripting/water_api.cpp
     scripting/viewport_api.cpp
     scripting/timer_manager.cpp
     scripting/timer_api.cpp
