@@ -905,6 +905,16 @@ Engine::~Engine() {
     play_controller_.stop();
 
     vulkan_context_->wait_idle();
+    // Uploads are only ever submitted from submit_and_present(), which returns
+    // early until a frame has been recorded. A run that ends before its first
+    // frame — a bad scenario file, a failed init — leaves everything the
+    // constructor staged sitting in an open batch. The teardown below frees
+    // those buffers, and the batch's command buffer then goes invalid with
+    // them, so UploadContext's own destructor would end and submit a command
+    // buffer full of destroyed handles and then wait forever on a timeline
+    // value nothing can signal. Draining here, while the resources are alive,
+    // is a no-op on every path that rendered.
+    vulkan_context_->upload_context().wait_all();
     vulkan_context_->set_overlay_callback(nullptr);
     game_ui_.destroy();
     AssetThumbnailRenderer::set_instance(nullptr);
