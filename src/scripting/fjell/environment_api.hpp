@@ -58,6 +58,7 @@ FJELL_SDK_EXPORT float    fjell_weather_cloud_coverage();
 FJELL_SDK_EXPORT void     fjell_weather_wind(float* x, float* y, float* z);
 FJELL_SDK_EXPORT void     fjell_weather_front_direction(float* x, float* z);
 FJELL_SDK_EXPORT float    fjell_weather_param(const char* name, float fallback);
+FJELL_SDK_EXPORT int      fjell_weather_sky_param(const char* name, float* out, int count);
 FJELL_SDK_EXPORT void     fjell_weather_set_sky_param(const char* name, int count, const float* values);
 FJELL_SDK_EXPORT void     fjell_weather_set_climate(uint32_t climate_handle_id);
 FJELL_SDK_EXPORT void     fjell_weather_hold(int held);
@@ -214,6 +215,44 @@ struct Weather {
     /// @param fallback Returned when no playing event has the track.
     [[nodiscard]] static float param(const char* name, float fallback = 0.0f) {
         return fjell_weather_param(name, fallback);
+    }
+
+    /// A sky shader uniform as the environment has resolved it: the day
+    /// profile's track for this hour, with the playing weather blended over
+    /// it and any script override on top. The value the sky is actually
+    /// drawing with, not what any one of those asked for.
+    ///
+    /// For anything that should agree with the sky rather than guess at it —
+    /// water reflecting it, a UI tint, a light keyed to the horizon. Reading
+    /// `sky_top` or `sky_bottom` is how a surface gets the sky's own colours
+    /// instead of a second palette that drifts from them.
+    ///
+    /// Colours come back as sRGB, exactly as the picker and `.fjmat` show
+    /// them and exactly as `MaterialAPI::set_param` expects, so a colour can
+    /// be passed from one to the other untouched.
+    ///
+    /// @param name     Track name: `sky_top`, `sky_bottom`, `fog_color`, or a
+    ///                 custom one the day profile defines.
+    /// @param fallback Returned when nothing resolves that name.
+    ///
+    /// @code
+    /// // Reflect the sky the sky is actually painting.
+    /// const glm::vec3 sky = fjell::Weather::sky_color("sky_bottom");
+    /// fjell::MaterialAPI::set_param(sea_, "sky_color", sky.x, sky.y, sky.z);
+    /// @endcode
+    [[nodiscard]] static glm::vec3 sky_color(const char* name,
+                                             const glm::vec3& fallback = glm::vec3{0.0f}) {
+        float v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        const int n = fjell_weather_sky_param(name, v, 4);
+        return n >= 3 ? glm::vec3{v[0], v[1], v[2]} : fallback;
+    }
+
+    /// A single-float sky uniform as the environment resolved it — the same
+    /// lookup as `sky_color()` for tracks that are one number, such as
+    /// `star_intensity`.
+    [[nodiscard]] static float sky_value(const char* name, float fallback = 0.0f) {
+        float v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        return fjell_weather_sky_param(name, v, 4) >= 1 ? v[0] : fallback;
     }
 
     /// Set a sky shader uniform by name, over the node's value and the day

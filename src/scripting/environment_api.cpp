@@ -122,6 +122,19 @@ extern "C" FJELL_SDK_EXPORT float fjell_weather_param(const char* name, float fa
     return fallback;
 }
 
+extern "C" FJELL_SDK_EXPORT
+int fjell_weather_sky_param(const char* name, float* out, int count) {
+    auto* env = fjell::script_services().environment;
+    if (!env || !name || !out || count <= 0) return 0;
+    for (const auto& value : env->state().sky_uniforms) {
+        if (value.name != name) continue;
+        const int n = std::min<int>(static_cast<int>(value.count), count);
+        for (int i = 0; i < n; ++i) out[i] = value.values[static_cast<size_t>(i)];
+        return n;
+    }
+    return 0;
+}
+
 extern "C" FJELL_SDK_EXPORT void fjell_weather_set_sky_param(const char* name, int count, const float* values) {
     auto* env = fjell::script_services().environment;
     if (!env || !name) return;
