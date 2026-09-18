@@ -26,7 +26,7 @@ layout(std140, set = 0, binding = 6) uniform SsGiConstants {
     uint ubo_probe_spacing;
     uint ubo_frame_index;
     uvec2 ubo_probe_count;
-    float ubo_pad0;
+    float ubo_trace_cell_size;
     float ubo_pad1;
     vec4 sun_direction_intensity;
     vec4 sun_color;

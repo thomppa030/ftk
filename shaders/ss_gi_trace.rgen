@@ -19,7 +19,7 @@ layout(std140, set = 0, binding = 0) uniform SsGiConstants {
     uint probe_spacing;
     uint frame_index;
     uvec2 probe_count;
-    float pad0;
+    float trace_cell_size;
     float pad1;
     vec4 sun_direction_intensity;
     vec4 sun_color;
@@ -64,6 +64,13 @@ uint hash_probe(uint x) {
 // Z_MIN < 0 lets rays reach slightly below the surface horizon,
 // catching emissive objects at the same height as the probe.
 const float Z_MIN = -0.3;
+
+// How far a ray starts from the surface that spawned it. The minimum is what
+// a surface traced against itself needs; the scale is how much of a coarse
+// cell's length a ray has to clear when the traced geometry is coarser than
+// what was shaded. See the ray origin in main().
+const float SS_GI_RAY_BIAS_MIN = 0.05;
+const float SS_GI_RAY_BIAS_SLOPE_SCALE = 0.75;
 
 vec3 extended_hemisphere(vec2 xi) {
     float z = mix(Z_MIN, 1.0, xi.x);
@@ -130,7 +137,27 @@ void main() {
     vec3 local_dir = extended_hemisphere(xi);
     vec3 ray_dir = normalize(tbn * local_dir);
 
-    vec3 ray_origin = world_pos + normal * 0.05;
+    // Start the ray clear of the surface it traces against, which is not the
+    // surface it was shaded from. Terrain is rasterized from the full-
+    // resolution height texture and traced against a decimated mesh
+    // (TerrainAsset::build_ray_mesh), so between two of the coarse mesh's
+    // vertices the two disagree by roughly half the height the real ground
+    // covers over one coarse cell — nothing on the flat, most of a metre on a
+    // slope. A ray launched from the rasterized position starts inside the
+    // traced terrain there, hits it at once, and reports the ground occluding
+    // itself as indirect light.
+    //
+    // `local_dir.z` is the ray's cosine against the normal, and the hemisphere
+    // is deliberately extended below the horizon (Z_MIN), so it runs from -0.3
+    // to 1. `1 - z` is what the clearance follows: greatest for the rays
+    // aimed under the surface, none for one leaving straight along the normal.
+    // Taking the magnitude instead would give the below-horizon rays less
+    // clearance than a tangent one, which is backwards — they are the ones
+    // that travel furthest through the gap.
+    float bias = max(SS_GI_RAY_BIAS_MIN,
+                     trace_cell_size * SS_GI_RAY_BIAS_SLOPE_SCALE
+                         * (1.0 - local_dir.z));
+    vec3 ray_origin = world_pos + normal * bias;
 
     payload = vec4(0.0, 0.0, 0.0, -1.0);
     traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xFF,

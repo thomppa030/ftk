@@ -37,7 +37,11 @@ struct GpuSsGiConstants {
     uint32_t probe_spacing{16};
     uint32_t frame_index{0};
     glm::uvec2 probe_count;
-    float pad0{0.0f};
+    /// Metres between vertices of the coarsest geometry the rays trace
+    /// against — terrain's ray mesh, the one surface traced at a lower
+    /// resolution than it was shaded from. Rays start this much further out
+    /// of a sloping surface, or they begin inside it. Zero without terrain.
+    float trace_cell_size{0.0f};
     float pad1{0.0f};
     glm::vec4 sun_direction_intensity; // xyz = toward-light dir, w = intensity
     glm::vec4 sun_color;               // xyz = color, w = unused
@@ -139,6 +143,13 @@ public:
 
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
 
+    /// The coarsest cell in the traced geometry, in metres — terrain's ray
+    /// mesh spacing. Rays start further out of a sloping surface by this
+    /// much, or they begin inside the mesh they are about to trace. Zero when
+    /// no terrain is loaded, which puts rays back on the flat-ground minimum.
+    void set_trace_cell_size(float m) { trace_cell_size_ = m; }
+    [[nodiscard]] float trace_cell_size() const { return trace_cell_size_; }
+
     void set_sun_light(glm::vec3 direction, glm::vec3 color, float intensity) {
         sun_direction_ = direction;
         sun_color_ = color;
@@ -203,6 +214,7 @@ private:
 
     // RT backend
     AccelStructureManager* accel_manager_{nullptr};
+    float trace_cell_size_{0.0F};
 
     // Shader binding table
     std::unique_ptr<Buffer> sbt_buffer_;

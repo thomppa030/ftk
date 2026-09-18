@@ -1659,8 +1659,11 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         AABB scene_bounds;
         scene_sdf_pass().begin_gather();
         // Re-accumulated from the terrains actually present below, so removing
-        // one does not leave the ray bias set for geometry that is gone.
+        // one does not leave the ray bias set for geometry that is gone. Both
+        // tracers read it: they trace the same acceleration structure, so they
+        // meet the same coarse terrain.
         rt_reflection_pass().set_trace_cell_size(0.0F);
+        ss_gi_pass().set_trace_cell_size(0.0F);
 
         auto gather_sdf = [&](Scene& s) {
             for (const auto& obj : s.objects()) {
@@ -1676,14 +1679,16 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     TerrainAsset& terrain = *tc->terrain;
 
                     // Terrain is ray-traced against a coarser mesh than it is
-                    // drawn from, so a reflection ray spawned on the drawn
-                    // surface can start inside the traced one. The pass offsets
-                    // its rays by how far the two can drift, which is set by
-                    // the coarse mesh's spacing; the coarsest terrain in the
-                    // scene decides it.
+                    // drawn from, so a ray spawned on the drawn surface can
+                    // start inside the traced one. Both tracers offset their
+                    // rays by how far the two can drift, which is set by the
+                    // coarse mesh's spacing; the coarsest terrain in the scene
+                    // decides it.
+                    const float ray_spacing = terrain.ray_mesh_spacing();
                     rt_reflection_pass().set_trace_cell_size(
-                        std::max(rt_reflection_pass().trace_cell_size(),
-                                 terrain.ray_mesh_spacing()));
+                        std::max(rt_reflection_pass().trace_cell_size(), ray_spacing));
+                    ss_gi_pass().set_trace_cell_size(
+                        std::max(ss_gi_pass().trace_cell_size(), ray_spacing));
 
                     const glm::vec3 origin = terrain.world_min_corner(spatial->world_matrix_);
                     const float span = terrain.world_size();

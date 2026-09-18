@@ -499,6 +499,7 @@ void SsGiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.probe_spacing = config_.probe_spacing;
     constants.frame_index = frame_counter_;
     constants.probe_count = imgs.probe_count;
+    constants.trace_cell_size = trace_cell_size_;
 
     // Sun light for closest-hit direct lighting (cached via set_sun_light)
     constants.sun_direction_intensity = glm::vec4(
