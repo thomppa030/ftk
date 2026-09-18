@@ -47,6 +47,9 @@ public:
     /// camera. Enough for a walker, a horse, or a low bank rolled over a rise.
     static constexpr float HEIGHT_METRES = 16.0f;
     static constexpr float FLOOR_BELOW_EYE = 4.0f;
+    /// How far below the lowest thing stirring the air the box reaches, when
+    /// that is lower than the camera would have put it.
+    static constexpr float FLOOR_BELOW_SOURCE = 2.0f;
     /// One signed channel: how much of the fog here was pushed aside.
     static constexpr VkFormat FIELD_FORMAT = VK_FORMAT_R16_SFLOAT;
     /// How long a disturbance lasts. Longer than the motion field remembers,
@@ -78,7 +81,6 @@ public:
     /// How far the wind carries a disturbance, against its own speed. Air that
     /// has been stirred goes with the weather rather than standing still in it.
     static constexpr float WIND_FRACTION = 0.4f;
-
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
@@ -115,6 +117,8 @@ private:
         glm::vec4 tuning;              // x spread, y wake width, z swirl, w carve
         float time;
         float buoyancy;
+        float vortex_strength;
+        float compression;
     };
 
     bool active_{false};
@@ -150,6 +154,13 @@ private:
     uint32_t moving_count_{0};
     float still_seconds_{0.0f};
     bool settled_{false};
+    /// How hard a scene's volumes ask for the rolls a body sheds, and for the
+    /// air piling up where those rolls gather it. Taken as the strongest asked
+    /// for by any volume: a wake belongs to the body that shed it, not to a
+    /// volume, so it cannot sensibly differ between two volumes the same runner
+    /// is crossing.
+    float vortex_strength_{0.0f};
+    float compression_{0.0f};
     /// Whether the field has already been carried forward this frame. It is one
     /// thing in the world, not one per view, and record() runs once per
     /// viewport: stepping it twice would advance it over the same span of time

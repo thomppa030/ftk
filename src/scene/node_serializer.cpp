@@ -148,6 +148,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"max_distance", vf->max_distance},
             {"temporal_blend", vf->temporal_blend},
             {"motion_response", vf->motion_response},
+            {"density_field_debug", vf->density_field_debug},
             {"color", color_to_json(vf->fog_color)},
             {"shafts_enabled", vf->shafts_enabled},
             {"shaft_intensity", vf->shaft_intensity},
@@ -176,7 +177,10 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"wind_influence", fv->wind_influence},
             {"wind_speed_scale", fv->wind_speed_scale},
             {"noise_octaves", fv->noise_octaves},
-            {"motion_response", fv->motion_response}
+            {"motion_response", fv->motion_response},
+            {"vortex_strength", fv->vortex_strength},
+            {"compression", fv->compression},
+            {"density_field_debug", fv->density_field_debug}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
@@ -413,6 +417,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->max_distance = jf.value("max_distance", 130.0f);
                 vf->temporal_blend = jf.value("temporal_blend", 0.9f);
                 vf->motion_response = jf.value("motion_response", 0.0f);
+                vf->density_field_debug = jf.value("density_field_debug", 0.0f);
                 if (jf.contains("color")) {
                     auto& c = jf["color"];
                     vf->fog_color = color_from_json(c);
@@ -462,6 +467,9 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 fv->wind_speed_scale = jv.value("wind_speed_scale", 0.15f);
                 fv->noise_octaves = jv.value("noise_octaves", 2);
                 fv->motion_response = jv.value("motion_response", 0.0f);
+                fv->vortex_strength = jv.value("vortex_strength", 0.0f);
+                fv->compression = jv.value("compression", 0.0f);
+                fv->density_field_debug = jv.value("density_field_debug", 0.0f);
             }
             node = std::move(fv);
         } else if (node_type == "world_environment") {

@@ -29,12 +29,26 @@ layout(push_constant) uniform PushConstants {
     vec4 tuning;                // x spread, y wake width, z swirl, w carve
     float time;
     float buoyancy;
+    float vortex_strength;
+    float compression;
 } pc;
 
 // How coarse the eddies are and how fast they churn, in metres and in metres
 // per second of drift through the noise.
 const float SWIRL_METRES = 3.0;
 const float SWIRL_DRIFT = 0.15;
+const float TWO_PI = 6.28318530718;
+// How far apart the rolls of a wake sit, in metres, and how far to the side of
+// the path their cores lie as a share of the wake's own width. A body sheds
+// them about five of its own widths apart; these are looser than that so a roll
+// is several texels across and can be seen at all.
+const float VORTEX_SPACING = 2.2;
+const float VORTEX_OFFSET = 0.6;
+// How far behind a body its rolls keep turning, in metres.
+const float VORTEX_REACH = 6.0;
+// How hard they turn, against the speed of what shed them.
+const float VORTEX_STRENGTH = 0.45;
+
 // Below this the air counts as still and the texel is cleared outright, so the
 // field reaches exactly nothing rather than trailing an ever smaller number
 // that keeps the pass awake.
@@ -44,6 +58,10 @@ const float DEADBAND = 1.0e-3;
 const float MAX_MAGNITUDE = 1.0;
 // How fast a source has to be going before it stirs anything.
 const float STILL_SPEED = 0.05;
+// The most a texel may gain or lose to the flow squeezing it in one frame.
+// Convergence compounds, so without a ceiling a roll's core would run to the
+// clamp in under a second and sit there.
+const float MAX_SQUEEZE = 0.04;
 
 vec3 box_extent() {
     return vec3(pc.extent_decay_dt.x, pc.extent_decay_dt.y, pc.extent_decay_dt.x);
@@ -68,6 +86,58 @@ float sample_prev(vec3 world_pos) {
     vec3 uv = world_to_prev_uv(world_pos);
     if (!inside_box(uv)) return 0.0;
     return texture(density_prev, uv).r;
+}
+
+/// The rolls a body sheds as it goes. Something moving through air does not
+/// leave a straight wake behind it: the flow separates off one side and then
+/// the other in turn, and each separation rolls up into a vortex that spins
+/// opposite to the one before it. What trails away is two rows of counter-
+/// rotating rolls rather than a line.
+///
+/// Built rather than simulated. The field is half a metre to a texel and a
+/// real roll off a walker is about that wide, so the honest version would sit
+/// under the resolution and read as nothing; these are scaled up until a roll
+/// spans several texels and spaced by a period the source's own speed sets, so
+/// they still lengthen as it runs and bunch as it slows.
+///
+/// Returned as a velocity to advect by, not as density: a roll that turns the
+/// air carries whatever the wake already holds around with it, so the fog
+/// curls instead of having rings drawn into it.
+vec3 vortex_street(GpuSource src, vec3 world_pos, float strength) {
+    vec3 flat_vel = vec3(src.velocity_reach.x, 0.0, src.velocity_reach.z);
+    float speed = length(flat_vel);
+    if (speed <= STILL_SPEED || strength <= 0.0) return vec3(0.0);
+
+    vec3 heading = flat_vel / speed;
+    vec3 across = vec3(-heading.z, 0.0, heading.x);
+    vec3 to_point = world_pos - src.position_radius.xyz;
+
+    // Where the point sits in the wake: how far behind the body, and how far
+    // to one side of the path.
+    float behind = -dot(to_point, heading);
+    float side = dot(to_point, across);
+    if (behind <= 0.0) return vec3(0.0);
+
+    float width = max(src.position_radius.w, 0.05) * pc.tuning.y;
+
+    // One roll per period of the street, and the sign flips from one to the
+    // next — which is what makes the two rows turn against each other.
+    float phase = behind / max(VORTEX_SPACING, 0.01);
+    float turn = sin(phase * TWO_PI);
+
+    // A roll sits off to one side, not on the path, and the side it sits on
+    // alternates with it. Nothing turns along the centre line, which is where
+    // the trough of the wake runs.
+    float offset = side / max(width * VORTEX_OFFSET, 0.01);
+    float lobe = offset * exp(-offset * offset);
+
+    // Rolls are born at the body and spin down as they trail away.
+    float age = exp(-behind / max(VORTEX_REACH, 0.01));
+
+    // Turning about the upright axis: the air goes round the roll's core
+    // rather than toward it.
+    vec3 spin = cross(vec3(0.0, 1.0, 0.0), normalize(to_point + heading * 1e-3));
+    return spin * turn * lobe * age * strength * speed * VORTEX_STRENGTH;
 }
 
 /// Which way the air at a point is going, and how fast. Nothing about this is
@@ -95,6 +165,22 @@ vec3 advect_velocity(vec3 world_pos, float here) {
     return swirl * pc.tuning.z + rise + wind;
 }
 
+/// The rolls every moving thing is shedding here, summed.
+vec3 vortex_velocity(vec3 world_pos) {
+    if (pc.vortex_strength <= 0.0) return vec3(0.0);
+    vec3 total = vec3(0.0);
+    for (uint i = 0u; i < pc.res_count.z; ++i) {
+        total += vortex_street(sources[i], world_pos, pc.vortex_strength);
+    }
+    return total;
+}
+
+/// Everything moving the air here, as one velocity — what the advection steps
+/// along, and what the divergence of the flow is taken of.
+vec3 velocity_at(vec3 world_pos) {
+    return advect_velocity(world_pos, 0.0) + vortex_velocity(world_pos);
+}
+
 /// How much of a body's push reaches a point: 1 along the axis of the capsule
 /// it sweeps, falling to 0 at the edge of the wake it leaves.
 float source_reach(GpuSource src, vec3 world_pos) {
@@ -107,8 +193,15 @@ float source_reach(GpuSource src, vec3 world_pos) {
     float t = clamp(dot(to_point, axis) / dot(axis, axis), 0.0, 1.0);
     float dist = length(to_point - axis * t);
 
-    float radius = max(src.position_radius.w, 0.05) * pc.tuning.y;
-    return 1.0 - smoothstep(radius * 0.35, radius, dist);
+    // Never narrower than a couple of texels, whatever the body. A wake thinner
+    // than the grid falls between the points that sample it and leaves nothing
+    // at all — which is the difference between a walker and a car reading as a
+    // difference in strength rather than in whether anything happened.
+    float radius = max(src.position_radius.w * pc.tuning.y, pc.origin_texel.w * 2.0);
+    // Falling off across the whole width rather than holding full strength in a
+    // core and dropping outside it: a core sized to a body is under a texel
+    // across, and what the grid can actually carry is the broad shape.
+    return 1.0 - smoothstep(0.0, radius, dist);
 }
 
 void main() {
@@ -136,22 +229,47 @@ void main() {
     // the step lands exactly on a texel centre and reads back the value stored
     // there. A box that was not snapped would land between eight texels every
     // frame, and a field filtered once a frame melts away.
-    vec3 vel = advect_velocity(world_pos, here);
+    vec3 texel_size = box_extent() / res;
+    vec3 vel = advect_velocity(world_pos, here) + vortex_velocity(world_pos);
     float field = sample_prev(world_pos - vel * dt);
+
+    // Air that is flowing together gets denser, and air flowing apart thins —
+    // which is what a roll does to the fog it is turning, and the part of a
+    // wake that reads as something happening rather than as a patch sliding
+    // about. Advection alone cannot show it: a step that asks what flowed in
+    // conserves whatever it moves, however hard the flow is squeezing.
+    //
+    // How much the flow converges here is the divergence of it, so the same
+    // three taps that turn the air also say where it is piling up. Clamped
+    // because a strong convergence compounds every frame and would otherwise
+    // run a texel to the ceiling and hold it there.
+    if (pc.compression > 0.0) {
+        vec3 dx = vec3(texel_size.x, 0.0, 0.0);
+        vec3 dy = vec3(0.0, texel_size.y, 0.0);
+        vec3 dz = vec3(0.0, 0.0, texel_size.z);
+        float divergence =
+            (velocity_at(world_pos + dx).x - velocity_at(world_pos - dx).x) / (2.0 * texel_size.x) +
+            (velocity_at(world_pos + dy).y - velocity_at(world_pos - dy).y) / (2.0 * texel_size.y) +
+            (velocity_at(world_pos + dz).z - velocity_at(world_pos - dz).z) / (2.0 * texel_size.z);
+        float squeeze = clamp(-divergence * pc.compression * dt, -MAX_SQUEEZE, MAX_SQUEEZE);
+        field *= 1.0 + squeeze;
+    }
 
     // Air pushes on the air beside it, so a wake widens and softens as it ages.
     // With a signed field this is also how it dies: a trough and the heaps
     // beside it cancel as they run together, so the disturbance settles by
     // spreading into itself rather than by being faded out from under the eye.
-    vec3 texel = 1.0 / res * box_extent();
     float neighbours =
-        sample_prev(world_pos + vec3(texel.x, 0.0, 0.0)) +
-        sample_prev(world_pos - vec3(texel.x, 0.0, 0.0)) +
-        sample_prev(world_pos + vec3(0.0, texel.y, 0.0)) +
-        sample_prev(world_pos - vec3(0.0, texel.y, 0.0)) +
-        sample_prev(world_pos + vec3(0.0, 0.0, texel.z)) +
-        sample_prev(world_pos - vec3(0.0, 0.0, texel.z));
-    float bleed = clamp(pc.tuning.x * dt * 60.0, 0.0, 1.0);
+        sample_prev(world_pos + vec3(texel_size.x, 0.0, 0.0)) +
+        sample_prev(world_pos - vec3(texel_size.x, 0.0, 0.0)) +
+        sample_prev(world_pos + vec3(0.0, texel_size.y, 0.0)) +
+        sample_prev(world_pos - vec3(0.0, texel_size.y, 0.0)) +
+        sample_prev(world_pos + vec3(0.0, 0.0, texel_size.z)) +
+        sample_prev(world_pos - vec3(0.0, 0.0, texel_size.z));
+    // A share per second, not per frame: the same spreading whatever the
+    // framerate, and slow enough that a wake has time to drift and roll before
+    // it has smoothed itself away.
+    float bleed = 1.0 - exp(-pc.tuning.x * dt);
     field = mix(field, neighbours / 6.0, bleed);
 
     // And it forgets, on top of the spreading. Exponential so that it never

@@ -141,6 +141,8 @@ public:
         // How far the height fog answers things moving through it. Read by
         // the inject pass; shared with the other three the same way.
         float motion_response;
+        // Paints the stirred air so the density field can be seen. 0 is off.
+        float density_field_debug;
     };
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
@@ -160,6 +162,7 @@ private:
     float max_distance_{130.0f};
     float temporal_blend_{0.9f};
     float motion_response_{0.0f};
+    float density_field_debug_{0.0f};
     glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
     uint32_t volume_count_{0};
 

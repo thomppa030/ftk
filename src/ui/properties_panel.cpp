@@ -585,6 +585,16 @@ void PropertiesPanel::draw() {
                             scene_->mark_dirty();
                         }
                     });
+                    prop_row("Show Field", [&] {
+                        bool on = vf->density_field_debug > 0.0f;
+                        if (ImGui::Checkbox("##FogFieldDebug", &on)) {
+                            vf->density_field_debug = on ? 1.0f : 0.0f;
+                            scene_->mark_dirty();
+                        }
+                    });
+                }
+                if (vf->density_field_debug > 0.0f) {
+                    ImGui::TextDisabled("Red = air pushed aside, blue = piled up.");
                 }
                 if (vf->motion_response <= 0.0f) {
                     ImGui::TextDisabled("Ignores things moving through it.");
@@ -692,9 +702,33 @@ void PropertiesPanel::draw() {
                             scene_->mark_dirty();
                         }
                     });
+                    prop_row("Vortices", [&] {
+                        if (ImGui::SliderFloat("##FogVolVortex", &fv->vortex_strength,
+                                               0.0f, 2.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Compression", [&] {
+                        if (ImGui::SliderFloat("##FogVolCompress", &fv->compression,
+                                               0.0f, 3.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Show Field", [&] {
+                        bool on = fv->density_field_debug > 0.0f;
+                        if (ImGui::Checkbox("##FogVolFieldDebug", &on)) {
+                            fv->density_field_debug = on ? 1.0f : 0.0f;
+                            scene_->mark_dirty();
+                        }
+                    });
                 }
                 if (fv->motion_response <= 0.0f) {
                     ImGui::TextDisabled("Ignores things moving through it.");
+                } else if (fv->vortex_strength > 0.0f) {
+                    ImGui::TextDisabled("Rolls shed off each flank of a wake.");
+                }
+                if (fv->density_field_debug > 0.0f) {
+                    ImGui::TextDisabled("Red = air pushed aside, blue = piled up.");
                 }
             }
 

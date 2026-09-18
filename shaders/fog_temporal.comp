@@ -32,6 +32,7 @@ layout(push_constant) uniform PushConstants {
     float jitter_z;
     uint volume_count;
     float motion_response;
+    float density_field_debug;
 } pc;
 
 float slice_to_depth(float t) {

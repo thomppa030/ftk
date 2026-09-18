@@ -169,6 +169,28 @@ struct FogVolumeNode : VolumeNode {
     /// wants this, a distant bank does not.
     float motion_response{0.0f};
 
+    /// How hard the rolls a body sheds turn the air behind it, 0 for none.
+    /// Something moving through air separates the flow off one side and then
+    /// the other, and each separation rolls up turning against the last, so a
+    /// wake trails two rows of counter-spinning eddies rather than a line.
+    ///
+    /// Deliberately not physical. A real roll off a walker is about as wide as
+    /// the field's own texels and would read as nothing, so these are scaled
+    /// until they can be seen — a dial for how much of the effect is wanted
+    /// rather than a measurement of air.
+    float vortex_strength{0.0f};
+
+    /// Paints the air the density field has stirred — red where it was shoved
+    /// aside, blue where it piled up — so what the field holds can be looked
+    /// at directly. An aid while tuning, not something a scene ships with.
+    /// How much the air piling up thickens the fog, 0 for not at all. A roll
+    /// gathers air on one side and thins it on the other, and showing that is
+    /// most of what makes a wake read as something happening rather than as a
+    /// patch of fog sliding about.
+    float compression{0.0f};
+
+    float density_field_debug{0.0f};
+
     /// How far the field has drifted so far, in world metres. Integrated each
     /// frame rather than derived from a clock, because the direction and the
     /// speed both move with the wind and a field that jumped when the weather
@@ -190,6 +212,9 @@ struct FogVolumeNode : VolumeNode {
         copy->wind_speed_scale = wind_speed_scale;
         copy->noise_octaves = noise_octaves;
         copy->motion_response = motion_response;
+        copy->vortex_strength = vortex_strength;
+        copy->compression = compression;
+        copy->density_field_debug = density_field_debug;
         return copy;
     }
 };
@@ -219,6 +244,12 @@ struct VolumetricFogNode : Node3D {
     /// Somewhere close and enclosed it has a share of the column worth
     /// noticing. A fog volume is the place to look for a wake that carries.
     float motion_response{0.0f};
+
+    /// Paints the air the density field has stirred — red where it was shoved
+    /// aside, blue where it piled up — so what the field holds can be looked
+    /// at directly rather than inferred from what it does to the fog. An aid
+    /// while tuning, not something a scene ships with.
+    float density_field_debug{0.0f};
 
     // Analytic sun shafts (directional light crepuscular rays, screen-space ray-march)
     bool shafts_enabled{true};
@@ -252,6 +283,7 @@ struct VolumetricFogNode : Node3D {
         copy->temporal_blend = temporal_blend;
         copy->fog_color = fog_color;
         copy->motion_response = motion_response;
+        copy->density_field_debug = density_field_debug;
         copy->shafts_enabled = shafts_enabled;
         copy->shaft_intensity = shaft_intensity;
         copy->shaft_density_mult = shaft_density_mult;

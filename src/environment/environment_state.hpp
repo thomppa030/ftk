@@ -82,6 +82,9 @@ struct FogSettings {
     float temporal_blend{0.9f};
     /// How far the height fog answers things moving through it, 0 for none.
     float motion_response{0.0f};
+    /// Paints the air the density field has stirred, for looking at what the
+    /// field holds rather than at what it does to the fog. 0 is off.
+    float density_field_debug{0.0f};
     glm::vec3 color{0.8f, 0.85f, 0.9f};
 };
 
@@ -124,6 +127,12 @@ struct FogVolume {
     int noise_octaves{2};
     /// How far the volume answers things moving through it, 0 for not at all.
     float motion_response{0.0f};
+    /// How hard the rolls a body sheds turn the air behind it, 0 for none.
+    float vortex_strength{0.0f};
+    /// How much the air piling up thickens the fog, 0 for not at all.
+    float compression{0.0f};
+    /// Paints the air this volume's stir has moved, for looking at the field.
+    float density_field_debug{0.0f};
 };
 
 /// A day profile and a weather event both reach fog volumes by the same

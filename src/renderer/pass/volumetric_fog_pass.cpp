@@ -369,6 +369,12 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     max_distance_ = fog.max_distance;
     temporal_blend_ = fog.temporal_blend;
     motion_response_ = fog.motion_response;
+    // Either the fog node or any volume may ask to see the field; one of them
+    // asking is enough, since the field is one thing across the whole scene.
+    density_field_debug_ = fog.density_field_debug;
+    for (const auto& volume : ctx.environment->fog_volumes) {
+        density_field_debug_ = std::max(density_field_debug_, volume.density_field_debug);
+    }
     fog_color_ = fog.color;
     volume_count_ = std::min(static_cast<uint32_t>(ctx.environment->fog_volumes.size()),
                              MAX_FOG_VOLUMES);
@@ -392,6 +398,7 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.anisotropy = anisotropy_;
     push.temporal_blend = temporal_blend_;
     push.motion_response = motion_response_;
+    push.density_field_debug = density_field_debug_;
     push.viewport_width = width;
     push.viewport_height = height;
     push.fog_color_r = fog_color_.r;

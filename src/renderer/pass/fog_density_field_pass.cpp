@@ -211,6 +211,17 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
         }
     }
 
+    // The loudest any volume asks the rolls to be. A wake is the body's, not
+    // the volume's, so one number serves the frame.
+    vortex_strength_ = 0.0f;
+    compression_ = 0.0f;
+    if (ctx.environment != nullptr) {
+        for (const auto& volume : ctx.environment->fog_volumes) {
+            vortex_strength_ = std::max(vortex_strength_, volume.vortex_strength);
+            compression_ = std::max(compression_, volume.compression);
+        }
+    }
+
     // A box around the camera, snapped to whole texels on every axis. What the
     // field holds then stands still on the ground: with nothing moving, the
     // step back that advection takes lands on a texel centre and reads the
@@ -221,9 +232,26 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
     const float texel_y = HEIGHT_METRES / static_cast<float>(RESOLUTION_Y);
     const glm::vec3 eye = ctx.camera_position;
     const float half = EXTENT_METRES * 0.5f;
+
+    // The box follows the camera across the ground but hangs from whatever is
+    // stirring the air, not from the eye. A camera looking down from above —
+    // an editor view, a third-person shot — would otherwise carry the box up
+    // with it and leave the wake at somebody's feet outside the bottom of it.
+    // The lowest source in the scene is what has to be covered; the eye only
+    // decides which patch of ground is worth keeping.
+    float floor_y = eye.y - FLOOR_BELOW_EYE;
+    if (source_count_ > 0) {
+        const auto* src = static_cast<const GpuSource*>(source_buffer_->mapped());
+        float lowest = src[0].position_radius.y;
+        for (uint32_t i = 1; i < source_count_; ++i) {
+            lowest = std::min(lowest, src[i].position_radius.y);
+        }
+        floor_y = std::min(floor_y, lowest - FLOOR_BELOW_SOURCE);
+    }
+
     const glm::vec3 origin{
         std::floor((eye.x - half) / texel_xz) * texel_xz,
-        std::floor((eye.y - FLOOR_BELOW_EYE) / texel_y) * texel_y,
+        std::floor(floor_y / texel_y) * texel_y,
         std::floor((eye.z - half) / texel_xz) * texel_xz,
     };
 
@@ -345,6 +373,8 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
                             SWIRL_METRES_PER_SECOND, CARVE_PER_SECOND);
     push.time = elapsed_;
     push.buoyancy = BUOYANCY_METRES_PER_SECOND;
+    push.vortex_strength = vortex_strength_;
+    push.compression = compression_;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_,

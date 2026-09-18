@@ -1,3 +1,4 @@
+#include "core/log.hpp"
 #include "environment/environment_resolver.hpp"
 
 #include "environment/day_profile_asset.hpp"
@@ -152,6 +153,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                 f.max_distance = fog->max_distance;
                 f.temporal_blend = fog->temporal_blend;
                 f.motion_response = fog->motion_response;
+                f.density_field_debug = fog->density_field_debug;
                 f.color = fog->fog_color;
 
                 auto& s = state.sun_shafts;
@@ -183,6 +185,9 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                 .noise_drift = volume->noise_drift_,
                 .noise_octaves = volume->noise_octaves,
                 .motion_response = volume->motion_response,
+                .vortex_strength = volume->vortex_strength,
+                .compression = volume->compression,
+                .density_field_debug = volume->density_field_debug,
             });
             continue;
         }

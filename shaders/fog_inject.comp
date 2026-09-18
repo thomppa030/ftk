@@ -57,6 +57,7 @@ layout(push_constant) uniform PushConstants {
     float jitter_z;
     uint volume_count;
     float motion_response;
+    float density_field_debug;
 } pc;
 
 // Exponential depth distribution
@@ -116,16 +117,22 @@ const float MOTION_FADE_METRES = 1.0;
 // along the ray for the same thinning to read plainly, which is why the volume
 // path leans on it. Height fog wants something that changes what the fog looks
 // like rather than how much of it there is.
+
+const float GLOBAL_MOTION_THIN = 0.5;
+const float GLOBAL_MOTION_HEAP = 0.35;
+
 // What a stirred texel is worth to the fog around it. A full-strength wake
 // takes the air to somewhat over half and a full-strength heap to somewhat
 // under half again, which is a plain change in a bank of fog without either
 // end reading as a hole punched through it or a wall built beside it.
+// How bright the debug colour comes out once the integrator's own scaling has
+// been undone. A froxel's slice is a fraction of a metre near the camera, so
+// the colour is spread over many of them before it reaches the eye.
+const float DEBUG_EMIT_GAIN = 0.25;
+
 const float FOG_DENSITY_STRENGTH = 0.8;
 const float FOG_DENSITY_FLOOR = 0.2;
 const float FOG_DENSITY_CEIL = 1.8;
-
-const float GLOBAL_MOTION_THIN = 0.5;
-const float GLOBAL_MOTION_HEAP = 0.35;
 
 // Henyey-Greenstein phase function. Isotropic baseline is ~0.08 (1/4π);
 // clamping at 0.1 keeps the forward-scatter peak gentle and prevents the
@@ -434,6 +441,8 @@ void main() {
         density_sum *= scale;
         color_sum *= scale;
         scatter_sum *= scale;
+
+
     }
 
     // Colour and scattering are averages over the fog present here, weighted
@@ -442,6 +451,19 @@ void main() {
     float inv_density = 1.0 / max(density_sum, 1e-6);
     vec3 fog_color = color_sum * inv_density;
     float scatter_mult = scatter_sum * inv_density;
+
+    // Colours what the stir is doing to the fog that is here, red where the air
+    // was shoved aside and blue where it piled up. It paints and adds nothing:
+    // where there is no fog there is nothing to see, which is the point — this
+    // shows the effect rather than the field behind it.
+    //
+    // Emitted rather than lit, so the colour reads the same at any hour and in
+    // any weather instead of being one more thing the lighting scales.
+    vec3 debug_emit = vec3(0.0);
+    if (pc.density_field_debug > 0.0 && stir != 0.0) {
+        float show = clamp(abs(stir) * 6.0 * pc.density_field_debug, 0.0, 1.0);
+        debug_emit = (stir < 0.0 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.4, 1.0)) * show;
+    }
 
     // Fade density to zero near max distance to prevent uniform grey wall.
     // Use view-space depth (not ray_dist) so the fade is uniform across the
@@ -532,6 +554,18 @@ void main() {
     vec3 ambient = sky_ambient * ubo.ambient_color.w * ISOTROPIC_PHASE;
 
     vec3 in_scattered = fog_color * scatter_coeff * (light_contrib + ambient);
+
+    // The integrator divides what it is handed by extinction and scales it by
+    // how much of the slice the fog absorbs — right for light scattered out of
+    // a medium, wrong for a colour that is only here to be looked at. Undoing
+    // exactly that leaves the debug colour at the strength it was written,
+    // whether the fog it sits in is thick or barely there.
+    if (debug_emit != vec3(0.0)) {
+        float slice_far = slice_to_depth(min(froxel_uv.z + 1.0 / float(pc.volume_dims.z), 1.0));
+        float thickness = max(slice_far - linear_depth, 1e-4);
+        float absorbed = 1.0 - exp(-extinction * thickness);
+        in_scattered += debug_emit * extinction / max(absorbed, 1e-7) * DEBUG_EMIT_GAIN;
+    }
 
     imageStore(scatter_volume, coord, vec4(in_scattered, extinction));
 }
