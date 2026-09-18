@@ -72,15 +72,29 @@ void main() {
     float w = depth_to_slice(linear_z);
     w = clamp(w, 0.0, 1.0);
 
-    // Dither the UV by half a froxel to break up block edges.
-    // The interleaved gradient noise varies per pixel, smoothing the
-    // hard froxel boundaries that show up against a bright sky.
+    // Dither by half a froxel to break up block edges. The interleaved
+    // gradient noise varies per pixel, smoothing the hard froxel boundaries
+    // that show up against a bright sky.
+    //
+    // Depth is dithered on the same noise as the screen axes. Trilinear
+    // filtering reconstructs the integral between slice centres linearly,
+    // which is only an approximation of a curve that bends most where the
+    // density does — at a fog volume's edge. Jittering which pair of slices a
+    // pixel lands between turns what is left of that stepping into noise for
+    // TAA to resolve, rather than into a contour following the surface.
     float noise = ign(coord) - 0.5;
     vec2 froxel_size = vec2(1.0) / vec2(pc.volume_dims.xy);
     vec2 dithered_uv = uv + noise * froxel_size * 0.5;
 
+    // Clamped so the dither cannot pull a sample past the first or last slice
+    // centre, where there is no neighbour to blend with and the texture's edge
+    // clamp would quietly repeat one slice instead.
+    float inv_slices = 1.0 / float(pc.volume_dims.z);
+    float dithered_w = clamp(w + noise * inv_slices,
+                             0.5 * inv_slices, 1.0 - 0.5 * inv_slices);
+
     // Sample integrated fog volume (trilinear)
-    vec4 fog = texture(integrated_volume, vec3(dithered_uv, w));
+    vec4 fog = texture(integrated_volume, vec3(dithered_uv, dithered_w));
     // fog.rgb = accumulated in-scattered light, fog.a = transmittance
 
     // Apply fog to scene color. For sky pixels we drop the in-scatter term
