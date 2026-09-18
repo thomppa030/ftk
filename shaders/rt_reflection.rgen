@@ -21,11 +21,49 @@ layout(push_constant) uniform PushConstants {
     uint frame_index;
     float max_trace_dist;
     float intensity;
-    float pad;
+    float trace_cell_size;   // metres between traced-geometry vertices
 };
 
 
 layout(location = 0) rayPayloadEXT vec4 payload;
+
+// Where a dielectric stops being worth a reflection ray, and where it starts
+// being worth less. Past the cutoff no ray is traced; between the two the
+// result is ramped down to meet it, so the surface does not carry a visible
+// line at the point where tracing stops.
+//
+// The band sits ABOVE where wet ground lands. A water film pins roughness to
+// WET_ROUGHNESS (0.35, fjell_weather_surface.glsl), so a fade beginning there
+// would start attenuating the very surfaces this is for, and specular AA —
+// which widens roughness with the pixel's world footprint — would then walk
+// wet ground down the ramp as the camera pulls back. The reflection would
+// fade out with distance for reasons the surface knows nothing about.
+const float RT_ROUGHNESS_CUTOFF = 0.65;
+const float RT_ROUGHNESS_FADE_START = 0.5;
+
+// How far a ray starts from the surface that spawned it.
+//
+// The shaded surface and the traced surface are not the same surface. Terrain
+// is rasterized from the full-resolution height texture but ray-traced against
+// a decimated mesh (TerrainAsset::build_ray_mesh, RAY_MESH_STEP), and between
+// two of the coarse mesh's vertices the two disagree by roughly half the
+// height the real ground covers over one coarse cell. On flat ground that is
+// nothing; on a slope it is centimetres to metres, and it is entirely one-
+// sided — the coarse mesh cuts corners, so it sits above the true surface on
+// every convex slope.
+//
+// A ray launched from the rasterized position therefore starts *inside* the
+// traced terrain wherever the ground is not flat. It hits it immediately, at
+// almost zero distance, and comes back with the ground's own dark radiance
+// where it should have come back with the sky. That reads as dark patches
+// following the slopes, which is exactly where the two surfaces differ.
+//
+// The offset scales with how far the two can drift: the coarse cell size and
+// the surface's tilt away from the ray. A constant would have to be the worst
+// case everywhere, which on flat ground floats every reflection off its own
+// surface and loses contact shadowing.
+const float RT_RAY_BIAS_MIN = 0.05;
+const float RT_RAY_BIAS_SLOPE_SCALE = 0.75;
 
 // ── Hash + Halton ──────────────────────────────────────────────────────
 
@@ -99,9 +137,25 @@ void main() {
     float perceptual_roughness = mr.g;
     float alpha = perceptual_roughness * perceptual_roughness;
 
-    if (metallic < 0.1 && perceptual_roughness > 0.5) {
-        imageStore(reflection_out, pixel, vec4(0.0));
-        return;
+    // Rough dielectrics reflect too little to be worth a ray, so they are not
+    // traced. The cutoff is a fade rather than a step: a dielectric's
+    // reflection is already weak near it, but it is not zero, and dropping it
+    // to nothing in one texel draws the boundary on the surface. Terrain is
+    // where this shows — its roughness comes from blended layers, slope and
+    // specular AA, so it drifts smoothly across the cutoff and the untraced
+    // side reads as dark patches against ground the reflection has lifted.
+    //
+    // The ray is still skipped past the cutoff, so nothing is spent on
+    // surfaces that would contribute nothing; only the last stretch before it
+    // is ramped, and a metal is never faded.
+    float rough_fade = 1.0;
+    if (metallic < 0.1) {
+        rough_fade = 1.0 - smoothstep(RT_ROUGHNESS_FADE_START, RT_ROUGHNESS_CUTOFF,
+                                      perceptual_roughness);
+        if (rough_fade <= 0.0) {
+            imageStore(reflection_out, pixel, vec4(0.0));
+            return;
+        }
     }
 
     vec3 view_dir = normalize(ddgi.camera_position - world_pos);
@@ -123,7 +177,17 @@ void main() {
         ray_dir = reflect(-view_dir, N);
     }
 
-    vec3 ray_origin = world_pos + N * 0.05;
+    // Start the ray clear of the surface it will trace against, which is not
+    // the surface it was shaded from (see RT_RAY_BIAS_MIN). How far the two
+    // can differ over one coarse cell is that cell's length times how steeply
+    // the ground runs across it, so the bias follows the tilt: nothing on flat
+    // ground, most where the slope is steepest. `ray_dir` is used rather than
+    // the normal because a ray leaving along the surface travels furthest
+    // through the gap between the two representations.
+    float grazing = 1.0 - abs(dot(ray_dir, N));
+    float bias = max(RT_RAY_BIAS_MIN,
+                     trace_cell_size * RT_RAY_BIAS_SLOPE_SCALE * grazing);
+    vec3 ray_origin = world_pos + N * bias;
 
     payload = vec4(0.0, 0.0, 0.0, -1.0);
     traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xFF,
@@ -134,7 +198,7 @@ void main() {
     // Cap fireflies — RT secondary rays can land on tiny bright emissives
     // and explode the variance.
     radiance = min(radiance, vec3(50.0));
-    radiance *= intensity;
+    radiance *= intensity * rough_fade;
 
     imageStore(reflection_out, pixel, vec4(radiance, 1.0));
 }

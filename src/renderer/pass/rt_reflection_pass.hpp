@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/render_settings.hpp"
@@ -140,6 +141,31 @@ public:
     void set_intensity(float i) { intensity_ = i; }
     [[nodiscard]] float intensity() const { return intensity_; }
 
+    /// How far a reflection ray travels, in metres. The same value bounds the
+    /// trace and is declared to the acceleration structure as this pass's
+    /// reach, so the TLAS is built to cover what the rays can actually visit.
+    /// Read them from here rather than restating the distance — a reach
+    /// shorter than the trace is invisible until something reflective is far
+    /// enough from the probe grid to notice, which is the bug this replaced.
+    void set_max_trace_dist(float d) { max_trace_dist_ = d; }
+    [[nodiscard]] float max_trace_dist() const { return max_trace_dist_; }
+
+    /// The coarsest cell in the traced geometry, in metres — terrain's ray
+    /// mesh spacing, which is the only geometry traced coarser than it is
+    /// shaded. Rays start further out of the surface on slopes by this much,
+    /// or they begin inside the mesh they are about to trace. Zero when no
+    /// terrain is loaded, which puts rays back on the flat-ground minimum.
+    void set_trace_cell_size(float m) { trace_cell_size_ = m; }
+    [[nodiscard]] float trace_cell_size() const { return trace_cell_size_; }
+
+    /// The box this pass's rays can reach from `camera`, for
+    /// AccelStructureManager::register_trace_reach. Rays leave the camera in
+    /// every direction, so it is a cube around it rather than a frustum:
+    /// a reflection bounces backwards as readily as forwards.
+    [[nodiscard]] AABB trace_reach_bounds(const glm::vec3& camera) const {
+        return {camera - glm::vec3(max_trace_dist_), camera + glm::vec3(max_trace_dist_)};
+    }
+
     [[nodiscard]] VkDescriptorSetLayout trace_set_layout() const { return trace_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout denoise_set_layout() const { return denoise_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout spatial_set_layout() const { return spatial_set_layout_; }
@@ -157,6 +183,8 @@ private:
 
     Mode mode_{Mode::ScreenSpace};
     float intensity_{1.0F};
+    float max_trace_dist_{50.0F};
+    float trace_cell_size_{0.0F};
     uint32_t frame_counter_{0};
 
     // Temporal blend: how much of the accumulated history survives each frame.

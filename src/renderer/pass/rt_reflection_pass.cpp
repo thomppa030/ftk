@@ -29,7 +29,12 @@ struct ReflectionPush {
     uint32_t frame_index;
     float max_trace_dist;
     float intensity;
-    float pad;
+    // Size of the coarsest cell in the traced geometry, in metres — the
+    // terrain ray mesh's, since it is the one geometry that is traced at a
+    // lower resolution than it is shaded. The ray generation shader offsets
+    // a ray's origin by how far the two representations can disagree over
+    // that distance. Zero where no terrain is loaded.
+    float trace_cell_size;
 };
 
 // UBO at binding 14: sun lighting only. Everything else needed by the
@@ -920,7 +925,8 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     ReflectionPush push{};
     push.frame_index = frame_counter_++;
-    push.max_trace_dist = 100.0F;
+    push.max_trace_dist = max_trace_dist_;
+    push.trace_cell_size = trace_cell_size_;
     push.intensity = intensity_;
     vkCmdPushConstants(cmd, rt_pipeline_layout_,
                        VK_SHADER_STAGE_RAYGEN_BIT_KHR
