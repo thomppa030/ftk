@@ -22,6 +22,69 @@ TEST_CASE("Parse shader_type spatial", "[fjsl]") {
     REQUIRE(meta.shader_type == "spatial");
 }
 
+TEST_CASE("A group heads the uniforms declared under it", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float loose;
+        group "Colour";
+        uniform vec3 tint : hint_color;
+        uniform float strength;
+        group "Foam";
+        uniform float foam_edge;
+        void fragment() {}
+    )");
+
+    REQUIRE(meta.uniforms.size() == 4);
+    // Anything above the first heading belongs to none.
+    CHECK(meta.uniforms[0].name == "loose");
+    CHECK(meta.uniforms[0].group.empty());
+    CHECK(meta.uniforms[1].name == "tint");
+    CHECK(meta.uniforms[1].group == "Colour");
+    // A heading runs until the next one, not just over the uniform after it.
+    CHECK(meta.uniforms[2].name == "strength");
+    CHECK(meta.uniforms[2].group == "Colour");
+    CHECK(meta.uniforms[3].name == "foam_edge");
+    CHECK(meta.uniforms[3].group == "Foam");
+}
+
+TEST_CASE("Every group in a shader is picked up in order", "[fjsl]") {
+    // Twenty-odd headings in a row, which is the case that matters: a heading
+    // has to run until the next one rather than over the uniform after it.
+    std::string src = "shader_type spatial;\n";
+    for (int g = 0; g < 20; ++g) {
+        src += "group \"G" + std::to_string(g) + "\";\n";
+        for (int u = 0; u < 3; ++u) {
+            src += "uniform float g" + std::to_string(g) + "_" + std::to_string(u) + ";\n";
+        }
+    }
+    src += "void fragment() {}\n";
+
+    auto meta = parse_fjsl(src);
+    REQUIRE(meta.uniforms.size() == 60);
+    for (int g = 0; g < 20; ++g) {
+        for (int u = 0; u < 3; ++u) {
+            CHECK(meta.uniforms[g * 3 + u].group == "G" + std::to_string(g));
+        }
+    }
+}
+
+TEST_CASE("A group never reaches the generated GLSL", "[fjsl]") {
+    // It is an authoring heading; GLSL has never heard of it, and leaving one
+    // in is a syntax error at the line it sits on.
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        group "Colour";
+        uniform vec3 tint : hint_color;
+        void fragment() { ALBEDO = tint; }
+    )");
+    const std::string tmpl =
+        "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\n"
+        "void main() {\n/*FJSL_USER_CODE*/\n}\n";
+    const std::string glsl = generate_fragment_shader(meta, tmpl);
+    CHECK(glsl.find("group") == std::string::npos);
+    CHECK(glsl.find("Colour") == std::string::npos);
+}
+
 TEST_CASE("Missing shader_type throws", "[fjsl]") {
     REQUIRE_THROWS(parse_fjsl("void fragment() {}"));
 }

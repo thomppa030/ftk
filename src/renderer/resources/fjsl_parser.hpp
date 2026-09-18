@@ -72,6 +72,11 @@ struct FjslUniform {
     // fragment() runs, and is what the GI paths read as the material's
     // albedo, so a shader that tags its tint does not apply it again.
     bool albedo{false};
+    /// The heading this uniform was declared under, from the last `group`
+    /// before it, or empty for the ones above the first. Authoring only: the
+    /// inspector sections its sliders by this so a shader with forty dials
+    /// reads as a handful of subjects rather than one wall.
+    std::string group;
     std::vector<float> default_value; // scalar or vector components
     uint32_t slot{0}; // texture slot (4-7) for sampler2D, or param offset for scalars
 };

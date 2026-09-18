@@ -1,4 +1,6 @@
 #include "ui/material_params_widget.hpp"
+
+#include <string_view>
 #include "core/string_utils.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
@@ -75,11 +77,26 @@ bool draw_material_params(const ShaderMetadata& meta,
     uint32_t param_count = material.custom_param_count();
     if (param_count == 0) return changed;
     const auto& gpu = bindless.material_at(material.material_id());
+    // The heading last drawn, so a shader that names its groups is read as a
+    // handful of subjects rather than one wall of sliders. A shader that names
+    // none is laid out exactly as before.
+    std::string_view drawn_group;
+    bool first_row = true;
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
         uint32_t fcount = uniform_float_count(u.type);
         if (u.slot + fcount > param_count) continue;
         uint32_t abs_offset = gpu.param_offset + u.slot;
+
+        if (u.group != drawn_group) {
+            drawn_group = u.group;
+            if (!u.group.empty()) {
+                if (!first_row) ImGui::Spacing();
+                ImGui::SeparatorText(u.group.c_str());
+            }
+        }
+        first_row = false;
+
         ImGui::PushID(u.name.c_str());
         ImGui::Text("%s", display_name(u.name).c_str());
         ImGui::SetNextItemWidth(-1);

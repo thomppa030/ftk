@@ -70,6 +70,12 @@ static UniformHint parse_hint_name(const std::string& h) {
 // generated GLSL.
 //   uniform <type> <name> [: <hint>[, <hint>...]] [= <default>];
 // Groups: 1 type, 2 name, 3 hint list, 4 default.
+/// `group "Name";` — a heading the uniforms after it are shown under.
+static const std::regex& group_declaration_re() {
+    static const std::regex re(R"RX(group\s*"([^"]*)"\s*;)RX");
+    return re;
+}
+
 static const std::regex& uniform_declaration_re() {
     static const std::regex re(
         R"(uniform\s+(\w+)\s+(\w+)\s*(?::\s*([^=;]+?))?\s*(?:=\s*([^;]+))?\s*;)");
@@ -260,6 +266,8 @@ static std::string extract_user_globals(const std::string& source) {
     static const std::regex render_mode_re(R"(render_mode\s+[^;]+;)");
     s = std::regex_replace(s, shader_type_re, std::string{});
     s = std::regex_replace(s, render_mode_re, std::string{});
+    // Headings are for the inspector; GLSL has never heard of them.
+    s = std::regex_replace(s, group_declaration_re(), std::string{});
     // Strip uniform declarations.
     s = std::regex_replace(s, uniform_declaration_re(), std::string{});
     // Strip the reserved function definitions (fragment/vertex/light for
@@ -325,8 +333,26 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     uint32_t texture_slot = 4; // custom textures start at slot 4
     uint32_t param_offset = 0;
 
+    // Every heading and where it was declared, so each uniform can be given
+    // the last one above it. Walking the two in step beats searching backwards
+    // from each uniform.
+    std::vector<std::pair<std::size_t, std::string>> groups;
+    for (auto g = std::sregex_iterator(source.begin(), source.end(), group_declaration_re());
+         g != std::sregex_iterator(); ++g) {
+        groups.emplace_back(static_cast<std::size_t>(g->position()), (*g)[1].str());
+    }
+    std::size_t next_group = 0;
+    std::string current_group;
+
     for (auto it = begin; it != end; ++it) {
+        const auto at = static_cast<std::size_t>(it->position());
+        while (next_group < groups.size() && groups[next_group].first < at) {
+            current_group = groups[next_group].second;
+            ++next_group;
+        }
+
         FjslUniform u;
+        u.group = current_group;
         u.type = parse_type((*it)[1].str());
         u.name = (*it)[2].str();
 
