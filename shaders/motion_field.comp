@@ -100,7 +100,10 @@ void main() {
             texture(motion_prev, prev_uv + vec2(-texel.x, 0.0)) +
             texture(motion_prev, prev_uv + vec2(0.0,  texel.y)) +
             texture(motion_prev, prev_uv + vec2(0.0, -texel.y));
-        float bleed = clamp(pc.spread * pc.scroll_decay.w * 60.0, 0.0, 1.0);
+        // A share per second, not per frame, so a mark widens at the same rate
+        // whatever the framerate — and slowly enough to open a wake out rather
+        // than smooth it flat before it has had time to spread.
+        float bleed = 1.0 - exp(-pc.spread * pc.scroll_decay.w);
         field = mix(field, neighbours * 0.25, bleed);
     }
 
