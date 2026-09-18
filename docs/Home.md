@@ -33,3 +33,4 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 - [Scripting Overview](Scripting-Overview.md)
 - [Engine API Reference](Engine-API-Reference.md)
 - [Writing Components](Writing-Components.md)
+- [Functional Tests](Scripting/Functional-Tests.md) — gameplay scenarios the engine plays and checks, run with `--run-tests`
