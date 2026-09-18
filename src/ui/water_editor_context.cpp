@@ -102,6 +102,10 @@ void WaterEditorContext::open_water(const std::string& path) {
     water_ = std::move(*loaded);
     loaded_ = true;
     dirty_ = false;
+    // Open on the wind the field was authored at, so the first thing shown is
+    // the sea as tuned rather than one the response has already moved.
+    preview_wind_speed_ = water_.wind.reference_speed;
+    preview_wind_heading_ = direction_degrees(water_.generator.wind_direction);
 
     setup_preview();
     if (auto* cam = viewport_manager_.active_camera()) {
@@ -128,7 +132,32 @@ void WaterEditorContext::setup_preview() {
 
     preview_node_id_ = preview_scene_.add_node(std::move(node));
     load_preview_material();
+    // What the renderer actually reads. Nothing else will ever derive it for
+    // this scene, so without it the preview opens on an empty field — a still
+    // plane — until the first edit pushes one through.
+    apply_preview_wind();
     preview_scene_.compute_world_matrices(nullptr);
+}
+
+void WaterEditorContext::apply_preview_wind() {
+    auto* node = preview_scene_.find(preview_node_id_);
+    if (node == nullptr) return;
+    auto* water = node->components.get<WaterComponent>();
+    if (water == nullptr) return;
+
+    // The same derivation the environment runs over a placed sea, from the
+    // editor's own wind instead of the weather's. `apply_wind` needs a field
+    // and a wind and nothing else, so the preview does not need a weather
+    // system to show what these dials do — and without this the four wind
+    // responses move sliders that the viewport never answers.
+    //
+    // No lag through `advance_sea_wind` here: that exists so a front cannot
+    // heave the ocean as it arrives, and a dial being dragged wants the sea
+    // it asks for rather than the sea five seconds from now.
+    const float heading = glm::radians(preview_wind_heading_);
+    const glm::vec2 wind = glm::vec2(std::cos(heading), std::sin(heading))
+                         * preview_wind_speed_;
+    water->effective_water = water::apply_wind(water_, wind);
 }
 
 void WaterEditorContext::load_preview_material() {
@@ -188,12 +217,11 @@ void WaterEditorContext::push_live() {
         if (auto* water = node->components.get<WaterComponent>()) {
             water->water = water_;
             water->water_loaded = true;
-            // The preview scene has no weather to blow through it, so nothing
-            // will derive its effective field: the editor's sea is the
-            // authored one, which is the sea being tuned.
-            water->effective_water = water_;
         }
     }
+    // The preview scene has no weather to blow through it, so the editor
+    // derives the effective field itself from its own wind dial.
+    apply_preview_wind();
 
     if (deps_.scene == nullptr) return;
     const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active()
@@ -378,6 +406,28 @@ void WaterEditorContext::draw_generator_panel() {
     ImGui::SetItemTooltip("Whether the weather's wind reaches this water. Off "
                           "for a pool, a canal, anything indoors.");
     if (water_.wind.enabled) {
+        // The wind blowing on the preview, which is the editor's and not the
+        // asset's: a .fjwater says how a sea answers wind, never what wind it
+        // sits in. Without it the four responses below are dials with nothing
+        // to answer them, since no weather blows through the preview scene.
+        if (ImGui::SliderFloat("Preview wind", &preview_wind_speed_,
+                               0.0f, 40.0f, "%.1f m/s")) {
+            apply_preview_wind();
+        }
+        ImGui::SetItemTooltip("What the preview is blown at, to watch the "
+                              "responses below. Not saved — a placed sea takes "
+                              "its wind from the weather.");
+        if (ImGui::SliderFloat("Preview wind heading", &preview_wind_heading_,
+                               -180.0f, 180.0f, "%.0f deg")) {
+            apply_preview_wind();
+        }
+        if (ImGui::Button("Wind = reference")) {
+            preview_wind_speed_ = water_.wind.reference_speed;
+            apply_preview_wind();
+        }
+        ImGui::SetItemTooltip("Back to the sea as authored.");
+        ImGui::Spacing();
+
         if (ImGui::SliderFloat("Reference wind", &water_.wind.reference_speed,
                                0.5f, 30.0f, "%.1f m/s")) {
             push_live();

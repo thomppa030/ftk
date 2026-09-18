@@ -78,6 +78,10 @@ private:
     /// back to the engine's water shader when none is set.
     void load_preview_material();
 
+    /// Derive the preview node's `effective_water` from the authored field
+    /// and `preview_wind_`, the way the environment does for a placed sea.
+    void apply_preview_wind();
+
     void draw_generator_panel();
     void draw_wave_list_panel();
     /// Copy the edited field into the loaded asset so the viewport follows
@@ -95,6 +99,13 @@ private:
     FjWaterData water_;
     bool loaded_{false};
     bool dirty_{false};
+
+    /// The wind the preview is blown at, in m/s, and where it blows toward.
+    /// The editor's own dial rather than the asset's: a `.fjwater` describes
+    /// how a sea answers wind, not what wind it sits in. Starts at the
+    /// reference speed, which is the sea as authored.
+    float preview_wind_speed_{8.0f};
+    float preview_wind_heading_{0.0f};
 
     ViewportManager viewport_manager_;
     Scene preview_scene_;
