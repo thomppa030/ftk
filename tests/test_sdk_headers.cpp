@@ -99,6 +99,32 @@ TEST_CASE("A test reports its own verdict", "[sdk]") {
         REQUIRE(t.test_result() == fjell::TestResult::failed);
     }
 
+    SECTION("a test is only ticked between start_test and its verdict") {
+        // The script subsystem ticks every component every frame, including
+        // while a test is still waiting on is_ready(). A test that drove the
+        // world in that window would be moving things before it started
+        // measuring — which is exactly what made the trap test report a walk
+        // shorter than the one it performed.
+        struct Counter : fjell::FunctionalTest {
+            using fjell::FunctionalTest::finish_test;
+            int ticks = 0;
+            void test_tick(float) override { ++ticks; }
+        };
+
+        Counter t;
+        t.tick(0.016f);
+        REQUIRE(t.ticks == 0);   // before begin_test(): not running yet
+
+        t.begin_test();
+        t.tick(0.016f);
+        t.tick(0.016f);
+        REQUIRE(t.ticks == 2);
+
+        t.finish_test(fjell::TestResult::passed, "done");
+        t.tick(0.016f);
+        REQUIRE(t.ticks == 2);   // after the verdict: not ticked again
+    }
+
     SECTION("the first verdict wins") {
         Probe t;
         t.finish_test(fjell::TestResult::passed, "first");

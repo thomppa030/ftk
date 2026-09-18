@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -50,7 +51,7 @@ enum class TestResult : uint8_t {
 ///         start_pos = transform().position;
 ///     }
 ///
-///     void tick(float dt) override {
+///     void test_tick(float dt) override {
 ///         transform().position.z += 2.0f * dt;
 ///     }
 ///
@@ -74,6 +75,19 @@ public:
     /// Called once, the frame after `is_ready()` first returns true. Set up
     /// what the test needs and record whatever the assertions compare against.
     virtual void start_test() {}
+
+    /// Called each frame while the test is running — after `start_test()` and
+    /// before it reports a verdict. Override this rather than `tick()`.
+    virtual void test_tick(float dt) { (void)dt; }
+
+    /// The script subsystem ticks every component every frame, including while
+    /// a test is still waiting on `is_ready()` and after it has finished. A
+    /// test that drove the world in those windows would be moving things
+    /// before it started measuring, so the phase gate lives here rather than
+    /// in each test.
+    void tick(float dt) final {
+        if (running_ && !finished()) test_tick(dt);
+    }
 
     /// Called once the result is known, however it was reached — including on
     /// a timeout. Release anything the test holds.
@@ -109,16 +123,24 @@ public:
     /// Whether the test has reported a result and should stop being ticked.
     [[nodiscard]] bool finished() const { return result_ != TestResult::running; }
 
+    /// Begin the test. The runner calls this once `is_ready()` holds; it opens
+    /// the window in which `test_tick()` runs, then hands over to
+    /// `start_test()`.
+    void begin_test() {
+        running_ = true;
+        start_test();
+    }
+
 protected:
     /// End the test now. The first call wins, so an assertion failure already
     /// recorded is not overwritten by a later `passed`.
-    void finish_test(TestResult result, const char* message = "") {
+    void finish_test(TestResult result, std::string_view message = {}) {
         if (result_ != TestResult::running) return;
         // A test that failed an assertion cannot pass, whatever it says here.
         result_ = (result == TestResult::passed && !failures_.empty())
                       ? TestResult::failed
                       : result;
-        message_ = message != nullptr ? message : "";
+        message_ = message;
     }
 
     /// Record a failure without ending the test, so one run reports every
@@ -129,13 +151,13 @@ protected:
 
     /// @return `cond`, so a test can bail out of a check whose precondition
     ///         already failed rather than assert into garbage afterwards.
-    bool assert_true(bool cond, const char* what) {
+    bool assert_true(bool cond, std::string_view what) {
         if (!cond) add_failure(std::string(what) + ": expected true, got false");
         return cond;
     }
 
     /// @return true when the values match.
-    bool assert_false(bool cond, const char* what) {
+    bool assert_false(bool cond, std::string_view what) {
         if (cond) add_failure(std::string(what) + ": expected false, got true");
         return !cond;
     }
@@ -143,7 +165,7 @@ protected:
     /// Compare two floats within `tolerance`. Real physics never lands on an
     /// exact value, so every numeric assertion takes one.
     /// @return true when they match.
-    bool assert_equal(float actual, float expected, const char* what,
+    bool assert_equal(float actual, float expected, std::string_view what,
                       float tolerance = 1e-4f) {
         const float diff = actual - expected;
         if (diff > tolerance || diff < -tolerance) {
@@ -156,7 +178,7 @@ protected:
     /// Compare two positions or directions within `tolerance`, per component.
     /// @return true when they match.
     bool assert_equal(const glm::vec3& actual, const glm::vec3& expected,
-                      const char* what, float tolerance = 1e-4f) {
+                      std::string_view what, float tolerance = 1e-4f) {
         for (int i = 0; i < 3; ++i) {
             const float diff = actual[i] - expected[i];
             if (diff > tolerance || diff < -tolerance) {
@@ -182,11 +204,12 @@ private:
         return buf;
     }
 
-    static std::string format_mismatch(const char* what, const std::string& actual,
+    static std::string format_mismatch(std::string_view what, const std::string& actual,
                                        const std::string& expected) {
         return std::string(what) + ": expected " + expected + ", got " + actual;
     }
 
+    bool running_{false};
     TestResult result_{TestResult::running};
     std::string message_;
     std::vector<std::string> failures_;

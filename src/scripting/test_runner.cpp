@@ -76,7 +76,7 @@ TestHandle TestHandle::find(Scene& scene, const ScriptManager& scripts) {
 }
 
 bool TestHandle::is_ready() const { return as_test(instance_)->is_ready(); }
-void TestHandle::start_test() const { as_test(instance_)->start_test(); }
+void TestHandle::start_test() const { as_test(instance_)->begin_test(); }
 void TestHandle::cleanup_test() const { as_test(instance_)->cleanup_test(); }
 bool TestHandle::finished() const { return as_test(instance_)->finished(); }
 
