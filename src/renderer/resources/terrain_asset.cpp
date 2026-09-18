@@ -340,6 +340,7 @@ void TerrainAsset::build_ray_mesh() {
     // pass straight through.
     const uint32_t count = ((samples - 1 + step - 1) / step) + 1;
     const float spacing = data_.header.world_size / static_cast<float>(samples - 1);
+    ray_mesh_spacing_ = spacing * static_cast<float>(step);
 
     const glm::vec3 corner = local_min_corner();
     ray_vertices_.resize(static_cast<size_t>(count) * count);

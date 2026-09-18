@@ -194,6 +194,13 @@ public:
     /// Where the ray mesh lives in the mega-buffer, once uploaded. Empty until
     /// something calls upload_ray_mesh().
     [[nodiscard]] const MegaMeshEntry& ray_mesh_entry() const { return ray_mesh_entry_; }
+
+    /// Metres between two of the ray mesh's vertices. This is the scale over
+    /// which the traced surface may depart from the rasterized one, so a ray
+    /// spawned on the rasterized surface has to start at least this far out
+    /// of it on sloping ground or it begins inside the geometry it is about
+    /// to trace. Zero before the ray mesh is built.
+    [[nodiscard]] float ray_mesh_spacing() const { return ray_mesh_spacing_; }
     [[nodiscard]] bool ray_mesh_uploaded() const { return ray_mesh_entry_.index_count > 0; }
 
     /// Upload the ray mesh into the mega-buffer. Idempotent.
@@ -269,6 +276,7 @@ private:
     std::vector<Vertex> ray_vertices_;
     std::vector<uint32_t> ray_indices_;
     MegaMeshEntry ray_mesh_entry_{};
+    float ray_mesh_spacing_{0.0F};
     /// Recompute the world height range from the data when an edit has
     /// invalidated it. Lazy so a stroke of many small edits scans the field
     /// once, when a reader next asks, rather than once per brush dab.
