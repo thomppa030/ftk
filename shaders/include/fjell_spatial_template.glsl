@@ -45,6 +45,9 @@ layout(location = 3) out vec2 out_velocity;
 #include "fjell_surface_lighting.glsl"
 #include "fjell_weather_surface.glsl"
 
+layout(set = 0, binding = 16) uniform sampler2D motion_field_tex;
+#include "fjell_motion_field.glsl"
+
 // ── Depth reconstruction helpers ──
 float linearize_depth(float d) {
     float n = ubo.projection[3][2] / ubo.projection[2][2];
@@ -122,6 +125,21 @@ void main() {
     float CLOUD_COVERAGE = env_ubo.weather0.x;
     vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
     float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
+
+    // ── What has moved through here ──
+    // Read from the world's motion field, so anything carrying a motion source
+    // marks a surface without the surface knowing what marked it: a wake behind
+    // a boat, grass bent by a runner, a track pressed into snow.
+    MotionSample _motion = motion_at(WORLD_POS);
+    vec2 MOTION_VELOCITY = _motion.velocity;
+    float MOTION_SPEED = length(_motion.velocity);
+    float MOTION_RECENCY = _motion.recency;
+    float MOTION_HEIGHT = _motion.height;
+    MotionGradient _motion_grad = _motion.recency > 0.0
+        ? motion_gradient(WORLD_POS, MOTION_FIELD_TEXEL_M)
+        : MotionGradient(vec2(0.0), 0.0);
+    vec2 MOTION_AWAY = _motion_grad.direction;
+    float MOTION_EDGE = _motion_grad.sharpness;
     float TIME_OF_DAY = env_ubo.weather1.w;
     // How open this point is to the sky, one where nothing shelters it.
     // Nothing measures shelter at present, so everything is open: rain

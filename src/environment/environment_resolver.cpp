@@ -213,6 +213,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                                                  : character->capsule_height * 0.5f);
 
                 MotionSource source;
+                source.node_id = obj->id;
                 source.position = glm::vec3(spatial->world_matrix_[3]);
                 // A character states its velocity; anything else is measured
                 // by where it was. `prev_world_matrix_` is kept for motion

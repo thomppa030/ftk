@@ -92,6 +92,10 @@ struct FogSettings {
 /// read: fog stirred by a runner, grass bent aside, a track in the snow.
 /// Gathered from the scene so the renderer never reaches into physics.
 struct MotionSource {
+    /// The node this came from, so a reader can tell a body's own mark from
+    /// everyone else's — a boat should not rock in the wake it is making, and
+    /// nothing else can tell the two apart once they are in the same list.
+    uint32_t node_id{0};
     glm::vec3 position{0.0f};
     /// How fast and which way, in metres per second. The direction is what
     /// makes a wake read as displaced air rather than as a hole.
