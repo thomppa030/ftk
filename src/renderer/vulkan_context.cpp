@@ -239,6 +239,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     ssr_pass().set_thickness(s.ssr.thickness);
     rt_reflection_pass().set_mode(requested_mode);
     rt_reflection_pass().set_intensity(s.ssr.intensity);
+    rt_reflection_pass().set_max_trace_dist(s.ssr.max_trace_dist);
 
     // Tonemap
     tonemap_pass().set_operator(static_cast<TonemapPass::Operator>(s.tonemap.op));
@@ -1568,6 +1569,18 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // build_tlas would UAF an RT trace recorded earlier in the same frame.)
     if (accel_manager_) {
         accel_manager_->reclaim_retired(current_frame_);
+
+        // Declare how far each tracer's rays go, before anything builds the
+        // TLAS from the union. Done here rather than inside the passes because
+        // the one that builds the TLAS (DDGI, in the Color phase) records
+        // before the one that traces furthest (reflections, in PostProcess):
+        // a reach registered from the reflection pass's own record() would
+        // arrive a frame late, every frame.
+        accel_manager_->clear_trace_reach();
+        if (rt_reflection_pass().ray_traced_active()) {
+            accel_manager_->register_trace_reach(
+                rt_reflection_pass().trace_reach_bounds(gatherer_.camera_position()));
+        }
     }
 
     // Reclaim descriptor sets from the previous iteration of this slot.
@@ -1645,6 +1658,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     {
         AABB scene_bounds;
         scene_sdf_pass().begin_gather();
+        // Re-accumulated from the terrains actually present below, so removing
+        // one does not leave the ray bias set for geometry that is gone.
+        rt_reflection_pass().set_trace_cell_size(0.0F);
 
         auto gather_sdf = [&](Scene& s) {
             for (const auto& obj : s.objects()) {
@@ -1658,6 +1674,17 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 if (auto* tc = obj->components.get<TerrainComponent>();
                     tc != nullptr && tc->terrain != nullptr) {
                     TerrainAsset& terrain = *tc->terrain;
+
+                    // Terrain is ray-traced against a coarser mesh than it is
+                    // drawn from, so a reflection ray spawned on the drawn
+                    // surface can start inside the traced one. The pass offsets
+                    // its rays by how far the two can drift, which is set by
+                    // the coarse mesh's spacing; the coarsest terrain in the
+                    // scene decides it.
+                    rt_reflection_pass().set_trace_cell_size(
+                        std::max(rt_reflection_pass().trace_cell_size(),
+                                 terrain.ray_mesh_spacing()));
+
                     const glm::vec3 origin = terrain.world_min_corner(spatial->world_matrix_);
                     const float span = terrain.world_size();
                     AABB terrain_bounds{

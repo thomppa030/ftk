@@ -60,6 +60,12 @@ struct RenderSettings {
         Mode mode{Mode::ScreenSpace};
         float intensity{1.0f};
         float thickness{0.3f};
+        /// How far a ray-traced reflection ray travels, in metres. Also what
+        /// the acceleration structure is built to cover for this pass, so
+        /// raising it puts more of the scene in the TLAS as well as tracing
+        /// further. Unused by the ScreenSpace backend, which is bounded by
+        /// the screen rather than by a distance.
+        float max_trace_dist{50.0f};
     } ssr;
 
     struct Tonemap {

@@ -329,6 +329,12 @@ std::vector<Blas> AccelStructureManager::build_blases(std::span<const MegaMeshEn
     return out;
 }
 
+void AccelStructureManager::register_trace_reach(const AABB& reach) {
+    if (!reach.valid()) return;
+    trace_reach_.expand(reach.min);
+    trace_reach_.expand(reach.max);
+}
+
 void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                                        const std::vector<RtInstance>& host_instances,
                                        const std::vector<ParticleEmitterInfo>& particle_emitters) {

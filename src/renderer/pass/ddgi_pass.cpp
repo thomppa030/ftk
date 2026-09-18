@@ -1115,7 +1115,13 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
         return;
 
-    AABB bounds = trace_reach_bounds();
+    // The reach every tracer needs, not just this pass's own. A model inside
+    // reflection range but outside the probe grid's still has to be built, or
+    // the TLAS below adds an instance whose BLAS was never made and the
+    // reflection ray passes through it.
+    accel_manager_->register_trace_reach(trace_reach_bounds());
+    AABB bounds = accel_manager_->required_reach();
+    if (!bounds.valid()) return;
 
     // Off-screen geometry needs a BLAS as much as visible geometry: the TLAS
     // build skips any model without one, so an object that has been off
@@ -1548,8 +1554,18 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI TLAS Build");
         const auto& cmds = ctx.queue->commands();
         {
-            // Only include objects that rays can reach from the probe grid
-            AABB bounds = trace_reach_bounds();
+            // Only include objects some tracer can reach. The union of every
+            // pass's declared reach, not this pass's alone: the TLAS is shared
+            // and built once, so anything left out here is missing for
+            // reflections and screen-space GI too, not only for the probes.
+            //
+            // Registered again here rather than relying on the BLAS pass
+            // having done it: that one is skipped for a viewport with DDGI
+            // off, while this still builds the TLAS, and the union would then
+            // be short exactly this pass's own reach. Registering is a union,
+            // so doing it twice costs nothing.
+            accel_manager_->register_trace_reach(trace_reach_bounds());
+            AABB bounds = accel_manager_->required_reach();
 
             // Everything whose instance count is known on the CPU goes in one
             // list; build_tlas applies the same transform validation to all of

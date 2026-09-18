@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -102,6 +103,27 @@ public:
         const Blas* blas{nullptr};
     };
 
+    /// How far into the world a pass's rays travel, so the TLAS is built to
+    /// cover it. Every pass that traces against the TLAS declares this each
+    /// frame, before the build.
+    ///
+    /// There is one TLAS and several passes tracing it, each to its own
+    /// distance. Built to one pass's reach, it silently truncates the others:
+    /// their rays leave the covered region, hit nothing, and take the miss
+    /// shader — which reads as sky reflected off surfaces that should mirror
+    /// the scene. The union is the only size that serves every tracer, and
+    /// declaring it is what keeps a pass that changes its trace distance from
+    /// quietly breaking a pass that did not.
+    void register_trace_reach(const AABB& reach);
+
+    /// The union of this frame's declared reaches. Invalid (`!valid()`) when
+    /// nothing declared one, which means no pass is tracing and the caller
+    /// should skip the build rather than cover the world.
+    [[nodiscard]] AABB required_reach() const { return trace_reach_; }
+
+    /// Forget the declared reaches, at the start of a frame's gathering.
+    void clear_trace_reach() { trace_reach_ = {}; }
+
     /// Rebuild the TLAS from host instances plus GPU-generated particles.
     void build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                     const std::vector<RtInstance>& host_instances,
@@ -151,6 +173,9 @@ private:
     UploadContext& upload_;
     DeferredDeleter& deleter_;
     VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
+
+    // The union of what this frame's tracers asked to be able to reach.
+    AABB trace_reach_{};
 
     std::unordered_map<const Model*, std::vector<Blas>> blas_map_;
     std::unordered_map<const void*, Blas> entry_blas_map_;

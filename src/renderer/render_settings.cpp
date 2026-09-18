@@ -57,6 +57,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"mode",      static_cast<uint32_t>(s.ssr.mode)},
             {"intensity", s.ssr.intensity},
             {"thickness", s.ssr.thickness},
+            {"max_trace_dist", s.ssr.max_trace_dist},
         }},
         {"tonemap", {
             {"operator",          static_cast<uint32_t>(s.tonemap.op)},
@@ -120,6 +121,7 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         }
         s.ssr.intensity = r.value("intensity", s.ssr.intensity);
         s.ssr.thickness = r.value("thickness", s.ssr.thickness);
+        s.ssr.max_trace_dist = r.value("max_trace_dist", s.ssr.max_trace_dist);
     }
     if (j.contains("tonemap")) {
         const auto& t = j["tonemap"];
@@ -171,6 +173,7 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ssr.mode      = ctx.ssr_pass().mode();
     out.ssr.intensity = ctx.ssr_pass().intensity();
     out.ssr.thickness = ctx.ssr_pass().thickness();
+    out.ssr.max_trace_dist = ctx.rt_reflection_pass().max_trace_dist();
 
     // Tonemap
     out.tonemap.op = static_cast<RenderSettings::Tonemap::Operator>(
