@@ -135,7 +135,15 @@ void main() {
 
     // How pinched the surface is here: 0 on flat water, rising toward 1 where
     // the trains have bunched to a point. Whitecaps live at the top of this.
+    //
+    // Interpolated from the vertices. The grid is eleven vertices to a patch,
+    // so a crest sharper than the spacing arrives as a linear ramp between the
+    // vertices that bracket it — foam drawn from it carries a little of the
+    // triangulation with it. Solving the field again per pixel removes that
+    // and was measured at 14% of the water pass, which is not a trade a
+    // stylized sea needs: hard-edged foam hides the difference.
     float CREST = frag_crest;
+
     // How far the waves lifted this point above the flat sea. Negative in a
     // trough.
     float WAVE_HEIGHT = frag_wave_lift;
