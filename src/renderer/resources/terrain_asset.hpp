@@ -228,14 +228,21 @@ public:
     };
 
     /// Counts every apply_heights() call, so a consumer holding a derived copy
-    /// of the heights — the scene SDF — can tell the copy went stale without
-    /// being told.
+    /// of the heights can tell the copy went stale without being told.
     [[nodiscard]] uint32_t edit_generation() const { return edit_generation_; }
-    /// The union of every rectangle apply_heights() touched since the last
-    /// clear_edited_rect(). The scene SDF is the one consumer: it re-reads
-    /// that rect and clears it.
-    [[nodiscard]] const SampleRect& edited_rect() const { return edited_rect_; }
-    void clear_edited_rect() { edited_rect_ = {}; }
+
+    /// The samples edited since `since_generation`, for a consumer catching a
+    /// derived copy up. Several consumers hold such copies — the scene SDF and
+    /// the ray-tracing BLAS — and each is at its own generation, so each asks
+    /// for its own rect rather than sharing one that the first reader clears.
+    /// A consumer stores the returned `edit_generation()` and passes it back
+    /// next time.
+    ///
+    /// Edits older than the ring are forgotten, so a consumer that has fallen
+    /// further behind than EDIT_HISTORY strokes is told the whole field changed
+    /// rather than being given a rect that would miss some of it. Returns an
+    /// empty rect when nothing has changed.
+    [[nodiscard]] SampleRect edits_since(uint32_t since_generation) const;
 
     /// True when the heights or the layer table changed since load or the last
     /// successful save.
@@ -272,7 +279,14 @@ private:
     mutable bool height_range_stale_{false};
     bool dirty_{false};
     uint32_t edit_generation_{0};
-    SampleRect edited_rect_;
+
+    /// Recent edits, one entry per apply_heights() call, indexed by
+    /// `generation % EDIT_HISTORY`. Deep enough that a consumer updating once
+    /// a frame keeps up with a brush dragged at any plausible stroke rate, and
+    /// small enough to stay in the asset rather than growing without bound.
+    /// A consumer further behind than this is handed the whole field.
+    static constexpr uint32_t EDIT_HISTORY = 64;
+    std::array<SampleRect, EDIT_HISTORY> edit_history_{};
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     std::unique_ptr<Image> weight_image_;

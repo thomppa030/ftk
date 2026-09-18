@@ -475,15 +475,35 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     height_range_stale_ = true;
     dirty_ = true;
     ++edit_generation_;
-    if (edited_rect_.empty()) {
-        edited_rect_ = {x, z, w, h};
-    } else {
-        const uint32_t x0 = std::min(edited_rect_.x, x);
-        const uint32_t z0 = std::min(edited_rect_.z, z);
-        const uint32_t x1 = std::max(edited_rect_.x + edited_rect_.width, x + w);
-        const uint32_t z1 = std::max(edited_rect_.z + edited_rect_.height, z + h);
-        edited_rect_ = {x0, z0, x1 - x0, z1 - z0};
+    edit_history_[edit_generation_ % EDIT_HISTORY] = {x, z, w, h};
+}
+
+TerrainAsset::SampleRect TerrainAsset::edits_since(uint32_t since_generation) const {
+    if (since_generation >= edit_generation_) return {};
+
+    const uint32_t samples = data_.sample_count();
+    // Further behind than the ring remembers: everything the forgotten strokes
+    // touched is unknown, so the only honest answer is the whole field. Saying
+    // "nothing changed" here is what would leave a consumer silently stale.
+    if (edit_generation_ - since_generation > EDIT_HISTORY) {
+        return {0, 0, samples, samples};
     }
+
+    SampleRect out;
+    for (uint32_t gen = since_generation + 1; gen <= edit_generation_; ++gen) {
+        const SampleRect& r = edit_history_[gen % EDIT_HISTORY];
+        if (r.empty()) continue;
+        if (out.empty()) {
+            out = r;
+            continue;
+        }
+        const uint32_t x0 = std::min(out.x, r.x);
+        const uint32_t z0 = std::min(out.z, r.z);
+        const uint32_t x1 = std::max(out.x + out.width, r.x + r.width);
+        const uint32_t z1 = std::max(out.z + out.height, r.z + r.height);
+        out = {x0, z0, x1 - x0, z1 - z0};
+    }
+    return out;
 }
 
 void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,

@@ -1673,7 +1673,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     const auto* entry = scene_sdf_pass().register_terrain_sdf(terrain);
                     if (entry != nullptr) {
                         if (entry->generation != terrain.edit_generation()) {
-                            const auto rect = terrain.edited_rect();
+                            const auto rect = terrain.edits_since(entry->generation);
                             if (!rect.empty()) {
                                 scene_sdf_pass().update_terrain_sdf(terrain, rect.x, rect.z,
                                                                     rect.width, rect.height);
@@ -1688,7 +1688,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                                      origin.z + static_cast<float>(rect.z + rect.height) * spacing}};
                                 scene_sdf_pass().invalidate_region(edited);
                             }
-                            terrain.clear_edited_rect();
                         }
 
                         GpuSdfInstance inst{};
