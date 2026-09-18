@@ -73,6 +73,9 @@ void OffscreenPass::cleanup_images() {
     if (resolve_depth_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_depth_view_, nullptr);
     destroy_vma_image(allocator_, resolve_depth_image_, resolve_depth_allocation_);
 
+    if (water_depth_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, water_depth_view_, nullptr);
+    destroy_vma_image(allocator_, water_depth_image_, water_depth_allocation_);
+
     if (mr_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, mr_view_, nullptr);
     destroy_vma_image(allocator_, mr_image_, mr_allocation_);
 
@@ -109,6 +112,9 @@ void OffscreenPass::cleanup_images() {
     resolve_depth_view_ = VK_NULL_HANDLE;
     resolve_depth_image_ = VK_NULL_HANDLE;
     resolve_depth_allocation_ = VK_NULL_HANDLE;
+    water_depth_view_ = VK_NULL_HANDLE;
+    water_depth_image_ = VK_NULL_HANDLE;
+    water_depth_allocation_ = VK_NULL_HANDLE;
     mr_view_ = VK_NULL_HANDLE;
     mr_image_ = VK_NULL_HANDLE;
     mr_allocation_ = VK_NULL_HANDLE;
@@ -217,8 +223,11 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     depth_info.arrayLayers = 1;
     depth_info.samples = msaa_samples_;
     depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    // TRANSFER_SRC on both paths: the water surface seeds its own depth
+    // attachment from this one, so that a folded crest is still hidden by
+    // whatever opaque geometry stands in front of the sea.
     depth_info.usage = msaa
-        ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+        ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
         : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
               | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -285,6 +294,52 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_depth_view_info, nullptr, &resolve_depth_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve depth view");
         }
+    }
+
+    // -- Water depth image --
+    //
+    // The sea's own depth, so it can hide itself. A Gerstner surface displaces
+    // horizontally and folds through itself where the trains pinch hard, and a
+    // crest then genuinely stands in front of the water behind it — but the
+    // transparent pass binds the scene depth read-only, because a dozen
+    // shaders sample that image meaning "the opaque scene" and water is not
+    // part of it. So the sea gets a depth buffer of its own: one it may write,
+    // holding only what the water occludes, and read by nothing else.
+    //
+    // Seeded from the scene depth each frame it is used, which is why that one
+    // carries TRANSFER_SRC above: without the seed a crest would draw over the
+    // pier standing in front of it.
+    //
+    // Same sample count as the target, because the pipelines that write it are
+    // the target's. No resolve counterpart and no SAMPLED: nothing outside the
+    // water's own depth test ever reads it.
+    VkImageCreateInfo water_depth_info{};
+    water_depth_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    water_depth_info.imageType = VK_IMAGE_TYPE_2D;
+    water_depth_info.format = depth_format;
+    water_depth_info.extent = {width, height, 1};
+    water_depth_info.mipLevels = 1;
+    water_depth_info.arrayLayers = 1;
+    water_depth_info.samples = msaa_samples_;
+    water_depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    water_depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                             VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    water_depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (create_vma_image(allocator_, &water_depth_info, &water_depth_image_,
+                         &water_depth_allocation_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create water depth image");
+    }
+
+    VkImageViewCreateInfo water_depth_view_info{};
+    water_depth_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    water_depth_view_info.image = water_depth_image_;
+    water_depth_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    water_depth_view_info.format = depth_format;
+    water_depth_view_info.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &water_depth_view_info, nullptr, &water_depth_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create water depth view");
     }
 
     // -- Metallic/roughness image (MSAA when enabled) --
@@ -529,6 +584,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     set_image_debug_name(vk, depth_image_, tag + ".depth");
     set_image_debug_name(vk, resolve_color_image_, tag + ".resolve_color");
     set_image_debug_name(vk, resolve_depth_image_, tag + ".resolve_depth");
+    set_image_debug_name(vk, water_depth_image_, tag + ".water_depth");
     set_image_debug_name(vk, mr_image_, tag + ".mr");
     set_image_debug_name(vk, resolve_mr_image_, tag + ".resolve_mr");
     set_image_debug_name(vk, normal_image_, tag + ".normal");

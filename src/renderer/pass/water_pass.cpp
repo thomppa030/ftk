@@ -373,13 +373,28 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     color_blending.pAttachments = blend_attachments.data();
 
     // Tests depth so the sea is hidden by what stands in front of it, and
-    // does not write it: a transparent surface that wrote depth would occlude
-    // the scene it is supposed to be refracting, and the fragment samples
-    // exactly that depth to know how deep the water is.
+    // writes it so the sea can hide itself.
+    //
+    // A Gerstner surface displaces horizontally, and where the trains pinch
+    // past their limit it folds through itself: a crest then genuinely stands
+    // in front of the water behind it. Without a depth write nothing ordered
+    // the two and the fragments composited in submission order, which reads as
+    // geometry going missing at the crests.
+    //
+    // The attachment this writes is the water's own — `water_depth`, seeded
+    // from the scene depth before the scope opens — and not the depth the rest
+    // of the frame samples. That separation is the whole design: a dozen
+    // shaders read `depth_texture` meaning "the opaque scene", and a
+    // transparent surface does not belong in it.
+    //
+    // LESS rather than LESS_OR_EQUAL: with writes on, LESS gives a
+    // deterministic winner where two folded sheets land on the same depth,
+    // while LESS_OR_EQUAL would hand the decision back to submission order —
+    // which is the bug.
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthWriteEnable = VK_TRUE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
 
     std::array<VkFormat, 4> color_formats = {resources_.color_format, VK_FORMAT_R8G8_UNORM,
@@ -502,13 +517,155 @@ bool WaterPass::scene_has_water(const FrameContext& ctx) {
     return false;
 }
 
+void WaterPass::seed_water_depth(const FrameContext& ctx) {
+    if (ctx.target == nullptr || !scene_has_water(ctx)) return;
+    const VkImage scene_depth = ctx.target->msaa_depth_image();
+    const VkImage water_depth = ctx.target->water_depth_image();
+    if (scene_depth == VK_NULL_HANDLE || water_depth == VK_NULL_HANDLE) return;
+
+    FJELL_GPU_ZONE(ctx, "Water Depth Seed");
+
+    const VkImageSubresourceRange depth_range{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+    // The scene depth arrives read-only — the transparent pass declares it as
+    // something it samples — and has to leave in the same layout, because the
+    // scope that follows binds it that way and the framegraph believes it is
+    // still there.
+    std::array<VkImageMemoryBarrier2, 2> to_transfer{};
+    to_transfer[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    to_transfer[0].srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    to_transfer[0].srcAccessMask = 0;
+    to_transfer[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    to_transfer[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    to_transfer[0].oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    to_transfer[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    to_transfer[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer[0].image = scene_depth;
+    to_transfer[0].subresourceRange = depth_range;
+
+    // Last frame's water depth is of no use to this one, so it is discarded
+    // rather than transitioned: UNDEFINED tells the driver not to preserve it.
+    to_transfer[1] = to_transfer[0];
+    to_transfer[1].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    to_transfer[1].srcAccessMask = 0;
+    to_transfer[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    to_transfer[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    to_transfer[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_transfer[1].image = water_depth;
+
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = static_cast<uint32_t>(to_transfer.size());
+    dep.pImageMemoryBarriers = to_transfer.data();
+    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+
+    VkImageCopy region{};
+    region.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    region.dstSubresource = region.srcSubresource;
+    region.extent = {ctx.target->extent().width, ctx.target->extent().height, 1};
+    vkCmdCopyImage(ctx.cmd, scene_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   water_depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    std::array<VkImageMemoryBarrier2, 2> to_use{};
+    to_use[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    to_use[0].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    to_use[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    to_use[0].dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    to_use[0].dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    to_use[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_use[0].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    to_use[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_use[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_use[0].image = water_depth;
+    to_use[0].subresourceRange = depth_range;
+
+    // And the scene depth back where it was found.
+    to_use[1] = to_use[0];
+    to_use[1].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    to_use[1].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+    to_use[1].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    to_use[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    to_use[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    to_use[1].image = scene_depth;
+
+    dep.pImageMemoryBarriers = to_use.data();
+    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+}
+
 void WaterPass::record(const FrameContext& ctx) {
     if (ctx.scene == nullptr || ctx.target == nullptr || draw_mesh_tasks_ == nullptr) {
         return;
     }
 
+    if (!scene_has_water(ctx)) return;
+
     FJELL_PROFILE_SCOPE_N("record_water");
     FJELL_GPU_ZONE(ctx, "Water");
+
+    auto* target = ctx.target;
+    const bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+
+    // The sea draws in a scope of its own, because it needs a depth attachment
+    // it may write and the transparent pass binds the scene depth read-only —
+    // a dozen shaders sample that image meaning "the opaque scene", which the
+    // water is not part of. Same colour targets, loaded and stored, so the
+    // transparent scope that follows carries on over the top of the water.
+    //
+    // No resolve here: the transparent scope resolves the same attachments at
+    // its end, and that resolve sees the water's contribution because it
+    // resolves the whole image. Resolving twice would be correct and wasted.
+    std::array<VkRenderingAttachmentInfo, 4> color_attachments{};
+    const std::array<VkImageView, 4> views = {
+        target->msaa_color_view(), target->msaa_mr_view(),
+        target->msaa_normal_view(), target->msaa_velocity_view()};
+    for (std::size_t i = 0; i < color_attachments.size(); ++i) {
+        color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        color_attachments[i].imageView = views[i];
+        color_attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color_attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
+    }
+    (void)msaa;
+
+    // The water's own depth, holding the scene depth the seed copied into it:
+    // loaded so the sea is still hidden by what stands in front of it, and
+    // discarded afterwards because nothing downstream reads it.
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->water_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.offset = {0, 0};
+    ri.renderArea.extent = target->extent();
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+    ri.pColorAttachments = color_attachments.data();
+    ri.pDepthAttachment = &depth_attachment;
+    vkCmdBeginRendering(ctx.cmd, &ri);
+
+    // Its own scope means its own viewport and scissor; it can no longer rely
+    // on the transparent pass having set them.
+    VkViewport vp{};
+    vp.width = static_cast<float>(target->extent().width);
+    vp.height = static_cast<float>(target->extent().height);
+    vp.maxDepth = 1.0F;
+    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = target->extent();
+    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
 
     bool bound_sets = false;
     VkPipeline current = VK_NULL_HANDLE;
@@ -569,6 +726,8 @@ void WaterPass::record(const FrameContext& ctx) {
             ctx.render_stats->draw_calls++;
         }
     }
+
+    vkCmdEndRendering(ctx.cmd);
 }
 
 } // namespace fjell

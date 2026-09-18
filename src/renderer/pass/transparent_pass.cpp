@@ -189,6 +189,21 @@ void TransparentPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (target == nullptr) { return; }
 
+    // Water before the transparent scope opens, not inside it. It is the
+    // surface the rest of them float on or stand in, and it samples the opaque
+    // scene behind it, which nothing drawn here has touched yet — so it still
+    // goes first. What changed is that it now draws in a scope of its own,
+    // against a depth attachment it may write, and a rendering scope cannot
+    // nest inside another.
+    //
+    // The seed is a transfer and has to be outside a scope for that reason too.
+    // Both do nothing when the scene holds no water.
+    {
+        auto& water = ctx.passes->get<WaterPass>("water");
+        water.seed_water_depth(ctx);
+        water.record(ctx);
+    }
+
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color_attachment.imageView = target->msaa_color_view();
@@ -272,11 +287,6 @@ void TransparentPass::record(const FrameContext& ctx) {
     VkRect2D sc{};
     sc.extent = target->extent();
     vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    // Water first among the transparent things: it is the surface the rest of
-    // them float on or stand in, and it samples the opaque scene behind it,
-    // which nothing drawn here has touched yet.
-    ctx.passes->get<WaterPass>("water").record(ctx);
 
     record_draws(ctx);
 

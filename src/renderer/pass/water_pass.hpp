@@ -76,6 +76,14 @@ public:
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
 
+    /// Copy the scene depth into the water's own depth image, so the sea is
+    /// still hidden by whatever opaque geometry stands in front of it.
+    ///
+    /// Must be called outside a rendering scope — it is a transfer — and
+    /// before the water draws. Leaves the scene depth in the layout it found
+    /// it in, so the framegraph's tracker stays honest.
+    void seed_water_depth(const FrameContext& ctx);
+
     /// Whether the scene holds water. Nothing else in the frame knows a water
     /// node exists — it is absent from the render queue — so passes that
     /// early-out on an empty queue ask this first.

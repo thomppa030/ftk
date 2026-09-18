@@ -39,6 +39,12 @@ public:
     [[nodiscard]] VkImage msaa_color_image() const { return color_image_; }
     [[nodiscard]] VkImage depth_image() const { return resolve_depth_image_ ? resolve_depth_image_ : depth_image_; }
     [[nodiscard]] VkImage msaa_depth_image() const { return depth_image_; }
+
+    /// The sea's own depth buffer, which it may write so that a folded crest
+    /// hides the water behind it. Seeded from the scene depth each frame it is
+    /// used; read by nothing but the water's own depth test.
+    [[nodiscard]] VkImageView water_depth_view() const { return water_depth_view_; }
+    [[nodiscard]] VkImage water_depth_image() const { return water_depth_image_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
     [[nodiscard]] VkSampleCountFlagBits sample_count() const { return msaa_samples_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
@@ -131,6 +137,10 @@ private:
     VkImage resolve_depth_image_{VK_NULL_HANDLE};
     VmaAllocation resolve_depth_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_depth_view_{VK_NULL_HANDLE};
+
+    VkImage water_depth_image_{VK_NULL_HANDLE};
+    VmaAllocation water_depth_allocation_{VK_NULL_HANDLE};
+    VkImageView water_depth_view_{VK_NULL_HANDLE};
 
     // Metallic/roughness render target (MSAA when samples > 1)
     VkImage mr_image_{VK_NULL_HANDLE};
