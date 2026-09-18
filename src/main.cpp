@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <string_view>
 
 #ifdef _WIN32
 // Without NOMINMAX, Windows.h defines min/max as macros that break std::min
@@ -48,6 +49,8 @@ int main(int argc, char* argv[]) {
     std::string scene_override;
     std::string create_name;
     std::string scenario_path;
+    bool run_tests = false;
+    std::string test_filter;
     fjell::EnvironmentOverrides environment;
 
     // A flag that takes a value and is given none is a mistake worth
@@ -102,6 +105,20 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "--scenario") == 0) {
             if (const char* v = value_for(i, "--scenario")) scenario_path = v;
+        } else if (std::strcmp(argv[i], "--run-tests") == 0) {
+            run_tests = true;
+            // The filter is optional, so it cannot go through value_for():
+            // that would eat the project path when no filter is given. Take
+            // the next argument only when it is neither a flag nor a path —
+            // `--run-tests <project>` otherwise reads the project as a filter
+            // and reports no tests instead of saying what went wrong.
+            if (i + 1 < argc) {
+                const std::string_view next{argv[i + 1]};
+                const bool is_flag = next.starts_with('-');
+                const bool is_path = next.find('/') != std::string_view::npos
+                                     || next.find('\\') != std::string_view::npos;
+                if (!is_flag && !is_path) test_filter = argv[++i];
+            }
         } else {
             project_path = argv[i];
         }
@@ -126,10 +143,19 @@ int main(int argc, char* argv[]) {
                 failed = true;
             }
         }
+        if (run_tests && !failed) {
+            // Nothing to run, or nothing that can run, means the suite reports
+            // no result at all — which must not read as "everything passed".
+            if (auto ready = engine.set_run_tests(test_filter); !ready) {
+                FJELL_CORE_ERROR("{}", ready.error());
+                failed = true;
+            }
+        }
         // Leaving the scope is what tears the engine down, and its destructor
         // logs. Returning from inside it would shut the log down first and
         // leave that logging through a destroyed sink.
         if (!failed) engine.run();
+        if (run_tests && !failed && !engine.tests_passed()) failed = true;
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", safe_what(e));
         fjell::log::shutdown();

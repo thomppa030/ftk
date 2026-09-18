@@ -17,6 +17,7 @@
 #include "core/capture_service.hpp"
 #include "environment/environment_overrides.hpp"
 #include "environment/environment_scenario.hpp"
+#include "scripting/test_runner.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
@@ -90,6 +91,16 @@ public:
     /// Play a timed scenario against the environment from the first frame.
     /// Its `quit` step closes the engine, which is what bounds a capture.
     [[nodiscard]] Result<> set_scenario(const std::string& path);
+
+    /// Run the project's functional tests instead of opening the editor, one
+    /// after another, then close. `filter` keeps only the scenes whose name
+    /// contains it. Fails before the run when there is nothing to run or the
+    /// tests could not be driven.
+    [[nodiscard]] Result<> set_run_tests(const std::string& filter);
+
+    /// Whether every test passed. Read after run() to pick an exit code; true
+    /// when no tests were run.
+    [[nodiscard]] bool tests_passed() const { return tests_passed_; }
 
 private:
     void init_subsystems();
@@ -193,6 +204,32 @@ private:
     // play against it. Both empty for an ordinary session.
     EnvironmentOverrides environment_overrides_;
     ScenarioPlayer scenario_;
+
+    // --- Functional test run (--run-tests), idle in an ordinary session ---
+
+    /// Where the run has got to with the current test. One transition per
+    /// frame: stop() only flags the HUD for destruction and the free happens
+    /// in the next frame's apply_pending_hud_resize().
+    enum class TestPhase : uint8_t {
+        idle,       ///< Not running tests at all.
+        load,       ///< Load the next scene, or finish the run.
+        prepare,    ///< Play started; polling is_ready().
+        run,        ///< start_test() called; ticking until a verdict.
+        teardown,   ///< Verdict recorded; stop play before the next load.
+        done,       ///< Every scene ran; the report is written.
+    };
+
+    void tick_test_runner();
+    /// Record how the current test ended and move to teardown.
+    void finish_current_test(TestOutcome outcome, const std::string& message);
+
+    std::vector<std::string> test_scenes_;
+    std::vector<TestReport> test_reports_;
+    TestPhase test_phase_{TestPhase::idle};
+    std::size_t test_index_{0};
+    TestHandle test_;
+    float test_elapsed_{0.0f};
+    bool tests_passed_{true};
 
     // Project
     ProjectManager project_mgr_;

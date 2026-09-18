@@ -1834,6 +1834,129 @@ void Engine::set_scene_override(const std::string& scene_name) {
     }
 }
 
+Result<> Engine::set_run_tests(const std::string& filter) {
+    // Tests drive play repeatedly, and in game mode stop() closes the window
+    // instead of tearing the session down — the first test would end the run
+    // and every later start() would be a no-op. Refuse rather than report a
+    // suite that silently stopped after one test.
+    if (game_mode_) {
+        return make_error("--run-tests needs the editor build; a game build's "
+                          "stop closes the window instead of ending a test");
+    }
+    if (project_mgr_.active() == nullptr) {
+        return make_error("--run-tests needs a project");
+    }
+
+    auto scenes = discover_test_scenes(project_mgr_.active()->root().string(), filter);
+    if (!scenes) return make_error(scenes.error());
+    if (scenes->empty()) {
+        return make_error(filter.empty()
+                              ? std::string("No test scenes in the project's Tests directory")
+                              : "No test scene matches '" + filter + "'");
+    }
+
+    test_scenes_ = std::move(*scenes);
+    test_phase_ = TestPhase::load;
+    FJELL_CORE_INFO("Running {} test(s)", test_scenes_.size());
+    return {};
+}
+
+void Engine::finish_current_test(TestOutcome outcome, const std::string& message) {
+    auto& report = test_reports_.emplace_back();
+    report.name = test_.valid()
+                      ? test_.type_name()
+                      : std::filesystem::path(test_scenes_[test_index_]).stem().string();
+    report.scene = test_scenes_[test_index_];
+    report.outcome = outcome;
+    report.message = message;
+    report.seconds = test_elapsed_;
+
+    if (test_.valid()) {
+        report.failures = test_.failures();
+        if (report.message.empty()) report.message = test_.message();
+        test_.cleanup_test();
+    }
+
+    test_ = {};
+    test_phase_ = TestPhase::teardown;
+}
+
+void Engine::tick_test_runner() {
+    // Deliberately one transition per frame. stop() only flags the HUD for
+    // destruction; the free happens in the next frame's
+    // apply_pending_hud_resize(), so collapsing a stop and the next load into
+    // one frame runs an ordering nothing else exercises.
+    switch (test_phase_) {
+        case TestPhase::idle:
+        case TestPhase::done:
+            return;
+
+        case TestPhase::load: {
+            if (test_index_ >= test_scenes_.size()) {
+                tests_passed_ = all_passed(test_reports_);
+                FJELL_CORE_INFO("Test results:\n{}", format_report(test_reports_));
+                test_phase_ = TestPhase::done;
+                window_.request_close();
+                return;
+            }
+            load_scene(test_scenes_[test_index_]);
+            // start() is what instantiates the scene's script components:
+            // load_scene leaves every ScriptEntry holding only its type name.
+            play_controller_.start();
+            test_elapsed_ = 0.0f;
+            test_ = TestHandle::find(scene_, script_subsystem_->manager());
+            if (!test_.valid()) {
+                finish_current_test(TestOutcome::not_run,
+                                    "no FunctionalTest component in the scene");
+                return;
+            }
+            test_phase_ = TestPhase::prepare;
+            return;
+        }
+
+        case TestPhase::prepare: {
+            test_elapsed_ += clock_.delta_time();
+            if (test_.is_ready()) {
+                test_elapsed_ = 0.0f;  // the limit is on the test, not the wait
+                test_.start_test();
+                test_phase_ = TestPhase::run;
+                return;
+            }
+            if (test_.preparation_time_limit() > 0.0f
+                && test_elapsed_ > test_.preparation_time_limit()) {
+                finish_current_test(TestOutcome::timed_out, "never became ready");
+            }
+            return;
+        }
+
+        case TestPhase::run: {
+            // The script subsystem already ticked it this frame, and collision
+            // events have dispatched, so a verdict reached this frame is
+            // visible now rather than a frame late.
+            test_elapsed_ += clock_.delta_time();
+            if (test_.finished()) {
+                finish_current_test(
+                    test_.passed() ? TestOutcome::passed : TestOutcome::failed, {});
+                return;
+            }
+            if (test_.time_limit() > 0.0f && test_elapsed_ > test_.time_limit()) {
+                finish_current_test(TestOutcome::timed_out, "never finished");
+            }
+            return;
+        }
+
+        case TestPhase::teardown: {
+            // Physics, UI instances, timers and input contexts unwind here,
+            // not in load_scene — a scene loaded over a live session would
+            // alias node ids into the previous test's physics world.
+            play_controller_.stop();
+            ++test_index_;
+            test_phase_ = TestPhase::load;
+            return;
+        }
+    }
+}
+
 Result<> Engine::set_scenario(const std::string& path) {
     auto scenario = load_environment_scenario(path);
     if (!scenario) return make_error(scenario.error());
@@ -1947,6 +2070,11 @@ void Engine::run() {
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->tick(ctx);
         }
+
+        // After the play phases, so a test that reached its verdict this frame
+        // is read this frame: scripts have ticked and collision events have
+        // dispatched by now.
+        tick_test_runner();
 
         project_mgr_.poll_build(script_subsystem_->manager(), scene_,
                                 play_controller_.playing());
