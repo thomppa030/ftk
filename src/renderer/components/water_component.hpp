@@ -3,13 +3,16 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/resource_handle.hpp"
+#include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 
+#include <memory>
 #include <string>
 
 namespace fjell {
 
 class Material;
+class MaterialInstance;
 
 /// A body of water.
 ///
@@ -22,6 +25,11 @@ class Material;
 /// a wave field travels in world directions, and a rotated body of water is
 /// the same water.
 struct WaterComponent : NodeComponent {
+    WaterComponent();
+    ~WaterComponent();
+    WaterComponent(WaterComponent&&) noexcept;
+    WaterComponent& operator=(WaterComponent&&) noexcept;
+
     /// How the surface is extended.
     enum class Extent : std::uint8_t {
         /// A square centred on the node, `size` metres a side. A lake, a
@@ -79,6 +87,18 @@ struct WaterComponent : NodeComponent {
     Material* material{nullptr};
     std::string material_path;
 
+    /// Per-node override of the surface material. Created on the first
+    /// `set_param` from a script and dropped by `reset`, so a sea whose
+    /// shader a script drives — rain from the weather, a colour from the
+    /// time of day — does not drag every other body of water using the same
+    /// `.fjmat` along with it. The pass reads `resolved_material_id()`.
+    std::unique_ptr<MaterialInstance> instance;
+
+    /// The SSBO row the surface draws with: the override's when a script has
+    /// made one, the shared material's otherwise, 0 when there is no
+    /// material and the pass falls back to the engine's own water shader.
+    [[nodiscard]] std::uint32_t resolved_material_id() const;
+
     /// Metres between vertices at the current settings, for the inspector to
     /// show against what the wave field asks for.
     ///
@@ -94,5 +114,10 @@ struct WaterComponent : NodeComponent {
         return size / static_cast<float>(patches * WATER_PATCH_QUADS);
     }
 };
+
+// A duplicate is the same water with the same material, but starts without
+// the per-node MaterialInstance: that is runtime override state belonging to
+// the one node a script set it on.
+void clone_component(const ComponentStorage& from, const WaterComponent& src, ComponentStorage& to);
 
 } // namespace fjell

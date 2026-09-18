@@ -8,6 +8,7 @@
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -171,6 +172,9 @@ void WaterEditorContext::load_preview_material() {
     water->material_path.clear();
     water->material_handle = {};
     water->material = nullptr;
+    // A script's override clones the material it was made from, so it cannot
+    // outlive a change of material.
+    water->instance.reset();
 
     if (water_.preview_material.empty() || deps_.resource_manager == nullptr) return;
 

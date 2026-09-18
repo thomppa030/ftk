@@ -442,10 +442,13 @@ void WaterPass::resolve_node_material(const WaterComponent& comp, VkPipeline& ou
     out_material_id = fallback_material_id_;
 
     if (comp.material != nullptr) {
+        // The pipeline comes from the shared material either way: a script's
+        // override clones the parent's params into its own SSBO row, it does
+        // not change which shader draws the surface.
         VkPipeline p = ensure_material_pipeline(comp.material->pipeline_id());
         if (p != VK_NULL_HANDLE) {
             out_pipeline = p;
-            out_material_id = comp.material->material_id();
+            out_material_id = comp.resolved_material_id();
             return;
         }
     }

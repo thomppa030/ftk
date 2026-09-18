@@ -5,6 +5,7 @@
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
@@ -26,6 +27,9 @@ void load_water_material(WaterComponent& water, ResourceManager* resources,
                          const Project* project) {
     water.material_handle = {};
     water.material = nullptr;
+    // A script's override clones the material it was made from, so it cannot
+    // outlive a change of material.
+    water.instance.reset();
     if (water.material_path.empty() || resources == nullptr) return;
     auto resolved = base_path::resolve_asset(water.material_path, project);
     auto handle = resources->load_material_asset(resolved, project);

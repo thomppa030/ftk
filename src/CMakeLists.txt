@@ -91,6 +91,7 @@ add_executable(fjell
     renderer/resources/material_gi_params.cpp
     renderer/resources/material_instance.cpp
     renderer/components/mesh_component.cpp
+    renderer/components/water_component.cpp
     renderer/systems/vfx_asset.cpp
     renderer/systems/vfx_curve.cpp
     renderer/systems/vfx_module.cpp
