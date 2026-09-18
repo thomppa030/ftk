@@ -98,6 +98,17 @@ fade. The split is by *does the CPU need to know*: shape and motion are the
 `.fjwater`, appearance is the material. Foam **colour** is material; foam
 **amount**, from crest steepness, is derived from the wave field.
 
+A placed body of water takes its material from its Water component, so one
+wave field can back a calm lake and a storm-lit sea. The water editor picks
+one of its own to preview through, stored in the `.fjwater` as
+`preview_material` — an authoring setting beside `generator`, which nothing at
+runtime reads. It is there because crests and foam read differently under
+every material, and tuning a field against the engine's default before placing
+it under the game's is tuning it blind. Unset previews with
+`shaders/water_default.fjsl`, and a material whose shader is not
+`shader_type water` is reported in the panel rather than silently drawing
+nothing.
+
 ### The two depths
 
 `fragment()` gets two, and they answer different questions:

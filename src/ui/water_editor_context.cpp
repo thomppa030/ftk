@@ -1,12 +1,17 @@
 #include "ui/water_editor_context.hpp"
 
+#include "core/asset_type_registry.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/components/water_component.hpp"
+#include "renderer/resources/material.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
@@ -122,7 +127,35 @@ void WaterEditorContext::setup_preview() {
     wc.patches_per_side = 46;
 
     preview_node_id_ = preview_scene_.add_node(std::move(node));
+    load_preview_material();
     preview_scene_.compute_world_matrices(nullptr);
+}
+
+void WaterEditorContext::load_preview_material() {
+    auto* node = preview_scene_.find(preview_node_id_);
+    if (node == nullptr) return;
+    auto* water = node->components.get<WaterComponent>();
+    if (water == nullptr) return;
+
+    // Cleared first, so a path that fails to load leaves the engine's own
+    // shader drawing rather than whatever was picked before it.
+    water->material_path.clear();
+    water->material_handle = {};
+    water->material = nullptr;
+
+    if (water_.preview_material.empty() || deps_.resource_manager == nullptr) return;
+
+    const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active()
+                                                          : nullptr;
+    auto resolved = base_path::resolve_asset(water_.preview_material, project);
+    auto handle = deps_.resource_manager->load_material_asset(resolved, project);
+    if (!handle) {
+        FJELL_CORE_ERROR("Water editor: {}", handle.error());
+        return;
+    }
+    water->material_path = water_.preview_material;
+    water->material_handle = *handle;
+    water->material = deps_.resource_manager->get(*handle);
 }
 
 bool WaterEditorContext::save() {
@@ -197,6 +230,48 @@ void WaterEditorContext::draw_generator_panel() {
         ImGui::End();
         return;
     }
+
+    // What the field is being looked at through. Crest steepness and foam
+    // read differently under every material, so tuning a sea against the
+    // engine's default and placing it under the game's is tuning it blind.
+    ImGui::TextDisabled("Preview");
+    InspectorContext ictx{};
+    ictx.resource_manager = deps_.resource_manager;
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.content_browser = deps_.content_browser;
+    ictx.file_browser = deps_.file_browser;
+    ictx.icons = deps_.icon_cache;
+
+    static const std::string mat_exts[] = {".fjmat"};
+    const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
+    if (asset_ref_field({.label = "Material",
+                         .id = "##WaterPreviewMat",
+                         .extensions = mat_exts,
+                         .ctx = &ictx,
+                         .asset_type = mat_type},
+                        water_.preview_material)) {
+        load_preview_material();
+        dirty_ = true;
+    }
+    ImGui::SetItemTooltip("The material this field is previewed through. Saved "
+                          "with the .fjwater as an authoring setting — a placed "
+                          "body of water takes its material from its own "
+                          "component. Unset draws the engine's water shader.");
+
+    // A material whose shader is not water has no surface pipeline and would
+    // draw nothing; say so here rather than leaving an unchanged preview to
+    // be puzzled over.
+    if (auto* node = preview_scene_.find(preview_node_id_)) {
+        if (auto* water = node->components.get<WaterComponent>();
+            water != nullptr && water->material != nullptr &&
+            water->material->shader_type() != "water") {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                               "shader_type %s — water needs shader_type water",
+                               water->material->shader_type().c_str());
+        }
+    }
+
+    ImGui::Separator();
 
     ImGui::TextDisabled("Generate");
     ImGui::TextWrapped(

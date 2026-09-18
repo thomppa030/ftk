@@ -684,6 +684,9 @@ void Engine::init_editor() {
                 .resource_manager = resource_manager_.get(),
                 .project_mgr = &project_mgr_,
                 .input = &input_,
+                .icon_cache = icon_cache_.get(),
+                .content_browser = &content_browser_,
+                .file_browser = &asset_file_browser_,
                 .scene = &scene_,
             };
             auto ctx = std::make_unique<WaterEditorContext>(deps);

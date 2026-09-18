@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace fjell {
@@ -194,6 +195,16 @@ struct FjWaterData {
 
     /// How the sea answers the weather's wind.
     WaterWindResponse wind;
+
+    /// The `.fjmat` the water editor draws this field through, as an asset
+    /// reference. Empty previews with the engine's own water shader.
+    ///
+    /// Authoring convenience, like `generator`: nothing at runtime reads it,
+    /// and a placed body of water takes its material from its own component.
+    /// It lives here because it belongs to the field being tuned — crest
+    /// steepness and foam read differently under every material, so the one
+    /// a sea was judged against is part of how to come back to it.
+    std::string preview_material;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

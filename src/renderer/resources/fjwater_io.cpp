@@ -122,6 +122,8 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         water.wind.direction_response = wj.value("direction_response", 0.7f);
     }
 
+    water.preview_material = j.value("preview_material", std::string{});
+
     if (j.contains("generator") && j["generator"].is_object()) {
         const auto& g = j["generator"];
         water.generator.wind_direction = read_vec2(g, "wind_direction", glm::vec2(1.0f, 0.0f));
@@ -183,6 +185,12 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
             {"steepness_response", water.wind.steepness_response},
             {"direction_response", water.wind.direction_response},
         };
+    }
+
+    // The editor's own setting, written only once one has been picked so a
+    // file nobody has previewed stays as short as it reads.
+    if (!water.preview_material.empty()) {
+        j["preview_material"] = water.preview_material;
     }
 
     nlohmann::json g = nlohmann::json::object();

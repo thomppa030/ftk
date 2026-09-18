@@ -10,6 +10,9 @@
 
 namespace fjell {
 
+class ContentBrowser;
+class FileBrowser;
+class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
@@ -21,6 +24,11 @@ struct WaterEditorDeps {
     ResourceManager* resource_manager;
     ProjectManager* project_mgr;
     Input* input;
+    /// For the preview material picker: its thumbnail, and the two browsers
+    /// that give it [Use Selected] and [Browse].
+    IconCache* icon_cache{nullptr};
+    ContentBrowser* content_browser{nullptr};
+    FileBrowser* file_browser{nullptr};
     /// The scene the engine ticks. The editor previews a sea of its own, but
     /// a water node in the open scene that names this asset follows the edits
     /// too, so the two stay in step.
@@ -65,6 +73,10 @@ public:
 private:
     /// Build the preview: one water node over a floor, carrying this asset.
     void setup_preview();
+
+    /// Point the preview node at the field's `preview_material`, or clear it
+    /// back to the engine's water shader when none is set.
+    void load_preview_material();
 
     void draw_generator_panel();
     void draw_wave_list_panel();
