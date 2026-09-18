@@ -55,6 +55,7 @@
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/terrain_component.hpp"
+#include "renderer/components/water_component.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/texture.hpp"
@@ -983,8 +984,11 @@ void Engine::save_material_assets() {
     auto& bindless = vulkan_context_->bindless_textures();
     if (!cache) return;
 
-    // Every component that carries an editable .fjmat reference: meshes and
-    // terrains both let the inspector change the material's params in place.
+    // Every component that carries an editable .fjmat reference. The
+    // inspector reaches a material through the component registry, so any
+    // component publishing one can have its params changed in place — and
+    // every one of those has to be listed here or those edits are lost on
+    // reload with nothing to say they were dropped.
     auto save_material = [&](const Material* material, const std::string& reference) {
         if (material == nullptr) return;
         if (!base_path::references_asset(reference, ".fjmat")) return;
@@ -1036,6 +1040,9 @@ void Engine::save_material_assets() {
         }
         if (const auto* terrain = obj->components.get<TerrainComponent>()) {
             save_material(terrain->material, terrain->material_path);
+        }
+        if (const auto* water = obj->components.get<WaterComponent>()) {
+            save_material(water->material, water->material_path);
         }
     }
 }
