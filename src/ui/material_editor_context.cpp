@@ -158,9 +158,9 @@ bool MaterialEditorContext::save() {
 void MaterialEditorContext::setup_preview_scene() {
     preview_scene_.clear();
 
-    // A ui or terrain material has no surface pipeline to put on a sphere;
-    // the UI editor previews the one, a terrain node the other (see
-    // draw_params_panel).
+    // Only a spatial material has a surface pipeline to put on a sphere. The
+    // rest are drawn by a pass of their own, from geometry a sphere does not
+    // have; draw_params_panel says so and points at where each is previewed.
     if (material_ && material_->shader_type() != ShaderType::Spatial) return;
 
     auto sphere = deps_.resource_manager->create_primitive("sphere");
@@ -189,12 +189,30 @@ void MaterialEditorContext::draw_params_panel() {
 
         ImGui::TextDisabled("Shader: %s", material_->shader_path().c_str());
         ImGui::TextDisabled("Material: %s", fjmat_path_.c_str());
-        if (material_->shader_type() == ShaderType::Ui) {
-            ImGui::TextWrapped("UI shader: the preview sphere cannot draw it. Assign the "
-                               "material to a node and open that widget in the UI editor.");
-        } else if (material_->shader_type() == ShaderType::Terrain) {
-            ImGui::TextWrapped("Terrain shader: the preview sphere cannot draw it. Assign "
-                               "the material to a Terrain component and look at the scene.");
+        // Only a spatial material goes on the preview sphere; the rest are
+        // drawn by a pass of their own from geometry the sphere does not
+        // have. Say which, and where to look instead — the preview is simply
+        // blank otherwise, which reads as a broken material.
+        switch (material_->shader_type()) {
+            case ShaderType::Spatial:
+                break;
+            case ShaderType::Ui:
+                ImGui::TextWrapped("UI shader: the preview sphere cannot draw it. Assign the "
+                                   "material to a node and open that widget in the UI editor.");
+                break;
+            case ShaderType::Terrain:
+                ImGui::TextWrapped("Terrain shader: the preview sphere cannot draw it. Assign "
+                                   "the material to a Terrain component and look at the scene.");
+                break;
+            case ShaderType::Water:
+                ImGui::TextWrapped("Water shader: the preview sphere cannot draw it — the "
+                                   "surface comes from the node's .fjwater wave field. Assign "
+                                   "the material to a Water component and look at the scene.");
+                break;
+            case ShaderType::Sky:
+                ImGui::TextWrapped("Sky shader: the preview sphere cannot draw it. Set it as "
+                                   "the scene's sky and look at the scene.");
+                break;
         }
         ImGui::Separator();
 
