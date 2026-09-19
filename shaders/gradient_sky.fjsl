@@ -25,6 +25,14 @@ uniform float cloud_wisp : hint_range(0.0, 1.0, 0.01) = 1.0;
 // How hard a cloud's outline is: how far the sky takes to become cloud. The
 // silhouette itself does not move.
 uniform float cloud_edge : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How many flat values a cloud's shading is cut into. The silhouette is only
+// half of a drawn cloud: a crisp edge around a smooth grey wash is a
+// photograph in a drawn outline, and it shows the moment the sheet greys.
+// 0 keeps the wash.
+uniform float cloud_shade_bands : hint_range(0.0, 8.0, 1.0) = 4.0;
+// How hard the step between those values is. Below 1 is a contrast curve
+// rather than a quantiser and barely reads; flat colour is the point.
+uniform float cloud_shade_hardness : hint_range(0.0, 1.0, 0.01) = 1.0;
 
 // ── Cloud scale ─────────────────────────────────────────────────────────────
 group "Cloud scale";
@@ -63,6 +71,8 @@ void sky() {
     fjell_cloud_contrast = cloud_contrast;
     fjell_cloud_wisp = cloud_wisp;
     fjell_cloud_edge = cloud_edge;
+    fjell_cloud_shade_bands = cloud_shade_bands;
+    fjell_cloud_shade_hardness = cloud_shade_hardness;
     fjell_cloud_size = cloud_size;
     fjell_cloud_height = cloud_height;
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,

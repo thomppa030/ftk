@@ -205,6 +205,46 @@ float fjell_cloud_wisp = 1.0;
 // How hard a cloud's outline is: how far the sky takes to become cloud. The
 // silhouette itself does not move.
 float fjell_cloud_edge = 1.0;
+// How many flat values a cloud's shading is cut into. The silhouette is only
+// half of a drawn cloud: a crisp edge around a smooth grey wash is a
+// photograph in a drawn outline, and it shows the moment the sheet greys,
+// because a near-white cloud has no gradient to give away.
+//
+// Cutting the *light*, never the density. Banding the field itself puts a
+// hard boundary in the silhouette, which crawls as the sheet drifts and
+// aliases at distance; banding what the light does inside a shape leaves the
+// edge exactly where it was. 0 keeps the smooth wash.
+float fjell_cloud_shade_bands = 4.0;
+// How hard the step between those values is. 1 is a true flat cut.
+//
+// Below 1 does far less than it sounds: what survives is a contrast curve
+// inside each band rather than a quantiser, and it only starts flattening in
+// the last fraction of the range — 0.85 still leaves hundreds of distinct
+// greys and reads as the smooth wash it replaced. Flat colour is the point,
+// so the default takes it.
+float fjell_cloud_shade_hardness = 1.0;
+
+// A value cut into genuinely flat levels. `hardness` decides how much of the
+// ramp survives inside each one: at 1 a level is a single exact value with a
+// hard boundary, at 0 the ramp is untouched, exactly.
+//
+// The obvious version — reshaping the fraction within each level with a
+// smoothstep — is a contrast curve, not a quantiser: it never produces two
+// pixels of the same value, and at hardness 0 it is an identity. Flattening
+// toward the level's own centre is what actually puts flat colour on the sky.
+float fjell_cloud_posterize(float x, float bands, float hardness) {
+    float count = max(bands, 2.0);
+    float scaled = x * count;
+    float index = floor(scaled);
+    float within = scaled - index;
+    // What is left of the ramp becomes the boundary between two flat values.
+    float keep = 1.0 - hardness;
+    float shaped = keep <= 1e-4
+        ? step(0.5, within)
+        : clamp((within - 0.5) / keep + 0.5, 0.0, 1.0);
+    shaped = shaped * shaped * (3.0 - 2.0 * shaped);
+    return (index + mix(within, shaped, hardness)) / count;
+}
 
 // Folded octaves: `abs()` creases the noise at every zero crossing, which is
 // what puts the torn, filamented edges on a drawn cloud where plain fbm
@@ -333,10 +373,6 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // coverage, so shading with it is what leaves a storm sky churning
     // instead of blank.
     float field = fjell_cloud_field(sheet);
-    // The field arrives banded when stylized, but a smoothstep across it
-    // would blur those steps back out, so the ramp is re-cut on the way to
-    // the colour. This is what puts the flat values in the paint rather than
-    // only in the shape.
     // How deep into the cloud this pixel is, measured against the field's own
     // range so the two cannot drift apart. The window sits just below the
     // field's middle and runs a little past its top: low enough that cloud
@@ -345,18 +381,28 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // half of every cloud lands at the dark end and the sky reads as one grey
     // mass with holes in it; pushed much higher, cloud goes white and the
     // overcast case is a flat pale sheet again.
-    //
-    // The window follows the style because the two fields do not share a
-    // distribution: the contrast multiply pushes the styled field's mass
-    // upward, so a window that balances the soft sheet leaves the drawn one
-    // uniformly dark, and one that balances the drawn sheet leaves the soft
-    // one pale — which is the flat-white overcast this layer exists to avoid.
     float relief = smoothstep(FJELL_CLOUD_FIELD_MID - 0.15,
                               FJELL_CLOUD_FIELD_HI + 0.13, field);
     // Heavier weather is thicker throughout, so the whole sheet darkens as
     // it closes rather than only its densest parts.
     float thickness = mix(0.25, 1.0, relief) * mix(0.45, 1.0, density)
                     * mix(0.65, 1.0, coverage);
+
+    // Cut into flat values, so the inside of a cloud is drawn like its edge.
+    // This is the one place banding belongs: the silhouette comes from the
+    // field and stays smooth, while the light inside it steps. Banding the
+    // field instead would put the hard boundary in the outline, where it
+    // crawls as the sheet drifts and aliases at distance.
+    //
+    // Cut here rather than on `relief`, which the smoothstep above has
+    // already driven to its ends for most of a cloud — quantising a value
+    // that is nearly binary changes nothing anyone can see. `thickness` is
+    // what picks the colour, so it is what has to step.
+    if (fjell_cloud_shade_bands >= 2.0) {
+        thickness = fjell_cloud_posterize(clamp(thickness, 0.0, 1.0),
+                                          fjell_cloud_shade_bands,
+                                          fjell_cloud_shade_hardness);
+    }
 
     float sun_up = max(sun_dir.y, 0.0);
     // A smooth falloff toward the sun is the most photoreal thing a sky has
