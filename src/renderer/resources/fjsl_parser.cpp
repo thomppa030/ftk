@@ -1261,6 +1261,24 @@ std::string rename_identifiers(const std::string& text,
     out.reserve(text.size());
     size_t i = 0;
     while (i < text.size()) {
+        // Comments are prose about the code, not code. Renaming inside one
+        // turns a sentence mentioning a uniform into nonsense — harmless to
+        // the compiler, confusing to whoever reads the generated file.
+        if (text[i] == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+            const size_t line_end = text.find('\n', i);
+            out.append(text, i, line_end == std::string::npos ? std::string::npos
+                                                             : line_end - i);
+            if (line_end == std::string::npos) break;
+            i = line_end;
+            continue;
+        }
+        if (text[i] == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+            const size_t close = text.find("*/", i + 2);
+            const size_t end = close == std::string::npos ? text.size() : close + 2;
+            out.append(text, i, end - i);
+            i = end;
+            continue;
+        }
         if (!is_identifier_char(text[i])) {
             out += text[i++];
             continue;

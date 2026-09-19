@@ -1691,3 +1691,35 @@ TEST_CASE("A composed function's textures live in its own row", "[fjsl][compose]
     INFO(output);
     REQUIRE(status == 0);
 }
+
+TEST_CASE("Mangling leaves comments alone", "[fjsl][compose]") {
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    // A comment that mentions a uniform by name is prose, not code. Renaming
+    // inside it is harmless to the compiler and baffling to a reader of the
+    // generated file.
+    const std::string fn =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform float halo : hint_range(0.0, 4.0, 0.05) = 1.0;\n"
+        "// The disc and the halo around it.\n"
+        "/* halo again, in a block comment */\n"
+        "void main() { color = vec3(halo); }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use sun = \"lib/f.fjsl\"(view_dir: VIEW_DIR);\n"
+        "void sky() { SKY = sun.color; }\n";
+
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    auto comp = compose(root, {{"lib/f.fjsl", fn}});
+    REQUIRE_FALSE(comp.has_errors());
+    const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
+
+    REQUIRE(glsl.find("// The disc and the halo around it.") != std::string::npos);
+    REQUIRE(glsl.find("/* halo again, in a block comment */") != std::string::npos);
+    REQUIRE(glsl.find("vec3(sun_halo)") != std::string::npos);  // the code did change
+}

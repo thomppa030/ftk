@@ -1,0 +1,26 @@
+// The sun's disc and the halo around it, as a contribution to a sky.
+//
+// Takes the view and sun directions rather than reading the sky's built-ins,
+// so the same function draws a sun in a reflection, a preview or anywhere
+// else the caller can say where it is looking.
+shader_function;
+
+in vec3 view_dir;
+in vec3 sun_dir;
+in vec3 sun_color;
+
+out vec3 color;
+out float alpha;
+
+group "Disc";
+uniform float size : hint_range(0.1, 4.0, 0.01) = 1.8;
+uniform float halo_size : hint_range(0.0, 30.0, 0.1) = 1.2;
+uniform float halo : hint_range(0.0, 4.0, 0.05) = 1.0;
+
+void main() {
+    float d = degrees(acos(clamp(dot(view_dir, sun_dir), -1.0, 1.0)));
+    float disc = 1.0 - smoothstep(size * 0.9, size, d);
+    float glow = halo * exp2(-d * d / max(halo_size * halo_size, 1e-3));
+    color = sun_color;
+    alpha = clamp(disc + glow, 0.0, 1.0);
+}

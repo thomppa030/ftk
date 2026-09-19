@@ -107,6 +107,10 @@ public:
 private:
     struct Entry {
         std::string fjsl_path;
+        /// Every shader_function this entry composed, by the path its `use`
+        /// wrote. Editing one of these has to rebuild this entry: the function's
+        /// code is inlined here, and nothing else would notice it changed.
+        std::vector<std::string> used_paths;
         std::string generated_frag_path;
         ShaderMetadata metadata;
         bool has_custom_vertex{false};

@@ -300,8 +300,45 @@ void PipelineCache::compile_entry(Entry& entry) {
                                      + std::string(shader_type_name(shader_type)) + "'");
         }
 
+        // Resolve what this shader composes, if anything. A `use` names a file
+        // the same way a material names a shader, so it is found the same way:
+        // the project first, then the engine, which lets a game replace an
+        // engine function by putting its own at the same path.
+        FjslComposition composition;
+        if (!next.metadata.uses.empty()) {
+            composition = resolve_composition(
+                next.metadata, entry.fjsl_path,
+                [this](const std::string& path) -> std::optional<std::string> {
+                    const std::string full = base_path::resolve_shared(path, project_);
+                    if (full.empty()) return std::nullopt;
+                    std::ifstream file(full);
+                    if (!file) return std::nullopt;
+                    std::ostringstream text;
+                    text << file.rdbuf();
+                    return text.str();
+                });
+            log_fjsl_diagnostics(composition, entry.fjsl_path);
+            if (composition.has_errors()) {
+                std::string errors;
+                for (const auto& d : composition.diagnostics) {
+                    if (d.severity != FjslSeverity::error) continue;
+                    if (!errors.empty()) errors += "\n";
+                    errors += (d.file.empty() ? entry.fjsl_path : d.file) + ":"
+                            + std::to_string(d.line) + ":" + std::to_string(d.column)
+                            + ": " + d.message;
+                }
+                throw std::runtime_error(errors);
+            }
+            for (const auto& file : composition.files) {
+                if (file.use_name.empty()) continue;
+                next.used_paths.push_back(file.path);
+            }
+        }
+
         // Generate complete fragment shader
-        std::string frag_source = generate_fragment_shader(next.metadata, tmpl);
+        const FjslComposition* composed =
+            next.metadata.uses.empty() ? nullptr : &composition;
+        std::string frag_source = generate_fragment_shader(next.metadata, tmpl, composed);
 
         // Determine output name from fjsl filename
         std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
@@ -995,11 +1032,18 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
 
     std::vector<uint32_t> to_reload;
     for (uint32_t id = 0; id < entries_.size(); ++id) {
+        bool hit = false;
         for (const auto& changed : changed_paths) {
-            if (!same_shader_file(entries_[id].fjsl_path, changed)) continue;
-            to_reload.push_back(id);
-            break;
+            // The shader itself, or any shader_function inlined into it — a
+            // function's code lives in its consumers' programs, so editing one
+            // has to rebuild each of them and nothing else would notice.
+            if (same_shader_file(entries_[id].fjsl_path, changed)) hit = true;
+            for (const auto& used : entries_[id].used_paths) {
+                if (same_shader_file(used, changed)) hit = true;
+            }
+            if (hit) break;
         }
+        if (hit) to_reload.push_back(id);
     }
     if (to_reload.empty()) return 0;
 
