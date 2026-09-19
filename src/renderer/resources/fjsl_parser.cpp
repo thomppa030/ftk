@@ -250,6 +250,35 @@ static const std::regex& uniform_declaration_re() {
     return re;
 }
 
+/// `shader_function;` — this file is composed into others, drawn by nothing.
+static const std::regex& shader_function_re() {
+    static const std::regex re(R"(shader_function\s*;)");
+    return re;
+}
+
+/// `in <type> <name>;` / `out <type> <name>;` — a shader_function's interface.
+/// Groups: 1 type, 2 name. No defaults: the consumer passes everything, so a
+/// function never reaches for a built-in of whatever happens to call it.
+static const std::regex& in_port_re() {
+    static const std::regex re(R"(in\s+(\w+)\s+(\w+)\s*;)");
+    return re;
+}
+static const std::regex& out_port_re() {
+    static const std::regex re(R"(out\s+(\w+)\s+(\w+)\s*;)");
+    return re;
+}
+
+/// `use <name> = "<path>"(` — the head of a wiring. The argument list is not
+/// matched here: an argument is a consumer-side GLSL expression and may contain
+/// its own parentheses, which no regex of the `[^)]*` shape survives — it stops
+/// at the first `)` and the whole declaration silently fails to match. The
+/// caller scans from the `(` counting depth instead.
+/// Groups: 1 name, 2 path.
+static const std::regex& use_head_re() {
+    static const std::regex re(R"RX(use\s+(\w+)\s*=\s*"([^"]*)"\s*\()RX");
+    return re;
+}
+
 static std::string trim(const std::string& str) {
     auto s = str.find_first_not_of(" \t\r\n");
     if (s == std::string::npos) return {};
@@ -614,23 +643,46 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         meta.diagnostics.push_back({pos.line, pos.column, severity, std::move(message)});
     };
 
+    // A file declares what it is, positively: `shader_type X;` for something a
+    // pass draws, `shader_function;` for a pure function composed into others.
+    // Never inferred from the absence of the other, so a typo stays an error
+    // rather than silently becoming the other kind.
+    {
+        std::smatch fn;
+        if (std::regex_search(source, fn, shader_function_re())) {
+            meta.is_function = true;
+            std::smatch clash;
+            static const std::regex type_re(R"(shader_type\s+(\w+)\s*;)");
+            if (std::regex_search(source, clash, type_re)) {
+                diagnose(static_cast<size_t>(clash.position(0)), FjslSeverity::error,
+                         "a file is either a shader_function or a shader_type, not both");
+            }
+        }
+    }
+
     // Parse shader_type
     static const std::regex shader_type_re(R"(shader_type\s+(\w+)\s*;)");
     std::smatch sm;
-    if (!std::regex_search(source, sm, shader_type_re)) {
+    if (meta.is_function) {
+        // Falls through to the ports and uniforms below; a function has no
+        // Type, so nothing here picks a template or a material expression.
+    } else if (!std::regex_search(source, sm, shader_type_re)) {
         diagnose(0, FjslSeverity::error,
-                 "missing shader_type declaration; expected e.g. 'shader_type spatial;'");
+                 "missing shader_type declaration; expected 'shader_type spatial;' "
+                 "or 'shader_function;'");
         return meta;
     }
 
-    const std::string type_word = sm[1].str();
-    if (auto type = shader_type_from_name(type_word)) {
-        meta.shader_type = *type;
-    } else {
-        diagnose(static_cast<size_t>(sm.position(1)), FjslSeverity::error,
-                 "unsupported shader_type '" + type_word
-                     + "'; expected spatial, sky, ui, terrain or water");
-        return meta;
+    if (!meta.is_function) {
+        const std::string type_word = sm[1].str();
+        if (auto type = shader_type_from_name(type_word)) {
+            meta.shader_type = *type;
+        } else {
+            diagnose(static_cast<size_t>(sm.position(1)), FjslSeverity::error,
+                     "unsupported shader_type '" + type_word
+                         + "'; expected spatial, sky, ui, terrain or water");
+            return meta;
+        }
     }
 
     // Parse render_mode (comma-separated keywords)
@@ -739,16 +791,119 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     });
 
     meta.custom_param_count = param_offset;
+
+    // `in` / `out` ports. Only a shader_function has them: a shader's inputs
+    // are its Type's built-ins and its outputs are the template's attachments,
+    // neither of which the author declares.
+    auto collect_ports = [&](std::string_view keyword, const std::regex& re,
+                             std::vector<FjslPort>& into) {
+        for_each_match(source, keyword, re,
+                       [&](size_t offset, const std::smatch& m) {
+            const std::string type_name = m[1].str();
+            FjslPort port;
+            port.name = m[2].str();
+            port.offset = offset;
+            try {
+                port.type = parse_type(type_name);
+            } catch (const std::exception&) {
+                diagnose(offset, FjslSeverity::error,
+                         "'" + type_name + "' is not a type a " + std::string(keyword)
+                             + " can carry; expected float, vec2, vec3 or vec4");
+                return;
+            }
+            if (port.type == UniformType::Sampler2D) {
+                diagnose(offset, FjslSeverity::error,
+                         "a sampler2D cannot be passed through " + std::string(keyword)
+                             + "; declare it as a uniform of the function that samples it");
+                return;
+            }
+            if (!meta.is_function) {
+                diagnose(offset, FjslSeverity::error,
+                         "only a shader_function declares " + std::string(keyword)
+                             + " ports");
+                return;
+            }
+            into.push_back(std::move(port));
+        });
+    };
+    collect_ports("in", in_port_re(), meta.inputs);
+    collect_ports("out", out_port_re(), meta.outputs);
+
+    // `use` wirings, in source order.
+    for_each_match(source, "use", use_head_re(),
+                   [&](size_t offset, const std::smatch& m) {
+        FjslUse use;
+        use.name = m[1].str();
+        use.path = m[2].str();
+        use.offset = offset;
+        // The match ends just past the opening `(`. Walk to the `)` that
+        // closes it, counting depth, so an argument may be any expression.
+        size_t scan = offset + static_cast<size_t>(m.length(0));
+        int open = 1;
+        const size_t args_begin = scan;
+        while (scan < source.size() && open > 0) {
+            if (source[scan] == '(') ++open;
+            else if (source[scan] == ')') --open;
+            ++scan;
+        }
+        if (open != 0) {
+            diagnose(offset, FjslSeverity::error,
+                     "use '" + use.name + "' has no closing ')'");
+            return;
+        }
+        {
+            size_t semi = scan;
+            while (semi < source.size()
+                   && std::isspace(static_cast<unsigned char>(source[semi]))) ++semi;
+            if (semi >= source.size() || source[semi] != ';') {
+                diagnose(offset, FjslSeverity::error,
+                         "use '" + use.name + "' needs a ';' after it");
+                return;
+            }
+        }
+        // `view_dir: VIEW_DIR, sun_dir: SUN_DIR` — split on the commas between
+        // arguments, not the ones inside an expression's own call.
+        const std::string args = source.substr(args_begin, scan - 1 - args_begin);
+        std::string current;
+        int depth = 0;
+        auto take = [&] {
+            const std::string text = trim(current);
+            current.clear();
+            if (text.empty()) return;
+            const auto colon = text.find(':');
+            if (colon == std::string::npos) {
+                diagnose(offset, FjslSeverity::error,
+                         "argument '" + text + "' to use '" + use.name
+                             + "' needs the name of the in it fills, as 'name: value'");
+                return;
+            }
+            use.arguments.emplace_back(trim(text.substr(0, colon)),
+                                       trim(text.substr(colon + 1)));
+        };
+        for (char c : args) {
+            if (c == '(' || c == '[') ++depth;
+            else if (c == ')' || c == ']') --depth;
+            if (c == ',' && depth == 0) { take(); continue; }
+            current += c;
+        }
+        take();
+        meta.uses.push_back(std::move(use));
+    });
+
     // Sky shaders supply their user code via sky() rather than fragment();
     // route it through the same fragment_body slot so the existing
     // /*FJSL_USER_CODE*/ substitution path works unchanged.
-    meta.fragment_body = meta.shader_type == ShaderType::Sky
-        ? extract_function_body(source, "sky")
-        : extract_function_body(source, "fragment");
-    meta.vertex_body = extract_function_body(source, "vertex");
-    meta.light_body = extract_function_body(source, "light");
-    meta.layers_body = extract_function_body(source, "layers");
-    meta.user_globals = extract_user_globals(source, meta.shader_type);
+    if (meta.is_function) {
+        meta.main_body = extract_function_body(source, "main");
+    } else {
+        meta.fragment_body = meta.shader_type == ShaderType::Sky
+            ? extract_function_body(source, "sky")
+            : extract_function_body(source, "fragment");
+        meta.vertex_body = extract_function_body(source, "vertex");
+        meta.light_body = extract_function_body(source, "light");
+        meta.layers_body = extract_function_body(source, "layers");
+    }
+    meta.user_globals = extract_user_globals(source, meta.type());
     // Kept so the generator can turn a body's byte offset into a line number.
     meta.source_text = source;
 
@@ -766,16 +921,60 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // replaced had grown unevenly: sky was guarded against nothing, so a sky
     // shader defining fragment() instead of sky() compiled to a black sky with
     // no word said.
-    for (const auto& rule : hook_rules(meta.shader_type)) {
+    const std::string kind =
+        meta.is_function ? std::string("a shader_function")
+                         : "shader_type " + std::string(shader_type_name(meta.shader_type));
+    for (const auto& rule : hook_rules(meta.type())) {
         if (rule.refusal.empty()) continue;
 
         const size_t at = find_function_declaration(source, rule.hook);
         if (at == std::string::npos) continue;
 
         diagnose(at, FjslSeverity::error,
-                 "shader_type " + std::string(shader_type_name(meta.shader_type))
-                     + " has no " + std::string(rule.hook) + "() stage — "
+                 kind + " has no " + std::string(rule.hook) + "() stage — "
                      + std::string(rule.refusal));
+    }
+
+    if (meta.is_function) {
+        if (meta.main_body.empty()) {
+            diagnose(0, FjslSeverity::error,
+                     "a shader_function needs a main() to run");
+        }
+        if (meta.outputs.empty()) {
+            diagnose(0, FjslSeverity::error,
+                     "a shader_function with no out declares nothing a caller can read");
+        }
+        // A duplicate port name would silently shadow: both mangle to the same
+        // identifier in the composed shader.
+        auto check_unique = [&](const std::vector<FjslPort>& ports, const char* what) {
+            for (size_t i = 0; i < ports.size(); ++i) {
+                for (size_t j = 0; j < i; ++j) {
+                    if (ports[i].name != ports[j].name) continue;
+                    diagnose(ports[i].offset, FjslSeverity::error,
+                             std::string(what) + " '" + ports[i].name
+                                 + "' is declared twice");
+                }
+            }
+        };
+        check_unique(meta.inputs, "in");
+        check_unique(meta.outputs, "out");
+        for (const auto& out : meta.outputs) {
+            for (const auto& in : meta.inputs) {
+                if (out.name != in.name) continue;
+                diagnose(out.offset, FjslSeverity::error,
+                         "'" + out.name + "' is both an in and an out");
+            }
+        }
+    }
+
+    // A `use` names a file under a local name; two of the same name would
+    // mangle their contents together.
+    for (size_t i = 0; i < meta.uses.size(); ++i) {
+        for (size_t j = 0; j < i; ++j) {
+            if (meta.uses[i].name != meta.uses[j].name) continue;
+            diagnose(meta.uses[i].offset, FjslSeverity::error,
+                     "use '" + meta.uses[i].name + "' is declared twice");
+        }
     }
 
     return meta;

@@ -1339,3 +1339,109 @@ TEST_CASE("hint_color uniforms are authored in sRGB and stored linear", "[fjsl][
         REQUIRE(v[2] == 0.0f);
     }
 }
+
+// --- shader_function ---
+//
+// A .fjsl that declares `shader_function;` instead of a `shader_type` is a
+// pure function: no pass draws it, it is composed into other files. It has
+// typed `in`/`out` ports and one entry point, main().
+
+TEST_CASE("Parse a shader_function with ports", "[fjsl][function]") {
+    auto meta = parse_fjsl(
+        "shader_function;\n"
+        "in vec3 view_dir;\n"
+        "in float size;\n"
+        "out vec3 color;\n"
+        "out float alpha;\n"
+        "void main() { color = view_dir; alpha = size; }\n");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.is_function);
+    REQUIRE_FALSE(meta.type().has_value());
+    REQUIRE(meta.inputs.size() == 2);
+    REQUIRE(meta.inputs[0].name == "view_dir");
+    REQUIRE(meta.inputs[0].type == UniformType::Vec3);
+    REQUIRE(meta.inputs[1].type == UniformType::Float);
+    REQUIRE(meta.outputs.size() == 2);
+    REQUIRE(meta.outputs[0].name == "color");
+    REQUIRE_FALSE(meta.main_body.empty());
+}
+
+TEST_CASE("A shader_function needs main() and at least one out", "[fjsl][function]") {
+    require_rejected("shader_function;\nin vec3 d;\nout vec3 c;");          // no main
+    require_rejected("shader_function;\nin vec3 d;\nvoid main() {}");        // no out
+}
+
+TEST_CASE("A shader_function rejects a Type's hooks", "[fjsl][function]") {
+    require_rejected("shader_function;\nout vec3 c;\nvoid main() {}\nvoid fragment() {}");
+    require_rejected("shader_function;\nout vec3 c;\nvoid main() {}\nvoid sky() {}");
+    require_rejected("shader_function;\nout vec3 c;\nvoid main() {}\nvoid light() {}");
+}
+
+TEST_CASE("A file is a shader_function or a shader_type, not both", "[fjsl][function]") {
+    require_rejected("shader_function;\nshader_type spatial;\nout vec3 c;\nvoid main() {}");
+    // A shader does not declare ports: its inputs are its Type's built-ins.
+    require_rejected("shader_type spatial;\nin vec3 d;\nvoid fragment() {}");
+}
+
+TEST_CASE("Port names must not collide", "[fjsl][function]") {
+    require_rejected("shader_function;\nin vec3 d;\nin vec3 d;\nout vec3 c;\nvoid main() {}");
+    require_rejected("shader_function;\nin vec3 d;\nout vec3 d;\nvoid main() {}");
+}
+
+TEST_CASE("A sampler cannot be a port", "[fjsl][function]") {
+    // A texture belongs to whichever file samples it, as its own uniform, so
+    // it reaches the GPU through that file's material row.
+    require_rejected("shader_function;\nin sampler2D t;\nout vec3 c;\nvoid main() {}");
+}
+
+TEST_CASE("Short keywords do not match inside other words", "[fjsl][function]") {
+    // `in` and `out` are two and three letters; the scan must not read `int`,
+    // an identifier containing them, or prose in a comment as a declaration.
+    auto meta = parse_fjsl(
+        "shader_type spatial;\n"
+        "// a point in space, using the outer edge\n"
+        "float outer(float x) { return x; }\n"
+        "void fragment() { int count = 1; vec3 in_dir = vec3(0.0); ALBEDO = in_dir; }\n");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.inputs.empty());
+    REQUIRE(meta.outputs.empty());
+}
+
+// --- use ---
+
+TEST_CASE("Parse a use wiring", "[fjsl][use]") {
+    auto meta = parse_fjsl(
+        "shader_type sky;\n"
+        "use sun = \"lib/sun_disc.fjsl\"(view_dir: VIEW_DIR, sun_dir: SUN_DIR);\n"
+        "void sky() { SKY = sun.color; }\n");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.uses.size() == 1);
+    REQUIRE(meta.uses[0].name == "sun");
+    REQUIRE(meta.uses[0].path == "lib/sun_disc.fjsl");
+    REQUIRE(meta.uses[0].arguments.size() == 2);
+    REQUIRE(meta.uses[0].arguments[0].first == "view_dir");
+    REQUIRE(meta.uses[0].arguments[0].second == "VIEW_DIR");
+    REQUIRE(meta.uses[0].arguments[1].second == "SUN_DIR");
+}
+
+TEST_CASE("A use argument may be any expression", "[fjsl][use]") {
+    // An argument is consumer-side GLSL and carries its own parentheses and
+    // commas. Matching the list with a `[^)]*` regex stops at the first ')'
+    // and drops the whole declaration without a word.
+    auto meta = parse_fjsl(
+        "shader_type sky;\n"
+        "use sun = \"lib/s.fjsl\"(dir: mix(VIEW_DIR, SUN_DIR, 0.5), k: f(g(1.0)));\n"
+        "void sky() {}\n");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.uses.size() == 1);
+    REQUIRE(meta.uses[0].arguments.size() == 2);
+    REQUIRE(meta.uses[0].arguments[0].second == "mix(VIEW_DIR, SUN_DIR, 0.5)");
+    REQUIRE(meta.uses[0].arguments[1].second == "f(g(1.0))");
+}
+
+TEST_CASE("A malformed use is reported", "[fjsl][use]") {
+    require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(V);\nvoid sky() {}");
+    require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(d: V)\nvoid sky() {}");
+    require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(d: V);\n"
+                     "use a = \"y.fjsl\"(d: V);\nvoid sky() {}");
+}

@@ -138,16 +138,46 @@ struct FjslDiagnostic {
     std::string message;
 };
 
+/// One `in` or `out` of a shader_function: a value the caller passes in, or one
+/// the function writes for the caller to read.
+struct FjslPort {
+    std::string name;
+    UniformType type{UniformType::Float};
+    /// Byte offset of the declaration, for diagnostics about this port.
+    size_t offset{0};
+};
+
+/// One `use name = "path.fjsl"(arg: EXPR, ...)`: a function wired into this
+/// file, under a name the consumer chose.
+struct FjslUse {
+    std::string name;                 ///< the consumer's name for this wiring
+    std::string path;                 ///< as written, resolved by the caller
+    /// Arguments in source order, `in`-name to the expression filling it. Kept
+    /// as text: they are consumer-side GLSL and are substituted verbatim.
+    std::vector<std::pair<std::string, std::string>> arguments;
+    size_t offset{0};
+};
+
 // Complete metadata extracted from a .fjsl file
 struct ShaderMetadata {
+    /// True when the file declared `shader_function;` rather than a
+    /// `shader_type`: a pure function, drawn by no pass, composed into others.
+    /// `shader_type` is meaningless when this is set.
+    bool is_function{false};
     ShaderType shader_type{ShaderType::Spatial};
     RenderMode render_mode{RenderMode::Lit};
     RenderState render_state;
     std::vector<FjslUniform> uniforms;
+    /// shader_function only: what main() is passed and what it writes.
+    std::vector<FjslPort> inputs;
+    std::vector<FjslPort> outputs;
+    /// Functions this file composes, in source order.
+    std::vector<FjslUse> uses;
     FjslBody fragment_body;    // contents of fragment() { ... }
     FjslBody vertex_body;      // contents of vertex() { ... } (empty = standard)
     FjslBody light_body;       // contents of light() { ... } (empty = default PBR)
     FjslBody layers_body;      // terrain only: contents of layers() { ... } (empty = painted weights as-is)
+    FjslBody main_body;        // shader_function only: contents of main() { ... }
     std::string user_globals;  // top-level helpers / constants the user authored
     /// What the generated GLSL should call this file in `#line` directives.
     /// Set by the caller that knows the path; empty falls back to numeric-only
@@ -166,6 +196,13 @@ struct ShaderMetadata {
     /// shader still builds; an error means the metadata is not usable. Empty
     /// on a clean parse.
     std::vector<FjslDiagnostic> diagnostics;
+
+    /// The Type this file is, or nullopt when it is a shader_function. This is
+    /// what decides which hooks it may define and which template it generates
+    /// into; read it rather than `shader_type` wherever a function is possible.
+    [[nodiscard]] std::optional<ShaderType> type() const {
+        return is_function ? std::nullopt : std::optional{shader_type};
+    }
 
     /// True when any diagnostic is an error.
     [[nodiscard]] bool has_errors() const {
