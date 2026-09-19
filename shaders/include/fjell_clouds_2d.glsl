@@ -285,35 +285,6 @@ vec3 fjell_cloud_shade3 = vec3(0.960, 0.960, 0.950);
 // sheet had before, which is a line between the darkest and lightest stops.
 float fjell_cloud_palette = 1.0;
 
-// Rain falling out of the sheet, seen from far enough away to be a shape
-// rather than drops: the slanted curtains under a storm that tell you where
-// it is raining before it reaches you.
-//
-// Drawn in the sky rather than with particles because it is the far half of
-// the rain — particles are what the weather looks like where the player
-// stands, and no particle budget reaches the horizon. The two meet in the
-// middle: curtains thin out as they approach, particles thicken.
-//
-// `below` is how far under the cloud base this direction looks, 0 at the base
-// and 1 at the horizon; `cloud` is how much cloud is overhead there, so rain
-// only falls from sky that has something to fall from.
-float fjell_cloud_rain_curtain(vec3 dir, float below, float cloud, float time) {
-    if (cloud <= 0.01) return 0.0;
-    // Along the horizon, and streaked vertically: a curtain is wide and short
-    // in angle, so the noise is stretched hard across the sky and compressed
-    // down it.
-    vec2 p = vec2(atan(dir.z, dir.x) * 2.6, below * 0.9);
-    p.x += time * 0.02;
-    float n = fjell_cloud_fbm(p * vec2(1.0, 0.35));
-    // Cut so curtains are separate falls rather than an even wash — the same
-    // reason the sheet's own cut is narrow.
-    float curtain = smoothstep(0.46, 0.62, n);
-    // Thickest a little under the base and fading toward the horizon, where
-    // distance and haze take it.
-    float depth = smoothstep(0.0, 0.22, below) * (1.0 - smoothstep(0.55, 1.0, below));
-    return curtain * depth * cloud;
-}
-
 // Pick a colour from the four stops. `t` runs 0 at the deepest shadow to 1 at
 // the lit top; it arrives already banded, so this samples a step rather than
 // a ramp and the flat regions survive.

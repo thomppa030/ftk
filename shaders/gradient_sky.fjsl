@@ -72,10 +72,6 @@ uniform vec3 cloud_shade3 : hint_color = vec3(0.960, 0.960, 0.950);
 // How far the palette is used. 0 falls back to the two-tone blend, which is a
 // line between the darkest and lightest stops.
 uniform float cloud_palette : hint_range(0.0, 1.0, 0.01) = 1.0;
-// How strongly rain shows as curtains falling out of the cloud base. This is
-// the far half of the rain — the particles are what it looks like where the
-// player stands, and no particle budget reaches the horizon. 0 draws none.
-uniform float rain_curtains : hint_range(0.0, 2.0, 0.05) = 1.0;
 
 // ── Cloud scale ─────────────────────────────────────────────────────────────
 group "Cloud scale";
@@ -131,15 +127,6 @@ void sky() {
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
                              WIND_DRIFT, FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
                              SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT);
-    // Rain under the clouds, before they are composited: a curtain hangs
-    // below the cloud that drops it, so the cloud has to draw over it.
-    if (rain_curtains > 0.0 && PRECIPITATION > 0.0) {
-        float below = clamp(1.0 - VIEW_DIR.y * 6.0, 0.0, 1.0);
-        float veil = fjell_cloud_rain_curtain(VIEW_DIR, below, cloud.a, TIME)
-                   * PRECIPITATION * rain_curtains * 0.55;
-        SKY = mix(SKY, cloud.rgb * 0.62, clamp(veil, 0.0, 1.0));
-    }
-
     SKY = mix(SKY, cloud.rgb, cloud.a);
     SKY += cloud.rgb * cloud.a * LIGHTNING * 3.0;
 }
