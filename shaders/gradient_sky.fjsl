@@ -8,10 +8,41 @@ shader_type sky;
 uniform vec3 zenith_color : hint_color = vec3(0.349, 0.584, 0.767);
 uniform vec3 horizon_color : hint_color = vec3(0.978, 0.827, 0.626);
 uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
-uniform float sun_size : hint_range(0.99, 0.99995, 0.0001) = 0.9995;
+uniform float sun_size : hint_range(0.1, 4.0, 0.01) = 1.8;
+uniform float sun_halo_size : hint_range(0.0, 30.0, 0.1) = 1.2;
 uniform float sun_halo : hint_range(0.0, 4.0, 0.05) = 1.0;
 uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
-uniform float moon_size : hint_range(0.99, 0.99995, 0.0001) = 0.9994;
+uniform float sun_warmth_size : hint_range(1.0, 60.0, 0.5) = 18.0;
+uniform float moon_size : hint_range(0.1, 4.0, 0.01) = 0.5;
+
+// ── Stylize ─────────────────────────────────────────────────────────────────
+group "Stylize";
+// One dial from the cloud sheet as it is — a smooth thickness wash, soft
+// edges — to hand-painted cloud: a few flat values and deliberate shapes.
+// The same dial and the same reasoning as sea.fjsl's, so a painted sky and a
+// painted sea read as one style rather than two takes on it.
+//
+// At 0 the clouds draw exactly what they drew before.
+uniform float stylize : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How hard the silhouette is cut. Higher clears more of the sky and leaves
+// the cloud that survives standing with a steeper edge.
+uniform float cloud_contrast : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How torn the shapes are. 0 is round and billowy, 1 is filamented and wispy.
+uniform float cloud_wisp : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How hard a cloud's outline is. 0 is as soft as the unstyled sheet's, 1 is
+// an edge that ends where the shape does. The silhouette does not move —
+// this is only how far the sky takes to become cloud.
+uniform float cloud_edge : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+// ── Cloud scale ─────────────────────────────────────────────────────────────
+group "Cloud scale";
+// How big one cloud is and how high the sheet sits. These only mean anything
+// together: straight up you are as close to the sheet as you ever get, so a
+// cloud there is `2*atan(size / 2 / height)` wide, and that is the widest it
+// can look. Too large a ratio and one cloud fills the screen overhead.
+// Real cumulus run 500-1000 m across with their base at 1000-2000 m.
+uniform float cloud_size : hint_range(100.0, 4000.0, 10.0) = 600.0;
+uniform float cloud_height : hint_range(300.0, 8000.0, 50.0) = 2200.0;
 
 void sky() {
     // Vertical blend driven by view-up dot. Power shapes the horizon band.
@@ -19,20 +50,30 @@ void sky() {
     t = pow(t, horizon_softness);
     SKY = mix(horizon_color, zenith_color, t) * SKY_TINT;
 
-    // The horizon warms toward the sun while it is near it.
+    // The sky warms around the sun while it is near the horizon. Measured
+    // as the true angle to the sun, not the compass bearing: on the bearing
+    // alone the warmth is a column running up the whole sky, and it has to
+    // be spread over most of the horizon before it looks centred on
+    // anything. `sun_warmth_size` is the half-bright angle in degrees.
     float low_sun = 1.0 - smoothstep(0.0, 0.35, SUN_ELEVATION);
-    float toward = pow(max(dot(normalize(vec3(VIEW_DIR.x, 0.0, VIEW_DIR.z)),
-                            normalize(vec3(SUN_DIR.x, 0.0, SUN_DIR.z))), 0.0), 3.0);
-    SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward * (1.0 - t);
+    float to_sun = degrees(acos(clamp(dot(VIEW_DIR, SUN_DIR), -1.0, 1.0)));
+    float toward = exp2(-to_sun * to_sun / max(sun_warmth_size * sun_warmth_size, 1e-3));
+    SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward;
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE);
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME);
     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size);
     if (!SKY_FOR_LIGHTING) {
-        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo);
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo_size, sun_halo);
     }
 
     // The weather's clouds over everything, arriving from the front, lit
     // from inside when lightning strikes.
+    fjell_cloud_stylize = stylize;
+    fjell_cloud_contrast = cloud_contrast;
+    fjell_cloud_wisp = cloud_wisp;
+    fjell_cloud_edge = cloud_edge;
+    fjell_cloud_size = cloud_size;
+    fjell_cloud_height = cloud_height;
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
                              WIND_DRIFT, FRONT_DIR, FRONT_EDGE, FRONT_SOFTNESS,
                              SUN_DIR, SUN_COLOR, MOON_COLOR, AMBIENT_LIGHT);

@@ -55,9 +55,25 @@ void main() {
         return;
     }
 
-    // The cloud point on the sun's ray through this ground point.
-    float to_sheet = (FJELL_CLOUD_HEIGHT - ground.y) / light_dir.y;
+    // The cloud point on the sun's ray through this ground point. Against the
+    // same shell the sky traces, not a plane: the two disagree by tens of
+    // metres with the sun at eight degrees and hundreds at four, which is far
+    // more than this map's couple of metres per texel. Tracing a different
+    // surface here would put the shadow somewhere the cloud casting it is not.
+    float to_sheet = fjell_cloud_shell_distance(light_dir.y, ground.y, fjell_cloud_height);
+    if (to_sheet <= 0.0) {
+        imageStore(shadow_out, coord, vec4(1.0));
+        return;
+    }
     vec3 cloud = ground + light_dir * to_sheet;
+
+    // The detail budget the sky uses is about what a *pixel* can resolve; this
+    // map's texels are a couple of metres of ground apiece and it averages five
+    // taps, so it resolves more than any view of it will. Asking for the whole
+    // field keeps the shadow the cloud's own — a shadow map blurred to a
+    // different octave count than the sky draws would put soft shadows under
+    // crisp clouds.
+    fjell_cloud_lod = 99.0;
     vec2 sheet = fjell_cloud_sheet_pos(cloud.xz, env_ubo.wind_drift.xy);
 
     // The front is judged from the camera, as the sky does.
@@ -68,7 +84,12 @@ void main() {
     // angular size, and a kilometre and a half of air lies between them and
     // the ground. Averaging a few taps across the sheet is what turns the
     // crisp edge the sky wants into the soft one the ground wants.
-    const float SOFTEN = 0.045;   // in sheet units, a few hundred metres
+    // Measured in metres and converted, not written in sheet units: a sheet
+    // unit is `fjell_cloud_size` metres, so a blur authored in units would
+    // silently change width whenever the cloud size did, and the softness of
+    // every shadow on the ground would ride on an unrelated dial.
+    const float SOFTEN_METRES = 130.0;
+    const float SOFTEN = SOFTEN_METRES * FJELL_CLOUD_SCALE;
     float amount = 0.0;
     amount += fjell_cloud_amount(sheet, coverage, env_ubo.weather0.y) * 0.4;
     amount += fjell_cloud_amount(sheet + vec2( SOFTEN, 0.0), coverage, env_ubo.weather0.y) * 0.15;
