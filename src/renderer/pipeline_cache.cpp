@@ -221,11 +221,14 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
     }
 
     uint32_t id = static_cast<uint32_t>(entries_.size());
-    entries_.emplace_back();
-    auto& entry = entries_.back();
+    // Built to the side and moved in, rather than compiled in place through a
+    // reference into entries_. Compiling reads other files now — a composition
+    // resolves what its `use` declarations name — and anything that reached
+    // back here would grow the vector and leave that reference dangling.
+    Entry entry;
     entry.fjsl_path = fjsl_path;
-
     compile_entry(entry);
+    entries_.push_back(std::move(entry));
 
     path_to_id_[fjsl_path] = id;
     FJELL_GFX_INFO("Registered FJSL shader '{}' as pipeline ID {}", fjsl_path, id);
