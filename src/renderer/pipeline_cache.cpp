@@ -343,6 +343,36 @@ void PipelineCache::compile_entry(Entry& entry) {
             next.metadata.uses.empty() ? nullptr : &composition;
         std::string frag_source = generate_fragment_shader(next.metadata, tmpl, composed);
 
+        // Everything past here reads the entry's metadata as the whole
+        // program: the inspector lists its dials from `uniforms`, and the
+        // passes size the parameter block from `custom_param_count`. A
+        // composed function's uniforms are part of that program — they take a
+        // run of the same block — so they are folded in under the names the
+        // generated GLSL just gave them. Without this a composed sky reads
+        // past what it allocated and shows none of the dials it reads.
+        //
+        // After generating, not before: the generator lays each file out from
+        // the consumer's own count, so inflating it first would shift every
+        // offset a second time.
+        if (composed != nullptr) {
+            for (const auto& file : composed->files) {
+                if (file.use_name.empty()) continue;
+                for (const auto& u : file.meta.uniforms) {
+                    if (u.type == UniformType::Sampler2D) continue;  // its own row
+                    FjslUniform folded = u;
+                    folded.name = file.use_name + "_" + u.name;
+                    folded.slot = next.metadata.custom_param_count + u.slot;
+                    // Grouped under the wiring, so the inspector shows whose
+                    // dials these are rather than one flat wall.
+                    folded.group = folded.group.empty()
+                        ? file.use_name
+                        : file.use_name + " / " + folded.group;
+                    next.metadata.uniforms.push_back(std::move(folded));
+                }
+                next.metadata.custom_param_count += file.meta.custom_param_count;
+            }
+        }
+
         // Determine output name from fjsl filename
         std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
         next.generated_frag_path = generated_dir_ + "/" + stem + ".frag";

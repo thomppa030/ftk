@@ -1723,3 +1723,50 @@ TEST_CASE("Mangling leaves comments alone", "[fjsl][compose]") {
     REQUIRE(glsl.find("/* halo again, in a block comment */") != std::string::npos);
     REQUIRE(glsl.find("vec3(sun_halo)") != std::string::npos);  // the code did change
 }
+
+TEST_CASE("A composition's parameter block covers what it reads", "[fjsl][compose]") {
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    const std::string fn =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform float size : hint_range(0.1, 4.0, 0.01) = 1.8;\n"
+        "uniform vec3 tint : hint_color = vec3(1.0);\n"
+        "void main() { color = tint * size * view_dir.y; }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use sun = \"lib/f.fjsl\"(view_dir: VIEW_DIR);\n"
+        "uniform vec3 horizon : hint_color = vec3(0.5);\n"
+        "void sky() { SKY = horizon + sun.color; }\n";
+
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    const uint32_t own = meta.custom_param_count;
+    REQUIRE(own == 3);  // horizon
+
+    auto comp = compose(root, {{"lib/f.fjsl", fn}});
+    REQUIRE_FALSE(comp.has_errors());
+    const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
+
+    // What PipelineCache folds in after generating: the function's uniforms
+    // are part of this program and take a run of the same parameter block.
+    // A pass sizes the block from custom_param_count, so leaving them out
+    // means the shader reads past what was allocated — and the inspector
+    // shows none of the dials the shader is reading.
+    uint32_t total = own;
+    for (const auto& file : comp.files) {
+        if (file.use_name.empty()) continue;
+        total += file.meta.custom_param_count;
+    }
+    REQUIRE(total == 7);  // horizon(3) + size(1) + tint(3)
+
+    // The generated GLSL must read inside that, and at the offsets the fold
+    // advertises: size at 3, tint at 4..6.
+    REQUIRE(glsl.find("param_offset + 3]") != std::string::npos);
+    REQUIRE(glsl.find("param_offset + 6]") != std::string::npos);
+    REQUIRE(glsl.find("param_offset + 7]") == std::string::npos);
+}
+
