@@ -355,13 +355,19 @@ void PipelineCache::compile_entry(Entry& entry) {
         // the consumer's own count, so inflating it first would shift every
         // offset a second time.
         if (composed != nullptr) {
+            const uint32_t own_textures = next.metadata.custom_texture_count;
             for (const auto& file : composed->files) {
                 if (file.use_name.empty()) continue;
                 for (const auto& u : file.meta.uniforms) {
-                    if (u.type == UniformType::Sampler2D) continue;  // its own row
                     FjslUniform folded = u;
                     folded.name = file.use_name + "_" + u.name;
-                    folded.slot = next.metadata.custom_param_count + u.slot;
+                    // A sampler's slot is an absolute index into
+                    // texture_indices, where a scalar's is an offset into the
+                    // params block — so the two shift by different bases, and
+                    // a sampler's keeps the PBR set at the front.
+                    folded.slot = u.type == UniformType::Sampler2D
+                        ? next.metadata.custom_texture_count + u.slot
+                        : next.metadata.custom_param_count + u.slot;
                     // Grouped under the wiring, so the inspector shows whose
                     // dials these are rather than one flat wall.
                     folded.group = folded.group.empty()
@@ -370,6 +376,29 @@ void PipelineCache::compile_entry(Entry& entry) {
                     next.metadata.uniforms.push_back(std::move(folded));
                 }
                 next.metadata.custom_param_count += file.meta.custom_param_count;
+                next.metadata.custom_texture_count += file.meta.custom_texture_count;
+            }
+
+            // The parser caps one file's own samplers; only here is the
+            // composition's total known. Name every file that asked for one,
+            // because the author of the shader that went over may not have
+            // written any of them.
+            if (next.metadata.custom_texture_count > CUSTOM_TEXTURE_SLOTS) {
+                std::string who;
+                if (own_textures > 0) {
+                    who += "\n  " + entry.fjsl_path + ": "
+                         + std::to_string(own_textures);
+                }
+                for (const auto& file : composed->files) {
+                    if (file.use_name.empty() || file.meta.custom_texture_count == 0) continue;
+                    who += "\n  " + file.path + " (as '" + file.use_name + "'): "
+                         + std::to_string(file.meta.custom_texture_count);
+                }
+                throw std::runtime_error(
+                    "this composition wants "
+                    + std::to_string(next.metadata.custom_texture_count)
+                    + " textures and a material has room for "
+                    + std::to_string(CUSTOM_TEXTURE_SLOTS) + ":" + who);
             }
         }
 

@@ -143,29 +143,30 @@ TEST_CASE("A partly-numeric vector default is refused whole", "[fjsl]") {
     CHECK(meta.uniforms[0].default_value.empty());
 }
 
-TEST_CASE("A fifth custom sampler is an error where it is declared", "[fjsl]") {
+TEST_CASE("A sampler past the cap is an error where it is declared", "[fjsl]") {
     // Skipping it leaves the name undefined in the generated GLSL, so the
     // real complaint would otherwise arrive as an undeclared identifier at a
     // line the author cannot place.
-    auto meta = parse_fjsl("shader_type spatial;\n"
-                           "uniform sampler2D a;\n"
-                           "uniform sampler2D b;\n"
-                           "uniform sampler2D c;\n"
-                           "uniform sampler2D d;\n"
-                           "uniform sampler2D e;\n"
-                           "void fragment() {}");
+    std::string src = "shader_type spatial;\n";
+    for (uint32_t i = 0; i <= CUSTOM_TEXTURE_SLOTS; ++i) {
+        src += "uniform sampler2D s" + std::to_string(i) + ";\n";
+    }
+    src += "void fragment() {}";
+
+    auto meta = parse_fjsl(src);
     REQUIRE(meta.has_errors());
+    // The one past the cap is named, at its own line — the declarations start
+    // on line 2, so the (CUSTOM_TEXTURE_SLOTS)th zero-based index sits there.
+    const std::string over = "'s" + std::to_string(CUSTOM_TEXTURE_SLOTS) + "'";
     bool named = false;
     for (const auto& diag : meta.diagnostics) {
-        if (diag.message.find("'e'") != std::string::npos) {
-            CHECK(diag.line == 6);
+        if (diag.message.find(over) != std::string::npos) {
+            CHECK(diag.line == CUSTOM_TEXTURE_SLOTS + 2);
             named = true;
         }
     }
     CHECK(named);
 }
-
-// --- shader_type ui ---
 
 TEST_CASE("Parse shader_type ui takes its body from fragment()", "[fjsl][ui]") {
     auto meta = parse_fjsl(R"(
@@ -547,19 +548,22 @@ TEST_CASE("Four sampler2D uniforms fill slots 4-7", "[fjsl]") {
     REQUIRE(meta.custom_texture_count == 4);
 }
 
-TEST_CASE("Fifth sampler2D is skipped", "[fjsl]") {
-    auto meta = parse_fjsl(R"(
-        shader_type spatial;
-        uniform sampler2D a;
-        uniform sampler2D b;
-        uniform sampler2D c;
-        uniform sampler2D d;
-        uniform sampler2D e;
-        void fragment() {}
-    )");
-    // Only 4 kept, 5th skipped with warning
-    REQUIRE(meta.uniforms.size() == 4);
-    REQUIRE(meta.custom_texture_count == 4);
+TEST_CASE("A sampler past the cap is not assigned a slot", "[fjsl]") {
+    std::string src = "shader_type spatial;\n";
+    for (uint32_t i = 0; i <= CUSTOM_TEXTURE_SLOTS; ++i) {
+        src += "uniform sampler2D s" + std::to_string(i) + ";\n";
+    }
+    src += "void fragment() {}";
+
+    auto meta = parse_fjsl(src);
+    // Everything up to the cap is kept; the one past it is refused above and
+    // never takes a slot, so nothing reads texture_indices past the array.
+    REQUIRE(meta.uniforms.size() == CUSTOM_TEXTURE_SLOTS);
+    REQUIRE(meta.custom_texture_count == CUSTOM_TEXTURE_SLOTS);
+    for (const auto& u : meta.uniforms) {
+        REQUIRE(u.slot >= PBR_TEXTURE_SLOTS);
+        REQUIRE(u.slot < TOTAL_TEXTURE_SLOTS);
+    }
 }
 
 TEST_CASE("Mixed sampler2D and scalar uniforms", "[fjsl]") {
@@ -1644,44 +1648,54 @@ TEST_CASE("A composed sky generates GLSL that glslc accepts", "[fjsl][compose][g
     REQUIRE(status == 0);
 }
 
-TEST_CASE("A composed function's textures live in its own row", "[fjsl][compose]") {
+TEST_CASE("A composed function's textures take the consumer's slots", "[fjsl][compose]") {
     if (run("glslc --version").first != 0) SKIP("glslc not available");
     auto shader_dir = find_shader_dir();
     REQUIRE_FALSE(shader_dir.empty());
     auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
     REQUIRE_FALSE(tmpl.empty());
 
+    // Two functions with a texture each, so they must not land on one slot.
     const std::string ramp =
         "shader_function;\n"
         "in vec3 view_dir;\nout vec3 color;\n"
         "uniform float scale : hint_range(0.0, 4.0, 0.1) = 1.0;\n"
         "uniform sampler2D ramp : hint_black;\n"
         "void main() { color = texture(ramp, vec2(view_dir.y * scale, 0.5)).rgb; }\n";
+    const std::string grain =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform sampler2D noise : hint_black;\n"
+        "void main() { color = texture(noise, view_dir.xy).rgb; }\n";
     const std::string root =
         "shader_type sky;\n"
         "use aurora = \"lib/ramp.fjsl\"(view_dir: VIEW_DIR);\n"
+        "use grain = \"lib/grain.fjsl\"(view_dir: VIEW_DIR);\n"
         "uniform vec3 tint : hint_color = vec3(1.0);\n"
-        "void sky() { SKY = tint + aurora.color; }\n";
+        "uniform sampler2D own : hint_black;\n"
+        "void sky() { SKY = tint * texture(own, VIEW_DIR.xy).rgb + aurora.color + grain.color; }\n";
 
     auto meta = parse_fjsl(root);
     meta.source_text = root;
-    auto comp = compose(root, {{"lib/ramp.fjsl", ramp}});
+    REQUIRE_FALSE(meta.has_errors());
+    auto comp = compose(root, {{"lib/ramp.fjsl", ramp}, {"lib/grain.fjsl", grain}});
     REQUIRE_FALSE(comp.has_errors());
 
-    // Without a row there is nowhere for the texture to live but the
-    // consumer's slots, which hold whatever that material bound. Refused.
-    REQUIRE(comp.files[0].needs_material_row());
-    REQUIRE_THROWS(generate_fragment_shader(meta, tmpl, &comp));
-
-    comp.files[0].material_row = 40;
     const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
-    // The sampler names the function's own row as a constant — which is what
-    // keeps the descriptor index wave-uniform — while its scalar stays in the
-    // consumer's parameter block, after the consumer's own three floats.
-    REQUIRE(glsl.find("materials[40u].texture_indices[4]") != std::string::npos);
+
+    // The consumer's own sampler keeps slot 4, the first after the PBR set,
+    // and each function's follows. Landing two on one slot is the failure this
+    // guards: valid GLSL, one picture where two were meant.
+    REQUIRE(glsl.find("own textures[nonuniformEXT(materials[push.sky_material_id]"
+                      ".texture_indices[4])]") != std::string::npos);
+    REQUIRE(glsl.find("aurora_ramp textures[nonuniformEXT(materials[push.sky_material_id]"
+                      ".texture_indices[5])]") != std::string::npos);
+    REQUIRE(glsl.find("grain_noise textures[nonuniformEXT(materials[push.sky_material_id]"
+                      ".texture_indices[6])]") != std::string::npos);
+    // The scalar still lands in the parameter block after the consumer's own.
     REQUIRE(glsl.find("param_offset + 3]") != std::string::npos);
 
-    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-texrow-test";
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-texslot-test";
     std::filesystem::create_directories(out_dir);
     auto frag = out_dir / "composed.frag";
     std::ofstream(frag) << glsl;

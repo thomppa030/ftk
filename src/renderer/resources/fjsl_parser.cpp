@@ -754,7 +754,7 @@ struct CompositionWalk {
             const bool seen = std::any_of(
                 out.files.begin(), out.files.end(),
                 [&](const FjslComposedFile& f) { return f.path == use.path; });
-            if (!seen) out.files.push_back({use.path, use.name, std::move(used), {}});
+            if (!seen) out.files.push_back({use.path, use.name, std::move(used)});
         }
 
         on_stack.pop_back();
@@ -798,7 +798,7 @@ FjslComposition resolve_composition(const ShaderMetadata& meta,
     FjslComposition out;
     CompositionWalk walk{read, out, {}};
     walk.visit(meta, meta.source_text, path, 0);
-    out.files.push_back({path, {}, meta, {}});
+    out.files.push_back({path, {}, meta});
     return out;
 }
 
@@ -913,7 +913,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         }
     }
 
-    uint32_t texture_slot = 4; // custom textures start at slot 4
+    uint32_t texture_slot = PBR_TEXTURE_SLOTS; // custom textures follow the PBR set
     uint32_t param_offset = 0;
 
     // Every heading and where it was declared, so each uniform can be given
@@ -968,14 +968,20 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         }
 
         if (u.type == UniformType::Sampler2D) {
-            if (texture_slot > 7) {
+            if (texture_slot >= TOTAL_TEXTURE_SLOTS) {
                 // Skipping leaves the name undefined in the generated GLSL, so
                 // the real complaint arrives later as an undeclared identifier
                 // somewhere the author cannot place. Say it here, where the
                 // declaration is.
+                //
+                // This counts one file's own declarations. A composition's
+                // total is checked where the files are folded together, which
+                // is the only place that can name which of them competed.
                 diagnose(at + static_cast<size_t>(m.position(2)), FjslSeverity::error,
-                         "uniform '" + u.name + "' is the " + std::to_string(texture_slot - 3)
-                             + "th custom sampler2D; a material has room for 4");
+                         "uniform '" + u.name + "' is the "
+                             + std::to_string(texture_slot - PBR_TEXTURE_SLOTS + 1)
+                             + "th custom sampler2D; a material has room for "
+                             + std::to_string(CUSTOM_TEXTURE_SLOTS));
                 return;
             }
             u.slot = texture_slot++;
@@ -1397,29 +1403,31 @@ std::string emit_use_calls(const std::vector<FjslUse>& uses,
 /// consumer calls.
 std::string emit_composed_file(const FjslComposedFile& file,
                                const std::string& mat_expr,
-                               uint32_t param_base) {
+                               uint32_t param_base,
+                               uint32_t texture_base) {
     const ShaderMetadata& m = file.meta;
     const std::string use = file.use_name;
     const auto renames = composition_renames(m, use);
 
     std::string out = "// ── " + file.path + " (as '" + use + "') ──\n";
 
-    // A sampler reads this file's OWN row, named by a baked constant. Its four
-    // custom slots are its own, so a composition has no texture ceiling and two
-    // functions with textures never compete. The constant is what keeps the
-    // descriptor index wave-uniform, and so free of a waterfall loop.
+    // Everything this file declares lives in the CONSUMER's row: its samplers
+    // in the texture slots after the consumer's own, its scalars in the
+    // parameter block after the consumer's own. That is where the .fjmat
+    // naming this composition stores them, and it is the only file an author
+    // writes — a shader_function has no .fjmat of its own.
     //
-    // Scalars are different: they are inlined into the consumer's parameter
-    // block, at `param_base` onwards, because that is where the .fjmat that
-    // named this composition stores their values.
-    const std::string own_row =
-        file.material_row ? "materials[" + std::to_string(*file.material_row) + "u]"
-                          : mat_expr;
+    // The two bases differ in kind. A sampler's slot is an absolute index into
+    // texture_indices, with the PBR set at the front; a scalar's is an offset
+    // into a block that starts at zero. `pipeline_cache` folds these uniforms
+    // into the entry's metadata with the same arithmetic — if the two ever
+    // disagree the inspector shows a dial the shader does not read.
     for (const auto& u : m.uniforms) {
         const std::string name = mangled(use, u.name);
         if (u.type == UniformType::Sampler2D) {
-            out += "#define " + name + " textures[nonuniformEXT(" + own_row
-                 + ".texture_indices[" + std::to_string(u.slot) + "])]\n";
+            out += "#define " + name + " textures[nonuniformEXT(" + mat_expr
+                 + ".texture_indices[" + std::to_string(texture_base + u.slot)
+                 + "])]\n";
             continue;
         }
         const uint32_t count = uniform_float_count(u.type);
@@ -1608,19 +1616,18 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // its parse, so the first run starts where its count ends.
     std::string globals;
     if (composition != nullptr) {
+        // Each composed file takes a run of the consumer's parameter block and
+        // a run of its texture slots, after the consumer's own of each. The
+        // same arithmetic runs in pipeline_cache when it folds these uniforms
+        // into the entry's metadata; the two must agree or a dial names a slot
+        // the shader never reads.
         uint32_t param_base = meta.custom_param_count;
+        uint32_t texture_base = meta.custom_texture_count;
         for (const auto& file : composition->files) {
             if (file.use_name.empty()) continue;  // the consumer itself
-            // A file with a sampler and no row would read the consumer's
-            // texture slots, which hold whatever that material bound — the
-            // wrong picture, silently. Refuse to generate rather than emit it.
-            if (file.needs_material_row() && !file.material_row) {
-                throw std::runtime_error(
-                    "FJSL: '" + file.path + "' declares a texture but was given no "
-                    "material row; a composed function's samplers live in its own row");
-            }
-            globals += emit_composed_file(file, mat_expr, param_base) + "\n";
+            globals += emit_composed_file(file, mat_expr, param_base, texture_base) + "\n";
             param_base += file.meta.custom_param_count;
+            texture_base += file.meta.custom_texture_count;
         }
     }
     globals += meta.user_globals;
