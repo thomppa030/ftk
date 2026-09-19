@@ -463,6 +463,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     // Success — destroy old pipelines and swap in new ones
     destroy_entry_pipelines(entry);
     entry.metadata = std::move(next.metadata);
+    entry.used_paths = std::move(next.used_paths);
     entry.generated_frag_path = std::move(next.generated_frag_path);
     entry.has_custom_vertex = next.has_custom_vertex;
     entry.opaque = next.opaque;
