@@ -259,8 +259,7 @@ TEST_CASE("The moon rides the sun path behind the sun and the sky turns about it
     world->time_of_day_enabled = true;
     world->sun_path_tilt = 0.0f;
     world->time_of_day = 0.0f;         // midnight
-    world->moon_offset_hours = 12.0f;
-    world->moon_phase = 0.5f;
+    world->moon_phase = 0.5f;   // full: opposite the sun, so overhead at midnight
     world->moon_intensity = 0.1f;
     auto* world_ptr = world.get();
     scene.add_node(std::move(world));
@@ -275,8 +274,23 @@ TEST_CASE("The moon rides the sun path behind the sun and the sky turns about it
     REQUIRE(close(midnight.primary.direction, midnight.moon.direction));
     REQUIRE(midnight.secondary.intensity == Approx(0.0f));
 
+    // A quarter moon is the half-lit one: a quarter of the way round the
+    // path, so ninety degrees from the sun, which is what puts the
+    // terminator down the middle of the disc.
+    world_ptr->moon_phase = 0.25f;
+    auto quarter = resolve_environment(scene);
+    const float cos_sep = glm::dot(glm::normalize(quarter.moon.direction),
+                                   glm::normalize(quarter.sun.direction));
+    REQUIRE(cos_sep == Approx(0.0f).margin(1e-5));
+    // Half lit, so half the light a full moon gives — before the horizon
+    // fade, which at this phase has the moon rising and takes some of it.
+    REQUIRE(moon_phase_brightness(0.25f) == Approx(0.5f));
+    REQUIRE(quarter.moon.elevation == Approx(0.0f).margin(1e-5));
+
     world_ptr->moon_phase = 0.0f;
     auto new_moon = resolve_environment(scene);
     REQUIRE(new_moon.moon.intensity == Approx(0.0f).margin(1e-6));
     REQUIRE(close(new_moon.primary.direction, new_moon.sun.direction));
+    // A new moon sits with the sun, which is why none of it is lit.
+    REQUIRE(close(new_moon.moon.direction, new_moon.sun.direction));
 }

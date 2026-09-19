@@ -255,9 +255,14 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
         state.celestial_axis = sun_path_axis(path);
         state.celestial_angle = sun_path_angle(path, state.hour);
 
-        // The moon follows the same path some hours behind, as bright as its
-        // phase allows.
-        state.moon.direction = sun_direction(path, state.hour + env->moon_offset_hours);
+        // The moon follows the same path, placed by its phase: the phase is
+        // the angle between the two bodies, so a quarter phase is six hours
+        // along the path and a full moon is opposite the sun. Deriving the
+        // position this way is what keeps the lit shape and the brightness
+        // telling the same story — moon_disc() shades a sphere by where the
+        // sun really is, so a position set independently would draw a shape
+        // the phase disagreed with.
+        state.moon.direction = sun_direction(path, state.hour + env->moon_phase * 24.0f);
         state.moon.elevation = elevation_of(state.moon.direction);
         state.moon.color = env->moon_color;
         state.moon.intensity = env->moon_intensity * moon_phase_brightness(env->moon_phase);

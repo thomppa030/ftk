@@ -838,12 +838,25 @@ void PropertiesPanel::draw() {
                     }
                     ImGui::TextDisabled("Moon");
                     if (auto t = PropertyTable("##env_moon")) {
-                        prop_row("Hours Behind Sun", [&] {
-                            ImGui::SliderFloat("##MoonOffset", &env->moon_offset_hours, 0.0f, 24.0f, "%.1f");
-                        });
                         prop_row("Phase", [&] {
-                            ImGui::SliderFloat("##MoonPhase", &env->moon_phase, 0.0f, 1.0f, "%.2f");
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 and 1 are new, 0.5 is full");
+                            // Named on the slider, because a quarter moon is
+                            // the half-lit one and a number alone invites
+                            // reading 0.5 as half.
+                            const float phase = env->moon_phase;
+                            const char* name = phase < 0.06F || phase > 0.94F ? "new"
+                                             : phase < 0.19F ? "waxing crescent"
+                                             : phase < 0.31F ? "first quarter (half)"
+                                             : phase < 0.44F ? "waxing gibbous"
+                                             : phase < 0.56F ? "full"
+                                             : phase < 0.69F ? "waning gibbous"
+                                             : phase < 0.81F ? "last quarter (half)"
+                                                             : "waning crescent";
+                            ImGui::SliderFloat("##MoonPhase", &env->moon_phase, 0.0f, 1.0f, name);
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip(
+                                    "Where the moon rides the sun's path, and so how much of it is\n"
+                                    "lit: new at 0 and 1, half at 0.25 and 0.75, full at 0.5.");
+                            }
                         });
                         prop_row("Color", [&] {
                             color_edit_linear("##MoonColor", env->moon_color);

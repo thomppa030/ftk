@@ -336,10 +336,13 @@ struct WorldEnvironmentNode : Node3D {
     float north_yaw{0.0f};             // degrees the whole path turns about the up axis
     float noon_hour{12.0f};            // the hour the sun peaks
 
-    // The moon rides the same path, so many hours behind the sun, and its
-    // phase sets how bright it is: new at 0 and 1, full at 0.5. Colour and
-    // intensity are its light at full, before the day profile's moon tracks.
-    float moon_offset_hours{12.0f};
+    // The moon rides the same path as the sun, and its phase is what places
+    // it there: new at 0 and 1, first quarter at 0.25, full at 0.5, last
+    // quarter at 0.75. One value, because the phase *is* the angle between
+    // the two bodies — the disc is shaded by where the sun actually is, so a
+    // separate offset would light a shape the phase disagrees with. Colour
+    // and intensity are its light at full, before the day profile's moon
+    // tracks.
     float moon_phase{0.5f};
     glm::vec3 moon_color{0.55f, 0.65f, 0.9f};
     float moon_intensity{0.08f};
@@ -411,7 +414,6 @@ struct WorldEnvironmentNode : Node3D {
         copy->sun_path_tilt = sun_path_tilt;
         copy->north_yaw = north_yaw;
         copy->noon_hour = noon_hour;
-        copy->moon_offset_hours = moon_offset_hours;
         copy->moon_phase = moon_phase;
         copy->moon_color = moon_color;
         copy->moon_intensity = moon_intensity;

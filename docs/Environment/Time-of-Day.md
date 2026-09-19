@@ -82,12 +82,14 @@ nothing and the shadow pass builds no cascades from it.
 
 ## The moon
 
-The moon rides the same circle as the sun, a fixed number of hours behind.
+The moon rides the same circle as the sun, and its phase is what places it
+there. The two are one value because they are one fact: the phase *is* the
+angle between the bodies, and the disc is shaded by where the sun actually is,
+so a position set separately would light a shape the phase disagreed with.
 
 | Field | What it does |
 |---|---|
-| **Hours Behind Sun** | 12 puts it opposite the sun, so it is highest at midnight. Other values slide it around the day. |
-| **Phase** | 0 and 1 are new, 0.5 is full. Its light scales with this, so a new moon casts nothing. |
+| **Phase** | Where the moon sits on the sun's path, and so how much of it is lit. 0 and 1 are new (with the sun, unlit), 0.25 and 0.75 are the half-lit quarters, 0.5 is full — opposite the sun, highest at midnight. Its light scales with this, so a new moon casts nothing. |
 | **Color** | The moon's own light. Cool blue by default. |
 | **Intensity** | Its light at full phase, before the day profile's moon tracks. Small — 0.08 by default, against a sun at 1.5 — because moonlight is a hint, not an alternative sun. |
 
@@ -115,6 +117,16 @@ They are drawn by the sky shader, so a sky that never calls `star_field()` has
 none. They are fixed to the celestial sphere and wheel with the same rotation
 that carries the sun, so they turn through the night rather than sitting
 still.
+
+Rotating rigidly is correct — that is what a celestial sphere does — but it is
+not enough on its own: a field of identical unblinking dots slid across the sky
+reads as a texture being dragged. So the stars also twinkle, harder near the
+horizon where the line of sight crosses more air and almost not at all
+overhead; they follow a lopsided brightness distribution, a few bright among
+very many faint; they take their colour from the blackbody locus, with the
+brightest spreading furthest toward orange and blue; and they cluster, with
+voids, crowds and a galactic band carrying its own faint glow. See
+[Sky-Shaders](Sky-Shaders.md#bodies) for the details.
 
 ## From a script
 
