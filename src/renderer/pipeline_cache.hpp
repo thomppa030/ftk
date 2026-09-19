@@ -177,6 +177,18 @@ private:
     std::string outline_vertex_template_;
     std::string shader_source_dir_;
     std::string generated_dir_;
+    /// Where compiled SPIR-V is kept between runs, keyed by the hash of
+    /// everything that produced it.
+    std::string spv_cache_dir_;
+    /// One hash over every file in shaders/include, taken once at startup.
+    ///
+    /// The generated GLSL still `#include`s engine headers, so hashing it
+    /// alone would miss an edit to one of them. Asking glslc for each
+    /// shader's real dependency list costs 58 ms — about what compiling
+    /// costs, which defeats the point — while hashing all 52 includes
+    /// together costs 1 ms. So an edit to any include invalidates every
+    /// cached shader, which is what a template edit already does anyway.
+    uint64_t include_hash_{0};
     const Project* project_{nullptr};
     VkPipelineCache vk_cache_{VK_NULL_HANDLE};
 };

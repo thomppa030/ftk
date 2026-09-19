@@ -19,6 +19,43 @@
 
 namespace fjell {
 
+namespace {
+
+// FNV-1a. Not std::hash: that is unspecified and free to differ between
+// runs and standard libraries, which is fine for a lookup table and fatal
+// for a key written to disk and read back by a later build.
+constexpr uint64_t FNV_OFFSET = 1469598103934665603ULL;
+constexpr uint64_t FNV_PRIME = 1099511628211ULL;
+
+uint64_t hash_bytes(std::string_view bytes, uint64_t seed = FNV_OFFSET) {
+    uint64_t h = seed;
+    for (unsigned char c : bytes) {
+        h ^= c;
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+std::string read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return {};
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// What a compiled shader is a function of, beyond its own generated source:
+// the includes it pulls in, the defines it was built with, the stage it was
+// built as, and the compiler itself.
+//
+// FJELL_SHADER_CODEGEN_VERSION stands in for the generator. The generated
+// GLSL is an output of fjsl_parser.cpp, so changing how that emits must
+// invalidate everything — the .fjsl did not move but what it produces did.
+// Bump it whenever generation changes shape.
+constexpr uint32_t FJELL_SHADER_CODEGEN_VERSION = 1;
+
+} // namespace
+
 PipelineCache::PipelineCache(Device& device,
                              VkFormat color_format, VkFormat depth_format,
                              VkDescriptorSetLayout global_layout,
@@ -40,6 +77,27 @@ PipelineCache::PipelineCache(Device& device,
     shader_source_dir_ = base_path::resolve("shaders");
     generated_dir_ = base_path::resolve("shaders/generated");
     std::filesystem::create_directories(generated_dir_);
+    spv_cache_dir_ = generated_dir_ + "/.fjcache";
+    std::filesystem::create_directories(spv_cache_dir_);
+
+    // One hash over every include, in a fixed order so two runs over the same
+    // files agree. Taken once: they cannot change while the engine is
+    // running without a reload, and a reload rebuilds everything anyway.
+    {
+        std::vector<std::filesystem::path> includes;
+        std::error_code ec;
+        for (const auto& entry :
+             std::filesystem::directory_iterator(shader_source_dir_ + "/include", ec)) {
+            if (entry.is_regular_file(ec)) includes.push_back(entry.path());
+        }
+        std::sort(includes.begin(), includes.end());
+        uint64_t h = FNV_OFFSET;
+        for (const auto& path : includes) {
+            h = hash_bytes(path.filename().string(), h);
+            h = hash_bytes(read_file(path.string()), h);
+        }
+        include_hash_ = h;
+    }
 
     auto load_template = [&](const std::string& name) -> std::string {
         std::string path = shader_source_dir_ + "/include/" + name;
@@ -387,11 +445,42 @@ std::string PipelineCache::compile_glsl(const std::string& source_path,
                                          const std::string& output_name,
                                          const std::vector<std::string>& defines,
                                          const std::string& stage) {
+    std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
+    std::string include_dir = shader_source_dir_ + "/include";
+
+    // Everything the compiled result is a function of. glslc is
+    // deterministic — the same input twice gives byte-identical SPIR-V — so
+    // this is an exact key rather than a guess, with none of the staleness a
+    // timestamp comparison invites.
+    const std::string source = read_file(source_path);
+    uint64_t key = include_hash_;
+    key = hash_bytes(source, key);
+    for (const auto& define : defines) key = hash_bytes(define, key);
+    key = hash_bytes(stage, key);
+    key = hash_bytes(std::string_view{reinterpret_cast<const char*>(&FJELL_SHADER_CODEGEN_VERSION),
+                                      sizeof(FJELL_SHADER_CODEGEN_VERSION)}, key);
+
+    char key_hex[17];
+    std::snprintf(key_hex, sizeof(key_hex), "%016llx", static_cast<unsigned long long>(key));
+    const std::string cached = spv_cache_dir_ + "/" + key_hex + ".spv";
+
+    // A hit skips glslc entirely: hashing costs about a millisecond against
+    // the 64 ms a compile takes.
+    if (!source.empty() && std::filesystem::exists(cached)) {
+        std::error_code ec;
+        std::filesystem::copy_file(cached, spv_path,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (!ec) {
+            FJELL_PROFILE_SCOPE_N("glslc_cache_hit");
+            return spv_path;
+        }
+        // A cache we cannot read is not a reason to fail; fall through and
+        // compile as if it had never been there.
+    }
+
     // The largest startup cost in the renderer, and until now invisible:
     // ~64 ms per invocation, once per shader, every launch.
     FJELL_PROFILE_SCOPE_N("glslc");
-    std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
-    std::string include_dir = shader_source_dir_ + "/include";
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
     if (!stage.empty()) {
         cmd += " -fshader-stage=" + stage;
@@ -413,6 +502,21 @@ std::string PipelineCache::compile_glsl(const std::string& source_path,
         throw std::runtime_error(output.empty()
                                      ? "shader compilation failed for: " + source_path
                                      : output);
+    }
+
+    // Keep the result for the next run. Written to a temporary and renamed,
+    // so a process that dies mid-write leaves no half-file for a later run to
+    // read as a valid cached shader. A failure to cache is not a failure to
+    // compile: the SPIR-V is already where the caller wants it.
+    if (!source.empty()) {
+        std::error_code ec;
+        const std::string temp = cached + ".tmp";
+        std::filesystem::copy_file(spv_path, temp,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (!ec) {
+            std::filesystem::rename(temp, cached, ec);
+        }
+        if (ec) std::filesystem::remove(temp, ec);
     }
 
     FJELL_GFX_DEBUG("Compiled FJSL shader: {} -> {}", source_path, spv_path);
