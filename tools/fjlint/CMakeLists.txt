@@ -1,10 +1,14 @@
-# fjlint — checks .fjss stylesheets, .fjwidget files and .fjfont recipes
-# without the engine.
-# Links the same parser sources the engine uses; nothing from the renderer.
+# fjlint — checks .fjss stylesheets, .fjwidget files, .fjfont recipes and
+# .fjsl shaders without the engine.
+#
+# Links the same parser sources the engine uses. fjsl_parser.cpp lives under
+# renderer/ but is pure text processing — no Vulkan, no GPU state — so it
+# links here like the rest.
 
 add_executable(fjlint
     main.cpp
     log_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp

@@ -153,6 +153,12 @@ struct ShaderMetadata {
 // Parse a .fjsl file and extract metadata.
 [[nodiscard]] ShaderMetadata parse_fjsl(const std::string& source);
 
+/// Write a parse's diagnostics to the log as
+/// `file:line:column: severity: message` — the compiler convention, which
+/// editors and their linter plugins parse without being configured for it.
+/// `name` is what the file should be called; empty reads as `<fjsl>`.
+void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name);
+
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
 [[nodiscard]] std::string generate_fragment_shader(const ShaderMetadata& meta,
                                                     const std::string& template_source);

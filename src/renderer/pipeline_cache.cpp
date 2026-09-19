@@ -206,17 +206,13 @@ void PipelineCache::compile_entry(Entry& entry) {
         // The parser collects problems rather than throwing on the first, so a
         // shader with two mistakes reports both. Warnings are logged and the
         // build continues; an error means the metadata cannot be built from.
+        log_fjsl_diagnostics(next.metadata, entry.fjsl_path);
         std::string parse_errors;
         for (const auto& d : next.metadata.diagnostics) {
-            const std::string located = entry.fjsl_path + ":" + std::to_string(d.line)
-                                      + ":" + std::to_string(d.column) + ": " + d.message;
-            if (d.severity == FjslSeverity::error) {
-                FJELL_GFX_ERROR("{}", located);
-                if (!parse_errors.empty()) parse_errors += "\n";
-                parse_errors += located;
-            } else {
-                FJELL_GFX_WARN("{}", located);
-            }
+            if (d.severity != FjslSeverity::error) continue;
+            if (!parse_errors.empty()) parse_errors += "\n";
+            parse_errors += entry.fjsl_path + ":" + std::to_string(d.line)
+                          + ":" + std::to_string(d.column) + ": " + d.message;
         }
         if (!parse_errors.empty()) {
             throw std::runtime_error(parse_errors);

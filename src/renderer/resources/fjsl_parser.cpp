@@ -151,14 +151,18 @@ static std::vector<std::string> split_hint_list(const std::string& list) {
     return out;
 }
 
-static void apply_hint(FjslUniform& u, const std::string& token) {
+// Problems are handed back rather than logged, so the caller can attach the
+// declaration's position: an unlocated warning is one a linter cannot point at
+// and an editor cannot underline.
+static void apply_hint(FjslUniform& u, const std::string& token,
+                       std::vector<std::string>& problems) {
     if (token.rfind("hint_range", 0) == 0) {
         // hint_range(min, max[, step]) — stored beside the UI hint rather
         // than as one, since a ranged float has no picker to choose.
         auto open = token.find('(');
         auto close = token.rfind(')');
         if (open == std::string::npos || close == std::string::npos || close < open) {
-            FJELL_GFX_WARN("FJSL: hint_range on '{}' has no argument list", u.name);
+            problems.push_back("hint_range on '" + u.name + "' has no argument list");
             return;
         }
         std::istringstream as(token.substr(open + 1, close - open - 1));
@@ -169,8 +173,8 @@ static void apply_hint(FjslUniform& u, const std::string& token) {
             if (t.empty()) continue;
             auto value = parse_float(t);
             if (!value) {
-                FJELL_GFX_WARN("FJSL: hint_range on '{}' has '{}' where a number belongs",
-                               u.name, t);
+                problems.push_back("hint_range on '" + u.name + "' has '" + t
+                                   + "' where a number belongs");
                 return;
             }
             vals.push_back(*value);
@@ -198,12 +202,12 @@ static void apply_hint(FjslUniform& u, const std::string& token) {
     if (hint == UniformHint::None) {
         // A misspelt hint would otherwise silently change how the uniform
         // is presented and which fallback texture it gets.
-        FJELL_GFX_WARN("FJSL: unknown hint '{}' on uniform '{}'", token, u.name);
+        problems.push_back("unknown hint '" + token + "' on uniform '" + u.name + "'");
         return;
     }
     if (u.hint != UniformHint::None && u.hint != hint) {
-        FJELL_GFX_WARN("FJSL: uniform '{}' declares more than one presentation hint; "
-                       "'{}' wins", u.name, token);
+        problems.push_back("uniform '" + u.name + "' declares more than one presentation "
+                           "hint; '" + token + "' wins");
     }
     u.hint = hint;
 }
@@ -348,6 +352,17 @@ static std::string extract_user_globals(const std::string& source) {
     return s;
 }
 
+void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name) {
+    const std::string& file = name.empty() ? std::string{"<fjsl>"} : name;
+    for (const auto& d : meta.diagnostics) {
+        if (d.severity == FjslSeverity::error) {
+            FJELL_GFX_ERROR("{}:{}:{}: error: {}", file, d.line, d.column, d.message);
+        } else {
+            FJELL_GFX_WARN("{}:{}:{}: warning: {}", file, d.line, d.column, d.message);
+        }
+    }
+}
+
 ShaderMetadata parse_fjsl(const std::string& source) {
     ShaderMetadata meta;
 
@@ -402,7 +417,10 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             else if (mode == "blend_alpha") { meta.render_state.blend = BlendMode::Alpha; meta.render_state.force_transparent = true; }
             else if (mode == "blend_add") { meta.render_state.blend = BlendMode::Add; meta.render_state.force_transparent = true; }
             else if (mode == "blend_multiply") { meta.render_state.blend = BlendMode::Multiply; meta.render_state.force_transparent = true; }
-            else FJELL_GFX_WARN("FJSL: unknown render_mode '{}'", mode);
+            else {
+                diagnose(static_cast<size_t>(rm.position(1)), FjslSeverity::warning,
+                         "unknown render_mode '" + mode + "'");
+            }
         }
     }
 
@@ -437,8 +455,13 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         u.name = (*it)[2].str();
 
         if ((*it)[3].matched) {
+            std::vector<std::string> hint_problems;
             for (const auto& token : split_hint_list((*it)[3].str())) {
-                apply_hint(u, token);
+                apply_hint(u, token, hint_problems);
+            }
+            for (auto& problem : hint_problems) {
+                diagnose(static_cast<size_t>(it->position(3)), FjslSeverity::warning,
+                         std::move(problem));
             }
         }
 
