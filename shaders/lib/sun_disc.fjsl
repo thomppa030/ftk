@@ -1,8 +1,8 @@
-// The sun's disc and the halo around it, as a contribution to a sky.
+// The sun's disc and the glow around it, as a contribution to a sky.
 //
-// Takes the view and sun directions rather than reading the sky's built-ins,
-// so the same function draws a sun in a reflection, a preview or anywhere
-// else the caller can say where it is looking.
+// Takes where it is looking and where the sun is rather than reading a sky's
+// built-ins, so the same function draws a sun wherever the caller can answer
+// those — a sky, a reflection, a preview.
 shader_function;
 
 in vec3 view_dir;
@@ -10,17 +10,48 @@ in vec3 sun_dir;
 in vec3 sun_color;
 
 out vec3 color;
-out float alpha;
 
-group "Disc";
-uniform float size : hint_range(0.1, 4.0, 0.01) = 1.8;
+group "Sun";
+// Angular radius in degrees. The real sun is about a quarter of a degree; a
+// game sun is usually larger, because a quarter degree reads as a pinprick.
+uniform float size : hint_range(0.1, 8.0, 0.01) = 1.8;
+// How far the glow reaches past the limb, in degrees, and how bright it is.
+// Named halo_size/halo so a composition calling this `sun` gives exactly the
+// sun_size/sun_halo_size/sun_halo a scene already has authored values for.
 uniform float halo_size : hint_range(0.0, 30.0, 0.1) = 1.2;
 uniform float halo : hint_range(0.0, 4.0, 0.05) = 1.0;
 
 void main() {
-    float d = degrees(acos(clamp(dot(view_dir, sun_dir), -1.0, 1.0)));
-    float disc = 1.0 - smoothstep(size * 0.9, size, d);
-    float glow = halo * exp2(-d * d / max(halo_size * halo_size, 1e-3));
-    color = sun_color;
-    alpha = clamp(disc + glow, 0.0, 1.0);
+    // Work in angle rather than in the cosine: near the disc the cosine is
+    // flat to four decimal places, so an edge written there is unreadable.
+    float angle = degrees(acos(clamp(dot(view_dir, sun_dir), -1.0, 1.0)));
+
+    // The limb is soft over a fixed share of the radius, so a sun of any
+    // size keeps the same crispness. The disc is not flat: it falls off
+    // toward the limb, so only the middle clips to white and the edge stays
+    // under the bloom threshold. A plateau saturates edge to edge and the
+    // eye reads the whole coin, which is what makes a small sun look big.
+    float disc = 1.0 - smoothstep(size * 0.35, size, angle);
+
+    // The glow falls away sharply at the limb and trails off thin, the way
+    // air actually scatters the sun: brightest where it touches the disc, an
+    // order of magnitude down a disc-width out. A smoothstep ramp instead
+    // holds most of its brightness across the first half of its reach, which
+    // paints a broad bright ring rather than a glow.
+    float t = max(angle - size, 0.0) / max(halo_size, 1e-4);
+    float falloff = 1.0 / (1.0 + 64.0 * t * t);
+    falloff *= 1.0 - smoothstep(0.5, 1.0, t);   // and reach zero by halo_size
+
+    // Normalized so the disc sits a little over the white point whatever the
+    // light's intensity: its hue still follows the sun through the day, its
+    // brightness does not chase the exposure.
+    float peak = max(sun_color.r, max(sun_color.g, sun_color.b));
+    vec3 hue = sun_color / max(peak, 1e-4);
+    float lit = step(1e-4, peak);
+    // Just over the white point: bright enough to bloom, not so bright that
+    // the disc blows out to a white blob at high exposure. Spelled here rather
+    // than taken from the sky's includes — a function is composed into
+    // whatever calls it and cannot assume what that file has in scope.
+    const float disc_nits = 1.35;
+    color = hue * lit * (disc * disc_nits + falloff * 0.15 * halo);
 }
