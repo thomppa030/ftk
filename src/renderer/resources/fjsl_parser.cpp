@@ -33,6 +33,73 @@ std::string_view shader_type_name(ShaderType type) {
     return "spatial";
 }
 
+// Which hooks each kind of file may define, and why the others are refused.
+//
+// One table for two jobs that were drifting apart: a hook a file cannot run is
+// an error, and a hook it *can* run has its body extracted and must not be left
+// behind in the file-scope globals. Stating what is permitted keeps those two
+// answers from disagreeing — the previous form listed exclusions for one and a
+// fixed five for the other.
+namespace {
+struct HookRule {
+    std::string_view hook;
+    std::string_view refusal; ///< empty when this kind permits the hook
+};
+
+// A shader_function: one entry point, none of a Type's hooks.
+constexpr HookRule FUNCTION_HOOKS[] = {
+    {"main", {}},
+    {"fragment", "a shader_function has one entry point, main()"},
+    {"vertex", "a shader_function has one entry point, main()"},
+    {"light", "a shader_function has one entry point, main()"},
+    {"sky", "a shader_function has one entry point, main()"},
+    {"layers", "a shader_function has one entry point, main()"},
+};
+
+constexpr HookRule SPATIAL_HOOKS[] = {
+    {"fragment", {}}, {"vertex", {}}, {"light", {}},
+    {"sky", "only a shader_type sky shader writes SKY"},
+    {"layers", "only terrain blends painted layers"},
+};
+constexpr HookRule SKY_HOOKS[] = {
+    {"sky", {}},
+    {"fragment", "a sky shader writes SKY from sky(), not ALBEDO from fragment()"},
+    {"vertex", "the sky is drawn as one fullscreen triangle"},
+    {"light", "the sky is not lit; it is the light"},
+    {"layers", "only terrain blends painted layers"},
+};
+constexpr HookRule UI_HOOKS[] = {
+    {"fragment", {}},
+    {"vertex", "a ui quad has no geometry to displace"},
+    {"light", "a ui quad is not lit"},
+    {"sky", "only a shader_type sky shader writes SKY"},
+    {"layers", "only terrain blends painted layers"},
+};
+constexpr HookRule TERRAIN_HOOKS[] = {
+    {"fragment", {}}, {"light", {}}, {"layers", {}},
+    {"vertex", "terrain geometry is generated in a mesh shader from the height texture"},
+    {"sky", "only a shader_type sky shader writes SKY"},
+};
+constexpr HookRule WATER_HOOKS[] = {
+    {"fragment", {}}, {"light", {}},
+    {"vertex", "the surface comes from the .fjwater wave field"},
+    {"sky", "only a shader_type sky shader writes SKY"},
+    {"layers", "only terrain blends painted layers"},
+};
+
+std::span<const HookRule> hook_rules(std::optional<ShaderType> type) {
+    if (!type) return FUNCTION_HOOKS;
+    switch (*type) {
+        case ShaderType::Sky:     return SKY_HOOKS;
+        case ShaderType::Ui:      return UI_HOOKS;
+        case ShaderType::Terrain: return TERRAIN_HOOKS;
+        case ShaderType::Water:   return WATER_HOOKS;
+        case ShaderType::Spatial: break;
+    }
+    return SPATIAL_HOOKS;
+}
+} // namespace
+
 std::optional<ShaderType> shader_type_from_name(std::string_view name) {
     for (const auto& row : SHADER_TYPE_NAMES) {
         if (row.name == name) return row.type;
@@ -482,7 +549,8 @@ static void collect_matches(const std::string& source, std::string_view keyword,
 // What is gone is their cost. A round now rewrites the string once, matching
 // only at the few offsets where its keyword occurs, instead of handing the
 // whole file to regex_replace to scan and copy from end to end.
-static std::string extract_user_globals(const std::string& source) {
+static std::string extract_user_globals(const std::string& source,
+                                        std::optional<ShaderType> type) {
     static const std::regex shader_type_re(R"(shader_type\s+\w+\s*;)");
     static const std::regex render_mode_re(R"(render_mode\s+[^;]+;)");
 
@@ -509,15 +577,16 @@ static std::string extract_user_globals(const std::string& source) {
     // Strip uniform declarations.
     s = cut_round(s, "uniform", uniform_declaration_re());
 
-    // Strip the reserved function definitions (fragment/vertex/light for
-    // spatial shaders; sky for shader_type sky; layers for terrain).
-    // Whatever's left is the user's file-scope code — helpers, structs,
-    // constants.
-    strip_function(s, "fragment");
-    strip_function(s, "vertex");
-    strip_function(s, "light");
-    strip_function(s, "sky");
-    strip_function(s, "layers");
+    // Strip the entry points this kind of file has — their bodies are
+    // extracted separately and substituted into the template. Whatever's left
+    // is the user's file-scope code: helpers, structs, constants.
+    //
+    // Every hook the table knows is stripped, permitted or not: a file that
+    // defines a refused one is already reported, and leaving the body in the
+    // globals would follow that error with a second, confusing one from glslc.
+    for (const auto& rule : hook_rules(type)) {
+        strip_function(s, std::string(rule.hook));
+    }
     return s;
 }
 
@@ -679,7 +748,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     meta.vertex_body = extract_function_body(source, "vertex");
     meta.light_body = extract_function_body(source, "light");
     meta.layers_body = extract_function_body(source, "layers");
-    meta.user_globals = extract_user_globals(source);
+    meta.user_globals = extract_user_globals(source, meta.shader_type);
     // Kept so the generator can turn a body's byte offset into a line number.
     meta.source_text = source;
 
@@ -691,41 +760,22 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // surface is shaped by its .fjwater, not by its material. layers()
     // decides how the painted layer weights blend and only terrain has
     // layers.
-    // One row per hook a type cannot run, with why. Written as a table rather
-    // than a chain of ifs because the chain grew unevenly: sky was guarded
-    // against nothing, so a sky shader defining fragment() instead of sky()
-    // compiled to a black sky with no word said.
-    struct ForbiddenHook {
-        ShaderType type;
-        const char* hook;
-        const char* reason;
-    };
-    static const ForbiddenHook FORBIDDEN[] = {
-        {ShaderType::Ui, "vertex", "a ui quad has no geometry to displace"},
-        {ShaderType::Ui, "light", "a ui quad is not lit"},
-        {ShaderType::Terrain, "vertex",
-         "terrain geometry is generated in a mesh shader from the height texture"},
-        {ShaderType::Water, "vertex",
-         "the surface comes from the .fjwater wave field"},
-        {ShaderType::Sky, "vertex", "the sky is drawn as one fullscreen triangle"},
-        {ShaderType::Sky, "light", "the sky is not lit; it is the light"},
-        {ShaderType::Sky, "fragment",
-         "a sky shader writes SKY from sky(), not ALBEDO from fragment()"},
-        {ShaderType::Spatial, "layers", "only terrain blends painted layers"},
-        {ShaderType::Sky, "layers", "only terrain blends painted layers"},
-        {ShaderType::Ui, "layers", "only terrain blends painted layers"},
-        {ShaderType::Water, "layers", "only terrain blends painted layers"},
-    };
-
-    for (const auto& rule : FORBIDDEN) {
-        if (meta.shader_type != rule.type) continue;
+    // A hook this kind of file cannot run is an error rather than silently
+    // ignored code — the same table that decides which bodies get stripped
+    // from the globals, read for the other half of its job. The chain this
+    // replaced had grown unevenly: sky was guarded against nothing, so a sky
+    // shader defining fragment() instead of sky() compiled to a black sky with
+    // no word said.
+    for (const auto& rule : hook_rules(meta.shader_type)) {
+        if (rule.refusal.empty()) continue;
 
         const size_t at = find_function_declaration(source, rule.hook);
         if (at == std::string::npos) continue;
 
         diagnose(at, FjslSeverity::error,
                  "shader_type " + std::string(shader_type_name(meta.shader_type))
-                     + " has no " + rule.hook + "() stage — " + rule.reason);
+                     + " has no " + std::string(rule.hook) + "() stage — "
+                     + std::string(rule.refusal));
     }
 
     return meta;

@@ -1008,6 +1008,18 @@ TEST_CASE("Terrain rejects vertex(), other types reject layers()", "[fjsl][terra
     REQUIRE_NOTHROW(parse_fjsl("shader_type terrain;\nvoid light() {}\nvoid fragment() {}"));
 }
 
+// sky() belongs to one type, and the table that refuses a hook is now the same
+// one that decides which bodies are stripped from the globals. A type that
+// never ran sky() went unguarded before: the body stayed in user_globals and
+// reached glslc as a stray function nobody called.
+TEST_CASE("Only a sky shader may define sky()", "[fjsl][sky]") {
+    require_rejected("shader_type spatial;\nvoid sky() {}\nvoid fragment() {}");
+    require_rejected("shader_type ui;\nvoid sky() {}\nvoid fragment() {}");
+    require_rejected("shader_type terrain;\nvoid sky() {}\nvoid fragment() {}");
+    require_rejected("shader_type water;\nvoid sky() {}\nvoid fragment() {}");
+    REQUIRE_NOTHROW(parse_fjsl("shader_type sky;\nvoid sky() {}"));
+}
+
 // --- shader_type water ---
 
 TEST_CASE("Parse shader_type water", "[fjsl][water]") {
