@@ -45,8 +45,8 @@ layout(push_constant) uniform PushConstants {
     uint frame_index;
     float history_blend;
     float jitter;
-    float halo_inner;
-    float halo_outer;
+    float cone_inner;
+    float cone_outer;
     float directionality;
     float threshold;
 } pc;
@@ -211,13 +211,14 @@ void main() {
         if (transmittance < 0.01) break;
     }
 
-    // Angular fade around the sun direction — sky pixels only. Geometry
-    // pixels get crepuscular rays from whichever direction the sun is,
-    // including at wide view angles; capping them with an angular fade
-    // produces a visible "cone of light" gradient on the ground.
-    float halo_fade = 1.0;
+    // The cone around the sun that shafts may fill — sky pixels only.
+    // Geometry pixels get crepuscular rays from whichever direction the sun
+    // is, including at wide view angles; bounding them by angle avoids a
+    // visible "cone of light" gradient on the ground. This limits where
+    // shafts are drawn and paints no glow of its own.
+    float cone_fade = 1.0;
     if (raw_depth >= 1.0) {
-        halo_fade = smoothstep(pc.halo_outer, pc.halo_inner, cos_theta);
+        cone_fade = smoothstep(pc.cone_outer, pc.cone_inner, cos_theta);
     }
 
     // Threshold: subtract a share of the unshadowed integral and renormalise
@@ -228,7 +229,7 @@ void main() {
         accumulated = max(accumulated - pc.threshold * unshadowed, 0.0) / (1.0 - pc.threshold);
     }
 
-    vec3 result = sun_color * accumulated * pc.intensity * halo_fade;
+    vec3 result = sun_color * accumulated * pc.intensity * cone_fade;
 
     // Temporal accumulation: blend with previous frame's shafts.
     // Screen-space reproject using prev view-projection.

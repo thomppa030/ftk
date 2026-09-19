@@ -167,8 +167,8 @@ struct SunShaftSettings {
     float anisotropy{0.75f};
     float directionality{1.0f};
     float threshold{0.0f};
-    float halo_inner{0.95f};
-    float halo_outer{0.6f};
+    float cone_inner{0.95f};
+    float cone_outer{0.6f};
 };
 
 /// The weather as composited from the playing events: what the sky, the

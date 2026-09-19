@@ -569,11 +569,11 @@ void PropertiesPanel::draw() {
                         prop_row("Threshold", [&] {
                             ImGui::SliderFloat("##ShaftThreshold", &vf->shaft_threshold, 0.0f, 0.95f);
                         });
-                        prop_row("Halo Inner", [&] {
-                            ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
+                        prop_row("Cone Inner", [&] {
+                            ImGui::SliderFloat("##ShaftConeInner", &vf->shaft_cone_inner, 0.0f, 1.0f);
                         });
-                        prop_row("Halo Outer", [&] {
-                            ImGui::SliderFloat("##ShaftHaloOuter", &vf->shaft_halo_outer, -1.0f, 1.0f);
+                        prop_row("Cone Outer", [&] {
+                            ImGui::SliderFloat("##ShaftConeOuter", &vf->shaft_cone_outer, -1.0f, 1.0f);
                         });
                     }
                 }

@@ -29,8 +29,8 @@ struct ShaftsMarchPush {
     uint32_t frame_index;
     float history_blend;
     float jitter;
-    float halo_inner;
-    float halo_outer;
+    float cone_inner;
+    float cone_outer;
     float directionality;
     float threshold;
 };
@@ -406,8 +406,8 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
     anisotropy_ = shafts.anisotropy;
     directionality_ = shafts.directionality;
     threshold_ = shafts.threshold;
-    halo_inner_ = shafts.halo_inner;
-    halo_outer_ = shafts.halo_outer;
+    cone_inner_ = shafts.cone_inner;
+    cone_outer_ = shafts.cone_outer;
     fog_density_ = ctx.environment->fog.density;
 }
 
@@ -574,8 +574,8 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     march_push.history_blend = imgs.shafts_ready[prev] ? 0.85f : 0.0f;
     int frame_idx = static_cast<int>(imgs.frame_counter % 16) + 1;
     march_push.jitter = halton(frame_idx, 2) - 0.5f;
-    march_push.halo_inner = halo_inner_;
-    march_push.halo_outer = halo_outer_;
+    march_push.cone_inner = cone_inner_;
+    march_push.cone_outer = cone_outer_;
     march_push.directionality = std::clamp(directionality_, 0.0f, 1.0f);
     march_push.threshold = std::clamp(threshold_, 0.0f, 0.95f);
 

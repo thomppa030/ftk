@@ -165,8 +165,8 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                 s.anisotropy = fog->shaft_anisotropy;
                 s.directionality = fog->shaft_directionality;
                 s.threshold = fog->shaft_threshold;
-                s.halo_inner = fog->shaft_halo_inner;
-                s.halo_outer = fog->shaft_halo_outer;
+                s.cone_inner = fog->shaft_cone_inner;
+                s.cone_outer = fog->shaft_cone_outer;
                 fog_found = true;
                 continue;
             }
