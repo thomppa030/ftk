@@ -165,7 +165,15 @@ void main() {
     float cos_theta = dot(ray_dir, ubo.light_direction.xyz);
     float phase = shaft_phase(pc.anisotropy, pc.directionality, cos_theta);
 
-    vec3 sun_color = ubo.light_color.xyz * ubo.light_direction.w;
+    // A brighter sun does scatter more haze, so the shafts follow its
+    // intensity — but through a square root, not straight. Taken linearly
+    // the glow around the sun grows with the scene lighting fast enough
+    // that taming it means turning the sun down and everything with it;
+    // under a root a sun twice as strong lights the haze half again as
+    // much, which reads right and leaves `shaft_intensity` in charge.
+    // A set sun still draws nothing: its intensity, and the root, are zero.
+    vec3 sun_color = ubo.light_color.xyz;
+    float sun_response = sqrt(max(ubo.light_direction.w, 0.0));
 
     // Both integrals share the same march; `unshadowed` is what the ray
     // would collect with no occluders and anchors the threshold below.
@@ -229,7 +237,7 @@ void main() {
         accumulated = max(accumulated - pc.threshold * unshadowed, 0.0) / (1.0 - pc.threshold);
     }
 
-    vec3 result = sun_color * accumulated * pc.intensity * cone_fade;
+    vec3 result = sun_color * sun_response * accumulated * pc.intensity * cone_fade;
 
     // Temporal accumulation: blend with previous frame's shafts.
     // Screen-space reproject using prev view-projection.
