@@ -39,7 +39,7 @@ static void require_rejected(const std::string& src) {
 
 TEST_CASE("Parse shader_type spatial", "[fjsl]") {
     auto meta = parse_fjsl("shader_type spatial;\nvoid fragment() {}");
-    REQUIRE(meta.shader_type == "spatial");
+    REQUIRE(meta.shader_type == ShaderType::Spatial);
 }
 
 TEST_CASE("A group heads the uniforms declared under it", "[fjsl]") {
@@ -172,7 +172,7 @@ TEST_CASE("Parse shader_type ui takes its body from fragment()", "[fjsl][ui]") {
         uniform float speed : hint_range(0.0, 3.0, 0.1) = 1.0;
         void fragment() { ALPHA = COLOR.a * step(1.0 - FILL, UV.y); }
     )");
-    REQUIRE(meta.shader_type == "ui");
+    REQUIRE(meta.shader_type == ShaderType::Ui);
     REQUIRE(meta.fragment_body.code.find("step(1.0 - FILL, UV.y)") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
     REQUIRE(meta.light_body.empty());
@@ -815,7 +815,7 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
         INFO("shader: " << name);
 
         auto meta = parse_fjsl(read_text(entry.path()));
-        if (meta.shader_type != "spatial") continue;  // sky shaders use their own template
+        if (meta.shader_type != ShaderType::Spatial) continue;  // sky shaders use their own template
 
         auto frag = out_dir / (name + ".frag");
         std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
@@ -993,7 +993,7 @@ TEST_CASE("Parse shader_type terrain with a layers() hook", "[fjsl][terrain]") {
             ROUGHNESS = 1.0;
         }
     )");
-    REQUIRE(meta.shader_type == "terrain");
+    REQUIRE(meta.shader_type == ShaderType::Terrain);
     REQUIRE(meta.layers_body.code.find("layer_mask(3.0)") != std::string::npos);
     REQUIRE(meta.fragment_body.code.find("ROUGHNESS = 1.0") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
@@ -1019,7 +1019,7 @@ TEST_CASE("Parse shader_type water", "[fjsl][water]") {
             ALBEDO = deep;
         }
     )");
-    REQUIRE(meta.shader_type == "water");
+    REQUIRE(meta.shader_type == ShaderType::Water);
     REQUIRE(meta.uniforms.size() == 2);
     REQUIRE(meta.fragment_body.code.find("ALBEDO = deep") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
@@ -1199,7 +1199,7 @@ TEST_CASE("Every terrain .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
         if (entry.path().extension() != ".fjsl") continue;
         auto text = read_text(entry.path());
-        if (parse_fjsl(text).shader_type == "terrain") {
+        if (parse_fjsl(text).shader_type == ShaderType::Terrain) {
             sources.emplace_back(entry.path().stem().string(), text);
         }
     }
@@ -1255,7 +1255,7 @@ TEST_CASE("shader_type ui generates GLSL that glslc accepts in both shapes", "[f
     for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
         if (entry.path().extension() != ".fjsl") continue;
         auto text = read_text(entry.path());
-        if (parse_fjsl(text).shader_type == "ui") {
+        if (parse_fjsl(text).shader_type == ShaderType::Ui) {
             sources.emplace_back(entry.path().stem().string(), text);
         }
     }

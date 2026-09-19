@@ -470,7 +470,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     // shader's tagged uniforms and this asset's values for them. A ui
     // material never meets a ray; a terrain material's rays land on its
     // layers, which are spatial materials of their own.
-    if (shader_meta && shader_meta->shader_type == "spatial") {
+    if (shader_meta && shader_meta->shader_type == ShaderType::Spatial) {
         // Derived from the same linear values the params SSBO holds, so the
         // GI paths and the raster path agree on the colour.
         auto gi = derive_material_gi_params(*shader_meta, [&](const FjslUniform& u) {

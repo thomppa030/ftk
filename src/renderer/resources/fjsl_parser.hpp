@@ -2,11 +2,37 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
+
+/// What a shader is: the pipeline shape it is drawn with, the template its
+/// code is generated into, and the built-ins it has in scope. Engine-provided
+/// and closed — a .fjsl names one of these or it does not parse.
+///
+/// The five are two families. Spatial, terrain and water are lit surfaces:
+/// same lighting code, same G-buffer, a light() hook. Sky and ui emit a colour
+/// and are lit by nothing. What separates the members of a family is how their
+/// geometry arrives, which is why each needs a pipeline of its own.
+enum class ShaderType : uint8_t {
+    Spatial, ///< a mesh, drawn from the vertex or mesh shader path
+    Sky,     ///< one fullscreen triangle, also baked to the lighting cubemap
+    Ui,      ///< a screen-space or worldspace quad
+    Terrain, ///< generated from a .fjterrain height texture in a mesh shader
+    Water,   ///< generated from a .fjwater wave field in a mesh shader
+};
+
+/// The spelling a .fjsl uses for `type`, for diagnostics and asset files.
+[[nodiscard]] std::string_view shader_type_name(ShaderType type);
+
+/// The ShaderType a .fjsl's `shader_type` keyword names, or nullopt when the
+/// word is not one of them. The parser reports that as an error; callers
+/// reading a stored string (a .fjmat, a test) decide for themselves.
+[[nodiscard]] std::optional<ShaderType> shader_type_from_name(std::string_view name);
 
 // Lighting mode parsed from .fjsl files
 enum class RenderMode : uint8_t {
@@ -114,7 +140,7 @@ struct FjslDiagnostic {
 
 // Complete metadata extracted from a .fjsl file
 struct ShaderMetadata {
-    std::string shader_type; // "spatial", "sky", "ui" or "terrain"
+    ShaderType shader_type{ShaderType::Spatial};
     RenderMode render_mode{RenderMode::Lit};
     RenderState render_state;
     std::vector<FjslUniform> uniforms;

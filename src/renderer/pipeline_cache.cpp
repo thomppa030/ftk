@@ -280,19 +280,24 @@ void PipelineCache::compile_entry(Entry& entry) {
         // template; sky the fullscreen sky template; ui the UI quad template;
         // terrain the layer-blending template drawn by the terrain mesh
         // shader; water the wave template drawn by the water mesh shader.
-        const std::string& shader_type = next.metadata.shader_type;
-        const bool is_ui = shader_type == "ui";
-        const bool owns_own_pipeline = shader_type == "sky" || is_ui ||
-                                       shader_type == "terrain" ||
-                                       shader_type == "water";
-        const std::string& tmpl = shader_type == "sky" ? sky_template_
-                                : is_ui ? ui_template_
-                                : shader_type == "terrain" ? terrain_template_
-                                : shader_type == "water" ? water_template_
-                                : template_source_;
+        const ShaderType shader_type = next.metadata.shader_type;
+        const bool is_ui = shader_type == ShaderType::Ui;
+        // Spatial is the only type drawn by the shared mesh/vertex pipelines;
+        // the rest are drawn by a pass that builds its own from the fragment.
+        const bool owns_own_pipeline = shader_type != ShaderType::Spatial;
+        const std::string& tmpl = [&]() -> const std::string& {
+            switch (shader_type) {
+                case ShaderType::Sky:     return sky_template_;
+                case ShaderType::Ui:      return ui_template_;
+                case ShaderType::Terrain: return terrain_template_;
+                case ShaderType::Water:   return water_template_;
+                case ShaderType::Spatial: break;
+            }
+            return template_source_;
+        }();
         if (tmpl.empty()) {
             throw std::runtime_error("FJSL: no template loaded for shader_type '"
-                                     + next.metadata.shader_type + "'");
+                                     + std::string(shader_type_name(shader_type)) + "'");
         }
 
         // Generate complete fragment shader
@@ -325,7 +330,7 @@ void PipelineCache::compile_entry(Entry& entry) {
         // Fragment is always compiled. A ui shader is one generated source
         // compiled in two shapes, screen-space and worldspace; a sky shader
         // once more as the compute shader that fills the lighting cubemap.
-        const bool is_sky = shader_type == "sky";
+        const bool is_sky = shader_type == ShaderType::Sky;
         jobs.push_back({next.generated_frag_path, stem + ".frag", {}, {}});
         if (is_ui) {
             jobs.push_back({next.generated_frag_path, stem + ".world.frag", {"FJELL_UI_WORLD"}, {}});

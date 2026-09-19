@@ -363,11 +363,11 @@ VkPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id) {
     }
 
     const auto& meta = pipeline_cache_->metadata(pipeline_id);
-    if (meta.shader_type != "terrain") {
+    if (meta.shader_type != ShaderType::Terrain) {
         if (reported_entries_.insert(pipeline_id).second) {
             FJELL_GFX_ERROR("TerrainPass: '{}' is shader_type '{}', a terrain needs "
                             "shader_type terrain",
-                            pipeline_cache_->shader_path(pipeline_id), meta.shader_type);
+                            pipeline_cache_->shader_path(pipeline_id), shader_type_name(meta.shader_type));
         }
         return VK_NULL_HANDLE;
     }

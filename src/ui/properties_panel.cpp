@@ -61,7 +61,7 @@ static void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext&
         canonical_sky_shader_path(env.sky_shader, project));
     if (ictx.pipeline_cache->has_compile_error(pid)) return;
     const auto& meta = ictx.pipeline_cache->metadata(pid);
-    if (meta.shader_type != "sky") return;
+    if (meta.shader_type != ShaderType::Sky) return;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
@@ -955,7 +955,7 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
 
     // UV scale: every surface material has one; a ui quad's UV is its own and
     // a terrain material tiles each layer by that layer's own scale
-    if (meta.shader_type == "spatial") {
+    if (meta.shader_type == ShaderType::Spatial) {
         const auto& gpu = bindless_->material_at(mat->material_id());
         float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
         if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;

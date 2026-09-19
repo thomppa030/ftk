@@ -428,9 +428,9 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
         return;
     }
     const auto& meta = fjsl_pipeline_cache_->metadata(pid);
-    if (meta.shader_type != "sky") {
+    if (meta.shader_type != ShaderType::Sky) {
         FJELL_GFX_ERROR("SkyPass: '{}' is shader_type '{}', expected 'sky'",
-                        sky_shader_, meta.shader_type);
+                        sky_shader_, shader_type_name(meta.shader_type));
         return;
     }
     const std::string& frag_spv = fjsl_pipeline_cache_->frag_spv_path(pid);

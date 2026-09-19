@@ -142,9 +142,9 @@ public:
         // A ui material draws quads and a terrain material draws a
         // heightfield, not a sphere; both keep the generic icon.
         if (const auto* loaded = resources.get(*material);
-            loaded && loaded->shader_type() != "spatial") {
+            loaded && loaded->shader_type() != ShaderType::Spatial) {
             FJELL_CORE_DEBUG("Material thumbnail: '{}' is a {} shader, no sphere preview",
-                             path, loaded->shader_type());
+                             path, shader_type_name(loaded->shader_type()));
             return false;
         }
         scene.add(*sphere, *material, resources, {}, "Thumbnail Sphere", "primitive:sphere", path);

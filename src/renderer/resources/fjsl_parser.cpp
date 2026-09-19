@@ -11,6 +11,35 @@
 
 namespace fjell {
 
+// The keyword ↔ ShaderType mapping, and the only place either spelling is
+// written down. Adding a type is this table plus the switches the compiler
+// then points at.
+namespace {
+struct ShaderTypeName {
+    std::string_view name;
+    ShaderType type;
+};
+constexpr ShaderTypeName SHADER_TYPE_NAMES[] = {
+    {"spatial", ShaderType::Spatial}, {"sky", ShaderType::Sky},
+    {"ui", ShaderType::Ui},           {"terrain", ShaderType::Terrain},
+    {"water", ShaderType::Water},
+};
+} // namespace
+
+std::string_view shader_type_name(ShaderType type) {
+    for (const auto& row : SHADER_TYPE_NAMES) {
+        if (row.type == type) return row.name;
+    }
+    return "spatial";
+}
+
+std::optional<ShaderType> shader_type_from_name(std::string_view name) {
+    for (const auto& row : SHADER_TYPE_NAMES) {
+        if (row.name == name) return row.type;
+    }
+    return std::nullopt;
+}
+
 uint32_t uniform_float_count(UniformType type) {
     switch (type) {
         case UniformType::Float: return 1;
@@ -519,19 +548,18 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // Parse shader_type
     static const std::regex shader_type_re(R"(shader_type\s+(\w+)\s*;)");
     std::smatch sm;
-    if (std::regex_search(source, sm, shader_type_re)) {
-        meta.shader_type = sm[1].str();
-    } else {
+    if (!std::regex_search(source, sm, shader_type_re)) {
         diagnose(0, FjslSeverity::error,
                  "missing shader_type declaration; expected e.g. 'shader_type spatial;'");
         return meta;
     }
 
-    if (meta.shader_type != "spatial" && meta.shader_type != "sky" &&
-        meta.shader_type != "ui" && meta.shader_type != "terrain" &&
-        meta.shader_type != "water") {
+    const std::string type_word = sm[1].str();
+    if (auto type = shader_type_from_name(type_word)) {
+        meta.shader_type = *type;
+    } else {
         diagnose(static_cast<size_t>(sm.position(1)), FjslSeverity::error,
-                 "unsupported shader_type '" + meta.shader_type
+                 "unsupported shader_type '" + type_word
                      + "'; expected spatial, sky, ui, terrain or water");
         return meta;
     }
@@ -645,7 +673,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // Sky shaders supply their user code via sky() rather than fragment();
     // route it through the same fragment_body slot so the existing
     // /*FJSL_USER_CODE*/ substitution path works unchanged.
-    meta.fragment_body = meta.shader_type == "sky"
+    meta.fragment_body = meta.shader_type == ShaderType::Sky
         ? extract_function_body(source, "sky")
         : extract_function_body(source, "fragment");
     meta.vertex_body = extract_function_body(source, "vertex");
@@ -668,37 +696,36 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // against nothing, so a sky shader defining fragment() instead of sky()
     // compiled to a black sky with no word said.
     struct ForbiddenHook {
-        const char* shader_type; // nullptr = every type but `except`
-        const char* except;      // the one type that may run it
+        ShaderType type;
         const char* hook;
         const char* reason;
     };
     static const ForbiddenHook FORBIDDEN[] = {
-        {"ui", nullptr, "vertex", "a ui quad has no geometry to displace"},
-        {"ui", nullptr, "light", "a ui quad is not lit"},
-        {"terrain", nullptr, "vertex",
+        {ShaderType::Ui, "vertex", "a ui quad has no geometry to displace"},
+        {ShaderType::Ui, "light", "a ui quad is not lit"},
+        {ShaderType::Terrain, "vertex",
          "terrain geometry is generated in a mesh shader from the height texture"},
-        {"water", nullptr, "vertex",
+        {ShaderType::Water, "vertex",
          "the surface comes from the .fjwater wave field"},
-        {"sky", nullptr, "vertex", "the sky is drawn as one fullscreen triangle"},
-        {"sky", nullptr, "light", "the sky is not lit; it is the light"},
-        {"sky", nullptr, "fragment",
+        {ShaderType::Sky, "vertex", "the sky is drawn as one fullscreen triangle"},
+        {ShaderType::Sky, "light", "the sky is not lit; it is the light"},
+        {ShaderType::Sky, "fragment",
          "a sky shader writes SKY from sky(), not ALBEDO from fragment()"},
-        {nullptr, "terrain", "layers", "only terrain blends painted layers"},
+        {ShaderType::Spatial, "layers", "only terrain blends painted layers"},
+        {ShaderType::Sky, "layers", "only terrain blends painted layers"},
+        {ShaderType::Ui, "layers", "only terrain blends painted layers"},
+        {ShaderType::Water, "layers", "only terrain blends painted layers"},
     };
 
     for (const auto& rule : FORBIDDEN) {
-        const bool applies = rule.shader_type != nullptr
-                                 ? meta.shader_type == rule.shader_type
-                                 : meta.shader_type != rule.except;
-        if (!applies) continue;
+        if (meta.shader_type != rule.type) continue;
 
         const size_t at = find_function_declaration(source, rule.hook);
         if (at == std::string::npos) continue;
 
         diagnose(at, FjslSeverity::error,
-                 "shader_type " + meta.shader_type + " has no " + rule.hook
-                     + "() stage — " + rule.reason);
+                 "shader_type " + std::string(shader_type_name(meta.shader_type))
+                     + " has no " + rule.hook + "() stage — " + rule.reason);
     }
 
     return meta;
@@ -782,12 +809,16 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // `push.sky_material_id`; terrain and water likewise push their row per
     // node; a ui quad carries its row in the quad record; spatial shaders
     // look up the material via per-draw data.
-    const std::string mat_expr =
-        meta.shader_type == "sky" ? "materials[push.sky_material_id]"
-        : meta.shader_type == "terrain" ? "materials[push.terrain_material_id]"
-        : meta.shader_type == "water" ? "materials[push.water_material_id]"
-        : meta.shader_type == "ui" ? "materials[quads[frag_quad_index].material_id]"
-        : "materials[draws[frag_draw_index].material_id]";
+    const std::string mat_expr = [&]() -> std::string {
+        switch (meta.shader_type) {
+            case ShaderType::Sky:     return "materials[push.sky_material_id]";
+            case ShaderType::Terrain: return "materials[push.terrain_material_id]";
+            case ShaderType::Water:   return "materials[push.water_material_id]";
+            case ShaderType::Ui:      return "materials[quads[frag_quad_index].material_id]";
+            case ShaderType::Spatial: break;
+        }
+        return "materials[draws[frag_draw_index].material_id]";
+    }();
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
 

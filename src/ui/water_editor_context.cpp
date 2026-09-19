@@ -296,10 +296,10 @@ void WaterEditorContext::draw_generator_panel() {
     if (auto* node = preview_scene_.find(preview_node_id_)) {
         if (auto* water = node->components.get<WaterComponent>();
             water != nullptr && water->material != nullptr &&
-            water->material->shader_type() != "water") {
+            water->material->shader_type() != ShaderType::Water) {
             ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
                                "shader_type %s — water needs shader_type water",
-                               water->material->shader_type().c_str());
+                               std::string(shader_type_name(water->material->shader_type())).c_str());
         }
     }
 

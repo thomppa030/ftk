@@ -161,7 +161,7 @@ void MaterialEditorContext::setup_preview_scene() {
     // A ui or terrain material has no surface pipeline to put on a sphere;
     // the UI editor previews the one, a terrain node the other (see
     // draw_params_panel).
-    if (material_ && material_->shader_type() != "spatial") return;
+    if (material_ && material_->shader_type() != ShaderType::Spatial) return;
 
     auto sphere = deps_.resource_manager->create_primitive("sphere");
     if (!sphere) return;
@@ -189,10 +189,10 @@ void MaterialEditorContext::draw_params_panel() {
 
         ImGui::TextDisabled("Shader: %s", material_->shader_path().c_str());
         ImGui::TextDisabled("Material: %s", fjmat_path_.c_str());
-        if (material_->shader_type() == "ui") {
+        if (material_->shader_type() == ShaderType::Ui) {
             ImGui::TextWrapped("UI shader: the preview sphere cannot draw it. Assign the "
                                "material to a node and open that widget in the UI editor.");
-        } else if (material_->shader_type() == "terrain") {
+        } else if (material_->shader_type() == ShaderType::Terrain) {
             ImGui::TextWrapped("Terrain shader: the preview sphere cannot draw it. Assign "
                                "the material to a Terrain component and look at the scene.");
         }
@@ -216,7 +216,7 @@ void MaterialEditorContext::draw_texture_panel() {
 
         // Fixed PBR slots; ui and terrain shaders sample only the textures
         // they declare
-        if (material_->shader_type() == "spatial") {
+        if (material_->shader_type() == ShaderType::Spatial) {
             draw_texture_slot("base_color");
             draw_texture_slot("normal_map");
             draw_texture_slot("metallic_roughness");

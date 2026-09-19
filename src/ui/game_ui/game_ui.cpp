@@ -439,18 +439,19 @@ void GameUi::resolve_textures(UiNode& node) {
         }
         if (mat_handle.valid()) {
             auto* mat = resource_manager_->get(mat_handle);
-            if (mat && mat->shader_type() != "ui") {
+            if (mat && mat->shader_type() != ShaderType::Ui) {
                 // A UI quad is drawn by the material's own fragment pipeline,
                 // which only a `shader_type ui;` shader has. Reported where
                 // the stylesheet problems are, so the editor lists it.
                 stylesheet_.diagnostics.push_back({
                     node.source_file, node.source_line, 1, FjssSeverity::error,
-                    "material '" + mat_name + "' is shader_type " + mat->shader_type() +
+                    "material '" + mat_name + "' is shader_type "
+                        + std::string(shader_type_name(mat->shader_type())) +
                         "; a UI node needs a shader_type ui material"});
                 FJELL_CORE_WARN("{}:{}: <{}> material '{}' is shader_type {}, a UI node needs "
                                 "shader_type ui",
                                 node.source_file, node.source_line, node.tag, mat_name,
-                                mat->shader_type());
+                                shader_type_name(mat->shader_type()));
             } else if (mat) {
                 node.resolved_material_id = mat->material_id();
                 node.resolved_pipeline_id = mat->pipeline_id();

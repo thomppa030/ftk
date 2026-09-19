@@ -47,7 +47,7 @@ bool draw_material_params(const ShaderMetadata& meta,
     // uniforms still gets an editable material. A ui shader paints a quad
     // and reads neither, and a terrain shader takes them from its layers, so
     // both show only their own uniforms.
-    if (meta.shader_type == "spatial") {
+    if (meta.shader_type == ShaderType::Spatial) {
         GpuMaterial base = bindless.material_at(material.material_id());
         float metallic = base.base_params[4];
         float roughness = base.base_params[5];
