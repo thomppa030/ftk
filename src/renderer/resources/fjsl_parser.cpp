@@ -754,7 +754,7 @@ struct CompositionWalk {
             const bool seen = std::any_of(
                 out.files.begin(), out.files.end(),
                 [&](const FjslComposedFile& f) { return f.path == use.path; });
-            if (!seen) out.files.push_back({use.path, use.name, std::move(used)});
+            if (!seen) out.files.push_back({use.path, use.name, std::move(used), {}});
         }
 
         on_stack.pop_back();
@@ -798,7 +798,7 @@ FjslComposition resolve_composition(const ShaderMetadata& meta,
     FjslComposition out;
     CompositionWalk walk{read, out, {}};
     walk.visit(meta, meta.source_text, path, 0);
-    out.files.push_back({path, {}, meta});
+    out.files.push_back({path, {}, meta, {}});
     return out;
 }
 
@@ -1386,13 +1386,21 @@ std::string emit_composed_file(const FjslComposedFile& file,
 
     std::string out = "// ── " + file.path + " (as '" + use + "') ──\n";
 
-    // Uniform defines, reading this file's OWN material row: a texture it
-    // declares lives in its row, not the consumer's, so the four custom
-    // sampler slots are never shared across a composition.
+    // A sampler reads this file's OWN row, named by a baked constant. Its four
+    // custom slots are its own, so a composition has no texture ceiling and two
+    // functions with textures never compete. The constant is what keeps the
+    // descriptor index wave-uniform, and so free of a waterfall loop.
+    //
+    // Scalars are different: they are inlined into the consumer's parameter
+    // block, at `param_base` onwards, because that is where the .fjmat that
+    // named this composition stores their values.
+    const std::string own_row =
+        file.material_row ? "materials[" + std::to_string(*file.material_row) + "u]"
+                          : mat_expr;
     for (const auto& u : m.uniforms) {
         const std::string name = mangled(use, u.name);
         if (u.type == UniformType::Sampler2D) {
-            out += "#define " + name + " textures[nonuniformEXT(" + mat_expr
+            out += "#define " + name + " textures[nonuniformEXT(" + own_row
                  + ".texture_indices[" + std::to_string(u.slot) + "])]\n";
             continue;
         }
@@ -1585,6 +1593,14 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         uint32_t param_base = meta.custom_param_count;
         for (const auto& file : composition->files) {
             if (file.use_name.empty()) continue;  // the consumer itself
+            // A file with a sampler and no row would read the consumer's
+            // texture slots, which hold whatever that material bound — the
+            // wrong picture, silently. Refuse to generate rather than emit it.
+            if (file.needs_material_row() && !file.material_row) {
+                throw std::runtime_error(
+                    "FJSL: '" + file.path + "' declares a texture but was given no "
+                    "material row; a composed function's samplers live in its own row");
+            }
             globals += emit_composed_file(file, mat_expr, param_base) + "\n";
             param_base += file.meta.custom_param_count;
         }

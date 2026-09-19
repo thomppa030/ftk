@@ -226,6 +226,20 @@ struct FjslComposedFile {
     std::string path;      ///< as the `use` wrote it
     std::string use_name;  ///< the consumer's local name for it; empty for the consumer itself
     ShaderMetadata meta;
+    /// Which GpuMaterial row this file's textures are bound in, when it has
+    /// any. A function's samplers live in its own row rather than the
+    /// consumer's four custom slots, so a composition has no texture ceiling
+    /// and a function used by three shaders is bound once.
+    ///
+    /// Set by whoever owns material rows before generating; the generator
+    /// bakes it in as a constant, which is what keeps the descriptor index
+    /// wave-uniform. A file with no sampler needs no row and leaves this unset.
+    std::optional<uint32_t> material_row;
+
+    /// True when this file declares a sampler and therefore needs a row.
+    [[nodiscard]] bool needs_material_row() const {
+        return meta.custom_texture_count > 0;
+    }
 };
 
 /// A composition: the consumer, then every function reachable from its `use`

@@ -1643,3 +1643,51 @@ TEST_CASE("A composed sky generates GLSL that glslc accepts", "[fjsl][compose][g
     INFO(output);
     REQUIRE(status == 0);
 }
+
+TEST_CASE("A composed function's textures live in its own row", "[fjsl][compose]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    const std::string ramp =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform float scale : hint_range(0.0, 4.0, 0.1) = 1.0;\n"
+        "uniform sampler2D ramp : hint_black;\n"
+        "void main() { color = texture(ramp, vec2(view_dir.y * scale, 0.5)).rgb; }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use aurora = \"lib/ramp.fjsl\"(view_dir: VIEW_DIR);\n"
+        "uniform vec3 tint : hint_color = vec3(1.0);\n"
+        "void sky() { SKY = tint + aurora.color; }\n";
+
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    auto comp = compose(root, {{"lib/ramp.fjsl", ramp}});
+    REQUIRE_FALSE(comp.has_errors());
+
+    // Without a row there is nowhere for the texture to live but the
+    // consumer's slots, which hold whatever that material bound. Refused.
+    REQUIRE(comp.files[0].needs_material_row());
+    REQUIRE_THROWS(generate_fragment_shader(meta, tmpl, &comp));
+
+    comp.files[0].material_row = 40;
+    const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
+    // The sampler names the function's own row as a constant — which is what
+    // keeps the descriptor index wave-uniform — while its scalar stays in the
+    // consumer's parameter block, after the consumer's own three floats.
+    REQUIRE(glsl.find("materials[40u].texture_indices[4]") != std::string::npos);
+    REQUIRE(glsl.find("param_offset + 3]") != std::string::npos);
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-texrow-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "composed.frag";
+    std::ofstream(frag) << glsl;
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o " + quoted(out_dir / "c.spv"));
+    INFO(output);
+    REQUIRE(status == 0);
+}
