@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -136,6 +137,10 @@ struct FjslDiagnostic {
     uint32_t column{1}; ///< 1-based, in bytes
     FjslSeverity severity{FjslSeverity::warning};
     std::string message;
+    /// Which file this is about, when it is not the one being parsed. A
+    /// composition reports a used function's problems against that function,
+    /// with its own line numbers; empty means the file under the cursor.
+    std::string file;
 };
 
 /// One `in` or `out` of a shader_function: a value the caller passes in, or one
@@ -216,11 +221,57 @@ struct ShaderMetadata {
 // Parse a .fjsl file and extract metadata.
 [[nodiscard]] ShaderMetadata parse_fjsl(const std::string& source);
 
+/// One file of a composition: what a `use` resolved to, parsed.
+struct FjslComposedFile {
+    std::string path;     ///< as the `use` wrote it
+    ShaderMetadata meta;
+};
+
+/// A composition: the consumer, then every function reachable from its `use`
+/// declarations, each appearing once no matter how many files wire it.
+///
+/// Ordered so a file comes after everything it uses, which is the order the
+/// generator emits them in — a function's helpers must be declared before the
+/// code that calls them.
+struct FjslComposition {
+    std::vector<FjslComposedFile> files;  ///< dependencies first, consumer last
+    std::vector<FjslDiagnostic> diagnostics;
+
+    [[nodiscard]] bool has_errors() const {
+        return std::any_of(diagnostics.begin(), diagnostics.end(),
+                           [](const FjslDiagnostic& d) {
+                               return d.severity == FjslSeverity::error;
+                           });
+    }
+};
+
+/// Source of a `use`d file, by the path the `use` wrote. Returns nullopt when
+/// nothing is there; the resolver reports that against the declaration.
+using FjslSourceReader =
+    std::function<std::optional<std::string>(const std::string& path)>;
+
+/// Resolve a parsed file's `use` declarations, recursively, and check that the
+/// wiring is sound: every path exists and is a shader_function, every `in` is
+/// filled exactly once, no file uses itself directly or through another, and
+/// the chain is not absurdly deep.
+///
+/// `meta` is the consumer, already parsed. Diagnostics from a used file are
+/// reported against that file, with its own line numbers, so an error names
+/// where it lives rather than where it was wired.
+[[nodiscard]] FjslComposition resolve_composition(const ShaderMetadata& meta,
+                                                  const std::string& path,
+                                                  const FjslSourceReader& read);
+
 /// Write a parse's diagnostics to the log as
 /// `file:line:column: severity: message` — the compiler convention, which
 /// editors and their linter plugins parse without being configured for it.
 /// `name` is what the file should be called; empty reads as `<fjsl>`.
 void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name);
+
+/// The same, for a composition: each diagnostic names the file it belongs to,
+/// which for a used function is that function rather than `name`.
+void log_fjsl_diagnostics(const struct FjslComposition& composition,
+                          const std::string& name);
 
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
 [[nodiscard]] std::string generate_fragment_shader(const ShaderMetadata& meta,

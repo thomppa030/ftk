@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 using namespace fjell;
@@ -1444,4 +1445,134 @@ TEST_CASE("A malformed use is reported", "[fjsl][use]") {
     require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(d: V)\nvoid sky() {}");
     require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(d: V);\n"
                      "use a = \"y.fjsl\"(d: V);\nvoid sky() {}");
+}
+
+// --- resolve_composition ---
+//
+// Wiring is checked before anything is generated: every path resolves to a
+// shader_function, every `in` is filled exactly once, and nothing uses itself.
+// The reader is a callback so this needs no files on disk — and so the engine
+// can resolve project-then-engine while fjlint resolves however it likes.
+
+namespace {
+
+FjslComposition compose(const std::string& root,
+                        std::map<std::string, std::string> files) {
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    return resolve_composition(meta, "root.fjsl",
+                               [files = std::move(files)](const std::string& path)
+                                   -> std::optional<std::string> {
+        auto it = files.find(path);
+        if (it == files.end()) return std::nullopt;
+        return it->second;
+    });
+}
+
+const std::string SUN_FN =
+    "shader_function;\nin vec3 dir;\nout vec3 color;\nvoid main() { color = dir; }";
+const std::string NOISE_FN =
+    "shader_function;\nin vec2 p;\nout float v;\nvoid main() { v = p.x; }";
+
+} // namespace
+
+TEST_CASE("A composition lists dependencies before the file that uses them",
+          "[fjsl][compose]") {
+    // The generator emits in this order, so a function's helpers are declared
+    // before the code that calls them.
+    const std::string deep =
+        "shader_function;\nin vec2 p;\nout float v;\n"
+        "use n = \"lib/noise.fjsl\"(p: p);\nvoid main() { v = n.v; }";
+    auto comp = compose("shader_type sky;\n"
+                        "use d = \"lib/deep.fjsl\"(p: P);\nvoid sky() {}",
+                        {{"lib/deep.fjsl", deep}, {"lib/noise.fjsl", NOISE_FN}});
+    REQUIRE_FALSE(comp.has_errors());
+    REQUIRE(comp.files.size() == 3);
+    REQUIRE(comp.files[0].path == "lib/noise.fjsl");
+    REQUIRE(comp.files[1].path == "lib/deep.fjsl");
+    REQUIRE(comp.files[2].path == "root.fjsl");
+}
+
+TEST_CASE("A file reached twice appears once", "[fjsl][compose]") {
+    const std::string deep =
+        "shader_function;\nin vec2 p;\nout float v;\n"
+        "use n = \"lib/noise.fjsl\"(p: p);\nvoid main() { v = n.v; }";
+    auto comp = compose("shader_type sky;\n"
+                        "use d = \"lib/deep.fjsl\"(p: P);\n"
+                        "use n = \"lib/noise.fjsl\"(p: P);\nvoid sky() {}",
+                        {{"lib/deep.fjsl", deep}, {"lib/noise.fjsl", NOISE_FN}});
+    REQUIRE_FALSE(comp.has_errors());
+    REQUIRE(comp.files.size() == 3);  // not 4: noise is emitted once
+}
+
+TEST_CASE("A cycle is reported with the chain that made it", "[fjsl][compose]") {
+    const std::string a = "shader_function;\nin float x;\nout float y;\n"
+                          "use b = \"b.fjsl\"(x: x);\nvoid main() { y = b.y; }";
+    const std::string b = "shader_function;\nin float x;\nout float y;\n"
+                          "use a = \"a.fjsl\"(x: x);\nvoid main() { y = a.y; }";
+    auto comp = compose("shader_type sky;\nuse a = \"a.fjsl\"(x: X);\nvoid sky() {}",
+                        {{"a.fjsl", a}, {"b.fjsl", b}});
+    REQUIRE(comp.has_errors());
+
+    // Using yourself is the shortest cycle and must be caught too.
+    auto self = compose("shader_type sky;\nuse r = \"root.fjsl\"(x: X);\nvoid sky() {}",
+                        {{"root.fjsl", SUN_FN}});
+    REQUIRE(self.has_errors());
+}
+
+TEST_CASE("Every in is filled exactly once", "[fjsl][compose]") {
+    auto missing = compose("shader_type sky;\nuse s = \"sun.fjsl\"();\nvoid sky() {}",
+                           {{"sun.fjsl", SUN_FN}});
+    REQUIRE(missing.has_errors());
+
+    auto unknown = compose(
+        "shader_type sky;\nuse s = \"sun.fjsl\"(dir: V, bogus: W);\nvoid sky() {}",
+        {{"sun.fjsl", SUN_FN}});
+    REQUIRE(unknown.has_errors());
+
+    auto good = compose("shader_type sky;\nuse s = \"sun.fjsl\"(dir: V);\nvoid sky() {}",
+                        {{"sun.fjsl", SUN_FN}});
+    REQUIRE_FALSE(good.has_errors());
+}
+
+TEST_CASE("A use must name a readable shader_function", "[fjsl][compose]") {
+    auto absent = compose("shader_type sky;\nuse s = \"gone.fjsl\"(dir: V);\nvoid sky() {}",
+                          {});
+    REQUIRE(absent.has_errors());
+
+    auto shader = compose("shader_type sky;\nuse s = \"m.fjsl\"(dir: V);\nvoid sky() {}",
+                          {{"m.fjsl", "shader_type spatial;\nvoid fragment() {}"}});
+    REQUIRE(shader.has_errors());
+}
+
+TEST_CASE("A used function's own errors name that function", "[fjsl][compose]") {
+    // Not the file that wired it: the author of the broken function is who
+    // needs to know, and the line number is that file's.
+    auto comp = compose("shader_type sky;\nuse s = \"bad.fjsl\"(d: V);\nvoid sky() {}",
+                        {{"bad.fjsl", "shader_function;\nin vec3 d;\nout vec3 c;"}});
+    REQUIRE(comp.has_errors());
+    const bool named = std::any_of(
+        comp.diagnostics.begin(), comp.diagnostics.end(),
+        [](const FjslDiagnostic& d) { return d.file == "bad.fjsl"; });
+    REQUIRE(named);
+}
+
+TEST_CASE("A use chain has a depth cap", "[fjsl][compose]") {
+    // Everything is inlined into one program, so depth costs compile time and
+    // generated size. A chain this long is a mistake, not a design.
+    auto chain = [](int n) {
+        std::map<std::string, std::string> files;
+        for (int i = 0; i < n; ++i) {
+            const std::string self = "f" + std::to_string(i) + ".fjsl";
+            const std::string next = "f" + std::to_string(i + 1) + ".fjsl";
+            files[self] = i + 1 < n
+                ? "shader_function;\nin float x;\nout float y;\n"
+                  "use u = \"" + next + "\"(x: x);\nvoid main() { y = u.y; }"
+                : "shader_function;\nin float x;\nout float y;\nvoid main() { y = x; }";
+        }
+        return compose("shader_type sky;\nuse a = \"f0.fjsl\"(x: X);\nvoid sky() {}",
+                       std::move(files));
+    };
+    REQUIRE_FALSE(chain(15).has_errors());
+    REQUIRE(chain(25).has_errors());
 }

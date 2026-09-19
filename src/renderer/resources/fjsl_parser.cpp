@@ -619,15 +619,162 @@ static std::string extract_user_globals(const std::string& source,
     return s;
 }
 
-void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name) {
-    const std::string& file = name.empty() ? std::string{"<fjsl>"} : name;
-    for (const auto& d : meta.diagnostics) {
+namespace {
+
+/// How deep a chain of `use` may go. A composition is inlined into one program,
+/// so depth costs compile time and generated size; anything approaching this is
+/// a mistake rather than a design.
+constexpr int MAX_USE_DEPTH = 16;
+
+/// Depth-first walk of a file's `use` declarations, appending each file after
+/// everything it depends on. `on_stack` is the path from the root, which is
+/// what makes a cycle visible and what names it when one is found.
+struct CompositionWalk {
+    const FjslSourceReader& read;
+    FjslComposition& out;
+    std::vector<std::string> on_stack;
+
+    void report(const std::string& file, size_t line, size_t column,
+                std::string message) {
+        out.diagnostics.push_back({static_cast<uint32_t>(line),
+                                   static_cast<uint32_t>(column),
+                                   FjslSeverity::error, std::move(message), file});
+    }
+
+    /// Line and column of a byte offset in `source`, for a diagnostic about a
+    /// declaration in a file the caller has in hand.
+    static std::pair<size_t, size_t> position(const std::string& source, size_t offset) {
+        PositionCursor cursor{source};
+        auto pos = cursor.at(offset);
+        return {pos.line, pos.column};
+    }
+
+    void visit(const ShaderMetadata& meta, const std::string& source,
+               const std::string& path, int depth) {
+        if (depth > MAX_USE_DEPTH) {
+            report(path, 1, 1,
+                   "composition is more than " + std::to_string(MAX_USE_DEPTH)
+                       + " uses deep; this is almost certainly a mistake");
+            return;
+        }
+        on_stack.push_back(path);
+
+        for (const auto& use : meta.uses) {
+            auto [line, column] = position(source, use.offset);
+
+            if (std::find(on_stack.begin(), on_stack.end(), use.path) != on_stack.end()) {
+                std::string chain;
+                for (const auto& step : on_stack) chain += step + " -> ";
+                report(path, line, column,
+                       "use '" + use.name + "' is a cycle: " + chain + use.path);
+                continue;
+            }
+
+            auto text = read(use.path);
+            if (!text) {
+                report(path, line, column,
+                       "use '" + use.name + "' cannot read '" + use.path + "'");
+                continue;
+            }
+
+            ShaderMetadata used = parse_fjsl(*text);
+            used.source_path = use.path;
+
+            // The used file's own problems, reported against it.
+            for (const auto& d : used.diagnostics) {
+                out.diagnostics.push_back({d.line, d.column, d.severity, d.message,
+                                           use.path});
+            }
+            if (used.has_errors()) continue;
+
+            if (!used.is_function) {
+                report(path, line, column,
+                       "use '" + use.name + "' names '" + use.path
+                           + "', which is a shader_type "
+                           + std::string(shader_type_name(used.shader_type))
+                           + " shader; only a shader_function can be used");
+                continue;
+            }
+
+            check_arguments(use, used, path, line, column);
+
+            // Recurse before appending, so dependencies land first.
+            visit(used, *text, use.path, depth + 1);
+
+            const bool seen = std::any_of(
+                out.files.begin(), out.files.end(),
+                [&](const FjslComposedFile& f) { return f.path == use.path; });
+            if (!seen) out.files.push_back({use.path, std::move(used)});
+        }
+
+        on_stack.pop_back();
+    }
+
+    /// Every `in` filled exactly once, and nothing passed that is not an `in`.
+    void check_arguments(const FjslUse& use, const ShaderMetadata& used,
+                         const std::string& path, size_t line, size_t column) {
+        for (const auto& [name, value] : use.arguments) {
+            const bool known = std::any_of(
+                used.inputs.begin(), used.inputs.end(),
+                [&](const FjslPort& p) { return p.name == name; });
+            if (!known) {
+                report(path, line, column,
+                       "use '" + use.name + "': '" + use.path + "' has no in named '"
+                           + name + "'");
+            }
+        }
+        for (const auto& port : used.inputs) {
+            const auto count = std::count_if(
+                use.arguments.begin(), use.arguments.end(),
+                [&](const auto& arg) { return arg.first == port.name; });
+            if (count == 0) {
+                report(path, line, column,
+                       "use '" + use.name + "' does not fill in '" + port.name
+                           + "'; a function takes no defaults, so every in is passed");
+            } else if (count > 1) {
+                report(path, line, column,
+                       "use '" + use.name + "' fills in '" + port.name + "' "
+                           + std::to_string(count) + " times");
+            }
+        }
+    }
+};
+
+} // namespace
+
+FjslComposition resolve_composition(const ShaderMetadata& meta,
+                                    const std::string& path,
+                                    const FjslSourceReader& read) {
+    FjslComposition out;
+    CompositionWalk walk{read, out, {}};
+    walk.visit(meta, meta.source_text, path, 0);
+    out.files.push_back({path, meta});
+    return out;
+}
+
+namespace {
+void log_diagnostics(const std::vector<FjslDiagnostic>& diagnostics,
+                     const std::string& name) {
+    const std::string fallback = name.empty() ? std::string{"<fjsl>"} : name;
+    for (const auto& d : diagnostics) {
+        // A diagnostic carrying a file is about a used function, not the file
+        // that wired it — report it where it lives.
+        const std::string& file = d.file.empty() ? fallback : d.file;
         if (d.severity == FjslSeverity::error) {
             FJELL_GFX_ERROR("{}:{}:{}: error: {}", file, d.line, d.column, d.message);
         } else {
             FJELL_GFX_WARN("{}:{}:{}: warning: {}", file, d.line, d.column, d.message);
         }
     }
+}
+} // namespace
+
+void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name) {
+    log_diagnostics(meta.diagnostics, name);
+}
+
+void log_fjsl_diagnostics(const FjslComposition& composition, const std::string& name) {
+    log_diagnostics(composition.diagnostics, name);
 }
 
 ShaderMetadata parse_fjsl(const std::string& source) {
@@ -640,7 +787,9 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     auto diagnose = [&meta, &cursor](size_t offset, FjslSeverity severity,
                                      std::string message) {
         auto pos = cursor.at(offset);
-        meta.diagnostics.push_back({pos.line, pos.column, severity, std::move(message)});
+        // No file: this is about the source being parsed, which the caller
+        // names. A composition fills it in for a used function's problems.
+        meta.diagnostics.push_back({pos.line, pos.column, severity, std::move(message), {}});
     };
 
     // A file declares what it is, positively: `shader_type X;` for something a
