@@ -7,6 +7,7 @@
 #include <regex>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 namespace fjell {
 
@@ -28,20 +29,69 @@ struct SourcePosition {
     uint32_t column{1}; // 1-based, in bytes
 };
 
-// Line and column of a byte offset, counted on demand. Diagnostics are rare
-// enough that a scan per report beats threading counters through the parse.
-SourcePosition position_at(const std::string& source, size_t offset) {
-    SourcePosition pos;
-    const size_t end = std::min(offset, source.size());
-    for (size_t i = 0; i < end; ++i) {
-        if (source[i] == '\n') {
-            ++pos.line;
-            pos.column = 1;
-        } else {
-            ++pos.column;
+// Line and column of a byte offset, counted on demand.
+//
+// Counting from the start of the file for every report is a scan per
+// diagnostic, which is quadratic in a file that produces many of them — and a
+// composed shader inherits a diagnostic from every contribution. The cursor
+// remembers the last offset it reached so a parse that reports in increasing
+// order walks the source once in total; an offset behind the cursor simply
+// restarts, which keeps the answer right whatever order the caller asks in.
+struct PositionCursor {
+    const std::string& source;
+    size_t offset{0};
+    SourcePosition pos{};
+
+    explicit PositionCursor(const std::string& src) : source(src) {}
+
+    SourcePosition at(size_t target) {
+        const size_t end = std::min(target, source.size());
+        if (end < offset) {
+            offset = 0;
+            pos = {};
         }
+        for (; offset < end; ++offset) {
+            if (source[offset] == '\n') {
+                ++pos.line;
+                pos.column = 1;
+            } else {
+                ++pos.column;
+            }
+        }
+        return pos;
     }
-    return pos;
+};
+
+bool is_identifier_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+}
+
+// Offset of `void <name> (` written at an identifier boundary, or npos.
+//
+// This is the hand-written form of `\bvoid\s+<name>\s*\(`. std::regex costs
+// tens of nanoseconds per byte even when it matches nothing, and this runs
+// once per forbidden-hook rule over the whole source; a plain scan finds the
+// same declarations for a fraction of the work.
+size_t find_function_declaration(const std::string& source, std::string_view name) {
+    for (size_t pos = source.find(name); pos != std::string::npos;
+         pos = source.find(name, pos + 1)) {
+        // `\bvoid\s+` before the name, with at least one space.
+        size_t before = pos;
+        while (before > 0 && std::isspace(static_cast<unsigned char>(source[before - 1]))) --before;
+        if (before == pos) continue; // no whitespace separating void from the name
+        constexpr std::string_view KEYWORD = "void";
+        if (before < KEYWORD.size()) continue;
+        const size_t kw = before - KEYWORD.size();
+        if (source.compare(kw, KEYWORD.size(), KEYWORD) != 0) continue;
+        if (kw > 0 && is_identifier_char(source[kw - 1])) continue;
+
+        // `\s*\(` after it, and the name itself must end at a boundary.
+        size_t after = pos + name.size();
+        if (after < source.size() && is_identifier_char(source[after])) continue;
+        while (after < source.size() && std::isspace(static_cast<unsigned char>(source[after]))) ++after;
+        if (after < source.size() && source[after] == '(') return kw;
+    }
+    return std::string::npos;
 }
 
 // Only a colour vector is authored in sRGB; a hint_color on any other type
@@ -288,15 +338,21 @@ static FjslBody extract_function_body(const std::string& source, const std::stri
 // Remove the entire `<sig> { ... }` block for a given top-level function.
 // Used to strip fragment/vertex/light from the source so what's left
 // becomes user-authored file-scope code (helpers, constants).
+//
+// The blocks are located first and the string is rebuilt once. Erasing them
+// one at a time shifted everything after each one down, which is quadratic in
+// how many of them there are — invisible in a hand-written shader with a
+// single fragment(), but composition inlines a hook per contribution.
 static void strip_function(std::string& source, const std::string& func_name) {
     // Match an identifier-boundary occurrence to avoid stripping
     // "fragment_helper" when looking for "fragment".
+    std::vector<std::pair<size_t, size_t>> blocks;
     size_t search_from = 0;
     while (search_from < source.size()) {
         auto pos = source.find(func_name, search_from);
-        if (pos == std::string::npos) return;
+        if (pos == std::string::npos) break;
         // Check left boundary (start of source or non-identifier char before)
-        bool left_ok = (pos == 0) || !(std::isalnum(static_cast<unsigned char>(source[pos - 1])) || source[pos - 1] == '_');
+        bool left_ok = (pos == 0) || !is_identifier_char(source[pos - 1]);
         // Right side must be optional whitespace + '('
         size_t after = pos + func_name.size();
         size_t scan = after;
@@ -311,7 +367,7 @@ static void strip_function(std::string& source, const std::string& func_name) {
         while (sig_start > 0 && source[sig_start - 1] != '\n') sig_start--;
         // Find '{'
         auto brace_start = source.find('{', scan);
-        if (brace_start == std::string::npos) return;
+        if (brace_start == std::string::npos) break;
         int depth = 1;
         size_t i = brace_start + 1;
         while (i < source.size() && depth > 0) {
@@ -319,27 +375,111 @@ static void strip_function(std::string& source, const std::string& func_name) {
             else if (source[i] == '}') depth--;
             i++;
         }
-        if (depth != 0) return;
-        source.erase(sig_start, i - sig_start);
-        search_from = sig_start;
+        if (depth != 0) break;
+        // A signature can start before the previous block ended when the two
+        // share a line; the earlier block wins, as it did when each erase
+        // happened before the next search.
+        if (!blocks.empty() && sig_start < blocks.back().second) {
+            blocks.back().second = std::max(blocks.back().second, i);
+        } else {
+            blocks.emplace_back(sig_start, i);
+        }
+        search_from = i;
     }
+    if (blocks.empty()) return;
+
+    std::string out;
+    out.reserve(source.size());
+    size_t copied = 0;
+    for (const auto& [begin, end] : blocks) {
+        out.append(source, copied, begin - copied);
+        copied = end;
+    }
+    out.append(source, copied, source.size() - copied);
+    source.swap(out);
+}
+
+// Call `visit(offset, match)` for every match of `re` in `source`, in order.
+//
+// `re` must begin with the literal `keyword`, which is what the search runs
+// on: std::regex costs tens of nanoseconds per byte wherever it is looking,
+// whether or not it finds anything, so scanning a whole shader with one is
+// most of what parsing it used to cost. Letting find() skip to the few places
+// a match can begin, and anchoring the regex there, turns a scan of the file
+// into a scan of the handful of declarations in it — the same matches, in the
+// same order, for a fraction of the work.
+//
+// Offsets are relative to `source`; std::smatch positions are not, since the
+// match runs from the keyword rather than from the start of the file.
+template <typename Visit>
+static void for_each_match(const std::string& source, std::string_view keyword,
+                           const std::regex& re, Visit&& visit) {
+    for (size_t at = source.find(keyword); at != std::string::npos;
+         at = source.find(keyword, at + 1)) {
+        std::smatch m;
+        if (!std::regex_search(source.begin() + static_cast<std::ptrdiff_t>(at),
+                               source.end(), m, re,
+                               std::regex_constants::match_continuous)) {
+            continue;
+        }
+        visit(at, m);
+        // A match is consumed whole, the way regex_replace and
+        // sregex_iterator advance past one rather than into it.
+        at += static_cast<size_t>(m.length()) - 1;
+    }
+}
+
+// Every match of `re` in `source`, as [begin, end) byte ranges.
+static void collect_matches(const std::string& source, std::string_view keyword,
+                            const std::regex& re,
+                            std::vector<std::pair<size_t, size_t>>& out) {
+    for_each_match(source, keyword, re, [&out](size_t at, const std::smatch& m) {
+        out.emplace_back(at, at + static_cast<size_t>(m.length()));
+    });
 }
 
 // Return user-written file-scope code: everything except shader_type,
 // render_mode, uniform declarations, and the three reserved functions
 // (fragment/vertex/light). Lets users author helper functions, constants,
 // and structs that the spatial template injects at file scope.
+//
+// Each form is removed in its own round, and a round matches only what the
+// rounds before it left standing. That order is observable on malformed
+// input: an unterminated `uniform float x = 1.0` reaches for its semicolon on
+// a later line, so what it swallows — and whether it is a uniform at all —
+// depends on which lines are still there when its turn comes. The rounds stay
+// because changing them would change what a broken shader reports.
+//
+// What is gone is their cost. A round now rewrites the string once, matching
+// only at the few offsets where its keyword occurs, instead of handing the
+// whole file to regex_replace to scan and copy from end to end.
 static std::string extract_user_globals(const std::string& source) {
-    std::string s = source;
-    // Strip shader_type / render_mode lines.
     static const std::regex shader_type_re(R"(shader_type\s+\w+\s*;)");
     static const std::regex render_mode_re(R"(render_mode\s+[^;]+;)");
-    s = std::regex_replace(s, shader_type_re, std::string{});
-    s = std::regex_replace(s, render_mode_re, std::string{});
+
+    auto cut_round = [](const std::string& text, std::string_view keyword,
+                        const std::regex& re) {
+        std::vector<std::pair<size_t, size_t>> found;
+        collect_matches(text, keyword, re, found);
+        if (found.empty()) return text;
+        std::string out;
+        out.reserve(text.size());
+        size_t copied = 0;
+        for (const auto& [begin, end] : found) {
+            out.append(text, copied, begin - copied);
+            copied = end;
+        }
+        out.append(text, copied, text.size() - copied);
+        return out;
+    };
+
+    std::string s = cut_round(source, "shader_type", shader_type_re);
+    s = cut_round(s, "render_mode", render_mode_re);
     // Headings are for the inspector; GLSL has never heard of them.
-    s = std::regex_replace(s, group_declaration_re(), std::string{});
+    s = cut_round(s, "group", group_declaration_re());
     // Strip uniform declarations.
-    s = std::regex_replace(s, uniform_declaration_re(), std::string{});
+    s = cut_round(s, "uniform", uniform_declaration_re());
+
     // Strip the reserved function definitions (fragment/vertex/light for
     // spatial shaders; sky for shader_type sky; layers for terrain).
     // Whatever's left is the user's file-scope code — helpers, structs,
@@ -369,9 +509,10 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // Record a problem against the text that caused it, so an editor can point
     // at it and a log line can read file:line:column. Parsing continues: one
     // bad declaration should not hide the rest of the file.
-    auto diagnose = [&meta, &source](size_t offset, FjslSeverity severity,
+    PositionCursor cursor{source};
+    auto diagnose = [&meta, &cursor](size_t offset, FjslSeverity severity,
                                      std::string message) {
-        auto pos = position_at(source, offset);
+        auto pos = cursor.at(offset);
         meta.diagnostics.push_back({pos.line, pos.column, severity, std::move(message)});
     };
 
@@ -424,10 +565,6 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         }
     }
 
-    // Parse uniform declarations
-    auto begin = std::sregex_iterator(source.begin(), source.end(), uniform_declaration_re());
-    auto end = std::sregex_iterator();
-
     uint32_t texture_slot = 4; // custom textures start at slot 4
     uint32_t param_offset = 0;
 
@@ -435,15 +572,15 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // the last one above it. Walking the two in step beats searching backwards
     // from each uniform.
     std::vector<std::pair<std::size_t, std::string>> groups;
-    for (auto g = std::sregex_iterator(source.begin(), source.end(), group_declaration_re());
-         g != std::sregex_iterator(); ++g) {
-        groups.emplace_back(static_cast<std::size_t>(g->position()), (*g)[1].str());
-    }
+    for_each_match(source, "group", group_declaration_re(),
+                   [&](size_t at, const std::smatch& g) {
+                       groups.emplace_back(at, g[1].str());
+                   });
     std::size_t next_group = 0;
     std::string current_group;
 
-    for (auto it = begin; it != end; ++it) {
-        const auto at = static_cast<std::size_t>(it->position());
+    for_each_match(source, "uniform", uniform_declaration_re(),
+                   [&](size_t at, const std::smatch& m) {
         while (next_group < groups.size() && groups[next_group].first < at) {
             current_group = groups[next_group].second;
             ++next_group;
@@ -451,22 +588,22 @@ ShaderMetadata parse_fjsl(const std::string& source) {
 
         FjslUniform u;
         u.group = current_group;
-        u.type = parse_type((*it)[1].str());
-        u.name = (*it)[2].str();
+        u.type = parse_type(m[1].str());
+        u.name = m[2].str();
 
-        if ((*it)[3].matched) {
+        if (m[3].matched) {
             std::vector<std::string> hint_problems;
-            for (const auto& token : split_hint_list((*it)[3].str())) {
+            for (const auto& token : split_hint_list(m[3].str())) {
                 apply_hint(u, token, hint_problems);
             }
             for (auto& problem : hint_problems) {
-                diagnose(static_cast<size_t>(it->position(3)), FjslSeverity::warning,
+                diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,
                          std::move(problem));
             }
         }
 
-        if ((*it)[4].matched) {
-            std::string def_str = (*it)[4].str();
+        if (m[4].matched) {
+            std::string def_str = m[4].str();
             // Trim whitespace
             auto s = def_str.find_first_not_of(" \t");
             auto e = def_str.find_last_not_of(" \t");
@@ -476,7 +613,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             std::string bad_component;
             u.default_value = parse_default_value(def_str, u.type, &bad_component);
             if (!bad_component.empty()) {
-                diagnose(static_cast<size_t>(it->position(4)), FjslSeverity::warning,
+                diagnose(at + static_cast<size_t>(m.position(4)), FjslSeverity::warning,
                          "uniform '" + u.name + "' has '" + bad_component
                              + "' where its default value belongs; using zero");
             }
@@ -488,10 +625,10 @@ ShaderMetadata parse_fjsl(const std::string& source) {
                 // the real complaint arrives later as an undeclared identifier
                 // somewhere the author cannot place. Say it here, where the
                 // declaration is.
-                diagnose(static_cast<size_t>(it->position(2)), FjslSeverity::error,
+                diagnose(at + static_cast<size_t>(m.position(2)), FjslSeverity::error,
                          "uniform '" + u.name + "' is the " + std::to_string(texture_slot - 3)
                              + "th custom sampler2D; a material has room for 4");
-                continue;
+                return;
             }
             u.slot = texture_slot++;
             meta.custom_texture_count++;
@@ -502,7 +639,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         }
 
         meta.uniforms.push_back(u);
-    }
+    });
 
     meta.custom_param_count = param_offset;
     // Sky shaders supply their user code via sky() rather than fragment();
@@ -556,11 +693,10 @@ ShaderMetadata parse_fjsl(const std::string& source) {
                                  : meta.shader_type != rule.except;
         if (!applies) continue;
 
-        const std::regex hook_re(R"(\bvoid\s+)" + std::string(rule.hook) + R"(\s*\()");
-        std::smatch hm;
-        if (!std::regex_search(source, hm, hook_re)) continue;
+        const size_t at = find_function_declaration(source, rule.hook);
+        if (at == std::string::npos) continue;
 
-        diagnose(static_cast<size_t>(hm.position(0)), FjslSeverity::error,
+        diagnose(at, FjslSeverity::error,
                  "shader_type " + meta.shader_type + " has no " + rule.hook
                      + "() stage — " + rule.reason);
     }
