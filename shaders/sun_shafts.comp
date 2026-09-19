@@ -53,14 +53,22 @@ layout(push_constant) uniform PushConstants {
 
 const float PI = 3.14159265;
 
-// HG with peak clamp. Forward-scatter can spike to hundreds at g→1 and
-// paint a bright halo around the sun; cap at 1.0 to keep shafts visible
-// along the sun direction without blowing out the horizon.
+// HG with a soft ceiling on the forward peak. Forward-scatter spikes to
+// hundreds as g→1, which blows out the horizon around the sun.
+//
+// A hard `min(phase, 1.0)` is the wrong cure: it does not soften the peak,
+// it flattens it. Every direction whose raw phase clears the ceiling comes
+// back with the same value, so the spike becomes a disc of constant
+// brightness — at g=0.75 a 28° circle of it — which reads as a pasted-on
+// halo that nothing in the scene can modulate, since every ray inside it
+// carries an identical phase. Rolling the peak over compresses it instead,
+// keeping the falloff strictly decreasing so the glow always shades off
+// with angle.
 float henyey_greenstein(float g, float cos_theta) {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cos_theta;
     float phase = (1.0 - g2) / (4.0 * PI * denom * sqrt(denom));
-    return min(phase, 1.0);
+    return phase / (1.0 + phase);
 }
 
 // Dual-lobe phase: forward HG lobe blended with an isotropic lobe. The HG
