@@ -18,35 +18,6 @@
 // its base colour as specular.
 const float WET_ROUGHNESS = 0.35;
 
-// How many flat steps the wetting is cut into, and how hard the step is.
-//
-// A continuous darkening is a photograph of wet ground: every surface takes
-// the same even wash and the only thing that varies is how much. Water does
-// not sit like that — it runs off what is steep and pools in what is flat, so
-// ground reads as a few distinct states rather than a gradient. Cutting the
-// wetting into steps is the same move the clouds make, and for the same
-// reason: flat values with edges between them read as painted, a smooth ramp
-// reads as a render.
-//
-// 0 bands keeps the wash.
-const float WET_BANDS = 3.0;
-const float WET_BAND_HARDNESS = 0.85;
-
-// A value cut into genuinely flat levels; hardness 1 is an exact cut, 0 an
-// identity. Flattening toward each level's own centre rather than reshaping
-// the fraction inside it, which is a contrast curve and never repeats a value.
-float fjell_weather_band(float x, float bands, float hardness) {
-    if (bands < 2.0) return x;
-    float scaled = x * bands;
-    float index = floor(scaled);
-    float within = scaled - index;
-    float keep = 1.0 - hardness;
-    float shaped = keep <= 1e-4 ? step(0.5, within)
-                                : clamp((within - 0.5) / keep + 0.5, 0.0, 1.0);
-    shaped = shaped * shaped * (3.0 - 2.0 * shaped);
-    return (index + mix(within, shaped, hardness)) / bands;
-}
-
 float fjell_weather_hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -91,18 +62,6 @@ void fjell_apply_weather(inout vec3 albedo, inout float roughness, inout float m
     // ── Wet ──
     float wet = clamp(wetness, 0.0, 1.0) * exposed;
     float wet_here = wet * mix(0.35, 1.0, up);
-
-    // Where the water gathers. Ground is not evenly wet: it runs off what is
-    // steep and stands in what is flat and low, so the same rain leaves one
-    // patch dark and its neighbour barely damp. Breaking the wetting up by
-    // the ground's own shape is what stops it reading as a filter laid over
-    // everything.
-    float pool = fjell_weather_noise(world_pos.xz * 0.6)
-               * 0.6 + fjell_weather_noise(world_pos.xz * 2.3) * 0.4;
-    wet_here *= mix(0.55, 1.25, pool);
-    // Then cut into flat steps, so a surface is dry, damp or wet rather than
-    // somewhere on a ramp between them.
-    wet_here = fjell_weather_band(clamp(wet_here, 0.0, 1.0), WET_BANDS, WET_BAND_HARDNESS);
     albedo *= mix(1.0, 0.55, wet_here * (1.0 - metallic));
     // Glossy only once really wet: a damp surface stays matte. Wet ground is
     // not a mirror — a water film smooths the microsurface but the ground
