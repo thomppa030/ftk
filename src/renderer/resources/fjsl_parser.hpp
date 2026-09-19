@@ -223,7 +223,8 @@ struct ShaderMetadata {
 
 /// One file of a composition: what a `use` resolved to, parsed.
 struct FjslComposedFile {
-    std::string path;     ///< as the `use` wrote it
+    std::string path;      ///< as the `use` wrote it
+    std::string use_name;  ///< the consumer's local name for it; empty for the consumer itself
     ShaderMetadata meta;
 };
 
@@ -274,8 +275,13 @@ void log_fjsl_diagnostics(const struct FjslComposition& composition,
                           const std::string& name);
 
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
-[[nodiscard]] std::string generate_fragment_shader(const ShaderMetadata& meta,
-                                                    const std::string& template_source);
+//
+// `composition`, when given, is what resolve_composition returned for this
+// file: every function it uses is emitted at file scope ahead of the user's own
+// globals, with its identifiers mangled under the name the `use` gave it.
+[[nodiscard]] std::string generate_fragment_shader(
+    const ShaderMetadata& meta, const std::string& template_source,
+    const struct FjslComposition* composition = nullptr);
 
 // Generate a .vert or .mesh GLSL file from a vertex/mesh template + FJSL metadata.
 // Used for both vertex shaders and mesh shaders — same placeholder substitution.
@@ -284,6 +290,9 @@ void log_fjsl_diagnostics(const struct FjslComposition& composition,
 
 // Return the number of floats consumed by a uniform type.
 [[nodiscard]] uint32_t uniform_float_count(UniformType type);
+
+/// The GLSL spelling of a uniform/port type.
+[[nodiscard]] std::string_view glsl_type_name(UniformType type);
 
 /// Turn an authored uniform value into what the params SSBO holds. A
 /// `hint_color` is authored in sRGB everywhere a person sees it — the `.fjsl`

@@ -3,6 +3,7 @@
 #include "core/math/color_space.hpp"
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <regex>
 #include <sstream>
@@ -105,6 +106,17 @@ std::optional<ShaderType> shader_type_from_name(std::string_view name) {
         if (row.name == name) return row.type;
     }
     return std::nullopt;
+}
+
+std::string_view glsl_type_name(UniformType type) {
+    switch (type) {
+        case UniformType::Float: return "float";
+        case UniformType::Vec2: return "vec2";
+        case UniformType::Vec3: return "vec3";
+        case UniformType::Vec4: return "vec4";
+        case UniformType::Sampler2D: return "sampler2D";
+    }
+    return "float";
 }
 
 uint32_t uniform_float_count(UniformType type) {
@@ -600,7 +612,45 @@ static std::string extract_user_globals(const std::string& source,
     };
 
     std::string s = cut_round(source, "shader_type", shader_type_re);
+    s = cut_round(s, "shader_function", shader_function_re());
     s = cut_round(s, "render_mode", render_mode_re);
+    // A function's interface: parsed into ports, and emitted as parameters and
+    // file-scope variables. Left standing they reach GLSL as `in`/`out` stage
+    // declarations, which in a fragment shader is a syntax error at best and
+    // silently wrong at worst.
+    s = cut_round(s, "in", in_port_re());
+    s = cut_round(s, "out", out_port_re());
+    // `use` is wiring, not code; the calls are emitted into the body. Its
+    // argument list may nest parentheses, so it is cut by the same depth scan
+    // that parses it rather than by a regex that would stop at the first ')'.
+    {
+        std::vector<std::pair<size_t, size_t>> found;
+        for_each_match(s, "use", use_head_re(),
+                       [&](size_t offset, const std::smatch& m) {
+            size_t scan = offset + static_cast<size_t>(m.length(0));
+            int open = 1;
+            while (scan < s.size() && open > 0) {
+                if (s[scan] == '(') ++open;
+                else if (s[scan] == ')') --open;
+                ++scan;
+            }
+            while (scan < s.size()
+                   && std::isspace(static_cast<unsigned char>(s[scan]))) ++scan;
+            if (scan < s.size() && s[scan] == ';') ++scan;
+            found.emplace_back(offset, scan);
+        });
+        if (!found.empty()) {
+            std::string out;
+            out.reserve(s.size());
+            size_t copied = 0;
+            for (const auto& [begin, end] : found) {
+                out.append(s, copied, begin - copied);
+                copied = end;
+            }
+            out.append(s, copied, s.size() - copied);
+            s.swap(out);
+        }
+    }
     // Headings are for the inspector; GLSL has never heard of them.
     s = cut_round(s, "group", group_declaration_re());
     // Strip uniform declarations.
@@ -704,7 +754,7 @@ struct CompositionWalk {
             const bool seen = std::any_of(
                 out.files.begin(), out.files.end(),
                 [&](const FjslComposedFile& f) { return f.path == use.path; });
-            if (!seen) out.files.push_back({use.path, std::move(used)});
+            if (!seen) out.files.push_back({use.path, use.name, std::move(used)});
         }
 
         on_stack.pop_back();
@@ -748,7 +798,7 @@ FjslComposition resolve_composition(const ShaderMetadata& meta,
     FjslComposition out;
     CompositionWalk walk{read, out, {}};
     walk.visit(meta, meta.source_text, path, 0);
-    out.files.push_back({path, meta});
+    out.files.push_back({path, {}, meta});
     return out;
 }
 
@@ -1182,8 +1232,227 @@ void enable_line_directives(std::string& glsl) {
 
 } // namespace
 
+namespace {
+
+/// Prefix every identifier a composed file declares, so two functions that
+/// both call a helper `noise` or declare a uniform `size` do not collide.
+///
+/// This is not cosmetic. A uniform becomes a file-scope `#define`, and a macro
+/// has no scope: two `#define size` leave the second winning for everything
+/// after it, including the first function's own body. Globals are worse — two
+/// `float noise(vec2)` at file scope is a redefinition GLSL refuses outright.
+std::string mangled(std::string_view use_name, std::string_view identifier) {
+    // One underscore, not two: GLSL reserves identifiers containing consecutive
+    // underscores, and glslc warns on every one. A use name cannot contain an
+    // underscore-digit sequence that would make this ambiguous, because the
+    // suffix is always a whole declared name.
+    return std::string(use_name) + "_" + std::string(identifier);
+}
+
+/// Rewrite whole-word occurrences of each name in `text`.
+///
+/// Identifier boundaries only: renaming `size` must not touch `size_of` or the
+/// `size` inside `point_size`. Rewrites in one pass so a name introduced by an
+/// earlier replacement is never itself replaced.
+std::string rename_identifiers(const std::string& text,
+                               const std::map<std::string, std::string>& renames) {
+    if (renames.empty()) return text;
+    std::string out;
+    out.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        if (!is_identifier_char(text[i])) {
+            out += text[i++];
+            continue;
+        }
+        size_t end = i;
+        while (end < text.size() && is_identifier_char(text[end])) ++end;
+        const std::string word = text.substr(i, end - i);
+        auto it = renames.find(word);
+        out += (it == renames.end()) ? word : it->second;
+        i = end;
+    }
+    return out;
+}
+
+/// Every name a composed file declares, mapped to its mangled form: its
+/// uniforms, its ports, and the file-scope functions and constants in its
+/// globals.
+std::map<std::string, std::string> composition_renames(const ShaderMetadata& meta,
+                                                       std::string_view use_name) {
+    std::map<std::string, std::string> renames;
+    for (const auto& u : meta.uniforms) renames[u.name] = mangled(use_name, u.name);
+    for (const auto& p : meta.inputs)   renames[p.name] = mangled(use_name, p.name);
+    for (const auto& p : meta.outputs)  renames[p.name] = mangled(use_name, p.name);
+
+    // A top-level declaration in the globals blob: `<type> <name>(` for a
+    // function, `<type> <name> =` or `;` for a constant, with an optional
+    // `const` and precision qualifier before the type. Verified against every
+    // global in the shader library — the `const` alternative is load-bearing,
+    // since `const mat2 M = ...` puts three tokens before the name.
+    static const std::regex decl(
+        R"(^(?:const\s+)?(?:lowp\s+|mediump\s+|highp\s+)?(\w+)\s+(\w+)\s*[\(=;\[])",
+        std::regex::multiline);
+    for (auto it = std::sregex_iterator(meta.user_globals.begin(),
+                                        meta.user_globals.end(), decl);
+         it != std::sregex_iterator(); ++it) {
+        const std::string name = (*it)[2].str();
+        renames[name] = mangled(use_name, name);
+    }
+    return renames;
+}
+
+/// Rewrite a consumer's `use`-qualified references into the mangled names the
+/// emitted functions actually declare: `sun.color` reads `sun__color`, and the
+/// wiring itself becomes a call to `sun__main(...)` placed where the body can
+/// see it.
+///
+/// Only a name a `use` introduced is touched, so `v.xyz` on an ordinary vector
+/// is left alone — the swizzle is not a use name.
+std::string rewrite_use_references(const std::string& body,
+                                   const std::vector<FjslUse>& uses) {
+    if (uses.empty()) return body;
+    std::string out;
+    out.reserve(body.size());
+    size_t i = 0;
+    while (i < body.size()) {
+        if (!is_identifier_char(body[i])) {
+            out += body[i++];
+            continue;
+        }
+        size_t end = i;
+        while (end < body.size() && is_identifier_char(body[end])) ++end;
+        const std::string word = body.substr(i, end - i);
+
+        // `<use>.<member>` only; a bare use name on its own is not a value.
+        size_t dot = end;
+        while (dot < body.size() && (body[dot] == ' ' || body[dot] == '\t')) ++dot;
+        const bool qualified = dot < body.size() && body[dot] == '.';
+        const bool is_use = std::any_of(uses.begin(), uses.end(),
+                                        [&](const FjslUse& u) { return u.name == word; });
+        if (!qualified || !is_use) {
+            out += word;
+            i = end;
+            continue;
+        }
+        size_t member = dot + 1;
+        while (member < body.size()
+               && (body[member] == ' ' || body[member] == '\t')) ++member;
+        size_t member_end = member;
+        while (member_end < body.size() && is_identifier_char(body[member_end])) ++member_end;
+        out += mangled(word, body.substr(member, member_end - member));
+        i = member_end;
+    }
+    return out;
+}
+
+/// The calls that run each used function, in composition order, ahead of the
+/// consumer's own body.
+std::string emit_use_calls(const std::vector<FjslUse>& uses,
+                           const FjslComposition& composition) {
+    std::string out;
+    for (const auto& use : uses) {
+        // Arguments in the order the function declares its ins, not the order
+        // they were written.
+        const ShaderMetadata* used = nullptr;
+        for (const auto& f : composition.files) {
+            if (f.path == use.path) { used = &f.meta; break; }
+        }
+        if (used == nullptr) continue;
+
+        out += "    " + mangled(use.name, "main") + "(";
+        for (size_t i = 0; i < used->inputs.size(); ++i) {
+            if (i > 0) out += ", ";
+            for (const auto& [name, value] : use.arguments) {
+                if (name != used->inputs[i].name) continue;
+                out += value;
+                break;
+            }
+        }
+        out += ");\n";
+    }
+    return out;
+}
+
+/// A composed function, emitted at file scope: its globals, its uniforms'
+/// defines, its outputs as variables, and its body wrapped in a function the
+/// consumer calls.
+std::string emit_composed_file(const FjslComposedFile& file,
+                               const std::string& mat_expr,
+                               uint32_t param_base) {
+    const ShaderMetadata& m = file.meta;
+    const std::string use = file.use_name;
+    const auto renames = composition_renames(m, use);
+
+    std::string out = "// ── " + file.path + " (as '" + use + "') ──\n";
+
+    // Uniform defines, reading this file's OWN material row: a texture it
+    // declares lives in its row, not the consumer's, so the four custom
+    // sampler slots are never shared across a composition.
+    for (const auto& u : m.uniforms) {
+        const std::string name = mangled(use, u.name);
+        if (u.type == UniformType::Sampler2D) {
+            out += "#define " + name + " textures[nonuniformEXT(" + mat_expr
+                 + ".texture_indices[" + std::to_string(u.slot) + "])]\n";
+            continue;
+        }
+        const uint32_t count = uniform_float_count(u.type);
+        std::string type_str;
+        switch (u.type) {
+            case UniformType::Float: type_str = "float"; break;
+            case UniformType::Vec2:  type_str = "vec2";  break;
+            case UniformType::Vec3:  type_str = "vec3";  break;
+            case UniformType::Vec4:  type_str = "vec4";  break;
+            default: break;
+        }
+        // A composed file's uniforms are inlined into the CONSUMER's param
+        // block, so its own slots — which its parse numbered from zero — are
+        // shifted by where that file's run begins. Without this every file's
+        // first uniform reads the consumer's first, silently.
+        out += "#define " + name + " (";
+        if (count == 1) {
+            out += "custom_params[" + mat_expr + ".param_offset + "
+                 + std::to_string(param_base + u.slot) + "]";
+        } else {
+            out += type_str + "(";
+            for (uint32_t i = 0; i < count; ++i) {
+                if (i > 0) out += ", ";
+                out += "custom_params[" + mat_expr + ".param_offset + "
+                     + std::to_string(param_base + u.slot + i) + "]";
+            }
+            out += ")";
+        }
+        out += ")\n";
+    }
+
+    // The file's own helpers and constants, renamed.
+    if (!m.user_globals.empty()) {
+        out += rename_identifiers(m.user_globals, renames) + "\n";
+    }
+
+    // Outputs are file-scope variables the consumer reads after the call.
+    for (const auto& p : m.outputs) {
+        out += std::string(glsl_type_name(p.type)) + " " + mangled(use, p.name) + ";\n";
+    }
+
+    // main() becomes a named function taking the ins as parameters.
+    out += "void " + mangled(use, "main") + "(";
+    for (size_t i = 0; i < m.inputs.size(); ++i) {
+        if (i > 0) out += ", ";
+        out += std::string(glsl_type_name(m.inputs[i].type)) + " "
+             + mangled(use, m.inputs[i].name);
+    }
+    out += ") {\n";
+    out += rename_identifiers(m.main_body.code, renames);
+    out += "\n}\n";
+    return out;
+}
+
+} // namespace
+
 std::string generate_fragment_shader(const ShaderMetadata& meta,
-                                     const std::string& template_source) {
+                                     const std::string& template_source,
+                                     const FjslComposition* composition) {
     std::string result = template_source;
     const std::string generated_name = GENERATED_NAME;
 
@@ -1282,7 +1551,17 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         // whatever the last one named, so every error after a body would go on
         // blaming the .fjsl for template code the author never wrote.
         const uint32_t resume = line_at(result, pos) + 1;
-        std::string text = with_line_markers(body, meta)
+        // `sun.color` in the authored body names a variable the emitted
+        // function declares as `sun__color`, and the call that fills it runs
+        // ahead of the body. Both only happen where a `use` introduced the
+        // name, so ordinary member access is untouched.
+        FjslBody rewritten = body;
+        std::string calls;
+        if (composition != nullptr && !meta.uses.empty()) {
+            rewritten.code = rewrite_use_references(body.code, meta.uses);
+            calls = emit_use_calls(meta.uses, *composition);
+        }
+        std::string text = calls + with_line_markers(rewritten, meta)
                          + "#line " + std::to_string(resume)
                          + " \"" + generated_name + "\"\n";
         result.replace(pos, placeholder.size(), text);
@@ -1293,7 +1572,25 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // main(); now param values come from the file-scope #defines emitted
     // above, so the in-main slot becomes empty.
     replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
-    replace("/*FJSL_USER_GLOBALS*/", meta.user_globals);
+    // Composed functions go in ahead of the consumer's own globals, at file
+    // scope and above main() — the unlit path finds main()'s closing brace with
+    // rfind('}'), so nothing may be emitted after it. The composition lists
+    // dependencies first, so a function's helpers are declared before the code
+    // that calls them.
+    // Each composed file's uniforms occupy a run of the consumer's param
+    // block, after the consumer's own. The consumer was numbered from zero by
+    // its parse, so the first run starts where its count ends.
+    std::string globals;
+    if (composition != nullptr) {
+        uint32_t param_base = meta.custom_param_count;
+        for (const auto& file : composition->files) {
+            if (file.use_name.empty()) continue;  // the consumer itself
+            globals += emit_composed_file(file, mat_expr, param_base) + "\n";
+            param_base += file.meta.custom_param_count;
+        }
+    }
+    globals += meta.user_globals;
+    replace("/*FJSL_USER_GLOBALS*/", globals);
     replace_body("/*FJSL_USER_CODE*/", meta.fragment_body);
     replace_body("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
 

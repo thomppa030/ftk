@@ -1576,3 +1576,70 @@ TEST_CASE("A use chain has a depth cap", "[fjsl][compose]") {
     REQUIRE_FALSE(chain(15).has_errors());
     REQUIRE(chain(25).has_errors());
 }
+
+TEST_CASE("A composed sky generates GLSL that glslc accepts", "[fjsl][compose][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    // Two functions that deliberately collide: same helper name, same uniform
+    // name. A uniform becomes a file-scope #define and a macro has no scope,
+    // so without mangling the second silently wins for both.
+    const std::string sun =
+        "shader_function;\n"
+        "in vec3 view_dir;\nin vec3 sun_dir;\nout vec3 color;\nout float alpha;\n"
+        "uniform float size : hint_range(0.1, 4.0, 0.01) = 1.8;\n"
+        "float falloff(float d) { return 1.0 - smoothstep(size * 0.98, size, d); }\n"
+        "void main() {\n"
+        "    float d = degrees(acos(clamp(dot(view_dir, sun_dir), -1.0, 1.0)));\n"
+        "    color = vec3(1.0); alpha = falloff(d);\n"
+        "}\n";
+    const std::string glow =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform float size : hint_range(0.0, 10.0, 0.1) = 3.0;\n"
+        "float falloff(float d) { return exp(-d * size); }\n"
+        "void main() { color = vec3(falloff(view_dir.y)); }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use sun = \"lib/sun.fjsl\"(view_dir: VIEW_DIR, sun_dir: SUN_DIR);\n"
+        "use glow = \"lib/glow.fjsl\"(view_dir: VIEW_DIR);\n"
+        "uniform vec3 horizon : hint_color = vec3(0.7, 0.8, 0.9);\n"
+        "void sky() {\n"
+        "    SKY = horizon;\n"
+        "    SKY += sun.color * sun.alpha;\n"
+        "    SKY += glow.color * 0.1;\n"
+        "}\n";
+
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    REQUIRE_FALSE(meta.has_errors());
+    auto comp = compose(root, {{"lib/sun.fjsl", sun}, {"lib/glow.fjsl", glow}});
+    REQUIRE_FALSE(comp.has_errors());
+
+    const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
+
+    // Both helpers survive under their own names, and neither file's uniform
+    // reads the other's storage: each occupies its own run of the consumer's
+    // param block, after the consumer's own three floats.
+    REQUIRE(glsl.find("sun_falloff") != std::string::npos);
+    REQUIRE(glsl.find("glow_falloff") != std::string::npos);
+    REQUIRE(glsl.find("param_offset + 3]") != std::string::npos);
+    REQUIRE(glsl.find("param_offset + 4]") != std::string::npos);
+    // The wiring is gone from the code and became calls.
+    REQUIRE(glsl.find("shader_function") == std::string::npos);
+    REQUIRE(glsl.find("sun_main(VIEW_DIR, SUN_DIR)") != std::string::npos);
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compose-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "composed.frag";
+    std::ofstream(frag) << glsl;
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o "
+                                + quoted(out_dir / "composed.spv"));
+    INFO(output);
+    REQUIRE(status == 0);
+}
