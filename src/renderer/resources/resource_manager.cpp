@@ -425,6 +425,16 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
 
                 auto param_it = asset.params.find(u.name);
                 if (param_it != asset.params.end()) {
+                    // A value of the wrong width is a shader whose uniform
+                    // changed type under a material that still holds the old
+                    // shape. Copying what fits leaves the rest at zero — a
+                    // vec3 given one float renders black in two channels —
+                    // so say which material and what it expected.
+                    if (param_it->second.size() != count) {
+                        FJELL_GFX_WARN("{}: '{}' holds {} value(s) but the shader declares "
+                                       "{} — the rest fall back to zero",
+                                       path, u.name, param_it->second.size(), count);
+                    }
                     for (uint32_t i = 0; i < count && i < param_it->second.size(); ++i) {
                         param_data[u.slot + i] = param_it->second[i];
                     }
@@ -436,6 +446,23 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                 encode_uniform_for_gpu(u, std::span{param_data}.subspan(u.slot, count));
             }
             bindless_.write_params(offset, param_data.data(), shader_meta->custom_param_count);
+
+            // Keys the shader no longer declares. The loop above walks the
+            // shader's uniforms, so these are never read and never written
+            // back — they simply sit in the file. Usually the trace of a
+            // rename, where the authored value was lost the moment the
+            // uniform got its new name and nothing said so.
+            for (const auto& [key, values] : asset.params) {
+                if (is_reserved_param(key)) continue;
+                const bool declared = std::any_of(
+                    shader_meta->uniforms.begin(), shader_meta->uniforms.end(),
+                    [&key](const FjslUniform& u) { return u.name == key; });
+                if (!declared) {
+                    FJELL_GFX_WARN("{}: '{}' is not a uniform of '{}' — left over from a "
+                                   "rename or a removal, and ignored",
+                                   path, key, asset.shader);
+                }
+            }
         }
     }
 

@@ -37,4 +37,10 @@ struct MaterialBaseParams {
 [[nodiscard]] MaterialBaseParams read_base_params(const MaterialAsset& asset);
 void write_base_params(MaterialAsset& asset, const MaterialBaseParams& base);
 
+/// Whether a `params` key is one of the four every material carries rather
+/// than one of the shader's own uniforms. Anything checking a material
+/// against its shader has to skip these, or it reports the reserved factors
+/// as parameters the shader forgot to declare.
+[[nodiscard]] bool is_reserved_param(const std::string& key);
+
 } // namespace fjell

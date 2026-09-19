@@ -96,6 +96,11 @@ void set_or_erase(MaterialAsset& asset, const char* key,
 
 } // namespace
 
+bool is_reserved_param(const std::string& key) {
+    return key == BASE_COLOR_KEY || key == METALLIC_KEY
+        || key == ROUGHNESS_KEY || key == UV_SCALE_KEY;
+}
+
 MaterialBaseParams read_base_params(const MaterialAsset& asset) {
     MaterialBaseParams base;
     auto bc = asset.params.find(BASE_COLOR_KEY);
