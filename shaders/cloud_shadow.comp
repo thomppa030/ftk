@@ -74,6 +74,9 @@ void main() {
     // different octave count than the sky draws would put soft shadows under
     // crisp clouds.
     fjell_cloud_lod = 99.0;
+    // The same clock the sky churns on. Left at zero the ground would keep
+    // the shadow of a cloud shape the sky stopped drawing minutes ago.
+    fjell_cloud_time = push.time;
     vec2 sheet = fjell_cloud_sheet_pos(cloud.xz, env_ubo.wind_drift.xy);
 
     // The front is judged from the camera, as the sky does.

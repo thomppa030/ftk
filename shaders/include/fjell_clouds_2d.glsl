@@ -89,6 +89,22 @@ float fjell_cloud_noise(vec2 p) {
                mix(fjell_cloud_hash(i + vec2(0.0, 1.0)), fjell_cloud_hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
+// How fast a cloud changes shape, as distinct from how fast it travels.
+//
+// Wind drift slides the whole field rigidly: the clouds move, but none of
+// them ever becomes a different cloud, which reads as a photograph being
+// dragged past. What makes a sky look alive is the octaves drifting
+// *against each other* — the coarse shapes crawling one way while the detail
+// on them goes another, so a cloud reorganises as it travels.
+//
+// Each octave is offset after its own rotation, so each drifts in its own
+// direction; and because the rotation is not normalised, each also drifts
+// twice as fast as the one before. Coarse forms crawl, fine detail races.
+// 0 leaves the field rigid.
+float fjell_cloud_churn = 1.0;
+// The clock the churn runs on. A sky assigns TIME here.
+float fjell_cloud_time = 0.0;
+
 // How many octaves of detail survive at this pixel, as a continuous count.
 // Set once per fragment before sampling the field; 99 asks for all of them.
 //
@@ -103,6 +119,10 @@ float fjell_cloud_fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
     mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+    // Metres per second at the coarsest octave, before the rotation doubles
+    // it for each finer one. Slow: this is cloud reshaping, not weather
+    // moving, and anything quick reads as boiling rather than as air.
+    float churn = fjell_cloud_time * fjell_cloud_churn * 0.004;
     for (int i = 0; i < 5; ++i) {
         // Fade the octave out across its last step rather than dropping it on
         // one frame: a hard cut moves as the camera does and shows up as a
@@ -113,7 +133,9 @@ float fjell_cloud_fbm(vec2 p) {
         // The octaves that survive are renormalised, so dropping detail
         // thins the field rather than darkening it.
         v += a * 0.5 * (1.0 - keep);
-        p = rot * p * 2.03 + 11.3;
+        // Offset after the rotation, so each octave's drift points somewhere
+        // its neighbours' do not.
+        p = rot * p * 2.03 + 11.3 + churn;
         a *= 0.5;
     }
     return v;
@@ -228,6 +250,18 @@ float fjell_cloud_haze = 0.12;
 // It is an edge effect, not a veil: it lives in a narrow band around the
 // cut, so widening it does not make more of it, only blunter.
 float fjell_cloud_scraps = 0.55;
+// How far the shaded side of a cloud is allowed to fall toward black.
+//
+// The thing a mid-grey shadow tone cannot draw is the *depth* between
+// clouds: a reference sky runs white through slate through near-black, three
+// or four stops of value, and the dark end is what makes a gap read as
+// somewhere further away rather than as a hole of flat colour. Stopping the
+// ramp at a mid slate throws that end away and no amount of wisps or scraps
+// puts it back, because the colour they would be painted in is not dark
+// enough to show.
+//
+// 0 keeps the slate; 1 takes the shaded tone almost to black.
+float fjell_cloud_depth = 0.75;
 // How many flat values a cloud's shading is cut into. The silhouette is only
 // half of a drawn cloud: a crisp edge around a smooth grey wash is a
 // photograph in a drawn outline, and it shows the moment the sheet greys,
@@ -277,10 +311,11 @@ float fjell_cloud_turbulence(vec2 p) {
     float amplitude = 0.8;
     float total = 0.0;
     mat2 rot = mat2(1.6, 1.2, -1.2, 1.6);
+    float churn = fjell_cloud_time * fjell_cloud_churn * 0.004;
     for (int i = 0; i < 5; ++i) {
         sum += abs(fjell_cloud_noise(p) * 2.0 - 1.0) * amplitude;
         total += amplitude;
-        p = rot * p;
+        p = rot * p + churn;
         amplitude *= 0.7;
     }
     return sum / max(total, 1e-4);
@@ -480,6 +515,9 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     vec3 sun_hue = sun_color / max(max(sun_color.r, max(sun_color.g, sun_color.b)), 1e-4);
     vec3 bright = mix(vec3(1.0), sun_hue, 0.55 * sun_up + 0.35 * forward);
     vec3 heavy = mix(vec3(0.34, 0.36, 0.42), vec3(0.20, 0.22, 0.29), coverage);
+    // Toward black, keeping a trace of the tone's hue so the darkest cloud is
+    // a colour rather than a hole.
+    heavy = mix(heavy, heavy * 0.10, fjell_cloud_depth);
 
     vec3 body = mix(bright, heavy, thickness);
     vec3 lit = body * (ambient * (0.9 - 0.35 * thickness)

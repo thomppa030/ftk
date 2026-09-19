@@ -44,6 +44,16 @@ uniform float cloud_haze : hint_range(0.0, 0.5, 0.01) = 0.12;
 // enough to block the sky, and it comes out as small sharp scraps along the
 // silhouettes. An edge effect, not a veil — a few percent of the sky.
 uniform float cloud_scraps : hint_range(0.0, 1.0, 0.01) = 0.55;
+// How far the shaded side of a cloud falls toward black. A mid-grey shadow
+// tone cannot draw the depth between clouds: a sky wants white through slate
+// through near-black, and the dark end is what makes a gap read as somewhere
+// further away rather than a hole of flat colour. 0 keeps the slate.
+uniform float cloud_depth : hint_range(0.0, 1.0, 0.01) = 0.75;
+// How fast a cloud changes shape, as distinct from how fast the wind carries
+// it. Drift alone slides the whole field rigidly and reads as a photograph
+// being dragged past; this drifts the octaves against each other, so a cloud
+// reorganises as it travels. 0 leaves the field rigid.
+uniform float cloud_churn : hint_range(0.0, 4.0, 0.05) = 1.0;
 
 // ── Cloud scale ─────────────────────────────────────────────────────────────
 group "Cloud scale";
@@ -86,6 +96,9 @@ void sky() {
     fjell_cloud_shade_hardness = cloud_shade_hardness;
     fjell_cloud_haze = cloud_haze;
     fjell_cloud_scraps = cloud_scraps;
+    fjell_cloud_depth = cloud_depth;
+    fjell_cloud_churn = cloud_churn;
+    fjell_cloud_time = TIME;
     fjell_cloud_size = cloud_size;
     fjell_cloud_height = cloud_height;
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
