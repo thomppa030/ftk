@@ -15,6 +15,26 @@ static struct LogInit {
     LogInit() { if (!log::core()) log::init(); }
 } s_log_init;
 
+// The parser collects problems rather than throwing on the first, so one bad
+// line does not hide the rest of the file and a linter can report everything
+// in one pass. A rejection is therefore an error diagnostic, and it has to
+// carry a position or an editor cannot point at it.
+static void require_rejected(const std::string& src) {
+    auto meta = parse_fjsl(src);
+    INFO("source: " << src);
+    REQUIRE(meta.has_errors());
+    bool located = false;
+    for (const auto& d : meta.diagnostics) {
+        if (d.severity == FjslSeverity::error) {
+            INFO("message: " << d.message);
+            REQUIRE(d.line >= 1);
+            REQUIRE_FALSE(d.message.empty());
+            located = true;
+        }
+    }
+    REQUIRE(located);
+}
+
 // --- shader_type ---
 
 TEST_CASE("Parse shader_type spatial", "[fjsl]") {
@@ -85,12 +105,12 @@ TEST_CASE("A group never reaches the generated GLSL", "[fjsl]") {
     CHECK(glsl.find("Colour") == std::string::npos);
 }
 
-TEST_CASE("Missing shader_type throws", "[fjsl]") {
-    REQUIRE_THROWS(parse_fjsl("void fragment() {}"));
+TEST_CASE("Missing shader_type is a located error", "[fjsl]") {
+    require_rejected("void fragment() {}");
 }
 
-TEST_CASE("Unsupported shader_type throws", "[fjsl]") {
-    REQUIRE_THROWS(parse_fjsl("shader_type canvas;\nvoid fragment() {}"));
+TEST_CASE("Unsupported shader_type is a located error", "[fjsl]") {
+    require_rejected("shader_type canvas;\nvoid fragment() {}");
 }
 
 // --- shader_type ui ---
@@ -102,15 +122,15 @@ TEST_CASE("Parse shader_type ui takes its body from fragment()", "[fjsl][ui]") {
         void fragment() { ALPHA = COLOR.a * step(1.0 - FILL, UV.y); }
     )");
     REQUIRE(meta.shader_type == "ui");
-    REQUIRE(meta.fragment_body.find("step(1.0 - FILL, UV.y)") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("step(1.0 - FILL, UV.y)") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
     REQUIRE(meta.light_body.empty());
     REQUIRE(meta.custom_param_count == 1);
 }
 
 TEST_CASE("shader_type ui rejects the mesh-only hooks", "[fjsl][ui]") {
-    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid vertex() { VERTEX.y += 1.0; }\nvoid fragment() {}"));
-    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid light() {}\nvoid fragment() {}"));
+    require_rejected("shader_type ui;\nvoid vertex() { VERTEX.y += 1.0; }\nvoid fragment() {}");
+    require_rejected("shader_type ui;\nvoid light() {}\nvoid fragment() {}");
 }
 
 TEST_CASE("shader_type ui reads its material through the quad record", "[fjsl][ui]") {
@@ -322,8 +342,8 @@ TEST_CASE("Extract fragment body", "[fjsl]") {
             ALBEDO = mix(ALBEDO, ALBEDO * tint, 0.5);
         }
     )");
-    REQUIRE(meta.fragment_body.find("ALBEDO") != std::string::npos);
-    REQUIRE(meta.fragment_body.find("mix") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ALBEDO") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("mix") != std::string::npos);
 }
 
 TEST_CASE("Extract vertex body", "[fjsl]") {
@@ -334,7 +354,7 @@ TEST_CASE("Extract vertex body", "[fjsl]") {
         }
         void fragment() {}
     )");
-    REQUIRE(meta.vertex_body.find("VERTEX") != std::string::npos);
+    REQUIRE(meta.vertex_body.code.find("VERTEX") != std::string::npos);
 }
 
 TEST_CASE("Empty fragment body", "[fjsl]") {
@@ -356,8 +376,8 @@ TEST_CASE("Nested braces in function body", "[fjsl]") {
             }
         }
     )");
-    REQUIRE(meta.fragment_body.find("if") != std::string::npos);
-    REQUIRE(meta.fragment_body.find("ALBEDO") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("if") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ALBEDO") != std::string::npos);
 }
 
 // --- uniform_float_count ---
@@ -548,8 +568,8 @@ TEST_CASE("Both vertex and fragment bodies extracted", "[fjsl]") {
             ALBEDO = vec3(1.0);
         }
     )");
-    REQUIRE(meta.vertex_body.find("VERTEX") != std::string::npos);
-    REQUIRE(meta.fragment_body.find("ALBEDO") != std::string::npos);
+    REQUIRE(meta.vertex_body.code.find("VERTEX") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ALBEDO") != std::string::npos);
 }
 
 TEST_CASE("Fragment body with deeply nested braces", "[fjsl]") {
@@ -565,8 +585,8 @@ TEST_CASE("Fragment body with deeply nested braces", "[fjsl]") {
             }
         }
     )");
-    REQUIRE(meta.fragment_body.find("ALBEDO") != std::string::npos);
-    REQUIRE(meta.fragment_body.find("for") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ALBEDO") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("for") != std::string::npos);
 }
 
 // --- No uniforms / no render_mode ---
@@ -760,6 +780,78 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     REQUIRE(checked > 0);
 }
 
+// --- A compiler error names the line the author wrote ---
+//
+// A fragment() body is spliced into a template hundreds of lines long, at an
+// offset that moves with the shader's own uniform count — so without #line
+// there is not even a fixed delta between the reported line and the real one.
+// This is the test that the mapping survives all the way to glslc, because
+// every other check of it is a proxy.
+
+TEST_CASE("A GLSL error reports the .fjsl line, not the generated one", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_spatial_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    // The undeclared identifier is on line 5, and nowhere near where it will
+    // land in the generated file.
+    const std::string src =
+        "shader_type spatial;\n"          // 1
+        "\n"                              // 2
+        "uniform float amount = 0.5;\n"   // 3
+        "void fragment() {\n"             // 4
+        "    ALBEDO = no_such_symbol;\n"  // 5
+        "}\n";                            // 6
+
+    auto meta = parse_fjsl(src);
+    meta.source_path = "probe.fjsl";
+    REQUIRE_FALSE(meta.has_errors());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-line-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "probe.frag";
+    std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o "
+                                + quoted(out_dir / "probe.spv"));
+    INFO(output);
+    REQUIRE(status != 0);
+    REQUIRE(output.find("probe.fjsl:5") != std::string::npos);
+}
+
+TEST_CASE("Template code keeps its own name after a body", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_spatial_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    // A numeric-only #line leaves the filename set to whatever the last one
+    // named, so without restoring it every error after a body would go on
+    // blaming the .fjsl for template code the author never wrote.
+    auto meta = parse_fjsl("shader_type spatial;\nvoid fragment() { ALBEDO = vec3(1.0); }\n");
+    meta.source_path = "probe.fjsl";
+    const std::string glsl = generate_fragment_shader(meta, tmpl);
+
+    const auto body = glsl.find("ALBEDO = vec3(1.0)");
+    REQUIRE(body != std::string::npos);
+    const auto resume = glsl.find("#line", body);
+    REQUIRE(resume != std::string::npos);
+    // The directive that hands numbering back must name a file, and not the
+    // author's.
+    const auto eol = glsl.find('\n', resume);
+    const std::string directive = glsl.substr(resume, eol - resume);
+    INFO("directive: " << directive);
+    REQUIRE(directive.find('"') != std::string::npos);
+    REQUIRE(directive.find("probe.fjsl") == std::string::npos);
+}
+
 // --- Every template running vertex() offers the same built-ins ---
 //
 // A vertex() body is substituted into six templates: the color and depth
@@ -851,17 +943,17 @@ TEST_CASE("Parse shader_type terrain with a layers() hook", "[fjsl][terrain]") {
         }
     )");
     REQUIRE(meta.shader_type == "terrain");
-    REQUIRE(meta.layers_body.find("layer_mask(3.0)") != std::string::npos);
-    REQUIRE(meta.fragment_body.find("ROUGHNESS = 1.0") != std::string::npos);
+    REQUIRE(meta.layers_body.code.find("layer_mask(3.0)") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ROUGHNESS = 1.0") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
     // The hook bodies are not user globals.
     REQUIRE(meta.user_globals.find("LAYER_WEIGHTS") == std::string::npos);
 }
 
 TEST_CASE("Terrain rejects vertex(), other types reject layers()", "[fjsl][terrain]") {
-    REQUIRE_THROWS(parse_fjsl("shader_type terrain;\nvoid vertex() {}\nvoid fragment() {}"));
-    REQUIRE_THROWS(parse_fjsl("shader_type spatial;\nvoid layers() {}\nvoid fragment() {}"));
-    REQUIRE_THROWS(parse_fjsl("shader_type ui;\nvoid layers() {}\nvoid fragment() {}"));
+    require_rejected("shader_type terrain;\nvoid vertex() {}\nvoid fragment() {}");
+    require_rejected("shader_type spatial;\nvoid layers() {}\nvoid fragment() {}");
+    require_rejected("shader_type ui;\nvoid layers() {}\nvoid fragment() {}");
     REQUIRE_NOTHROW(parse_fjsl("shader_type terrain;\nvoid light() {}\nvoid fragment() {}"));
 }
 
@@ -878,15 +970,15 @@ TEST_CASE("Parse shader_type water", "[fjsl][water]") {
     )");
     REQUIRE(meta.shader_type == "water");
     REQUIRE(meta.uniforms.size() == 2);
-    REQUIRE(meta.fragment_body.find("ALBEDO = deep") != std::string::npos);
+    REQUIRE(meta.fragment_body.code.find("ALBEDO = deep") != std::string::npos);
     REQUIRE(meta.vertex_body.empty());
 }
 
 TEST_CASE("Water rejects vertex() and layers()", "[fjsl][water]") {
     // A water surface is shaped by its .fjwater, generated in the mesh
     // shader from the wave field, so a material has no geometry to move.
-    REQUIRE_THROWS(parse_fjsl("shader_type water;\nvoid vertex() {}\nvoid fragment() {}"));
-    REQUIRE_THROWS(parse_fjsl("shader_type water;\nvoid layers() {}\nvoid fragment() {}"));
+    require_rejected("shader_type water;\nvoid vertex() {}\nvoid fragment() {}");
+    require_rejected("shader_type water;\nvoid layers() {}\nvoid fragment() {}");
     // light() works as it does for spatial and terrain.
     REQUIRE_NOTHROW(parse_fjsl("shader_type water;\nvoid light() {}\nvoid fragment() {}"));
 }

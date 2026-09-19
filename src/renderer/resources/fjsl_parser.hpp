@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -81,22 +82,72 @@ struct FjslUniform {
     uint32_t slot{0}; // texture slot (4-7) for sampler2D, or param offset for scalars
 };
 
+/// One hook's body and where it began in the .fjsl, so the generator can emit
+/// a `#line` ahead of it and a compiler error lands on the line the author
+/// wrote instead of a line in the generated file. `offset` is a byte offset
+/// into the source `parse_fjsl` was given; it means nothing when the body is
+/// empty.
+struct FjslBody {
+    std::string code;
+    size_t offset{0};
+
+    [[nodiscard]] bool empty() const { return code.empty(); }
+};
+
+enum class FjslSeverity : uint8_t {
+    warning, ///< the shader still compiles; something was ignored or guessed
+    error,   ///< the shader cannot be built from this
+};
+
+/// A problem found while parsing, positioned so an editor can point at the
+/// offending text and a log line can name file:line:column.
+///
+/// Diagnostics are collected rather than thrown so one bad line does not hide
+/// the rest of the file — a linter wants every problem in one pass, and a
+/// shader with two typos should report two.
+struct FjslDiagnostic {
+    uint32_t line{1};   ///< 1-based
+    uint32_t column{1}; ///< 1-based, in bytes
+    FjslSeverity severity{FjslSeverity::warning};
+    std::string message;
+};
+
 // Complete metadata extracted from a .fjsl file
 struct ShaderMetadata {
     std::string shader_type; // "spatial", "sky", "ui" or "terrain"
     RenderMode render_mode{RenderMode::Lit};
     RenderState render_state;
     std::vector<FjslUniform> uniforms;
-    std::string fragment_body; // contents of fragment() { ... }
-    std::string vertex_body;   // contents of vertex() { ... } (empty = standard)
-    std::string light_body;    // contents of light() { ... } (empty = default PBR)
-    std::string layers_body;   // terrain only: contents of layers() { ... } (empty = painted weights as-is)
+    FjslBody fragment_body;    // contents of fragment() { ... }
+    FjslBody vertex_body;      // contents of vertex() { ... } (empty = standard)
+    FjslBody light_body;       // contents of light() { ... } (empty = default PBR)
+    FjslBody layers_body;      // terrain only: contents of layers() { ... } (empty = painted weights as-is)
     std::string user_globals;  // top-level helpers / constants the user authored
+    /// What the generated GLSL should call this file in `#line` directives.
+    /// Set by the caller that knows the path; empty falls back to numeric-only
+    /// `#line`, which still fixes the line number.
+    std::string source_path;
+    /// The source this was parsed from, kept so a body's byte offset can be
+    /// turned into a line number when the GLSL is generated. Parsing and
+    /// generating are separate calls, and the offsets mean nothing without it.
+    std::string source_text;
     // render_mode no_weather: the surface takes no rain or snow from the
     // environment; fragment() reads the weather built-ins and decides itself.
     bool no_weather{false};
     uint32_t custom_texture_count{0};
     uint32_t custom_param_count{0}; // total floats needed for scalar uniforms
+    /// Everything the parse found wrong, in source order. Warnings mean the
+    /// shader still builds; an error means the metadata is not usable. Empty
+    /// on a clean parse.
+    std::vector<FjslDiagnostic> diagnostics;
+
+    /// True when any diagnostic is an error.
+    [[nodiscard]] bool has_errors() const {
+        return std::any_of(diagnostics.begin(), diagnostics.end(),
+                           [](const FjslDiagnostic& d) {
+                               return d.severity == FjslSeverity::error;
+                           });
+    }
 };
 
 // Parse a .fjsl file and extract metadata.

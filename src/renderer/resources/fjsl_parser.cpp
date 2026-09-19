@@ -22,6 +22,27 @@ uint32_t uniform_float_count(UniformType type) {
 
 namespace {
 
+struct SourcePosition {
+    uint32_t line{1};   // 1-based
+    uint32_t column{1}; // 1-based, in bytes
+};
+
+// Line and column of a byte offset, counted on demand. Diagnostics are rare
+// enough that a scan per report beats threading counters through the parse.
+SourcePosition position_at(const std::string& source, size_t offset) {
+    SourcePosition pos;
+    const size_t end = std::min(offset, source.size());
+    for (size_t i = 0; i < end; ++i) {
+        if (source[i] == '\n') {
+            ++pos.line;
+            pos.column = 1;
+        } else {
+            ++pos.column;
+        }
+    }
+    return pos;
+}
+
 // Only a colour vector is authored in sRGB; a hint_color on any other type
 // is meaningless and left alone.
 bool is_authored_color(const FjslUniform& u) {
@@ -194,13 +215,22 @@ static std::vector<float> parse_default_value(const std::string& val_str, Unifor
     return result;
 }
 
-static std::string extract_function_body(const std::string& source, const std::string& func_name) {
+// A hook's body plus where it started, so a diagnostic can name the line the
+// author wrote rather than a line in the generated file. The offset is the
+// first character after the opening brace; `FjslBody::empty()` marks a hook
+// the shader does not define.
+//
+// Brace matching is not string- or comment-aware: a `}` inside a comment
+// truncates the body. No shader in the engine or the test project has one, so
+// this is latent rather than live, but it is why a body that looks right can
+// come back short.
+static FjslBody extract_function_body(const std::string& source, const std::string& func_name) {
     auto pos = source.find("void " + func_name);
-    if (pos == std::string::npos) return "";
+    if (pos == std::string::npos) return {};
 
     // Find opening brace
     auto brace_start = source.find('{', pos);
-    if (brace_start == std::string::npos) return "";
+    if (brace_start == std::string::npos) return {};
 
     // Match braces
     int depth = 1;
@@ -211,8 +241,8 @@ static std::string extract_function_body(const std::string& source, const std::s
         i++;
     }
 
-    if (depth != 0) return "";
-    return source.substr(brace_start + 1, i - brace_start - 2);
+    if (depth != 0) return {};
+    return {source.substr(brace_start + 1, i - brace_start - 2), brace_start + 1};
 }
 
 // Remove the entire `<sig> { ... }` block for a given top-level function.
@@ -285,19 +315,33 @@ static std::string extract_user_globals(const std::string& source) {
 ShaderMetadata parse_fjsl(const std::string& source) {
     ShaderMetadata meta;
 
+    // Record a problem against the text that caused it, so an editor can point
+    // at it and a log line can read file:line:column. Parsing continues: one
+    // bad declaration should not hide the rest of the file.
+    auto diagnose = [&meta, &source](size_t offset, FjslSeverity severity,
+                                     std::string message) {
+        auto pos = position_at(source, offset);
+        meta.diagnostics.push_back({pos.line, pos.column, severity, std::move(message)});
+    };
+
     // Parse shader_type
     static const std::regex shader_type_re(R"(shader_type\s+(\w+)\s*;)");
     std::smatch sm;
     if (std::regex_search(source, sm, shader_type_re)) {
         meta.shader_type = sm[1].str();
     } else {
-        throw std::runtime_error("FJSL: missing shader_type declaration");
+        diagnose(0, FjslSeverity::error,
+                 "missing shader_type declaration; expected e.g. 'shader_type spatial;'");
+        return meta;
     }
 
     if (meta.shader_type != "spatial" && meta.shader_type != "sky" &&
         meta.shader_type != "ui" && meta.shader_type != "terrain" &&
         meta.shader_type != "water") {
-        throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
+        diagnose(static_cast<size_t>(sm.position(1)), FjslSeverity::error,
+                 "unsupported shader_type '" + meta.shader_type
+                     + "'; expected spatial, sky, ui, terrain or water");
+        return meta;
     }
 
     // Parse render_mode (comma-separated keywords)
@@ -400,6 +444,8 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     meta.light_body = extract_function_body(source, "light");
     meta.layers_body = extract_function_body(source, "layers");
     meta.user_globals = extract_user_globals(source);
+    // Kept so the generator can turn a body's byte offset into a line number.
+    meta.source_text = source;
 
     // A hook that a shader type cannot run is an error rather than silently
     // ignored code. A ui shader paints one screen-aligned quad: there is no
@@ -409,34 +455,105 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // surface is shaped by its .fjwater, not by its material. layers()
     // decides how the painted layer weights blend and only terrain has
     // layers.
-    static const std::regex vertex_hook_re(R"(\bvoid\s+vertex\s*\()");
-    static const std::regex light_hook_re(R"(\bvoid\s+light\s*\()");
-    static const std::regex layers_hook_re(R"(\bvoid\s+layers\s*\()");
-    if (meta.shader_type == "ui") {
-        if (std::regex_search(source, vertex_hook_re)) {
-            throw std::runtime_error("FJSL: shader_type ui has no vertex() stage");
-        }
-        if (std::regex_search(source, light_hook_re)) {
-            throw std::runtime_error("FJSL: shader_type ui has no light() stage");
-        }
-    }
-    if (meta.shader_type == "terrain" && std::regex_search(source, vertex_hook_re)) {
-        throw std::runtime_error("FJSL: shader_type terrain has no vertex() stage");
-    }
-    if (meta.shader_type == "water" && std::regex_search(source, vertex_hook_re)) {
-        throw std::runtime_error("FJSL: shader_type water has no vertex() stage — "
-                                 "the surface comes from the .fjwater wave field");
-    }
-    if (meta.shader_type != "terrain" && std::regex_search(source, layers_hook_re)) {
-        throw std::runtime_error("FJSL: only shader_type terrain has a layers() stage");
+    // One row per hook a type cannot run, with why. Written as a table rather
+    // than a chain of ifs because the chain grew unevenly: sky was guarded
+    // against nothing, so a sky shader defining fragment() instead of sky()
+    // compiled to a black sky with no word said.
+    struct ForbiddenHook {
+        const char* shader_type; // nullptr = every type but `except`
+        const char* except;      // the one type that may run it
+        const char* hook;
+        const char* reason;
+    };
+    static const ForbiddenHook FORBIDDEN[] = {
+        {"ui", nullptr, "vertex", "a ui quad has no geometry to displace"},
+        {"ui", nullptr, "light", "a ui quad is not lit"},
+        {"terrain", nullptr, "vertex",
+         "terrain geometry is generated in a mesh shader from the height texture"},
+        {"water", nullptr, "vertex",
+         "the surface comes from the .fjwater wave field"},
+        {"sky", nullptr, "vertex", "the sky is drawn as one fullscreen triangle"},
+        {"sky", nullptr, "light", "the sky is not lit; it is the light"},
+        {"sky", nullptr, "fragment",
+         "a sky shader writes SKY from sky(), not ALBEDO from fragment()"},
+        {nullptr, "terrain", "layers", "only terrain blends painted layers"},
+    };
+
+    for (const auto& rule : FORBIDDEN) {
+        const bool applies = rule.shader_type != nullptr
+                                 ? meta.shader_type == rule.shader_type
+                                 : meta.shader_type != rule.except;
+        if (!applies) continue;
+
+        const std::regex hook_re(R"(\bvoid\s+)" + std::string(rule.hook) + R"(\s*\()");
+        std::smatch hm;
+        if (!std::regex_search(source, hm, hook_re)) continue;
+
+        diagnose(static_cast<size_t>(hm.position(0)), FjslSeverity::error,
+                 "shader_type " + meta.shader_type + " has no " + rule.hook
+                     + "() stage — " + rule.reason);
     }
 
     return meta;
 }
 
+namespace {
+
+// The 1-based line a byte offset falls on.
+uint32_t line_at(const std::string& source, size_t offset) {
+    return 1 + static_cast<uint32_t>(
+               std::count(source.begin(),
+                          source.begin() + static_cast<std::ptrdiff_t>(
+                                               std::min(offset, source.size())),
+                          '\n'));
+}
+
+// Wrap a hook's body so a compiler error inside it names the .fjsl and the
+// line the author wrote, instead of a line in the generated file.
+//
+// `#line N` names the line AFTER the directive, so the body's own first line
+// is N. The trailing directive hands numbering back to the template; its line
+// is filled in by the caller, which is the only thing that knows where in the
+// template the body landed.
+//
+// A shader with no source_path still gets the numeric form, which fixes the
+// line number even though errors keep naming the generated file.
+std::string with_line_markers(const FjslBody& body, const ShaderMetadata& meta) {
+    if (body.empty()) return body.code;
+
+    std::string out = "\n#line " + std::to_string(line_at(meta.source_text, body.offset));
+    if (!meta.source_path.empty()) {
+        out += " \"" + meta.source_path + "\"";
+    }
+    out += "\n" + body.code + "\n";
+    return out;
+}
+
+// What the generated file calls itself once a body has handed numbering back.
+// Not a real path — the generated file's own name varies by stage and the
+// templates do not know it — but it has to be something other than the .fjsl,
+// or template code inherits the author's filename.
+constexpr const char* GENERATED_NAME = "<generated>";
+
+// Filename-based #line is an extension. glslc enables
+// GL_GOOGLE_cpp_style_line_directive by default, so this is belt and braces —
+// it costs one line and keeps the generated GLSL correct if it is ever fed to
+// libshaderc or glslang directly, where the default is disabled.
+//
+// #extension has to follow #version, so this splices after the first line
+// rather than prepending.
+void enable_line_directives(std::string& glsl) {
+    auto eol = glsl.find('\n');
+    if (eol == std::string::npos) return;
+    glsl.insert(eol + 1, "#extension GL_GOOGLE_cpp_style_line_directive : require\n");
+}
+
+} // namespace
+
 std::string generate_fragment_shader(const ShaderMetadata& meta,
                                      const std::string& template_source) {
     std::string result = template_source;
+    const std::string generated_name = GENERATED_NAME;
 
     // Generate custom texture defines
     std::string tex_defines;
@@ -514,14 +631,35 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
     };
 
+    // Substitute a user-authored body, bracketed by #line so a compiler error
+    // inside it names the .fjsl. The closing directive restores the template's
+    // own numbering: it can only be computed here, once the body's position in
+    // the generated file is known.
+    auto replace_body = [&](const std::string& placeholder, const FjslBody& body) {
+        auto pos = result.find(placeholder);
+        if (pos == std::string::npos || body.empty()) {
+            replace(placeholder, body.code);
+            return;
+        }
+        // The closing directive must restate the generated file's name, not
+        // just its line: a numeric-only `#line` leaves the filename set to
+        // whatever the last one named, so every error after a body would go on
+        // blaming the .fjsl for template code the author never wrote.
+        const uint32_t resume = line_at(result, pos) + 1;
+        std::string text = with_line_markers(body, meta)
+                         + "#line " + std::to_string(resume)
+                         + " \"" + generated_name + "\"\n";
+        result.replace(pos, placeholder.size(), text);
+    };
+
     replace("/*FJSL_CUSTOM_TEXTURES*/", tex_defines + param_defines);
     // The CUSTOM_PARAMS placeholder originally injected local reads inside
     // main(); now param values come from the file-scope #defines emitted
     // above, so the in-main slot becomes empty.
     replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
     replace("/*FJSL_USER_GLOBALS*/", meta.user_globals);
-    replace("/*FJSL_USER_CODE*/", meta.fragment_body);
-    replace("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
+    replace_body("/*FJSL_USER_CODE*/", meta.fragment_body);
+    replace_body("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
 
     // The weather's default response to the surface: rain wets it, snow
     // covers it. Off for unlit shaders, which have no surface to speak of,
@@ -547,8 +685,13 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     DIFFUSE_LIGHT  += kD * ALBEDO / PI;
     SPECULAR_LIGHT += spec;
 )GLSL";
-    replace("/*FJSL_LIGHT_USER_CODE*/",
-            meta.light_body.empty() ? std::string(DEFAULT_LIGHT_BODY) : meta.light_body);
+    // The default body is engine code, so it gets no #line — an error in it is
+    // an engine bug and should point at the generated file.
+    if (meta.light_body.empty()) {
+        replace("/*FJSL_LIGHT_USER_CODE*/", std::string(DEFAULT_LIGHT_BODY));
+    } else {
+        replace_body("/*FJSL_LIGHT_USER_CODE*/", meta.light_body);
+    }
 
     // Replace PBR lighting block with direct output for unlit shaders
     if (meta.render_mode == RenderMode::Unlit) {
@@ -582,6 +725,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
     }
 
+    enable_line_directives(result);
     return result;
 }
 
@@ -627,8 +771,24 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
     };
 
     replace("/*FJSL_VERTEX_CUSTOM_PARAMS*/", param_reads);
-    replace("/*FJSL_VERTEX_USER_CODE*/", meta.vertex_body);
 
+    // The same body is substituted into all six vertex/mesh templates, so a
+    // #line here means one authored line maps to the right place in every one
+    // of them rather than to six different generated lines.
+    {
+        auto pos = result.find("/*FJSL_VERTEX_USER_CODE*/");
+        if (pos != std::string::npos && !meta.vertex_body.empty()) {
+            const uint32_t resume = line_at(result, pos) + 1;
+            result.replace(pos, std::string("/*FJSL_VERTEX_USER_CODE*/").size(),
+                           with_line_markers(meta.vertex_body, meta)
+                               + "#line " + std::to_string(resume)
+                               + " \"" + GENERATED_NAME + "\"\n");
+        } else {
+            replace("/*FJSL_VERTEX_USER_CODE*/", meta.vertex_body.code);
+        }
+    }
+
+    enable_line_directives(result);
     return result;
 }
 
