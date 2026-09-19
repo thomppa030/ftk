@@ -3,9 +3,11 @@
 #include "core/result.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 
 #include <vulkan/vulkan.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -15,11 +17,14 @@ namespace fjell {
 
 class Texture;
 
-// Material data as stored in the GPU storage buffer (96 bytes).
+// Material data as stored in the GPU storage buffer (128 bytes).
 // Indexed by material ID from push constants.
 // Layout:
 //   texture_indices[0-3]:   fixed PBR (base_color, normal, metallic_roughness, emissive)
-//   texture_indices[4-7]:   custom shader textures
+//   texture_indices[4-15]:  custom shader textures. Twelve rather than four
+//                           because a composed shader shares them with every
+//                           shader_function inlined into it, and four is one
+//                           texture each for a sky and three contributions.
 //   base_params[0..3]:    base colour factor (vec4) — the file's factor times
 //                         the shader's hint_albedo product; multiplies the
 //                         base colour texture on every path
@@ -39,13 +44,27 @@ class Texture;
 //                         every unbound slot resolves to. The GI paths need
 //                         it to tell "no texture" from "texture, black here".
 struct GpuMaterial {
-    uint32_t texture_indices[8]{};      // 32 bytes — slots 0-3: PBR, 4-7: custom
+    uint32_t texture_indices[TOTAL_TEXTURE_SLOTS]{}; // 64 bytes — 0-3 PBR, 4-15 custom
     float base_params[12]{};            // 48 bytes — PBR + GI params
     uint32_t param_offset{0};           // 4 bytes  — offset into params SSBO (in floats)
     uint32_t param_count{0};            // 4 bytes  — number of custom floats
     uint32_t has_emissive_texture{0};   // 4 bytes  — see layout note above
-    uint32_t padding{0};                // 4 bytes  — align to 96
+    uint32_t padding{0};                // 4 bytes  — align to 128
 };
+
+// This struct is mirrored by hand in shaders/include/fjell_gpu_types.glsl, and
+// every shader that reads a material reads it through that copy. A silent
+// disagreement here is a whole class of bug that has cost us twice, so the
+// layout is pinned: change one side and these stop the build until the other
+// follows.
+static_assert(sizeof(GpuMaterial) == 128, "GpuMaterial must match its GLSL mirror");
+static_assert(offsetof(GpuMaterial, texture_indices) == 0);
+static_assert(offsetof(GpuMaterial, base_params) == 64);
+static_assert(offsetof(GpuMaterial, param_offset) == 112);
+static_assert(offsetof(GpuMaterial, param_count) == 116);
+static_assert(offsetof(GpuMaterial, has_emissive_texture) == 120);
+static_assert(offsetof(GpuMaterial, padding) == 124);
+static_assert(sizeof(GpuMaterial) % 16 == 0, "std430 wants a 16-byte multiple");
 
 // Manages a single large descriptor set containing all textures and materials
 // in the engine. Textures get a global index; materials are stored in an SSBO.

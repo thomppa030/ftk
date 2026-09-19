@@ -22,9 +22,9 @@ GpuMaterial Material::gpu_material() const {
     m.texture_indices[2] = metallic_roughness_idx_;
     m.texture_indices[3] = emissive_idx_;
 
-    // Custom texture slots (4-7)
-    for (int i = 0; i < 4; ++i) {
-        m.texture_indices[4 + i] = custom_texture_indices_[i];
+    // Custom texture slots (4 onwards)
+    for (uint32_t i = 0; i < CUSTOM_TEXTURE_SLOTS; ++i) {
+        m.texture_indices[PBR_TEXTURE_SLOTS + i] = custom_texture_indices_[i];
     }
 
     // Base PBR params
@@ -52,8 +52,8 @@ GpuMaterial Material::gpu_material() const {
 }
 
 void Material::set_custom_texture(uint32_t slot, uint32_t bindless_idx) {
-    if (slot >= 4 && slot <= 7) {
-        custom_texture_indices_[slot - 4] = bindless_idx;
+    if (slot >= PBR_TEXTURE_SLOTS && slot < TOTAL_TEXTURE_SLOTS) {
+        custom_texture_indices_[slot - PBR_TEXTURE_SLOTS] = bindless_idx;
     }
 }
 

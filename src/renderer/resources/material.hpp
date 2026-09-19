@@ -61,7 +61,7 @@ private:
     uint32_t normal_idx_;
     uint32_t metallic_roughness_idx_;
     uint32_t emissive_idx_;
-    uint32_t custom_texture_indices_[4]{}; // slots 4-7
+    uint32_t custom_texture_indices_[CUSTOM_TEXTURE_SLOTS]{}; // slots 4..15
     uint32_t custom_param_offset_{0};
     uint32_t custom_param_count_{0};
     PbrParams params_;
