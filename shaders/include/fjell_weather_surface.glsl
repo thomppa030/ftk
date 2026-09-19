@@ -30,7 +30,10 @@ const float WET_ROUGHNESS = 0.35;
 //
 // 0 bands keeps the wash.
 const float WET_BANDS = 3.0;
-const float WET_BAND_HARDNESS = 0.85;
+// Softer than the clouds': ground is seen close up and at a grazing angle,
+// where a hard cut shows every imperfection in the field under it, while a
+// cloud is far away and small on screen.
+const float WET_BAND_HARDNESS = 0.7;
 
 // A value cut into genuinely flat levels; hardness 1 is an exact cut, 0 an
 // identity. Flattening toward each level's own centre rather than reshaping
@@ -56,7 +59,12 @@ float fjell_weather_hash(vec2 p) {
 float fjell_weather_noise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
+    // Quintic, not smoothstep. Smoothstep's second derivative is not zero at
+    // a cell boundary, so the slope jumps there; on its own that is invisible,
+    // but anything that cuts the field into steps afterwards plants the step
+    // exactly on that jump and the lattice comes out as straight edges across
+    // the ground.
+    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
     return mix(mix(fjell_weather_hash(i), fjell_weather_hash(i + vec2(1.0, 0.0)), u.x),
                mix(fjell_weather_hash(i + vec2(0.0, 1.0)), fjell_weather_hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
@@ -97,8 +105,20 @@ void fjell_apply_weather(inout vec3 albedo, inout float roughness, inout float m
     // patch dark and its neighbour barely damp. Breaking the wetting up by
     // the ground's own shape is what stops it reading as a filter laid over
     // everything.
-    float pool = fjell_weather_noise(world_pos.xz * 0.6)
-               * 0.6 + fjell_weather_noise(world_pos.xz * 2.3) * 0.4;
+    // Cells of about seven and two metres. Smaller than this and a pool is
+    // the size of a floor tile, which is what gives the grid away rather than
+    // reading as water; the rotation between the two octaves keeps them from
+    // sharing a lattice.
+    const mat2 pool_rot = mat2(0.80, 0.60, -0.60, 0.80);
+    vec2 pool_uv = world_pos.xz * 0.30;
+    float pool = fjell_weather_noise(pool_uv) * 0.62
+               + fjell_weather_noise(pool_rot * pool_uv * 2.7 + 21.7) * 0.38;
+    // Pushed toward its own ends, so a pool has an inside and an outside
+    // rather than being a gentle rise and fall. Doing it here rather than
+    // with a harder band keeps the shaping off the lattice: the contrast is
+    // applied to a value that is already smooth everywhere, where a hard cut
+    // finds whatever discontinuity is nearest and draws it.
+    pool = clamp((pool - 0.5) * 1.9 + 0.5, 0.0, 1.0);
     wet_here *= mix(0.55, 1.25, pool);
     // Then cut into flat steps, so a surface is dry, damp or wet rather than
     // somewhere on a ramp between them.
