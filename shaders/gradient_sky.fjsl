@@ -33,6 +33,17 @@ uniform float cloud_shade_bands : hint_range(0.0, 8.0, 1.0) = 4.0;
 // How hard the step between those values is. Below 1 is a contrast curve
 // rather than a quantiser and barely reads; flat colour is the point.
 uniform float cloud_shade_hardness : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How strongly the sky between the clouds hazes over. The cut keeps the half
+// of the field that became cloud and throws the rest away, but that half is
+// the same flow continuing below the threshold: drawn faintly, its dips are
+// thin darker tendrils through the gaps, and a gap reads as air with
+// something in it rather than a hole cut in a sheet. 0 leaves it clear.
+uniform float cloud_haze : hint_range(0.0, 0.5, 0.01) = 0.12;
+// How much thin, dark cloud shows at the edges of the bright shapes. Right at
+// the threshold the field is barely cloud: too thin to catch the sun, thick
+// enough to block the sky, and it comes out as small sharp scraps along the
+// silhouettes. An edge effect, not a veil — a few percent of the sky.
+uniform float cloud_scraps : hint_range(0.0, 1.0, 0.01) = 0.55;
 
 // ── Cloud scale ─────────────────────────────────────────────────────────────
 group "Cloud scale";
@@ -73,6 +84,8 @@ void sky() {
     fjell_cloud_edge = cloud_edge;
     fjell_cloud_shade_bands = cloud_shade_bands;
     fjell_cloud_shade_hardness = cloud_shade_hardness;
+    fjell_cloud_haze = cloud_haze;
+    fjell_cloud_scraps = cloud_scraps;
     fjell_cloud_size = cloud_size;
     fjell_cloud_height = cloud_height;
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,

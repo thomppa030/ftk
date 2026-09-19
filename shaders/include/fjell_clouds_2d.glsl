@@ -205,6 +205,29 @@ float fjell_cloud_wisp = 1.0;
 // How hard a cloud's outline is: how far the sky takes to become cloud. The
 // silhouette itself does not move.
 float fjell_cloud_edge = 1.0;
+// How strongly the sky between the clouds hazes over.
+//
+// The cut above keeps the half of the field that became cloud and throws the
+// rest away, but that other half is not featureless — it is the same flow,
+// continuing below the threshold, and its dips trace thin darker tendrils
+// through the gaps. Drawing them at a low opacity is most of what makes a
+// gap read as air with something in it rather than as a hole cut in a sheet.
+//
+// Dark rather than bright: this is the cloud one is looking *through*, so it
+// takes the shaded tone, and a storm's gaps close up rather than glowing.
+float fjell_cloud_haze = 0.12;
+// How much thin, dark cloud shows at the edges of the bright shapes.
+//
+// The cut keeps what became cloud and the shading lights it, but right at
+// the threshold the field is barely cloud at all: too thin to catch the sun,
+// thick enough to block the sky. The reference draws that band almost black,
+// and it comes out as small sharp scraps along the silhouettes rather than
+// as a wash — a few percent of the sky, and most of what stops a gap reading
+// as a clean hole.
+//
+// It is an edge effect, not a veil: it lives in a narrow band around the
+// cut, so widening it does not make more of it, only blunter.
+float fjell_cloud_scraps = 0.55;
 // How many flat values a cloud's shading is cut into. The silhouette is only
 // half of a drawn cloud: a crisp edge around a smooth grey wash is a
 // photograph in a drawn outline, and it shows the moment the sheet greys,
@@ -312,6 +335,14 @@ float fjell_cloud_amount(vec2 sheet_pos, float coverage, float density) {
     float width = mix(0.075, 0.055, coverage) * mix(1.0, 0.45, fjell_cloud_edge);
     float shape = clamp(smoothstep(cut, cut + width, f), 0.0, 1.0);
 
+    // The thin band just under the cut is cloud too — the part with no body
+    // to light. It is opaque enough to be seen, so it is carried in the
+    // amount, and cloud_layer() shades it dark.
+    if (fjell_cloud_scraps > 0.0) {
+        float scrap = smoothstep(cut - width * 2.5, cut, f) * (1.0 - shape);
+        shape = max(shape, scrap * fjell_cloud_scraps);
+    }
+
     return shape * mix(0.35, 1.0, density);
 }
 
@@ -361,7 +392,26 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // goes perfectly clear at distance reads as a wall of empty sky where the
     // horizon should be.
     amount *= mix(1.0, 0.55, distance_fade);
-    if (amount <= 0.001) return vec4(0.0);
+
+    // The gaps haze over with what the field is doing below the cut. Scaled
+    // by how far under it the value sits, so the veil is thickest where the
+    // field almost became cloud and thins toward genuinely open sky — which
+    // is what makes it read as structure rather than as a flat wash laid
+    // over everything.
+    float haze = 0.0;
+    if (fjell_cloud_haze > 0.0) {
+        float cut = mix(FJELL_CLOUD_FIELD_HI, FJELL_CLOUD_FIELD_LO + 0.02, coverage);
+        float below = smoothstep(cut - 0.34, cut, fjell_cloud_field(sheet));
+        haze = below * fjell_cloud_haze * coverage
+             * fjell_cloud_front_mask(dir, front_dir, front_edge, front_softness)
+             * mix(1.0, 0.35, distance_fade)
+             * smoothstep(0.0, 0.10, dir.y);
+        // Only where there is no cloud already: inside a cloud the shading
+        // has the pixel and a veil on top would only wash it out.
+        haze *= 1.0 - amount;
+    }
+
+    if (amount + haze <= 0.001) return vec4(0.0);
 
     // Lit from above by the sun and moon, forward scatter brightening the
     // side toward the sun, bottoms darker the thicker the cloud.
@@ -383,6 +433,18 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // overcast case is a flat pale sheet again.
     float relief = smoothstep(FJELL_CLOUD_FIELD_MID - 0.15,
                               FJELL_CLOUD_FIELD_HI + 0.13, field);
+
+    // The scraps below the cut would otherwise come out *bright*: their
+    // field is low, so the relief ramp reads them as the thinnest, most lit
+    // cloud there is. They are the opposite — cloud with no body to catch
+    // the light, which is why the reference draws that band near black. Push
+    // them to the thick end so the shading treats them as shadow.
+    if (fjell_cloud_scraps > 0.0) {
+        float cut = mix(FJELL_CLOUD_FIELD_HI, FJELL_CLOUD_FIELD_LO + 0.02, coverage);
+        float width = mix(0.075, 0.055, coverage) * mix(1.0, 0.45, fjell_cloud_edge);
+        float in_scrap = smoothstep(cut, cut - width * 2.5, field);
+        relief = mix(relief, 1.0, in_scrap * fjell_cloud_scraps);
+    }
     // Heavier weather is thicker throughout, so the whole sheet darkens as
     // it closes rather than only its densest parts.
     float thickness = mix(0.25, 1.0, relief) * mix(0.45, 1.0, density)
@@ -427,8 +489,20 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // the ambient the horizon sits in. Without this the distant sheet keeps
     // full contrast and reads as a hard band pasted along the skyline, which
     // is the other half of what a flat sheet got wrong there.
-    vec3 haze = ambient * 0.9 + sun_color * 0.12 * max(sun_dir.y, 0.0);
-    lit = mix(lit, haze, distance_fade * 0.7);
+    vec3 far_air = ambient * 0.9 + sun_color * 0.12 * max(sun_dir.y, 0.0);
+    lit = mix(lit, far_air, distance_fade * 0.7);
+
+    // The veil takes the shaded tone rather than the lit one: this is cloud
+    // seen through, not cloud lit from above, so a gap closes up instead of
+    // glowing. Composited as one more layer over the same pixel — where a
+    // cloud is already opaque the veil has nothing left to cover.
+    if (haze > 0.0) {
+        vec3 veil = heavy * (ambient * 0.85 + sun_color * 0.10 * sun_up);
+        veil = mix(veil, far_air, distance_fade * 0.7);
+        float total = clamp(amount + haze, 0.0, 1.0);
+        lit = mix(veil, lit, amount / max(total, 1e-4));
+        return vec4(lit, total);
+    }
 
     return vec4(lit, clamp(amount, 0.0, 1.0));
 }
