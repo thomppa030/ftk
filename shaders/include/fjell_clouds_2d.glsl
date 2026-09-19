@@ -262,6 +262,38 @@ float fjell_cloud_scraps = 0.55;
 //
 // 0 keeps the slate; 1 takes the shaded tone almost to black.
 float fjell_cloud_depth = 0.75;
+
+// The palette a cloud is drawn from: four stops from its darkest shadow to
+// its lit top, which `thickness` walks after the banding has cut it into
+// steps. A palette, not a gradient — band one is the colour the deepest
+// shadow takes, band four the colour the sun catches, and a mood is those
+// four values.
+//
+// Two colours mixed between can only ever interpolate a line: whatever the
+// darkest and lightest are, everything in between is on the way from one to
+// the other. Four stops can turn — cool through the shadows, warm at the top
+// — which is what a painted sky does and what a straight mix cannot reach at
+// any setting.
+//
+// The defaults are a storm: near-black base, cold slate, a warmer mid, and a
+// top left near white for the sun to tint.
+vec3 fjell_cloud_shade0 = vec3(0.045, 0.050, 0.070);
+vec3 fjell_cloud_shade1 = vec3(0.180, 0.200, 0.260);
+vec3 fjell_cloud_shade2 = vec3(0.520, 0.530, 0.570);
+vec3 fjell_cloud_shade3 = vec3(0.960, 0.960, 0.950);
+// How far the palette is used at all. 0 falls back to the two-tone blend the
+// sheet had before, which is a line between the darkest and lightest stops.
+float fjell_cloud_palette = 1.0;
+
+// Pick a colour from the four stops. `t` runs 0 at the deepest shadow to 1 at
+// the lit top; it arrives already banded, so this samples a step rather than
+// a ramp and the flat regions survive.
+vec3 fjell_cloud_shade(float t) {
+    float x = clamp(t, 0.0, 1.0) * 3.0;
+    if (x < 1.0) return mix(fjell_cloud_shade0, fjell_cloud_shade1, x);
+    if (x < 2.0) return mix(fjell_cloud_shade1, fjell_cloud_shade2, x - 1.0);
+    return mix(fjell_cloud_shade2, fjell_cloud_shade3, x - 2.0);
+}
 // How many flat values a cloud's shading is cut into. The silhouette is only
 // half of a drawn cloud: a crisp edge around a smooth grey wash is a
 // photograph in a drawn outline, and it shows the moment the sheet greys,
@@ -519,7 +551,18 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // a colour rather than a hole.
     heavy = mix(heavy, heavy * 0.10, fjell_cloud_depth);
 
+    // `thickness` runs 0 at the thinnest, most lit cloud and 1 at the
+    // deepest shadow, so the palette is walked backwards. Still banded: the
+    // cut happened above and this samples whatever step it landed on.
     vec3 body = mix(bright, heavy, thickness);
+    if (fjell_cloud_palette > 0.0) {
+        vec3 paletted = fjell_cloud_shade(1.0 - thickness);
+        // The sun still tints the top, as it does the two-tone version: a
+        // palette decides the values, the light decides their temperature.
+        paletted *= mix(vec3(1.0), sun_hue, (0.55 * sun_up + 0.35 * forward)
+                                          * (1.0 - thickness));
+        body = mix(body, paletted, fjell_cloud_palette);
+    }
     vec3 lit = body * (ambient * (0.9 - 0.35 * thickness)
                      + sun_color * (0.40 * sun_up + 0.45 * forward) * (1.0 - 0.55 * thickness)
                      + moon_color * 3.0 * (1.0 - 0.5 * thickness));

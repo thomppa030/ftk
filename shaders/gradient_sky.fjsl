@@ -55,6 +55,24 @@ uniform float cloud_depth : hint_range(0.0, 1.0, 0.01) = 0.75;
 // reorganises as it travels. 0 leaves the field rigid.
 uniform float cloud_churn : hint_range(0.0, 4.0, 0.05) = 1.0;
 
+// ── Cloud palette ───────────────────────────────────────────────────────────
+group "Cloud palette";
+// The four values a cloud is drawn from, deepest shadow to lit top, which the
+// banded thickness steps through. A palette, not a gradient: these are the
+// colours, and a mood is a set of them.
+//
+// Two colours mixed between can only interpolate a line, so whatever the
+// darkest and lightest are, everything between is on the way from one to the
+// other. Four stops can turn — cold through the shadows, warm at the top —
+// which is what a painted sky does and a straight mix cannot reach.
+uniform vec3 cloud_shade0 : hint_color = vec3(0.045, 0.050, 0.070);
+uniform vec3 cloud_shade1 : hint_color = vec3(0.180, 0.200, 0.260);
+uniform vec3 cloud_shade2 : hint_color = vec3(0.520, 0.530, 0.570);
+uniform vec3 cloud_shade3 : hint_color = vec3(0.960, 0.960, 0.950);
+// How far the palette is used. 0 falls back to the two-tone blend, which is a
+// line between the darkest and lightest stops.
+uniform float cloud_palette : hint_range(0.0, 1.0, 0.01) = 1.0;
+
 // ── Cloud scale ─────────────────────────────────────────────────────────────
 group "Cloud scale";
 // How big one cloud is and how high the sheet sits. These only mean anything
@@ -99,6 +117,11 @@ void sky() {
     fjell_cloud_depth = cloud_depth;
     fjell_cloud_churn = cloud_churn;
     fjell_cloud_time = TIME;
+    fjell_cloud_shade0 = cloud_shade0;
+    fjell_cloud_shade1 = cloud_shade1;
+    fjell_cloud_shade2 = cloud_shade2;
+    fjell_cloud_shade3 = cloud_shade3;
+    fjell_cloud_palette = cloud_palette;
     fjell_cloud_size = cloud_size;
     fjell_cloud_height = cloud_height;
     vec4 cloud = cloud_layer(CAMERA_POS, VIEW_DIR, CLOUD_COVERAGE, CLOUD_DENSITY,
