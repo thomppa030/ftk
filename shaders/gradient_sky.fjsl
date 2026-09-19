@@ -15,23 +15,15 @@ uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
 uniform float sun_warmth_size : hint_range(1.0, 60.0, 0.5) = 18.0;
 uniform float moon_size : hint_range(0.1, 4.0, 0.01) = 0.5;
 
-// ── Stylize ─────────────────────────────────────────────────────────────────
-group "Stylize";
-// One dial from the cloud sheet as it is — a smooth thickness wash, soft
-// edges — to hand-painted cloud: a few flat values and deliberate shapes.
-// The same dial and the same reasoning as sea.fjsl's, so a painted sky and a
-// painted sea read as one style rather than two takes on it.
-//
-// At 0 the clouds draw exactly what they drew before.
-uniform float stylize : hint_range(0.0, 1.0, 0.01) = 1.0;
+// ── Cloud shape ─────────────────────────────────────────────────────────────
+group "Cloud shape";
 // How hard the silhouette is cut. Higher clears more of the sky and leaves
 // the cloud that survives standing with a steeper edge.
 uniform float cloud_contrast : hint_range(0.0, 1.0, 0.01) = 1.0;
 // How torn the shapes are. 0 is round and billowy, 1 is filamented and wispy.
 uniform float cloud_wisp : hint_range(0.0, 1.0, 0.01) = 1.0;
-// How hard a cloud's outline is. 0 is as soft as the unstyled sheet's, 1 is
-// an edge that ends where the shape does. The silhouette does not move —
-// this is only how far the sky takes to become cloud.
+// How hard a cloud's outline is: how far the sky takes to become cloud. The
+// silhouette itself does not move.
 uniform float cloud_edge : hint_range(0.0, 1.0, 0.01) = 1.0;
 
 // ── Cloud scale ─────────────────────────────────────────────────────────────
@@ -68,7 +60,6 @@ void sky() {
 
     // The weather's clouds over everything, arriving from the front, lit
     // from inside when lightning strikes.
-    fjell_cloud_stylize = stylize;
     fjell_cloud_contrast = cloud_contrast;
     fjell_cloud_wisp = cloud_wisp;
     fjell_cloud_edge = cloud_edge;

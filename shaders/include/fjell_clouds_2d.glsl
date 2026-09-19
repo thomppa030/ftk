@@ -178,40 +178,32 @@ const float FJELL_CLOUD_FIELD_LO = 0.18;
 const float FJELL_CLOUD_FIELD_HI = 1.02;
 const float FJELL_CLOUD_FIELD_MID = 0.60;
 
-// ── Stylize ─────────────────────────────────────────────────────────────────
-// One dial from the sheet as a soft photographic wash to a drawn one: crisp
-// cloud shapes with wispy, creased edges standing against open sky.
-//
-// The look does *not* come from posterising. Cutting the sheet into flat
-// levels and inking the boundaries was tried and reads as a contour map or as
-// a photograph with the contrast pushed, because a flat value is only the
-// symptom — what makes a drawn cloud is its silhouette. So the style is in
-// the field's construction instead: folded noise for the creases and a
-// multiplicative contrast term to drive most of the sky to nothing and leave
-// isolated forms with a steep edge.
-//
-// At 0 every term is an identity and the sheet draws what it drew before, so
-// the style is turned up against a working cloud layer rather than replacing
-// it.
+// ── Shape ───────────────────────────────────────────────────────────────────
+// How the sheet is cut into clouds. The look does not come from posterising
+// the field or inking its levels — both were tried and read as a contour map
+// or as a photograph with the contrast pushed, because a flat value is the
+// symptom and the silhouette is the cause. It comes from how the field is
+// built: folded octaves for the creased, torn edge, and a multiplicative
+// contrast term that drives most of the sky toward nothing and leaves the
+// cloud that survives standing with a steep edge.
 //
 // These are globals a sky assigns in its sky() body before calling
 // cloud_layer(), not #defines: this include is expanded into the template
 // above the point where a material's uniforms exist, so a compile-time
 // constant here could not be driven per-material and the dial would not be
-// one. Assigning them from uniforms is what lets a .fjmat carry the style.
+// one. Assigning them from uniforms is what lets a .fjmat carry the look.
 //
-//     fjell_cloud_stylize = stylize;          // in sky()
+//     fjell_cloud_contrast = cloud_contrast;   // in sky()
 //     vec4 cloud = cloud_layer(...);
-float fjell_cloud_stylize = 0.0;
-// How hard the silhouette is cut. Higher drives more of the sky to clear and
-// leaves the cloud that survives with a steeper edge.
+
+// How hard the silhouette is cut. Higher clears more of the sky and leaves
+// the cloud that survives with a steeper edge.
 float fjell_cloud_contrast = 1.0;
 // How much the folded, creased octaves show through. This is the wispiness:
 // at 0 the shapes are round, at 1 they are torn and filamented.
 float fjell_cloud_wisp = 1.0;
-// How hard a cloud's outline is. 0 is as soft as the unstyled sheet's, 1 is
-// a crisp edge that ends where the shape ends. The silhouette itself does
-// not move — this is only how far the sky takes to become cloud.
+// How hard a cloud's outline is: how far the sky takes to become cloud. The
+// silhouette itself does not move.
 float fjell_cloud_edge = 1.0;
 
 // Folded octaves: `abs()` creases the noise at every zero crossing, which is
@@ -231,79 +223,53 @@ float fjell_cloud_turbulence(vec2 p) {
     return sum / max(total, 1e-4);
 }
 
-// The field before any stylization touches it.
-float fjell_cloud_field_raw(vec2 sheet_pos) {
-    return fjell_cloud_warped_fbm(sheet_pos) + fjell_cloud_fbm(sheet_pos * 3.7 + 5.1) * 0.35;
-}
-
+// The cloud field: roughly FIELD_LO..FIELD_HI, and the one place the sheet's
+// shape is decided. The opacity, the colour's thickness and the shadow the
+// sheet throws on the ground all read it, so a cloud is the same shape in
+// all three rather than the three being rolled separately.
 float fjell_cloud_field(vec2 sheet_pos) {
-    float f = fjell_cloud_field_raw(sheet_pos);
+    float smooth_field = fjell_cloud_warped_fbm(sheet_pos)
+                       + fjell_cloud_fbm(sheet_pos * 3.7 + 5.1) * 0.35;
 
-    // Styled here, at the source, so everything downstream inherits it: the
-    // opacity, the colour's thickness, and the shadow the sheet throws on the
-    // ground. Styling only the final colour would leave a photoreal silhouette
-    // and a photoreal shadow under a drawn cloud, which reads as a filter laid
-    // over the sky rather than as a drawn one.
-    if (fjell_cloud_stylize > 0.0) {
-        // Creased octaves for the torn edge, and a multiplicative contrast
-        // term for the silhouette. Multiplying the field by itself plus the
-        // turbulence is what drives most of the sky toward nothing and leaves
-        // the cloud that survives standing with a steep edge — an additive
-        // blend only ever produces another even wash.
-        float turb = fjell_cloud_turbulence(sheet_pos * 1.7);
-        // Centred on the field's own middle, so the multiply sharpens about
-        // the value the coverage threshold is measured against rather than
-        // about zero.
-        float base = f - FJELL_CLOUD_FIELD_MID;
-        float drawn = base * (turb * mix(0.6, 1.9, fjell_cloud_wisp) + abs(base) * 2.0);
-        drawn = drawn * mix(1.0, 3.0, fjell_cloud_contrast);
-        // Back into the range the cut expects. A stylized field that drifts
-        // out of it silently rewrites what every coverage value means — the
-        // sheet inverts, and the sky fills in where it should be clearing.
-        f = mix(f, clamp(FJELL_CLOUD_FIELD_MID + drawn,
-                         FJELL_CLOUD_FIELD_LO, FJELL_CLOUD_FIELD_HI),
-                fjell_cloud_stylize);
-    }
-    return f;
+    float turb = fjell_cloud_turbulence(sheet_pos * 1.7);
+    // Centred on the field's own middle, so the multiply sharpens about the
+    // value the coverage threshold is measured against rather than about zero.
+    float base = smooth_field - FJELL_CLOUD_FIELD_MID;
+    // Multiplicative, not additive: multiplying the field by the turbulence
+    // plus its own magnitude is what empties most of the sky and leaves
+    // isolated forms. An additive blend only ever produces another even wash.
+    float drawn = base * (turb * mix(0.6, 1.9, fjell_cloud_wisp) + abs(base) * 2.0)
+                * mix(1.0, 3.0, fjell_cloud_contrast);
+    // Back into the range the cut expects. A field that drifts out of it
+    // silently rewrites what every coverage value means — the sheet inverts,
+    // and the sky fills in where it should be clearing.
+    return clamp(FJELL_CLOUD_FIELD_MID + drawn,
+                 FJELL_CLOUD_FIELD_LO, FJELL_CLOUD_FIELD_HI);
 }
 
 // Cloud amount 0..1 at a point of the sheet for the weather's coverage and
 // density: coverage decides how much of the sheet has cloud, density how
 // thick that cloud is.
 //
-// Coverage moves the threshold the field is cut at. The cut is placed
-// against the field's own range rather than against 0..1, and stops just
-// above its floor: a threshold that slides below the field's minimum puts
-// every pixel past the top of the ramp, and the sky becomes one flat sheet.
-// That is the overcast that reads as a single white blanket.
-//
-// A covered sky is genuinely opaque, so this still approaches 1 nearly
-// everywhere at full coverage — and it should. What keeps an overcast sky
-// from looking blank is not holes in it but the shading, which reads the
-// field directly in cloud_layer() and so keeps its structure when the
-// opacity has none left to give.
+// A covered sky is genuinely opaque, so this approaches 1 nearly everywhere
+// at full coverage — and it should. What keeps an overcast sky from looking
+// blank is not holes in it but the shading, which reads the field directly
+// in cloud_layer() and so keeps its structure when the opacity has none left
+// to give.
 float fjell_cloud_amount(vec2 sheet_pos, float coverage, float density) {
     if (coverage <= 0.0) return 0.0;
     float f = fjell_cloud_field(sheet_pos);
 
-    // The ramp is placed against the field's own range rather than against
-    // 0..1, so the cut stays inside the data at every coverage.
-    // The cut descends through the field as the sky fills, but stops short
-    // of the floor: at full coverage it sits just above FIELD_LO, so the
-    // thinnest scraps of the sheet still ramp rather than clamping. Letting
-    // it reach the floor is what turns the sky into one flat sheet.
+    // The cut descends through the field as the sky fills, but stops short of
+    // the floor: at full coverage it sits just above FIELD_LO, so the thinnest
+    // scraps still ramp rather than clamping. Letting it reach the floor is
+    // what turns the sky into one flat sheet.
     float cut = mix(FJELL_CLOUD_FIELD_HI, FJELL_CLOUD_FIELD_LO + 0.02, coverage);
-    // The ramp keeps a usable width at every coverage, so there is always a
-    // band of the field being resolved instead of a step everything is above.
-    //
-    // The field only spans FIELD_HI - FIELD_LO, so a width of 0.3 is a third
-    // of everything there is: the transition from sky to cloud takes a third
-    // of the field's whole range, and every silhouette comes out soft. A
-    // drawn cloud ends where it ends, so the style narrows this hard — the
-    // shape is unchanged, only the distance it takes to get there.
-    float width = mix(0.30, 0.22, coverage);
-    width = mix(width, mix(0.075, 0.055, coverage) * mix(1.0, 0.45, fjell_cloud_edge),
-                fjell_cloud_stylize);
+    // How far the sky takes to become cloud. The field only spans
+    // FIELD_HI - FIELD_LO, so a width of 0.3 would be a third of everything
+    // there is and every silhouette would come out soft; a drawn cloud ends
+    // where it ends.
+    float width = mix(0.075, 0.055, coverage) * mix(1.0, 0.45, fjell_cloud_edge);
     float shape = clamp(smoothstep(cut, cut + width, f), 0.0, 1.0);
 
     return shape * mix(0.35, 1.0, density);
@@ -385,24 +351,18 @@ vec4 cloud_layer(vec3 origin, vec3 dir, float coverage, float density,
     // upward, so a window that balances the soft sheet leaves the drawn one
     // uniformly dark, and one that balances the drawn sheet leaves the soft
     // one pale — which is the flat-white overcast this layer exists to avoid.
-    float relief = smoothstep(mix(0.30, FJELL_CLOUD_FIELD_MID - 0.15, fjell_cloud_stylize),
-                              mix(0.95, FJELL_CLOUD_FIELD_HI + 0.13, fjell_cloud_stylize),
-                              field);
+    float relief = smoothstep(FJELL_CLOUD_FIELD_MID - 0.15,
+                              FJELL_CLOUD_FIELD_HI + 0.13, field);
     // Heavier weather is thicker throughout, so the whole sheet darkens as
     // it closes rather than only its densest parts.
     float thickness = mix(0.25, 1.0, relief) * mix(0.45, 1.0, density)
                     * mix(0.65, 1.0, coverage);
 
     float sun_up = max(sun_dir.y, 0.0);
-    float forward = pow(max(dot(dir, sun_dir), 0.0), 8.0);
-
-    // A falloff toward the sun is the most photoreal thing left here, the way
-    // a GGX lobe is in sea.fjsl. Painted, it becomes one flat brightening
-    // where the sun is and nothing outside it.
-    if (fjell_cloud_stylize > 0.0) {
-        float blob = smoothstep(0.55, 0.75, max(dot(dir, sun_dir), 0.0));
-        forward = mix(forward, blob, fjell_cloud_stylize);
-    }
+    // A smooth falloff toward the sun is the most photoreal thing a sky has
+    // left, the way a GGX lobe is in sea.fjsl. Drawn, it is one flat
+    // brightening where the sun is and nothing outside it.
+    float forward = smoothstep(0.55, 0.75, max(dot(dir, sun_dir), 0.0));
 
     // The lit top and the shaded base, as two colours the thickness picks
     // between. A thin scrap is bright and takes the sun's own hue, so it

@@ -239,74 +239,45 @@ clouds.
 
 ### Drawn clouds
 
-The sheet has a `stylize` dial, defaulting to 0, where every term is an
-identity — so the style is turned up against a working cloud layer rather than
-replacing it. A sky assigns the globals in its `sky()` body before calling
-`cloud_layer()`:
+The sheet draws one kind of cloud: crisp shapes with creased, torn edges
+standing against open sky. There is no photoreal mode and no dial between the
+two — a mode nobody uses is a mode nobody maintains.
+
+The look is in **how the field is built**, not in anything applied afterwards.
+Posterising the sheet into flat levels and inking their boundaries was built
+first and thrown away: it reads as a contour map, or as a photograph with the
+contrast pushed, because a flat value is the symptom and the silhouette is the
+cause. What is there instead:
+
+- **Folded octaves.** `abs()` creases the noise at every zero crossing, giving
+  the torn edge a drawn cloud has where plain fbm gives a rounded blob.
+- **A multiplicative contrast term.** Multiplying the field by the turbulence
+  plus its own magnitude empties most of the sky and leaves the cloud that
+  survives with a steep edge. An additive blend only ever produces another
+  even wash.
+- **A narrow cut.** The field spans `FIELD_HI - FIELD_LO`, so a transition
+  width of 0.3 would be a third of everything there is and every silhouette
+  would come out soft.
+
+A sky sets the dials in its `sky()` body before calling `cloud_layer()`:
 
 ```glsl
-fjell_cloud_stylize = stylize;      // 0 off, 1 fully drawn
 fjell_cloud_contrast = cloud_contrast;  // how hard the silhouette is cut
 fjell_cloud_wisp = cloud_wisp;          // round shapes vs torn, filamented
-fjell_cloud_edge = cloud_edge;          // how crisp the outline is
+fjell_cloud_edge = cloud_edge;          // how far sky takes to become cloud
 vec4 cloud = cloud_layer(...);
 ```
 
 They are globals rather than `#define`s deliberately: this include is expanded
 into the sky template *above* the point where a material's uniforms exist, so a
 compile-time constant could not be driven per-material and the dial would not
-be one. `gradient_sky.fjsl` exposes all four as uniforms, so the style rides in
-the `.fjmat`.
+be one. `gradient_sky.fjsl` exposes them as uniforms, so the look rides in the
+`.fjmat`.
 
-**The look is in the field's construction, not in post-processing.** Posterising
-the sheet into flat levels and inking the boundaries was built first and thrown
-away: it reads as a contour map, or as a photograph with the contrast pushed,
-because a flat value is the symptom and the silhouette is the cause. What is
-there instead:
-
-- **Folded octaves.** `abs()` creases the noise at every zero crossing, giving
-  the torn, filamented edge a drawn cloud has where plain fbm gives a rounded
-  blob.
-- **A multiplicative contrast term.** Multiplying the field by itself plus the
-  turbulence drives most of the sky toward nothing and leaves the cloud that
-  survives standing with a steep edge. An additive blend only ever produces
-  another even wash.
-- **A narrow cut.** The unstyled ramp spans about 30% of the field's whole
-  range, so every silhouette comes out soft; the style narrows it by roughly
-  eight times. The shape does not move — only the distance the sky takes to
-  become cloud.
-
-Two things the styled path has to keep in step, and both bit during
-development:
-
-- The styled field is **renormalised back into `FJELL_CLOUD_FIELD_LO..HI`**.
-  Those constants are what every cut measures against, so a styled field that
-  drifts out of the range silently rewrites what a coverage value means — the
-  sheet inverts and the sky fills in where it should be clearing.
-- The **thickness window follows the style**, because the contrast multiply
-  pushes the styled field's mass upward. One fixed window cannot serve both:
-  balanced for the soft sheet it leaves the drawn one uniformly dark, balanced
-  for the drawn one it leaves the soft sheet pale — which is the flat-white
-  overcast this layer exists to avoid.
-
-#### A/B against the Godot reference
-
-`shaders/godot_cloud_sky.fjsl` is a 1:1 port of the Godot cloud shader the
-style was taken from — same noise, same loop counts and weights, same
-`f *= r + f` combination — so the two cloud layers can be compared in the
-engine rather than argued about. Point a WorldEnvironment's Sky Shader at it,
-look at the sky, point it back at `gradient_sky.fjsl`.
-
-What it is not: it ignores `CLOUD_COVERAGE`, `CLOUD_DENSITY` and the weather
-front entirely, and it casts no cloud shadow, because the engine's shadow map
-reads `fjell_cloud_amount()` and this draws its own field. It is a look to
-judge, not a sky to ship.
-
-One number in it is not the reference's: `sheet_metres`, because the original
-was a quad with UV in 0..1 and a sky has no such bound. It defaults to 14000,
-which puts a cloud at roughly the angular size one from `cloud_layer()` has.
-Change it and the A/B starts comparing how big the clouds are instead of how
-they look.
+**The field must stay inside `FIELD_LO..FIELD_HI`.** Those constants are what
+every cut measures against, so a field that drifts out of the range silently
+rewrites what a coverage value means — the sheet inverts and the sky fills in
+where it should be clearing.
 
 #### Cloud size and sheet height
 
