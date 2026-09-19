@@ -3,6 +3,7 @@
 #include "core/math/color_space.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -110,6 +111,25 @@ static std::string trim(const std::string& str) {
     return str.substr(s, e - s + 1);
 }
 
+// A number the author wrote, or nothing if it is not one.
+//
+// std::stof throws on anything unparseable, and the throw used to escape all
+// the way out of the parse — so `uniform float x = abc;` reached the user as
+// the word "stof" and nothing else. Failing to a nullopt lets the caller say
+// which uniform and what it was trying to read.
+static std::optional<float> parse_float(const std::string& text) {
+    try {
+        size_t consumed = 0;
+        const float value = std::stof(text, &consumed);
+        // Trailing characters mean this was not a number: "1.0abc" would
+        // otherwise read as 1.0 and quietly lose the rest.
+        if (trim(text.substr(consumed)).empty()) return value;
+    } catch (const std::exception&) {
+        // fall through
+    }
+    return std::nullopt;
+}
+
 // Split "hint_range(0.0, 1.0, 0.01), hint_emission" on the commas that
 // separate hints, not the ones inside a hint's argument list.
 static std::vector<std::string> split_hint_list(const std::string& list) {
@@ -146,7 +166,14 @@ static void apply_hint(FjslUniform& u, const std::string& token) {
         std::vector<float> vals;
         while (std::getline(as, tok, ',')) {
             auto t = trim(tok);
-            if (!t.empty()) vals.push_back(std::stof(t));
+            if (t.empty()) continue;
+            auto value = parse_float(t);
+            if (!value) {
+                FJELL_GFX_WARN("FJSL: hint_range on '{}' has '{}' where a number belongs",
+                               u.name, t);
+                return;
+            }
+            vals.push_back(*value);
         }
         if (vals.size() >= 2) {
             u.range.min = vals[0];
@@ -181,7 +208,11 @@ static void apply_hint(FjslUniform& u, const std::string& token) {
     u.hint = hint;
 }
 
-static std::vector<float> parse_default_value(const std::string& val_str, UniformType type) {
+// `bad_component` receives the text of the first component that was not a
+// number, when one was not. Empty result with it unset means the declaration
+// simply had no default.
+static std::vector<float> parse_default_value(const std::string& val_str, UniformType type,
+                                              std::string* bad_component = nullptr) {
     std::vector<float> result;
     // Match patterns like "0.5", "vec3(1.0, 0.5, 0.2)", "vec4(1.0)"
     std::string trimmed = val_str;
@@ -193,16 +224,21 @@ static std::vector<float> parse_default_value(const std::string& val_str, Unifor
         trimmed = vm[1].str();
     }
 
-    // Split by commas
+    // Split by commas. A component that is not a number abandons the whole
+    // default rather than contributing a zero: half a colour read from
+    // `vec3(1.0, oops, 0.5)` is worse than falling back to the type's zero,
+    // and `bad_component` lets the caller name what it choked on.
     std::istringstream ss(trimmed);
     std::string token;
     while (std::getline(ss, token, ',')) {
-        // Trim whitespace
-        auto start = token.find_first_not_of(" \t");
-        auto end = token.find_last_not_of(" \t");
-        if (start != std::string::npos) {
-            result.push_back(std::stof(token.substr(start, end - start + 1)));
+        auto t = trim(token);
+        if (t.empty()) continue;
+        auto value = parse_float(t);
+        if (!value) {
+            if (bad_component != nullptr) *bad_component = t;
+            return {};
         }
+        result.push_back(*value);
     }
 
     // If vec3(1.0) given, expand single value
@@ -414,12 +450,24 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             if (s != std::string::npos) {
                 def_str = def_str.substr(s, e - s + 1);
             }
-            u.default_value = parse_default_value(def_str, u.type);
+            std::string bad_component;
+            u.default_value = parse_default_value(def_str, u.type, &bad_component);
+            if (!bad_component.empty()) {
+                diagnose(static_cast<size_t>(it->position(4)), FjslSeverity::warning,
+                         "uniform '" + u.name + "' has '" + bad_component
+                             + "' where its default value belongs; using zero");
+            }
         }
 
         if (u.type == UniformType::Sampler2D) {
             if (texture_slot > 7) {
-                FJELL_GFX_WARN("FJSL: too many custom sampler2D uniforms (max 4), skipping '{}'", u.name);
+                // Skipping leaves the name undefined in the generated GLSL, so
+                // the real complaint arrives later as an undeclared identifier
+                // somewhere the author cannot place. Say it here, where the
+                // declaration is.
+                diagnose(static_cast<size_t>(it->position(2)), FjslSeverity::error,
+                         "uniform '" + u.name + "' is the " + std::to_string(texture_slot - 3)
+                             + "th custom sampler2D; a material has room for 4");
                 continue;
             }
             u.slot = texture_slot++;

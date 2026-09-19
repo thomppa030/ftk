@@ -113,6 +113,57 @@ TEST_CASE("Unsupported shader_type is a located error", "[fjsl]") {
     require_rejected("shader_type canvas;\nvoid fragment() {}");
 }
 
+TEST_CASE("A default that is not a number names the uniform", "[fjsl]") {
+    // This used to reach the user as the word "stof" and nothing else: an
+    // unguarded std::stof threw out of the whole parse.
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float amount = abc;\n"
+                           "void fragment() {}");
+    REQUIRE_FALSE(meta.diagnostics.empty());
+    const auto& d = meta.diagnostics.front();
+    INFO("message: " << d.message);
+    CHECK(d.message.find("amount") != std::string::npos);
+    CHECK(d.message.find("abc") != std::string::npos);
+    CHECK(d.line == 2);
+    // A bad default is not fatal — the uniform still exists, at zero.
+    CHECK_FALSE(meta.has_errors());
+    REQUIRE(meta.uniforms.size() == 1);
+}
+
+TEST_CASE("A partly-numeric vector default is refused whole", "[fjsl]") {
+    // Keeping the components that did parse would put half a colour on the
+    // surface, which reads as a bug in the shader rather than in the file.
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform vec3 tint = vec3(1.0, oops, 0.5);\n"
+                           "void fragment() {}");
+    REQUIRE_FALSE(meta.diagnostics.empty());
+    CHECK(meta.diagnostics.front().message.find("oops") != std::string::npos);
+    REQUIRE(meta.uniforms.size() == 1);
+    CHECK(meta.uniforms[0].default_value.empty());
+}
+
+TEST_CASE("A fifth custom sampler is an error where it is declared", "[fjsl]") {
+    // Skipping it leaves the name undefined in the generated GLSL, so the
+    // real complaint would otherwise arrive as an undeclared identifier at a
+    // line the author cannot place.
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform sampler2D a;\n"
+                           "uniform sampler2D b;\n"
+                           "uniform sampler2D c;\n"
+                           "uniform sampler2D d;\n"
+                           "uniform sampler2D e;\n"
+                           "void fragment() {}");
+    REQUIRE(meta.has_errors());
+    bool named = false;
+    for (const auto& diag : meta.diagnostics) {
+        if (diag.message.find("'e'") != std::string::npos) {
+            CHECK(diag.line == 6);
+            named = true;
+        }
+    }
+    CHECK(named);
+}
+
 // --- shader_type ui ---
 
 TEST_CASE("Parse shader_type ui takes its body from fragment()", "[fjsl][ui]") {

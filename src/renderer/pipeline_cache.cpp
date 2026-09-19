@@ -6,6 +6,7 @@
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "platform/platform.hpp"
 
 #include <glm/glm.hpp>
@@ -174,6 +175,7 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
 }
 
 void PipelineCache::compile_entry(Entry& entry) {
+    FJELL_PROFILE_SCOPE_N("fjsl_compile_entry");
     // Build into a temporary entry — only commit on full success
     Entry next{};
     next.fjsl_path = entry.fjsl_path;
@@ -389,6 +391,9 @@ std::string PipelineCache::compile_glsl(const std::string& source_path,
                                          const std::string& output_name,
                                          const std::vector<std::string>& defines,
                                          const std::string& stage) {
+    // The largest startup cost in the renderer, and until now invisible:
+    // ~64 ms per invocation, once per shader, every launch.
+    FJELL_PROFILE_SCOPE_N("glslc");
     std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
     std::string include_dir = shader_source_dir_ + "/include";
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
@@ -404,7 +409,14 @@ std::string PipelineCache::compile_glsl(const std::string& source_path,
     int status = platform::run_command(cmd, output);
     if (status != 0) {
         FJELL_GFX_ERROR("FJSL shader compilation failed:\n{}", output);
-        throw std::runtime_error("FJSL shader compilation failed for: " + source_path);
+        // Carry what the compiler said, not just which file it was compiling.
+        // This is what reaches entry.compile_error and the editor's shader
+        // panel; the path alone sent the reader to the log to find out what
+        // was actually wrong. #line makes the text name the .fjsl, so it is
+        // worth showing.
+        throw std::runtime_error(output.empty()
+                                     ? "shader compilation failed for: " + source_path
+                                     : output);
     }
 
     FJELL_GFX_DEBUG("Compiled FJSL shader: {} -> {}", source_path, spv_path);
