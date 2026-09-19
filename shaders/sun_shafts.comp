@@ -20,6 +20,12 @@
 
 #include "fjell_global_ubo.glsl"
 
+// How much of the angular cone fade survives on a pixel that has geometry
+// in it. Crepuscular rays genuinely reach the ground far from the sun, so
+// the fade must not close to nothing there; the shafts are the thing that
+// has to stop short of whatever stands in front of them.
+#define FJELL_SHAFT_GROUND_FLOOR 0.35
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
@@ -227,15 +233,31 @@ void main() {
         if (transmittance < 0.01) break;
     }
 
-    // The cone around the sun that shafts may fill — sky pixels only.
-    // Geometry pixels get crepuscular rays from whichever direction the sun
-    // is, including at wide view angles; bounding them by angle avoids a
-    // visible "cone of light" gradient on the ground. This limits where
-    // shafts are drawn and paints no glow of its own.
-    float cone_fade = 1.0;
-    if (raw_depth >= 1.0) {
-        cone_fade = smoothstep(pc.cone_outer, pc.cone_inner, cos_theta);
-    }
+    // How much of the cone around the sun this ray sits in, on every pixel
+    // rather than the sky ones alone. Applied only where the sky shows
+    // through, the shafts stay at full strength on whatever stands in front
+    // of them, so the lit region sits unbroken over a hill or a mast and
+    // jumps across the silhouette.
+    //
+    // A pixel holding geometry keeps a floor under the fade, because
+    // crepuscular rays do reach the ground at wide angles from the sun —
+    // what the sky-only test was protecting. Capping those to zero paints a
+    // "cone of light" edge across the ground.
+    //
+    // How much floor is a question of how far away the surface is, not of
+    // whether one is there: a hillside a few metres off blocks the haze
+    // behind it, while a shore at the far plane is barely in front of the
+    // sky and should read almost like it. Keying it to depth keeps the fade
+    // continuous — testing `raw_depth < 1.0` instead snaps the floor in at
+    // the silhouette, which is the hard edge it was meant to remove.
+    //
+    // `scene_dist` is already the world distance this ray travelled before
+    // it hit something, clamped to the march's reach, and is the far reach
+    // on a ray that hit nothing — so it says both whether an occluder is
+    // there and how near it is, with no extra depth maths.
+    float occluder = 1.0 - smoothstep(0.0, max_ray_dist, scene_dist);
+    float cone_fade = smoothstep(pc.cone_outer, pc.cone_inner, cos_theta);
+    cone_fade = mix(cone_fade, mix(FJELL_SHAFT_GROUND_FLOOR, 1.0, cone_fade), occluder);
 
     // Threshold: subtract a share of the unshadowed integral and renormalise
     // so a fully lit ray is unchanged while a partly shadowed one falls off
