@@ -50,7 +50,7 @@ void sky() {
     SKY = mix(base * 0.85, base, t);
     SKY = mix(SKY, SUN_COLOR * 0.4, warmth * (1.0 - t) * 0.5);
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE);
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME);
 
     // The weather's cloud layer, thickened by the shader's own density so
     // the painterly look has clouds even on a clear day.
@@ -63,13 +63,13 @@ void sky() {
     // A strike lights the clouds from within.
     SKY += cloud.rgb * cloud.a * LIGHTNING * 3.0;
 
-    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.9994);
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.6);
 
     // Sun glow blooms through the painterly clouds; the disc itself is the
     // direct light's job when this sky is captured for lighting.
     float sun_dot = max(dot(VIEW_DIR, SUN_DIR), 0.0);
     SKY += SUN_COLOR * pow(sun_dot, 16.0) * sun_glow * 0.25;
     if (!SKY_FOR_LIGHTING) {
-        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, 0.9993, sun_glow);
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, 0.6, 1.8, sun_glow);
     }
 }

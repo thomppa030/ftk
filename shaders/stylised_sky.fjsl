@@ -13,8 +13,8 @@ uniform vec3 dusk_horizon : hint_color = vec3(1.0, 0.5, 0.2);
 uniform vec3 night_zenith : hint_color = vec3(0.02, 0.03, 0.08);
 uniform vec3 night_horizon : hint_color = vec3(0.1, 0.1, 0.2);
 uniform float bands : hint_range(2.0, 12.0, 1.0) = 5.0;
-uniform float sun_size : hint_range(0.95, 0.9999, 0.0001) = 0.997;
-uniform float moon_size : hint_range(0.95, 0.9999, 0.0001) = 0.998;
+uniform float sun_size : hint_range(0.2, 8.0, 0.05) = 1.5;
+uniform float moon_size : hint_range(0.2, 8.0, 0.05) = 1.2;
 
 void sky() {
     // Which palette: night below the horizon, dusk around it, day above.
@@ -28,14 +28,14 @@ void sky() {
     t = floor(t * bands) / bands;
     SKY = mix(horizon, zenith, t) * SKY_TINT;
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE) * 1.5;
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME) * 1.5;
 
     // A large, flat moon with a hard edge.
-    float moon = step(moon_size, dot(VIEW_DIR, MOON_DIR));
+    float moon = step(cos(radians(moon_size)), dot(VIEW_DIR, MOON_DIR));
     SKY += MOON_COLOR * moon * 8.0;
 
     if (!SKY_FOR_LIGHTING) {
-        float sun = step(sun_size, dot(VIEW_DIR, SUN_DIR));
+        float sun = step(cos(radians(sun_size)), dot(VIEW_DIR, SUN_DIR));
         SKY += SUN_COLOR * sun * 2.0;
     }
 
