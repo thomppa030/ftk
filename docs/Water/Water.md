@@ -70,6 +70,15 @@ A sea is usually five or six trains. The editor's **generator** fills the list
 from a wind direction, a swell height and a falloff, and the list is then yours
 to edit — generate, then tune.
 
+The water editor's **Sea** panel lists the field's contributors. Select one and
+the rest of the panel, and the **Waves** panel beside it, are that
+contributor's: its generator, its scales and headroom, its wind response, its
+trains. **Add Gerstner**, **Up**, **Down** and **Remove** work on the list;
+order changes nothing about the sea, only how you keep it. The measures under
+the list — crest to trough, longest period, shortest train — and the folding
+percentage are always of the whole sea, because that is what gets drawn and
+what folds.
+
 `wavelength_falloff` is what separates a wind sea from a swell. Near 0.5 each
 train is half the last, the long ones are quickly buried under chop, and the
 surface reads as locally whipped up. Near 0.85 the trains stay close in size,

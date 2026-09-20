@@ -37,11 +37,15 @@ struct WaterEditorDeps {
 
 /// Edits a `.fjwater`: the wave field of a body of water.
 ///
-/// A sea is authored twice over. The generator gives a plausible one from
-/// wind, swell and chop — the quick way to somewhere close — and the wave
-/// list beneath it is the asset, where any train can then be taken by hand.
-/// Generating overwrites the list, which is the point: it is a starting
-/// shape, not a mode the asset stays in.
+/// A field is a list of contributors whose motions add, and the editor works
+/// on one of them at a time: pick it in the list, and the rest of the "Sea"
+/// panel and the "Waves" panel are that contributor's.
+///
+/// A Gerstner contributor is authored twice over. The generator gives a
+/// plausible sea from wind, swell and chop — the quick way to somewhere close
+/// — and the wave list beneath it is the asset, where any train can then be
+/// taken by hand. Generating overwrites the list, which is the point: it is a
+/// starting shape, not a mode the contributor stays in.
 ///
 /// Every edit reaches the loaded asset at once so the viewport shows the sea
 /// being shaped rather than the one last saved. Ctrl+S writes the file.
@@ -82,8 +86,19 @@ private:
     /// and `preview_wind_`, the way the environment does for a placed sea.
     void apply_preview_wind();
 
+    /// The "Sea" panel: the preview material, the field's contributor list
+    /// and measures, then the selected contributor's generator, scales and
+    /// wind response.
     void draw_generator_panel();
+    /// The "Waves" panel: the selected contributor's trains.
     void draw_wave_list_panel();
+    /// The contributors, with add, remove and reorder on the selected one.
+    void draw_contributor_list();
+    /// The wind the preview is blown at. Draws nothing while no contributor
+    /// answers the wind.
+    void draw_preview_wind();
+    /// Height, longest period and shortest train of the whole sea.
+    void draw_measures();
     /// Copy the edited field into the loaded asset so the viewport follows
     /// without a save.
     void push_live();
