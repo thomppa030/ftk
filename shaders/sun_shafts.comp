@@ -20,11 +20,51 @@
 
 #include "fjell_global_ubo.glsl"
 
-// How much of the angular cone fade survives on a pixel that has geometry
-// in it. Crepuscular rays genuinely reach the ground far from the sun, so
-// the fade must not close to nothing there; the shafts are the thing that
-// has to stop short of whatever stands in front of them.
-#define FJELL_SHAFT_GROUND_FLOOR 0.35
+// How hard the glow favours the horizon, as an air-mass exponent.
+//
+// Gentler than the sky's, and for a different reason: a ray toward the
+// horizon does cross more air, but this pass spends most of its brightness
+// on surfaces rather than on open sky, and there the stretch reads as the
+// ground being lit rather than as the air between. The sky's own halo keeps
+// the fuller curve, where the argument actually holds.
+#define FJELL_SHAFT_HORIZON_STRETCH 0.15
+
+// What is left of the shafts on a ray that met nothing.
+//
+// Zero: a ray that found no occluder collected the same lit sample at every
+// step, so what it returns is the phase times the cone and nothing else —
+// functions of the angle to the sun alone, whose level sets are circles. No
+// scale on that draws anything but a disc; it only sets how visible the disc
+// is. So the pass keeps what only it can draw, beams bounded by the shadows
+// of real geometry, and hands open sky to the sky's own halo, which covers
+// the same angles behind the clouds and the terrain at full resolution.
+//
+// The fade rides `occluder` rather than a depth test, so a hillside against
+// the sky still comes up through it continuously instead of stepping at the
+// silhouette.
+#define FJELL_SHAFT_OPEN_SKY 0.0
+
+// How much a beam's edge spreads per metre the light has travelled, in metres
+// of penumbra. A shaft is not a solid wedge with a rim: it is light that has
+// been spreading since whatever cut it, and the far end of one is soft enough
+// that there is no telling where it ends. The surface filter is tuned the other
+// way — five centimetres in the near cascade, which is right for the foot of a
+// wall and wrong for the air above it.
+#define FJELL_SHAFT_SOFTNESS 0.02
+
+// Where along a ray the run-out fade begins, as a share of how far that ray
+// reaches. A march ends when it leaves the shadow cascades, and ending at full
+// brightness cuts the beam flat across open air; fading over the last stretch
+// lets it thin out instead. Earlier than the distance fade below it, which is
+// measured against the authored reach and is often not the binding limit — a
+// ray climbing toward a low sun leaves the cascades first.
+#define FJELL_SHAFT_RUNOUT_START 0.65
+
+// How far away a sky pixel is reprojected from, for the temporal blend. Far
+// enough that a frame of camera movement cannot shift it measurably — at ten
+// kilometres a metre of travel is a fiftieth of a pixel — and near enough to
+// stay well inside a float's precision.
+#define FJELL_SHAFT_SKY_DISTANCE 10000.0
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -33,8 +73,10 @@ FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 FJELL_DECLARE_ENVIRONMENT_UBO(0, FJELL_ENVIRONMENT_UBO_BINDING, env_ubo);
 layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
 #include "fjell_cloud_shadow.glsl"
+#include "fjell_air_mass.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
+#include "fjell_shadow.glsl"
 
 layout(set = 1, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_out;
 layout(set = 1, binding = 1) uniform sampler2D depth_texture;
@@ -50,9 +92,6 @@ layout(push_constant) uniform PushConstants {
     uint step_count;
     uint frame_index;
     float history_blend;
-    float jitter;
-    float cone_inner;
-    float cone_outer;
     float directionality;
     float threshold;
 } pc;
@@ -96,28 +135,8 @@ float ign(ivec2 coord, uint frame) {
 // Returns shadow in [0,1], or -1 if the sample is outside all cascades
 // (caller should stop the march — beyond-cascade in-scatter has no shape
 // and would just add a uniform sun-direction blob).
-float sample_cascade_shadow(vec3 world_pos) {
-    float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
-
-    int cascade = 2;
-    for (int i = 0; i < 3; ++i) {
-        if (view_depth < ubo.cascade_splits[i]) {
-            cascade = i;
-            break;
-        }
-    }
-
-    vec4 lp = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
-    vec3 proj = lp.xyz / lp.w;
-    vec2 suv = proj.xy * 0.5 + 0.5;
-
-    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 ||
-        proj.z < 0.0 || proj.z > 1.0) {
-        return -1.0;
-    }
-
-    float bias = 0.002 * (1.0 + float(cascade));
-    return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias)) * cloud_shadow_factor(world_pos);
+float sample_cascade_shadow(vec3 world_pos, vec2 seed, float softness) {
+    return shadow_factor_volumetric(world_pos, seed, softness) * cloud_shadow_factor(world_pos);
 }
 
 void main() {
@@ -198,10 +217,32 @@ void main() {
     for (uint i = 0; i < pc.step_count; ++i) {
         vec3 world_pos = ray_origin + ray_dir * march_t;
 
-        float shadow = sample_cascade_shadow(world_pos);
-        // Beyond the shadow cascades there's no meaningful shaft shape —
-        // end the march here so the accumulated radiance stops growing.
+        // A beam's edge spreads with how far the light has come since it
+        // passed the occluder. The march has no occluder distance to hand, but
+        // distance along the ray stands in for it closely enough: the far end
+        // of a shaft is the part that has travelled furthest and is the part
+        // that should be softest.
+        float softness = FJELL_SHAFT_SOFTNESS * march_t;
+        float shadow = sample_cascade_shadow(world_pos, vec2(coord) + float(i) * 7.13, softness);
+        // Beyond the shadow cascades there is no shape to be had, so the march
+        // ends — but it has to end by fading out rather than by stopping. A ray
+        // climbing toward a low sun leaves the cascades long before it reaches
+        // `max_reach`, so the distance fade below is still near one when that
+        // happens, and ending outright leaves the beam at full brightness: a
+        // flat cut across open air where the coverage ran out, which is nothing
+        // in the world.
+        //
+        // So the run-out is measured forward. Each step asks where the sample
+        // some way ahead of it would land, and fades once that one is past the
+        // boundary — by the time this ray reaches the edge it has already
+        // thinned to nothing, and the seam has nothing to show.
         if (shadow < 0.0) break;
+
+        // `max_ray_dist` already holds where this ray runs out — the nearer of
+        // its reach and the furthest cascade — so the fade is a smoothstep
+        // toward it and costs nothing.
+        float cascade_fade =
+            1.0 - smoothstep(max_ray_dist * FJELL_SHAFT_RUNOUT_START, max_ray_dist, march_t);
 
         // World-space distance fade: each sample's contribution falls off
         // with distance from the camera, independent of the ray's total
@@ -223,7 +264,8 @@ void main() {
         // In-scatter: phase × density × (1 - seg_tr)/extinction gives the
         // energy-conserving per-segment contribution; sun radiance and
         // shadow scale it.
-        float seg_light = phase * pc.density * dist_fade * (1.0 - seg_tr) / max(extinction, 1e-6);
+        float seg_light = phase * pc.density * dist_fade * cascade_fade
+                          * (1.0 - seg_tr) / max(extinction, 1e-6);
 
         accumulated += transmittance * seg_light * shadow;
         unshadowed += transmittance * seg_light;
@@ -233,31 +275,46 @@ void main() {
         if (transmittance < 0.01) break;
     }
 
-    // How much of the cone around the sun this ray sits in, on every pixel
-    // rather than the sky ones alone. Applied only where the sky shows
-    // through, the shafts stay at full strength on whatever stands in front
-    // of them, so the lit region sits unbroken over a hill or a mast and
-    // jumps across the silhouette.
+    // Whether this ray met anything, and how near it was.
     //
-    // A pixel holding geometry keeps a floor under the fade, because
-    // crepuscular rays do reach the ground at wide angles from the sun —
-    // what the sky-only test was protecting. Capping those to zero paints a
-    // "cone of light" edge across the ground.
-    //
-    // How much floor is a question of how far away the surface is, not of
-    // whether one is there: a hillside a few metres off blocks the haze
-    // behind it, while a shore at the far plane is barely in front of the
-    // sky and should read almost like it. Keying it to depth keeps the fade
-    // continuous — testing `raw_depth < 1.0` instead snaps the floor in at
-    // the silhouette, which is the hard edge it was meant to remove.
-    //
-    // `scene_dist` is already the world distance this ray travelled before
-    // it hit something, clamped to the march's reach, and is the far reach
-    // on a ray that hit nothing — so it says both whether an occluder is
-    // there and how near it is, with no extra depth maths.
+    // `scene_dist` is already the world distance the ray travelled before it
+    // hit something, clamped to the march's reach, and is the far reach on a
+    // ray that hit nothing — so it says both whether an occluder is there and
+    // how close, with no extra depth maths. Being a distance rather than a
+    // test, it varies continuously across a silhouette instead of stepping at
+    // it.
     float occluder = 1.0 - smoothstep(0.0, max_ray_dist, scene_dist);
-    float cone_fade = smoothstep(pc.cone_outer, pc.cone_inner, cos_theta);
-    cone_fade = mix(cone_fade, mix(FJELL_SHAFT_GROUND_FLOOR, 1.0, cone_fade), occluder);
+
+    // What survives of the march, before the sun's own colour and strength.
+    //
+    // Not an angular window any more. There used to be a cone around the sun
+    // here, clipping the shafts to a fixed spread and holding a floor under
+    // them on geometry, because a ray that met nothing returned the phase and
+    // nothing else and washed the sky with it. The open-sky fade below answers
+    // that directly — it asks whether the ray found an occluder rather than
+    // guessing from the angle to the sun — so the cone was left scaling beams
+    // that had earned their shape, and cutting the wide ones a real sky keeps.
+    // The phase function is the angular falloff, and it is the physical one.
+    float shaft_fade = 1.0;
+
+    // Open sky belongs to the sky, not to this pass.
+    //
+    // A ray that reaches the end of the march without meeting anything has
+    // no shadow to shape it: every sample it took was lit, so what it returns
+    // is the phase and nothing else — a plate of constant brightness, which is
+    // what makes the glow around the sun look pasted on. The sky's own halo
+    // covers the same angles with a real falloff, at full resolution, behind
+    // the clouds and the terrain, and with no history to smear when the camera
+    // moves. It is strictly the better picture of the same light.
+    //
+    // So the shafts keep what only they can draw — beams bounded by the
+    // shadows of real geometry — and hand the open sky over. Faded by
+    // `occluder` rather than switched on depth, so a silhouette does not step.
+    shaft_fade *= mix(1.0, FJELL_SHAFT_OPEN_SKY, 1.0 - occluder);
+
+    // Stretched toward the horizon by the air the ray looks through. See
+    // fjell_air_mass.glsl; the sky's own halo is scaled by the same curve.
+    shaft_fade *= fjell_air_mass_gain(ray_dir, FJELL_SHAFT_HORIZON_STRETCH);
 
     // Threshold: subtract a share of the unshadowed integral and renormalise
     // so a fully lit ray is unchanged while a partly shadowed one falls off
@@ -267,13 +324,35 @@ void main() {
         accumulated = max(accumulated - pc.threshold * unshadowed, 0.0) / (1.0 - pc.threshold);
     }
 
-    vec3 result = sun_color * sun_response * accumulated * pc.intensity * cone_fade;
+    vec3 result = sun_color * sun_response * accumulated * pc.intensity * shaft_fade;
 
     // Temporal accumulation: blend with previous frame's shafts.
     // Screen-space reproject using prev view-projection.
     if (pc.history_blend > 0.0) {
-        // Use a representative mid-ray point for reprojection (half of scene_dist).
-        vec3 repro_world = ray_origin + ray_dir * (scene_dist * 0.5);
+        // Where to look this pixel up in last frame's buffer. A point halfway
+        // along the march stands for the whole ray, which is right while the
+        // ray ends on something: the in-scatter it collected came from there
+        // and it moves with the camera.
+        //
+        // A ray that hit nothing ends at the march's reach rather than at a
+        // surface, and that is not where its light came from — the sky is
+        // effectively infinitely far, and infinitely far things do not shift
+        // when the camera moves, only when it turns. Reprojecting one as if
+        // it sat a hundred and fifty metres out gives it a parallax it does
+        // not have: about a pixel a frame at a walking pace, held for ten
+        // frames by an 0.85 blend, which drags the halo across the sky
+        // whenever the camera translates.
+        //
+        // So a sky pixel reprojects by rotation alone. Carrying the ray out
+        // from the *previous* eye rather than this one is what drops the
+        // translation: the direction is what survives to infinity.
+        vec3 repro_world;
+        if (raw_depth >= 1.0) {
+            vec3 prev_eye = -(transpose(mat3(ubo.prev_view)) * ubo.prev_view[3].xyz);
+            repro_world = prev_eye + ray_dir * FJELL_SHAFT_SKY_DISTANCE;
+        } else {
+            repro_world = ray_origin + ray_dir * (scene_dist * 0.5);
+        }
         vec4 prev_clip = ubo.prev_view_proj * vec4(repro_world, 1.0);
         if (prev_clip.w > 0.0) {
             vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;

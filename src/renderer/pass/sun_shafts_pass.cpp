@@ -3,6 +3,7 @@
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/gpu/vk_check.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
@@ -28,9 +29,6 @@ struct ShaftsMarchPush {
     uint32_t step_count;
     uint32_t frame_index;
     float history_blend;
-    float jitter;
-    float cone_inner;
-    float cone_outer;
     float directionality;
     float threshold;
 };
@@ -116,18 +114,6 @@ VkImageMemoryBarrier2 make_barrier(VkImage image,
     return b;
 }
 
-float halton(int index, int base) {
-    float result = 0.0f;
-    float f = 1.0f / static_cast<float>(base);
-    int i = index;
-    while (i > 0) {
-        result += f * static_cast<float>(i % base);
-        i /= base;
-        f /= static_cast<float>(base);
-    }
-    return result;
-}
-
 } // namespace
 
 // ── Image helpers ──────────────────────────────────────────────────────────
@@ -208,7 +194,8 @@ void SunShaftsPass::Images::create(VkDevice device, VmaAllocator allocator,
     pool_ci.maxSets = total_sets;
     pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
     pool_ci.pPoolSizes = pool_sizes.data();
-    vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool);
+    vk_check(vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool),
+             "Failed to create sun shafts descriptor pool");
 
     // Allocate march sets (2 ping-pong × MAX_FRAMES_IN_FLIGHT)
     for (uint32_t p = 0; p < 2; ++p) {
@@ -219,7 +206,8 @@ void SunShaftsPass::Images::create(VkDevice device, VmaAllocator allocator,
         alloc.descriptorPool = pool;
         alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         alloc.pSetLayouts = layouts.data();
-        vkAllocateDescriptorSets(device, &alloc, march_sets[p].data());
+        vk_check(vkAllocateDescriptorSets(device, &alloc, march_sets[p].data()),
+                 "Failed to allocate sun shafts march descriptor sets");
     }
 
     // Allocate composite sets
@@ -231,7 +219,8 @@ void SunShaftsPass::Images::create(VkDevice device, VmaAllocator allocator,
         alloc.descriptorPool = pool;
         alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
         alloc.pSetLayouts = layouts.data();
-        vkAllocateDescriptorSets(device, &alloc, composite_sets.data());
+        vk_check(vkAllocateDescriptorSets(device, &alloc, composite_sets.data()),
+                 "Failed to allocate sun shafts composite descriptor sets");
     }
 
     // Pre-write binding 0 (output storage image) on each march set — this
@@ -323,7 +312,8 @@ Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
         ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         ci.bindingCount = static_cast<uint32_t>(bindings.size());
         ci.pBindings = bindings.data();
-        vkCreateDescriptorSetLayout(device_, &ci, nullptr, &march_set_layout_);
+        vk_check(vkCreateDescriptorSetLayout(device_, &ci, nullptr, &march_set_layout_),
+                 "Failed to create sun shafts march descriptor set layout");
 
         std::array layouts{global_set_layout, march_set_layout_};
         march_pipeline_layout_ = create_pipeline_layout(
@@ -355,7 +345,8 @@ Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
         ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         ci.bindingCount = static_cast<uint32_t>(bindings.size());
         ci.pBindings = bindings.data();
-        vkCreateDescriptorSetLayout(device_, &ci, nullptr, &composite_set_layout_);
+        vk_check(vkCreateDescriptorSetLayout(device_, &ci, nullptr, &composite_set_layout_),
+                 "Failed to create sun shafts composite descriptor set layout");
 
         std::array layouts{global_set_layout, composite_set_layout_};
         composite_pipeline_layout_ = create_pipeline_layout(
@@ -406,8 +397,6 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
     anisotropy_ = shafts.anisotropy;
     directionality_ = shafts.directionality;
     threshold_ = shafts.threshold;
-    cone_inner_ = shafts.cone_inner;
-    cone_outer_ = shafts.cone_outer;
     fog_density_ = ctx.environment->fog.density;
 }
 
@@ -424,6 +413,16 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
+    // The march samples the cascades every step, so the shadow pass has to
+    // finish first. Declared rather than left to the producer's inline
+    // finalize barrier, which is the edge the DAG could not otherwise see.
+    if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
+        builder.read(atlas, ResourceAccess::sampled_compute);
+    }
+    // The cloud shadow map is not here because it is not in the catalog:
+    // CloudShadowPass keeps it private and binds it through the global
+    // descriptor set, so there is no handle to import. Its ordering rests on
+    // that pass's own barrier.
     // Half-res ping-pong textures are pass-private and stay inline.
 }
 
@@ -572,10 +571,6 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     march_push.step_count = static_cast<uint32_t>(std::max(step_count_, 4));
     march_push.frame_index = imgs.frame_counter;
     march_push.history_blend = imgs.shafts_ready[prev] ? 0.85f : 0.0f;
-    int frame_idx = static_cast<int>(imgs.frame_counter % 16) + 1;
-    march_push.jitter = halton(frame_idx, 2) - 0.5f;
-    march_push.cone_inner = cone_inner_;
-    march_push.cone_outer = cone_outer_;
     march_push.directionality = std::clamp(directionality_, 0.0f, 1.0f);
     march_push.threshold = std::clamp(threshold_, 0.0f, 0.95f);
 

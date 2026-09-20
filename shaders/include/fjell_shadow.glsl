@@ -28,6 +28,11 @@ mat2 random_rotation(vec2 frag_coord) {
     return mat2(c, s, -s, c);
 }
 
+// The surface lookups below seed their disk rotation from gl_FragCoord, which
+// only a fragment stage has. A compute stage including this file gets the
+// volumetric lookup at the bottom, which takes its seed as an argument.
+#ifdef GL_FRAGMENT_SHADER
+
 // Sample shadow with rotated Poisson PCF
 // Requires: ubo.cascade_vp, ubo.cascade_splits, shadow_map (sampler2DArrayShadow)
 float sample_shadow_pcf(vec3 world_pos, int cascade, float NdotL_for_bias, float view_depth) {
@@ -100,6 +105,78 @@ float shadow_factor(vec3 world_pos, vec3 normal, float NdotL_for_bias) {
     }
 
     return shadow;
+}
+
+#endif // GL_FRAGMENT_SHADER
+
+/// Shadow at a point in the air, for a ray march through the cascades.
+///
+/// The surface lookup above cannot serve this: it offsets along a normal, and
+/// a point in mid-air has none. What it does share is the filter — a single
+/// hardware tap over a cascade spanning hundreds of metres is very nearly a
+/// binary test, and a march that flips whole samples from lit to shadowed
+/// draws the edge of a shaft as a cut. The same rotated Poisson disk softens
+/// it, so the beam's edge matches the one the ground shows for the same
+/// occluder.
+///
+/// `seed` rotates the disk; pass the pixel coordinate, and vary it per sample
+/// along the ray so the march dithers rather than banding.
+///
+/// `softness` widens the disk beyond what a surface would use, in metres of
+/// world space. A contact shadow wants a crisp edge and gets one from the
+/// filter widths above — a few texels, which in the near cascade is five
+/// centimetres. A shaft in the air is the opposite: its edge is where the
+/// occluder's penumbra has spread through the distance the light travelled to
+/// reach that air, metres of it, and an edge any tighter reads as a solid
+/// wedge rather than as light. Give it the distance from the occluder and it
+/// softens the way the real one does.
+///
+/// Returns -1 when the point lies outside every cascade, which a caller marching
+/// outward uses to stop: past the last cascade there is no shadow data, and
+/// integrating on as though it were lit invents light.
+float shadow_factor_volumetric(vec3 world_pos, vec2 seed, float softness) {
+    float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
+
+    int cascade = 2;
+    for (int i = 0; i < 3; ++i) {
+        if (view_depth < ubo.cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+
+    vec4 lp = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
+    vec3 proj = lp.xyz / lp.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 ||
+        proj.z < 0.0 || proj.z > 1.0) {
+        return -1.0;
+    }
+
+    // No normal to offset along, so the bias is depth-only and scaled per
+    // cascade the way the surface path scales its own.
+    float cascade_scale = 1.0 + float(cascade) * 0.5;
+    float compare_depth = proj.z - 0.002 * cascade_scale;
+
+    float cascade_near = (cascade == 0) ? 0.0 : ubo.cascade_splits[cascade - 1];
+    float cascade_far = ubo.cascade_splits[cascade];
+    float t = clamp((view_depth - cascade_near) / (cascade_far - cascade_near), 0.0, 1.0);
+    // The surface width, plus the requested softness converted from metres to
+    // texels of this cascade. The conversion is per cascade because a texel is
+    // 2 cm across in the near one and 24 cm in the far one, and a fixed texel
+    // count would soften by ten times as much out there.
+    float world_per_texel = (cascade_far - cascade_near) / SHADOW_MAP_SIZE_F;
+    float texels = 2.5 + float(cascade) * 1.0 + t * 1.5
+                 + softness / max(world_per_texel, 1e-4);
+    float spread = texels / SHADOW_MAP_SIZE_F;
+
+    mat2 rot = random_rotation(seed);
+    float shadow = 0.0;
+    for (int i = 0; i < 8; ++i) {
+        vec2 offset = rot * POISSON_DISK[i] * spread;
+        shadow += texture(shadow_map, vec4(uv + offset, float(cascade), compare_depth));
+    }
+    return shadow / 8.0;
 }
 
 #endif

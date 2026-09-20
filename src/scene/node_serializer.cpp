@@ -157,9 +157,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"shaft_step_count", vf->shaft_step_count},
             {"shaft_anisotropy", vf->shaft_anisotropy},
             {"shaft_directionality", vf->shaft_directionality},
-            {"shaft_threshold", vf->shaft_threshold},
-            {"shaft_cone_inner", vf->shaft_cone_inner},
-            {"shaft_cone_outer", vf->shaft_cone_outer}
+            {"shaft_threshold", vf->shaft_threshold}
         };
     } else if (auto* fv = dynamic_cast<const FogVolumeNode*>(&node)) {
         j["node_type"] = "fog_volume";
@@ -429,14 +427,11 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->shaft_anisotropy = jf.value("shaft_anisotropy", 0.75f);
                 vf->shaft_directionality = jf.value("shaft_directionality", 1.0f);
                 vf->shaft_threshold = jf.value("shaft_threshold", 0.0f);
-                // Named `shaft_halo_*` until 2026-09-19, when they were
-                // renamed to say what they do: they bound the cone shafts
-                // fill, rather than painting a halo. Scenes saved before
-                // that still carry the old keys.
-                vf->shaft_cone_inner =
-                    jf.value("shaft_cone_inner", jf.value("shaft_halo_inner", 0.95f));
-                vf->shaft_cone_outer =
-                    jf.value("shaft_cone_outer", jf.value("shaft_halo_outer", 0.6f));
+                // A scene may still carry `shaft_cone_inner`/`_outer` (or the
+                // older `shaft_halo_*`). The cone is gone — the open-sky fade
+                // asks whether the ray met an occluder instead of guessing
+                // from the angle to the sun — so the keys are read past and
+                // dropped on the next save.
             }
             node = std::move(vf);
         } else if (node_type == "fog_volume") {

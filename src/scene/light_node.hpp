@@ -269,13 +269,6 @@ struct VolumetricFogNode : Node3D {
     // shadow wedges stay readable once the haze is added onto a bright scene.
     // Not physical: an art control, 0 leaves the march untouched.
     float shaft_threshold{0.0f};
-    // The cone around the sun that shafts are allowed to fill, as cosines of
-    // the angle from the sun direction. This limits where shafts are drawn —
-    // it paints no glow of its own. Without it a pixel takes shafts from
-    // whatever direction the sun is, however wide the view angle, and the
-    // result is a visible "cone of light" gradient across the ground.
-    float shaft_cone_inner{0.95f};  // cos(angle): shafts at full strength within this cone
-    float shaft_cone_outer{0.6f};   // cos(angle): shafts fade to zero here (wider = more sky coverage)
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<VolumetricFogNode>();
@@ -297,8 +290,6 @@ struct VolumetricFogNode : Node3D {
         copy->shaft_anisotropy = shaft_anisotropy;
         copy->shaft_directionality = shaft_directionality;
         copy->shaft_threshold = shaft_threshold;
-        copy->shaft_cone_inner = shaft_cone_inner;
-        copy->shaft_cone_outer = shaft_cone_outer;
         return copy;
     }
 };
