@@ -205,6 +205,68 @@ struct GerstnerContributor {
     WaterWindResponse wind;
 };
 
+/// Simulated water: a wind-driven spectrum rather than a list of trains.
+///
+/// Where a Gerstner contributor is authored one wave at a time, this is a
+/// statistical description — a wind, how far it has blown over open water,
+/// and what the sea it raises is then shaped into. Groups, crest variety and
+/// detail that does not repeat are what a real spectrum gives for nothing and
+/// what no hand-written list of trains does.
+///
+/// The spectrum is JONSWAP: the measured shape of a sea still growing under
+/// the wind that is raising it, which is every sea a game shows. The three
+/// dials after the wind are stylisation on top of it, because a correct ocean
+/// is busier than a readable one.
+struct FftContributor {
+    /// Direction the wind blows across the ground plane, world XZ. Waves
+    /// travel with it.
+    glm::vec2 wind_direction{1.0f, 0.0f};
+
+    /// Wind speed the spectrum is raised by, in m/s. 8 is a fresh breeze, the
+    /// same reference a Gerstner contributor is authored at.
+    float wind_speed{8.0f};
+
+    /// How far the wind has blown over open water to get here, in metres.
+    /// With wind speed it decides how grown the sea is: a short fetch is a
+    /// lake's steep short chop, a long one the open ocean's heavy swell under
+    /// the same wind.
+    float fetch{100000.0f};
+
+    /// Half-angle, in degrees either side of the wind, at which the sea
+    /// carries half the energy it carries straight downwind. Narrow it and
+    /// the crests become long, parallel, graphic ridges; widen it and the sea
+    /// turns confused.
+    float spread_degrees{35.0f};
+
+    /// Wavelength in metres below which the sea is faded out, or 0 to keep
+    /// everything the grid can hold. The single biggest stylisation control:
+    /// it is what turns a busy correct ocean into a few big readable swells.
+    /// A fade rather than a wall, so nothing rings.
+    float high_cut{0.0f};
+
+    /// How far crests are pinched, as a multiplier on the horizontal
+    /// displacement the spectrum implies. 0 is a heightfield of rolling
+    /// hills, 1 the physical amount, and past it crests sharpen until they
+    /// fold. The same motion a Gerstner train's steepness buys.
+    float choppiness{1.0f};
+
+    /// Multiplies the height of the whole simulated sea.
+    float amplitude_scale{1.0f};
+
+    /// The side of the square of sea that is simulated, in metres; it tiles
+    /// beyond that. It wants to hold several of the longest waves the wind
+    /// raises, or they are cut off, and few enough that the grid still
+    /// resolves the short ones.
+    float patch_size{256.0f};
+
+    /// Samples along each side of the patch. A power of two.
+    std::uint32_t resolution{256};
+
+    /// Picks which sea of all the seas this spectrum describes. The same
+    /// seed is the same water on every machine.
+    std::uint32_t seed{1};
+};
+
 /// One source of surface motion in a `.fjwater`. The surface is the sum of
 /// every contributor, so nothing downstream needs to know which kinds a sea
 /// is made of.

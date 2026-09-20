@@ -191,6 +191,7 @@ add_executable(fjell
     renderer/resources/fjwater_io.cpp
     renderer/resources/water_clipmap.cpp
     renderer/resources/water_gpu.cpp
+    renderer/resources/water_spectrum.cpp
     renderer/resources/water_surface.cpp
     renderer/resources/terrain_asset.cpp
     renderer/render_queue.cpp
