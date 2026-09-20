@@ -151,10 +151,7 @@ float advance_silt(float load, float agitation, float dt) {
     return load + (target - load) * alpha;
 }
 
-namespace {
-
-[[nodiscard]] GerstnerContributor apply_wind_to(const GerstnerContributor& water,
-                                                glm::vec2 wind_xz) {
+GerstnerContributor apply_wind(const GerstnerContributor& water, glm::vec2 wind_xz) {
     const WaterWindResponse& wind = water.wind;
     if (!wind.enabled || water.waves.empty()) {
         return water;
@@ -221,14 +218,16 @@ namespace {
     return out;
 }
 
-} // namespace
-
 FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
-    FjWaterData out = water;
-    for (auto& contributor : out.contributors) {
-        if (auto* gerstner = std::get_if<GerstnerContributor>(&contributor)) {
-            *gerstner = apply_wind_to(*gerstner, wind_xz);
-        }
+    FjWaterData out;
+    out.preview_material = water.preview_material;
+    out.contributors.reserve(water.contributors.size());
+    for (const auto& contributor : water.contributors) {
+        // Each kind has its own overload, so a kind added to the variant
+        // without an answer to the wind does not compile.
+        out.contributors.emplace_back(std::visit(
+            [&](const auto& kind) -> WaterContributor { return apply_wind(kind, wind_xz); },
+            contributor));
     }
     return out;
 }

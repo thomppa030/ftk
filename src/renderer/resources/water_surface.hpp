@@ -65,9 +65,25 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// looking like one rigid sheet. omega = sqrt(g * k).
 [[nodiscard]] float wave_frequency(float wavelength);
 
-/// The authored field as the wind has made it: heights raised or dropped,
-/// crests sharpened, and the short trains turned onto the wind while the
-/// swell holds its heading.
+/// A Gerstner contributor as the wind has made it: heights raised or
+/// dropped, crests sharpened, and the short trains turned onto the wind while
+/// the swell holds its heading. The turn ramps by wavelength between the
+/// longest and shortest train of this contributor.
+///
+/// Returns its input unchanged when its response is disabled or the wind is
+/// its reference wind.
+///
+/// `wind_xz` is the wind on the ground plane in m/s, direction and magnitude
+/// together; the caller has already folded in the gust.
+[[nodiscard]] GerstnerContributor apply_wind(const GerstnerContributor& water,
+                                             glm::vec2 wind_xz);
+
+/// The authored field as the wind has made it: every contributor's own answer
+/// to the same wind.
+///
+/// Each kind of contributor answers in its own way and by its own response,
+/// so one sea can hold a swell that rolls through unmoved and a chop that
+/// turns with the weather.
 ///
 /// A derivation rather than an edit. The `.fjwater` on disk stays the sea the
 /// artist tuned, and this produces what the world actually has right now, so
@@ -75,12 +91,7 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 ///
 /// Everything downstream — both evaluators, the GPU packing, buoyancy — reads
 /// the result of this rather than the authored field, which is the only way
-/// the surface a boat floats on stays the surface the player sees. Returns
-/// its input unchanged when the response is disabled or the wind is the
-/// reference wind.
-///
-/// `wind_xz` is the wind on the ground plane in m/s, direction and magnitude
-/// together; the caller has already folded in the gust.
+/// the surface a boat floats on stays the surface the player sees.
 [[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz);
 
 /// How much of a rise or a fall in wave height a sea takes on per second,

@@ -698,6 +698,51 @@ TEST_CASE("A sea of one wavelength turns as one", "[fjwater]") {
     }
 }
 
+TEST_CASE("Each contributor answers the wind by its own response", "[fjwater]") {
+    // What contributors are for: a swell raised by a storm somewhere else
+    // rolls through unmoved while the chop beside it answers the wind it is
+    // in. Each has to come out exactly as it would as a sea of its own —
+    // neither borrowing the other's dials, nor measuring its swell-to-chop
+    // ramp across the other's wavelengths.
+    FjWaterData swell = sea({
+        wave({1.0f, 0.0f}, 90.0f, 1.5f, 0.5f),
+        wave({1.0f, 0.1f}, 60.0f, 0.8f, 0.5f),
+    });
+
+    FjWaterData chop = sea({
+        wave({1.0f, 0.0f}, 12.0f, 0.3f, 0.7f),
+        wave({1.0f, 0.0f}, 4.0f, 0.1f, 0.8f),
+    });
+    gerstner(chop).wind.enabled = true;
+    gerstner(chop).wind.reference_speed = 6.0f;
+    gerstner(chop).wind.amplitude_response = 2.0f;
+    gerstner(chop).wind.direction_response = 1.0f;
+
+    FjWaterData both;
+    both.contributors = {swell.contributors[0], chop.contributors[0]};
+
+    const glm::vec2 gale{0.0f, 12.0f};
+    FjWaterData blown = water::apply_wind(both, gale);
+    REQUIRE(blown.contributors.size() == 2);
+
+    const GerstnerContributor& blown_swell = gerstner(blown, 0);
+    REQUIRE(blown_swell.amplitude_scale == gerstner(swell).amplitude_scale);
+    REQUIRE(blown_swell.waves[1].direction == gerstner(swell).waves[1].direction);
+
+    const GerstnerContributor alone = gerstner(water::apply_wind(chop, gale));
+    const GerstnerContributor& blown_chop = gerstner(blown, 1);
+    REQUIRE(blown_chop.amplitude_scale == alone.amplitude_scale);
+    REQUIRE(blown_chop.amplitude_scale == Approx(2.0f));
+    REQUIRE(blown_chop.steepness_headroom == alone.steepness_headroom);
+    for (std::size_t i = 0; i < alone.waves.size(); ++i) {
+        REQUIRE(blown_chop.waves[i].direction == alone.waves[i].direction);
+    }
+    // Its longest train is the long end of its own ramp and holds its
+    // heading, though the swell next door is seven times its length.
+    REQUIRE(blown_chop.waves[0].direction.x == Approx(1.0f));
+    REQUIRE(blown_chop.waves[1].direction.y == Approx(1.0f));
+}
+
 TEST_CASE("A sea takes time to answer the wind", "[fjwater]") {
     // Without the lag a weather event stepping its wind at a phase boundary
     // steps the whole sea with it, and the gust — which breathes about once a

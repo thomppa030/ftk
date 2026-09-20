@@ -486,9 +486,12 @@ void WaterEditorContext::draw_generator_panel() {
                 const float reference = std::max(sea->wind.reference_speed, 0.1f);
                 for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
                     const float speed = reference * factor;
-                    FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
-                    const auto& blown_sea = std::get<GerstnerContributor>(
-                        blown.contributors[selected_contributor_]);
+                    // Height and headroom are this contributor's own answer;
+                    // whether the surface folds is a question about the whole
+                    // sea under that wind, every contributor answering it.
+                    const GerstnerContributor blown_sea =
+                        water::apply_wind(*sea, {speed, 0.0f});
+                    const FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
 
                     int folded = 0;
                     int total = 0;

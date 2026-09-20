@@ -7,6 +7,12 @@ canal or a harbour and should sit exactly as it was authored.
 
 Turn it on in the water editor under **Wind response**.
 
+The response belongs to a **contributor**, not to the file. A `.fjwater` of
+several contributors hands the same wind to each and lets each answer by its own
+dials, which is how one sea holds a swell that rolls through unmoved — raised by
+a storm somewhere else, response off — under a chop that rises and turns with
+the weather overhead. Everything below describes one contributor.
+
 ## The authored sea is the sea at the reference wind
 
 The wave list you tune is **not** the sea in a dead calm. It is the sea at the
@@ -40,7 +46,8 @@ rather than discover.
 swell was raised by a storm somewhere else and holds its direction for days
 after the local wind has changed, while the chop riding on it answers the wind
 it is actually in. The ramp runs by wavelength between the longest and shortest
-train in the field, so a sea keeps its swell while the wind works the surface.
+train of the contributor, so a sea keeps its swell while the wind works the
+surface.
 One wind direction for the whole sea would turn it like a sheet of plywood.
 
 Below the dials the editor shows what they come to at the winds that actually
@@ -84,7 +91,9 @@ whole range continuously, and is the more correct shape besides.
 
 `water::apply_wind()` is a derivation, never an edit. It reads the untouched
 authored field and produces `WaterComponent::effective_water`, rebuilt each
-frame by `EnvironmentSubsystem::update_water()`. The `.fjwater` on disk stays
+frame by `EnvironmentSubsystem::update_water()`. The field's overload hands the
+wind to each contributor's own; there is one per kind, and a kind without one
+does not compile. The `.fjwater` on disk stays
 what the artist tuned, so saving never bakes in whatever the weather happened
 to be doing.
 
