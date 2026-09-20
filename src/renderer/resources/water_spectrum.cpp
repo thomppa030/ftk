@@ -137,4 +137,69 @@ SpectrumField generate_spectrum(const FftContributor& sea) {
     return field;
 }
 
+DisplacementSpectra evolve_spectrum(const SpectrumField& field, float choppiness, float time) {
+    DisplacementSpectra out;
+    const std::uint32_t n = field.resolution;
+    const std::size_t count = field.amplitudes.size();
+    out.height.resize(count);
+    out.along_x.resize(count);
+    out.along_z.resize(count);
+
+    for (std::uint32_t z = 0; z < n; ++z) {
+        for (std::uint32_t x = 0; x < n; ++x) {
+            const std::size_t here = static_cast<std::size_t>(z) * n + x;
+            const std::size_t opposite = static_cast<std::size_t>((n - z) % n) * n + (n - x) % n;
+
+            const glm::vec2 k{field.wavenumber(x), field.wavenumber(z)};
+            const float k_len = glm::length(k);
+            const float phase = std::sqrt(GRAVITY * k_len) * time;
+            const float c = std::cos(phase);
+            const float s = std::sin(phase);
+
+            // h0(k) e^{-i w t} + conj(h0(-k)) e^{+i w t}: the wave at k moving
+            // the way k points, and the wave at -k written as its conjugate.
+            const glm::vec2 a = field.amplitudes[here];
+            const glm::vec2 b = field.amplitudes[opposite];
+            const glm::vec2 h{a.x * c + a.y * s + b.x * c + b.y * s,
+                              a.y * c - a.x * s - b.y * c + b.x * s};
+            out.height[here] = h;
+
+            if (k_len < 1e-6f) continue;
+            // i (k / |k|) h: a quarter cycle ahead of the height, along k,
+            // which carries water toward a crest from both sides of it.
+            const glm::vec2 turned{-h.y, h.x};
+            out.along_x[here] = turned * (k.x / k_len * choppiness);
+            out.along_z[here] = turned * (k.y / k_len * choppiness);
+        }
+    }
+    return out;
+}
+
+std::vector<float> inverse_transform_reference(const std::vector<glm::vec2>& spectrum,
+                                               std::uint32_t resolution) {
+    const std::uint32_t n = resolution;
+    std::vector<float> out(static_cast<std::size_t>(n) * n, 0.0f);
+    if (spectrum.size() != out.size()) return out;
+
+    constexpr double TAU_D = 6.28318530717958647692;
+    for (std::uint32_t z = 0; z < n; ++z) {
+        for (std::uint32_t x = 0; x < n; ++x) {
+            double sum = 0.0;
+            for (std::uint32_t kz = 0; kz < n; ++kz) {
+                for (std::uint32_t kx = 0; kx < n; ++kx) {
+                    // Index and wavenumber differ by a whole multiple of N
+                    // in the second half, which is a whole turn of phase at
+                    // every sample, so the index does for both.
+                    const double angle = TAU_D * (static_cast<double>(kx) * x
+                                                  + static_cast<double>(kz) * z) / n;
+                    const glm::vec2 a = spectrum[static_cast<std::size_t>(kz) * n + kx];
+                    sum += a.x * std::cos(angle) - a.y * std::sin(angle);
+                }
+            }
+            out[static_cast<std::size_t>(z) * n + x] = static_cast<float>(sum);
+        }
+    }
+    return out;
+}
+
 } // namespace fjell::water

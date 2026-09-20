@@ -1,4 +1,5 @@
 #include "renderer/resources/water_spectrum.hpp"
+#include "renderer/resources/water_surface.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -267,4 +268,65 @@ TEST_CASE("A spectrum cannot be drawn on no grid", "[water_spectrum]") {
 
     sea.patch_size = 0.0f;
     REQUIRE(water::generate_spectrum(sea).amplitudes.empty());
+}
+
+TEST_CASE("One wavevector of a simulated sea is one Gerstner train", "[water_spectrum]") {
+    // The simulated sea and the authored one are the same physics, so a
+    // spectrum holding a single wave has to be the surface the Gerstner
+    // evaluator gives for that wave: as tall, pinched toward its crest the
+    // same way, travelling the way its wavevector points at the speed deep
+    // water gives it. The Gerstner evaluator is the independent answer here —
+    // it shares no code with the spectrum — and it is what buoyancy already
+    // trusts.
+    const std::uint32_t n = 16;
+    const float patch = 48.0f;
+    const float amplitude = 0.6f;
+
+    water::SpectrumField field;
+    field.resolution = n;
+    field.k_spacing = 2.0f * PI / patch;
+    field.amplitudes.assign(n * n, glm::vec2(0.0f));
+    // Wavevector (3, 2) grid steps. A sine of this amplitude is the real part
+    // of -i A e^{i theta}, and pairing with the conjugate doubles what is
+    // stored, so the stored amplitude is half of -i A.
+    const std::uint32_t kx = 3;
+    const std::uint32_t kz = 2;
+    field.amplitudes[kz * n + kx] = {0.0f, -amplitude * 0.5f};
+
+    const glm::vec2 k{field.wavenumber(kx), field.wavenumber(kz)};
+    const float k_len = glm::length(k);
+
+    GerstnerContributor train;
+    WaterWave wave;
+    wave.direction = k;
+    wave.wavelength = 2.0f * PI / k_len;
+    wave.amplitude = amplitude;
+    wave.speed = 1.0f;
+    // Steepness is a share of the fold limit 1/(kA); choppiness 1 is a
+    // horizontal motion as large as the vertical, which is kA of that limit.
+    wave.steepness = k_len * amplitude;
+    train.steepness_headroom = 1.0f;
+    train.waves = {wave};
+    FjWaterData gerstner;
+    gerstner.contributors.emplace_back(train);
+    REQUIRE(wave.steepness < 1.0f);
+
+    for (float time : {0.0f, 0.9f, 7.3f}) {
+        const auto spectra = water::evolve_spectrum(field, 1.0f, time);
+        const auto height = water::inverse_transform_reference(spectra.height, n);
+        const auto along_x = water::inverse_transform_reference(spectra.along_x, n);
+        const auto along_z = water::inverse_transform_reference(spectra.along_z, n);
+
+        for (std::uint32_t z = 0; z < n; z += 3) {
+            for (std::uint32_t x = 0; x < n; x += 3) {
+                const glm::vec2 p{static_cast<float>(x) * patch / n,
+                                  static_cast<float>(z) * patch / n};
+                const glm::vec3 expected = water::displace(gerstner, p, time);
+                INFO("at (" << x << ", " << z << ") t=" << time);
+                REQUIRE(height[z * n + x] == Approx(expected.y).margin(1e-4));
+                REQUIRE(along_x[z * n + x] == Approx(expected.x).margin(1e-4));
+                REQUIRE(along_z[z * n + x] == Approx(expected.z).margin(1e-4));
+            }
+        }
+    }
 }

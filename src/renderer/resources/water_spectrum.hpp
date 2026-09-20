@@ -59,4 +59,31 @@ struct SpectrumField {
 /// an empty field comes back for a resolution under 2 or a patch of no size.
 [[nodiscard]] SpectrumField generate_spectrum(const FftContributor& sea);
 
+/// The three spectra a simulated sea is transformed from at `time`: height,
+/// and the horizontal displacement along x and z that pinches its crests.
+/// Same layout as `SpectrumField::amplitudes`.
+///
+/// Every wavevector turns at its deep-water frequency, and is summed with the
+/// conjugate of its opposite so that the transform of each is real. The
+/// horizontal spectra are the height's, turned a quarter cycle and pointed
+/// along the wavevector — the motion that carries water toward a crest, which
+/// is what a Gerstner train's steepness buys — and scaled by `choppiness`.
+struct DisplacementSpectra {
+    std::vector<glm::vec2> height;
+    std::vector<glm::vec2> along_x;
+    std::vector<glm::vec2> along_z;
+};
+[[nodiscard]] DisplacementSpectra evolve_spectrum(const SpectrumField& field, float choppiness,
+                                                  float time);
+
+/// The inverse discrete Fourier transform of an N x N spectrum in FFT order,
+/// keeping the real part: `out[z * N + x]` is the value at patch position
+/// (x, z) * patch_size / N.
+///
+/// A plain sum, a term per wavevector per sample, and so far too slow to draw
+/// a sea with. It is here as the definition the GPU's fast transform has to
+/// reproduce: there is no cleverness in it to be wrong.
+[[nodiscard]] std::vector<float> inverse_transform_reference(const std::vector<glm::vec2>& spectrum,
+                                                             std::uint32_t resolution);
+
 } // namespace fjell::water
