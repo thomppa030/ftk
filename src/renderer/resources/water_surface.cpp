@@ -283,6 +283,23 @@ glm::vec2 dominant_direction(const FjWaterData& water) {
     return len < 1e-6f ? glm::vec2(0.0f) : sum / len;
 }
 
+float wave_height(const FjWaterData& water) {
+    float sum = 0.0f;
+    for (const auto& wave : water.waves) {
+        sum += wave.amplitude;
+    }
+    return sum * water.amplitude_scale;
+}
+
+float shortest_wavelength(const FjWaterData& water) {
+    if (water.waves.empty()) return 0.0f;
+    float shortest = water.waves.front().wavelength;
+    for (const auto& wave : water.waves) {
+        shortest = std::min(shortest, wave.wavelength);
+    }
+    return shortest;
+}
+
 float height_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     return displace(water, world_xz, time).y;
 }

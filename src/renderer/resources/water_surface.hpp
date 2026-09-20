@@ -167,6 +167,18 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 /// so, and callers should fall back to something non-directional.
 [[nodiscard]] glm::vec2 dominant_direction(const FjWaterData& water);
 
+/// How big this sea has got, in metres: the sum of its train amplitudes under
+/// the field's amplitude scale, which is the highest the surface can stand
+/// above rest with every crest aligned. 0 for flat water.
+///
+/// A property of the field rather than of a point. It is what scripts read as
+/// `Water::wave_height()`, so what it means is part of the script ABI.
+[[nodiscard]] float wave_height(const FjWaterData& water);
+
+/// The shortest wavelength in the field, in metres, or 0 when it has no
+/// trains. The train a tessellation has the hardest time drawing.
+[[nodiscard]] float shortest_wavelength(const FjWaterData& water);
+
 /// Height of the surface above `world_xz`, for buoyancy and swimming.
 ///
 /// Note this evaluates the field at `world_xz` as a rest position, so under

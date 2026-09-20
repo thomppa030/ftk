@@ -387,6 +387,51 @@ TEST_CASE("A sea travels in the direction its waves do", "[fjwater]") {
     REQUIRE(crest_x(0.1f) > crest_x(0.0f));
 }
 
+// --- What scripts are told about a sea ---
+
+TEST_CASE("A sea's wave height is the sum of its trains", "[fjwater]") {
+    // Scripts read this through Water::wave_height(), so what it means is part
+    // of their ABI: a change here changes every game calling it, with no
+    // compile error to say so. Pinned to numbers rather than to a formula
+    // restated, so altering the meaning has to be done on purpose.
+    FjWaterData water;
+    water.waves = {
+        wave({1.0f, 0.0f}, 40.0f, 1.25f, 0.5f),
+        wave({0.0f, 1.0f}, 12.0f, 0.5f, 0.9f),
+        wave({-1.0f, 1.0f}, 3.0f, 0.125f, 0.2f),
+    };
+    REQUIRE(water::wave_height(water) == Approx(1.875f));
+
+    // The field's scale is part of how big the sea is; steepness, speed and
+    // direction are not.
+    water.amplitude_scale = 2.0f;
+    water.speed_scale = 3.0f;
+    water.steepness_headroom = 0.9f;
+    REQUIRE(water::wave_height(water) == Approx(3.75f));
+
+    // After the wind, because a script asking how big the sea has got means
+    // the sea the storm has made of it.
+    water.amplitude_scale = 1.0f;
+    water.wind.enabled = true;
+    water.wind.reference_speed = 8.0f;
+    water.wind.amplitude_response = 1.6f;
+    REQUIRE(water::wave_height(water::apply_wind(water, {16.0f, 0.0f})) == Approx(3.0f));
+
+    REQUIRE(water::wave_height(FjWaterData{}) == Approx(0.0f));
+}
+
+TEST_CASE("The shortest wavelength is the hardest train to draw", "[fjwater]") {
+    FjWaterData water;
+    REQUIRE(water::shortest_wavelength(water) == Approx(0.0f));
+
+    water.waves = {
+        wave({1.0f, 0.0f}, 40.0f, 1.0f, 0.5f),
+        wave({0.0f, 1.0f}, 3.5f, 0.1f, 0.5f),
+        wave({1.0f, 1.0f}, 12.0f, 0.5f, 0.5f),
+    };
+    REQUIRE(water::shortest_wavelength(water) == Approx(3.5f));
+}
+
 // --- Generator ---
 
 TEST_CASE("Wind leaves a sea alone until it is asked not to", "[fjwater]") {

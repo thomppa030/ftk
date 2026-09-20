@@ -34,12 +34,7 @@ float fjell_water_bed_agitation(uint32_t node_id, float depth) {
 extern "C" FJELL_SDK_EXPORT float fjell_water_wave_height(uint32_t node_id) {
     const auto* water = water_for(node_id);
     if (water == nullptr) return 0.0F;
-    const auto& field = water->effective_water;
-    float height = 0.0F;
-    for (const auto& wave : field.waves) {
-        height += wave.amplitude;
-    }
-    return height * field.amplitude_scale;
+    return fjell::water::wave_height(water->effective_water);
 }
 
 extern "C" FJELL_SDK_EXPORT

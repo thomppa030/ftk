@@ -4,6 +4,7 @@
 #include "renderer/components/water_component.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_clipmap.hpp"
+#include "renderer/resources/water_surface.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -136,11 +137,8 @@ const bool registered = [] {
                 ImGui::TextDisabled("%.2f m between vertices at the camera, %.0f m of sea",
                                     spacing, WaterClipmap::half_extent());
             }
-            if (water->water_loaded && !water->water.waves.empty()) {
-                float shortest = water->water.waves.front().wavelength;
-                for (const auto& wave : water->water.waves) {
-                    shortest = std::min(shortest, wave.wavelength);
-                }
+            const float shortest = water::shortest_wavelength(water->water);
+            if (water->water_loaded && shortest > 0.0f) {
                 const float per_wave = shortest / std::max(spacing, 1e-4f);
                 if (per_wave < 4.0f) {
                     ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
