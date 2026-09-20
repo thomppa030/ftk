@@ -17,7 +17,7 @@ class TerrainAsset;
 struct TerrainComponent;
 
 // Mirrors the push block in terrain.task / terrain.mesh and the terrain FJSL
-// template. Only the fragment stage reads past `pad`.
+// template. Only the fragment stage reads past `view_index`.
 struct TerrainPushConstants {
     glm::vec2 world_origin;
     float world_size;
@@ -25,7 +25,11 @@ struct TerrainPushConstants {
     float height_offset;
     uint32_t patches_per_side;
     uint32_t patch_quads;
-    uint32_t pad;
+    /// Which projection the draw writes into: 0 the camera, 1..3 the shadow
+    /// cascade of that index minus one. The cascade matrices are already in
+    /// the global UBO, so this costs an index rather than a second matrix in
+    /// a block every stage carries.
+    uint32_t view_index;
     uint32_t terrain_material_id;   ///< material row of the terrain's own .fjmat
     uint32_t pad1;                  ///< the uvec4 below is 16-byte aligned
     uint32_t pad2;
@@ -61,6 +65,12 @@ public:
     /// camera turns. Also feeds Hi-Z, so terrain occludes what is behind it.
     void record_depth(const FrameContext& ctx);
 
+    /// Record terrain into one shadow cascade. Terrain is the ground every
+    /// other caster stands on, so without this a hill shadows nothing — not
+    /// the character walking behind it, and not the sun shafts, which read the
+    /// same cascades. `cascade` selects the light matrix from the global UBO.
+    void record_shadow(const FrameContext& ctx, uint32_t cascade);
+
     /// Whether the scene holds a terrain with a resolved asset. Depth passes
     /// early-out on an empty render queue, which terrain is never part of, so
     /// they ask this before deciding there is nothing to draw.
@@ -71,6 +81,7 @@ private:
     enum class Variant : uint8_t {
         color,       ///< the node's terrain material, lit
         depth,       ///< depth only, for the prepass
+        shadow,      ///< depth only, into a shadow cascade
         wireframe,   ///< patch grid overlay, only on nodes that ask for it
     };
 
@@ -101,7 +112,10 @@ private:
 
     /// Walks terrain nodes, binds their textures, pushes constants, and
     /// dispatches one task workgroup per patch.
-    void draw_terrain_nodes(const FrameContext& ctx, Variant variant, bool count_draws);
+    /// `view_index` picks the projection the draw writes into: 0 the camera,
+    /// 1..3 the shadow cascade of that index minus one.
+    void draw_terrain_nodes(const FrameContext& ctx, Variant variant, bool count_draws,
+                            uint32_t view_index = 0, VkExtent2D extent = {});
 
     void destroy_material_pipelines();
 
@@ -109,6 +123,7 @@ private:
     PassResources resources_{};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline depth_pipeline_{VK_NULL_HANDLE};
+    VkPipeline shadow_pipeline_{VK_NULL_HANDLE};
     VkPipeline wireframe_pipeline_{VK_NULL_HANDLE};
     /// Kept alive after create(): every material pipeline is built from them.
     VkShaderModule task_module_{VK_NULL_HANDLE};

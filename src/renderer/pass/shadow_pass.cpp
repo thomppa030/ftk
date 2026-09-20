@@ -1,4 +1,7 @@
 #include "renderer/pass/shadow_pass.hpp"
+
+#include "renderer/pass_registry.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -315,8 +318,8 @@ Result<> ShadowPass::create(Device& device, const PassResources& resources) {
     rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT; // front-face culling reduces shadow acne
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = 1.25f;
-    rasterizer.depthBiasSlopeFactor = 1.75f;
+    rasterizer.depthBiasConstantFactor = DEPTH_BIAS_CONSTANT;
+    rasterizer.depthBiasSlopeFactor = DEPTH_BIAS_SLOPE;
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -489,11 +492,25 @@ void ShadowPass::record(const FrameContext& ctx) {
     scissor.offset = {0, 0};
     scissor.extent = {MAP_SIZE, MAP_SIZE};
 
+    // Terrain casts too, and generates its surface in a mesh shader, so it has
+    // no draw in the indirect batches below and has to record itself. A scene
+    // whose only caster is the ground — open water with a shoreline is exactly
+    // that — has an empty batch in every cascade, so the emptiness test has to
+    // account for it or the cascades are cleared and nothing is ever drawn.
+    TerrainPass* terrain = ctx.passes != nullptr
+                               ? ctx.passes->try_get<TerrainPass>("terrain")
+                               : nullptr;
+    if (terrain != nullptr && !TerrainPass::scene_has_terrain(ctx)) {
+        terrain = nullptr;
+    }
+
     for (uint32_t c = 0; c < CASCADE_COUNT; ++c) {
-        // Skip cascade if it has no geometry or descriptor not yet initialized
+        // Skip cascade if it has nothing to draw or its descriptor is not ready
         auto* cascade_batch = ctx.shadow_cascade_batches[c];
-        if (!cascade_batch || cascade_batch->opaque_draw_count(ctx.frame_index) == 0
-            || ctx.shadow_cascade_draw_data[c] == VK_NULL_HANDLE) {
+        const bool has_meshes = cascade_batch != nullptr
+                                && cascade_batch->opaque_draw_count(ctx.frame_index) > 0
+                                && ctx.shadow_cascade_draw_data[c] != VK_NULL_HANDLE;
+        if (!has_meshes && terrain == nullptr) {
             // Still need to clear the cascade layer for correct sampling
             VkImageMemoryBarrier2 barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -529,6 +546,51 @@ void ShadowPass::record(const FrameContext& ctx) {
             rendering_info.layerCount = 1;
             rendering_info.pDepthAttachment = &depth_attachment;
             vkCmdBeginRendering(ctx.cmd, &rendering_info);
+            vkCmdEndRendering(ctx.cmd);
+            continue;
+        }
+
+        // A cascade with terrain but no meshes still needs its render pass: the
+        // mesh path below binds descriptors this draw does not use, and the
+        // batch it reads from is empty, so terrain records on its own here.
+        if (!has_meshes) {
+            VkImageMemoryBarrier2 t_barrier{};
+            t_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            t_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            t_barrier.srcAccessMask = 0;
+            t_barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+            t_barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            t_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            t_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            t_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            t_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            t_barrier.image = image_;
+            t_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, c, 1};
+
+            VkDependencyInfo t_dep{};
+            t_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            t_dep.imageMemoryBarrierCount = 1;
+            t_dep.pImageMemoryBarriers = &t_barrier;
+            vkCmdPipelineBarrier2(ctx.cmd, &t_dep);
+
+            VkRenderingAttachmentInfo t_depth{};
+            t_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            t_depth.imageView = cascade_views_[c];
+            t_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            t_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            t_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            t_depth.clearValue.depthStencil = {1.0f, 0};
+
+            VkRenderingInfo t_info{};
+            t_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            t_info.renderArea.offset = {0, 0};
+            t_info.renderArea.extent = {MAP_SIZE, MAP_SIZE};
+            t_info.layerCount = 1;
+            t_info.colorAttachmentCount = 0;
+            t_info.pDepthAttachment = &t_depth;
+
+            vkCmdBeginRendering(ctx.cmd, &t_info);
+            terrain->record_shadow(ctx, c);
             vkCmdEndRendering(ctx.cmd);
             continue;
         }
@@ -625,6 +687,14 @@ void ShadowPass::record(const FrameContext& ctx) {
                                  1, 0, 0, skinned_indices[idx]);
                 idx++;
             }
+        }
+
+        // Terrain, which generates its surface in a mesh shader and so cannot
+        // be part of the indirect batches above. It rebinds its own pipeline
+        // and descriptor sets; the cascade index picks the light matrix out of
+        // the global UBO, which is already bound here.
+        if (terrain != nullptr) {
+            terrain->record_shadow(ctx, c);
         }
 
         vkCmdEndRendering(ctx.cmd);

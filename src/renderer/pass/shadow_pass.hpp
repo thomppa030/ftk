@@ -21,6 +21,12 @@ public:
     static constexpr uint32_t CASCADE_COUNT = FrameContext::MAX_SHADOW_CASCADES;
     static constexpr uint32_t MAP_SIZE = 4096;
     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
+    /// Slope-scaled depth bias every caster is rasterized with. Shared so a
+    /// pass that draws into a cascade with its own pipeline — terrain does —
+    /// biases the same way; a cascade written half at one bias reads as bands
+    /// across the ground.
+    static constexpr float DEPTH_BIAS_CONSTANT = 1.25F;
+    static constexpr float DEPTH_BIAS_SLOPE = 1.75F;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;

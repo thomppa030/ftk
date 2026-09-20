@@ -46,7 +46,7 @@ layout(push_constant) uniform PushConstants {
     float height_offset;
     uint  patches_per_side;
     uint  patch_quads;
-    uint  _pad;
+    uint  view_index;   // 0 camera, 1..3 shadow cascade; unused by the fragment
     uint  terrain_material_id;
     uint  _pad1;
     uint  _pad2;

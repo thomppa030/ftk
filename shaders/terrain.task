@@ -1,10 +1,15 @@
 #version 460
 #extension GL_EXT_mesh_shader : require
 
-// One task invocation per terrain patch. Phase 1 emits every patch; frustum
-// and Hi-Z culling belong here and land with the LOD work.
+// One task invocation per terrain patch. Patches outside the frustum being
+// drawn into are dropped here; Hi-Z culling and LOD belong here too and land
+// with that work.
+
+#include "fjell_global_ubo.glsl"
 
 layout(local_size_x = 1) in;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;      // terrain min corner, world XZ
@@ -13,7 +18,10 @@ layout(push_constant) uniform PushConstants {
     float height_offset;     // world height of a normalized 0.0 sample
     uint  patches_per_side;
     uint  patch_quads;
-    uint  _pad;
+    // Which projection this draw writes into: 0 is the camera, 1..3 the shadow
+    // cascade of that index minus one. Culling follows it, so a cascade drops
+    // the patches it cannot see rather than every view paying for the widest.
+    uint  view_index;
     // Read by the fragment stage; declared here so every stage sees the same
     // block.
     uint  terrain_material_id;
@@ -31,9 +39,69 @@ struct TaskPayload {
 
 taskPayloadSharedEXT TaskPayload payload;
 
+/// Whether the patch's world-space box has any corner inside the clip volume
+/// of `vp`.
+///
+/// Tested per plane rather than per corner: a box larger than the frustum
+/// straddles it with every corner outside, and rejecting on "no corner is
+/// inside" would drop exactly the patches a near cascade is made of. A patch
+/// survives unless all eight corners fall outside the same plane, which keeps
+/// the test conservative — it can pass a patch that is not visible, never drop
+/// one that is.
+bool box_in_frustum(mat4 vp, vec3 lo, vec3 hi) {
+    vec4 clip[8];
+    for (uint i = 0u; i < 8u; ++i) {
+        vec3 corner = vec3((i & 1u) != 0u ? hi.x : lo.x,
+                           (i & 2u) != 0u ? hi.y : lo.y,
+                           (i & 4u) != 0u ? hi.z : lo.z);
+        clip[i] = vp * vec4(corner, 1.0);
+    }
+    // x, y in [-w, w] and z in [0, w]: Vulkan clip space, reverse-Z not in use.
+    for (uint plane = 0u; plane < 6u; ++plane) {
+        bool all_out = true;
+        for (uint i = 0u; i < 8u && all_out; ++i) {
+            vec4 c = clip[i];
+            float d;
+            switch (plane) {
+                case 0u: d = c.w + c.x; break;
+                case 1u: d = c.w - c.x; break;
+                case 2u: d = c.w + c.y; break;
+                case 3u: d = c.w - c.y; break;
+                case 4u: d = c.z;       break;
+                default: d = c.w - c.z; break;
+            }
+            if (d >= 0.0) all_out = false;
+        }
+        if (all_out) return false;
+    }
+    return true;
+}
+
 void main() {
     uint patch_index = gl_WorkGroupID.x;
-    payload.patch_x = patch_index % push.patches_per_side;
-    payload.patch_z = patch_index / push.patches_per_side;
+    uint px = patch_index % push.patches_per_side;
+    uint pz = patch_index / push.patches_per_side;
+
+    // The patch's footprint in world XZ, and the whole height range the
+    // heightfield can reach. Conservative in Y so the test needs no sample of
+    // the height texture: a patch is emitted whenever its column might be
+    // visible, and the mesh shader places the surface inside it.
+    float patch_size = push.world_size / float(push.patches_per_side);
+    vec3 lo = vec3(push.world_origin.x + float(px) * patch_size,
+                   push.height_offset,
+                   push.world_origin.y + float(pz) * patch_size);
+    vec3 hi = vec3(lo.x + patch_size,
+                   push.height_offset + push.height_scale,
+                   lo.z + patch_size);
+
+    mat4 vp = push.view_index == 0u ? ubo.projection * ubo.view
+                                    : ubo.cascade_vp[push.view_index - 1u];
+    if (!box_in_frustum(vp, lo, hi)) {
+        EmitMeshTasksEXT(0, 0, 0);
+        return;
+    }
+
+    payload.patch_x = px;
+    payload.patch_z = pz;
     EmitMeshTasksEXT(1, 1, 1);
 }

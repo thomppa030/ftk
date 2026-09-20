@@ -1,5 +1,7 @@
 #include "renderer/pass/terrain_pass.hpp"
 
+#include "renderer/pass/shadow_pass.hpp"
+
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -250,6 +252,37 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
                                   nullptr, &depth_pipeline_) != VK_SUCCESS) {
         cleanup_modules();
         return make_error("Failed to create terrain depth pipeline");
+    }
+
+    // Shadow variant: the depth pipeline again, into the cascade's own format
+    // and with the slope-scaled bias the shadow pass uses for everything else.
+    // Terrain is a wide, near-flat receiver seen at a grazing angle from a low
+    // sun, which is where an unbiased depth-only draw acnes worst, so the two
+    // must agree — a cascade half-written with a different bias reads as bands
+    // across the ground.
+    VkPipelineRasterizationStateCreateInfo shadow_raster = rasterizer;
+    shadow_raster.depthBiasEnable = VK_TRUE;
+    shadow_raster.depthBiasConstantFactor = ShadowPass::DEPTH_BIAS_CONSTANT;
+    shadow_raster.depthBiasSlopeFactor = ShadowPass::DEPTH_BIAS_SLOPE;
+
+    VkPipelineRenderingCreateInfo shadow_rendering = depth_rendering;
+    shadow_rendering.depthAttachmentFormat = ShadowPass::DEPTH_FORMAT;
+
+    // The cascades are single-sampled whatever the camera target is doing, and
+    // a pipeline whose rasterizationSamples disagree with the attachment is
+    // invalid — the draw is rejected and the device is lost.
+    VkPipelineMultisampleStateCreateInfo shadow_multisampling = multisampling;
+    shadow_multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkGraphicsPipelineCreateInfo shadow_info = depth_info;
+    shadow_info.pNext = &shadow_rendering;
+    shadow_info.pRasterizationState = &shadow_raster;
+    shadow_info.pMultisampleState = &shadow_multisampling;
+
+    if (vkCreateGraphicsPipelines(device_, resources.pipeline_cache, 1, &shadow_info,
+                                  nullptr, &shadow_pipeline_) != VK_SUCCESS) {
+        cleanup_modules();
+        return make_error("Failed to create terrain shadow pipeline");
     }
 
     // Patch grid overlay: same task/mesh shaders, a flat-colour fragment shader
@@ -521,6 +554,10 @@ void TerrainPass::destroy() {
         vkDestroyPipeline(device_, depth_pipeline_, nullptr);
         depth_pipeline_ = VK_NULL_HANDLE;
     }
+    if (shadow_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, shadow_pipeline_, nullptr);
+        shadow_pipeline_ = VK_NULL_HANDLE;
+    }
     if (wireframe_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, wireframe_pipeline_, nullptr);
         wireframe_pipeline_ = VK_NULL_HANDLE;
@@ -589,8 +626,13 @@ bool TerrainPass::scene_has_terrain(const FrameContext& ctx) {
 }
 
 void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
-                                     bool count_draws) {
-    auto extent = ctx.target->extent();
+                                     bool count_draws, uint32_t view_index,
+                                     VkExtent2D extent) {
+    // A shadow draw fills the cascade, not the camera's target, and passes its
+    // own extent for it.
+    if (extent.width == 0 || extent.height == 0) {
+        extent = ctx.target->extent();
+    }
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
     vp.height = static_cast<float>(extent.height);
@@ -625,6 +667,9 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
                 break;
             case Variant::depth:
                 pipeline = depth_pipeline_;
+                break;
+            case Variant::shadow:
+                pipeline = shadow_pipeline_;
                 break;
             case Variant::wireframe:
                 pipeline = wireframe_pipeline_;
@@ -664,6 +709,7 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
         push.height_offset = terrain.height_offset() + origin.y;
         push.patches_per_side = patches;
         push.patch_quads = terrain.patch_quads();
+        push.view_index = view_index;
         push.terrain_material_id = material_id;
         for (uint32_t i = 0; i < 4; ++i) {
             push.layer_material_ids[static_cast<int>(i)] = terrain.layer_material_id(i);
@@ -695,6 +741,19 @@ void TerrainPass::record(const FrameContext& ctx) {
     if (wireframe_pipeline_ != VK_NULL_HANDLE) {
         draw_terrain_nodes(ctx, Variant::wireframe, false);
     }
+}
+
+void TerrainPass::record_shadow(const FrameContext& ctx, uint32_t cascade) {
+    if (shadow_pipeline_ == VK_NULL_HANDLE || ctx.scene == nullptr) {
+        return;
+    }
+
+    FJELL_PROFILE_SCOPE_N("record_terrain_shadow");
+
+    // Not counted: the stats panel reports what the camera draws, and a caster
+    // rendered once per cascade would read as four terrains on screen.
+    draw_terrain_nodes(ctx, Variant::shadow, false, cascade + 1,
+                       {ShadowPass::MAP_SIZE, ShadowPass::MAP_SIZE});
 }
 
 void TerrainPass::record_depth(const FrameContext& ctx) {
