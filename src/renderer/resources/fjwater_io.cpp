@@ -20,6 +20,104 @@ namespace {
     return nlohmann::json::array({v.x, v.y});
 }
 
+// What a Gerstner contributor is called in a file's "kind".
+constexpr const char* GERSTNER_KIND = "gerstner";
+
+// Read a Gerstner contributor out of `j`: an entry of "contributors", or the
+// whole document of a file written before there were any, which kept one
+// contributor's keys at its root under the same names.
+[[nodiscard]] GerstnerContributor read_gerstner(const nlohmann::json& j) {
+    GerstnerContributor water;
+    water.amplitude_scale = j.value("amplitude_scale", 1.0f);
+    water.speed_scale = j.value("speed_scale", 1.0f);
+    water.steepness_headroom = j.value("steepness_headroom",
+                                       GerstnerContributor{}.steepness_headroom);
+
+    if (j.contains("wind") && j["wind"].is_object()) {
+        const auto& wj = j["wind"];
+        water.wind.enabled = wj.value("enabled", false);
+        water.wind.reference_speed = wj.value("reference_speed", 8.0f);
+        water.wind.amplitude_response = wj.value("amplitude_response", 1.6f);
+        water.wind.steepness_response = wj.value("steepness_response", 1.25f);
+        water.wind.direction_response = wj.value("direction_response", 0.7f);
+    }
+
+    if (j.contains("generator") && j["generator"].is_object()) {
+        const auto& g = j["generator"];
+        water.generator.wind_direction = read_vec2(g, "wind_direction", glm::vec2(1.0f, 0.0f));
+        water.generator.swell = g.value("swell", 1.0f);
+        water.generator.chop = g.value("chop", 0.7f);
+        water.generator.longest_wavelength = g.value("longest_wavelength", 30.0f);
+        water.generator.wave_count = g.value("wave_count", 6u);
+        water.generator.spread_degrees = g.value("spread_degrees", 40.0f);
+        water.generator.wavelength_falloff = g.value("wavelength_falloff", 0.62f);
+        water.generator.amplitude_falloff = g.value("amplitude_falloff", 0.68f);
+    }
+
+    if (j.contains("waves") && j["waves"].is_array()) {
+        for (const auto& wj : j["waves"]) {
+            if (water.waves.size() >= MAX_WATER_WAVES) break;
+
+            WaterWave wave;
+            wave.direction = read_vec2(wj, "direction", glm::vec2(1.0f, 0.0f));
+            wave.wavelength = wj.value("wavelength", 20.0f);
+            wave.amplitude = wj.value("amplitude", 0.5f);
+            wave.steepness = wj.value("steepness", 0.5f);
+            wave.speed = wj.value("speed", 1.0f);
+
+            // A train that cannot move the surface is dropped rather than
+            // kept as a row that quietly does nothing.
+            if (glm::length(wave.direction) < 1e-6f || wave.wavelength <= 0.0f) continue;
+            water.waves.push_back(wave);
+        }
+    }
+    return water;
+}
+
+[[nodiscard]] nlohmann::json write_gerstner(const GerstnerContributor& water) {
+    nlohmann::json j = nlohmann::json::object();
+    j["kind"] = GERSTNER_KIND;
+    j["amplitude_scale"] = water.amplitude_scale;
+    j["speed_scale"] = water.speed_scale;
+    j["steepness_headroom"] = water.steepness_headroom;
+
+    // Only written once these trains actually answer the weather, so a
+    // contributor that does not care about wind stays as short as it reads.
+    if (water.wind.enabled) {
+        j["wind"] = {
+            {"enabled", water.wind.enabled},
+            {"reference_speed", water.wind.reference_speed},
+            {"amplitude_response", water.wind.amplitude_response},
+            {"steepness_response", water.wind.steepness_response},
+            {"direction_response", water.wind.direction_response},
+        };
+    }
+
+    nlohmann::json g = nlohmann::json::object();
+    g["wind_direction"] = write_vec2(water.generator.wind_direction);
+    g["swell"] = water.generator.swell;
+    g["chop"] = water.generator.chop;
+    g["longest_wavelength"] = water.generator.longest_wavelength;
+    g["wave_count"] = water.generator.wave_count;
+    g["spread_degrees"] = water.generator.spread_degrees;
+    g["wavelength_falloff"] = water.generator.wavelength_falloff;
+    g["amplitude_falloff"] = water.generator.amplitude_falloff;
+    j["generator"] = g;
+
+    nlohmann::json waves = nlohmann::json::array();
+    for (const auto& wave : water.waves) {
+        nlohmann::json wj = nlohmann::json::object();
+        wj["direction"] = write_vec2(wave.direction);
+        wj["wavelength"] = wave.wavelength;
+        wj["amplitude"] = wave.amplitude;
+        wj["steepness"] = wave.steepness;
+        wj["speed"] = wave.speed;
+        waves.push_back(wj);
+    }
+    j["waves"] = waves;
+    return j;
+}
+
 } // namespace
 
 std::vector<WaterWave> generate_water_waves(const WaterWaveGenerator& settings) {
@@ -105,62 +203,33 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
     FjWaterData field;
     field.preview_material = j.value("preview_material", std::string{});
 
-    GerstnerContributor water;
-    water.amplitude_scale = j.value("amplitude_scale", 1.0f);
-    water.speed_scale = j.value("speed_scale", 1.0f);
-    water.steepness_headroom = j.value("steepness_headroom",
-                                       GerstnerContributor{}.steepness_headroom);
-
-    // Files written before the steepness budget stopped being divided by the
-    // train count. Their headroom was a multiplier on a 1/N share, so the
-    // budget they were actually tuned at is headroom/N — migrated below, once
-    // the wave list has been read and N is known.
-    const bool pre_shared_budget = !j.contains("version");
-
-    if (j.contains("wind") && j["wind"].is_object()) {
-        const auto& wj = j["wind"];
-        water.wind.enabled = wj.value("enabled", false);
-        water.wind.reference_speed = wj.value("reference_speed", 8.0f);
-        water.wind.amplitude_response = wj.value("amplitude_response", 1.6f);
-        water.wind.steepness_response = wj.value("steepness_response", 1.25f);
-        water.wind.direction_response = wj.value("direction_response", 0.7f);
-    }
-
-    if (j.contains("generator") && j["generator"].is_object()) {
-        const auto& g = j["generator"];
-        water.generator.wind_direction = read_vec2(g, "wind_direction", glm::vec2(1.0f, 0.0f));
-        water.generator.swell = g.value("swell", 1.0f);
-        water.generator.chop = g.value("chop", 0.7f);
-        water.generator.longest_wavelength = g.value("longest_wavelength", 30.0f);
-        water.generator.wave_count = g.value("wave_count", 6u);
-        water.generator.spread_degrees = g.value("spread_degrees", 40.0f);
-        water.generator.wavelength_falloff = g.value("wavelength_falloff", 0.62f);
-        water.generator.amplitude_falloff = g.value("amplitude_falloff", 0.68f);
-    }
-
-    if (j.contains("waves") && j["waves"].is_array()) {
-        for (const auto& wj : j["waves"]) {
-            if (water.waves.size() >= MAX_WATER_WAVES) break;
-
-            WaterWave wave;
-            wave.direction = read_vec2(wj, "direction", glm::vec2(1.0f, 0.0f));
-            wave.wavelength = wj.value("wavelength", 20.0f);
-            wave.amplitude = wj.value("amplitude", 0.5f);
-            wave.steepness = wj.value("steepness", 0.5f);
-            wave.speed = wj.value("speed", 1.0f);
-
-            // A train that cannot move the surface is dropped rather than
-            // kept as a row that quietly does nothing.
-            if (glm::length(wave.direction) < 1e-6f || wave.wavelength <= 0.0f) continue;
-            water.waves.push_back(wave);
+    if (j.contains("contributors") && j["contributors"].is_array()) {
+        std::uint32_t gerstner_count = 0;
+        for (const auto& cj : j["contributors"]) {
+            const std::string kind = cj.value("kind", std::string{});
+            // Refused rather than skipped: a file this build cannot fully read
+            // is one it would quietly write back without the part it skipped.
+            if (kind != GERSTNER_KIND) {
+                return make_error("Unknown contributor kind '" + kind + "' in .fjwater file: "
+                                  + path);
+            }
+            if (gerstner_count++ >= MAX_GERSTNER_CONTRIBUTORS) continue;
+            field.contributors.emplace_back(read_gerstner(cj));
         }
+        return field;
     }
 
-    // Carry an old file onto the undivided budget at the surface it already
-    // had. Dividing by the count it was tuned with reproduces the exact q
-    // every train was getting, so a sea an artist signed off on comes back
-    // looking the way they left it rather than folding on load.
-    if (pre_shared_budget && !water.waves.empty()) {
+    // A file from before contributors is one Gerstner contributor, written at
+    // the root.
+    GerstnerContributor water = read_gerstner(j);
+
+    // Older still: files written before the steepness budget stopped being
+    // divided by the train count carry no "version". Their headroom was a
+    // multiplier on a 1/N share, so the budget they were actually tuned at is
+    // headroom/N. Dividing by the count it was tuned with reproduces the
+    // exact q every train was getting, so a sea an artist signed off on comes
+    // back looking the way they left it rather than folding on load.
+    if (!j.contains("version") && !water.waves.empty()) {
         water.steepness_headroom /= static_cast<float>(water.waves.size());
     }
 
@@ -170,29 +239,10 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
 
 Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
     nlohmann::json j;
-    const GerstnerContributor water = field.contributors.empty()
-        ? GerstnerContributor{}
-        : std::get<GerstnerContributor>(field.contributors.front());
-
-    // Present from the version the steepness budget stopped being divided by
-    // the train count. Its absence is what marks a file whose headroom still
-    // means a share of 1/N, and is the whole reason it is written.
-    j["version"] = 2;
-    j["amplitude_scale"] = water.amplitude_scale;
-    j["speed_scale"] = water.speed_scale;
-    j["steepness_headroom"] = water.steepness_headroom;
-
-    // Only written once a sea actually answers the weather, so a .fjwater
-    // that does not care about wind stays as short as it reads.
-    if (water.wind.enabled) {
-        j["wind"] = {
-            {"enabled", water.wind.enabled},
-            {"reference_speed", water.wind.reference_speed},
-            {"amplitude_response", water.wind.amplitude_response},
-            {"steepness_response", water.wind.steepness_response},
-            {"direction_response", water.wind.direction_response},
-        };
-    }
+    // 3 is the first version to hold a list of contributors. 2 kept a single
+    // Gerstner contributor at the root, and a file with no version at all is
+    // older again, from when a headroom meant a share of 1/N.
+    j["version"] = 3;
 
     // The editor's own setting, written only once one has been picked so a
     // file nobody has previewed stays as short as it reads.
@@ -200,28 +250,13 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
         j["preview_material"] = field.preview_material;
     }
 
-    nlohmann::json g = nlohmann::json::object();
-    g["wind_direction"] = write_vec2(water.generator.wind_direction);
-    g["swell"] = water.generator.swell;
-    g["chop"] = water.generator.chop;
-    g["longest_wavelength"] = water.generator.longest_wavelength;
-    g["wave_count"] = water.generator.wave_count;
-    g["spread_degrees"] = water.generator.spread_degrees;
-    g["wavelength_falloff"] = water.generator.wavelength_falloff;
-    g["amplitude_falloff"] = water.generator.amplitude_falloff;
-    j["generator"] = g;
-
-    nlohmann::json waves = nlohmann::json::array();
-    for (const auto& wave : water.waves) {
-        nlohmann::json wj = nlohmann::json::object();
-        wj["direction"] = write_vec2(wave.direction);
-        wj["wavelength"] = wave.wavelength;
-        wj["amplitude"] = wave.amplitude;
-        wj["steepness"] = wave.steepness;
-        wj["speed"] = wave.speed;
-        waves.push_back(wj);
+    nlohmann::json contributors = nlohmann::json::array();
+    for (const auto& contributor : field.contributors) {
+        if (const auto* gerstner = std::get_if<GerstnerContributor>(&contributor)) {
+            contributors.push_back(write_gerstner(*gerstner));
+        }
     }
-    j["waves"] = waves;
+    j["contributors"] = contributors;
 
     std::ofstream f(path);
     if (!f.is_open()) {

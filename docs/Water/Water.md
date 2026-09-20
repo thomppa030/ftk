@@ -11,7 +11,46 @@ travels in world directions, and a rotated body of water is the same water.
 
 ## The wave field
 
-A `.fjwater` is a list of **trains**, each a Gerstner wave:
+A `.fjwater` is a list of **contributors**, and the surface is their sum. A
+contributor is one source of motion with its own scales, fold headroom and wind
+response; nothing downstream knows or cares how many a sea is made of, because
+everything that asks — drawing, buoyancy, scripts — asks where the surface is.
+
+The reason to use more than one is that parts of a sea want different answers.
+A swell raised by a storm somewhere else holds its heading and its height
+whatever the local wind does, while the chop riding on it answers the wind it is
+in. As two contributors that is two wind responses; as one list of trains it is
+a compromise.
+
+There is one kind today, **Gerstner**: a list of up to 16 trains an author can
+reason about one at a time. A field sums at most four of them.
+
+```json
+{
+    "version": 3,
+    "contributors": [
+        {
+            "kind": "gerstner",
+            "amplitude_scale": 1.0,
+            "speed_scale": 1.0,
+            "steepness_headroom": 0.3,
+            "generator": { "swell": 1.6, "wave_count": 5 },
+            "waves": [
+                { "direction": [1.0, 0.0], "wavelength": 120.0, "amplitude": 1.6,
+                  "steepness": 0.45, "speed": 1.0 }
+            ]
+        }
+    ]
+}
+```
+
+A file written before contributors existed kept one sea's keys at its root. It
+loads as a single Gerstner contributor at exactly the surface it was tuned to,
+and is written back in the current shape the next time it is saved. A
+contributor of a kind the engine does not know fails the load rather than being
+skipped, since skipping it would save the file back without it.
+
+Each train of a Gerstner contributor is a Gerstner wave:
 
 | | |
 |---|---|

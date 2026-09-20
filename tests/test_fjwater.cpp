@@ -979,12 +979,133 @@ TEST_CASE("An old .fjwater keeps the surface it was tuned to", "[fjwater]") {
     REQUIRE(loaded);
     REQUIRE(gerstner(*loaded).steepness_headroom == Approx(1.1f / 2.0f));
 
+    // It predates contributors too, and is one: everything it kept at its
+    // root belongs to a single Gerstner contributor.
+    REQUIRE(loaded->contributors.size() == 1);
+    REQUIRE(gerstner(*loaded).waves.size() == 2);
+    REQUIRE(gerstner(*loaded).waves[1].wavelength == Approx(12.0f));
+
     // A file the current writer produced is taken at face value.
     auto fresh_path = (dir / "new.fjwater").string();
     REQUIRE(save_fjwater_file(fresh_path, *loaded));
     auto reloaded = load_fjwater_file(fresh_path);
     REQUIRE(reloaded);
     REQUIRE(gerstner(*reloaded).steepness_headroom == Approx(gerstner(*loaded).steepness_headroom));
+
+    // And rewriting it moved nothing: the surface read back from the current
+    // format is exactly the one the old file gave.
+    REQUIRE(reloaded->contributors.size() == 1);
+    for (float x = -20.0f; x <= 20.0f; x += 4.0f) {
+        glm::vec2 p(x, 3.0f - x * 0.5f);
+        REQUIRE(water::displace(*reloaded, p, 6.5f) == water::displace(*loaded, p, 6.5f));
+    }
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("A .fjwater from before contributors reads as one", "[fjwater]") {
+    // The format that kept a single sea at the root of the file, with its
+    // version saying the headroom already means what it says. Every key at
+    // the root is that one contributor's.
+    auto dir = std::filesystem::temp_directory_path() / "fjell-fjwater-v2";
+    std::filesystem::create_directories(dir);
+    auto path = (dir / "v2.fjwater").string();
+
+    std::ofstream(path) << R"({
+        "version": 2,
+        "amplitude_scale": 1.3,
+        "speed_scale": 0.9,
+        "steepness_headroom": 0.8,
+        "preview_material": "assets/materials/sea.fjmat",
+        "wind": {"enabled": true, "reference_speed": 11.0, "amplitude_response": 2.0,
+                 "steepness_response": 1.5, "direction_response": 0.25},
+        "generator": {"swell": 2.5, "wave_count": 3},
+        "waves": [
+            {"direction": [1.0, 0.2], "wavelength": 42.0, "amplitude": 1.1,
+             "steepness": 0.8, "speed": 1.0},
+            {"direction": [0.6, -0.7], "wavelength": 17.0, "amplitude": 0.5,
+             "steepness": 0.7, "speed": 1.1}
+        ]
+    })";
+
+    auto loaded = load_fjwater_file(path);
+    REQUIRE(loaded);
+    REQUIRE(loaded->preview_material == "assets/materials/sea.fjmat");
+    REQUIRE(loaded->contributors.size() == 1);
+
+    const GerstnerContributor& only = gerstner(*loaded);
+    REQUIRE(only.amplitude_scale == Approx(1.3f));
+    REQUIRE(only.speed_scale == Approx(0.9f));
+    REQUIRE(only.steepness_headroom == Approx(0.8f));   // versioned: taken at face value
+    REQUIRE(only.wind.enabled);
+    REQUIRE(only.wind.reference_speed == Approx(11.0f));
+    REQUIRE(only.wind.direction_response == Approx(0.25f));
+    REQUIRE(only.generator.swell == Approx(2.5f));
+    REQUIRE(only.generator.wave_count == 3);
+    REQUIRE(only.waves.size() == 2);
+    REQUIRE(only.waves[1].wavelength == Approx(17.0f));
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("Several contributors survive a round trip", "[fjwater]") {
+    auto dir = std::filesystem::temp_directory_path() / "fjell-fjwater-contributors";
+    std::filesystem::create_directories(dir);
+    auto path = (dir / "two.fjwater").string();
+
+    FjWaterData written = sea({wave({1.0f, 0.1f}, 60.0f, 1.5f, 0.6f)});
+    gerstner(written).amplitude_scale = 2.0f;
+    gerstner(written).generator.swell = 3.0f;
+    written.contributors.emplace_back(GerstnerContributor{});
+    gerstner(written, 1).waves = {
+        wave({0.2f, 1.0f}, 6.0f, 0.2f, 0.9f, 1.4f),
+        wave({-0.6f, 0.7f}, 3.5f, 0.1f, 0.8f, 1.7f),
+    };
+    gerstner(written, 1).speed_scale = 1.6f;
+    gerstner(written, 1).steepness_headroom = 0.4f;
+    gerstner(written, 1).wind.enabled = true;
+    gerstner(written, 1).wind.direction_response = 0.9f;
+    written.preview_material = "assets/materials/sea.fjmat";
+
+    REQUIRE(save_fjwater_file(path, written));
+    auto loaded = load_fjwater_file(path);
+    REQUIRE(loaded);
+    REQUIRE(loaded->preview_material == written.preview_material);
+    REQUIRE(loaded->contributors.size() == 2);
+
+    // In the order they were written, each with what was its own.
+    REQUIRE(gerstner(*loaded, 0).amplitude_scale == Approx(2.0f));
+    REQUIRE(gerstner(*loaded, 0).generator.swell == Approx(3.0f));
+    REQUIRE_FALSE(gerstner(*loaded, 0).wind.enabled);
+    REQUIRE(gerstner(*loaded, 1).waves.size() == 2);
+    REQUIRE(gerstner(*loaded, 1).speed_scale == Approx(1.6f));
+    REQUIRE(gerstner(*loaded, 1).steepness_headroom == Approx(0.4f));
+    REQUIRE(gerstner(*loaded, 1).wind.enabled);
+    REQUIRE(gerstner(*loaded, 1).wind.direction_response == Approx(0.9f));
+
+    for (float x = -20.0f; x <= 20.0f; x += 4.0f) {
+        glm::vec2 p(x, 1.0f + x * 0.25f);
+        REQUIRE(water::displace(*loaded, p, 4.0f) == water::displace(written, p, 4.0f));
+    }
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("A contributor of an unknown kind fails the load", "[fjwater]") {
+    // Skipping it would load a sea with a piece missing, and the next save
+    // would write the file back without it.
+    auto dir = std::filesystem::temp_directory_path() / "fjell-fjwater-kind";
+    std::filesystem::create_directories(dir);
+    auto path = (dir / "future.fjwater").string();
+
+    std::ofstream(path) << R"({
+        "version": 3,
+        "contributors": [
+            {"kind": "gerstner", "waves": [{"direction": [1.0, 0.0], "wavelength": 12.0}]},
+            {"kind": "tidal"}
+        ]
+    })";
+    REQUIRE_FALSE(load_fjwater_file(path));
 
     std::filesystem::remove_all(dir);
 }
