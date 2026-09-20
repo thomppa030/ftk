@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <variant>
 
 namespace fjell {
 
@@ -101,11 +102,14 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         return make_error("Malformed .fjwater file " + path + ": " + e.what());
     }
 
-    FjWaterData water;
+    FjWaterData field;
+    field.preview_material = j.value("preview_material", std::string{});
+
+    GerstnerContributor water;
     water.amplitude_scale = j.value("amplitude_scale", 1.0f);
     water.speed_scale = j.value("speed_scale", 1.0f);
     water.steepness_headroom = j.value("steepness_headroom",
-                                       FjWaterData{}.steepness_headroom);
+                                       GerstnerContributor{}.steepness_headroom);
 
     // Files written before the steepness budget stopped being divided by the
     // train count. Their headroom was a multiplier on a 1/N share, so the
@@ -121,8 +125,6 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         water.wind.steepness_response = wj.value("steepness_response", 1.25f);
         water.wind.direction_response = wj.value("direction_response", 0.7f);
     }
-
-    water.preview_material = j.value("preview_material", std::string{});
 
     if (j.contains("generator") && j["generator"].is_object()) {
         const auto& g = j["generator"];
@@ -162,11 +164,16 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         water.steepness_headroom /= static_cast<float>(water.waves.size());
     }
 
-    return water;
+    field.contributors.emplace_back(std::move(water));
+    return field;
 }
 
-Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
+Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
     nlohmann::json j;
+    const GerstnerContributor water = field.contributors.empty()
+        ? GerstnerContributor{}
+        : std::get<GerstnerContributor>(field.contributors.front());
+
     // Present from the version the steepness budget stopped being divided by
     // the train count. Its absence is what marks a file whose headroom still
     // means a share of 1/N, and is the whole reason it is written.
@@ -189,8 +196,8 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& water) {
 
     // The editor's own setting, written only once one has been picked so a
     // file nobody has previewed stays as short as it reads.
-    if (!water.preview_material.empty()) {
-        j["preview_material"] = water.preview_material;
+    if (!field.preview_material.empty()) {
+        j["preview_material"] = field.preview_material;
     }
 
     nlohmann::json g = nlohmann::json::object();

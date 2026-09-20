@@ -162,21 +162,24 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 ///
 /// Weighted by amplitude because the train carrying the surface is the one
 /// that sets the sea's direction; a ripple a hundredth its height does not get
-/// an equal vote. Trains pointing opposite ways cancel, and a sea with two
+/// an equal vote. That is the amplitude a train actually has, under its
+/// contributor's scale, so a contributor turned down to nothing stops steering
+/// the sea as well as stops raising it. Trains pointing opposite ways cancel, and a sea with two
 /// equal opposed swells genuinely has no direction of travel — the zero says
 /// so, and callers should fall back to something non-directional.
 [[nodiscard]] glm::vec2 dominant_direction(const FjWaterData& water);
 
-/// How big this sea has got, in metres: the sum of its train amplitudes under
-/// the field's amplitude scale, which is the highest the surface can stand
-/// above rest with every crest aligned. 0 for flat water.
+/// How big this sea has got, in metres: the sum of every summed train's
+/// amplitude, each under its own contributor's scale. Contributors add into
+/// one surface, so this is the highest that surface can stand above rest with
+/// every crest of every contributor aligned. 0 for flat water.
 ///
 /// A property of the field rather than of a point. It is what scripts read as
 /// `Water::wave_height()`, so what it means is part of the script ABI.
 [[nodiscard]] float wave_height(const FjWaterData& water);
 
-/// The shortest wavelength in the field, in metres, or 0 when it has no
-/// trains. The train a tessellation has the hardest time drawing.
+/// The shortest wavelength among the trains the surface sums, in metres, or
+/// 0 when there are none. The train a tessellation has the hardest time drawing.
 [[nodiscard]] float shortest_wavelength(const FjWaterData& water);
 
 /// Height of the surface above `world_xz`, for buoyancy and swimming.

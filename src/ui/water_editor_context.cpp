@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <variant>
 
 namespace fjell {
 
@@ -105,8 +106,11 @@ void WaterEditorContext::open_water(const std::string& path) {
     dirty_ = false;
     // Open on the wind the field was authored at, so the first thing shown is
     // the sea as tuned rather than one the response has already moved.
-    preview_wind_speed_ = water_.wind.reference_speed;
-    preview_wind_heading_ = direction_degrees(water_.generator.wind_direction);
+    selected_contributor_ = 0;
+    if (const auto* sea = selected_gerstner()) {
+        preview_wind_speed_ = sea->wind.reference_speed;
+        preview_wind_heading_ = direction_degrees(sea->generator.wind_direction);
+    }
 
     setup_preview();
     if (auto* cam = viewport_manager_.active_camera()) {
@@ -202,10 +206,9 @@ bool WaterEditorContext::save() {
     return true;
 }
 
-float WaterEditorContext::total_amplitude() const {
-    float sum = 0.0f;
-    for (const auto& wave : water_.waves) sum += wave.amplitude;
-    return sum * water_.amplitude_scale;
+GerstnerContributor* WaterEditorContext::selected_gerstner() {
+    if (selected_contributor_ >= water_.contributors.size()) return nullptr;
+    return std::get_if<GerstnerContributor>(&water_.contributors[selected_contributor_]);
 }
 
 void WaterEditorContext::push_live() {
@@ -305,13 +308,20 @@ void WaterEditorContext::draw_generator_panel() {
 
     ImGui::Separator();
 
+    GerstnerContributor* sea = selected_gerstner();
+    if (sea == nullptr) {
+        ImGui::TextDisabled("No contributor selected.");
+        ImGui::End();
+        return;
+    }
+
     ImGui::TextDisabled("Generate");
     ImGui::TextWrapped(
         "Fills the wave list from a few numbers. Overwrites whatever is "
         "there — it is a starting shape, and the list below is the asset.");
     ImGui::Spacing();
 
-    auto& g = water_.generator;
+    auto& g = sea->generator;
     bool changed = false;
 
     float wind_deg = direction_degrees(g.wind_direction);
@@ -349,28 +359,28 @@ void WaterEditorContext::draw_generator_panel() {
 
     ImGui::Spacing();
     if (ImGui::Button("Generate waves", ImVec2(-1, 0))) {
-        water_.waves = generate_water_waves(g);
+        sea->waves = generate_water_waves(g);
         push_live();
     }
     // Moving a generator slider regenerates as it is dragged. The generator
     // is deterministic, so this is the same list the button would make, and
     // shaping a sea by watching it beats shaping it by pressing a button.
     if (changed) {
-        water_.waves = generate_water_waves(g);
+        sea->waves = generate_water_waves(g);
         push_live();
     }
 
     ImGui::Separator();
     ImGui::TextDisabled("Whole sea");
-    if (ImGui::SliderFloat("Amplitude scale", &water_.amplitude_scale, 0.0f, 4.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Amplitude scale", &sea->amplitude_scale, 0.0f, 4.0f, "%.2f")) {
         push_live();
     }
     ImGui::SetItemTooltip("Multiplies every train. Where calm becomes storm "
                           "without touching a single wave.");
-    if (ImGui::SliderFloat("Speed scale", &water_.speed_scale, 0.0f, 3.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Speed scale", &sea->speed_scale, 0.0f, 3.0f, "%.2f")) {
         push_live();
     }
-    if (ImGui::SliderFloat("Steepness headroom", &water_.steepness_headroom,
+    if (ImGui::SliderFloat("Steepness headroom", &sea->steepness_headroom,
                            0.5f, 4.0f, "%.2f")) {
         push_live();
     }
@@ -382,7 +392,7 @@ void WaterEditorContext::draw_generator_panel() {
     // What that setting costs, measured rather than asserted: sample the
     // surface and count where it has folded. A number beats a warning here,
     // because a little folding at a distance may be a trade worth making.
-    if (!water_.waves.empty()) {
+    if (!sea->waves.empty()) {
         int folded = 0;
         int total = 0;
         for (float x = -120.0f; x <= 120.0f; x += 6.0f) {
@@ -404,12 +414,12 @@ void WaterEditorContext::draw_generator_panel() {
 
     ImGui::Separator();
     ImGui::TextDisabled("Wind response");
-    if (ImGui::Checkbox("Answers the weather", &water_.wind.enabled)) {
+    if (ImGui::Checkbox("Answers the weather", &sea->wind.enabled)) {
         push_live();
     }
     ImGui::SetItemTooltip("Whether the weather's wind reaches this water. Off "
                           "for a pool, a canal, anything indoors.");
-    if (water_.wind.enabled) {
+    if (sea->wind.enabled) {
         // The wind blowing on the preview, which is the editor's and not the
         // asset's: a .fjwater says how a sea answers wind, never what wind it
         // sits in. Without it the four responses below are dials with nothing
@@ -426,31 +436,31 @@ void WaterEditorContext::draw_generator_panel() {
             apply_preview_wind();
         }
         if (ImGui::Button("Wind = reference")) {
-            preview_wind_speed_ = water_.wind.reference_speed;
+            preview_wind_speed_ = sea->wind.reference_speed;
             apply_preview_wind();
         }
         ImGui::SetItemTooltip("Back to the sea as authored.");
         ImGui::Spacing();
 
-        if (ImGui::SliderFloat("Reference wind", &water_.wind.reference_speed,
+        if (ImGui::SliderFloat("Reference wind", &sea->wind.reference_speed,
                                0.5f, 30.0f, "%.1f m/s")) {
             push_live();
         }
         ImGui::SetItemTooltip("The wind this sea is authored at. At this speed "
                               "nothing below changes anything, so it is the "
                               "sea you are looking at now.");
-        if (ImGui::SliderFloat("Height at double wind", &water_.wind.amplitude_response,
+        if (ImGui::SliderFloat("Height at double wind", &sea->wind.amplitude_response,
                                0.0f, 4.0f, "%.2fx")) {
             push_live();
         }
-        if (ImGui::SliderFloat("Headroom at double wind", &water_.wind.steepness_response,
+        if (ImGui::SliderFloat("Headroom at double wind", &sea->wind.steepness_response,
                                0.0f, 3.0f, "%.2fx")) {
             push_live();
         }
         ImGui::SetItemTooltip("Wind sharpens a sea as well as raising it. This "
                               "multiplies the fold headroom, so a sea tuned "
                               "near its ceiling will fold in a storm.");
-        if (ImGui::SliderFloat("Turns onto wind", &water_.wind.direction_response,
+        if (ImGui::SliderFloat("Turns onto wind", &sea->wind.direction_response,
                                0.0f, 1.0f, "%.2f")) {
             push_live();
         }
@@ -462,7 +472,7 @@ void WaterEditorContext::draw_generator_panel() {
         // nobody is looking at while they tune. Show what it comes to at the
         // winds that actually blow, folding measured rather than warned
         // about — the same reading as above, at the storm end.
-        if (!water_.waves.empty()) {
+        if (!sea->waves.empty()) {
             ImGui::Spacing();
             ImGui::TextDisabled("At a given wind");
             if (ImGui::BeginTable("wind_preview", 4,
@@ -473,10 +483,12 @@ void WaterEditorContext::draw_generator_panel() {
                 ImGui::TableSetupColumn("folds");
                 ImGui::TableHeadersRow();
 
-                const float reference = std::max(water_.wind.reference_speed, 0.1f);
+                const float reference = std::max(sea->wind.reference_speed, 0.1f);
                 for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
                     const float speed = reference * factor;
                     FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
+                    const auto& blown_sea = std::get<GerstnerContributor>(
+                        blown.contributors[selected_contributor_]);
 
                     int folded = 0;
                     int total = 0;
@@ -495,9 +507,9 @@ void WaterEditorContext::draw_generator_panel() {
                     ImGui::TableNextColumn();
                     ImGui::Text("%.1f m/s", speed);
                     ImGui::TableNextColumn();
-                    ImGui::Text("%.2fx", blown.amplitude_scale);
+                    ImGui::Text("%.2fx", blown_sea.amplitude_scale);
                     ImGui::TableNextColumn();
-                    ImGui::Text("%.2f", blown.steepness_headroom);
+                    ImGui::Text("%.2f", blown_sea.steepness_headroom);
                     ImGui::TableNextColumn();
                     if (pct <= 0.0f) {
                         ImGui::TextDisabled("none");
@@ -513,10 +525,10 @@ void WaterEditorContext::draw_generator_panel() {
 
     ImGui::Separator();
     ImGui::TextDisabled("Measures");
-    ImGui::Text("Crest to trough: %.2f m", total_amplitude() * 2.0f);
-    if (!water_.waves.empty()) {
+    ImGui::Text("Crest to trough: %.2f m", water::wave_height(water_) * 2.0f);
+    if (!sea->waves.empty()) {
         float longest = 0.0f;
-        for (const auto& w : water_.waves) longest = std::max(longest, w.wavelength);
+        for (const auto& w : sea->waves) longest = std::max(longest, w.wavelength);
         ImGui::Text("Longest train:   %.1f m", longest);
         // The period is what says whether a sea rolls. Wind chop comes in at
         // two to five seconds and reads as busy; swell that has travelled from
@@ -524,7 +536,7 @@ void WaterEditorContext::draw_generator_panel() {
         // ridges. The wavelength decides it, so this is a consequence rather
         // than a setting — but it is the number to steer by.
         {
-            float omega = water::wave_frequency(longest) * water_.speed_scale;
+            float omega = water::wave_frequency(longest) * sea->speed_scale;
             if (omega > 1e-4f) {
                 float period = glm::two_pi<float>() / omega;
                 const char* reads = period < 6.0f ? "wind chop"
@@ -536,8 +548,8 @@ void WaterEditorContext::draw_generator_panel() {
         // The shortest train is what decides how finely the surface has to be
         // tessellated: under about four vertices per wavelength it cannot be
         // drawn and comes out as noise instead of chop.
-        float shortest = water_.waves.front().wavelength;
-        for (const auto& w : water_.waves) shortest = std::min(shortest, w.wavelength);
+        float shortest = sea->waves.front().wavelength;
+        for (const auto& w : sea->waves) shortest = std::min(shortest, w.wavelength);
         ImGui::Text("Shortest train:  %.1f m", shortest);
         ImGui::TextDisabled("needs ~%.1f m between vertices", shortest / 4.0f);
     }
@@ -553,19 +565,26 @@ void WaterEditorContext::draw_wave_list_panel() {
         return;
     }
 
-    ImGui::Text("%zu of %u trains", water_.waves.size(), MAX_WATER_WAVES);
+    GerstnerContributor* sea = selected_gerstner();
+    if (sea == nullptr) {
+        ImGui::TextDisabled("No contributor selected.");
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("%zu of %u trains", sea->waves.size(), MAX_WATER_WAVES);
     ImGui::SameLine();
-    ImGui::BeginDisabled(water_.waves.size() >= MAX_WATER_WAVES);
+    ImGui::BeginDisabled(sea->waves.size() >= MAX_WATER_WAVES);
     if (ImGui::SmallButton("Add")) {
-        water_.waves.push_back(WaterWave{});
+        sea->waves.push_back(WaterWave{});
         push_live();
     }
     ImGui::EndDisabled();
     ImGui::Separator();
 
     int remove = -1;
-    for (std::size_t i = 0; i < water_.waves.size(); ++i) {
-        auto& wave = water_.waves[i];
+    for (std::size_t i = 0; i < sea->waves.size(); ++i) {
+        auto& wave = sea->waves[i];
         ImGui::PushID(static_cast<int>(i));
 
         // Name each train by its size rather than its index: which one is
@@ -596,7 +615,7 @@ void WaterEditorContext::draw_wave_list_panel() {
             // period is a consequence rather than a setting — worth showing,
             // because two trains with close periods beat against each other.
             float omega = water::wave_frequency(wave.wavelength) * wave.speed
-                        * water_.speed_scale;
+                        * sea->speed_scale;
             if (omega > 1e-4f) {
                 ImGui::TextDisabled("period %.1f s", glm::two_pi<float>() / omega);
             }
@@ -607,7 +626,7 @@ void WaterEditorContext::draw_wave_list_panel() {
     }
 
     if (remove >= 0) {
-        water_.waves.erase(water_.waves.begin() + remove);
+        sea->waves.erase(sea->waves.begin() + remove);
         push_live();
     }
 

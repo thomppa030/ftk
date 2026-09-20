@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <variant>
 
 namespace fjell::water {
 
@@ -59,8 +60,8 @@ struct WaveTerms {
 };
 
 // Everything both the displacement and its derivatives need, computed once.
-[[nodiscard]] WaveTerms terms_for(const WaterWave& wave, const FjWaterData& water,
-                                  glm::vec2 world_xz, float time, float budget) {
+[[nodiscard]] WaveTerms terms_for(const WaterWave& wave, const GerstnerContributor& contributor,
+                                  glm::vec2 world_xz, float time) {
     WaveTerms t;
     float len = glm::length(wave.direction);
     if (len < 1e-6f || wave.wavelength < 1e-4f) {
@@ -68,12 +69,62 @@ struct WaveTerms {
     }
     t.dir = wave.direction / len;
     t.k = TAU / wave.wavelength;
-    t.amplitude = wave.amplitude * water.amplitude_scale;
-    t.q = steepness_to_q(wave.steepness, t.k, t.amplitude, budget);
+    t.amplitude = wave.amplitude * contributor.amplitude_scale;
+    t.q = steepness_to_q(wave.steepness, t.k, t.amplitude,
+                         steepness_budget(contributor.steepness_headroom));
 
-    float omega = std::sqrt(GRAVITY * t.k) * wave.speed * water.speed_scale;
+    float omega = std::sqrt(GRAVITY * t.k) * wave.speed * contributor.speed_scale;
     t.phase = glm::dot(t.dir, world_xz) * t.k - omega * time;
     return t;
+}
+
+// Every train the surface sums, with the contributor whose scales it is
+// under: the first MAX_WATER_WAVES of each of the first
+// MAX_GERSTNER_CONTRIBUTORS Gerstner contributors. Every query over the field
+// walks it through here, so they cannot disagree about which trains a sea is
+// made of.
+template <typename Fn>
+void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
+    std::uint32_t summed_contributors = 0;
+    for (const auto& contributor : water.contributors) {
+        const auto* gerstner = std::get_if<GerstnerContributor>(&contributor);
+        if (gerstner == nullptr) continue;
+        if (summed_contributors++ >= MAX_GERSTNER_CONTRIBUTORS) break;
+
+        std::size_t count = std::min<std::size_t>(gerstner->waves.size(), MAX_WATER_WAVES);
+        for (std::size_t i = 0; i < count; ++i) {
+            fn(*gerstner, gerstner->waves[i]);
+        }
+    }
+}
+
+// d(displaced)/d(rest) of the horizontal displacement, as the three distinct
+// entries of a symmetric 2x2.
+struct HorizontalJacobian {
+    float xx{1.0f};
+    float zz{1.0f};
+    float xz{0.0f};
+
+    [[nodiscard]] float determinant() const { return xx * zz - xz * xz; }
+};
+
+[[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
+                                                float time) {
+    // At rest it is the identity; as trains bunch together the diagonal falls.
+    HorizontalJacobian j;
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        WaveTerms t = terms_for(wave, contributor, world_xz, time);
+        if (t.amplitude == 0.0f) return;
+
+        float s = std::sin(t.phase);
+        float wa = t.k * t.amplitude * t.q;
+
+        j.xx -= wa * t.dir.x * t.dir.x * s;
+        j.zz -= wa * t.dir.y * t.dir.y * s;
+        j.xz -= wa * t.dir.x * t.dir.y * s;
+    });
+    return j;
 }
 
 } // namespace
@@ -91,19 +142,20 @@ glm::vec2 advance_sea_wind(glm::vec2 sea_wind, glm::vec2 blowing, float dt) {
 }
 
 float bed_agitation(const FjWaterData& water, float depth) {
-    if (water.waves.empty() || depth <= 0.0f) return 0.0f;
+    if (depth <= 0.0f) return 0.0f;
 
     // Each train reaches its own distance down. The orbital motion under a
     // wave dies as exp(-k*d), so wavelength decides the reach and amplitude
     // decides how hard it works when it gets there — a long swell stirs a bed
     // that a chop of the same height cannot feel at all.
     float stirred = 0.0f;
-    for (const auto& wave : water.waves) {
-        if (wave.wavelength < 1e-4f) continue;
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        if (wave.wavelength < 1e-4f) return;
         const float k = TAU / wave.wavelength;
-        const float amplitude = wave.amplitude * water.amplitude_scale;
+        const float amplitude = wave.amplitude * contributor.amplitude_scale;
         stirred += amplitude * std::exp(-k * depth);
-    }
+    });
 
     // Quoted against the depth itself rather than an absolute: half a metre of
     // orbital motion is nothing under thirty metres of water and is the whole
@@ -122,7 +174,10 @@ float advance_silt(float load, float agitation, float dt) {
     return load + (target - load) * alpha;
 }
 
-FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
+namespace {
+
+[[nodiscard]] GerstnerContributor apply_wind_to(const GerstnerContributor& water,
+                                                glm::vec2 wind_xz) {
     const WaterWindResponse& wind = water.wind;
     if (!wind.enabled || water.waves.empty()) {
         return water;
@@ -144,7 +199,7 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
     // wind that raised it by days, and water that went glassy the moment the
     // wind dropped would read as a switch being thrown. An artist who wants a
     // millpond in a calm sets the response past 2.
-    FjWaterData out = water;
+    GerstnerContributor out = water;
     out.amplitude_scale *= std::max(1.0f + t * (wind.amplitude_response - 1.0f), 0.0f);
     out.steepness_headroom *= std::max(1.0f + t * (wind.steepness_response - 1.0f), 0.0f);
 
@@ -189,13 +244,24 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
     return out;
 }
 
+} // namespace
+
+FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
+    FjWaterData out = water;
+    for (auto& contributor : out.contributors) {
+        if (auto* gerstner = std::get_if<GerstnerContributor>(&contributor)) {
+            *gerstner = apply_wind_to(*gerstner, wind_xz);
+        }
+    }
+    return out;
+}
+
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
-    std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(water.steepness_headroom);
-    for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
-        if (t.amplitude == 0.0f) continue;
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        WaveTerms t = terms_for(wave, contributor, world_xz, time);
+        if (t.amplitude == 0.0f) return;
 
         float c = std::cos(t.phase);
         float s = std::sin(t.phase);
@@ -203,7 +269,7 @@ glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
         sum.x += t.q * t.amplitude * t.dir.x * c;
         sum.z += t.q * t.amplitude * t.dir.y * c;
         sum.y += t.amplitude * s;
-    }
+    });
     return sum;
 }
 
@@ -214,11 +280,10 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 binormal{1.0f, 0.0f, 0.0f};  // d/dx
     glm::vec3 tangent{0.0f, 0.0f, 1.0f};   // d/dz
 
-    std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(water.steepness_headroom);
-    for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
-        if (t.amplitude == 0.0f) continue;
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        WaveTerms t = terms_for(wave, contributor, world_xz, time);
+        if (t.amplitude == 0.0f) return;
 
         float c = std::cos(t.phase);
         float s = std::sin(t.phase);
@@ -231,7 +296,7 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
         tangent.x -= t.q * t.dir.x * t.dir.y * wa * s;
         tangent.y += t.dir.y * wa * c;
         tangent.z -= t.q * t.dir.y * t.dir.y * wa * s;
-    }
+    });
 
     glm::vec3 n = glm::cross(tangent, binormal);
     float len = glm::length(n);
@@ -240,27 +305,9 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
 }
 
 float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz, float time) {
-    // At rest it is 1; as trains bunch together it falls, reaching 0 where the
-    // surface has pinched to a point and going negative where it has folded.
-    float jxx = 1.0f;
-    float jzz = 1.0f;
-    float jxz = 0.0f;
-
-    std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    float budget = steepness_budget(water.steepness_headroom);
-    for (std::size_t i = 0; i < count; ++i) {
-        WaveTerms t = terms_for(water.waves[i], water, world_xz, time, budget);
-        if (t.amplitude == 0.0f) continue;
-
-        float s = std::sin(t.phase);
-        float wa = t.k * t.amplitude * t.q;
-
-        jxx -= wa * t.dir.x * t.dir.x * s;
-        jzz -= wa * t.dir.y * t.dir.y * s;
-        jxz -= wa * t.dir.x * t.dir.y * s;
-    }
-
-    return jxx * jzz - jxz * jxz;
+    // 1 at rest, 0 where the surface has pinched to a point and negative where
+    // it has folded.
+    return jacobian_terms(water, world_xz, time).determinant();
 }
 
 float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
@@ -272,31 +319,30 @@ float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
 
 glm::vec2 dominant_direction(const FjWaterData& water) {
     glm::vec2 sum(0.0f);
-    std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-    for (std::size_t i = 0; i < count; ++i) {
-        const auto& w = water.waves[i];
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& w) {
         float len = glm::length(w.direction);
-        if (len < 1e-6f || w.wavelength < 1e-4f) continue;
-        sum += (w.direction / len) * w.amplitude;
-    }
+        if (len < 1e-6f || w.wavelength < 1e-4f) return;
+        sum += (w.direction / len) * (w.amplitude * contributor.amplitude_scale);
+    });
     float len = glm::length(sum);
     return len < 1e-6f ? glm::vec2(0.0f) : sum / len;
 }
 
 float wave_height(const FjWaterData& water) {
     float sum = 0.0f;
-    for (const auto& wave : water.waves) {
-        sum += wave.amplitude;
-    }
-    return sum * water.amplitude_scale;
+    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        sum += wave.amplitude * contributor.amplitude_scale;
+    });
+    return sum;
 }
 
 float shortest_wavelength(const FjWaterData& water) {
-    if (water.waves.empty()) return 0.0f;
-    float shortest = water.waves.front().wavelength;
-    for (const auto& wave : water.waves) {
-        shortest = std::min(shortest, wave.wavelength);
-    }
+    float shortest = 0.0f;
+    for_each_summed_train(water, [&](const GerstnerContributor&, const WaterWave& wave) {
+        shortest = shortest > 0.0f ? std::min(shortest, wave.wavelength) : wave.wavelength;
+    });
     return shortest;
 }
 
@@ -331,29 +377,15 @@ glm::vec2 rest_position_for(const FjWaterData& water, glm::vec2 world_xz, float 
         if (glm::dot(error, error) < TOLERANCE * TOLERANCE) break;
 
         // d(displaced)/d(rest), the same terms crest() reduces to a scalar.
-        float jxx = 1.0f;
-        float jzz = 1.0f;
-        float jxz = 0.0f;
-        std::size_t count = std::min<std::size_t>(water.waves.size(), MAX_WATER_WAVES);
-        float budget = steepness_budget(water.steepness_headroom);
-        for (std::size_t w = 0; w < count; ++w) {
-            WaveTerms t = terms_for(water.waves[w], water, rest, time, budget);
-            if (t.amplitude == 0.0f) continue;
-            float s = std::sin(t.phase);
-            float wa = t.k * t.amplitude * t.q;
-            jxx -= wa * t.dir.x * t.dir.x * s;
-            jzz -= wa * t.dir.y * t.dir.y * s;
-            jxz -= wa * t.dir.x * t.dir.y * s;
-        }
-
-        float det = jxx * jzz - jxz * jxz;
+        const HorizontalJacobian j = jacobian_terms(water, rest, time);
+        const float det = j.determinant();
         // A vanishing determinant is the surface pinched to a point, where
         // there is no single rest position to solve for. Stop rather than
         // divide through it; the current guess is as good as it gets.
         if (std::abs(det) < 1e-6f) break;
 
-        rest -= glm::vec2(( jzz * error.x - jxz * error.y) / det,
-                          (-jxz * error.x + jxx * error.y) / det);
+        rest -= glm::vec2(( j.zz * error.x - j.xz * error.y) / det,
+                          (-j.xz * error.x + j.xx * error.y) / det);
     }
     return rest;
 }

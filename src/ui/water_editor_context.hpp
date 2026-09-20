@@ -88,15 +88,17 @@ private:
     /// without a save.
     void push_live();
 
-    /// What the field measures out to, for the reader rather than the
-    /// renderer: how tall the sea stands and how long its longest train is.
-    [[nodiscard]] float total_amplitude() const;
+    /// The Gerstner contributor the panels are editing, or nullptr when the
+    /// field has none selected.
+    [[nodiscard]] GerstnerContributor* selected_gerstner();
 
     WaterEditorDeps deps_;
     std::string name_{"Water"};
     std::string water_path_;        // as opened, project-relative
     std::string water_abs_path_;
     FjWaterData water_;
+    /// Index into `water_.contributors` of the one the panels edit.
+    std::size_t selected_contributor_{0};
     bool loaded_{false};
     bool dirty_{false};
 

@@ -4,14 +4,20 @@
 
 #include <cstdint>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace fjell {
 
-/// How many wave trains a water surface may sum. The shader unrolls this
-/// many iterations and the CPU evaluator matches, so it is a compile-time
+/// How many wave trains one Gerstner contributor may sum. The shader unrolls
+/// this many iterations and the CPU evaluator matches, so it is a compile-time
 /// bound on both sides rather than a soft limit.
 inline constexpr std::uint32_t MAX_WATER_WAVES = 16;
+
+/// How many Gerstner contributors a water surface may sum, a bound on both
+/// sides for the same reason. Few, because a contributor is a whole sea's
+/// worth of trains: a swell and the chop riding on it are two.
+inline constexpr std::uint32_t MAX_GERSTNER_CONTRIBUTORS = 4;
 
 /// One Gerstner wave train.
 ///
@@ -144,18 +150,13 @@ struct WaterWindResponse {
     float direction_response{0.7f};
 };
 
-/// A `.fjwater`: the wave field of a body of water.
+/// Art-directed water: a list of Gerstner trains an author can reason about
+/// one at a time — "the swell comes from the north-west, big and slow".
 ///
-/// The waves are the whole runtime asset. Colour, foam look, refraction and
-/// the rest of the surface's appearance live in its material, because the
-/// split that matters is whether the CPU needs to know: buoyancy, swimming
-/// and editor gizmos all ask where the surface is, and none of them care what
-/// colour it is.
-///
-/// Both the shader and the CPU evaluate this same list with the same formula,
-/// so a boat sits on the crest the player can see. That only holds while the
+/// Closed-form, so the shader and the CPU evaluate it with the same formula
+/// and a boat sits on the crest the player can see. That only holds while the
 /// two implementations agree, which is what test_fjwater.cpp pins down.
-struct FjWaterData {
+struct GerstnerContributor {
     /// The trains to sum, in no particular order. Beyond MAX_WATER_WAVES the
     /// tail is dropped on load.
     std::vector<WaterWave> waves;
@@ -163,11 +164,12 @@ struct FjWaterData {
     /// What the generator last produced this list from. Ignored at runtime.
     WaterWaveGenerator generator;
 
-    /// Multiplies every train's amplitude, for scaling a whole sea up or down
-    /// without touching each wave. The place to drive "calm to storm" from.
+    /// Multiplies every train's amplitude, for scaling these trains up or
+    /// down without touching each wave. The place to drive "calm to storm"
+    /// from.
     float amplitude_scale{1.0f};
 
-    /// Multiplies every train's speed, for slowing or hastening the whole sea
+    /// Multiplies every train's speed, for slowing or hastening these trains
     /// at once.
     float speed_scale{1.0f};
 
@@ -193,17 +195,42 @@ struct FjWaterData {
     /// The editor measures yours rather than guessing from this number.
     float steepness_headroom{0.30f};
 
-    /// How the sea answers the weather's wind.
+    /// How these trains answer the weather's wind.
+    ///
+    /// Held here rather than once for the whole field because the answer is
+    /// made of trains — which of them turn, how far the fold budget stretches
+    /// — and because contributors are meant to differ in it: a swell raised
+    /// by a storm somewhere else rolls through unmoved while the chop beside
+    /// it answers the wind it is in.
     WaterWindResponse wind;
+};
+
+/// One source of surface motion in a `.fjwater`. The surface is the sum of
+/// every contributor, so nothing downstream needs to know which kinds a sea
+/// is made of.
+using WaterContributor = std::variant<GerstnerContributor>;
+
+/// A `.fjwater`: the wave field of a body of water.
+///
+/// The contributors are the whole runtime asset. Colour, foam look,
+/// refraction and the rest of the surface's appearance live in its material,
+/// because the split that matters is whether the CPU needs to know: buoyancy,
+/// swimming and editor gizmos all ask where the surface is, and none of them
+/// care what colour it is.
+struct FjWaterData {
+    /// What moves the surface, summed. Order changes nothing about the sea;
+    /// it is the order an author listed them in. Gerstner contributors past
+    /// MAX_GERSTNER_CONTRIBUTORS are not summed.
+    std::vector<WaterContributor> contributors;
 
     /// The `.fjmat` the water editor draws this field through, as an asset
     /// reference. Empty previews with the engine's own water shader.
     ///
-    /// Authoring convenience, like `generator`: nothing at runtime reads it,
-    /// and a placed body of water takes its material from its own component.
-    /// It lives here because it belongs to the field being tuned — crest
-    /// steepness and foam read differently under every material, so the one
-    /// a sea was judged against is part of how to come back to it.
+    /// Authoring convenience: nothing at runtime reads it, and a placed body
+    /// of water takes its material from its own component. It lives here
+    /// because it belongs to the field being tuned — crest steepness and foam
+    /// read differently under every material, so the one a sea was judged
+    /// against is part of how to come back to it.
     std::string preview_material;
 };
 

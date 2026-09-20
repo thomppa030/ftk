@@ -145,7 +145,8 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
 //
 // Weighted by amplitude because that is what "this sea travels that way"
 // means to a viewer: the train carrying the surface sets the direction and a
-// ripple a hundredth its height does not get an equal vote.
+// ripple a hundredth its height does not get an equal vote. The amplitude a
+// train actually has, under the scale it is summed with.
 //
 // Summed as vectors, not axes, so trains pointing opposite ways cancel. That
 // is the correct answer rather than a flaw — a sea with two equal opposed
@@ -158,7 +159,7 @@ vec2 fjell_water_dominant_dir(FjellWaterField field) {
         FjellWaterWave w = field.waves[i];
         float len = length(w.direction);
         if (len < 1e-6 || w.wavelength < 1e-4) continue;
-        sum += (w.direction / len) * w.amplitude;
+        sum += (w.direction / len) * (w.amplitude * field.amplitude_scale);
     }
     float len = length(sum);
     return len < 1e-6 ? vec2(0.0) : sum / len;
