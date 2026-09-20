@@ -142,6 +142,7 @@ add_executable(fjell
     renderer/components/motion_source_component_meta.cpp
     renderer/pass/motion_field_pass.cpp
     renderer/pass/fog_density_field_pass.cpp
+    renderer/pass/water_fft_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp

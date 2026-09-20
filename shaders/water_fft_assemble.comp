@@ -1,0 +1,52 @@
+#version 460
+
+// Gathers the transformed spectra into what the water surface samples.
+//
+// The displacement texture holds where a point of the patch has moved to, and
+// the derivatives texture how that changes across the patch. They are kept as
+// derivatives rather than as a finished normal and a finished fold measure
+// because the surface is a sum of contributors: the entries of a Jacobian add
+// where Jacobians and normals do not, so whoever sums this with the Gerstner
+// trains needs the parts.
+//
+// Differences rather than exact spectral derivatives, across neighbouring
+// texels and wrapping at the edge, since the patch tiles. That is the slope of
+// the surface as it will actually be sampled, and it costs no extra
+// transforms.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Real parts only: r height, b displacement along x / r displacement along z.
+layout(set = 0, binding = 0, rgba32f) uniform readonly image2D surface_a;
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D surface_b;
+
+// xyz displacement in world axes, w d(displacement x)/dz.
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D displacement;
+// x dh/dx, y dh/dz, z d(displacement x)/dx, w d(displacement z)/dz.
+layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D derivatives;
+
+layout(push_constant) uniform PushConstants {
+    uint  resolution;
+    float texel_size;   // metres between samples
+} push;
+
+vec3 displaced(ivec2 cell) {
+    int n = int(push.resolution);
+    ivec2 wrapped = ivec2((cell.x + n) % n, (cell.y + n) % n);
+    vec4 a = imageLoad(surface_a, wrapped);
+    vec4 b = imageLoad(surface_b, wrapped);
+    return vec3(a.b, a.r, b.r);
+}
+
+void main() {
+    ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    if (cell.x >= int(push.resolution) || cell.y >= int(push.resolution)) return;
+
+    vec3 here = displaced(cell);
+    float across = 1.0 / (2.0 * push.texel_size);
+    vec3 d_dx = (displaced(cell + ivec2(1, 0)) - displaced(cell - ivec2(1, 0))) * across;
+    vec3 d_dz = (displaced(cell + ivec2(0, 1)) - displaced(cell - ivec2(0, 1))) * across;
+
+    imageStore(displacement, cell, vec4(here, d_dz.x));
+    imageStore(derivatives, cell, vec4(d_dx.y, d_dz.y, d_dx.x, d_dz.z));
+}

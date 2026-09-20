@@ -379,6 +379,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.scene = scene;
     ctx.environment = current_environment_;
     ctx.delta_time = dt;
+    ctx.elapsed_time = elapsed_time_;
     ctx.selected_id = selected_id;
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;

@@ -85,6 +85,9 @@ struct FrameContext {
     // their lighting and atmosphere from here, never from the scene's nodes.
     const EnvironmentState* environment{nullptr};
     float delta_time{0.0f};
+    /// Seconds the renderer has been drawing for: the `time` shaders read from
+    /// the global UBO, for a pass that has to run on the same clock as one.
+    float elapsed_time{0.0f};
     uint32_t selected_id{0};
     bool show_colliders{false};
     uint32_t frame_index{0};

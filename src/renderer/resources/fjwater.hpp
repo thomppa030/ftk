@@ -265,6 +265,8 @@ struct FftContributor {
     /// Picks which sea of all the seas this spectrum describes. The same
     /// seed is the same water on every machine.
     std::uint32_t seed{1};
+
+    [[nodiscard]] bool operator==(const FftContributor&) const = default;
 };
 
 /// One source of surface motion in a `.fjwater`. The surface is the sum of
