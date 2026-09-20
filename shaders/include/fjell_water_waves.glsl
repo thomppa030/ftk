@@ -171,35 +171,6 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
     return n / len;
 }
 
-// Matches dominant_direction(): the way this sea travels, as the
-// amplitude-weighted mean of its trains.
-//
-// Weighted by amplitude because that is what "this sea travels that way"
-// means to a viewer: the train carrying the surface sets the direction and a
-// ripple a hundredth its height does not get an equal vote. The amplitude a
-// train actually has, under the scale of the contributor it belongs to.
-//
-// Summed as vectors, not axes, so trains pointing opposite ways cancel. That
-// is the correct answer rather than a flaw — a sea with two equal opposed
-// swells has no direction of travel, and the zero it returns says so. Callers
-// get (0,0) in that case and should fall back to something non-directional.
-vec2 fjell_water_dominant_dir(FjellWaterField field) {
-    vec2 sum = vec2(0.0);
-    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
-    for (uint c = 0u; c < contributors; ++c) {
-        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
-        for (uint i = 0u; i < count; ++i) {
-            vec2 direction = field.gerstner[c].waves[i].direction;
-            float len = length(direction);
-            if (len < 1e-6 || field.gerstner[c].waves[i].wavelength < 1e-4) continue;
-            sum += (direction / len)
-                 * (field.gerstner[c].waves[i].amplitude * field.gerstner[c].amplitude_scale);
-        }
-    }
-    float len = length(sum);
-    return len < 1e-6 ? vec2(0.0) : sum / len;
-}
-
 // Matches horizontal_jacobian(): 1 on flat water, falling as the trains bunch
 // together, 0 where the surface has pinched to a point and negative where it
 // has folded through itself.

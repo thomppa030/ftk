@@ -141,15 +141,6 @@ TEST_CASE("Shader and CPU wave fields agree", "[fjwater]") {
             }
         }
     }
-
-    // Not a function of position or time, so it is checked once rather than
-    // over the grid — but it is half of a pair like the rest, and the pass
-    // hands the CPU answer to the shader through a push constant, so a drift
-    // here would point foam the wrong way with nothing to catch it.
-    glm::vec2 cpu_dir = water::dominant_direction(field.cpu);
-    vec2 gpu_dir = fjell_water_dominant_dir(field.gpu);
-    REQUIRE(cpu_dir.x == Approx(gpu_dir.x).margin(1e-4));
-    REQUIRE(cpu_dir.y == Approx(gpu_dir.y).margin(1e-4));
 }
 
 TEST_CASE("A sea's dominant direction follows its biggest trains", "[fjwater]") {
@@ -1328,9 +1319,4 @@ TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
             }
         }
     }
-
-    glm::vec2 cpu_dir = water::dominant_direction(water);
-    vec2 gpu_dir = fjell_water_dominant_dir(shader_field);
-    REQUIRE(cpu_dir.x == Approx(gpu_dir.x).margin(1e-4));
-    REQUIRE(cpu_dir.y == Approx(gpu_dir.y).margin(1e-4));
 }

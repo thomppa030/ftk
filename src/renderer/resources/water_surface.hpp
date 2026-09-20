@@ -203,9 +203,10 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 /// The way this sea travels, as the amplitude-weighted mean of its trains,
 /// or (0,0) when they cancel.
 ///
-/// A property of the field rather than of a point, so it costs nothing to ask
-/// and every point on the surface gets the same answer. The shader hands it to
-/// water materials as WAVE_DIR, which is what lets foam gather on the face of
+/// A property of the field rather than of a point, so it is worked out here,
+/// once, and the pass hands the answer to the shaders as a push constant rather
+/// than having them work it out again per vertex. Water materials read it as
+/// WAVE_DIR, which is what lets foam gather on the face of
 /// a wave that is advancing rather than sitting evenly along the crest.
 ///
 /// Weighted by amplitude because the train carrying the surface is the one
