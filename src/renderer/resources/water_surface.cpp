@@ -60,14 +60,12 @@ struct WaveTerms {
 };
 
 // Everything both the displacement and its derivatives need, computed once.
+// Only ever handed a train that moves the surface, which is what lets it
+// divide by the direction's length and the wavelength without asking.
 [[nodiscard]] WaveTerms terms_for(const WaterWave& wave, const GerstnerContributor& contributor,
                                   glm::vec2 world_xz, float time) {
     WaveTerms t;
-    float len = glm::length(wave.direction);
-    if (len < 1e-6f || wave.wavelength < 1e-4f) {
-        return t;  // amplitude 0: contributes nothing
-    }
-    t.dir = wave.direction / len;
+    t.dir = wave.direction / glm::length(wave.direction);
     t.k = TAU / wave.wavelength;
     t.amplitude = wave.amplitude * contributor.amplitude_scale;
     t.q = steepness_to_q(wave.steepness, t.k, t.amplitude,
@@ -76,26 +74,6 @@ struct WaveTerms {
     float omega = std::sqrt(GRAVITY * t.k) * wave.speed * contributor.speed_scale;
     t.phase = glm::dot(t.dir, world_xz) * t.k - omega * time;
     return t;
-}
-
-// Every train the surface sums, with the contributor whose scales it is
-// under: the first MAX_WATER_WAVES of each of the first
-// MAX_GERSTNER_CONTRIBUTORS Gerstner contributors. Every query over the field
-// walks it through here, so they cannot disagree about which trains a sea is
-// made of.
-template <typename Fn>
-void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
-    std::uint32_t summed_contributors = 0;
-    for (const auto& contributor : water.contributors) {
-        const auto* gerstner = std::get_if<GerstnerContributor>(&contributor);
-        if (gerstner == nullptr) continue;
-        if (summed_contributors++ >= MAX_GERSTNER_CONTRIBUTORS) break;
-
-        std::size_t count = std::min<std::size_t>(gerstner->waves.size(), MAX_WATER_WAVES);
-        for (std::size_t i = 0; i < count; ++i) {
-            fn(*gerstner, gerstner->waves[i]);
-        }
-    }
 }
 
 // d(displaced)/d(rest) of the horizontal displacement, as the three distinct
@@ -112,7 +90,7 @@ struct HorizontalJacobian {
                                                 float time) {
     // At rest it is the identity; as trains bunch together the diagonal falls.
     HorizontalJacobian j;
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& wave) {
         WaveTerms t = terms_for(wave, contributor, world_xz, time);
         if (t.amplitude == 0.0f) return;
@@ -149,9 +127,8 @@ float bed_agitation(const FjWaterData& water, float depth) {
     // decides how hard it works when it gets there — a long swell stirs a bed
     // that a chop of the same height cannot feel at all.
     float stirred = 0.0f;
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& wave) {
-        if (wave.wavelength < 1e-4f) return;
         const float k = TAU / wave.wavelength;
         const float amplitude = wave.amplitude * contributor.amplitude_scale;
         stirred += amplitude * std::exp(-k * depth);
@@ -258,7 +235,7 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& wave) {
         WaveTerms t = terms_for(wave, contributor, world_xz, time);
         if (t.amplitude == 0.0f) return;
@@ -280,7 +257,7 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     glm::vec3 binormal{1.0f, 0.0f, 0.0f};  // d/dx
     glm::vec3 tangent{0.0f, 0.0f, 1.0f};   // d/dz
 
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& wave) {
         WaveTerms t = terms_for(wave, contributor, world_xz, time);
         if (t.amplitude == 0.0f) return;
@@ -319,11 +296,10 @@ float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
 
 glm::vec2 dominant_direction(const FjWaterData& water) {
     glm::vec2 sum(0.0f);
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& w) {
-        float len = glm::length(w.direction);
-        if (len < 1e-6f || w.wavelength < 1e-4f) return;
-        sum += (w.direction / len) * (w.amplitude * contributor.amplitude_scale);
+        sum += (w.direction / glm::length(w.direction))
+             * (w.amplitude * contributor.amplitude_scale);
     });
     float len = glm::length(sum);
     return len < 1e-6f ? glm::vec2(0.0f) : sum / len;
@@ -331,7 +307,7 @@ glm::vec2 dominant_direction(const FjWaterData& water) {
 
 float wave_height(const FjWaterData& water) {
     float sum = 0.0f;
-    for_each_summed_train(water, [&](const GerstnerContributor& contributor,
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
                                      const WaterWave& wave) {
         sum += wave.amplitude * contributor.amplitude_scale;
     });
@@ -340,7 +316,8 @@ float wave_height(const FjWaterData& water) {
 
 float shortest_wavelength(const FjWaterData& water) {
     float shortest = 0.0f;
-    for_each_summed_train(water, [&](const GerstnerContributor&, const WaterWave& wave) {
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor&,
+                                     const WaterWave& wave) {
         shortest = shortest > 0.0f ? std::min(shortest, wave.wavelength) : wave.wavelength;
     });
     return shortest;

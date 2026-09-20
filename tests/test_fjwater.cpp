@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <utility>
@@ -58,16 +59,21 @@ struct FieldPair {
     gerstner(pair.cpu).amplitude_scale = amplitude_scale;
     gerstner(pair.cpu).speed_scale = speed_scale;
 
-    pair.gpu.wave_count = static_cast<unsigned int>(waves.size());
-    pair.gpu.amplitude_scale = amplitude_scale;
-    pair.gpu.speed_scale = speed_scale;
-    pair.gpu.steepness_headroom = gerstner(pair.cpu).steepness_headroom;
+    // Filled by hand rather than through to_gpu_field(), so that what the
+    // shader does with a train that cannot move the surface is still put to
+    // it: the packer would have dropped one before the shader ever saw it.
+    auto& block = pair.gpu.gerstner[0];
+    pair.gpu.gerstner_count = 1;
+    block.wave_count = static_cast<unsigned int>(waves.size());
+    block.amplitude_scale = amplitude_scale;
+    block.speed_scale = speed_scale;
+    block.steepness_headroom = gerstner(pair.cpu).steepness_headroom;
     for (std::size_t i = 0; i < waves.size() && i < MAX_WATER_WAVES; ++i) {
-        pair.gpu.waves[i].direction = waves[i].direction;
-        pair.gpu.waves[i].wavelength = waves[i].wavelength;
-        pair.gpu.waves[i].amplitude = waves[i].amplitude;
-        pair.gpu.waves[i].steepness = waves[i].steepness;
-        pair.gpu.waves[i].speed = waves[i].speed;
+        block.waves[i].direction = waves[i].direction;
+        block.waves[i].wavelength = waves[i].wavelength;
+        block.waves[i].amplitude = waves[i].amplitude;
+        block.waves[i].steepness = waves[i].steepness;
+        block.waves[i].speed = waves[i].speed;
     }
     return pair;
 }
@@ -445,7 +451,7 @@ TEST_CASE("Both evaluators agree on the Jacobian", "[fjwater]") {
         wave({0.3f, 0.8f}, 5.0f, 0.4f, 0.7f, 1.3f),
     });
     gerstner(field.cpu).steepness_headroom = 3.0f;
-    field.gpu.steepness_headroom = 3.0f;
+    field.gpu.gerstner[0].steepness_headroom = 3.0f;
 
     for (float time : {0.0f, 1.7f, 9.25f}) {
         for (float x = -20.0f; x <= 20.0f; x += 2.5f) {
@@ -1036,6 +1042,7 @@ TEST_CASE("A .fjwater keeps at most MAX_WATER_WAVES trains", "[fjwater]") {
 
 TEST_CASE("The GPU field matches the shader's struct", "[fjwater]") {
     REQUIRE(sizeof(GpuWaterWave) == sizeof(FjellWaterWave));
+    REQUIRE(sizeof(GpuGerstnerContributor) == sizeof(FjellGerstnerContributor));
     REQUIRE(sizeof(GpuWaterField) == sizeof(FjellWaterField));
 
     REQUIRE(offsetof(GpuWaterWave, direction) == offsetof(FjellWaterWave, direction));
@@ -1044,71 +1051,120 @@ TEST_CASE("The GPU field matches the shader's struct", "[fjwater]") {
     REQUIRE(offsetof(GpuWaterWave, steepness) == offsetof(FjellWaterWave, steepness));
     REQUIRE(offsetof(GpuWaterWave, speed) == offsetof(FjellWaterWave, speed));
 
-    REQUIRE(offsetof(GpuWaterField, waves) == offsetof(FjellWaterField, waves));
-    REQUIRE(offsetof(GpuWaterField, wave_count) == offsetof(FjellWaterField, wave_count));
-    REQUIRE(offsetof(GpuWaterField, amplitude_scale)
-            == offsetof(FjellWaterField, amplitude_scale));
-    REQUIRE(offsetof(GpuWaterField, speed_scale) == offsetof(FjellWaterField, speed_scale));
-    REQUIRE(offsetof(GpuWaterField, steepness_headroom)
-            == offsetof(FjellWaterField, steepness_headroom));
+    REQUIRE(offsetof(GpuGerstnerContributor, waves) == offsetof(FjellGerstnerContributor, waves));
+    REQUIRE(offsetof(GpuGerstnerContributor, wave_count)
+            == offsetof(FjellGerstnerContributor, wave_count));
+    REQUIRE(offsetof(GpuGerstnerContributor, amplitude_scale)
+            == offsetof(FjellGerstnerContributor, amplitude_scale));
+    REQUIRE(offsetof(GpuGerstnerContributor, speed_scale)
+            == offsetof(FjellGerstnerContributor, speed_scale));
+    REQUIRE(offsetof(GpuGerstnerContributor, steepness_headroom)
+            == offsetof(FjellGerstnerContributor, steepness_headroom));
 
-    // The array stride is what a matching sizeof() can still hide: two
-    // structs of equal size whose arrays step differently put every wave
-    // after the first in the wrong place.
+    REQUIRE(offsetof(GpuWaterField, gerstner) == offsetof(FjellWaterField, gerstner));
+    REQUIRE(offsetof(GpuWaterField, gerstner_count) == offsetof(FjellWaterField, gerstner_count));
+
+    // The array strides are what a matching sizeof() can still hide: two
+    // structs of equal size whose arrays step differently put everything
+    // after the first element in the wrong place.
     GpuWaterField cpu{};
     FjellWaterField gpu{};
-    auto cpu_stride = reinterpret_cast<const char*>(&cpu.waves[1])
-                    - reinterpret_cast<const char*>(&cpu.waves[0]);
-    auto gpu_stride = reinterpret_cast<const char*>(&gpu.waves[1])
-                    - reinterpret_cast<const char*>(&gpu.waves[0]);
-    REQUIRE(cpu_stride == gpu_stride);
+    auto stride = [](const auto& first, const auto& second) {
+        return reinterpret_cast<const char*>(&second) - reinterpret_cast<const char*>(&first);
+    };
+    REQUIRE(stride(cpu.gerstner[0], cpu.gerstner[1]) == stride(gpu.gerstner[0], gpu.gerstner[1]));
+    REQUIRE(stride(cpu.gerstner[0].waves[0], cpu.gerstner[0].waves[1])
+            == stride(gpu.gerstner[0].waves[0], gpu.gerstner[0].waves[1]));
 }
+
+namespace {
+
+/// What the pass uploads, as the shader's own struct: the bytes the GPU would
+/// read, handed to the shader's own code.
+[[nodiscard]] FjellWaterField as_shader_reads(const FjWaterData& water) {
+    static_assert(sizeof(GpuWaterField) == sizeof(FjellWaterField));
+    GpuWaterField packed = to_gpu_field(water);
+    FjellWaterField field{};
+    std::memcpy(&field, &packed, sizeof(field));
+    return field;
+}
+
+} // namespace
 
 TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
-    FjWaterData water = sea();
+    // The whole path, with nothing built by hand to agree with itself: the
+    // field goes through the packer the pass uses, the bytes it would upload
+    // are read as the shader's struct, and the shader's code evaluates them.
+    // The CPU evaluator is given the authored field and has to land in the
+    // same place — across contributors with their own scales, trains that
+    // cannot move the surface, more trains than a contributor may sum and
+    // more contributors than a field may.
+    FjWaterData water = sea({
+        wave({1.0f, 0.3f}, 28.0f, 1.4f, 0.85f, 1.1f),
+        wave({0.0f, 0.0f}, 20.0f, 1.0f, 0.5f),    // no direction
+        wave({-0.4f, 1.0f}, 13.0f, 0.6f, 0.7f, 1.3f),
+        wave({1.0f, 0.0f}, 0.0f, 1.0f, 0.5f),     // no wavelength
+    });
     gerstner(water).amplitude_scale = 1.6f;
     gerstner(water).speed_scale = 0.7f;
-    gerstner(water).waves = {
-        wave({1.0f, 0.3f}, 28.0f, 1.4f, 0.85f, 1.1f),
-        wave({0.0f, 0.0f}, 20.0f, 1.0f, 0.5f),    // no direction, dropped
-        wave({-0.4f, 1.0f}, 13.0f, 0.6f, 0.7f, 1.3f),
-        wave({1.0f, 0.0f}, 0.0f, 1.0f, 0.5f),     // no wavelength, dropped
-    };
 
-    auto field = to_gpu_field(water);
-    REQUIRE(field.wave_count == 2);
-    REQUIRE(field.amplitude_scale == Approx(1.6f));
-    REQUIRE(field.speed_scale == Approx(0.7f));
-    REQUIRE(field.waves[0].wavelength == Approx(28.0f));
-    REQUIRE(field.waves[1].wavelength == Approx(13.0f));
+    // Dead trains ahead of live ones, and past the limit once they are gone.
+    GerstnerContributor crowded;
+    crowded.amplitude_scale = 0.5f;
+    crowded.steepness_headroom = 0.9f;
+    for (int i = 0; i < 6; ++i) crowded.waves.push_back(wave({0.0f, 0.0f}, 9.0f, 0.4f, 0.5f));
+    for (int i = 0; i < 20; ++i) {
+        float f = static_cast<float>(i);
+        crowded.waves.push_back(wave({std::cos(f), std::sin(f)}, 3.0f + f, 0.05f + 0.01f * f,
+                                     0.6f, 1.0f + 0.05f * f));
+    }
+    water.contributors.emplace_back(crowded);
 
-    // The packed field and the authored one describe the same surface: the
-    // dropped trains were the ones neither evaluator would have summed.
-    FjellWaterField shader_field{};
-    shader_field.wave_count = field.wave_count;
-    shader_field.amplitude_scale = field.amplitude_scale;
-    shader_field.speed_scale = field.speed_scale;
-    shader_field.steepness_headroom = field.steepness_headroom;
-    for (std::uint32_t i = 0; i < field.wave_count; ++i) {
-        shader_field.waves[i].direction = field.waves[i].direction;
-        shader_field.waves[i].wavelength = field.waves[i].wavelength;
-        shader_field.waves[i].amplitude = field.waves[i].amplitude;
-        shader_field.waves[i].steepness = field.waves[i].steepness;
-        shader_field.waves[i].speed = field.waves[i].speed;
+    GerstnerContributor still;   // nothing in it moves the surface
+    still.waves = {wave({0.0f, 0.0f}, 9.0f, 3.0f, 0.5f)};
+    water.contributors.emplace_back(still);
+
+    for (int i = 0; i < 3; ++i) {
+        GerstnerContributor more;
+        more.speed_scale = 1.0f + 0.3f * static_cast<float>(i);
+        more.waves = {wave({-1.0f, 0.2f * static_cast<float>(i)}, 40.0f, 0.8f, 0.7f)};
+        water.contributors.emplace_back(more);
     }
 
-    for (float x = -20.0f; x <= 20.0f; x += 5.0f) {
-        glm::vec2 p(x, x * 0.4f);
-        INFO("at x=" << x);
-        REQUIRE(water::displace(water, p, 3.0f).y
-                == Approx(fjell_water_displace(shader_field, p, 3.0f).y).margin(1e-3));
-    }
-}
+    auto packed = to_gpu_field(water);
+    REQUIRE(packed.gerstner_count == MAX_GERSTNER_CONTRIBUTORS);
+    REQUIRE(packed.gerstner[0].wave_count == 2);
+    REQUIRE(packed.gerstner[0].waves[1].wavelength == Approx(13.0f));
+    REQUIRE(packed.gerstner[1].wave_count == MAX_WATER_WAVES);
+    REQUIRE(packed.gerstner[2].wave_count == 0);
+    REQUIRE(packed.gerstner[3].wave_count == 1);
 
-TEST_CASE("Packing drops trains past the limit", "[fjwater]") {
-    FjWaterData water = sea();
-    for (int i = 0; i < 40; ++i) {
-        gerstner(water).waves.push_back(wave({1.0f, 0.0f}, 10.0f + static_cast<float>(i), 0.1f, 0.5f));
+    FjellWaterField shader_field = as_shader_reads(water);
+    for (float time : {0.0f, 3.0f, 77.5f}) {
+        for (float x = -30.0f; x <= 30.0f; x += 6.0f) {
+            for (float z = -30.0f; z <= 30.0f; z += 10.0f) {
+                glm::vec2 p(x, z);
+                INFO("at (" << x << ", " << z << ") t=" << time);
+                glm::vec3 cpu_d = water::displace(water, p, time);
+                vec3 gpu_d = fjell_water_displace(shader_field, p, time);
+                REQUIRE(cpu_d.x == Approx(gpu_d.x).margin(1e-3));
+                REQUIRE(cpu_d.y == Approx(gpu_d.y).margin(1e-3));
+                REQUIRE(cpu_d.z == Approx(gpu_d.z).margin(1e-3));
+
+                glm::vec3 cpu_n = water::normal_at(water, p, time);
+                vec3 gpu_n = fjell_water_normal(shader_field, p, time);
+                REQUIRE(cpu_n.x == Approx(gpu_n.x).margin(1e-2));
+                REQUIRE(cpu_n.y == Approx(gpu_n.y).margin(1e-2));
+                REQUIRE(cpu_n.z == Approx(gpu_n.z).margin(1e-2));
+
+                REQUIRE(water::horizontal_jacobian(water, p, time)
+                        == Approx(fjell_water_jacobian(shader_field, p, time)).margin(1e-3));
+            }
+        }
     }
-    REQUIRE(to_gpu_field(water).wave_count == MAX_WATER_WAVES);
+
+    glm::vec2 cpu_dir = water::dominant_direction(water);
+    vec2 gpu_dir = fjell_water_dominant_dir(shader_field);
+    REQUIRE(cpu_dir.x == Approx(gpu_dir.x).margin(1e-4));
+    REQUIRE(cpu_dir.y == Approx(gpu_dir.y).margin(1e-4));
 }

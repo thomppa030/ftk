@@ -17,8 +17,9 @@
 
 #define FJELL_WATER_GRAVITY 9.81
 #define FJELL_WATER_TAU 6.28318530717958647692
-// Mirrors MAX_WATER_WAVES in fjwater.hpp.
+// Mirror MAX_WATER_WAVES and MAX_GERSTNER_CONTRIBUTORS in fjwater.hpp.
 #define FJELL_MAX_WATER_WAVES 16
+#define FJELL_MAX_GERSTNER_CONTRIBUTORS 4
 
 // One wave train. Mirrors WaterWave in fjwater.hpp; std140-padded so the
 // layouts agree without a hand-copied stride.
@@ -32,14 +33,30 @@ struct FjellWaterWave {
     float _pad1;
 };
 
-// The field. Mirrors the runtime half of FjWaterData; the generator settings
-// are authoring-only and never reach the GPU.
-struct FjellWaterField {
+// One Gerstner contributor: its trains and the scales they move under.
+// Mirrors the runtime half of GerstnerContributor; the generator settings and
+// the wind response are how it was authored and derived, and never reach the
+// GPU.
+struct FjellGerstnerContributor {
     FjellWaterWave waves[FJELL_MAX_WATER_WAVES];
     uint  wave_count;
     float amplitude_scale;
     float speed_scale;
     float steepness_headroom;
+};
+
+// The field: every contributor the surface sums. Mirrors GpuWaterField.
+//
+// Read a contributor through the field (`field.gerstner[c].waves[i]`) and
+// never copy one into a local. A contributor is over five hundred bytes, the
+// mesh shader evaluates the field four times a vertex, and a struct that size
+// held live across those is past what a mesh shader is given to work in.
+struct FjellWaterField {
+    FjellGerstnerContributor gerstner[FJELL_MAX_GERSTNER_CONTRIBUTORS];
+    uint gerstner_count;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
 };
 
 // Steepness is authored 0..1; the Gerstner horizontal term wants Q, and Q past
@@ -68,9 +85,10 @@ struct FjellWaveTerms {
     float phase;
 };
 
-// Matches terms_for().
-FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
-                                 vec2 world_xz, float time, float budget) {
+// Matches terms_for(). Takes its contributor's scales rather than the
+// contributor, which would be copied to get here.
+FjellWaveTerms fjell_water_terms(FjellWaterWave wave, float amplitude_scale, float speed_scale,
+                                 float budget, vec2 world_xz, float time) {
     FjellWaveTerms t;
     t.dir = vec2(1.0, 0.0);
     t.k = 0.0;
@@ -84,28 +102,35 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, FjellWaterField field,
     }
     t.dir = wave.direction / len;
     t.k = FJELL_WATER_TAU / wave.wavelength;
-    t.amplitude = wave.amplitude * field.amplitude_scale;
+    t.amplitude = wave.amplitude * amplitude_scale;
     t.q = fjell_water_steepness_to_q(wave.steepness, t.k, t.amplitude, budget);
 
-    float omega = sqrt(FJELL_WATER_GRAVITY * t.k) * wave.speed * field.speed_scale;
+    float omega = sqrt(FJELL_WATER_GRAVITY * t.k) * wave.speed * speed_scale;
     t.phase = dot(t.dir, world_xz) * t.k - omega * time;
     return t;
 }
 
-// Matches displace(): the offset from a flat surface at this rest position.
+// Matches displace(): the offset from a flat surface at this rest position,
+// summed over every train of every contributor.
 vec3 fjell_water_displace(FjellWaterField field, vec2 world_xz, float time) {
     vec3 sum = vec3(0.0);
-    uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(field.steepness_headroom);
-    for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
-        if (t.amplitude == 0.0) continue;
+    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    for (uint c = 0u; c < contributors; ++c) {
+        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        for (uint i = 0u; i < count; ++i) {
+            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
+                                                 field.gerstner[c].amplitude_scale,
+                                                 field.gerstner[c].speed_scale,
+                                                 budget, world_xz, time);
+            if (t.amplitude == 0.0) continue;
 
-        float c = cos(t.phase);
-        float s = sin(t.phase);
-        sum.x += t.q * t.amplitude * t.dir.x * c;
-        sum.z += t.q * t.amplitude * t.dir.y * c;
-        sum.y += t.amplitude * s;
+            float c_phase = cos(t.phase);
+            float s_phase = sin(t.phase);
+            sum.x += t.q * t.amplitude * t.dir.x * c_phase;
+            sum.z += t.q * t.amplitude * t.dir.y * c_phase;
+            sum.y += t.amplitude * s_phase;
+        }
     }
     return sum;
 }
@@ -115,23 +140,29 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
     vec3 binormal = vec3(1.0, 0.0, 0.0);
     vec3 tangent  = vec3(0.0, 0.0, 1.0);
 
-    uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(field.steepness_headroom);
-    for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
-        if (t.amplitude == 0.0) continue;
+    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    for (uint c = 0u; c < contributors; ++c) {
+        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        for (uint i = 0u; i < count; ++i) {
+            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
+                                                 field.gerstner[c].amplitude_scale,
+                                                 field.gerstner[c].speed_scale,
+                                                 budget, world_xz, time);
+            if (t.amplitude == 0.0) continue;
 
-        float c = cos(t.phase);
-        float s = sin(t.phase);
-        float wa = t.k * t.amplitude;
+            float c_phase = cos(t.phase);
+            float s_phase = sin(t.phase);
+            float wa = t.k * t.amplitude;
 
-        binormal.x -= t.q * t.dir.x * t.dir.x * wa * s;
-        binormal.y += t.dir.x * wa * c;
-        binormal.z -= t.q * t.dir.x * t.dir.y * wa * s;
+            binormal.x -= t.q * t.dir.x * t.dir.x * wa * s_phase;
+            binormal.y += t.dir.x * wa * c_phase;
+            binormal.z -= t.q * t.dir.x * t.dir.y * wa * s_phase;
 
-        tangent.x -= t.q * t.dir.x * t.dir.y * wa * s;
-        tangent.y += t.dir.y * wa * c;
-        tangent.z -= t.q * t.dir.y * t.dir.y * wa * s;
+            tangent.x -= t.q * t.dir.x * t.dir.y * wa * s_phase;
+            tangent.y += t.dir.y * wa * c_phase;
+            tangent.z -= t.q * t.dir.y * t.dir.y * wa * s_phase;
+        }
     }
 
     vec3 n = cross(tangent, binormal);
@@ -146,7 +177,7 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
 // Weighted by amplitude because that is what "this sea travels that way"
 // means to a viewer: the train carrying the surface sets the direction and a
 // ripple a hundredth its height does not get an equal vote. The amplitude a
-// train actually has, under the scale it is summed with.
+// train actually has, under the scale of the contributor it belongs to.
 //
 // Summed as vectors, not axes, so trains pointing opposite ways cancel. That
 // is the correct answer rather than a flaw — a sea with two equal opposed
@@ -154,12 +185,16 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
 // get (0,0) in that case and should fall back to something non-directional.
 vec2 fjell_water_dominant_dir(FjellWaterField field) {
     vec2 sum = vec2(0.0);
-    uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    for (uint i = 0u; i < count; ++i) {
-        FjellWaterWave w = field.waves[i];
-        float len = length(w.direction);
-        if (len < 1e-6 || w.wavelength < 1e-4) continue;
-        sum += (w.direction / len) * (w.amplitude * field.amplitude_scale);
+    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    for (uint c = 0u; c < contributors; ++c) {
+        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        for (uint i = 0u; i < count; ++i) {
+            vec2 direction = field.gerstner[c].waves[i].direction;
+            float len = length(direction);
+            if (len < 1e-6 || field.gerstner[c].waves[i].wavelength < 1e-4) continue;
+            sum += (direction / len)
+                 * (field.gerstner[c].waves[i].amplitude * field.gerstner[c].amplitude_scale);
+        }
     }
     float len = length(sum);
     return len < 1e-6 ? vec2(0.0) : sum / len;
@@ -173,18 +208,24 @@ float fjell_water_jacobian(FjellWaterField field, vec2 world_xz, float time) {
     float jzz = 1.0;
     float jxz = 0.0;
 
-    uint count = min(field.wave_count, uint(FJELL_MAX_WATER_WAVES));
-    float budget = fjell_water_budget(field.steepness_headroom);
-    for (uint i = 0u; i < count; ++i) {
-        FjellWaveTerms t = fjell_water_terms(field.waves[i], field, world_xz, time, budget);
-        if (t.amplitude == 0.0) continue;
+    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    for (uint c = 0u; c < contributors; ++c) {
+        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        for (uint i = 0u; i < count; ++i) {
+            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
+                                                 field.gerstner[c].amplitude_scale,
+                                                 field.gerstner[c].speed_scale,
+                                                 budget, world_xz, time);
+            if (t.amplitude == 0.0) continue;
 
-        float s = sin(t.phase);
-        float wa = t.k * t.amplitude * t.q;
+            float s_phase = sin(t.phase);
+            float wa = t.k * t.amplitude * t.q;
 
-        jxx -= wa * t.dir.x * t.dir.x * s;
-        jzz -= wa * t.dir.y * t.dir.y * s;
-        jxz -= wa * t.dir.x * t.dir.y * s;
+            jxx -= wa * t.dir.x * t.dir.x * s_phase;
+            jzz -= wa * t.dir.y * t.dir.y * s_phase;
+            jxz -= wa * t.dir.x * t.dir.y * s_phase;
+        }
     }
 
     return jxx * jzz - jxz * jxz;

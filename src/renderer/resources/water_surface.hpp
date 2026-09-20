@@ -4,6 +4,9 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
+#include <variant>
+
 namespace fjell {
 
 /// Evaluates a `.fjwater` wave field on the CPU.
@@ -22,6 +25,40 @@ namespace fjell {
 /// is the vertical part only and is an approximation of the true surface
 /// height at a world XZ (see its comment).
 namespace water {
+
+/// Whether a train can move the surface at all. One with no direction to
+/// travel in, or no length, cannot.
+[[nodiscard]] inline bool moves_surface(const WaterWave& wave) {
+    return glm::length(wave.direction) >= 1e-6f && wave.wavelength >= 1e-4f;
+}
+
+/// Calls `fn(slot, contributor, wave)` for every train the surface sums.
+///
+/// That is the first MAX_WATER_WAVES trains that move the surface, of each of
+/// the first MAX_GERSTNER_CONTRIBUTORS Gerstner contributors; `slot` counts
+/// those contributors from 0. This is the only place that is decided. The CPU
+/// evaluator, every query over the field and the packing for the shader all
+/// walk the field through here, so the sea physics floats a boat on and the
+/// sea that is drawn are made of the same trains by construction rather than
+/// by two rules kept in step.
+template <typename Fn>
+void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
+    std::uint32_t slot = 0;
+    for (const auto& contributor : water.contributors) {
+        const auto* gerstner = std::get_if<GerstnerContributor>(&contributor);
+        if (gerstner == nullptr) continue;
+        if (slot >= MAX_GERSTNER_CONTRIBUTORS) break;
+
+        std::uint32_t summed = 0;
+        for (const auto& wave : gerstner->waves) {
+            if (summed >= MAX_WATER_WAVES) break;
+            if (!moves_surface(wave)) continue;
+            fn(slot, *gerstner, wave);
+            ++summed;
+        }
+        ++slot;
+    }
+}
 
 /// Deep-water angular frequency for a wavelength: waves of different lengths
 /// travel at different speeds, which is what keeps a sum of trains from
