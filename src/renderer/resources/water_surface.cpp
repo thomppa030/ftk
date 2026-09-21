@@ -310,6 +310,52 @@ float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz, float ti
     return jacobian_terms(water, world_xz, time).determinant();
 }
 
+float folded_share(const FjWaterData& water) {
+    // Pinched to a point counts as folded, which is where crest() reads 1.
+    constexpr float FOLDED_AT = 1e-3f;
+
+    const FftContributor* simulated = simulated_sea(water);
+    if (simulated == nullptr || simulated->resolution < 2 || simulated->patch_size <= 0.0f) {
+        // Closed-form only: sample it across a stretch of sea and a few
+        // moments, since a Gerstner sea's folds come and go as trains align.
+        int folded = 0;
+        int total = 0;
+        for (float x = -120.0f; x <= 120.0f; x += 6.0f) {
+            for (float z = -120.0f; z <= 120.0f; z += 6.0f) {
+                for (float time : {0.0f, 5.5f, 13.7f}) {
+                    ++total;
+                    if (jacobian_terms(water, {x, z}, time).determinant() <= FOLDED_AT) ++folded;
+                }
+            }
+        }
+        return static_cast<float>(folded) / static_cast<float>(total);
+    }
+
+    // With a simulated sea, measure on its own grid: every sample of its patch
+    // at one moment. A spectrum is the same sea statistically at any time, and
+    // sixty-five thousand samples of it are more than the closed-form case
+    // takes across its three.
+    constexpr float TIME = 0.0f;
+    const SpectrumField field = generate_spectrum(*simulated);
+    const JacobianFields simulated_part = jacobian_fields(field, simulated->choppiness, TIME);
+    const std::uint32_t n = field.resolution;
+    const float texel = simulated->patch_size / static_cast<float>(n);
+
+    std::size_t folded = 0;
+    for (std::uint32_t z = 0; z < n; ++z) {
+        for (std::uint32_t x = 0; x < n; ++x) {
+            const std::size_t cell = static_cast<std::size_t>(z) * n + x;
+            HorizontalJacobian j = jacobian_terms(
+                water, {static_cast<float>(x) * texel, static_cast<float>(z) * texel}, TIME);
+            j.xx += simulated_part.xx[cell];
+            j.zz += simulated_part.zz[cell];
+            j.xz += simulated_part.xz[cell];
+            if (j.determinant() <= FOLDED_AT) ++folded;
+        }
+    }
+    return static_cast<float>(folded) / static_cast<float>(static_cast<std::size_t>(n) * n);
+}
+
 float crest(const FjWaterData& water, glm::vec2 world_xz, float time) {
     // Mapped to 0..1 rising into the crest so shaders can use it directly as a
     // foam mask. The clamp means a folded surface reads the same as one

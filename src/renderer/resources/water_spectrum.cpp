@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <utility>
 #include <cmath>
 
 namespace fjell::water {
@@ -273,6 +274,77 @@ std::vector<float> inverse_transform_reference(const std::vector<glm::vec2>& spe
         }
     }
     return out;
+}
+
+namespace {
+
+// An in-place inverse FFT of `count` complex values `stride` apart: bit
+// reversal, then the butterflies, unnormalised and turning the positive way —
+// the same convention as the plain sum and as the GPU's.
+void inverse_fft_line(glm::vec2* data, std::uint32_t count, std::size_t stride) {
+    const auto bits = static_cast<std::uint32_t>(std::countr_zero(count));
+    for (std::uint32_t i = 0; i < count; ++i) {
+        std::uint32_t reversed = 0;
+        for (std::uint32_t b = 0; b < bits; ++b) reversed |= ((i >> b) & 1u) << (bits - 1 - b);
+        if (reversed > i) std::swap(data[i * stride], data[reversed * stride]);
+    }
+    for (std::uint32_t span = 2; span <= count; span <<= 1) {
+        const std::uint32_t half = span >> 1;
+        for (std::uint32_t j = 0; j < half; ++j) {
+            const float angle = TAU * static_cast<float>(j) / static_cast<float>(span);
+            const glm::vec2 w{std::cos(angle), std::sin(angle)};
+            for (std::uint32_t start = 0; start < count; start += span) {
+                glm::vec2& lower = data[(start + j) * stride];
+                glm::vec2& upper = data[(start + j + half) * stride];
+                const glm::vec2 turned{upper.x * w.x - upper.y * w.y,
+                                       upper.x * w.y + upper.y * w.x};
+                upper = lower - turned;
+                lower = lower + turned;
+            }
+        }
+    }
+}
+
+} // namespace
+
+std::vector<float> inverse_transform(const std::vector<glm::vec2>& spectrum,
+                                     std::uint32_t resolution) {
+    const std::uint32_t n = resolution;
+    std::vector<float> out(static_cast<std::size_t>(n) * n, 0.0f);
+    if (n < 2 || !std::has_single_bit(n) || spectrum.size() != out.size()) return out;
+
+    std::vector<glm::vec2> work = spectrum;
+    for (std::uint32_t z = 0; z < n; ++z) {
+        inverse_fft_line(work.data() + static_cast<std::size_t>(z) * n, n, 1);
+    }
+    for (std::uint32_t x = 0; x < n; ++x) inverse_fft_line(work.data() + x, n, n);
+
+    for (std::size_t i = 0; i < out.size(); ++i) out[i] = work[i].x;
+    return out;
+}
+
+JacobianFields jacobian_fields(const SpectrumField& field, float choppiness, float time) {
+    const DisplacementSpectra spectra = evolve_spectrum(field, choppiness, time);
+    const std::uint32_t n = field.resolution;
+
+    // A derivative along an axis is a multiplication by i k along it.
+    auto derivative = [&](const std::vector<glm::vec2>& of, bool along_x) {
+        std::vector<glm::vec2> out(of.size());
+        for (std::uint32_t z = 0; z < n; ++z) {
+            for (std::uint32_t x = 0; x < n; ++x) {
+                const std::size_t cell = static_cast<std::size_t>(z) * n + x;
+                const float k = field.wavenumber(along_x ? x : z);
+                out[cell] = glm::vec2(-of[cell].y, of[cell].x) * k;
+            }
+        }
+        return out;
+    };
+
+    JacobianFields fields;
+    fields.xx = inverse_transform(derivative(spectra.along_x, true), n);
+    fields.zz = inverse_transform(derivative(spectra.along_z, false), n);
+    fields.xz = inverse_transform(derivative(spectra.along_x, false), n);
+    return fields;
 }
 
 } // namespace fjell::water

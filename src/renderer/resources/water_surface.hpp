@@ -204,6 +204,20 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 [[nodiscard]] float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz,
                                         float time);
 
+/// How much of the whole sea has folded through itself, 0 to 1: the share of
+/// the surface where the horizontal Jacobian of every contributor together has
+/// reached zero or gone below it.
+///
+/// Every contributor, which the point queries above cannot say: they are what
+/// physics floats on and sum the closed-form contributors only, while a fold
+/// is a fact about the surface that is drawn. The simulated sea's part is
+/// worked out here on the CPU, from its own spectrum at its own resolution.
+///
+/// A measurement for an editor, not a query for a frame: with a simulated
+/// contributor it transforms three fields the size of its grid, tens of
+/// milliseconds at 256 x 256. Call it when the sea has changed.
+[[nodiscard]] float folded_share(const FjWaterData& water);
+
 /// How pinched the surface is here, 0 on flat water rising toward 1 at a
 /// crest about to fold. This is horizontal_jacobian() mapped for shaders to
 /// use directly as a foam mask: where it approaches 1 the surface has bunched

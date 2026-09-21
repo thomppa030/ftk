@@ -404,3 +404,81 @@ TEST_CASE("Kept noise under a new wind is the same sea, grown", "[water_spectrum
     REQUIRE(water::generate_spectrum(breeze, water::draw_noise(breeze.seed, 32))
                 .amplitudes.empty());
 }
+
+TEST_CASE("The fast transform is the plain sum", "[water_spectrum]") {
+    // Two implementations of one transform: the plain Fourier sum, which has
+    // no cleverness in it to be wrong, and the radix-2 one that is fast enough
+    // to use. Held together at a size the plain sum can afford.
+    FftContributor sea = physical_sea();
+    sea.resolution = 32;
+    sea.patch_size = 120.0f;
+    const auto field = water::generate_spectrum(sea);
+    const auto spectra = water::evolve_spectrum(field, 1.7f, 4.2f);
+
+    for (const auto* spectrum : {&spectra.height, &spectra.along_x, &spectra.along_z}) {
+        const auto plain = water::inverse_transform_reference(*spectrum, 32);
+        const auto fast = water::inverse_transform(*spectrum, 32);
+        REQUIRE(fast.size() == plain.size());
+        for (std::size_t i = 0; i < plain.size(); ++i) {
+            REQUIRE(fast[i] == Approx(plain[i]).margin(1e-4));
+        }
+    }
+
+    // Not a power of two: refused, not transformed wrongly.
+    const auto refused = water::inverse_transform(std::vector<glm::vec2>(36, {1.0f, 0.0f}), 6);
+    for (float v : refused) REQUIRE(v == 0.0f);
+}
+
+TEST_CASE("One spectral wave folds exactly where its Gerstner train does", "[water_spectrum]") {
+    // The simulated sea's Jacobian entries, against the Gerstner evaluator's
+    // determinant for the same single wave — which shares no code with them
+    // and is what the editor has always measured folding with. Pushed past
+    // the fold limit on purpose, so the sign of the determinant is in play
+    // and not only its size.
+    const std::uint32_t n = 32;
+    const float patch = 64.0f;
+    const float amplitude = 0.9f;
+    const float choppiness = 2.5f;
+
+    water::SpectrumField field;
+    field.resolution = n;
+    field.k_spacing = 2.0f * PI / patch;
+    field.amplitudes.assign(n * n, glm::vec2(0.0f));
+    const std::uint32_t kx = 4;
+    const std::uint32_t kz = 3;
+    field.amplitudes[kz * n + kx] = {0.0f, -amplitude * 0.5f};   // a sine of this amplitude
+
+    const glm::vec2 k{field.wavenumber(kx), field.wavenumber(kz)};
+    const float k_len = glm::length(k);
+
+    // The same wave as a Gerstner train. Its horizontal motion is q A with
+    // q = steepness * headroom / (k A); choppiness c asks for c A, so with the
+    // steepness at its ceiling of 1 the headroom is c k A.
+    GerstnerContributor train;
+    WaterWave wave;
+    wave.direction = k;
+    wave.wavelength = 2.0f * PI / k_len;
+    wave.amplitude = amplitude;
+    wave.steepness = 1.0f;
+    train.steepness_headroom = choppiness * k_len * amplitude;
+    train.waves = {wave};
+    FjWaterData gerstner;
+    gerstner.contributors.emplace_back(train);
+    REQUIRE(train.steepness_headroom > 1.0f);   // past the fold limit: it must fold somewhere
+
+    const float time = 3.1f;
+    const auto fields = water::jacobian_fields(field, choppiness, time);
+    std::size_t folded = 0;
+    for (std::uint32_t z = 0; z < n; ++z) {
+        for (std::uint32_t x = 0; x < n; ++x) {
+            const std::size_t cell = z * n + x;
+            const float determinant = (1.0f + fields.xx[cell]) * (1.0f + fields.zz[cell])
+                                    - fields.xz[cell] * fields.xz[cell];
+            const glm::vec2 p{static_cast<float>(x) * patch / n, static_cast<float>(z) * patch / n};
+            INFO("at (" << x << ", " << z << ")");
+            REQUIRE(determinant == Approx(water::horizontal_jacobian(gerstner, p, time)).margin(2e-3));
+            if (determinant < 0.0f) ++folded;
+        }
+    }
+    REQUIRE(folded > 0);
+}

@@ -5,6 +5,7 @@
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -112,6 +113,8 @@ private:
     /// The "Sea" panel for a simulated contributor: its wind, its stylisation
     /// and its grid, and what they come to.
     void draw_simulated_editor(FftContributor& sea);
+    /// How much of the whole sea folds, measured when the sea has changed.
+    void draw_fold_readout();
 
     WaterEditorDeps deps_;
     std::string name_{"Water"};
@@ -120,6 +123,15 @@ private:
     FjWaterData water_;
     /// Index into `water_.contributors` of the one the panels edit.
     std::size_t selected_contributor_{0};
+
+    /// The last fold measurements, and whether the sea has changed since they
+    /// were taken. Kept rather than measured every frame: with a simulated
+    /// contributor one costs tens of milliseconds.
+    float folded_share_{0.0f};
+    bool fold_stale_{true};
+    /// One per row of the wind table.
+    std::array<float, 5> wind_folded_share_{};
+    bool wind_fold_stale_{true};
     bool loaded_{false};
     bool dirty_{false};
 

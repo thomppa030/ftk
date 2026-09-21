@@ -121,4 +121,28 @@ struct DisplacementSpectra {
 [[nodiscard]] std::vector<float> inverse_transform_reference(const std::vector<glm::vec2>& spectrum,
                                                              std::uint32_t resolution);
 
+/// The same transform as `inverse_transform_reference()`, fast: a radix-2 FFT
+/// along each axis, N^2 log N where the plain sum is N^4. For CPU work that
+/// needs the surface at its full resolution — measuring it, not drawing it.
+/// `resolution` must be a power of two; anything else, or a spectrum of the
+/// wrong size, gives back zeros.
+[[nodiscard]] std::vector<float> inverse_transform(const std::vector<glm::vec2>& spectrum,
+                                                   std::uint32_t resolution);
+
+/// How the simulated sea's horizontal displacement changes across the patch
+/// at `time`: the entries it adds to the surface's horizontal Jacobian, exact,
+/// at every grid point. Same layout as the transforms' output.
+///
+/// These are what decide whether the surface has folded, summed with any
+/// other contributor's before the determinant is taken. Exact rather than the
+/// texel differences the shader shades with, because a fold is a fact about
+/// the surface and not about how it is lit.
+struct JacobianFields {
+    std::vector<float> xx;   // d(displacement x)/dx
+    std::vector<float> zz;   // d(displacement z)/dz
+    std::vector<float> xz;   // d(displacement x)/dz, which is also d(displacement z)/dx
+};
+[[nodiscard]] JacobianFields jacobian_fields(const SpectrumField& field, float choppiness,
+                                             float time);
+
 } // namespace fjell::water

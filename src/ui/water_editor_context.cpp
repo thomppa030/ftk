@@ -133,6 +133,8 @@ void WaterEditorContext::open_water(const std::string& path) {
     // Open on the wind the field was authored at, so the first thing shown is
     // the sea as tuned rather than one the response has already moved.
     selected_contributor_ = 0;
+    fold_stale_ = true;
+    wind_fold_stale_ = true;
     if (const auto* sea = selected_gerstner()) {
         preview_wind_speed_ = sea->wind.reference_speed;
         preview_wind_heading_ = direction_degrees(sea->generator.wind_direction);
@@ -244,6 +246,8 @@ FftContributor* WaterEditorContext::selected_simulated() {
 
 void WaterEditorContext::push_live() {
     dirty_ = true;
+    fold_stale_ = true;
+    wind_fold_stale_ = true;
 
     // A water node holds its own copy of the field it was loaded with, and
     // the pass draws from that copy — so a sea does not change because the
@@ -434,30 +438,7 @@ void WaterEditorContext::draw_generator_panel() {
                           "ceiling the sharpest crests turn inside out, which "
                           "reads as dark facets in the foam.");
 
-    // What that setting costs, measured rather than asserted: sample the
-    // surface and count where it has folded. A number beats a warning here,
-    // because a little folding at a distance may be a trade worth making.
-    // Measured on the whole sea, since the surface folds on the sum of every
-    // contributor and this one's headroom is only its share of that.
-    if (!sea->waves.empty()) {
-        int folded = 0;
-        int total = 0;
-        for (float x = -120.0f; x <= 120.0f; x += 6.0f) {
-            for (float z = -120.0f; z <= 120.0f; z += 6.0f) {
-                for (float t : {0.0f, 5.5f, 13.7f}) {
-                    ++total;
-                    if (water::crest(water_, {x, z}, t) >= 0.999f) ++folded;
-                }
-            }
-        }
-        float pct = 100.0f * static_cast<float>(folded) / static_cast<float>(total);
-        if (pct <= 0.0f) {
-            ImGui::TextDisabled("no folding");
-        } else {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                               "%.2f%% of the surface folds", pct);
-        }
-    }
+    draw_fold_readout();
 
     ImGui::Separator();
     ImGui::TextDisabled("Wind response");
@@ -509,6 +490,13 @@ void WaterEditorContext::draw_generator_panel() {
                 ImGui::TableSetupColumn("folds");
                 ImGui::TableHeadersRow();
 
+                // Measured when the sea has changed and the mouse has let go
+                // of it, like the readout above and for the same reason: five
+                // whole-sea measurements are too slow to take mid-drag.
+                const bool remeasure_wind_folds = wind_fold_stale_ && !ImGui::IsAnyItemActive();
+                if (remeasure_wind_folds) wind_fold_stale_ = false;
+                std::size_t row = 0;
+
                 const float reference = std::max(sea->wind.reference_speed, 0.1f);
                 for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
                     const float speed = reference * factor;
@@ -519,18 +507,11 @@ void WaterEditorContext::draw_generator_panel() {
                         water::apply_wind(*sea, {speed, 0.0f});
                     const FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
 
-                    int folded = 0;
-                    int total = 0;
-                    for (float x = -120.0f; x <= 120.0f; x += 12.0f) {
-                        for (float z = -120.0f; z <= 120.0f; z += 12.0f) {
-                            for (float t : {0.0f, 7.3f}) {
-                                ++total;
-                                if (water::crest(blown, {x, z}, t) >= 0.999f) ++folded;
-                            }
-                        }
+                    if (remeasure_wind_folds) {
+                        wind_folded_share_[row] = water::folded_share(blown);
                     }
-                    const float pct = 100.0f * static_cast<float>(folded)
-                                    / static_cast<float>(total);
+                    const float pct = 100.0f * wind_folded_share_[row];
+                    ++row;
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -651,6 +632,34 @@ void WaterEditorContext::draw_contributor_list() {
     ImGui::EndDisabled();
 }
 
+void WaterEditorContext::draw_fold_readout() {
+    // What the current settings cost, measured rather than asserted: how much
+    // of the surface has folded through itself. A number beats a warning here,
+    // because a little folding at a distance may be a trade worth making.
+    //
+    // Of the whole sea, every contributor together, since the surface folds on
+    // their sum: a simulated sea pinched by its choppiness folds as surely as
+    // Gerstner trains pushed past their headroom, and one contributor's dial is
+    // only its share of that. Measuring a simulated sea takes tens of
+    // milliseconds, so it waits for the mouse to let go of whatever is being
+    // dragged and the last number stands until then.
+    if (fold_stale_ && !ImGui::IsAnyItemActive()) {
+        folded_share_ = water::folded_share(water_);
+        fold_stale_ = false;
+    }
+    const float pct = 100.0f * folded_share_;
+    if (pct <= 0.0f) {
+        ImGui::TextDisabled(fold_stale_ ? "no folding  (measuring on release)" : "no folding");
+    } else {
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                           fold_stale_ ? "%.2f%% of the surface folds  (measuring on release)"
+                                       : "%.2f%% of the surface folds", pct);
+    }
+    ImGui::SetItemTooltip("Of the whole sea: every contributor summed, the simulated one "
+                          "included. Folded crests are where foam gathers; some of it is "
+                          "what a rough sea looks like.");
+}
+
 void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     ImGui::TextWrapped("A sea raised from a wind-driven spectrum and simulated on the "
                        "GPU. It is drawn and not floated on: buoyancy rides the Gerstner "
@@ -701,6 +710,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     ImGui::SetItemTooltip("Fades out waves shorter than this. The biggest stylisation "
                           "control: it turns a busy correct ocean into a few big readable "
                           "swells. 0 keeps everything the grid holds.");
+    draw_fold_readout();
 
     ImGui::Separator();
     ImGui::TextDisabled("The simulated patch");
