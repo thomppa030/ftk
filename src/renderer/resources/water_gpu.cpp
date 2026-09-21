@@ -25,6 +25,9 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
         out.steepness = wave.steepness;
         out.speed = wave.speed;
     });
+    if (const auto* fft = water::simulated_sea(water)) {
+        field.simulated_patch_size = fft->patch_size;
+    }
     return field;
 }
 

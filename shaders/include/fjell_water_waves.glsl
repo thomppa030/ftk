@@ -17,47 +17,21 @@
 
 #define FJELL_WATER_GRAVITY 9.81
 #define FJELL_WATER_TAU 6.28318530717958647692
-// Mirror MAX_WATER_WAVES and MAX_GERSTNER_CONTRIBUTORS in fjwater.hpp.
-#define FJELL_MAX_WATER_WAVES 16
-#define FJELL_MAX_GERSTNER_CONTRIBUTORS 4
 
-// One wave train. Mirrors WaterWave in fjwater.hpp; std140-padded so the
-// layouts agree without a hand-copied stride.
-struct FjellWaterWave {
-    vec2  direction;
-    float wavelength;
-    float amplitude;
-    float steepness;
-    float speed;
-    float _pad0;
-    float _pad1;
-};
+#include "fjell_water_field.glsl"
 
-// One Gerstner contributor: its trains and the scales they move under.
-// Mirrors the runtime half of GerstnerContributor; the generator settings and
-// the wind response are how it was authored and derived, and never reach the
-// GPU.
-struct FjellGerstnerContributor {
-    FjellWaterWave waves[FJELL_MAX_WATER_WAVES];
-    uint  wave_count;
-    float amplitude_scale;
-    float speed_scale;
-    float steepness_headroom;
-};
-
-// The field: every contributor the surface sums. Mirrors GpuWaterField.
+// The evaluators below read the field where it lives rather than being handed
+// it. GLSL passes a struct by value, and this one is over two kilobytes: given
+// as an argument it is copied out of the uniform buffer at every call, four
+// times a vertex, which measured at three times the cost of the whole water
+// draw. So whoever includes this file says where the field is —
 //
-// Read a contributor through the field (`field.gerstner[c].waves[i]`) and
-// never copy one into a local. A contributor is over five hundred bytes, the
-// mesh shader evaluates the field four times a vertex, and a struct that size
-// held live across those is past what a mesh shader is given to work in.
-struct FjellWaterField {
-    FjellGerstnerContributor gerstner[FJELL_MAX_GERSTNER_CONTRIBUTORS];
-    uint gerstner_count;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
-};
+//     #define FJELL_WATER_FIELD water.field
+//
+// — before including it, naming an expression that is a FjellWaterField.
+#ifndef FJELL_WATER_FIELD
+#error "define FJELL_WATER_FIELD to the wave field before including fjell_water_waves.glsl"
+#endif
 
 // Steepness is authored 0..1; the Gerstner horizontal term wants Q, and Q past
 // 1/(k*A) folds the surface through itself. Matches steepness_to_q().
@@ -112,16 +86,16 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, float amplitude_scale, flo
 
 // Matches displace(): the offset from a flat surface at this rest position,
 // summed over every train of every contributor.
-vec3 fjell_water_displace(FjellWaterField field, vec2 world_xz, float time) {
+vec3 fjell_water_displace(vec2 world_xz, float time) {
     vec3 sum = vec3(0.0);
-    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
-        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
-        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        uint count = min(FJELL_WATER_FIELD.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(FJELL_WATER_FIELD.gerstner[c].steepness_headroom);
         for (uint i = 0u; i < count; ++i) {
-            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
-                                                 field.gerstner[c].amplitude_scale,
-                                                 field.gerstner[c].speed_scale,
+            FjellWaveTerms t = fjell_water_terms(FJELL_WATER_FIELD.gerstner[c].waves[i],
+                                                 FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
+                                                 FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
             if (t.amplitude == 0.0) continue;
 
@@ -135,19 +109,31 @@ vec3 fjell_water_displace(FjellWaterField field, vec2 world_xz, float time) {
     return sum;
 }
 
-// Matches normal_at().
-vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
+// How the displaced surface changes along x and along z: the two tangents a
+// normal is the cross product of.
+//
+// Kept apart from the normal because tangents add across contributors and
+// normals do not. Anything summing another source of displacement into the
+// surface adds its own derivatives here and takes the normal afterwards.
+struct FjellWaterTangents {
+    vec3 binormal;   // d/dx
+    vec3 tangent;    // d/dz
+};
+
+// The closed-form contributors' share of the tangents, starting from the flat
+// surface's own.
+FjellWaterTangents fjell_water_tangents(vec2 world_xz, float time) {
     vec3 binormal = vec3(1.0, 0.0, 0.0);
     vec3 tangent  = vec3(0.0, 0.0, 1.0);
 
-    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
-        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
-        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        uint count = min(FJELL_WATER_FIELD.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(FJELL_WATER_FIELD.gerstner[c].steepness_headroom);
         for (uint i = 0u; i < count; ++i) {
-            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
-                                                 field.gerstner[c].amplitude_scale,
-                                                 field.gerstner[c].speed_scale,
+            FjellWaveTerms t = fjell_water_terms(FJELL_WATER_FIELD.gerstner[c].waves[i],
+                                                 FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
+                                                 FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
             if (t.amplitude == 0.0) continue;
 
@@ -165,28 +151,54 @@ vec3 fjell_water_normal(FjellWaterField field, vec2 world_xz, float time) {
         }
     }
 
-    vec3 n = cross(tangent, binormal);
+    FjellWaterTangents result;
+    result.binormal = binormal;
+    result.tangent = tangent;
+    return result;
+}
+
+vec3 fjell_water_normal_from(FjellWaterTangents tangents) {
+    vec3 n = cross(tangents.tangent, tangents.binormal);
     float len = length(n);
     if (len < 1e-6) return vec3(0.0, 1.0, 0.0);
     return n / len;
 }
 
-// Matches horizontal_jacobian(): 1 on flat water, falling as the trains bunch
-// together, 0 where the surface has pinched to a point and negative where it
-// has folded through itself.
-float fjell_water_jacobian(FjellWaterField field, vec2 world_xz, float time) {
+// Matches normal_at().
+vec3 fjell_water_normal(vec2 world_xz, float time) {
+    return fjell_water_normal_from(fjell_water_tangents(world_xz, time));
+}
+
+// d(displaced)/d(rest) of the horizontal displacement, as the three distinct
+// entries of a symmetric 2x2. Matches HorizontalJacobian.
+//
+// Apart from its determinant for the reason the tangents are apart from the
+// normal: the entries add across contributors and the determinant does not.
+struct FjellWaterJacobian {
+    float xx;
+    float zz;
+    float xz;
+};
+
+float fjell_water_determinant(FjellWaterJacobian j) {
+    return j.xx * j.zz - j.xz * j.xz;
+}
+
+// Matches jacobian_terms(): the closed-form contributors' share, starting
+// from the identity.
+FjellWaterJacobian fjell_water_jacobian_terms(vec2 world_xz, float time) {
     float jxx = 1.0;
     float jzz = 1.0;
     float jxz = 0.0;
 
-    uint contributors = min(field.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
+    uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
-        uint count = min(field.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
-        float budget = fjell_water_budget(field.gerstner[c].steepness_headroom);
+        uint count = min(FJELL_WATER_FIELD.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
+        float budget = fjell_water_budget(FJELL_WATER_FIELD.gerstner[c].steepness_headroom);
         for (uint i = 0u; i < count; ++i) {
-            FjellWaveTerms t = fjell_water_terms(field.gerstner[c].waves[i],
-                                                 field.gerstner[c].amplitude_scale,
-                                                 field.gerstner[c].speed_scale,
+            FjellWaveTerms t = fjell_water_terms(FJELL_WATER_FIELD.gerstner[c].waves[i],
+                                                 FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
+                                                 FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
             if (t.amplitude == 0.0) continue;
 
@@ -199,14 +211,25 @@ float fjell_water_jacobian(FjellWaterField field, vec2 world_xz, float time) {
         }
     }
 
-    return jxx * jzz - jxz * jxz;
+    FjellWaterJacobian result;
+    result.xx = jxx;
+    result.zz = jzz;
+    result.xz = jxz;
+    return result;
+}
+
+// Matches horizontal_jacobian(): 1 on flat water, falling as the trains bunch
+// together, 0 where the surface has pinched to a point and negative where it
+// has folded through itself.
+float fjell_water_jacobian(vec2 world_xz, float time) {
+    return fjell_water_determinant(fjell_water_jacobian_terms(world_xz, time));
 }
 
 // Matches crest(): 0 on flat water, rising toward 1 where the surface has
 // bunched to a point. Use it directly as a whitecap mask. Clamped, so a folded
 // surface reads the same as one pinched to a point.
-float fjell_water_crest(FjellWaterField field, vec2 world_xz, float time) {
-    return clamp(1.0 - fjell_water_jacobian(field, world_xz, time), 0.0, 1.0);
+float fjell_water_crest(vec2 world_xz, float time) {
+    return clamp(1.0 - fjell_water_jacobian(world_xz, time), 0.0, 1.0);
 }
 
 #endif // FJELL_WATER_WAVES_GLSL

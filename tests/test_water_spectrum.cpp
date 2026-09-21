@@ -330,3 +330,24 @@ TEST_CASE("One wavevector of a simulated sea is one Gerstner train", "[water_spe
         }
     }
 }
+
+TEST_CASE("The sea's size in closed form is the spectrum's own", "[water_spectrum]") {
+    // significant_amplitude() is a shortcut: half the significant wave height
+    // from a closed form rather than from integrating the spectrum. Half the
+    // significant height is two standard deviations of the surface, and the
+    // variance is the spectrum's integral, which can simply be done.
+    for (float wind : {5.0f, 12.0f, 24.0f}) {
+        for (float fetch : {8000.0f, 150000.0f}) {
+            FftContributor sea;
+            sea.wind_speed = wind;
+            sea.fetch = fetch;
+            sea.amplitude_scale = 1.5f;
+            INFO("wind " << wind << " fetch " << fetch);
+            REQUIRE(water::significant_amplitude(sea)
+                    == Approx(2.0 * std::sqrt(height_variance(sea)) * 1.5).epsilon(0.03));
+        }
+    }
+    FftContributor calm;
+    calm.wind_speed = 0.0f;
+    REQUIRE(water::significant_amplitude(calm) == 0.0f);
+}

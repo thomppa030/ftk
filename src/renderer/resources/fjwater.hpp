@@ -272,7 +272,7 @@ struct FftContributor {
 /// One source of surface motion in a `.fjwater`. The surface is the sum of
 /// every contributor, so nothing downstream needs to know which kinds a sea
 /// is made of.
-using WaterContributor = std::variant<GerstnerContributor>;
+using WaterContributor = std::variant<GerstnerContributor, FftContributor>;
 
 /// A `.fjwater`: the wave field of a body of water.
 ///
@@ -284,7 +284,9 @@ using WaterContributor = std::variant<GerstnerContributor>;
 struct FjWaterData {
     /// What moves the surface, summed. Order changes nothing about the sea;
     /// it is the order an author listed them in. Gerstner contributors past
-    /// MAX_GERSTNER_CONTRIBUTORS are not summed.
+    /// MAX_GERSTNER_CONTRIBUTORS are not summed, and of the simulated ones
+    /// only the first is: a simulation is a patch of sea carried forward every
+    /// frame, and the world runs one.
     std::vector<WaterContributor> contributors;
 
     /// The `.fjmat` the water editor draws this field through, as an asset

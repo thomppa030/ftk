@@ -1,5 +1,8 @@
 #include "renderer/pass/water_pass.hpp"
 
+#include "renderer/pass/water_fft_pass.hpp"
+#include "renderer/pass_registry.hpp"
+
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
@@ -52,7 +55,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     // per-node resource. Only the mesh stage reads it — the fragment stage
     // is handed what it needs through varyings rather than solving the field
     // a second time per pixel.
-    std::array<VkDescriptorSetLayoutBinding, 2> set_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 5> set_bindings{};
     set_bindings[0].binding = 0;
     set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     set_bindings[0].descriptorCount = 1;
@@ -64,6 +67,15 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     set_bindings[1].descriptorCount = 1;
     set_bindings[1].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+    // The simulated sea: its displacement now, its displacement a frame ago,
+    // and its derivatives. A contributor that is an FFT's output has nothing
+    // to put in the field buffer but where its textures tile.
+    for (std::uint32_t binding = 2; binding <= 4; ++binding) {
+        set_bindings[binding].binding = binding;
+        set_bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        set_bindings[binding].descriptorCount = 1;
+        set_bindings[binding].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+    }
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -72,29 +84,6 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     if (vkCreateDescriptorSetLayout(device_, &set_layout_info, nullptr,
                                     &water_set_layout_) != VK_SUCCESS) {
         return make_error("Failed to create water set layout");
-    }
-
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = 2;
-
-    VkDescriptorPoolCreateInfo pool_info{};
-    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.maxSets = 1;
-    pool_info.poolSizeCount = 1;
-    pool_info.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device_, &pool_info, nullptr, &descriptor_pool_) !=
-        VK_SUCCESS) {
-        return make_error("Failed to create water descriptor pool");
-    }
-
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = descriptor_pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &water_set_layout_;
-    if (vkAllocateDescriptorSets(device_, &alloc_info, &water_set_) != VK_SUCCESS) {
-        return make_error("Failed to allocate water descriptor set");
     }
 
     field_buffer_ = std::make_unique<Buffer>(
@@ -107,32 +96,6 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
             VMA_ALLOCATION_CREATE_MAPPED_BIT);
-
-    VkDescriptorBufferInfo field_info{};
-    field_info.buffer = field_buffer_->handle();
-    field_info.offset = 0;
-    field_info.range = sizeof(GpuWaterField);
-
-    VkDescriptorBufferInfo clipmap_info{};
-    clipmap_info.buffer = clipmap_buffer_->handle();
-    clipmap_info.offset = 0;
-    clipmap_info.range = sizeof(GpuWaterClipmap);
-
-    std::array<VkWriteDescriptorSet, 2> writes{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = water_set_;
-    writes[0].dstBinding = 0;
-    writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].pBufferInfo = &field_info;
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = water_set_;
-    writes[1].dstBinding = 1;
-    writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[1].pBufferInfo = &clipmap_info;
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0,
-                           nullptr);
 
     // A field of flat water until a node supplies one, so the buffer is never
     // read as uninitialised memory. write() maps on first use and keeps the
@@ -194,11 +157,6 @@ void WaterPass::destroy() {
         vkDestroyPipelineLayout(device_, layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
     }
-    if (descriptor_pool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
-        descriptor_pool_ = VK_NULL_HANDLE;
-        water_set_ = VK_NULL_HANDLE;
-    }
     if (water_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, water_set_layout_, nullptr);
         water_set_layout_ = VK_NULL_HANDLE;
@@ -215,9 +173,15 @@ void WaterPass::destroy_material_pipelines() {
     material_pipelines_.clear();
 }
 
-void WaterPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
+void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     pipeline_cache_ = gpu.pipeline_cache();
     bindless_ = &gpu.bindless_textures();
+    simulation_ = passes.try_get<WaterFftPass>("water_fft");
+    if (simulation_ == nullptr) {
+        FJELL_CORE_ERROR("WaterPass: no water_fft pass in the render graph. Water samples the "
+                         "simulated sea's textures whether or not a field has one, so without "
+                         "that pass it cannot draw.");
+    }
 }
 
 void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -227,6 +191,20 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // they are recentered once for the frame regardless of how many infinite
     // seas the scene holds.
     clipmap_.recenter(ctx.camera_position);
+
+    // The world runs one simulated sea: the first a water node asks for.
+    if (simulation_ != nullptr) {
+        std::optional<FftContributor> sea;
+        for (const auto& node : ctx.scene->objects()) {
+            const auto* wc = node->components.get<WaterComponent>();
+            if (wc == nullptr) continue;
+            if (const auto* fft = water::simulated_sea(wc->effective_water)) {
+                sea = *fft;
+                break;
+            }
+        }
+        simulation_->set_sea(sea);
+    }
 
     // Pipelines are built here rather than in record(): a first sighting of a
     // material or a hot-reloaded shader means vkCreateGraphicsPipelines,
@@ -492,6 +470,34 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     bound_water_ = &comp;
 }
 
+VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
+    auto sampled = [this](std::uint32_t binding, VkImageView view) {
+        FrameCacheBinding b{};
+        b.binding = binding;
+        b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        b.image.sampler = simulation_->sampler();
+        b.image.imageView = view;
+        b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        return b;
+    };
+    auto uniform = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize range) {
+        FrameCacheBinding b{};
+        b.binding = binding;
+        b.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        b.buffer.buffer = buffer;
+        b.buffer.range = range;
+        return b;
+    };
+    const FrameCacheBinding bindings[5]{
+        uniform(0, field_buffer_->handle(), sizeof(GpuWaterField)),
+        uniform(1, clipmap_buffer_->handle(), sizeof(GpuWaterClipmap)),
+        sampled(2, simulation_->displacement_view()),
+        sampled(3, simulation_->previous_displacement_view()),
+        sampled(4, simulation_->derivatives_view()),
+    };
+    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 5});
+}
+
 void WaterPass::bind_clipmap() {
     // Most frames move the inner levels and leave the outer ones alone, and
     // a camera standing still moves none of them. Compared against a copy
@@ -603,7 +609,7 @@ void WaterPass::record(const FrameContext& ctx) {
         return;
     }
 
-    if (!scene_has_water(ctx)) return;
+    if (!scene_has_water(ctx) || simulation_ == nullptr) return;
 
     FJELL_PROFILE_SCOPE_N("record_water");
     FJELL_GPU_ZONE(ctx, "Water");
@@ -684,7 +690,7 @@ void WaterPass::record(const FrameContext& ctx) {
 
         if (!bound_sets) {
             std::array<VkDescriptorSet, 3> sets = {ctx.global_descriptor_set,
-                                                  ctx.bindless_set, water_set_};
+                                                  ctx.bindless_set, acquire_water_set(ctx)};
             vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
                                     static_cast<uint32_t>(sets.size()), sets.data(), 0,
                                     nullptr);

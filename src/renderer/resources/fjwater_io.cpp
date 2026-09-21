@@ -74,7 +74,7 @@ constexpr const char* GERSTNER_KIND = "gerstner";
     return water;
 }
 
-[[nodiscard]] nlohmann::json write_gerstner(const GerstnerContributor& water) {
+[[nodiscard]] nlohmann::json write_contributor(const GerstnerContributor& water) {
     nlohmann::json j = nlohmann::json::object();
     j["kind"] = GERSTNER_KIND;
     j["amplitude_scale"] = water.amplitude_scale;
@@ -115,6 +115,40 @@ constexpr const char* GERSTNER_KIND = "gerstner";
         waves.push_back(wj);
     }
     j["waves"] = waves;
+    return j;
+}
+
+constexpr const char* FFT_KIND = "fft";
+
+[[nodiscard]] FftContributor read_fft(const nlohmann::json& j) {
+    const FftContributor defaults;
+    FftContributor sea;
+    sea.wind_direction = read_vec2(j, "wind_direction", defaults.wind_direction);
+    sea.wind_speed = j.value("wind_speed", defaults.wind_speed);
+    sea.fetch = j.value("fetch", defaults.fetch);
+    sea.spread_degrees = j.value("spread_degrees", defaults.spread_degrees);
+    sea.high_cut = j.value("high_cut", defaults.high_cut);
+    sea.choppiness = j.value("choppiness", defaults.choppiness);
+    sea.amplitude_scale = j.value("amplitude_scale", defaults.amplitude_scale);
+    sea.patch_size = j.value("patch_size", defaults.patch_size);
+    sea.resolution = j.value("resolution", defaults.resolution);
+    sea.seed = j.value("seed", defaults.seed);
+    return sea;
+}
+
+[[nodiscard]] nlohmann::json write_contributor(const FftContributor& sea) {
+    nlohmann::json j = nlohmann::json::object();
+    j["kind"] = FFT_KIND;
+    j["wind_direction"] = write_vec2(sea.wind_direction);
+    j["wind_speed"] = sea.wind_speed;
+    j["fetch"] = sea.fetch;
+    j["spread_degrees"] = sea.spread_degrees;
+    j["high_cut"] = sea.high_cut;
+    j["choppiness"] = sea.choppiness;
+    j["amplitude_scale"] = sea.amplitude_scale;
+    j["patch_size"] = sea.patch_size;
+    j["resolution"] = sea.resolution;
+    j["seed"] = sea.seed;
     return j;
 }
 
@@ -207,14 +241,18 @@ Result<FjWaterData> load_fjwater_file(const std::string& path) {
         std::uint32_t gerstner_count = 0;
         for (const auto& cj : j["contributors"]) {
             const std::string kind = cj.value("kind", std::string{});
-            // Refused rather than skipped: a file this build cannot fully read
-            // is one it would quietly write back without the part it skipped.
-            if (kind != GERSTNER_KIND) {
+            if (kind == GERSTNER_KIND) {
+                if (gerstner_count++ >= MAX_GERSTNER_CONTRIBUTORS) continue;
+                field.contributors.emplace_back(read_gerstner(cj));
+            } else if (kind == FFT_KIND) {
+                field.contributors.emplace_back(read_fft(cj));
+            } else {
+                // Refused rather than skipped: a file this build cannot fully
+                // read is one it would quietly write back without the part it
+                // skipped.
                 return make_error("Unknown contributor kind '" + kind + "' in .fjwater file: "
                                   + path);
             }
-            if (gerstner_count++ >= MAX_GERSTNER_CONTRIBUTORS) continue;
-            field.contributors.emplace_back(read_gerstner(cj));
         }
         return field;
     }
@@ -252,9 +290,8 @@ Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
 
     nlohmann::json contributors = nlohmann::json::array();
     for (const auto& contributor : field.contributors) {
-        if (const auto* gerstner = std::get_if<GerstnerContributor>(&contributor)) {
-            contributors.push_back(write_gerstner(*gerstner));
-        }
+        contributors.push_back(std::visit(
+            [](const auto& kind) { return write_contributor(kind); }, contributor));
     }
     j["contributors"] = contributors;
 

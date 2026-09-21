@@ -59,9 +59,12 @@ static_assert(sizeof(GpuGerstnerContributor) == MAX_WATER_WAVES * 32 + 16,
 struct GpuWaterField {
     GpuGerstnerContributor gerstner[MAX_GERSTNER_CONTRIBUTORS];
     std::uint32_t gerstner_count{0};
+    /// Metres the simulated sea's textures tile over, or 0 when the field has
+    /// no simulated contributor and they are not to be sampled. The
+    /// simulation itself reaches the shader as textures, not through here.
+    float simulated_patch_size{0.0f};
     std::uint32_t _pad0{0};
     std::uint32_t _pad1{0};
-    std::uint32_t _pad2{0};
 };
 static_assert(sizeof(GpuWaterField)
                   == MAX_GERSTNER_CONTRIBUTORS * sizeof(GpuGerstnerContributor) + 16,
@@ -70,6 +73,7 @@ static_assert(sizeof(GpuWaterField)
 static_assert(offsetof(GpuGerstnerContributor, wave_count) == 512);
 static_assert(offsetof(GpuGerstnerContributor, steepness_headroom) == 524);
 static_assert(offsetof(GpuWaterField, gerstner_count) == 2112);
+static_assert(offsetof(GpuWaterField, simulated_patch_size) == 2116);
 
 /// Pack a field into the shader's shape: exactly the trains
 /// `water::for_each_summed_train()` walks, which is what the CPU evaluator

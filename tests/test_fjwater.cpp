@@ -10,7 +10,37 @@
 // can be compared directly. See glsl_shim.hpp for why this works and what it
 // is limited to.
 #include "glsl_shim.hpp"
+
+// The shader's evaluators read the field where the including shader says it
+// is, rather than taking it as an argument. Here that is a field the tests
+// fill in; the overloads below put one there and evaluate it, so a test reads
+// as "this field, at this point".
+struct FjellWaterField;
+FjellWaterField& shim_water_field();
+#define FJELL_WATER_FIELD shim_water_field()
 #include "../shaders/include/fjell_water_waves.glsl"
+
+FjellWaterField& shim_water_field() {
+    static FjellWaterField field{};
+    return field;
+}
+
+static vec3 fjell_water_displace(const FjellWaterField& field, vec2 world_xz, float time) {
+    shim_water_field() = field;
+    return fjell_water_displace(world_xz, time);
+}
+static vec3 fjell_water_normal(const FjellWaterField& field, vec2 world_xz, float time) {
+    shim_water_field() = field;
+    return fjell_water_normal(world_xz, time);
+}
+static float fjell_water_jacobian(const FjellWaterField& field, vec2 world_xz, float time) {
+    shim_water_field() = field;
+    return fjell_water_jacobian(world_xz, time);
+}
+static float fjell_water_crest(const FjellWaterField& field, vec2 world_xz, float time) {
+    shim_water_field() = field;
+    return fjell_water_crest(world_xz, time);
+}
 
 #include <algorithm>
 #include <cmath>
@@ -1220,6 +1250,8 @@ TEST_CASE("The GPU field matches the shader's struct", "[fjwater]") {
 
     REQUIRE(offsetof(GpuWaterField, gerstner) == offsetof(FjellWaterField, gerstner));
     REQUIRE(offsetof(GpuWaterField, gerstner_count) == offsetof(FjellWaterField, gerstner_count));
+    REQUIRE(offsetof(GpuWaterField, simulated_patch_size)
+            == offsetof(FjellWaterField, simulated_patch_size));
 
     // The array strides are what a matching sizeof() can still hide: two
     // structs of equal size whose arrays step differently put everything
@@ -1319,4 +1351,69 @@ TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
             }
         }
     }
+}
+
+// --- A simulated contributor beside the authored ones ---
+
+TEST_CASE("Physics does not see the simulated sea", "[fjwater]") {
+    // The simulation lives on the GPU, so the CPU evaluator sums the
+    // closed-form contributors and nothing else: a field with a simulated
+    // contributor in it floats a boat exactly where the same field without it
+    // does. That is a decision with a known cost, and this is what holds the
+    // evaluator to it until the day it is changed on purpose.
+    FjWaterData authored = sea({
+        wave({1.0f, 0.2f}, 40.0f, 1.2f, 0.7f),
+        wave({-0.3f, 1.0f}, 9.0f, 0.3f, 0.8f, 1.2f),
+    });
+    FjWaterData with_simulation = authored;
+    with_simulation.contributors.insert(with_simulation.contributors.begin(),
+                                        FftContributor{});
+
+    for (float x = -20.0f; x <= 20.0f; x += 5.0f) {
+        glm::vec2 p(x, 4.0f - x * 0.5f);
+        REQUIRE(water::displace(with_simulation, p, 2.5f) == water::displace(authored, p, 2.5f));
+        REQUIRE(water::normal_at(with_simulation, p, 2.5f) == water::normal_at(authored, p, 2.5f));
+        REQUIRE(water::horizontal_jacobian(with_simulation, p, 2.5f)
+                == water::horizontal_jacobian(authored, p, 2.5f));
+    }
+    REQUIRE(water::bed_agitation(with_simulation, 3.0f) == water::bed_agitation(authored, 3.0f));
+
+    // The shader is told where the simulated sea tiles, and nothing else of
+    // it goes through the field buffer.
+    FftContributor fft;
+    fft.patch_size = 180.0f;
+    with_simulation.contributors.front() = fft;
+    REQUIRE(to_gpu_field(with_simulation).simulated_patch_size == 180.0f);
+    REQUIRE(to_gpu_field(with_simulation).gerstner_count == 1);
+    REQUIRE(to_gpu_field(authored).simulated_patch_size == 0.0f);
+}
+
+TEST_CASE("A simulated contributor survives a round trip beside an authored one", "[fjwater]") {
+    auto dir = std::filesystem::temp_directory_path() / "fjell-fjwater-fft";
+    std::filesystem::create_directories(dir);
+    auto path = (dir / "mixed.fjwater").string();
+
+    FftContributor fft;
+    fft.wind_direction = {0.6f, -0.8f};
+    fft.wind_speed = 13.5f;
+    fft.fetch = 42000.0f;
+    fft.spread_degrees = 18.0f;
+    fft.high_cut = 6.0f;
+    fft.choppiness = 1.4f;
+    fft.amplitude_scale = 0.75f;
+    fft.patch_size = 320.0f;
+    fft.resolution = 512;
+    fft.seed = 99;
+
+    FjWaterData written = sea({wave({1.0f, 0.0f}, 70.0f, 1.0f, 0.5f)});
+    written.contributors.emplace_back(fft);
+    REQUIRE(save_fjwater_file(path, written));
+
+    auto loaded = load_fjwater_file(path);
+    REQUIRE(loaded);
+    REQUIRE(loaded->contributors.size() == 2);
+    REQUIRE(std::holds_alternative<GerstnerContributor>(loaded->contributors[0]));
+    REQUIRE(std::get<FftContributor>(loaded->contributors[1]) == fft);
+
+    std::filesystem::remove_all(dir);
 }

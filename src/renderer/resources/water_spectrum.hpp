@@ -18,6 +18,17 @@ namespace fjell::water {
 /// 0 for a non-positive frequency, and for no wind or no fetch.
 [[nodiscard]] float jonswap(const FftContributor& sea, float omega);
 
+/// Half the significant wave height of the sea the contributor describes, in
+/// metres: the amplitude of the waves an observer would call its size. 0 for
+/// no wind or no fetch.
+///
+/// From the spectrum's variance in closed form — a JONSWAP spectrum carries
+/// 1.52 times the energy of the Pierson-Moskowitz one under it, which
+/// integrates exactly — so it is cheap enough to ask every frame. The high cut
+/// is not accounted for; it removes the short waves, which hold little of the
+/// height.
+[[nodiscard]] float significant_amplitude(const FftContributor& sea);
+
 /// The frequency the spectrum peaks at, in rad/s, or 0 for no wind or no
 /// fetch. More wind or more fetch lowers it: a more grown sea is a longer one.
 [[nodiscard]] float peak_frequency(const FftContributor& sea);

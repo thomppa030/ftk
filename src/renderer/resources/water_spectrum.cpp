@@ -49,6 +49,13 @@ constexpr float PEAK_ENHANCEMENT = 3.3f;
     return std::log(0.5f) / (2.0f * std::log(std::cos(half_angle)));
 }
 
+// The Phillips constant as JONSWAP measured it: how much energy the wind has
+// put into the sea, falling as the fetch grows and the sea spreads it over
+// longer waves. Callers have already turned away a sea with no wind or fetch.
+[[nodiscard]] float energy_scale(const FftContributor& sea) {
+    return 0.076f * std::pow(sea.wind_speed * sea.wind_speed / (sea.fetch * GRAVITY), 0.22f);
+}
+
 } // namespace
 
 float peak_frequency(const FftContributor& sea) {
@@ -56,12 +63,20 @@ float peak_frequency(const FftContributor& sea) {
     return 22.0f * std::cbrt(GRAVITY * GRAVITY / (sea.wind_speed * sea.fetch));
 }
 
+float significant_amplitude(const FftContributor& sea) {
+    const float peak = peak_frequency(sea);
+    if (peak <= 0.0f) return 0.0f;
+    const float alpha = energy_scale(sea);
+    const float variance = 1.52f * alpha * GRAVITY * GRAVITY / (5.0f * peak * peak * peak * peak);
+    // Significant wave height is four standard deviations, crest to trough.
+    return 2.0f * std::sqrt(variance) * sea.amplitude_scale;
+}
+
 float jonswap(const FftContributor& sea, float omega) {
     const float peak = peak_frequency(sea);
     if (omega <= 0.0f || peak <= 0.0f) return 0.0f;
 
-    const float alpha = 0.076f * std::pow(sea.wind_speed * sea.wind_speed
-                                          / (sea.fetch * GRAVITY), 0.22f);
+    const float alpha = energy_scale(sea);
     const float sigma = omega <= peak ? 0.07f : 0.09f;
     const float offset = (omega - peak) / (sigma * peak);
     const float enhancement = std::pow(PEAK_ENHANCEMENT, std::exp(-0.5f * offset * offset));

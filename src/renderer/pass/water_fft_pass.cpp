@@ -178,6 +178,12 @@ Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
         return make_error("WaterFftPass: failed to create sampler");
     }
 
+    if (auto r = create_image(still_, SURFACE_FORMAT, 1, 1,
+                              VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                              "water_fft_still"); !r) {
+        return r;
+    }
+
     const char* verify = std::getenv("FJELL_VERIFY_WATER_FFT");
     if (verify != nullptr && verify[0] != '\0' && verify[0] != '0') {
         begin_verification();
@@ -203,6 +209,11 @@ void WaterFftPass::destroy() {
     if (derivatives_.top != VK_NULL_HANDLE) vkDestroyImageView(device_, derivatives_.top, nullptr);
     destroy_vma_image(allocator_, derivatives_.image, derivatives_.memory);
     derivatives_ = {};
+    if (still_.sampled != VK_NULL_HANDLE) vkDestroyImageView(device_, still_.sampled, nullptr);
+    if (still_.top != VK_NULL_HANDLE) vkDestroyImageView(device_, still_.top, nullptr);
+    destroy_vma_image(allocator_, still_.image, still_.memory);
+    still_ = {};
+    still_ready_ = false;
 
     if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, sampler_, nullptr);
     sampler_ = VK_NULL_HANDLE;
@@ -213,13 +224,14 @@ void WaterFftPass::destroy() {
     device_ = VK_NULL_HANDLE;
 }
 
-Result<> WaterFftPass::create_image(Image& out, VkFormat format, std::uint32_t mips,
-                                    VkImageUsageFlags usage, const char* name) {
+Result<> WaterFftPass::create_image(Image& out, VkFormat format, std::uint32_t size,
+                                    std::uint32_t mips, VkImageUsageFlags usage,
+                                    const char* name) {
     VkImageCreateInfo ii{};
     ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ii.imageType = VK_IMAGE_TYPE_2D;
     ii.format = format;
-    ii.extent = {resolution_, resolution_, 1};
+    ii.extent = {size, size, 1};
     ii.mipLevels = mips;
     ii.arrayLayers = 1;
     ii.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -278,14 +290,14 @@ Result<> WaterFftPass::build_images() {
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     for (std::uint32_t i = 0; i < 2; ++i) {
-        if (auto r = create_image(spectra_a_[i], SPECTRUM_FORMAT, 1, SPECTRUM_USAGE,
+        if (auto r = create_image(spectra_a_[i], SPECTRUM_FORMAT, resolution_, 1, SPECTRUM_USAGE,
                                   "water_fft_spectra_a"); !r) return r;
-        if (auto r = create_image(spectra_b_[i], SPECTRUM_FORMAT, 1, SPECTRUM_USAGE,
+        if (auto r = create_image(spectra_b_[i], SPECTRUM_FORMAT, resolution_, 1, SPECTRUM_USAGE,
                                   "water_fft_spectra_b"); !r) return r;
-        if (auto r = create_image(displacement_[i], SURFACE_FORMAT, mips_, SURFACE_USAGE,
+        if (auto r = create_image(displacement_[i], SURFACE_FORMAT, resolution_, mips_, SURFACE_USAGE,
                                   "water_fft_displacement"); !r) return r;
     }
-    if (auto r = create_image(derivatives_, SURFACE_FORMAT, mips_, SURFACE_USAGE,
+    if (auto r = create_image(derivatives_, SURFACE_FORMAT, resolution_, mips_, SURFACE_USAGE,
                               "water_fft_derivatives"); !r) return r;
 
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(resolution_) * resolution_
@@ -352,23 +364,15 @@ void WaterFftPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (verifying_ && verify_frames_left_ > 0 && --verify_frames_left_ == 0) {
         finish_verification();
     }
-    if (!active()) return;
-
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    if (amplitudes_stale_[slot]) {
-        amplitude_buffers_[slot]->write(amplitudes_.data(),
-                                        amplitudes_.size() * sizeof(glm::vec2));
-        amplitudes_stale_[slot] = false;
-    }
     // This frame writes the surface that was last frame's previous one.
-    cur_ = 1 - cur_;
+    if (active()) cur_ = 1 - cur_;
 }
 
 PassSetup WaterFftPass::setup() const {
     return {
         .name = "water_fft",
         .phase = RenderPhase::Environment,
-        .sub_order = 60,
+        .sub_order = 65,   // a slot of its own, after the cloud shadow; nothing here reads it
     };
 }
 
@@ -414,12 +418,39 @@ void WaterFftPass::generate_mips(VkCommandBuffer cmd, const Image& image) const 
 }
 
 void WaterFftPass::record(const FrameContext& ctx) {
-    if (!active() || stepped_this_frame_) return;
+    if (stepped_this_frame_) return;
     stepped_this_frame_ = true;
 
-    FJELL_PROFILE_SCOPE_N("record_water_fft");
     VkCommandBuffer cmd = ctx.cmd;
+    if (!still_ready_) {
+        auto to_clear = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        submit_barriers(cmd, &to_clear, 1);
+        const VkClearColorValue zero{};
+        const VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cmd, still_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1,
+                             &whole);
+        auto to_read = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        submit_barriers(cmd, &to_read, 1);
+        still_ready_ = true;
+    }
+    if (!active()) return;
+
+    FJELL_PROFILE_SCOPE_N("record_water_fft");
+    FJELL_GPU_ZONE(ctx, "WaterFft");
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
+    // Written here rather than when the sea was set: a sea can be set after
+    // this pass has prepared its frame, and the transform must never run from
+    // a buffer that has not been filled.
+    if (amplitudes_stale_[slot]) {
+        amplitude_buffers_[slot]->write(amplitudes_.data(),
+                                        amplitudes_.size() * sizeof(glm::vec2));
+        amplitudes_stale_[slot] = false;
+    }
     const std::uint32_t groups = (resolution_ + 7) / 8;
     const auto log2_resolution = static_cast<std::uint32_t>(std::countr_zero(resolution_));
 

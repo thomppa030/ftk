@@ -17,6 +17,7 @@ namespace fjell {
 
 class BindlessTextures;
 class PipelineCache;
+class WaterFftPass;
 struct WaterComponent;
 
 // Mirrors the push block in water.task / water.mesh and the water FJSL
@@ -116,6 +117,10 @@ private:
     /// Upload the clipmap level table for this frame. Early-outs unless a
     /// level moved, which for the outer levels is most frames.
     void bind_clipmap();
+    /// The water's own set for this frame: the field, the clipmap and the
+    /// simulated sea's textures. Per frame because those textures swap every
+    /// frame, which a set written once could not follow.
+    [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx) const;
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a
@@ -146,8 +151,9 @@ private:
     VkShaderModule task_module_{VK_NULL_HANDLE};
     VkShaderModule mesh_module_{VK_NULL_HANDLE};
     VkDescriptorSetLayout water_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet water_set_{VK_NULL_HANDLE};
+    /// The simulated sea's textures, which every water draw samples. Owned by
+    /// the registry; null only if the render graph lists no water_fft pass.
+    WaterFftPass* simulation_{nullptr};
     /// The wave field the mesh shader reads. Host-visible and mapped: it is
     /// half a kilobyte rewritten when a sea is edited, which is not worth a
     /// staging copy.

@@ -10,6 +10,7 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
+#include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -56,6 +57,13 @@ namespace {
     char label[96];
     std::snprintf(label, sizeof(label), "Gerstner  -  %zu trains, to %.0f m long, %.2f m high",
                   gerstner.waves.size(), longest, tallest);
+    return label;
+}
+
+[[nodiscard]] std::string contributor_label(const FftContributor& fft) {
+    char label[96];
+    std::snprintf(label, sizeof(label), "Simulated  -  %.0f m/s wind, %.2f m high, %.0f m patch",
+                  fft.wind_speed, water::significant_amplitude(fft), fft.patch_size);
     return label;
 }
 
@@ -330,9 +338,16 @@ void WaterEditorContext::draw_generator_panel() {
     draw_measures();
     ImGui::Separator();
 
+    if (water_.contributors.empty()) {
+        ImGui::TextDisabled("Flat water. Add a contributor to give it waves.");
+        ImGui::End();
+        return;
+    }
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ImGui::TextDisabled("Flat water. Add a contributor to give it waves.");
+        ImGui::TextWrapped("A simulated contributor: a sea raised from a wind-driven "
+                           "spectrum on the GPU. It is drawn and not floated on — "
+                           "buoyancy rides the Gerstner contributors.");
         ImGui::End();
         return;
     }
@@ -539,11 +554,10 @@ void WaterEditorContext::draw_contributor_list() {
                           "you keep them in.");
 
     for (std::size_t i = 0; i < water_.contributors.size(); ++i) {
-        const auto* gerstner = std::get_if<GerstnerContributor>(&water_.contributors[i]);
-        if (gerstner == nullptr) continue;
+        const std::string label = std::visit(
+            [](const auto& kind) { return contributor_label(kind); }, water_.contributors[i]);
         ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Selectable(contributor_label(*gerstner).c_str(),
-                              i == selected_contributor_)) {
+        if (ImGui::Selectable(label.c_str(), i == selected_contributor_)) {
             selected_contributor_ = i;
         }
         ImGui::PopID();
@@ -696,7 +710,7 @@ void WaterEditorContext::draw_wave_list_panel() {
 
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ImGui::TextDisabled("No contributor selected.");
+        ImGui::TextDisabled("Trains belong to a Gerstner contributor.");
         ImGui::End();
         return;
     }

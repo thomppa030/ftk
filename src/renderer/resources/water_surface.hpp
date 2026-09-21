@@ -60,6 +60,15 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
     }
 }
 
+/// The simulated contributor the surface sums, or nullptr when the field has
+/// none: the first of them, since the world runs one simulation.
+///
+/// Drawn and not floated on. The simulation lives on the GPU, so physics sums
+/// the closed-form contributors and is blind to this one — a body rides the
+/// authored swell and ignores the simulated chop. The field-wide measures
+/// below do count it, because they describe the sea a player is looking at.
+[[nodiscard]] const FftContributor* simulated_sea(const FjWaterData& water);
+
 /// Deep-water angular frequency for a wavelength: waves of different lengths
 /// travel at different speeds, which is what keeps a sum of trains from
 /// looking like one rigid sheet. omega = sqrt(g * k).
@@ -77,6 +86,10 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// together; the caller has already folded in the gust.
 [[nodiscard]] GerstnerContributor apply_wind(const GerstnerContributor& water,
                                              glm::vec2 wind_xz);
+
+/// A simulated contributor as the wind has made it. It is raised by the wind
+/// it was authored with, whatever the weather is doing.
+[[nodiscard]] FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz);
 
 /// The authored field as the wind has made it: every contributor's own answer
 /// to the same wind.
@@ -219,16 +232,22 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 [[nodiscard]] glm::vec2 dominant_direction(const FjWaterData& water);
 
 /// How big this sea has got, in metres: the sum of every summed train's
-/// amplitude, each under its own contributor's scale. Contributors add into
-/// one surface, so this is the highest that surface can stand above rest with
-/// every crest of every contributor aligned. 0 for flat water.
+/// amplitude, each under its own contributor's scale, plus the significant
+/// amplitude of the simulated sea. Contributors add into one surface, so this
+/// is how high that surface stands above rest when every one of them crests
+/// together. 0 for flat water.
+///
+/// A spectrum has no tallest wave to add, only a distribution of them, so the
+/// simulated sea counts as half its significant wave height — the amplitude
+/// of the waves an observer would call the sea's size.
 ///
 /// A property of the field rather than of a point. It is what scripts read as
 /// `Water::wave_height()`, so what it means is part of the script ABI.
 [[nodiscard]] float wave_height(const FjWaterData& water);
 
-/// The shortest wavelength among the trains the surface sums, in metres, or
-/// 0 when there are none. The train a tessellation has the hardest time drawing.
+/// The shortest wavelength the surface carries, in metres, or 0 when it
+/// carries none: the shortest summed train, or the shortest wave the
+/// simulated sea's grid holds or its high cut lets through. The train a tessellation has the hardest time drawing.
 [[nodiscard]] float shortest_wavelength(const FjWaterData& water);
 
 /// Height of the surface above `world_xz`, for buoyancy and swimming.

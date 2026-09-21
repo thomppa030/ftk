@@ -62,12 +62,20 @@ public:
     [[nodiscard]] float patch_size() const { return sea_ ? sea_->patch_size : 1.0f; }
     /// xyz displacement in world axes, w d(displacement x)/dz; this frame's
     /// and the one before it, for the surface's own motion.
-    [[nodiscard]] VkImageView displacement_view() const { return displacement_[cur_].sampled; }
+    ///
+    /// Always something valid to bind. With no sea running these are a texel
+    /// of still water, so a water shader's descriptor set never has a hole in
+    /// it for want of a simulation.
+    [[nodiscard]] VkImageView displacement_view() const {
+        return active() ? displacement_[cur_].sampled : still_.sampled;
+    }
     [[nodiscard]] VkImageView previous_displacement_view() const {
-        return displacement_[1 - cur_].sampled;
+        return active() ? displacement_[1 - cur_].sampled : still_.sampled;
     }
     /// x dh/dx, y dh/dz, z d(displacement x)/dx, w d(displacement z)/dz.
-    [[nodiscard]] VkImageView derivatives_view() const { return derivatives_.sampled; }
+    [[nodiscard]] VkImageView derivatives_view() const {
+        return active() ? derivatives_.sampled : still_.sampled;
+    }
     /// Linear, repeating, across the whole mip chain.
     [[nodiscard]] VkSampler sampler() const { return sampler_; }
 
@@ -108,8 +116,9 @@ private:
                                            const std::vector<VkDescriptorType>& bindings,
                                            std::uint32_t push_size);
     void destroy_pipeline(Pipeline& pipeline);
-    [[nodiscard]] Result<> create_image(Image& out, VkFormat format, std::uint32_t mips,
-                                        VkImageUsageFlags usage, const char* name);
+    [[nodiscard]] Result<> create_image(Image& out, VkFormat format, std::uint32_t size,
+                                        std::uint32_t mips, VkImageUsageFlags usage,
+                                        const char* name);
     void retire_image(Image& image);
     [[nodiscard]] Result<> build_images();
     void retire_images();
@@ -160,6 +169,9 @@ private:
     std::array<Image, 2> displacement_;
     Image derivatives_;
     std::uint32_t cur_{0};
+    /// One texel of zeros: what there is to sample when no sea is running.
+    Image still_;
+    bool still_ready_{false};
 
     bool verifying_{false};
     int verify_frames_left_{-1};

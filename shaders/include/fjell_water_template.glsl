@@ -26,7 +26,6 @@
 #include "fjell_global_ubo.glsl"
 #include "fjell_gpu_types.glsl"
 #include "fjell_renderer_constants.glsl"
-#include "fjell_water_waves.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 

@@ -1,5 +1,7 @@
 #include "renderer/resources/water_surface.hpp"
 
+#include "renderer/resources/water_spectrum.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <variant>
@@ -106,6 +108,13 @@ struct HorizontalJacobian {
 }
 
 } // namespace
+
+const FftContributor* simulated_sea(const FjWaterData& water) {
+    for (const auto& contributor : water.contributors) {
+        if (const auto* fft = std::get_if<FftContributor>(&contributor)) return fft;
+    }
+    return nullptr;
+}
 
 float wave_frequency(float wavelength) {
     if (wavelength < 1e-4f) return 0.0f;
@@ -218,6 +227,10 @@ GerstnerContributor apply_wind(const GerstnerContributor& water, glm::vec2 wind_
     return out;
 }
 
+FftContributor apply_wind(const FftContributor& water, glm::vec2 /*wind_xz*/) {
+    return water;
+}
+
 FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
     FjWaterData out;
     out.preview_material = water.preview_material;
@@ -300,6 +313,13 @@ glm::vec2 dominant_direction(const FjWaterData& water) {
         sum += (w.direction / glm::length(w.direction))
              * (w.amplitude * contributor.amplitude_scale);
     });
+    if (const auto* fft = simulated_sea(water); fft != nullptr) {
+        // A simulated sea runs downwind, and votes with the amplitude it has.
+        const float wind_len = glm::length(fft->wind_direction);
+        if (wind_len >= 1e-6f) {
+            sum += (fft->wind_direction / wind_len) * significant_amplitude(*fft);
+        }
+    }
     float len = glm::length(sum);
     return len < 1e-6f ? glm::vec2(0.0f) : sum / len;
 }
@@ -310,6 +330,7 @@ float wave_height(const FjWaterData& water) {
                                      const WaterWave& wave) {
         sum += wave.amplitude * contributor.amplitude_scale;
     });
+    if (const auto* fft = simulated_sea(water)) sum += significant_amplitude(*fft);
     return sum;
 }
 
@@ -319,6 +340,12 @@ float shortest_wavelength(const FjWaterData& water) {
                                      const WaterWave& wave) {
         shortest = shortest > 0.0f ? std::min(shortest, wave.wavelength) : wave.wavelength;
     });
+    if (const auto* fft = simulated_sea(water); fft != nullptr && fft->resolution >= 2) {
+        // Two samples to a wave is the shortest a grid can hold.
+        const float finest = std::max(2.0f * fft->patch_size / static_cast<float>(fft->resolution),
+                                      fft->high_cut);
+        shortest = shortest > 0.0f ? std::min(shortest, finest) : finest;
+    }
     return shortest;
 }
 

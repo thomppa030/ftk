@@ -3,7 +3,7 @@
 
 #include "fjell_global_ubo.glsl"
 #include "fjell_water_clipmap.glsl"
-#include "fjell_water_waves.glsl"
+#include "fjell_water_field.glsl"
 
 // One workgroup emits one water patch. Same arithmetic as terrain.mesh, and
 // the same constraint behind the number: primitives bind before vertices in
@@ -31,9 +31,23 @@ layout(set = 2, binding = 0) uniform WaterFieldBuffer {
     FjellWaterField field;
 } water;
 
+// The evaluators read the field in place, from here.
+#define FJELL_WATER_FIELD water.field
+#include "fjell_water_waves.glsl"
+
 layout(set = 2, binding = 1) uniform WaterClipmapBuffer {
     FjellWaterClipmap clipmap;
 } clip;
+
+// The simulated sea, when the field has one (field.simulated_patch_size > 0):
+// a contributor that arrives as textures because it is an FFT's output rather
+// than a formula. Tiling, mipped, and written by WaterFftPass.
+//   displacement: xyz offset in world axes, w d(offset x)/dz
+//   previous:     the same, a frame ago
+//   derivatives:  x dh/dx, y dh/dz, z d(offset x)/dx, w d(offset z)/dz
+layout(set = 2, binding = 2) uniform sampler2D simulated_displacement;
+layout(set = 2, binding = 3) uniform sampler2D simulated_previous;
+layout(set = 2, binding = 4) uniform sampler2D simulated_derivatives;
 
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;
@@ -146,7 +160,38 @@ void main() {
             ? rest
             : (rest - push.world_origin) / push.world_size;
 
-        vec3 offset = fjell_water_displace(water.field, rest, time);
+        // The closed-form contributors, as sums that more can be added to.
+        vec3 offset = fjell_water_displace(rest, time);
+        vec3 prev_offset = fjell_water_displace(rest, time - push.delta_time);
+        FjellWaterTangents tangents = fjell_water_tangents(rest, time);
+        FjellWaterJacobian jacobian = fjell_water_jacobian_terms(rest, time);
+
+        // The simulated contributor, into the same four sums. Displacements
+        // add, and so do their derivatives, which is why the normal and the
+        // fold measure are taken after this and not before.
+        float patch_size = water.field.simulated_patch_size;
+        if (patch_size > 0.0) {
+            float texels = float(textureSize(simulated_displacement, 0).x);
+            // Texel (i, j) holds the patch at (i, j) * patch / texels, and
+            // its centre is half a texel in.
+            vec2 uv = rest / patch_size + 0.5 / texels;
+            // A vertex standing for more ground than a texel covers reads the
+            // sea averaged over that ground, or the far levels would sample
+            // one wave in many and shimmer as the camera moves.
+            float lod = log2(max(payload.cell_size * texels / patch_size, 1.0));
+
+            vec4 moved = textureLod(simulated_displacement, uv, lod);
+            vec4 slopes = textureLod(simulated_derivatives, uv, lod);
+            offset += moved.xyz;
+            prev_offset += textureLod(simulated_previous, uv, lod).xyz;
+
+            tangents.binormal += vec3(slopes.z, slopes.x, moved.w);
+            tangents.tangent  += vec3(moved.w, slopes.y, slopes.w);
+            jacobian.xx += slopes.z;
+            jacobian.zz += slopes.w;
+            jacobian.xz += moved.w;
+        }
+
         vec3 world_pos = vec3(rest.x + offset.x,
                               push.surface_height + offset.y,
                               rest.y + offset.z);
@@ -156,20 +201,19 @@ void main() {
         frag_color[i] = vec3(1.0);
         frag_tex_coord[i] = surface_uv;
         frag_world_pos[i] = world_pos;
-        frag_world_normal[i] = fjell_water_normal(water.field, rest, time);
+        frag_world_normal[i] = fjell_water_normal_from(tangents);
         frag_clip_pos[i] = ubo.unjittered_vp * vec4(world_pos, 1.0);
 
         // The sea moves, so the previous frame's position is where this
         // vertex was one frame ago rather than where it is now — motion
         // vectors want the surface's own motion, not just the camera's.
-        vec3 prev_offset = fjell_water_displace(water.field, rest, time - push.delta_time);
         vec3 prev_world = vec3(rest.x + prev_offset.x,
                                push.surface_height + prev_offset.y,
                                rest.y + prev_offset.z);
         frag_prev_clip_pos[i] = ubo.prev_unjittered_vp * vec4(prev_world, 1.0);
 
         frag_wave_lift[i] = offset.y;
-        frag_crest[i] = fjell_water_crest(water.field, rest, time);
+        frag_crest[i] = clamp(1.0 - fjell_water_determinant(jacobian), 0.0, 1.0);
     }
 
     // Triangles: fixed grid topology, pure index arithmetic, no index buffer.
