@@ -36,7 +36,7 @@ struct ShaftsMarchPush {
 
 struct ShaftsResolvePush {
     SunShaftsPass::RayPush ray;
-    float history_blend;
+    uint32_t history_valid;
 };
 
 struct ShaftsCompositePush {
@@ -473,7 +473,7 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
 
     ShaftsResolvePush push{};
     push.ray = core_->ray_push(imgs, ctx.target->extent());
-    push.history_blend = imgs.history_valid ? 0.85f : 0.0f;
+    push.history_valid = imgs.history_valid ? 1u : 0u;
 
     std::array sets{ctx.global_descriptor_set, set};
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->resolve_pipeline());

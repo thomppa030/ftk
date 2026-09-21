@@ -25,6 +25,16 @@
 #define FJELL_SHAFT_NEIGHBOUR_TOLERANCE 0.1
 #define FJELL_SHAFT_LENGTH_FLOOR 0.05
 
+// How much of each frame comes from the history, where the history is good.
+//
+// What it buys is quiet: the march is dithered, and this is how many frames of
+// it a pixel averages — about (1 + b) / (1 - b) of them, so three at a half and
+// twelve at 0.85. What it costs is lag, in how long a beam takes to follow the
+// light when something moves through it or the sun does. The 3x3 mean in main()
+// already quietens every frame several times over before any history is mixed
+// in, which is what lets this sit lower than it could on the raw march.
+#define FJELL_SHAFT_HISTORY_BLEND 0.5
+
 // How far the ray a piece of history was resolved for may differ in length
 // from this frame's before the history stops counting, in the same form. The
 // same surface seen a frame later has very nearly the same ray: what moves it
@@ -54,7 +64,7 @@ layout(push_constant) uniform PushConstants {
     float max_reach;
     // Zero while there is no history worth the name: the first frame, and the
     // one after a resize.
-    float history_blend;
+    uint history_valid;
 } pc;
 
 void main() {
@@ -104,7 +114,7 @@ void main() {
     // The centre always weighs one, so the total cannot vanish.
     vec3 result = sum / total_weight;
 
-    if (pc.history_blend > 0.0) {
+    if (pc.history_valid != 0u) {
         ShaftRay ray = shaft_ray(coord, pc.output_size, pc.full_size, pc.max_reach);
 
         // Where this pixel was last frame.
@@ -168,7 +178,7 @@ void main() {
                 float same_ray = exp(-length_diff * length_diff);
 
                 vec3 held = clamp(history.rgb, range_min, range_max);
-                result = mix(result, held, pc.history_blend * same_ray);
+                result = mix(result, held, FJELL_SHAFT_HISTORY_BLEND * same_ray);
             }
         }
     }
