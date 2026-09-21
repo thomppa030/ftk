@@ -2015,6 +2015,10 @@ void Engine::run() {
         if (asset_file_browser_.is_open()) asset_file_browser_.tick();
         menu_bar_.tick_browsers();
         clock_.tick();
+        // One clock for what is simulated and what is drawn: the renderer is
+        // told the time here, on every iteration, including those that end up
+        // drawing nothing.
+        vulkan_context_->set_time(clock_.game_elapsed());
         play_controller_.begin_frame();
 
 #ifndef NDEBUG

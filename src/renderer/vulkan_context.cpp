@@ -1633,7 +1633,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                                  Scene* scene, float dt,
                                  uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_frame");
-    elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
     // Always rebuild when there's a scene: update() is what clears the vertex

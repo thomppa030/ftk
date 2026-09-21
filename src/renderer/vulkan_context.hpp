@@ -100,6 +100,17 @@ public:
 
   /// Record commands for the current frame. Call after begin_frame() and
   /// after any resize/ImGui work.
+  /// The time everything drawn this frame is drawn at: the game clock's
+  /// elapsed time, given once a frame where that clock ticks.
+  ///
+  /// Given rather than kept, because the simulation reads the same clock.
+  /// Buoyancy asks where a wave is at the game clock's time and the shader
+  /// draws it at this one, so they have to be one number and not two that are
+  /// advanced alike: a frame that is ticked and not drawn — every swapchain
+  /// recreation while a window is resized — advances one and not the other,
+  /// and a boat then sits out of phase with the wave under it for good.
+  void set_time(float game_elapsed) { elapsed_time_ = game_elapsed; }
+
   void record_frame(const std::vector<ViewportRenderRequest> &viewports,
                     const EnvironmentState &environment, Scene *scene,
                     float dt, uint32_t selected_id, ThreadPool &pool);
@@ -545,6 +556,8 @@ private:
   std::unique_ptr<AccelStructureManager> accel_manager_;
   const Project* project_{nullptr};
   float ibl_intensity_{1.0f};
+  /// The game clock's elapsed time, as the engine last gave it. Shaders read
+  /// it as `TIME`. Not advanced here: see set_time().
   float elapsed_time_{0.0f};
   int debug_light_channel_{0}; // see DebugLightChannel in uniform_types.hpp
 
