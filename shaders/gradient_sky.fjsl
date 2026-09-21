@@ -12,6 +12,11 @@ uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
 // the path rather than the code, and the three sun dials keep the names a
 // scene already has values under: sun_size, sun_halo_size, sun_halo.
 use sun = "shaders/lib/sun_disc.fjsl"(view_dir: VIEW_DIR, sun_dir: SUN_DIR, sun_color: SUN_COLOR, time: TIME, air_gain: fjell_air_mass_gain(VIEW_DIR, 0.25), horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
+// The night sky, as two functions: the galaxy's band, and the stars, which
+// crowd into it and so are told where it is. The galaxy is wired first —
+// a use reads only what is declared above it.
+use galaxy = "shaders/lib/milky_way.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
+use stars = "shaders/lib/stars.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, time: TIME, crowding: galaxy.band, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
 uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
 uniform float sun_warmth_size : hint_range(1.0, 60.0, 0.5) = 18.0;
 uniform float moon_size : hint_range(0.1, 4.0, 0.01) = 0.5;
@@ -100,7 +105,7 @@ void sky() {
     float toward = exp2(-to_sun * to_sun / max(sun_warmth_size * sun_warmth_size, 1e-3));
     SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward;
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y);
+    SKY += stars.color + galaxy.color;
     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size, CAMERA_POS.y);
     // The disc only, and not into the lighting cubemap: the directional light
     // already carries the sun, and adding the disc there counts it twice.

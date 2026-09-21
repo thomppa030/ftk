@@ -1,0 +1,114 @@
+// The Milky Way: the galactic plane as a band of faint glow across the
+// celestial sphere, as a contribution to a sky. This is the band `star_field()`
+// in fjell_sky_bodies.glsl draws, moved out unchanged so a sky can swap it for
+// another without touching the stars — and so the stars can be told where it
+// is rather than working it out again.
+//
+// Takes the sky's rotation rather than reading its built-ins, so the same
+// function draws the band wherever the caller can answer that.
+shader_function;
+
+in vec3 view_dir;
+// How far the night has come out, the sky's STARS. Zero draws nothing.
+in float intensity;
+// The rotation that carried the sun from noon to now. Undone on the view
+// direction, so the band is fixed to the celestial sphere and wheels with it.
+in vec3 axis;
+in float angle;
+// How much of this direction is above the horizon, 1 well up and 0 below —
+// see `fjell_horizon_fade()`. A port because this function does not know
+// where the caller's horizon is, or whether it has one.
+in float horizon_fade;
+
+out vec3 color;
+// How far inside the band this direction is, 0 outside it and 1 on the
+// plane. What anything that crowds into the galaxy reads — the stars do.
+out float band;
+
+// Rodrigues rotation of `v` about unit `axis` by `angle`.
+vec3 rotate_about(vec3 v, vec3 axis, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
+}
+
+// One lattice corner's share of the noise below: its gradient, hashed from
+// where it is, against the offset to it.
+float corner(vec3 i, vec3 f, vec3 o) {
+    return dot(normalize(fract(sin(vec3(
+                   dot(i + o, vec3(127.1, 311.7, 74.7)),
+                   dot(i + o, vec3(269.5, 183.3, 246.1)),
+                   dot(i + o, vec3(113.5, 271.9, 124.6)))) * 43758.5453) * 2.0 - 1.0),
+               f - o);
+}
+
+// Gradient noise on a quintic fade. Spelled here rather than taken from the
+// sky's includes: a function composed into someone else's program cannot
+// assume what that program has in scope.
+//
+// Quintic and not smoothstep because smoothstep's second derivative is not
+// zero at a cell boundary, so the slope jumps there, and spread across a
+// sky-wide gradient that draws faint straight-edged facets. Gradients and not
+// values because interpolated values leave the extrema pinned to the lattice,
+// which reads as a grid however smooth the fade.
+float sky_noise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = p - i;
+    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    float d000 = corner(i, f, vec3(0, 0, 0));
+    float d100 = corner(i, f, vec3(1, 0, 0));
+    float d010 = corner(i, f, vec3(0, 1, 0));
+    float d110 = corner(i, f, vec3(1, 1, 0));
+    float d001 = corner(i, f, vec3(0, 0, 1));
+    float d101 = corner(i, f, vec3(1, 0, 1));
+    float d011 = corner(i, f, vec3(0, 1, 1));
+    float d111 = corner(i, f, vec3(1, 1, 1));
+
+    float y0 = mix(mix(d000, d100, u.x), mix(d010, d110, u.x), u.y);
+    float y1 = mix(mix(d001, d101, u.x), mix(d011, d111, u.x), u.y);
+    return mix(y0, y1, u.z);
+}
+
+// Octaves of the above. Returns roughly [-1, 1].
+float sky_fbm(vec3 p, int octaves) {
+    float sum = 0.0;
+    float amplitude = 1.0;
+    float total = 0.0;
+    for (int i = 0; i < octaves; ++i) {
+        sum += sky_noise(p) * amplitude;
+        total += amplitude;
+        p *= 2.02;   // not exactly 2, so octaves do not share lattice planes
+        amplitude *= 0.5;
+    }
+    return sum / max(total, 1e-6);
+}
+
+void main() {
+    vec3 dir = rotate_about(view_dir, axis, -angle);
+
+    // The pole is fixed in celestial space, so the band wheels with the stars.
+    const vec3 GALACTIC_POLE = normalize(vec3(0.42, 0.78, -0.47));
+    band = 1.0 - smoothstep(0.0, 0.42, abs(dot(dir, GALACTIC_POLE)));
+
+    // The band's own glow: the stars too faint and too many to draw, which is
+    // what the eye actually sees of the galaxy. Mottled, because the plane is
+    // patchy with dust lanes rather than a clean airbrushed stripe, and far
+    // dimmer than any drawn star — it should read as a suggestion.
+    //
+    // The mottling has to come from interpolated noise, not from hashing a
+    // floored direction: a floored hash is constant across each cell and jumps
+    // at its edges, so it draws flat blocks however fine the cells are cut.
+    float dust = sky_fbm(dir * 9.0 + 23.0, 4) * 0.5 + 0.5;
+    // A second, slower field carves the dust lanes: broad dark rifts along the
+    // plane rather than an even haze. Squared rather than folded with abs():
+    // abs() has a corner at zero, which is exactly where the lane is darkest,
+    // so folding there would crease every rift down its middle. Squaring is
+    // the same V shape with a smooth floor.
+    float rift = sky_fbm(dir * 3.3 + 71.0, 3);
+    float lanes = 1.0 - 0.55 * (1.0 - smoothstep(0.0, 0.12, rift * rift));
+    float glow = band * band * band * (0.35 + 0.65 * dust) * lanes;
+
+    color = vec3(0.62, 0.66, 0.85) * glow * 0.085
+          * max(intensity, 0.0) * 3.0 * horizon_fade;
+}
