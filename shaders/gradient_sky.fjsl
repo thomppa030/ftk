@@ -18,7 +18,7 @@ use moon = "shaders/lib/moon_painted.fjsl"(view_dir: VIEW_DIR, moon_dir: MOON_DI
 // The night sky, as two functions: the galaxy's band, and the stars, which
 // crowd into it and so are told where it is. The galaxy is wired first —
 // a use reads only what is declared above it.
-use galaxy = "shaders/lib/milky_way.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
+use galaxy = "shaders/lib/milky_way_painted.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
 use stars = "shaders/lib/stars.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, time: TIME, crowding: galaxy.band, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
 uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
 uniform float sun_warmth_size : hint_range(1.0, 60.0, 0.5) = 18.0;
