@@ -569,7 +569,11 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     march_push.intensity = intensity_;
     march_push.anisotropy = std::clamp(anisotropy_, 0.0f, 0.99f);
     march_push.step_count = static_cast<uint32_t>(std::max(step_count_, 4));
-    march_push.frame_index = imgs.frame_counter;
+    // Wrapped, because the shader turns it into a float and multiplies it up
+    // for its dither: left to grow, the product loses its fraction within the
+    // hour and the dither stops changing from frame to frame. 64 is the period
+    // interleaved gradient noise is built to cycle over.
+    march_push.frame_index = imgs.frame_counter % 64;
     march_push.history_blend = imgs.shafts_ready[prev] ? 0.85f : 0.0f;
     march_push.directionality = std::clamp(directionality_, 0.0f, 1.0f);
     march_push.threshold = std::clamp(threshold_, 0.0f, 0.95f);
