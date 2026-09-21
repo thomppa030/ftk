@@ -22,6 +22,7 @@ layout(set = 1, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_ou
 layout(set = 1, binding = 1) uniform sampler2D shafts_raw;
 layout(set = 1, binding = 2) uniform sampler2D shafts_history;
 layout(set = 1, binding = 3) uniform sampler2D depth_texture;
+layout(set = 1, binding = 4) uniform sampler2D velocity_texture;
 #include "fjell_sun_shafts.glsl"
 
 layout(push_constant) uniform PushConstants {
@@ -42,34 +43,44 @@ void main() {
     if (pc.history_blend > 0.0) {
         ShaftRay ray = shaft_ray(coord, pc.output_size, pc.full_size, pc.max_reach);
 
-        // Where to look this pixel up in last frame's buffer. A point halfway
-        // along the march stands for the whole ray, which is right while the
-        // ray ends on something: the in-scatter it collected came from there
-        // and it moves with the camera.
+        // Where this pixel was last frame.
         //
-        // A ray that hit nothing ends at the march's reach rather than at a
-        // surface, and that is not where its light came from — the sky is
+        // A ray that ends on something goes where that surface went, which the
+        // velocity buffer already holds: the screen-space motion of whatever
+        // is under the pixel, camera and object both. The light was collected
+        // along the ray rather than at its end, so no single point is where it
+        // "came from" — but the end is what the eye follows, and any point
+        // nearer along the ray moves differently from it the moment the camera
+        // translates. A figure the camera tracks sideways stays put on screen
+        // while the air halfway to them slides past, and history taken from
+        // there is the long, bright rays beside them laid over their short one.
+        //
+        // Read at the texel the march took its depth from, so the velocity is
+        // of the surface that set the ray's length, and applied to this
+        // pixel's own centre, so that nothing moving means the very same texel
+        // and the history is not resampled for no reason.
+        //
+        // A ray that hit nothing has no surface and no velocity. Its light is
         // effectively infinitely far, and infinitely far things do not shift
-        // when the camera moves, only when it turns. Reprojecting one as if
-        // it sat a hundred and fifty metres out gives it a parallax it does
-        // not have: about a pixel a frame at a walking pace, held for ten
-        // frames by an 0.85 blend, which drags the halo across the sky
-        // whenever the camera translates.
-        //
-        // So a sky pixel reprojects by rotation alone. Carrying the ray out
-        // from the *previous* eye rather than this one is what drops the
-        // translation: the direction is what survives to infinity.
-        vec3 repro_world;
+        // when the camera moves, only when it turns — so it reprojects by
+        // rotation alone. Carrying the ray out from the *previous* eye rather
+        // than this one is what drops the translation: the direction is what
+        // survives to infinity.
+        vec2 prev_uv;
+        bool in_front = true;
         if (ray.raw_depth >= 1.0) {
             vec3 prev_eye = -(transpose(mat3(ubo.prev_view)) * ubo.prev_view[3].xyz);
-            repro_world = prev_eye + ray.dir * FJELL_SHAFT_SKY_DISTANCE;
+            vec4 prev_clip = ubo.prev_view_proj
+                           * vec4(prev_eye + ray.dir * FJELL_SHAFT_SKY_DISTANCE, 1.0);
+            in_front = prev_clip.w > 0.0;
+            prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
         } else {
-            repro_world = ray.origin + ray.dir * (ray.scene_dist * 0.5);
+            ivec2 full = shaft_full_coord(coord, pc.output_size, pc.full_size);
+            vec2 uv = (vec2(coord) + 0.5) / vec2(pc.output_size);
+            prev_uv = uv - texelFetch(velocity_texture, full, 0).rg;
         }
-        vec4 prev_clip = ubo.prev_view_proj * vec4(repro_world, 1.0);
-        if (prev_clip.w > 0.0) {
-            vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
-            if (all(greaterThanEqual(prev_uv, vec2(0.0))) &&
+        if (in_front) {
+        if (all(greaterThanEqual(prev_uv, vec2(0.0))) &&
                 all(lessThanEqual(prev_uv, vec2(1.0)))) {
                 vec3 history = texture(shafts_history, prev_uv).rgb;
                 result = mix(result, history, pc.history_blend);

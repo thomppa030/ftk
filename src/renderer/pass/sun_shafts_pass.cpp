@@ -267,8 +267,8 @@ Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
     build(std::array{STORAGE, SAMPLED}, sizeof(ShaftsMarchPush),
           "shaders/sun_shafts.comp.spv", "Failed to create sun shafts march set layout",
           march_set_layout_, march_pipeline_layout_, march_pipeline_);
-    // resolve: shafts out, raw, history, depth
-    build(std::array{STORAGE, SAMPLED, SAMPLED, SAMPLED}, sizeof(ShaftsResolvePush),
+    // resolve: shafts out, raw, history, depth, velocity
+    build(std::array{STORAGE, SAMPLED, SAMPLED, SAMPLED, SAMPLED}, sizeof(ShaftsResolvePush),
           "shaders/sun_shafts_resolve.comp.spv", "Failed to create sun shafts resolve set layout",
           resolve_set_layout_, resolve_pipeline_layout_, resolve_pipeline_);
     // composite: shafts, depth, scene colour
@@ -436,9 +436,12 @@ void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& c
     auto cur = builder.import_named(ctx, SunShaftsPass::HISTORY_CUR_NAME);
     auto prev = builder.import_named(ctx, SunShaftsPass::HISTORY_PREV_NAME);
     auto depth = builder.import_named(ctx, "depth");
+    // The resolved velocity: under MSAA the multisampled one cannot be sampled.
+    auto velocity = builder.import_named(ctx, "velocity");
     builder.read(raw, ResourceAccess::sampled_compute);
     builder.read(prev, ResourceAccess::sampled_compute);
     builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(velocity, ResourceAccess::sampled_compute);
     builder.write(cur, ResourceAccess::storage_write_compute);
 }
 
@@ -461,6 +464,7 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
         sampled(2, core_->sampler(), imgs.shafts[imgs.prev_index()].view),
         sampled(3, core_->sampler(), ctx.target->depth_view(),
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
+        sampled(4, core_->sampler(), ctx.target->velocity_view()),
     };
     VkDescriptorSet set = ctx.descriptor_cache->acquire(core_->resolve_set_layout(), bindings);
 
