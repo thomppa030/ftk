@@ -2,6 +2,7 @@
 
 #include "core/clock.hpp"
 #include "core/frame_context.hpp"
+#include "core/profiler.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/physics_types.hpp"
@@ -74,6 +75,7 @@ namespace {
 } // namespace
 
 void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("apply_buoyancy");
     // The same clock the renderer advances its wave field with, so a hull
     // floats on the wave the player is looking at rather than one a frame
     // either side of it.
