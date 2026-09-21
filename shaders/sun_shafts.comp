@@ -208,13 +208,61 @@ void main() {
     vec3 sun_color = ubo.light_color.xyz;
     float sun_response = sqrt(max(ubo.light_direction.w, 0.0));
 
+    // Whether this ray met anything, and how near it was.
+    //
+    // `scene_dist` is already the world distance the ray travelled before it
+    // hit something, clamped to the march's reach, and is the far reach on a
+    // ray that hit nothing — so it says both whether an occluder is there and
+    // how close, with no extra depth maths. Being a distance rather than a
+    // test, it varies continuously across a silhouette instead of stepping at
+    // it.
+    float occluder = 1.0 - smoothstep(0.0, max_ray_dist, scene_dist);
+
+    // What survives of the march, before the sun's own colour and strength.
+    //
+    // Not an angular window any more. There used to be a cone around the sun
+    // here, clipping the shafts to a fixed spread and holding a floor under
+    // them on geometry, because a ray that met nothing returned the phase and
+    // nothing else and washed the sky with it. The open-sky fade below answers
+    // that directly — it asks whether the ray found an occluder rather than
+    // guessing from the angle to the sun — so the cone was left scaling beams
+    // that had earned their shape, and cutting the wide ones a real sky keeps.
+    // The phase function is the angular falloff, and it is the physical one.
+    float shaft_fade = 1.0;
+
+    // Open sky belongs to the sky, not to this pass.
+    //
+    // A ray that reaches the end of the march without meeting anything has
+    // no shadow to shape it: every sample it took was lit, so what it returns
+    // is the phase and nothing else — a plate of constant brightness, which is
+    // what makes the glow around the sun look pasted on. The sky's own halo
+    // covers the same angles with a real falloff, at full resolution, behind
+    // the clouds and the terrain, and with no history to smear when the camera
+    // moves. It is strictly the better picture of the same light.
+    //
+    // So the shafts keep what only they can draw — beams bounded by the
+    // shadows of real geometry — and hand the open sky over. Faded by
+    // `occluder` rather than switched on depth, so a silhouette does not step.
+    shaft_fade *= mix(1.0, FJELL_SHAFT_OPEN_SKY, 1.0 - occluder);
+
+    // Stretched toward the horizon by the air the ray looks through. See
+    // fjell_air_mass.glsl; the sky's own halo is scaled by the same curve.
+    shaft_fade *= fjell_air_mass_gain(ray_dir, FJELL_SHAFT_HORIZON_STRETCH);
+
+    // Everything the march collects is scaled by this at the end, so a ray it
+    // zeroes has nothing to march for: open sky, which the fade above hands to
+    // the sky, and every ray once the sun has set. Those take no steps at all,
+    // and over open water at dawn they are most of the screen.
+    float ray_gain = sun_response * pc.intensity * shaft_fade;
+    uint steps = ray_gain > 0.0 ? pc.step_count : 0u;
+
     // Both integrals share the same march; `unshadowed` is what the ray
     // would collect with no occluders and anchors the threshold below.
     float accumulated = 0.0;
     float unshadowed = 0.0;
     float transmittance = 1.0;
 
-    for (uint i = 0; i < pc.step_count; ++i) {
+    for (uint i = 0; i < steps; ++i) {
         vec3 world_pos = ray_origin + ray_dir * march_t;
 
         // A beam's edge spreads with how far the light has come since it
@@ -275,47 +323,6 @@ void main() {
         if (transmittance < 0.01) break;
     }
 
-    // Whether this ray met anything, and how near it was.
-    //
-    // `scene_dist` is already the world distance the ray travelled before it
-    // hit something, clamped to the march's reach, and is the far reach on a
-    // ray that hit nothing — so it says both whether an occluder is there and
-    // how close, with no extra depth maths. Being a distance rather than a
-    // test, it varies continuously across a silhouette instead of stepping at
-    // it.
-    float occluder = 1.0 - smoothstep(0.0, max_ray_dist, scene_dist);
-
-    // What survives of the march, before the sun's own colour and strength.
-    //
-    // Not an angular window any more. There used to be a cone around the sun
-    // here, clipping the shafts to a fixed spread and holding a floor under
-    // them on geometry, because a ray that met nothing returned the phase and
-    // nothing else and washed the sky with it. The open-sky fade below answers
-    // that directly — it asks whether the ray found an occluder rather than
-    // guessing from the angle to the sun — so the cone was left scaling beams
-    // that had earned their shape, and cutting the wide ones a real sky keeps.
-    // The phase function is the angular falloff, and it is the physical one.
-    float shaft_fade = 1.0;
-
-    // Open sky belongs to the sky, not to this pass.
-    //
-    // A ray that reaches the end of the march without meeting anything has
-    // no shadow to shape it: every sample it took was lit, so what it returns
-    // is the phase and nothing else — a plate of constant brightness, which is
-    // what makes the glow around the sun look pasted on. The sky's own halo
-    // covers the same angles with a real falloff, at full resolution, behind
-    // the clouds and the terrain, and with no history to smear when the camera
-    // moves. It is strictly the better picture of the same light.
-    //
-    // So the shafts keep what only they can draw — beams bounded by the
-    // shadows of real geometry — and hand the open sky over. Faded by
-    // `occluder` rather than switched on depth, so a silhouette does not step.
-    shaft_fade *= mix(1.0, FJELL_SHAFT_OPEN_SKY, 1.0 - occluder);
-
-    // Stretched toward the horizon by the air the ray looks through. See
-    // fjell_air_mass.glsl; the sky's own halo is scaled by the same curve.
-    shaft_fade *= fjell_air_mass_gain(ray_dir, FJELL_SHAFT_HORIZON_STRETCH);
-
     // Threshold: subtract a share of the unshadowed integral and renormalise
     // so a fully lit ray is unchanged while a partly shadowed one falls off
     // faster than its shadowed share. Deepens beams and shadow wedges once
@@ -324,7 +331,7 @@ void main() {
         accumulated = max(accumulated - pc.threshold * unshadowed, 0.0) / (1.0 - pc.threshold);
     }
 
-    vec3 result = sun_color * sun_response * accumulated * pc.intensity * shaft_fade;
+    vec3 result = sun_color * accumulated * ray_gain;
 
     // Temporal accumulation: blend with previous frame's shafts.
     // Screen-space reproject using prev view-projection.
