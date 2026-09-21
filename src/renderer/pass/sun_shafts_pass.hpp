@@ -35,8 +35,10 @@ public:
     /// each ray's length, which the resolve filters by.
     static constexpr VkFormat RAW_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr const char* RAW_NAME = "sun_shafts_raw";
-    /// The resolved shafts, kept from frame to frame.
-    static constexpr VkFormat SHAFTS_FORMAT = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    /// The resolved shafts, kept from frame to frame. Alpha keeps the length
+    /// of the ray each texel was resolved for, which is how the next frame
+    /// tells whether that history is of the same surface.
+    static constexpr VkFormat SHAFTS_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr const char* HISTORY_CUR_NAME = "sun_shafts_cur";
     static constexpr const char* HISTORY_PREV_NAME = "sun_shafts_prev";
 

@@ -23,7 +23,14 @@
 // cell up the screen is already several percent further away: a tolerance that
 // tight would call a flat field a row of silhouettes and filter none of it.
 #define FJELL_SHAFT_NEIGHBOUR_TOLERANCE 0.1
-#define FJELL_SHAFT_NEIGHBOUR_FLOOR 0.05
+#define FJELL_SHAFT_LENGTH_FLOOR 0.05
+
+// How far the ray a piece of history was resolved for may differ in length
+// from this frame's before the history stops counting, in the same form. The
+// same surface seen a frame later has very nearly the same ray: what moves it
+// is the camera closing in, a few centimetres a frame. Anything near this
+// tolerance is a different surface.
+#define FJELL_SHAFT_HISTORY_TOLERANCE 0.1
 
 // How much a neighbour has to count toward the mean before it also bounds the
 // history. Below this it is mostly a different surface, and letting it widen
@@ -34,7 +41,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
-layout(set = 1, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_out;
+layout(set = 1, binding = 0, rgba16f) uniform writeonly image2D shafts_out;
 layout(set = 1, binding = 1) uniform sampler2D shafts_raw;
 layout(set = 1, binding = 2) uniform sampler2D shafts_history;
 layout(set = 1, binding = 3) uniform sampler2D depth_texture;
@@ -74,7 +81,7 @@ void main() {
     // history it is there to stop, while a mean of both would smear the figure
     // into the air behind it.
     vec4 centre = texelFetch(shafts_raw, coord, 0);
-    float tolerance = max(FJELL_SHAFT_NEIGHBOUR_FLOOR, centre.a * FJELL_SHAFT_NEIGHBOUR_TOLERANCE);
+    float tolerance = max(FJELL_SHAFT_LENGTH_FLOOR, centre.a * FJELL_SHAFT_NEIGHBOUR_TOLERANCE);
 
     vec3 sum = vec3(0.0);
     float total_weight = 0.0;
@@ -139,12 +146,32 @@ void main() {
         if (in_front) {
         if (all(greaterThanEqual(prev_uv, vec2(0.0))) &&
                 all(lessThanEqual(prev_uv, vec2(1.0)))) {
-                vec3 history = texture(shafts_history, prev_uv).rgb;
-                history = clamp(history, range_min, range_max);
-                result = mix(result, history, pc.history_blend);
+                vec4 history = texture(shafts_history, prev_uv);
+
+                // Was that history resolved for a ray like this one? Its length
+                // is kept in the history's alpha, and a figure stepping onto a
+                // pixel cuts the ray there from the far hillside to a few
+                // metres: that alone says the history is of something else,
+                // whatever its value, which is the case the clamp below cannot
+                // see — a figure and the air behind it can hold much the same
+                // light and still not be each other's history. It is also what
+                // a camera cut looks like from here, with nothing else in the
+                // renderer to announce one.
+                //
+                // A weight rather than a test, because the lookup is bilinear
+                // and at a silhouette the length it returns is a mix of both
+                // sides; that fades the history out across the edge instead of
+                // switching it.
+                float length_tolerance =
+                    max(FJELL_SHAFT_LENGTH_FLOOR, centre.a * FJELL_SHAFT_HISTORY_TOLERANCE);
+                float length_diff = (history.a - centre.a) / length_tolerance;
+                float same_ray = exp(-length_diff * length_diff);
+
+                vec3 held = clamp(history.rgb, range_min, range_max);
+                result = mix(result, held, pc.history_blend * same_ray);
             }
         }
     }
 
-    imageStore(shafts_out, coord, vec4(result, 1.0));
+    imageStore(shafts_out, coord, vec4(result, centre.a));
 }
