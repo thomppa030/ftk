@@ -194,6 +194,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 
     // The world runs one simulated sea: the first a water node asks for.
     if (simulation_ != nullptr) {
+        const FjWaterData::SimulatedSea* running = nullptr;
         std::optional<FftContributor> sea;
         const Node* asked_first = nullptr;
         const Node* asked_otherwise = nullptr;
@@ -205,6 +206,11 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
             if (!sea.has_value()) {
                 sea = *fft;
                 asked_first = node.get();
+                // Drawn by whoever derived this field. A field nothing has
+                // derived yet has no sea to show, and gets one next frame.
+                if (wc->effective_water.simulated.has_value()) {
+                    running = &*wc->effective_water.simulated;
+                }
             } else if (*fft != *sea && asked_otherwise == nullptr) {
                 asked_otherwise = node.get();
             }
@@ -218,7 +224,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
                             asked_otherwise->name, asked_first->name, asked_first->name);
         }
         warned_second_sea_ = asked_otherwise != nullptr;
-        simulation_->set_sea(sea, ctx.thread_pool);
+        simulation_->set_sea(running);
     }
 
     // Pipelines are built here rather than in record(): a first sighting of a

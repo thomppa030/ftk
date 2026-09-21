@@ -89,9 +89,6 @@ struct FrameContext {
     /// Seconds the renderer has been drawing for: the `time` shaders read from
     /// the global UBO, for a pass that has to run on the same clock as one.
     float elapsed_time{0.0f};
-    /// The engine's worker threads, for a pass with CPU work too slow for the
-    /// frame it is asked in. Set for prepare_frame; null elsewhere.
-    ThreadPool* thread_pool{nullptr};
     uint32_t selected_id{0};
     bool show_colliders{false};
     uint32_t frame_index{0};

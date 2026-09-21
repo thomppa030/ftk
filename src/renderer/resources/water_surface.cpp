@@ -114,9 +114,9 @@ struct HorizontalJacobian {
 [[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
                                                 float time) {
     HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
-    if (water.simulated_waves.has_value()) {
+    if (water.simulated.has_value()) {
         const SpectralDerivatives d = spectral_derivatives(
-            water.simulated_waves->waves, water.simulated_waves->choppiness, world_xz, time);
+            water.simulated->waves, water.simulated->choppiness, world_xz, time);
         j.xx += d.xx;
         j.zz += d.zz;
         j.xz += d.xz;
@@ -276,46 +276,40 @@ FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz) {
     return out;
 }
 
-namespace {
-
-// What decides which waves a simulated sea has. Choppiness and the count are
-// left out: neither changes the spectrum, only what is done with it.
-[[nodiscard]] FftContributor spectrum_of(FftContributor sea) {
+FftContributor spectrum_settings(FftContributor sea) {
     sea.choppiness = 0.0f;
     sea.physics_waves = 0;
     return sea;
 }
 
-// A ceiling on what physics may be asked to sum per point, well past where
-// more waves buy anything a floating body could feel.
-constexpr std::uint32_t MAX_PHYSICS_WAVES = 1024;
+void retune(FjWaterData::SimulatedSea& sea, const FftContributor& now) {
+    // A ceiling on what physics may be asked to sum per point, well past where
+    // more waves buy anything a floating body could feel.
+    constexpr std::uint32_t MAX_PHYSICS_WAVES = 1024;
+    const std::uint32_t count = std::min(now.physics_waves, MAX_PHYSICS_WAVES);
 
-// The simulated contributor's strongest waves for the field being derived,
-// taken from `previous` when it was derived from the same sea: drawing a
-// spectrum costs milliseconds and this runs every frame.
-void derive_simulated_waves(FjWaterData& out, const FjWaterData* previous) {
-    out.simulated_waves.reset();
-    const FftContributor* sea = simulated_sea(out);
-    if (sea == nullptr || sea->physics_waves == 0) return;
-    const std::uint32_t count = std::min(sea->physics_waves, MAX_PHYSICS_WAVES);
-
-    const bool still_stands = previous != nullptr && previous->simulated_waves.has_value()
-        && spectrum_of(previous->simulated_waves->drawn_from) == spectrum_of(*sea)
-        && previous->simulated_waves->drawn_from.physics_waves == sea->physics_waves;
-    if (still_stands) {
-        out.simulated_waves = previous->simulated_waves;
-    } else {
-        FjWaterData::SimulatedWaves derived;
-        derived.waves = strongest_waves(generate_spectrum(*sea), count).waves;
-        out.simulated_waves = std::move(derived);
+    sea.choppiness = now.choppiness;
+    if (sea.waves.size() != count || sea.drawn_from.physics_waves != now.physics_waves) {
+        sea.waves = count > 0 && sea.spectrum != nullptr
+            ? strongest_waves(*sea.spectrum, count).waves
+            : std::vector<SpectralWave>{};
     }
-    out.simulated_waves->choppiness = sea->choppiness;
-    out.simulated_waves->drawn_from = *sea;
+    sea.drawn_from.choppiness = now.choppiness;
+    sea.drawn_from.physics_waves = now.physics_waves;
 }
 
-} // namespace
+FjWaterData::SimulatedSea draw_simulated_sea(const FftContributor& sea,
+                                              const SpectrumNoise* noise) {
+    FjWaterData::SimulatedSea drawn;
+    drawn.drawn_from = sea;
+    drawn.drawn_from.physics_waves = 0;   // retune() takes the waves and says so
+    drawn.spectrum = std::make_shared<const SpectrumField>(
+        noise != nullptr ? generate_spectrum(sea, *noise) : generate_spectrum(sea));
+    retune(drawn, sea);
+    return drawn;
+}
 
-FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz, const FjWaterData* previous) {
+FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
     FjWaterData out;
     out.preview_material = water.preview_material;
     out.contributors.reserve(water.contributors.size());
@@ -326,7 +320,23 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz, const FjWate
             [&](const auto& kind) -> WaterContributor { return apply_wind(kind, wind_xz); },
             contributor));
     }
-    derive_simulated_waves(out, previous);
+    return out;
+}
+
+FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
+                             const FjWaterData* previous) {
+    FjWaterData out = apply_wind(authored, wind_xz);
+    const FftContributor* sea = simulated_sea(out);
+    if (sea == nullptr) return out;
+
+    const bool still_stands = previous != nullptr && previous->simulated.has_value()
+        && spectrum_settings(previous->simulated->drawn_from) == spectrum_settings(*sea);
+    if (still_stands) {
+        out.simulated = previous->simulated;
+        retune(*out.simulated, *sea);
+    } else {
+        out.simulated = draw_simulated_sea(*sea);
+    }
     return out;
 }
 
@@ -344,9 +354,9 @@ glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
         sum.z += t.q * t.amplitude * t.dir.y * c;
         sum.y += t.amplitude * s;
     });
-    if (water.simulated_waves.has_value()) {
-        sum += spectral_displacement(water.simulated_waves->waves,
-                                     water.simulated_waves->choppiness, world_xz, time);
+    if (water.simulated.has_value()) {
+        sum += spectral_displacement(water.simulated->waves,
+                                     water.simulated->choppiness, world_xz, time);
     }
     return sum;
 }
@@ -375,11 +385,11 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
         tangent.y += t.dir.y * wa * c;
         tangent.z -= t.q * t.dir.y * t.dir.y * wa * s;
     });
-    if (water.simulated_waves.has_value()) {
+    if (water.simulated.has_value()) {
         // Tangents add across contributors where normals do not, so the
         // simulated waves go in before the cross product, as in the shader.
         const SpectralDerivatives d = spectral_derivatives(
-            water.simulated_waves->waves, water.simulated_waves->choppiness, world_xz, time);
+            water.simulated->waves, water.simulated->choppiness, world_xz, time);
         binormal += glm::vec3(d.xx, d.dh_dx, d.xz);
         tangent += glm::vec3(d.xz, d.dh_dz, d.zz);
     }

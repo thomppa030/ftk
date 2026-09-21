@@ -1,6 +1,8 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_gpu.hpp"
+#include "core/thread_pool.hpp"
+#include "renderer/resources/water_derivation.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 
@@ -44,10 +46,12 @@ static float fjell_water_crest(const FjellWaterField& field, vec2 world_xz, floa
 }
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1483,16 +1487,22 @@ TEST_CASE("Physics feels the simulated sea when it is asked to", "[fjwater]") {
     const FjWaterData authored = sea_physics_feels(48);
     // A field straight from a file has no derived waves, and floats a body on
     // the authored contributors alone.
-    REQUIRE_FALSE(authored.simulated_waves.has_value());
+    REQUIRE_FALSE(authored.simulated.has_value());
+    // Answering the wind alone draws nothing either.
+    REQUIRE_FALSE(water::apply_wind(authored, {0.0f, 0.0f}).simulated.has_value());
 
-    const FjWaterData effective = water::apply_wind(authored, {0.0f, 0.0f});
-    REQUIRE(effective.simulated_waves.has_value());
-    REQUIRE(effective.simulated_waves->waves.size() == 48);
-    REQUIRE(effective.simulated_waves->choppiness == Approx(1.4f));
+    const FjWaterData effective = water::derive_effective(authored, {0.0f, 0.0f});
+    REQUIRE(effective.simulated.has_value());
+    REQUIRE(effective.simulated->spectrum != nullptr);
+    REQUIRE(effective.simulated->spectrum->resolution == 64);
+    REQUIRE(effective.simulated->waves.size() == 48);
+    REQUIRE(effective.simulated->choppiness == Approx(1.4f));
 
-    // Asked for none, none are derived, and the evaluator is what it was.
-    const FjWaterData unfelt = water::apply_wind(sea_physics_feels(0), {0.0f, 0.0f});
-    REQUIRE_FALSE(unfelt.simulated_waves.has_value());
+    // Asked for none, the sea is still drawn — the renderer animates it — but
+    // physics is given no waves, and the evaluator is what it was.
+    const FjWaterData unfelt = water::derive_effective(sea_physics_feels(0), {0.0f, 0.0f});
+    REQUIRE(unfelt.simulated.has_value());
+    REQUIRE(unfelt.simulated->waves.empty());
 
     bool moved = false;
     for (float x = -30.0f; x <= 30.0f; x += 7.0f) {
@@ -1503,7 +1513,7 @@ TEST_CASE("Physics feels the simulated sea when it is asked to", "[fjwater]") {
         // The surface is the authored one plus the waves, and nothing else.
         const glm::vec3 d = water::displace(effective, p, time);
         const glm::vec3 expected = water::displace(unfelt, p, time)
-            + water::spectral_displacement(effective.simulated_waves->waves, 1.4f, p, time);
+            + water::spectral_displacement(effective.simulated->waves, 1.4f, p, time);
         REQUIRE(d.x == Approx(expected.x).margin(1e-5));
         REQUIRE(d.y == Approx(expected.y).margin(1e-5));
         REQUIRE(d.z == Approx(expected.z).margin(1e-5));
@@ -1541,33 +1551,103 @@ TEST_CASE("Physics feels the simulated sea when it is asked to", "[fjwater]") {
     REQUIRE(moved);   // the waves are not nothing
 }
 
-TEST_CASE("A sea's waves for physics are kept while the sea is the same", "[fjwater]") {
+TEST_CASE("A drawn sea is kept while it is the same sea", "[fjwater]") {
     const FjWaterData authored = sea_physics_feels(32);
-    const FjWaterData first = water::apply_wind(authored, {0.0f, 0.0f});
+    const FjWaterData first = water::derive_effective(authored, {0.0f, 0.0f});
 
-    // Handed back, the waves are kept rather than drawn again. They are the
-    // same waves either way, so what shows the difference is a field whose
-    // waves have been marked: a derivation that kept them keeps the mark.
-    FjWaterData marked = first;
-    marked.simulated_waves->waves[0].amplitude = 123.0f;
-    REQUIRE(water::apply_wind(authored, {0.0f, 0.0f}, &marked).simulated_waves->waves[0].amplitude
-            == 123.0f);
+    // Handed back, the sea is kept rather than drawn again: the very same
+    // spectrum, not an equal one.
+    const FjWaterData again = water::derive_effective(authored, {0.0f, 0.0f}, &first);
+    REQUIRE(again.simulated->spectrum == first.simulated->spectrum);
 
-    // Choppiness is not the spectrum: the waves stand, the pinch follows.
-    FjWaterData choppier = authored;
-    std::get<FftContributor>(choppier.contributors[1]).choppiness = 2.5f;
-    const FjWaterData kept = water::apply_wind(choppier, {0.0f, 0.0f}, &marked);
-    REQUIRE(kept.simulated_waves->waves[0].amplitude == 123.0f);
-    REQUIRE(kept.simulated_waves->choppiness == Approx(2.5f));
+    // Choppiness and the count physics feels are not the spectrum: the sea
+    // stands, and they follow.
+    FjWaterData retuned = authored;
+    std::get<FftContributor>(retuned.contributors[1]).choppiness = 2.5f;
+    std::get<FftContributor>(retuned.contributors[1]).physics_waves = 40;
+    const FjWaterData kept = water::derive_effective(retuned, {0.0f, 0.0f}, &first);
+    REQUIRE(kept.simulated->spectrum == first.simulated->spectrum);
+    REQUIRE(kept.simulated->choppiness == Approx(2.5f));
+    REQUIRE(kept.simulated->waves.size() == 40);
+    // The longer list starts with the shorter one: the same strongest waves.
+    for (std::size_t i = 0; i < first.simulated->waves.size(); ++i) {
+        REQUIRE(kept.simulated->waves[i].k == first.simulated->waves[i].k);
+    }
 
-    // A different sea, or a different count, is drawn afresh.
+    // A different sea is drawn afresh.
     FjWaterData windier = authored;
     std::get<FftContributor>(windier.contributors[1]).wind_speed = 14.0f;
-    REQUIRE(water::apply_wind(windier, {0.0f, 0.0f}, &marked).simulated_waves->waves[0].amplitude
-            != 123.0f);
-    FjWaterData more = authored;
-    std::get<FftContributor>(more.contributors[1]).physics_waves = 40;
-    REQUIRE(water::apply_wind(more, {0.0f, 0.0f}, &marked).simulated_waves->waves.size() == 40);
+    REQUIRE(water::derive_effective(windier, {0.0f, 0.0f}, &first).simulated->spectrum
+            != first.simulated->spectrum);
+}
+
+TEST_CASE("One draw feeds the renderer and physics alike", "[fjwater]") {
+    // The point of one owner: the waves a boat floats on are the strongest
+    // wavevectors of the very spectrum the GPU is handed, so the two cannot be
+    // different seas. Held to the spectrum itself rather than to the function
+    // that took them.
+    const FjWaterData effective = water::derive_effective(sea_physics_feels(24), {0.0f, 0.0f});
+    const auto& sea = *effective.simulated;
+    const std::uint32_t n = sea.spectrum->resolution;
+    for (const SpectralWave& wave : sea.waves) {
+        const auto x = static_cast<std::uint32_t>(
+            (static_cast<int>(std::lround(wave.k.x / sea.spectrum->k_spacing)) + static_cast<int>(n)) % static_cast<int>(n));
+        const auto z = static_cast<std::uint32_t>(
+            (static_cast<int>(std::lround(wave.k.y / sea.spectrum->k_spacing)) + static_cast<int>(n)) % static_cast<int>(n));
+        const glm::vec2 amplitude = sea.spectrum->amplitudes[z * n + x];
+        REQUIRE(wave.amplitude == Approx(2.0f * glm::length(amplitude)).epsilon(1e-5));
+    }
+}
+
+TEST_CASE("A sea being reshaped goes on showing the last one, then changes once", "[fjwater]") {
+    // What the per-frame derivation adds to the one-off: a new sea is shaped on
+    // a worker while the last one stays in use, and both halves — the spectrum
+    // the renderer uploads and the waves physics sums — change together, in
+    // the frame the worker is done. Never a frame with one new and one old.
+    ThreadPool workers(2);
+    water::SeaDerivation derivation;
+    FjWaterData authored = sea_physics_feels(16);
+
+    const FjWaterData first = derivation.derive(authored, {0.0f, 0.0f}, &workers);
+    REQUIRE(first.simulated.has_value());
+    REQUIRE(first.simulated->waves.size() == 16);
+
+    std::get<FftContributor>(authored.contributors[1]).wind_speed = 17.0f;
+    bool changed = false;
+    for (int frame = 0; frame < 2000 && !changed; ++frame) {
+        const FjWaterData now = derivation.derive(authored, {0.0f, 0.0f}, &workers);
+        REQUIRE(now.simulated.has_value());
+        const bool new_spectrum = now.simulated->spectrum != first.simulated->spectrum;
+        const bool new_waves = now.simulated->waves[0].amplitude != first.simulated->waves[0].amplitude;
+        INFO("frame " << frame);
+        REQUIRE(new_spectrum == new_waves);   // together or not at all
+        if (new_spectrum) {
+            REQUIRE(now.simulated->drawn_from.wind_speed == Approx(17.0f));
+            changed = true;
+        } else {
+            REQUIRE(now.simulated->drawn_from.wind_speed == Approx(10.0f));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    REQUIRE(changed);
+
+    // What the worker shaped is what drawing it here would have given.
+    const FjWaterData reshaped = derivation.derive(authored, {0.0f, 0.0f}, &workers);
+    const FjWaterData direct = water::derive_effective(authored, {0.0f, 0.0f});
+    REQUIRE(reshaped.simulated->spectrum->amplitudes == direct.simulated->spectrum->amplitudes);
+
+    // A change of grid has nothing of the old sea to keep showing, and is
+    // drawn at once; so is anything when there are no workers.
+    std::get<FftContributor>(authored.contributors[1]).patch_size = 200.0f;
+    const FjWaterData regridded = derivation.derive(authored, {0.0f, 0.0f}, &workers);
+    REQUIRE(regridded.simulated->drawn_from.patch_size == Approx(200.0f));
+    std::get<FftContributor>(authored.contributors[1]).wind_speed = 6.0f;
+    REQUIRE(derivation.derive(authored, {0.0f, 0.0f}, nullptr).simulated->drawn_from.wind_speed
+            == Approx(6.0f));
+
+    // No simulated contributor, no sea.
+    REQUIRE_FALSE(derivation.derive(sea({wave({1.0f, 0.0f}, 20.0f, 1.0f, 0.5f)}), {0.0f, 0.0f},
+                                    &workers).simulated.has_value());
 }
 
 TEST_CASE("A sea under the weather changes in steps", "[fjwater]") {
@@ -1594,6 +1674,6 @@ TEST_CASE("A sea under the weather changes in steps", "[fjwater]") {
     auto loaded = load_fjwater_file(path);
     REQUIRE(loaded);
     REQUIRE(std::get<FftContributor>(loaded->contributors[1]).physics_waves == 16);
-    REQUIRE_FALSE(loaded->simulated_waves.has_value());
+    REQUIRE_FALSE(loaded->simulated.has_value());
     std::filesystem::remove(path);
 }

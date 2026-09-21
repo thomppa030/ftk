@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_derivation.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/component_storage.hpp"
@@ -80,6 +81,10 @@ struct WaterComponent : NodeComponent {
     /// Equal to `water` when the wind response is off, which is the default
     /// and the whole of the editor's world.
     FjWaterData effective_water;
+
+    /// What derives `effective_water` from `water` each frame. Its own per
+    /// body of water: it keeps the sea it last drew and any being shaped.
+    water::SeaDerivation derivation;
 
     /// The surface shader: a `.fjmat` whose shader is `shader_type water`.
     /// Empty draws with the engine's water.fjsl at its defaults.

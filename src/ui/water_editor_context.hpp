@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_derivation.hpp"
 #include "scene/scene.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
@@ -17,6 +18,7 @@ class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
+class ThreadPool;
 class Scene;
 class VulkanContext;
 
@@ -25,6 +27,8 @@ struct WaterEditorDeps {
     ResourceManager* resource_manager;
     ProjectManager* project_mgr;
     Input* input;
+    /// For shaping the previewed sea off the UI thread while a dial is dragged.
+    ThreadPool* thread_pool{nullptr};
     /// For the preview material picker: its thumbnail, and the two browsers
     /// that give it [Use Selected] and [Browse].
     IconCache* icon_cache{nullptr};
@@ -121,6 +125,9 @@ private:
     std::string water_path_;        // as opened, project-relative
     std::string water_abs_path_;
     FjWaterData water_;
+    /// Derives the preview's effective field, as the environment does for a
+    /// placed sea.
+    water::SeaDerivation preview_derivation_;
     /// Index into `water_.contributors` of the one the panels edit.
     std::size_t selected_contributor_{0};
 

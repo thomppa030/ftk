@@ -11,7 +11,6 @@
 
 #include <array>
 #include <cstdint>
-#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -55,23 +54,21 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
-    /// The sea to simulate, or none. Compared against the one already running,
-    /// so handing over the same settings every frame costs nothing.
+    /// The sea to simulate, as it has been drawn, or null for none. Compared
+    /// against the one already running, so handing over the same sea every
+    /// frame costs nothing; a new spectrum is uploaded, and one of a different
+    /// resolution rebuilds the images.
     ///
-    /// A sea under the weather is a slightly different sea every frame, and
-    /// shaping a spectrum takes milliseconds, so a change of wind too small to
-    /// see is let pass and a larger one is shaped on `workers` and swapped in
-    /// when it is done — the noise under it is kept, so the waves grow and turn
-    /// rather than being rolled afresh. A change to the grid itself (patch
-    /// size, resolution, seed) is redrawn at once, since the scale the
-    /// textures are sampled at changes with it; so is anything when `workers`
-    /// is null.
-    void set_sea(const std::optional<FftContributor>& sea, ThreadPool* workers);
+    /// The pass animates a sea and does not decide which: drawing the spectrum
+    /// belongs to whoever derives the field the world runs on, so that physics
+    /// floats things on the same draw and a machine with no renderer can make
+    /// it too.
+    void set_sea(const FjWaterData::SimulatedSea* sea);
 
     /// Whether there is a simulated surface to sample this frame.
-    [[nodiscard]] bool active() const { return sea_.has_value() && images_ready_; }
+    [[nodiscard]] bool active() const { return spectrum_ != nullptr && images_ready_; }
     /// Metres the textures tile over.
-    [[nodiscard]] float patch_size() const { return sea_ ? sea_->patch_size : 1.0f; }
+    [[nodiscard]] float patch_size() const { return patch_size_; }
     /// xyz displacement in world axes, w d(displacement x)/dz; this frame's
     /// and the one before it, for the surface's own motion.
     ///
@@ -138,14 +135,6 @@ private:
     /// Fill a mip chain from its top level, and leave every level readable.
     void generate_mips(VkCommandBuffer cmd, const Image& image) const;
 
-    /// Whether `from` and `to` differ by little enough that the sea drawn
-    /// from one still stands for the other.
-    [[nodiscard]] static bool near_enough(const FftContributor& from, const FftContributor& to);
-    /// Put a shaped spectrum to work: on the GPU from the next record().
-    void adopt(const FftContributor& drawn_from, water::SpectrumField&& field);
-    /// Take a worker's finished spectrum, if there is one.
-    void collect_reshape();
-
     /// Asked for through FJELL_VERIFY_WATER_FFT: simulate a fixed sea at a
     /// fixed time, read the surface back, and hold it to the CPU's plain
     /// Fourier sum of the same spectrum.
@@ -163,16 +152,11 @@ private:
     Pipeline assemble_;
     VkSampler sampler_{VK_NULL_HANDLE};
 
-    std::optional<FftContributor> sea_;
-    /// The settings the spectrum on the GPU was shaped from, which trail
-    /// `sea_` by whatever is too small to redraw for or still being shaped.
-    std::optional<FftContributor> drawn_from_;
-    water::SpectrumNoise noise_;
-    struct Reshape {
-        FftContributor sea;
-        std::future<water::SpectrumField> field;
-    };
-    std::optional<Reshape> reshaping_;
+    /// The sea being animated: its spectrum, the patch it tiles over and how
+    /// hard its crests are pinched. Null for none.
+    std::shared_ptr<const water::SpectrumField> spectrum_;
+    float patch_size_{1.0f};
+    float choppiness_{1.0f};
     std::uint32_t resolution_{0};
     std::uint32_t mips_{1};
     float k_spacing_{0.0f};
@@ -183,10 +167,9 @@ private:
     float time_{0.0f};
     bool stepped_this_frame_{false};
 
-    /// The drawn spectrum, and which frame slots still hold an older one. A
-    /// buffer per slot because the GPU may still be reading last frame's
-    /// while this frame's is written.
-    std::vector<glm::vec2> amplitudes_;
+    /// Which frame slots still hold an older spectrum than `spectrum_`. A
+    /// buffer per slot because the GPU may still be reading last frame's while
+    /// this frame's is written.
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> amplitude_buffers_;
     std::array<bool, MAX_FRAMES_IN_FLIGHT> amplitudes_stale_{};
 
@@ -203,6 +186,8 @@ private:
     bool still_ready_{false};
 
     bool verifying_{false};
+    /// The fixed sea the verification runs, kept alive for the pass to animate.
+    std::optional<FjWaterData::SimulatedSea> verify_sea_;
     int verify_frames_left_{-1};
     std::unique_ptr<Buffer> verify_readback_;
 };

@@ -190,7 +190,7 @@ void WaterEditorContext::apply_preview_wind() {
     const float heading = glm::radians(preview_wind_heading_);
     const glm::vec2 wind = glm::vec2(std::cos(heading), std::sin(heading))
                          * preview_wind_speed_;
-    water->effective_water = water::apply_wind(water_, wind, &water->effective_water);
+    water->effective_water = preview_derivation_.derive(water_, wind, deps_.thread_pool);
 }
 
 void WaterEditorContext::load_preview_material() {

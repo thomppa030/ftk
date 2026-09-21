@@ -400,10 +400,7 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
     for (const auto& obj : ctx.scene.objects()) {
         auto* water = obj->components.get<WaterComponent>();
         if (water == nullptr) continue;
-        // The last derivation goes back in so that the simulated sea's waves
-        // for physics are kept while the sea is the same one.
-        water->effective_water =
-            water::apply_wind(water->water, wind_xz, &water->effective_water);
+        water->effective_water = water->derivation.derive(water->water, wind_xz, ctx.workers);
     }
 }
 

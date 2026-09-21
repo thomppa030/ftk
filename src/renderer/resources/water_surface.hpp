@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_spectrum.hpp"
 
 #include <glm/glm.hpp>
 
@@ -112,14 +113,32 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// Everything downstream — both evaluators, the GPU packing, buoyancy — reads
 /// the result of this rather than the authored field, which is the only way
 /// the surface a boat floats on stays the surface the player sees.
+[[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz);
+
+/// What of a simulated contributor's settings decides which sea it draws.
+/// Choppiness and the count of waves physics feels are left out: neither
+/// changes the spectrum, only what is done with it.
+[[nodiscard]] FftContributor spectrum_settings(FftContributor sea);
+
+/// Draw the sea `sea` describes: its spectrum and, as far as it asks, its
+/// strongest waves. Milliseconds of work. `noise`, when given, must be the
+/// noise for its seed and resolution and spares drawing that part again.
+[[nodiscard]] FjWaterData::SimulatedSea draw_simulated_sea(const FftContributor& sea,
+                                                            const SpectrumNoise* noise = nullptr);
+
+/// Bring a drawn sea up to date with settings that do not redraw it: the
+/// pinch, and how many waves physics feels.
+void retune(FjWaterData::SimulatedSea& sea, const FftContributor& now);
+
+/// The field the world runs on, derived in one go: `apply_wind()`, and the
+/// simulated contributor drawn. Hand back the field derived last time as
+/// `previous` and the drawn sea is kept for as long as its spectrum is the
+/// same, which is what makes this affordable to call again.
 ///
-/// The result also carries the simulated contributor's strongest waves, where
-/// it asks physics to feel any (`FftContributor::physics_waves`), which is what
-/// lets the CPU evaluators below float a body on the simulated sea. Taking them
-/// means drawing the spectrum, so hand back the field derived last time as
-/// `previous` and they are kept for as long as the sea has not changed.
-[[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz,
-                                     const FjWaterData* previous = nullptr);
+/// It draws on the calling thread when it has to. Something that derives every
+/// frame wants `SeaDerivation`, which does the drawing on a worker.
+[[nodiscard]] FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
+                                           const FjWaterData* previous = nullptr);
 
 /// How much of a rise or a fall in wave height a sea takes on per second,
 /// as the seconds a change takes to mostly arrive.

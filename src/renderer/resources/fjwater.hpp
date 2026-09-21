@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -305,6 +306,28 @@ struct SpectralWave {
     float omega{0.0f};       // rad/s
 };
 
+namespace water {
+
+/// One sea drawn from a spectrum: the complex amplitude of every wavevector
+/// on the grid at time zero.
+struct SpectrumField {
+    /// Samples per side.
+    std::uint32_t resolution{0};
+
+    /// Spacing of the wavevector grid in rad/m: 2*pi / patch_size.
+    float k_spacing{0.0f};
+
+    /// Amplitudes, real in x and imaginary in y, row-major as `[z * resolution
+    /// + x]`. In FFT order: index i along an axis is wavenumber i for the
+    /// first half and i - resolution for the second, so the mean sits at 0.
+    std::vector<glm::vec2> amplitudes;
+
+    /// The wavevector index `i` along one axis stands for, in rad/m.
+    [[nodiscard]] float wavenumber(std::uint32_t i) const;
+};
+
+} // namespace water
+
 /// One source of surface motion in a `.fjwater`. The surface is the sum of
 /// every contributor, so nothing downstream needs to know which kinds a sea
 /// is made of.
@@ -335,21 +358,31 @@ struct FjWaterData {
     /// against is part of how to come back to it.
     std::string preview_material;
 
-    /// The simulated contributor's strongest waves, for the CPU to sum.
+    /// The simulated contributor as it has been drawn: one sea out of the
+    /// spectrum its settings describe, for the GPU to animate and, as far as it
+    /// asks, for the CPU to float things on.
     ///
-    /// Derived, never authored and never saved: `water::apply_wind()` fills it
-    /// in the field it returns, which is the field physics reads, and a field
-    /// straight from a file has none. `drawn_from` is the contributor they
-    /// were taken from, kept so that the next derivation can tell whether they
-    /// still stand and spare itself drawing the spectrum again.
-    struct SimulatedWaves {
-        std::vector<SpectralWave> waves;
-        /// Scales their horizontal pinch. The contributor's own, carried here
-        /// so the evaluators need nothing but this.
-        float choppiness{0.0f};
+    /// Derived, never authored and never saved. Whoever derives the field the
+    /// world runs on (`water::SeaDerivation`, or `water::apply_wind()` for a
+    /// one-off) fills it, and a field straight from a file has none. It is one
+    /// draw feeding both halves, which is what keeps a boat on the sea that is
+    /// drawn: the renderer uploads `spectrum`, and physics sums `waves`, which
+    /// are that same spectrum's strongest wavevectors.
+    struct SimulatedSea {
+        /// The contributor this was drawn from. It can trail the field's own
+        /// by a few frames, while a new one is being shaped.
         FftContributor drawn_from;
+        /// Shared and never changed once drawn, so handing the field around
+        /// every frame copies a pointer and not a quarter of a million floats.
+        std::shared_ptr<const water::SpectrumField> spectrum;
+        /// `drawn_from.physics_waves` of its strongest waves, strongest first.
+        std::vector<SpectralWave> waves;
+        /// Scales the horizontal pinch, on both halves. The field's own and
+        /// current, since it is applied as the sea is animated and costs no
+        /// redraw to change.
+        float choppiness{0.0f};
     };
-    std::optional<SimulatedWaves> simulated_waves;
+    std::optional<SimulatedSea> simulated;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

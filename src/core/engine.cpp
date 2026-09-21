@@ -685,6 +685,7 @@ void Engine::init_editor() {
                 .resource_manager = resource_manager_.get(),
                 .project_mgr = &project_mgr_,
                 .input = &input_,
+                .thread_pool = &thread_pool_,
                 .icon_cache = icon_cache_.get(),
                 .content_browser = &content_browser_,
                 .file_browser = &asset_file_browser_,
@@ -1755,6 +1756,7 @@ TickContext Engine::make_frame_context() {
         .physics = physics_subsystem_->world(),
         .project = project_mgr_.active(),
         .resources = resource_manager_.get(),
+        .workers = &thread_pool_,
     };
 }
 

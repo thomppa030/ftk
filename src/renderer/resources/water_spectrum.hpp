@@ -43,24 +43,6 @@ namespace fjell::water {
 /// multiplied by a cell's area it is the variance the grid holds. 0 at k = 0.
 [[nodiscard]] float wavenumber_spectrum(const FftContributor& sea, glm::vec2 k);
 
-/// One sea drawn from a spectrum: the complex amplitude of every wavevector
-/// on the grid at time zero.
-struct SpectrumField {
-    /// Samples per side.
-    std::uint32_t resolution{0};
-
-    /// Spacing of the wavevector grid in rad/m: 2*pi / patch_size.
-    float k_spacing{0.0f};
-
-    /// Amplitudes, real in x and imaginary in y, row-major as `[z * resolution
-    /// + x]`. In FFT order: index i along an axis is wavenumber i for the
-    /// first half and i - resolution for the second, so the mean sits at 0.
-    std::vector<glm::vec2> amplitudes;
-
-    /// The wavevector index `i` along one axis stands for, in rad/m.
-    [[nodiscard]] float wavenumber(std::uint32_t i) const;
-};
-
 /// The random part of a drawn sea: a pair of independent standard normals for
 /// every wavevector of an N x N grid, row-major.
 ///
