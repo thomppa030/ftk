@@ -310,7 +310,10 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
 
     const auto& shafts = ctx.environment->sun_shafts;
     enabled_ = ctx.environment->fog.enabled && shafts.enabled;
-    intensity_ = shafts.intensity;
+    // Shafts come from the leading body's direction alone, and that body
+    // changes between two frames at dusk and dawn. They thin out toward the
+    // change instead, so it has nothing of theirs to cut.
+    intensity_ = shafts.intensity * ctx.environment->primary_lead;
     density_mult_ = shafts.density_mult;
     max_reach_ = shafts.max_reach;
     step_count_ = shafts.step_count;

@@ -64,15 +64,35 @@ const WorldEnvironmentNode* find_world_environment(const Scene& scene) {
     return nullptr;
 }
 
+namespace {
+
+// The leader keeps the role until the other body outshines it by this much,
+// so the two never trade places every frame around twilight.
+constexpr float HANDOFF_MARGIN = 1.25f;
+
+// How many times brighter than the other body the leader has to be before it
+// counts as leading outright.
+constexpr float CLEAR_LEAD = 3.0f;
+
+} // namespace
+
 bool moon_leads(const DirectionalBody& sun, const DirectionalBody& moon, bool moon_led) {
-    // The leader keeps the role until the other body outshines it by a clear
-    // margin, so the two never trade places every frame around twilight.
-    constexpr float HANDOFF_MARGIN = 1.25f;
     const float sun_light = ground_intensity(sun);
     const float moon_light = ground_intensity(moon);
     if (moon_light <= 0.0f) return false;
     if (moon_led) return moon_light * HANDOFF_MARGIN >= sun_light;
     return moon_light > sun_light * HANDOFF_MARGIN;
+}
+
+float primary_lead(const DirectionalBody& primary, const DirectionalBody& secondary) {
+    const float other = ground_intensity(secondary);
+    if (other <= 0.0f) return 1.0f;
+    // The trade has hysteresis, so its two sides sit at different ratios: the
+    // outgoing leader has fallen to 1/HANDOFF_MARGIN of the other body, and
+    // the incoming one starts at HANDOFF_MARGIN times it. The lead has to be
+    // nothing at both, so it is nothing up to the higher of the two.
+    const float ratio = ground_intensity(primary) / other;
+    return glm::smoothstep(HANDOFF_MARGIN, CLEAR_LEAD, ratio);
 }
 
 namespace {
@@ -308,6 +328,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
     const bool moon_first = moon_leads(state.sun, state.moon, moon_led);
     state.primary = moon_first ? state.moon : state.sun;
     state.secondary = moon_first ? state.sun : state.moon;
+    state.primary_lead = primary_lead(state.primary, state.secondary);
     return state;
 }
 

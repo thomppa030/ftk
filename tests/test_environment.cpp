@@ -235,6 +235,34 @@ TEST_CASE("The shadow caster hands over with hysteresis", "[environment]") {
     REQUIRE(moon_leads(sun, moon, false));
 }
 
+TEST_CASE("The leading body's lead is nothing where the two trade places", "[environment]") {
+    DirectionalBody sun;
+    sun.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    sun.elevation = glm::half_pi<float>();
+    DirectionalBody moon = sun;
+
+    // No other light: the leader leads outright.
+    sun.intensity = 1.0f;
+    moon.intensity = 0.0f;
+    REQUIRE(primary_lead(sun, moon) == Catch::Approx(1.0f));
+    moon.intensity = 0.1f;
+    REQUIRE(primary_lead(sun, moon) == Catch::Approx(1.0f));
+
+    // The sun fading against a fixed moon: the lead falls with it and reaches
+    // zero no later than the frame the moon takes over.
+    moon.intensity = 1.0f;
+    sun.intensity = 2.0f;
+    const float mid = primary_lead(sun, moon);
+    REQUIRE(mid > 0.0f);
+    REQUIRE(mid < 1.0f);
+    sun.intensity = 0.79f;
+    REQUIRE(moon_leads(sun, moon, false));
+    REQUIRE(primary_lead(sun, moon) == Catch::Approx(0.0f));
+
+    // And from the other side: the moon, newly leading, starts from nothing.
+    REQUIRE(primary_lead(moon, sun) == Catch::Approx(0.0f).margin(0.01f));
+}
+
 TEST_CASE("The moon rides the sun path behind the sun and the sky turns about its axis", "[environment]") {
     SunPath path{.tilt_degrees = 40.0f, .north_yaw_degrees = 30.0f, .noon_hour = 12.0f};
 

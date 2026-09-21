@@ -20,6 +20,17 @@ struct WeatherSkyOverride;
 [[nodiscard]] bool moon_leads(const DirectionalBody& sun, const DirectionalBody& moon,
                               bool moon_led);
 
+/// How clearly the leading body outshines the other, from 0 to 1: zero while
+/// the two are close enough to trade places, one once the leader is several
+/// times brighter or the other gives no light at all.
+///
+/// The trade itself is a cut — direction, colour and cascades all change in one
+/// frame — and it has to be, since only one body can cast the shadows. What is
+/// drawn from the leader's direction alone can fade by this instead, and be at
+/// nothing on both sides of the cut.
+[[nodiscard]] float primary_lead(const DirectionalBody& primary,
+                                 const DirectionalBody& secondary);
+
 /// Resolve a scene's environment from its authoring nodes: the first
 /// directional light becomes the sun, the world environment node supplies the
 /// sky, contact shadows and time of day, the volumetric fog node the haze.

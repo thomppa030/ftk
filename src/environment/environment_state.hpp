@@ -229,6 +229,9 @@ struct EnvironmentState {
     DirectionalBody primary;
     /// The other body, lit without cascades.
     DirectionalBody secondary;
+    /// How clearly `primary` outshines `secondary`, 0 to 1, and zero at the
+    /// moment they trade places. See primary_lead().
+    float primary_lead{1.0f};
 
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
     float ambient_intensity{0.4f};
