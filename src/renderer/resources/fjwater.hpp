@@ -183,9 +183,9 @@ struct GerstnerContributor {
     /// prevented here, it is measured. The editor samples the surface and
     /// reports what percentage of it folds at the current settings.
     ///
-    /// Raising it is a deliberate trade: sharper crests everywhere in exchange
-    /// for the sharpest of them turning inside out, which looks like dark flat
-    /// facets sitting in the foam. Some folding at distance is often worth it.
+    /// Raising it buys sharper crests everywhere and makes the sharpest of them
+    /// fold, which is a wave breaking rather than a defect: a crest that
+    /// outruns its own base and throws over is what a rough sea is made of.
     ///
     /// 0.30 is the default because a field is many trains and they sum: on the
     /// generator's own six-train sea, measured over a 80 m square across eight
