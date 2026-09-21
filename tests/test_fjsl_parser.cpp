@@ -1444,6 +1444,32 @@ TEST_CASE("A use argument may be any expression", "[fjsl][use]") {
     REQUIRE(meta.uses[0].arguments[1].second == "f(g(1.0))");
 }
 
+TEST_CASE("A use can only read a use declared above it", "[fjsl][use]") {
+    // The calls run in source order, so an argument reading a use wired below
+    // it — or the one it belongs to — reads a variable nothing has filled.
+    auto feeds_forward = parse_fjsl(
+        "shader_type sky;\n"
+        "use galaxy = \"lib/g.fjsl\"(dir: VIEW_DIR);\n"
+        "use stars = \"lib/s.fjsl\"(dir: VIEW_DIR, crowding: galaxy.band);\n"
+        "void sky() {}\n");
+    REQUIRE_FALSE(feeds_forward.has_errors());
+
+    require_rejected("shader_type sky;\n"
+                     "use stars = \"lib/s.fjsl\"(dir: VIEW_DIR, crowding: galaxy.band);\n"
+                     "use galaxy = \"lib/g.fjsl\"(dir: VIEW_DIR);\n"
+                     "void sky() {}\n");
+    require_rejected("shader_type sky;\n"
+                     "use stars = \"lib/s.fjsl\"(dir: VIEW_DIR, crowding: stars.band);\n"
+                     "void sky() {}\n");
+
+    // A name that merely contains a use's name is not a read of it.
+    auto lookalike = parse_fjsl(
+        "shader_type sky;\n"
+        "use stars = \"lib/s.fjsl\"(dir: VIEW_DIR, crowding: my_stars.x);\n"
+        "void sky() {}\n");
+    REQUIRE_FALSE(lookalike.has_errors());
+}
+
 TEST_CASE("A malformed use is reported", "[fjsl][use]") {
     require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(V);\nvoid sky() {}");
     require_rejected("shader_type sky;\nuse a = \"x.fjsl\"(d: V)\nvoid sky() {}");
@@ -1644,6 +1670,51 @@ TEST_CASE("A composed sky generates GLSL that glslc accepts", "[fjsl][compose][g
                                 + quoted(shader_dir / "include") + " "
                                 + quoted(frag) + " -o "
                                 + quoted(out_dir / "composed.spv"));
+    INFO(output);
+    REQUIRE(status == 0);
+}
+
+TEST_CASE("One use feeds another through its arguments", "[fjsl][compose][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    const std::string galaxy =
+        "shader_function;\n"
+        "in vec3 dir;\nout vec3 color;\nout float band;\n"
+        "void main() { band = 1.0 - abs(dir.y); color = vec3(band); }\n";
+    const std::string stars =
+        "shader_function;\n"
+        "in vec3 dir;\nin float crowding;\nout vec3 color;\n"
+        "void main() { color = vec3(crowding * dir.x); }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use galaxy = \"lib/galaxy.fjsl\"(dir: VIEW_DIR);\n"
+        "use stars = \"lib/stars.fjsl\"(dir: VIEW_DIR, crowding: galaxy.band * 0.5);\n"
+        "void sky() { SKY = galaxy.color + stars.color; }\n";
+
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    REQUIRE_FALSE(meta.has_errors());
+    auto comp = compose(root, {{"lib/galaxy.fjsl", galaxy}, {"lib/stars.fjsl", stars}});
+    REQUIRE_FALSE(comp.has_errors());
+
+    // The argument names the variable the first function wrote, exactly as
+    // the same words in the body would.
+    const std::string glsl = generate_fragment_shader(meta, tmpl, &comp);
+    REQUIRE(glsl.find("stars_main(VIEW_DIR, galaxy_band * 0.5)") != std::string::npos);
+    REQUIRE(glsl.find("galaxy_main(VIEW_DIR)") < glsl.find("stars_main(VIEW_DIR"));
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compose-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "chained.frag";
+    std::ofstream(frag) << glsl;
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o "
+                                + quoted(out_dir / "chained.spv"));
     INFO(output);
     REQUIRE(status == 0);
 }

@@ -174,6 +174,21 @@ bool is_identifier_char(char c) {
     return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
 }
 
+// Whether `text` reads an output of the use called `name`: the whole word,
+// followed by a `.`. The same shape rewrite_use_references turns into the
+// variable the emitted function declares, so the two agree on what counts.
+bool reads_use(std::string_view text, std::string_view name) {
+    for (size_t at = text.find(name); at != std::string_view::npos;
+         at = text.find(name, at + 1)) {
+        if (at > 0 && is_identifier_char(text[at - 1])) continue;
+        size_t after = at + name.size();
+        if (after < text.size() && is_identifier_char(text[after])) continue;
+        while (after < text.size() && (text[after] == ' ' || text[after] == '\t')) ++after;
+        if (after < text.size() && text[after] == '.') return true;
+    }
+    return false;
+}
+
 // Offset of `void <name> (` written at an identifier boundary, or npos.
 //
 // This is the hand-written form of `\bvoid\s+<name>\s*\(`. std::regex costs
@@ -1182,6 +1197,25 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         }
     }
 
+    // An argument may read what an earlier use wrote — `crowding: galaxy.band`
+    // is how one function feeds another. The calls run in source order, so
+    // only a use declared above has written anything yet: reading one declared
+    // below, or itself, would read a variable nothing has filled.
+    for (size_t i = 0; i < meta.uses.size(); ++i) {
+        for (const auto& [port, value] : meta.uses[i].arguments) {
+            for (size_t j = i; j < meta.uses.size(); ++j) {
+                if (!reads_use(value, meta.uses[j].name)) continue;
+                diagnose(meta.uses[i].offset, FjslSeverity::error,
+                         j == i
+                             ? "use '" + meta.uses[i].name + "' fills '" + port
+                                   + "' from its own output"
+                             : "use '" + meta.uses[i].name + "' fills '" + port
+                                   + "' from '" + meta.uses[j].name
+                                   + "', which is wired below it; a use can only read one declared above");
+            }
+        }
+    }
+
     return meta;
 }
 
@@ -1389,7 +1423,10 @@ std::string emit_use_calls(const std::vector<FjslUse>& uses,
             if (i > 0) out += ", ";
             for (const auto& [name, value] : use.arguments) {
                 if (name != used->inputs[i].name) continue;
-                out += value;
+                // `galaxy.band` in an argument names the same variable it
+                // names in the body. The parse has already refused a read of
+                // anything not yet written.
+                out += rewrite_use_references(value, uses);
                 break;
             }
         }
