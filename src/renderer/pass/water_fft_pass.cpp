@@ -428,8 +428,6 @@ void WaterFftPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (verifying_ && verify_frames_left_ > 0 && --verify_frames_left_ == 0) {
         finish_verification();
     }
-    // This frame writes the surface that was last frame's previous one.
-    if (active()) cur_ = 1 - cur_;
 }
 
 PassSetup WaterFftPass::setup() const {
@@ -506,6 +504,12 @@ void WaterFftPass::record(const FrameContext& ctx) {
 
     FJELL_PROFILE_SCOPE_N("record_water_fft");
     FJELL_GPU_ZONE(ctx, "WaterFft");
+
+    // This step writes the surface that was the previous one. Swapped here,
+    // with the work, rather than when the frame is prepared: a frame that is
+    // prepared and never recorded would otherwise leave "this frame's" surface
+    // naming the older of the two.
+    cur_ = 1 - cur_;
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
     // Written here rather than when the sea was set: a sea can be set after
     // this pass has prepared its frame, and the transform must never run from

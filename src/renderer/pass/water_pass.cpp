@@ -195,14 +195,29 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // The world runs one simulated sea: the first a water node asks for.
     if (simulation_ != nullptr) {
         std::optional<FftContributor> sea;
+        const Node* asked_first = nullptr;
+        const Node* asked_otherwise = nullptr;
         for (const auto& node : ctx.scene->objects()) {
             const auto* wc = node->components.get<WaterComponent>();
             if (wc == nullptr) continue;
-            if (const auto* fft = water::simulated_sea(wc->effective_water)) {
+            const auto* fft = water::simulated_sea(wc->effective_water);
+            if (fft == nullptr) continue;
+            if (!sea.has_value()) {
                 sea = *fft;
-                break;
+                asked_first = node.get();
+            } else if (*fft != *sea && asked_otherwise == nullptr) {
+                asked_otherwise = node.get();
             }
         }
+        // A second body of water with a simulated sea of its own is drawn with
+        // the first one's: same textures, at the scale they were made for. Said
+        // once, when it starts being true, rather than left to be puzzled over.
+        if (asked_otherwise != nullptr && !warned_second_sea_) {
+            FJELL_CORE_WARN("Water: '{}' asks for a different simulated sea than '{}'. The world "
+                            "runs one simulation, so both are drawn with the sea '{}' describes.",
+                            asked_otherwise->name, asked_first->name, asked_first->name);
+        }
+        warned_second_sea_ = asked_otherwise != nullptr;
         simulation_->set_sea(sea, ctx.thread_pool);
     }
 
@@ -461,6 +476,14 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     // actually read. Kept as a copy rather than read back out of the mapped
     // buffer: that memory is write-combined, and reading it is slow.
     GpuWaterField field = to_gpu_field(comp.effective_water);
+    // A field with a simulated contributor is drawn with the sea the world is
+    // running, which is its own unless another body of water asked first. The
+    // textures tile at the running sea's patch whoever samples them, so that
+    // is the scale the shader is given — not the one this field would have
+    // had. None running yet means none to sample.
+    if (field.simulated_patch_size > 0.0f) {
+        field.simulated_patch_size = simulation_->active() ? simulation_->patch_size() : 0.0f;
+    }
     if (bound_water_ == &comp &&
         std::memcmp(&bound_field_, &field, sizeof(field)) == 0) {
         return;

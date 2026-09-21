@@ -160,6 +160,9 @@ private:
     /// The simulated sea's textures, which every water draw samples. Owned by
     /// the registry; null only if the render graph lists no water_fft pass.
     WaterFftPass* simulation_{nullptr};
+    /// Whether the scene currently holds a second, different simulated sea and
+    /// that has been said, so it is said when it starts and not every frame.
+    bool warned_second_sea_{false};
     /// The wave field the mesh shader reads. Host-visible and mapped: it is
     /// half a kilobyte rewritten when a sea is edited, which is not worth a
     /// staging copy.
