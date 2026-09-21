@@ -411,7 +411,7 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
         return;  // already built for this path and this compile of it.
     }
 
-    destroy_fjsl_pipeline();
+    retire_fjsl_pipeline(resources);
 
     // The inspector stores project-relative paths (e.g. "../Fjell/shaders/foo.fjsl"
     // when the engine shader lives outside the project tree). Resolve to an
@@ -590,6 +590,34 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     fjsl_pipeline_shader_ = sky_shader_;
     FJELL_GFX_INFO("SkyPass: built FJSL sky pipeline for '{}' (material_id={})",
                    sky_shader_, fjsl_material_id_);
+}
+
+void SkyPass::retire_fjsl_pipeline(const PassResources& resources) {
+    // The sky is rebuilt from inside record(), so the pipeline being replaced
+    // may still be referenced by a command buffer in another frame slot — the
+    // current slot's fence only proves that slot is done. The deleter holds
+    // both handles until every slot has cycled.
+    if (resources.deferred_deleter != nullptr) {
+        VkPipeline doomed_pipeline = fjsl_pipeline_;
+        VkPipelineLayout doomed_layout = fjsl_layout_;
+        if (doomed_pipeline != VK_NULL_HANDLE || doomed_layout != VK_NULL_HANDLE) {
+            resources.deferred_deleter->defer(
+                [device = device_, doomed_pipeline, doomed_layout] {
+                    if (doomed_pipeline != VK_NULL_HANDLE) {
+                        vkDestroyPipeline(device, doomed_pipeline, nullptr);
+                    }
+                    if (doomed_layout != VK_NULL_HANDLE) {
+                        vkDestroyPipelineLayout(device, doomed_layout, nullptr);
+                    }
+                });
+        }
+        fjsl_pipeline_ = VK_NULL_HANDLE;
+        fjsl_layout_ = VK_NULL_HANDLE;
+        fjsl_pipeline_shader_.clear();
+        return;
+    }
+    vkDeviceWaitIdle(device_);
+    destroy_fjsl_pipeline();
 }
 
 void SkyPass::destroy_fjsl_pipeline() {

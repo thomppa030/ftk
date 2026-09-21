@@ -81,6 +81,9 @@ private:
     // multiple times — only rebuilds when the path changes or the FJSL is
     // hot-reloaded.
     void ensure_fjsl_pipeline(const PassResources& resources);
+    // Hand the current pipeline and layout to the deferred deleter, for a
+    // rebuild while frames are in flight. Teardown wants destroy_ instead.
+    void retire_fjsl_pipeline(const PassResources& resources);
     void destroy_fjsl_pipeline();
     // Write the shader's default uniform values into its params slice.
     void write_default_params(const ShaderMetadata& meta, uint32_t param_offset);
