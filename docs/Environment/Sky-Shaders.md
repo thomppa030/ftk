@@ -12,10 +12,10 @@ uniform vec3 horizon_color : hint_color = vec3(0.98, 0.83, 0.63);
 void sky() {
     float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
     SKY = mix(horizon_color, zenith_color, t) * SKY_TINT;
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME);
-    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.5);
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y);
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, 0.5, CAMERA_POS.y);
     if (!SKY_FOR_LIGHTING) {
-        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, 1.8, 1.2, 1.0);
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, 1.8, 1.2, 1.0, CAMERA_POS.y);
     }
 }
 ```
@@ -43,7 +43,7 @@ the sun and drawing the disc into the cubemap counts it twice:
 
 ```glsl
 if (!SKY_FOR_LIGHTING) {
-    SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo_size, sun_halo);
+    SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo_size, sun_halo, CAMERA_POS.y);
 }
 ```
 
@@ -125,10 +125,22 @@ the template.
 
 ```glsl
 vec3 sun_disc(vec3 view_dir, vec3 sun_dir, vec3 sun_color,
-              float radius_deg, float halo_deg, float halo);
-vec3 moon_disc(vec3 view_dir, vec3 moon_dir, vec3 sun_dir, vec3 moon_color, float radius_deg);
-vec3 star_field(vec3 view_dir, float intensity, vec3 axis, float angle, float time);
+              float radius_deg, float halo_deg, float halo, float camera_height);
+vec3 moon_disc(vec3 view_dir, vec3 moon_dir, vec3 sun_dir, vec3 moon_color,
+               float radius_deg, float camera_height);
+vec3 star_field(vec3 view_dir, float intensity, vec3 axis, float angle,
+                float time, float camera_height);
 ```
+
+- `camera_height` is metres above the ground — pass `CAMERA_POS.y`. The bodies
+  set behind the horizon you can actually see, which dips below level as you
+  climb: a tenth of a degree from ten metres, a degree from a kilometre. They
+  sink across a band `FJELL_BODY_HORIZON_SOFTNESS` degrees either side of it
+  rather than switching off at it, and the sun's glow keeps
+  `FJELL_SUN_AFTERGLOW` of itself below, since a sun that has just set still
+  lights the air. `fjell_horizon_fade(dir, height, softness)` in
+  `fjell_air_mass.glsl` is the fade itself, for anything else a sky draws
+  that should set the same way.
 
 - `radius_deg` is the disc's angular radius **in degrees**, measured from its
   centre. The real sun and moon are `FJELL_SUN_RADIUS_DEG` (0.27) and

@@ -28,7 +28,7 @@ void sky() {
     t = floor(t * bands) / bands;
     SKY = mix(horizon, zenith, t) * SKY_TINT;
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME) * 1.5;
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y) * 1.5;
 
     // A large, flat moon with a hard edge.
     float moon = step(cos(radians(moon_size)), dot(VIEW_DIR, MOON_DIR));

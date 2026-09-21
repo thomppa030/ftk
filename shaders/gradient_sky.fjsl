@@ -101,8 +101,8 @@ void sky() {
     float toward = exp2(-to_sun * to_sun / max(sun_warmth_size * sun_warmth_size, 1e-3));
     SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward;
 
-    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME);
-    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size);
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y);
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size, CAMERA_POS.y);
     // The disc only, and not into the lighting cubemap: the directional light
     // already carries the sun, and adding the disc there counts it twice.
     if (!SKY_FOR_LIGHTING) {

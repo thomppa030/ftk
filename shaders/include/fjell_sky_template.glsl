@@ -22,6 +22,7 @@
 #include "fjell_global_ubo.glsl"
 #include "fjell_environment.glsl"
 #include "fjell_gpu_types.glsl"
+#include "fjell_air_mass.glsl"
 #include "fjell_sky_bodies.glsl"
 #include "fjell_clouds_2d.glsl"
 

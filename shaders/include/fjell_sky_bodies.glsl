@@ -1,15 +1,20 @@
 #ifndef FJELL_SKY_BODIES_GLSL
 #define FJELL_SKY_BODIES_GLSL
 
+// For the horizon: where it sits from a given height, and how a body fades
+// across it. Included rather than relied on being in scope already, so the
+// order a sky's includes happen to be in cannot break this one.
+#include "fjell_air_mass.glsl"
+
 // The bodies a sky shader draws: a sun disc with a halo, a moon disc lit by
 // the sun with its phase, and a star field that turns with the day. Each
 // returns the light to add to SKY for one view direction, so a sky stays a
 // few lines:
 //
 //     SKY = mix(horizon, zenith, t);
-//     SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME);
-//     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, FJELL_MOON_RADIUS_DEG);
-//     if (!SKY_FOR_LIGHTING) SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, FJELL_SUN_RADIUS_DEG, 1.0, 3.0);
+//     SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y);
+//     SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, FJELL_MOON_RADIUS_DEG, CAMERA_POS.y);
+//     if (!SKY_FOR_LIGHTING) SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, FJELL_SUN_RADIUS_DEG, 1.0, 3.0, CAMERA_POS.y);
 
 // What the real bodies measure: both subtend about half a degree from the
 // ground, so both discs are a touch over a quarter degree in radius. The
@@ -26,6 +31,18 @@
 // decides how big the sun *reads*, more than the radius does.
 #define FJELL_SUN_DISC_NITS 1.35
 
+// How wide a band the bodies set across, in degrees either side of the
+// horizon. A body does not switch off when it reaches the edge of the world,
+// it sinks past it; this is how long that takes. Wide enough to read as a
+// setting rather than a cut, narrow enough that a body is not visibly ghosted
+// into the ground.
+#define FJELL_BODY_HORIZON_SOFTNESS 0.6
+
+// What is left of the sun's glow once its disc is below the horizon. The sun
+// goes on lighting the air from under the edge of the world — that is what
+// twilight is — so the halo outlives the body.
+#define FJELL_SUN_AFTERGLOW 0.15
+
 // A crisp disc with a soft halo around it. `radius_deg` is the disc's
 // angular radius in degrees and `halo_deg` how far past it the glow reaches;
 // `halo` scales that glow's strength.
@@ -36,7 +53,12 @@
 // the light down to tame the disc is never the move: it darkens the scene
 // and the disc still clips to white, since even 1.0 is the tonemapper's
 // white point and bloom takes everything above it.
-vec3 sun_disc(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float radius_deg, float halo_deg, float halo) {
+///
+/// `camera_height` is metres above the ground, for the horizon the sun sets
+/// behind. The disc fades out across it; the glow keeps a trace of itself
+/// below, since a sun that has just set still lights the sky.
+vec3 sun_disc(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float radius_deg,
+              float halo_deg, float halo, float camera_height) {
     float d = dot(view_dir, sun_dir);
     // Work in angle rather than in the cosine: near the disc the cosine is
     // flat to four decimal places, so an edge written there is unreadable.
@@ -60,14 +82,22 @@ vec3 sun_disc(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float radius_deg, flo
     // brightness does not chase the exposure.
     vec3 hue = sun_color / max(max(sun_color.r, max(sun_color.g, sun_color.b)), 1e-4);
     float lit = step(1e-4, max(sun_color.r, max(sun_color.g, sun_color.b)));
-    return hue * lit * (disc * FJELL_SUN_DISC_NITS + glow * 0.15 * halo);
+    float set = fjell_horizon_fade(view_dir, camera_height, FJELL_BODY_HORIZON_SOFTNESS);
+    float glow_set = mix(FJELL_SUN_AFTERGLOW, 1.0, set);
+    return hue * lit * (disc * FJELL_SUN_DISC_NITS * set + glow * 0.15 * halo * glow_set);
 }
 
 // A moon disc shaded as a sphere lit from the sun's direction, so the phase
 // follows the two bodies rather than a slider. `radius_deg` is the disc's
 // angular radius in degrees; `moon_color` is the moon's light already scaled
 // by its intensity, so a set or new moon draws nothing.
-vec3 moon_disc(vec3 view_dir, vec3 moon_dir, vec3 sun_dir, vec3 moon_color, float radius_deg) {
+///
+/// `camera_height` is metres above the ground, for the horizon the moon sets
+/// behind: it fades out across the horizon rather than vanishing at it, the
+/// way a body actually sets. Unlike the sun it leaves nothing behind, having
+/// no glow of its own to go on lighting the air.
+vec3 moon_disc(vec3 view_dir, vec3 moon_dir, vec3 sun_dir, vec3 moon_color,
+               float radius_deg, float camera_height) {
     float size = cos(radians(radius_deg));
     float d = dot(view_dir, moon_dir);
     if (d < size) return vec3(0.0);
@@ -83,7 +113,8 @@ vec3 moon_disc(vec3 view_dir, vec3 moon_dir, vec3 sun_dir, vec3 moon_color, floa
     // dark side readable against the sky.
     float lit = max(dot(normal, sun_dir), 0.0);
     float edge = smoothstep(1.0, 0.85, r2);
-    return moon_color * (lit + 0.03) * edge * 12.0;
+    float set = fjell_horizon_fade(view_dir, camera_height, FJELL_BODY_HORIZON_SOFTNESS);
+    return moon_color * (lit + 0.03) * edge * 12.0 * set;
 }
 
 // Rodrigues rotation of `v` about unit `axis` by `angle`.
@@ -183,7 +214,13 @@ vec3 fjell_star_color(float t) {
 // wobble here is scaled by how low the star sits — fierce near the horizon,
 // almost still overhead — which is what makes it read as atmosphere rather
 // than as a flicker effect.
-vec3 star_field(vec3 view_dir, float intensity, vec3 axis, float angle, float time) {
+///
+/// `camera_height` gives the horizon the field is cut off at. Stars do not
+/// meet the ground either: the air thickens toward it until they are gone,
+/// which the air-mass term above already does — this is what finishes them
+/// off at the edge itself.
+vec3 star_field(vec3 view_dir, float intensity, vec3 axis, float angle,
+                float time, float camera_height) {
     if (intensity <= 0.0) return vec3(0.0);
     vec3 dir = fjell_rotate_about(view_dir, axis, -angle);
     const float CELLS = 60.0;
@@ -290,7 +327,8 @@ vec3 star_field(vec3 view_dir, float intensity, vec3 axis, float angle, float ti
     float glow = band * band * band * (0.35 + 0.65 * dust) * lanes;
     light += vec3(0.62, 0.66, 0.85) * glow * 0.085;
 
-    return light * intensity * 3.0;
+    float set = fjell_horizon_fade(view_dir, camera_height, FJELL_BODY_HORIZON_SOFTNESS);
+    return light * intensity * 3.0 * set;
 }
 
 #endif // FJELL_SKY_BODIES_GLSL
