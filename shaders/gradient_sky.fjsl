@@ -11,7 +11,7 @@ uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
 // The disc itself is its own file, so a sky that wants a different one swaps
 // the path rather than the code, and the three sun dials keep the names a
 // scene already has values under: sun_size, sun_halo_size, sun_halo.
-use sun = "shaders/lib/sun_disc.fjsl"(view_dir: VIEW_DIR, sun_dir: SUN_DIR, sun_color: SUN_COLOR, time: TIME, air_gain: fjell_air_mass_gain(VIEW_DIR, 0.25), horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
+use sun = "shaders/lib/sun_painted.fjsl"(view_dir: VIEW_DIR, sun_dir: SUN_DIR, sun_color: SUN_COLOR, time: TIME, air_gain: fjell_air_mass_gain(VIEW_DIR, 0.25), horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
 // The night sky, as two functions: the galaxy's band, and the stars, which
 // crowd into it and so are told where it is. The galaxy is wired first —
 // a use reads only what is declared above it.
