@@ -11,7 +11,12 @@ The response belongs to a **contributor**, not to the file. A `.fjwater` of
 several contributors hands the same wind to each and lets each answer by its own
 dials, which is how one sea holds a swell that rolls through unmoved — raised by
 a storm somewhere else, response off — under a chop that rises and turns with
-the weather overhead. Everything below describes one contributor.
+the weather overhead. Everything below describes one Gerstner contributor.
+
+A simulated contributor answers the wind differently, and with one switch rather
+than four dials: it is a description of the sea a wind raises, so answering the
+weather is being raised by the weather's wind instead of its own. See
+[Simulated Sea](Simulated-Sea.md).
 
 ## The authored sea is the sea at the reference wind
 

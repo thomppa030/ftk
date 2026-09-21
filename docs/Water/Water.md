@@ -22,8 +22,11 @@ whatever the local wind does, while the chop riding on it answers the wind it is
 in. As two contributors that is two wind responses; as one list of trains it is
 a compromise.
 
-There is one kind today, **Gerstner**: a list of up to 16 trains an author can
-reason about one at a time. A field sums at most four of them.
+There are two kinds. **Gerstner** is a list of up to 16 trains an author can
+reason about one at a time, and a field sums at most four of them. **Simulated**
+is a sea raised from a wind-driven spectrum on the GPU — alive where Gerstner is
+art-directed — and has a page of its own: [Simulated Sea](Simulated-Sea.md). The
+rest of this page is about Gerstner contributors.
 
 ```json
 {
@@ -120,7 +123,7 @@ error to drive to zero.
 
 ## Evaluated twice
 
-The field is evaluated in two places, and they must agree:
+The Gerstner contributors are evaluated in two places, and they must agree:
 
 - `shaders/include/fjell_water_waves.glsl` — what you see
 - `src/renderer/resources/water_surface.cpp` — what physics asks
@@ -133,6 +136,17 @@ boat floating inside a wave is what drift between the two looks like.
 `tests/glsl_shim.hpp` and compares the two at a grid of sample points, so drift
 fails the build rather than shipping. It has caught every mismatch so far.
 Change one half and you change the other, in the same shape.
+
+The shader's evaluators read the field where it lives rather than being handed
+it. GLSL passes a struct by value, and the field is over two kilobytes: given as
+an argument it was copied out of the uniform buffer at every call, four times a
+vertex, which measured at three times the cost of the whole water draw. So a
+shader includes `fjell_water_field.glsl` for the layout, declares the buffer,
+says where the field is with `#define FJELL_WATER_FIELD water.field`, and only
+then includes `fjell_water_waves.glsl`.
+
+A simulated contributor is not part of this pair: it exists on the GPU only, and
+physics does not see it.
 
 The CPU side offers `height_at()` for the common case and
 `height_at_iterative()` when a body must sit on the water actually above it —
