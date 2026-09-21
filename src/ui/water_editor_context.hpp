@@ -7,6 +7,8 @@
 #include "ui/viewport_manager.hpp"
 
 #include <array>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -119,6 +121,9 @@ private:
     void draw_simulated_editor(FftContributor& sea);
     /// How much of the whole sea folds, measured when the sea has changed.
     void draw_fold_readout();
+    /// What the count of waves physics feels comes to: the share of the sea's
+    /// height they carry and the shortest wave among them.
+    void draw_physics_waves_readout(const FftContributor& sea);
 
     WaterEditorDeps deps_;
     std::string name_{"Water"};
@@ -136,6 +141,14 @@ private:
     /// contributor one costs tens of milliseconds.
     float folded_share_{0.0f};
     bool fold_stale_{true};
+    /// What the last physics-waves readout was taken from, and what it said.
+    /// The spectrum is held, not just compared, so a new one at the same
+    /// address cannot pass for it.
+    std::shared_ptr<const water::SpectrumField> physics_readout_spectrum_;
+    std::uint32_t physics_readout_count_{0};
+    float physics_height_share_{0.0f};
+    float physics_shortest_wave_{0.0f};
+
     /// One per row of the wind table.
     std::array<float, 5> wind_folded_share_{};
     bool wind_fold_stale_{true};

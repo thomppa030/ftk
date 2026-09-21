@@ -749,6 +749,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
                           "buoyancy is given the strongest waves in closed form — the same "
                           "waves, on the same clock. 0 floats a body on the Gerstner "
                           "contributors alone. Each one is work per floating point per tick.");
+    draw_physics_waves_readout(sea);
 
     if (changed) push_live();
 
@@ -770,6 +771,39 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     }
     const float texel = sea.patch_size / static_cast<float>(std::max(sea.resolution, 1u));
     ImGui::Text("Grid:               %.2f m a sample, waves down to %.1f m", texel, texel * 2.0f);
+}
+
+void WaterEditorContext::draw_physics_waves_readout(const FftContributor& sea) {
+    if (sea.physics_waves == 0) {
+        ImGui::TextDisabled("a floating body does not feel this sea");
+        return;
+    }
+    // Read off the sea the preview is actually running, so the number is about
+    // the waves physics is being given and not about a second draw made for the
+    // readout. Taken again only when that sea or the count changes: ranking
+    // every wavevector is too much to do per frame.
+    const auto* node = preview_scene_.find(preview_node_id_);
+    const auto* water = node != nullptr ? node->components.get<WaterComponent>() : nullptr;
+    if (water == nullptr || !water->effective_water.simulated.has_value()) return;
+    const auto& running = *water->effective_water.simulated;
+    if (running.spectrum == nullptr) return;
+
+    if (running.spectrum != physics_readout_spectrum_ ||
+        sea.physics_waves != physics_readout_count_) {
+        const water::StrongestWaves taken =
+            water::strongest_waves(*running.spectrum, sea.physics_waves);
+        physics_readout_spectrum_ = running.spectrum;
+        physics_readout_count_ = sea.physics_waves;
+        physics_height_share_ = taken.height_share;
+        physics_shortest_wave_ = taken.shortest_wavelength;
+    }
+    ImGui::Text("feels %.0f%% of its height, waves down to %.1f m",
+                physics_height_share_ * 100.0f, physics_shortest_wave_);
+    ImGui::SetItemTooltip("The strongest waves carry most of a sea's height. What a body "
+                          "floating on them misses is everything shorter than the shortest "
+                          "of them: about right for a hull that long or longer, which "
+                          "averages out chop shorter than itself, and visibly wrong for a "
+                          "buoy or a swimmer.");
 }
 
 void WaterEditorContext::draw_preview_wind() {
