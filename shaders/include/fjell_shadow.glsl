@@ -119,8 +119,11 @@ float shadow_factor(vec3 world_pos, vec3 normal, float NdotL_for_bias) {
 /// it, so the beam's edge matches the one the ground shows for the same
 /// occluder.
 ///
-/// `seed` rotates the disk; pass the pixel coordinate, and vary it per sample
-/// along the ray so the march dithers rather than banding.
+/// `turn` rotates the disk, as a share of a full turn, and `first_tap` says
+/// which of its points the read starts at. Both are the caller's because only
+/// the caller knows its own sequence: a march wants them to walk the disk from
+/// one step to the next, so that a ray's steps between them cover it evenly,
+/// and a hash drawn afresh at every step cannot promise that.
 ///
 /// `softness` widens the disk beyond what a surface would use, in metres of
 /// world space. A contact shadow wants a crisp edge and gets one from the
@@ -131,10 +134,18 @@ float shadow_factor(vec3 world_pos, vec3 normal, float NdotL_for_bias) {
 /// wedge rather than as light. Give it the distance from the occluder and it
 /// softens the way the real one does.
 ///
+/// `taps` is how many points of the disk this one call reads, from one to
+/// FJELL_VOLUMETRIC_SHADOW_DISK. A march does not need each of its samples
+/// filtered well, only the ray: the steps along it and the frames behind it
+/// are what fill the disk in, so the filter is paid for once per ray rather
+/// than once per step.
+///
 /// Returns -1 when the point lies outside every cascade, which a caller marching
 /// outward uses to stop: past the last cascade there is no shadow data, and
 /// integrating on as though it were lit invents light.
-float shadow_factor_volumetric(vec3 world_pos, vec2 seed, float softness) {
+#define FJELL_VOLUMETRIC_SHADOW_DISK 8
+float shadow_factor_volumetric(vec3 world_pos, float turn, int first_tap, float softness,
+                               int taps) {
     float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
 
     int cascade = 2;
@@ -170,13 +181,16 @@ float shadow_factor_volumetric(vec3 world_pos, vec2 seed, float softness) {
                  + softness / max(world_per_texel, 1e-4);
     float spread = texels / SHADOW_MAP_SIZE_F;
 
-    mat2 rot = random_rotation(seed);
+    float angle = turn * 6.2831853;
+    mat2 rot = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
+    int first = first_tap % FJELL_VOLUMETRIC_SHADOW_DISK;
+    int count = clamp(taps, 1, FJELL_VOLUMETRIC_SHADOW_DISK);
     float shadow = 0.0;
-    for (int i = 0; i < 8; ++i) {
-        vec2 offset = rot * POISSON_DISK[i] * spread;
+    for (int i = 0; i < count; ++i) {
+        vec2 offset = rot * POISSON_DISK[(first + i) % FJELL_VOLUMETRIC_SHADOW_DISK] * spread;
         shadow += texture(shadow_map, vec4(uv + offset, float(cascade), compare_depth));
     }
-    return shadow / 8.0;
+    return shadow / float(count);
 }
 
 #endif

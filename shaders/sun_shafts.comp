@@ -52,6 +52,14 @@
 // wall and wrong for the air above it.
 #define FJELL_SHAFT_SOFTNESS 0.02
 
+// How many points of the shadow filter's disk each step of the march reads.
+//
+// Not the whole disk. A ray takes dozens of steps and each reads a different
+// part of it, so the beam's soft edge is filled in along the ray and across
+// the frames the history holds, and reading all of it at every step pays for
+// the same filter dozens of times over.
+#define FJELL_SHAFT_SHADOW_TAPS 2
+
 // Where along a ray the run-out fade begins, as a share of how far that ray
 // reaches. A march ends when it leaves the shadow cascades, and ending at full
 // brightness cuts the beam flat across open air; fading over the last stretch
@@ -135,8 +143,9 @@ float ign(ivec2 coord, uint frame) {
 // Returns shadow in [0,1], or -1 if the sample is outside all cascades
 // (caller should stop the march — beyond-cascade in-scatter has no shape
 // and would just add a uniform sun-direction blob).
-float sample_cascade_shadow(vec3 world_pos, vec2 seed, float softness) {
-    return shadow_factor_volumetric(world_pos, seed, softness) * cloud_shadow_factor(world_pos);
+float sample_cascade_shadow(vec3 world_pos, float turn, int first_tap, float softness) {
+    return shadow_factor_volumetric(world_pos, turn, first_tap, softness, FJELL_SHAFT_SHADOW_TAPS)
+           * cloud_shadow_factor(world_pos);
 }
 
 void main() {
@@ -271,7 +280,17 @@ void main() {
         // of a shaft is the part that has travelled furthest and is the part
         // that should be softest.
         float softness = FJELL_SHAFT_SOFTNESS * march_t;
-        float shadow = sample_cascade_shadow(world_pos, vec2(coord) + float(i) * 7.13, softness);
+        // The filter's disk is walked, not drawn at random. Each step reads
+        // the points after the ones the step before it read, on a disk turned
+        // on by the golden angle, so any short run of steps — and it is a short
+        // run that crosses a beam's edge — has covered the whole disk evenly.
+        // Random draws cover it only on average, and the shortfall is grain.
+        // Where the walk starts is the pixel's own dither value, so neighbours
+        // and successive frames start apart.
+        float turn = fract(pixel_jitter + float(i) * 0.61803399);
+        int first_tap = int(pixel_jitter * float(FJELL_VOLUMETRIC_SHADOW_DISK))
+                      + int(i) * FJELL_SHAFT_SHADOW_TAPS;
+        float shadow = sample_cascade_shadow(world_pos, turn, first_tap, softness);
         // Beyond the shadow cascades there is no shape to be had, so the march
         // ends — but it has to end by fading out rather than by stopping. A ray
         // climbing toward a low sun leaves the cascades long before it reaches
