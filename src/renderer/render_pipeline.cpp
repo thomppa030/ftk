@@ -5,6 +5,7 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
+#include "renderer/pass/water_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -125,6 +126,15 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
+
+    // The surface depth is the scene depth with the sea laid over it, written
+    // by the water as it draws. Where no water draws there is no such image
+    // this frame, and the name stands for the scene depth instead — so a
+    // reader never has to ask whether the scene has a sea. Decided here, from
+    // this call's own context: each viewport renders a scene of its own.
+    const auto* water = passes.try_get<WaterPass>("water");
+    const bool water_draws = water != nullptr && water->draws(ctx);
+    decl_ctx.water_draws = water_draws;
     {
         FJELL_PROFILE_SCOPE_N("rp_imports_fill");
         auto add_import = [&](std::string_view name, VkImage img, VkImageView view,
@@ -135,6 +145,13 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         add_import("color",        target.color_image(),        target.color_view());
         add_import("depth",        target.depth_image(),        target.depth_view(),
                    VK_IMAGE_ASPECT_DEPTH_BIT);
+        if (water_draws) {
+            add_import("surface_depth", target.surface_depth_image(),
+                       target.surface_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
+        } else {
+            add_import("surface_depth", target.depth_image(), target.depth_view(),
+                       VK_IMAGE_ASPECT_DEPTH_BIT);
+        }
         add_import("mr",           target.mr_image(),           target.mr_view());
         add_import("normal",       target.normal_image(),       target.normal_view());
         add_import("velocity",     target.velocity_image(),     target.velocity_view());
@@ -526,6 +543,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_image()) : color_id;
     auto depth_id        = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
     auto msaa_depth_id   = has_msaa ? graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT) : depth_id;
+    auto surface_depth_id = water_draws ? graph.register_image(target.surface_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT) : depth_id;
     auto mr_id           = graph.register_image(target.mr_image());
     auto msaa_mr_id      = has_msaa ? graph.register_image(target.msaa_mr_image()) : mr_id;
     auto normal_id       = graph.register_image(target.normal_image());
@@ -541,6 +559,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
     registry.register_image("depth",         {.frame_graph_id = depth_id,         .image = target.depth_image(),         .view = target.depth_view()});
     registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .image = target.msaa_depth_image(),    .view = target.msaa_depth_view()});
+    registry.register_image("surface_depth", {.frame_graph_id = surface_depth_id,
+                                              .image = water_draws ? target.surface_depth_image() : target.depth_image(),
+                                              .view = water_draws ? target.surface_depth_view() : target.depth_view()});
     registry.register_image("mr",            {.frame_graph_id = mr_id,            .image = target.mr_image(),            .view = target.mr_view()});
     registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .image = target.msaa_mr_image(),       .view = target.msaa_mr_view()});
     registry.register_image("normal",        {.frame_graph_id = normal_id,        .image = target.normal_image(),        .view = target.normal_view()});

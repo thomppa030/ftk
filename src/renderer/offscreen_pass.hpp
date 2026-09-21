@@ -42,9 +42,22 @@ public:
 
     /// The sea's own depth buffer, which it may write so that a folded crest
     /// hides the water behind it. Seeded from the scene depth each frame it is
-    /// used; read by nothing but the water's own depth test.
+    /// used, so it holds the opaque scene with the water laid over it.
     [[nodiscard]] VkImageView water_depth_view() const { return water_depth_view_; }
     [[nodiscard]] VkImage water_depth_image() const { return water_depth_image_; }
+
+    /// That same depth as something to sample: the resolve target under MSAA,
+    /// the water depth itself at one sample. Only holds anything in a frame the
+    /// water drew — ask for "surface_depth" by name, which falls back to the
+    /// scene depth when it did not.
+    [[nodiscard]] VkImageView surface_depth_view() const {
+        return resolve_water_depth_view_ ? resolve_water_depth_view_ : water_depth_view_;
+    }
+    [[nodiscard]] VkImage surface_depth_image() const {
+        return resolve_water_depth_image_ ? resolve_water_depth_image_ : water_depth_image_;
+    }
+    /// The resolve target alone, null at one sample, for the scope that fills it.
+    [[nodiscard]] VkImageView resolve_water_depth_view() const { return resolve_water_depth_view_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
     [[nodiscard]] VkSampleCountFlagBits sample_count() const { return msaa_samples_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
@@ -141,6 +154,9 @@ private:
     VkImage water_depth_image_{VK_NULL_HANDLE};
     VmaAllocation water_depth_allocation_{VK_NULL_HANDLE};
     VkImageView water_depth_view_{VK_NULL_HANDLE};
+    VkImage resolve_water_depth_image_{VK_NULL_HANDLE};
+    VmaAllocation resolve_water_depth_allocation_{VK_NULL_HANDLE};
+    VkImageView resolve_water_depth_view_{VK_NULL_HANDLE};
 
     // Metallic/roughness render target (MSAA when samples > 1)
     VkImage mr_image_{VK_NULL_HANDLE};

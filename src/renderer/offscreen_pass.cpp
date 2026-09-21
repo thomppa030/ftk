@@ -76,6 +76,9 @@ void OffscreenPass::cleanup_images() {
     if (water_depth_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, water_depth_view_, nullptr);
     destroy_vma_image(allocator_, water_depth_image_, water_depth_allocation_);
 
+    if (resolve_water_depth_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_water_depth_view_, nullptr);
+    destroy_vma_image(allocator_, resolve_water_depth_image_, resolve_water_depth_allocation_);
+
     if (mr_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, mr_view_, nullptr);
     destroy_vma_image(allocator_, mr_image_, mr_allocation_);
 
@@ -115,6 +118,9 @@ void OffscreenPass::cleanup_images() {
     water_depth_view_ = VK_NULL_HANDLE;
     water_depth_image_ = VK_NULL_HANDLE;
     water_depth_allocation_ = VK_NULL_HANDLE;
+    resolve_water_depth_view_ = VK_NULL_HANDLE;
+    resolve_water_depth_image_ = VK_NULL_HANDLE;
+    resolve_water_depth_allocation_ = VK_NULL_HANDLE;
     mr_view_ = VK_NULL_HANDLE;
     mr_image_ = VK_NULL_HANDLE;
     mr_allocation_ = VK_NULL_HANDLE;
@@ -304,15 +310,16 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     // transparent pass binds the scene depth read-only, because a dozen
     // shaders sample that image meaning "the opaque scene" and water is not
     // part of it. So the sea gets a depth buffer of its own: one it may write,
-    // holding only what the water occludes, and read by nothing else.
+    // holding the opaque scene with the water laid over it.
     //
     // Seeded from the scene depth each frame it is used, which is why that one
     // carries TRANSFER_SRC above: without the seed a crest would draw over the
     // pier standing in front of it.
     //
     // Same sample count as the target, because the pipelines that write it are
-    // the target's. No resolve counterpart and no SAMPLED: nothing outside the
-    // water's own depth test ever reads it.
+    // the target's. What asks how far away a pixel is *after* the sea is drawn
+    // reads it as the surface depth: through the resolve below under MSAA, and
+    // directly at one sample, which is what SAMPLED is for there.
     VkImageCreateInfo water_depth_info{};
     water_depth_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     water_depth_info.imageType = VK_IMAGE_TYPE_2D;
@@ -324,6 +331,9 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     water_depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     water_depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
                              VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (!msaa) {
+        water_depth_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    }
     water_depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (create_vma_image(allocator_, &water_depth_info, &water_depth_image_,
@@ -340,6 +350,26 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
 
     if (vkCreateImageView(vk, &water_depth_view_info, nullptr, &water_depth_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create water depth view");
+    }
+
+    // -- Resolve water depth image (single-sample, only when MSAA) --
+    if (msaa) {
+        VkImageCreateInfo resolve_water_info = water_depth_info;
+        resolve_water_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        resolve_water_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                                   VK_IMAGE_USAGE_SAMPLED_BIT;
+
+        if (create_vma_image(allocator_, &resolve_water_info, &resolve_water_depth_image_,
+                             &resolve_water_depth_allocation_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve water depth image");
+        }
+
+        VkImageViewCreateInfo resolve_water_view_info = water_depth_view_info;
+        resolve_water_view_info.image = resolve_water_depth_image_;
+        if (vkCreateImageView(vk, &resolve_water_view_info, nullptr,
+                              &resolve_water_depth_view_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve water depth view");
+        }
     }
 
     // -- Metallic/roughness image (MSAA when enabled) --
@@ -585,6 +615,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     set_image_debug_name(vk, resolve_color_image_, tag + ".resolve_color");
     set_image_debug_name(vk, resolve_depth_image_, tag + ".resolve_depth");
     set_image_debug_name(vk, water_depth_image_, tag + ".water_depth");
+    set_image_debug_name(vk, resolve_water_depth_image_, tag + ".resolve_water_depth");
     set_image_debug_name(vk, mr_image_, tag + ".mr");
     set_image_debug_name(vk, resolve_mr_image_, tag + ".resolve_mr");
     set_image_debug_name(vk, normal_image_, tag + ".normal");

@@ -70,6 +70,11 @@ struct DeclareContext {
     bool ssr_enabled{true};
     bool gtao_enabled{true};
     bool taa_enabled{true};
+
+    /// Whether the sea draws into this viewport this frame, and so whether
+    /// "surface_depth" is an image of its own or another name for "depth".
+    /// A pass that writes it declares that only when this is set.
+    bool water_draws{false};
     bool auto_exposure_enabled{false};
     bool volumetric_fog_enabled{true};
     bool ddgi_enabled{true};

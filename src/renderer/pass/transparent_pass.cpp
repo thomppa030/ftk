@@ -404,6 +404,15 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_fragment);
     builder.read(screen, ResourceAccess::sampled_fragment);
 
+    // The water draws from inside this pass and leaves the surface depth
+    // behind. Declared only when it does: otherwise the name stands for the
+    // scene depth, which this pass samples, and a write declared on it would
+    // have the graph move the image out from under its own reader.
+    if (ctx.water_draws) {
+        auto surface_depth = builder.import_named(ctx, "surface_depth");
+        builder.write(surface_depth, ResourceAccess::depth_attachment);
+    }
+
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
         builder.read(atlas, ResourceAccess::sampled_fragment);
     }

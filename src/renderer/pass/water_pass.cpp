@@ -523,8 +523,13 @@ bool WaterPass::scene_has_water(const FrameContext& ctx) {
     return false;
 }
 
+bool WaterPass::draws(const FrameContext& ctx) const {
+    return ctx.target != nullptr && draw_mesh_tasks_ != nullptr && simulation_ != nullptr &&
+           scene_has_water(ctx);
+}
+
 void WaterPass::seed_water_depth(const FrameContext& ctx) {
-    if (ctx.target == nullptr || !scene_has_water(ctx)) return;
+    if (!draws(ctx)) return;
     const VkImage scene_depth = ctx.target->msaa_depth_image();
     const VkImage water_depth = ctx.target->water_depth_image();
     if (scene_depth == VK_NULL_HANDLE || water_depth == VK_NULL_HANDLE) return;
@@ -605,11 +610,7 @@ void WaterPass::seed_water_depth(const FrameContext& ctx) {
 }
 
 void WaterPass::record(const FrameContext& ctx) {
-    if (ctx.scene == nullptr || ctx.target == nullptr || draw_mesh_tasks_ == nullptr) {
-        return;
-    }
-
-    if (!scene_has_water(ctx) || simulation_ == nullptr) return;
+    if (!draws(ctx)) return;
 
     FJELL_PROFILE_SCOPE_N("record_water");
     FJELL_GPU_ZONE(ctx, "Water");
@@ -638,18 +639,29 @@ void WaterPass::record(const FrameContext& ctx) {
         color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
     }
-    (void)msaa;
 
     // The water's own depth, holding the scene depth the seed copied into it:
-    // loaded so the sea is still hidden by what stands in front of it, and
-    // discarded afterwards because nothing downstream reads it.
+    // loaded so the sea is still hidden by what stands in front of it.
+    //
+    // What is left in it at the end is the surface depth — the opaque scene
+    // with the sea laid over it — for whatever asks how far away a pixel is
+    // once the water is drawn. Under MSAA that leaves by a resolve and the
+    // multisampled image itself is not kept; at one sample the attachment is
+    // the surface depth and has to be stored.
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     depth_attachment.imageView = target->water_depth_view();
     depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
+    if (msaa) {
+        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth_attachment.resolveImageView = target->resolve_water_depth_view();
+        depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    } else {
+        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
+    }
 
     VkRenderingInfo ri{};
     ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;

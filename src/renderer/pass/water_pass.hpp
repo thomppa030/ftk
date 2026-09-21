@@ -85,6 +85,12 @@ public:
     /// it in, so the framegraph's tracker stays honest.
     void seed_water_depth(const FrameContext& ctx);
 
+    /// Whether the sea draws into this target this frame: the scene holds
+    /// water and the pass has what it needs to draw it. The seed, the draw and
+    /// whoever offers the surface depth to the frame all ask this, because a
+    /// surface depth nothing wrote is not one.
+    [[nodiscard]] bool draws(const FrameContext& ctx) const;
+
     /// Whether the scene holds water. Nothing else in the frame knows a water
     /// node exists — it is absent from the render queue — so passes that
     /// early-out on an empty queue ask this first.
