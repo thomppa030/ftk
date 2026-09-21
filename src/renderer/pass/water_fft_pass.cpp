@@ -3,6 +3,7 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/thread_pool.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -193,6 +195,10 @@ Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
 
 void WaterFftPass::destroy() {
     if (device_ == VK_NULL_HANDLE) return;
+    // A worker still shaping a spectrum holds nothing of the device's, but it
+    // is finished with before the pass that asked for it goes away.
+    if (reshaping_.has_value() && reshaping_->field.valid()) reshaping_->field.wait();
+    reshaping_.reset();
     verify_readback_.reset();
     for (auto& buffer : amplitude_buffers_) buffer.reset();
     for (auto* set : {&spectra_a_, &spectra_b_, &displacement_}) {
@@ -313,35 +319,94 @@ Result<> WaterFftPass::build_images() {
     return {};
 }
 
-void WaterFftPass::set_sea(const std::optional<FftContributor>& sea) {
+bool WaterFftPass::near_enough(const FftContributor& from, const FftContributor& to) {
+    // A tenth of a metre a second and half a degree: far under what shows on
+    // the water, and enough to turn a wind that drifts every frame into a
+    // redraw every second or so while a front passes and none once it has.
+    constexpr float SPEED_STEP = 0.1f;
+    constexpr float HEADING_STEP_COS = 0.99996f;   // cos(0.5 degrees)
+
+    FftContributor same_wind = to;
+    same_wind.wind_speed = from.wind_speed;
+    same_wind.wind_direction = from.wind_direction;
+    // Choppiness is applied when the spectrum is turned, each frame, so it is
+    // never a reason to draw the sea again.
+    same_wind.choppiness = from.choppiness;
+    if (same_wind != from) return false;
+
+    if (std::abs(to.wind_speed - from.wind_speed) > SPEED_STEP) return false;
+    const float from_len = glm::length(from.wind_direction);
+    const float to_len = glm::length(to.wind_direction);
+    if (from_len < 1e-6f || to_len < 1e-6f) return from_len < 1e-6f && to_len < 1e-6f;
+    return glm::dot(from.wind_direction, to.wind_direction) / (from_len * to_len)
+        >= HEADING_STEP_COS;
+}
+
+void WaterFftPass::adopt(const FftContributor& drawn_from, water::SpectrumField&& field) {
+    drawn_from_ = drawn_from;
+    k_spacing_ = field.k_spacing;
+    amplitudes_ = std::move(field.amplitudes);
+    amplitudes_stale_.fill(true);
+}
+
+void WaterFftPass::collect_reshape() {
+    if (!reshaping_.has_value()) return;
+    if (reshaping_->field.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+
+    water::SpectrumField field = reshaping_->field.get();
+    const FftContributor shaped_from = reshaping_->sea;
+    reshaping_.reset();
+    // Dropped if the grid has changed under it: the spectrum would no longer
+    // fit the images, and the change that outdated it drew its own.
+    if (sea_.has_value() && field.resolution == resolution_
+        && shaped_from.patch_size == sea_->patch_size && shaped_from.seed == sea_->seed) {
+        adopt(shaped_from, std::move(field));
+    }
+}
+
+void WaterFftPass::set_sea(const std::optional<FftContributor>& sea, ThreadPool* workers) {
     if (verifying_) return;   // the verification sea is not to be replaced under it
 
+    collect_reshape();
     if (!sea.has_value()) {
         sea_.reset();
+        drawn_from_.reset();
         return;
     }
-    if (sea_ == sea) return;
-
-    // Choppiness is applied when the spectrum is turned, each frame, so a
-    // change to it alone is not a different drawn sea.
-    auto drawn_from = [](FftContributor settings) {
-        settings.choppiness = 0.0f;
-        return settings;
-    };
-    const bool redraw = !sea_.has_value() || drawn_from(*sea_) != drawn_from(*sea);
-
     sea_ = sea;
-    if (!redraw) return;
+    if (drawn_from_.has_value() && near_enough(*drawn_from_, *sea)) return;
 
-    const water::SpectrumField field = water::generate_spectrum(*sea);
-    const std::uint32_t resolution = std::clamp(field.resolution, MIN_RESOLUTION, MAX_RESOLUTION);
-    if (field.amplitudes.empty() || resolution != field.resolution) {
-        FJELL_CORE_WARN("WaterFftPass: a simulated sea needs a resolution from {} to {}, got {}",
-                        MIN_RESOLUTION, MAX_RESOLUTION, sea->resolution);
+    const std::uint32_t resolution = std::bit_floor(sea->resolution);
+    if (sea->patch_size <= 0.0f || resolution < MIN_RESOLUTION || resolution > MAX_RESOLUTION) {
+        FJELL_CORE_WARN("WaterFftPass: a simulated sea needs a patch with a size and a resolution "
+                        "from {} to {}, got {} m at {}", MIN_RESOLUTION, MAX_RESOLUTION,
+                        sea->patch_size, sea->resolution);
         sea_.reset();
+        drawn_from_.reset();
         return;
     }
 
+    if (noise_.seed != sea->seed || noise_.resolution != resolution) {
+        noise_ = water::draw_noise(sea->seed, resolution);
+    }
+
+    const bool same_grid = drawn_from_.has_value() && images_ready_ && resolution == resolution_
+        && drawn_from_->patch_size == sea->patch_size && drawn_from_->seed == sea->seed;
+    if (same_grid && workers != nullptr) {
+        // One at a time. While a worker is busy the newest sea waits here in
+        // `sea_`, and is what gets shaped next.
+        if (!reshaping_.has_value()) {
+            reshaping_ = Reshape{
+                *sea, workers->submit([settings = *sea, noise = noise_] {
+                    return water::generate_spectrum(settings, noise);
+                })};
+        }
+        return;
+    }
+
+    // A different grid, or the first sea there has been: nothing drawn so far
+    // stands for it, so there is nothing to keep showing while a worker works.
+    reshaping_.reset();
     if (resolution != resolution_ || !images_ready_) {
         retire_images();
         resolution_ = resolution;
@@ -349,12 +414,11 @@ void WaterFftPass::set_sea(const std::optional<FftContributor>& sea) {
             FJELL_CORE_ERROR("{}", built.error());
             retire_images();
             sea_.reset();
+            drawn_from_.reset();
             return;
         }
     }
-    k_spacing_ = field.k_spacing;
-    amplitudes_ = field.amplitudes;
-    amplitudes_stale_.fill(true);
+    adopt(*sea, water::generate_spectrum(*sea, noise_));
 }
 
 void WaterFftPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -576,7 +640,7 @@ void WaterFftPass::begin_verification() {
     sea.resolution = 64;
     sea.choppiness = 1.2f;
     sea.seed = 7;
-    set_sea(sea);
+    set_sea(sea, nullptr);
     verifying_ = true;
     FJELL_CORE_INFO("WaterFftPass: verifying the GPU transform against the CPU reference");
 }

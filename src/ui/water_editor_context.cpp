@@ -237,6 +237,11 @@ GerstnerContributor* WaterEditorContext::selected_gerstner() {
     return std::get_if<GerstnerContributor>(&water_.contributors[selected_contributor_]);
 }
 
+FftContributor* WaterEditorContext::selected_simulated() {
+    if (selected_contributor_ >= water_.contributors.size()) return nullptr;
+    return std::get_if<FftContributor>(&water_.contributors[selected_contributor_]);
+}
+
 void WaterEditorContext::push_live() {
     dirty_ = true;
 
@@ -343,11 +348,14 @@ void WaterEditorContext::draw_generator_panel() {
         ImGui::End();
         return;
     }
+    if (FftContributor* simulated = selected_simulated()) {
+        draw_simulated_editor(*simulated);
+        ImGui::End();
+        return;
+    }
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ImGui::TextWrapped("A simulated contributor: a sea raised from a wind-driven "
-                           "spectrum on the GPU. It is drawn and not floated on — "
-                           "buoyancy rides the Gerstner contributors.");
+        ImGui::TextDisabled("Select a contributor to edit it.");
         ImGui::End();
         return;
     }
@@ -568,7 +576,14 @@ void WaterEditorContext::draw_contributor_list() {
 
     const bool has_selection = selected_contributor_ < water_.contributors.size();
 
-    ImGui::BeginDisabled(water_.contributors.size() >= MAX_GERSTNER_CONTRIBUTORS);
+    std::uint32_t gerstner_count = 0;
+    bool has_simulated = false;
+    for (const auto& contributor : water_.contributors) {
+        if (std::holds_alternative<GerstnerContributor>(contributor)) ++gerstner_count;
+        if (std::holds_alternative<FftContributor>(contributor)) has_simulated = true;
+    }
+
+    ImGui::BeginDisabled(gerstner_count >= MAX_GERSTNER_CONTRIBUTORS);
     if (ImGui::SmallButton("Add Gerstner")) {
         // Born with the generator's sea rather than empty, so adding one shows
         // something to shape instead of a row that does nothing yet.
@@ -579,8 +594,20 @@ void WaterEditorContext::draw_contributor_list() {
         push_live();
     }
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("A field sums at most %u Gerstner contributors.",
-                          MAX_GERSTNER_CONTRIBUTORS);
+    ImGui::SetItemTooltip("Authored trains, one at a time. A field sums at most %u "
+                          "Gerstner contributors.", MAX_GERSTNER_CONTRIBUTORS);
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(has_simulated);
+    if (ImGui::SmallButton("Add Simulated")) {
+        water_.contributors.emplace_back(FftContributor{});
+        selected_contributor_ = water_.contributors.size() - 1;
+        push_live();
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("A sea raised from a wind-driven spectrum on the GPU. One to a "
+                          "field: a simulation is a patch of water carried forward every "
+                          "frame, and the world runs one.");
 
     ImGui::SameLine();
     ImGui::BeginDisabled(!has_selection || selected_contributor_ == 0);
@@ -605,7 +632,12 @@ void WaterEditorContext::draw_contributor_list() {
 
     ImGui::SameLine();
     ImGui::BeginDisabled(!has_selection);
-    if (ImGui::SmallButton("Remove")) {
+    // Says what it is about to take, since it acts on the selection and not on
+    // whichever row the eye happens to be on.
+    const char* remove_label = !has_selection ? "Remove"
+        : (std::holds_alternative<FftContributor>(water_.contributors[selected_contributor_])
+               ? "Remove Simulated" : "Remove Gerstner");
+    if (ImGui::SmallButton(remove_label)) {
         water_.contributors.erase(water_.contributors.begin()
                                   + static_cast<std::ptrdiff_t>(selected_contributor_));
         // Stay where the list was being worked on: the one that slid into
@@ -619,18 +651,118 @@ void WaterEditorContext::draw_contributor_list() {
     ImGui::EndDisabled();
 }
 
+void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
+    ImGui::TextWrapped("A sea raised from a wind-driven spectrum and simulated on the "
+                       "GPU. It is drawn and not floated on: buoyancy rides the Gerstner "
+                       "contributors and does not feel this one.");
+    ImGui::Spacing();
+
+    bool changed = false;
+
+    ImGui::TextDisabled("The wind that raises it");
+    changed |= ImGui::Checkbox("Answers the weather", &sea.answers_weather);
+    ImGui::SetItemTooltip("On, the weather's wind replaces the two dials below — late, "
+                          "so a front builds the sea over its passage. Off, this sea "
+                          "is raised by its own wind whatever the weather does.");
+    float heading = direction_degrees(sea.wind_direction);
+    if (ImGui::SliderFloat("Wind heading", &heading, -180.0f, 180.0f, "%.0f deg")) {
+        sea.wind_direction = direction_from_degrees(heading);
+        changed = true;
+    }
+    changed |= ImGui::SliderFloat("Wind speed", &sea.wind_speed, 0.0f, 35.0f, "%.1f m/s");
+    ImGui::SetItemTooltip("8 is a fresh breeze, 15 a near gale, 25 a storm.");
+    if (sea.answers_weather) {
+        ImGui::TextDisabled("under weather these are the sea with no weather, and the "
+                            "preview wind stands in for it here");
+    }
+
+    float fetch_km = sea.fetch / 1000.0f;
+    if (ImGui::SliderFloat("Fetch", &fetch_km, 0.5f, 500.0f, "%.1f km",
+                           ImGuiSliderFlags_Logarithmic)) {
+        sea.fetch = fetch_km * 1000.0f;
+        changed = true;
+    }
+    ImGui::SetItemTooltip("How far the wind has blown over open water. Short is a lake's "
+                          "steep chop, long is the open ocean's heavy swell under the "
+                          "same wind.");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Stylisation");
+    changed |= ImGui::SliderFloat("Height", &sea.amplitude_scale, 0.0f, 4.0f, "%.2fx");
+    changed |= ImGui::SliderFloat("Choppiness", &sea.choppiness, 0.0f, 3.0f, "%.2f");
+    ImGui::SetItemTooltip("How far crests are pinched. 1 is the physical amount, which "
+                          "reads as gentle; past it crests sharpen until they fold and "
+                          "foam. The same motion a Gerstner train's steepness buys.");
+    changed |= ImGui::SliderFloat("Spread", &sea.spread_degrees, 2.0f, 90.0f, "%.0f deg");
+    ImGui::SetItemTooltip("The angle from the wind at which the sea carries half the "
+                          "energy it carries downwind. Narrow for long parallel ridges, "
+                          "wide for a confused sea.");
+    changed |= ImGui::SliderFloat("High cut", &sea.high_cut, 0.0f, 40.0f, "%.1f m");
+    ImGui::SetItemTooltip("Fades out waves shorter than this. The biggest stylisation "
+                          "control: it turns a busy correct ocean into a few big readable "
+                          "swells. 0 keeps everything the grid holds.");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("The simulated patch");
+    changed |= ImGui::SliderFloat("Patch size", &sea.patch_size, 16.0f, 2000.0f, "%.0f m",
+                                  ImGuiSliderFlags_Logarithmic);
+    ImGui::SetItemTooltip("The square of sea that is simulated; it tiles beyond that. It "
+                          "wants several of the longest waves in it, and few enough that "
+                          "the grid still resolves the short ones.");
+    static constexpr std::uint32_t RESOLUTIONS[] = {64, 128, 256, 512, 1024};
+    if (ImGui::BeginCombo("Resolution", std::to_string(sea.resolution).c_str())) {
+        for (std::uint32_t option : RESOLUTIONS) {
+            if (ImGui::Selectable(std::to_string(option).c_str(), option == sea.resolution)) {
+                sea.resolution = option;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SetItemTooltip("Samples along each side. Four times the cost for each step up.");
+    int seed = static_cast<int>(sea.seed);
+    if (ImGui::InputInt("Seed", &seed)) {
+        sea.seed = static_cast<std::uint32_t>(std::max(seed, 0));
+        changed = true;
+    }
+    ImGui::SetItemTooltip("Which sea of all the seas this spectrum describes.");
+
+    if (changed) push_live();
+
+    // What those settings come to, since none of them is a wave to look at.
+    ImGui::Separator();
+    ImGui::TextDisabled("What it comes to");
+    const float peak = water::peak_frequency(sea);
+    if (peak > 0.0f) {
+        const float wavelength = glm::two_pi<float>() * 9.81f / (peak * peak);
+        ImGui::Text("Significant height: %.2f m", water::significant_amplitude(sea) * 2.0f);
+        ImGui::Text("Dominant wave:      %.0f m, every %.1f s", wavelength,
+                    glm::two_pi<float>() / peak);
+        if (wavelength * 3.0f > sea.patch_size) {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                               "the patch holds under 3 of them — they will be cut short");
+        }
+    } else {
+        ImGui::TextDisabled("no wind, no sea");
+    }
+    const float texel = sea.patch_size / static_cast<float>(std::max(sea.resolution, 1u));
+    ImGui::Text("Grid:               %.2f m a sample, waves down to %.1f m", texel, texel * 2.0f);
+}
+
 void WaterEditorContext::draw_preview_wind() {
     // Shown once anything in the sea answers the wind; until then these would
     // be dials with nothing to answer them.
     const GerstnerContributor* answering = nullptr;
+    bool any_answers = false;
     for (const auto& contributor : water_.contributors) {
-        const auto* gerstner = std::get_if<GerstnerContributor>(&contributor);
-        if (gerstner != nullptr && gerstner->wind.enabled) {
-            answering = gerstner;
-            break;
+        if (const auto* gerstner = std::get_if<GerstnerContributor>(&contributor)) {
+            if (gerstner->wind.enabled && answering == nullptr) answering = gerstner;
+            any_answers |= gerstner->wind.enabled;
+        } else if (const auto* fft = std::get_if<FftContributor>(&contributor)) {
+            any_answers |= fft->answers_weather;
         }
     }
-    if (answering == nullptr) return;
+    if (!any_answers) return;
 
     ImGui::Spacing();
     // The wind blowing on the preview, which is the editor's and not the
@@ -647,16 +779,20 @@ void WaterEditorContext::draw_preview_wind() {
                            -180.0f, 180.0f, "%.0f deg")) {
         apply_preview_wind();
     }
+    // Back to the sea as authored, which only a Gerstner contributor has a
+    // wind for: a simulated one is whatever sea the wind it is given raises.
     const GerstnerContributor* selected = selected_gerstner();
-    const GerstnerContributor& reference = selected != nullptr && selected->wind.enabled
-        ? *selected
-        : *answering;
-    if (ImGui::Button("Wind = reference")) {
-        preview_wind_speed_ = reference.wind.reference_speed;
-        apply_preview_wind();
+    const GerstnerContributor* reference = selected != nullptr && selected->wind.enabled
+        ? selected
+        : answering;
+    if (reference != nullptr) {
+        if (ImGui::Button("Wind = reference")) {
+            preview_wind_speed_ = reference->wind.reference_speed;
+            apply_preview_wind();
+        }
+        ImGui::SetItemTooltip("Back to the reference wind of the selected contributor, "
+                              "which is that contributor as authored.");
     }
-    ImGui::SetItemTooltip("Back to the reference wind of the selected contributor, "
-                          "which is that contributor as authored.");
 }
 
 void WaterEditorContext::draw_measures() {

@@ -203,7 +203,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
                 break;
             }
         }
-        simulation_->set_sea(sea);
+        simulation_->set_sea(sea, ctx.thread_pool);
     }
 
     // Pipelines are built here rather than in record(): a first sighting of a

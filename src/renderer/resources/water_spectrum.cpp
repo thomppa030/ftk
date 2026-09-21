@@ -58,48 +58,60 @@ constexpr float PEAK_ENHANCEMENT = 3.3f;
 
 } // namespace
 
-float peak_frequency(const FftContributor& sea) {
-    if (sea.wind_speed <= 0.0f || sea.fetch <= 0.0f) return 0.0f;
-    return 22.0f * std::cbrt(GRAVITY * GRAVITY / (sea.wind_speed * sea.fetch));
+namespace {
+
+// What a sea's settings come to, worked out once. Every one of these is the
+// same for all sixty-five thousand wavevectors of a grid, and between them
+// they are most of what a draw would otherwise spend its time on.
+struct SeaConstants {
+    float peak{0.0f};          // rad/s; 0 for a sea with no wind or no fetch
+    float energy{0.0f};        // the Phillips constant
+    float spread_power{0.0f};  // s in cos^(2s)(angle / 2)
+    float spread_norm{0.0f};   // makes the spreading integrate to 1
+    glm::vec2 wind{0.0f};      // unit, or zero when the wind has no direction
+};
+
+[[nodiscard]] SeaConstants constants_of(const FftContributor& sea) {
+    SeaConstants c;
+    if (sea.wind_speed > 0.0f && sea.fetch > 0.0f) {
+        c.peak = 22.0f * std::cbrt(GRAVITY * GRAVITY / (sea.wind_speed * sea.fetch));
+        c.energy = energy_scale(sea);
+    }
+    c.spread_power = spread_exponent(sea.spread_degrees);
+    // The integral of cos^(2s)(angle / 2) around the circle, in closed form,
+    // which is what makes the spreading a share of the energy rather than a
+    // gain on it.
+    c.spread_norm = std::exp(std::lgamma(c.spread_power + 1.0f)
+                             - std::lgamma(c.spread_power + 0.5f))
+                  / (2.0f * std::sqrt(PI));
+    const float wind_len = glm::length(sea.wind_direction);
+    if (wind_len >= 1e-6f) c.wind = sea.wind_direction / wind_len;
+    return c;
 }
 
-float significant_amplitude(const FftContributor& sea) {
-    const float peak = peak_frequency(sea);
-    if (peak <= 0.0f) return 0.0f;
-    const float alpha = energy_scale(sea);
-    const float variance = 1.52f * alpha * GRAVITY * GRAVITY / (5.0f * peak * peak * peak * peak);
-    // Significant wave height is four standard deviations, crest to trough.
-    return 2.0f * std::sqrt(variance) * sea.amplitude_scale;
-}
+[[nodiscard]] float jonswap_at(const SeaConstants& c, float omega) {
+    if (omega <= 0.0f || c.peak <= 0.0f) return 0.0f;
 
-float jonswap(const FftContributor& sea, float omega) {
-    const float peak = peak_frequency(sea);
-    if (omega <= 0.0f || peak <= 0.0f) return 0.0f;
-
-    const float alpha = energy_scale(sea);
-    const float sigma = omega <= peak ? 0.07f : 0.09f;
-    const float offset = (omega - peak) / (sigma * peak);
+    const float sigma = omega <= c.peak ? 0.07f : 0.09f;
+    const float offset = (omega - c.peak) / (sigma * c.peak);
     const float enhancement = std::pow(PEAK_ENHANCEMENT, std::exp(-0.5f * offset * offset));
 
-    const float ratio = peak / omega;
-    return alpha * GRAVITY * GRAVITY / std::pow(omega, 5.0f)
-         * std::exp(-1.25f * ratio * ratio * ratio * ratio) * enhancement;
+    const float ratio = c.peak / omega;
+    const float ratio4 = ratio * ratio * ratio * ratio;
+    const float omega5 = omega * omega * omega * omega * omega;
+    return c.energy * GRAVITY * GRAVITY / omega5 * std::exp(-1.25f * ratio4) * enhancement;
 }
 
-float directional_spread(const FftContributor& sea, float angle_from_wind) {
-    const float s = spread_exponent(sea.spread_degrees);
-    // The integral of cos^(2s)(angle / 2) around the circle, in closed form,
-    // which is what makes this a share of the energy rather than a gain on it.
-    const float norm = std::exp(std::lgamma(s + 1.0f) - std::lgamma(s + 0.5f))
-                     / (2.0f * std::sqrt(PI));
-    const float c = std::abs(std::cos(angle_from_wind * 0.5f));
-    return norm * std::pow(c, 2.0f * s);
+// cos^(2s)(angle / 2), from the cosine of the angle itself: cos^2 of a half
+// angle is (1 + cos) / 2, which spares finding the angle at all.
+[[nodiscard]] float spread_at(const SeaConstants& c, float cos_angle_from_wind) {
+    const float half_angle_cos_squared = std::max(0.5f * (1.0f + cos_angle_from_wind), 0.0f);
+    return c.spread_norm * std::pow(half_angle_cos_squared, c.spread_power);
 }
 
-float wavenumber_spectrum(const FftContributor& sea, glm::vec2 k) {
+[[nodiscard]] float density_at(const SeaConstants& c, const FftContributor& sea, glm::vec2 k) {
     const float k_len = glm::length(k);
-    const float wind_len = glm::length(sea.wind_direction);
-    if (k_len < 1e-6f || wind_len < 1e-6f) return 0.0f;
+    if (k_len < 1e-6f || c.wind == glm::vec2(0.0f)) return 0.0f;
 
     // Deep water: omega^2 = g k, so a band of frequencies d(omega) is a ring
     // of wavevectors of area k dk d(angle), and the density changes by the
@@ -107,10 +119,8 @@ float wavenumber_spectrum(const FftContributor& sea, glm::vec2 k) {
     const float omega = std::sqrt(GRAVITY * k_len);
     const float domega_dk = GRAVITY / (2.0f * omega);
 
-    const glm::vec2 wind = sea.wind_direction / wind_len;
-    const float angle = std::atan2(wind.x * k.y - wind.y * k.x, glm::dot(wind, k));
-
-    float density = jonswap(sea, omega) * directional_spread(sea, angle) * domega_dk / k_len;
+    float density = jonswap_at(c, omega) * spread_at(c, glm::dot(c.wind, k) / k_len)
+                  * domega_dk / k_len;
 
     if (sea.high_cut > 0.0f) {
         const float fade = k_len * sea.high_cut / TAU;
@@ -119,23 +129,72 @@ float wavenumber_spectrum(const FftContributor& sea, glm::vec2 k) {
     return density * sea.amplitude_scale * sea.amplitude_scale;
 }
 
+} // namespace
+
+float peak_frequency(const FftContributor& sea) {
+    return constants_of(sea).peak;
+}
+
+float significant_amplitude(const FftContributor& sea) {
+    const SeaConstants c = constants_of(sea);
+    if (c.peak <= 0.0f) return 0.0f;
+    const float variance = 1.52f * c.energy * GRAVITY * GRAVITY
+                         / (5.0f * c.peak * c.peak * c.peak * c.peak);
+    // Significant wave height is four standard deviations, crest to trough.
+    return 2.0f * std::sqrt(variance) * sea.amplitude_scale;
+}
+
+float jonswap(const FftContributor& sea, float omega) {
+    return jonswap_at(constants_of(sea), omega);
+}
+
+float directional_spread(const FftContributor& sea, float angle_from_wind) {
+    return spread_at(constants_of(sea), std::cos(angle_from_wind));
+}
+
+float wavenumber_spectrum(const FftContributor& sea, glm::vec2 k) {
+    return density_at(constants_of(sea), sea, k);
+}
+
 float SpectrumField::wavenumber(std::uint32_t i) const {
     const auto n = static_cast<std::int32_t>(i);
     const auto size = static_cast<std::int32_t>(resolution);
     return static_cast<float>(n < size / 2 ? n : n - size) * k_spacing;
 }
 
+SpectrumNoise draw_noise(std::uint32_t seed, std::uint32_t resolution) {
+    SpectrumNoise noise;
+    if (resolution < 2) return noise;
+    noise.resolution = std::bit_floor(resolution);
+    noise.seed = seed;
+    noise.normals.resize(static_cast<std::size_t>(noise.resolution) * noise.resolution);
+    for (std::uint32_t z = 0; z < noise.resolution; ++z) {
+        for (std::uint32_t x = 0; x < noise.resolution; ++x) {
+            noise.normals[static_cast<std::size_t>(z) * noise.resolution + x] =
+                gaussian_pair(x, z, seed);
+        }
+    }
+    return noise;
+}
+
 SpectrumField generate_spectrum(const FftContributor& sea) {
+    return generate_spectrum(sea, draw_noise(sea.seed, sea.resolution));
+}
+
+SpectrumField generate_spectrum(const FftContributor& sea, const SpectrumNoise& noise) {
     SpectrumField field;
     if (sea.resolution < 2 || sea.patch_size <= 0.0f) return field;
+    if (noise.seed != sea.seed || noise.resolution != std::bit_floor(sea.resolution)) return field;
 
-    field.resolution = std::bit_floor(sea.resolution);
+    field.resolution = noise.resolution;
     field.k_spacing = TAU / sea.patch_size;
-    field.amplitudes.resize(static_cast<std::size_t>(field.resolution) * field.resolution);
+    field.amplitudes.resize(noise.normals.size());
 
+    const SeaConstants constants = constants_of(sea);
     const float cell_area = field.k_spacing * field.k_spacing;
     for (std::uint32_t z = 0; z < field.resolution; ++z) {
         for (std::uint32_t x = 0; x < field.resolution; ++x) {
+            const std::size_t cell = static_cast<std::size_t>(z) * field.resolution + x;
             const glm::vec2 k{field.wavenumber(x), field.wavenumber(z)};
 
             // The surface is made real by adding, to every wavevector, the
@@ -144,9 +203,8 @@ SpectrumField generate_spectrum(const FftContributor& sea) {
             // stands 2|h| tall and carries a variance of 2|h|^2. For that to
             // be the cell's share of the spectrum, |h|^2 must average half of
             // it, and a pair of unit normals already averages 2.
-            const float variance = wavenumber_spectrum(sea, k) * cell_area;
-            field.amplitudes[static_cast<std::size_t>(z) * field.resolution + x] =
-                gaussian_pair(x, z, sea.seed) * std::sqrt(variance * 0.25f);
+            const float variance = density_at(constants, sea, k) * cell_area;
+            field.amplitudes[cell] = noise.normals[cell] * std::sqrt(variance * 0.25f);
         }
     }
     return field;

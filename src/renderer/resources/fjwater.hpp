@@ -226,6 +226,13 @@ struct FftContributor {
     /// same reference a Gerstner contributor is authored at.
     float wind_speed{8.0f};
 
+    /// Whether the weather's wind replaces the two above. Off, the sea is the
+    /// one its own wind raises, whatever the weather does — a canal, a pool,
+    /// a sea held still to be tuned. On, it is raised by the wind the weather
+    /// is blowing, late: the same lag an authored sea answers through, so a
+    /// front builds it over its passage rather than at its arrival.
+    bool answers_weather{false};
+
     /// How far the wind has blown over open water to get here, in metres.
     /// With wind speed it decides how grown the sea is: a short fetch is a
     /// lake's steep short chop, a long one the open ocean's heavy swell under

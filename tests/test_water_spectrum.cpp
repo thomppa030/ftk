@@ -351,3 +351,41 @@ TEST_CASE("The sea's size in closed form is the spectrum's own", "[water_spectru
     calm.wind_speed = 0.0f;
     REQUIRE(water::significant_amplitude(calm) == 0.0f);
 }
+
+TEST_CASE("Kept noise under a new wind is the same sea, grown", "[water_spectrum]") {
+    // What lets a sea follow the weather without being rolled afresh each
+    // time: the random part is fixed by the seed, so every wavevector keeps
+    // its phase while the spectrum over it changes. If the phases moved, the
+    // water would jump every time the wind did.
+    FftContributor breeze;
+    breeze.resolution = 64;
+    breeze.wind_speed = 7.0f;
+    FftContributor gale = breeze;
+    gale.wind_speed = 18.0f;
+
+    const auto noise = water::draw_noise(breeze.seed, breeze.resolution);
+    const auto calm_sea = water::generate_spectrum(breeze, noise);
+    const auto rough_sea = water::generate_spectrum(gale, noise);
+
+    // Shaping from kept noise is the same draw as shaping from scratch.
+    REQUIRE(calm_sea.amplitudes == water::generate_spectrum(breeze).amplitudes);
+
+    std::size_t compared = 0;
+    for (std::size_t i = 0; i < calm_sea.amplitudes.size(); ++i) {
+        const glm::vec2 a = calm_sea.amplitudes[i];
+        const glm::vec2 b = rough_sea.amplitudes[i];
+        if (glm::length(a) < 1e-9f || glm::length(b) < 1e-9f) continue;
+        // Same direction in the complex plane: same phase.
+        const float cross = a.x * b.y - a.y * b.x;
+        REQUIRE(std::abs(cross) <= 1e-4f * glm::length(a) * glm::length(b));
+        REQUIRE(glm::dot(a, b) > 0.0f);
+        ++compared;
+    }
+    REQUIRE(compared > 100);
+
+    // Noise for another sea is refused rather than shaped into the wrong one.
+    REQUIRE(water::generate_spectrum(breeze, water::draw_noise(breeze.seed + 1, 64))
+                .amplitudes.empty());
+    REQUIRE(water::generate_spectrum(breeze, water::draw_noise(breeze.seed, 32))
+                .amplitudes.empty());
+}

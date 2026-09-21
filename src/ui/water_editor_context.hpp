@@ -106,6 +106,12 @@ private:
     /// The Gerstner contributor the panels are editing, or nullptr when the
     /// field has none selected.
     [[nodiscard]] GerstnerContributor* selected_gerstner();
+    /// The simulated contributor the panels are editing, or nullptr when the
+    /// selection is not one.
+    [[nodiscard]] FftContributor* selected_simulated();
+    /// The "Sea" panel for a simulated contributor: its wind, its stylisation
+    /// and its grid, and what they come to.
+    void draw_simulated_editor(FftContributor& sea);
 
     WaterEditorDeps deps_;
     std::string name_{"Water"};

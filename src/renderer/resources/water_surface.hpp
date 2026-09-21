@@ -87,8 +87,9 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 [[nodiscard]] GerstnerContributor apply_wind(const GerstnerContributor& water,
                                              glm::vec2 wind_xz);
 
-/// A simulated contributor as the wind has made it. It is raised by the wind
-/// it was authored with, whatever the weather is doing.
+/// A simulated contributor as the wind has made it: the same sea raised by
+/// `wind_xz` instead of by its authored wind, when it answers the weather, and
+/// unchanged when it does not. A calm leaves it flat and facing as it was.
 [[nodiscard]] FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz);
 
 /// The authored field as the wind has made it: every contributor's own answer

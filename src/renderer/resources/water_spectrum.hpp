@@ -61,6 +61,24 @@ struct SpectrumField {
     [[nodiscard]] float wavenumber(std::uint32_t i) const;
 };
 
+/// The random part of a drawn sea: a pair of independent standard normals for
+/// every wavevector of an N x N grid, row-major.
+///
+/// It depends on the seed and the resolution and on nothing else, which is
+/// what lets a sea change its wind without changing which sea it is: the same
+/// noise under a new spectrum is the same waves, grown or turned, rather than
+/// a fresh roll of them. It is also most of what drawing a sea costs, so
+/// whoever redraws one often keeps this and reuses it.
+struct SpectrumNoise {
+    std::uint32_t resolution{0};
+    std::uint32_t seed{0};
+    std::vector<glm::vec2> normals;
+};
+
+/// Draw the noise for a seed. The resolution is rounded down to a power of
+/// two; under 2 the noise comes back empty. Deterministic on every platform.
+[[nodiscard]] SpectrumNoise draw_noise(std::uint32_t seed, std::uint32_t resolution);
+
 /// Draw a sea from the contributor's spectrum.
 ///
 /// Each amplitude is a complex Gaussian scaled so that the surface the grid
@@ -69,6 +87,12 @@ struct SpectrumField {
 /// seed on every platform. The resolution is rounded down to a power of two;
 /// an empty field comes back for a resolution under 2 or a patch of no size.
 [[nodiscard]] SpectrumField generate_spectrum(const FftContributor& sea);
+
+/// The same, from noise already drawn. `noise` must be the one for this
+/// contributor's seed and resolution; given any other, the field comes back
+/// empty rather than shaped from the wrong sea.
+[[nodiscard]] SpectrumField generate_spectrum(const FftContributor& sea,
+                                              const SpectrumNoise& noise);
 
 /// The three spectra a simulated sea is transformed from at `time`: height,
 /// and the horizontal displacement along x and z that pinches its crests.

@@ -227,8 +227,19 @@ GerstnerContributor apply_wind(const GerstnerContributor& water, glm::vec2 wind_
     return out;
 }
 
-FftContributor apply_wind(const FftContributor& water, glm::vec2 /*wind_xz*/) {
-    return water;
+FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz) {
+    if (!water.answers_weather) return water;
+
+    // A spectrum is a description of the sea a wind raises, so answering the
+    // wind is being described by a different one. Nothing is scaled or turned
+    // by hand the way a Gerstner contributor's trains are: more wind is a
+    // taller, longer sea because that is what the spectrum says it is.
+    FftContributor out = water;
+    out.wind_speed = glm::length(wind_xz);
+    // A dead calm has no heading to take. The sea it leaves is flat whichever
+    // way it faces, so it keeps the one it had for the wind to come back to.
+    if (out.wind_speed >= 1e-3f) out.wind_direction = wind_xz / out.wind_speed;
+    return out;
 }
 
 FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {

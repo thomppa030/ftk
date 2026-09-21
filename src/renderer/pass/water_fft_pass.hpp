@@ -4,17 +4,21 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_spectrum.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
 
 namespace fjell {
+
+class ThreadPool;
 
 // Simulates a sea from a spectrum: the patch of water an `FftContributor`
 // describes, carried forward to now each frame and transformed into a tiling
@@ -52,9 +56,17 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// The sea to simulate, or none. Compared against the one already running,
-    /// so handing over the same settings every frame costs nothing; a change
-    /// redraws the spectrum, and a change of resolution rebuilds the images.
-    void set_sea(const std::optional<FftContributor>& sea);
+    /// so handing over the same settings every frame costs nothing.
+    ///
+    /// A sea under the weather is a slightly different sea every frame, and
+    /// shaping a spectrum takes milliseconds, so a change of wind too small to
+    /// see is let pass and a larger one is shaped on `workers` and swapped in
+    /// when it is done — the noise under it is kept, so the waves grow and turn
+    /// rather than being rolled afresh. A change to the grid itself (patch
+    /// size, resolution, seed) is redrawn at once, since the scale the
+    /// textures are sampled at changes with it; so is anything when `workers`
+    /// is null.
+    void set_sea(const std::optional<FftContributor>& sea, ThreadPool* workers);
 
     /// Whether there is a simulated surface to sample this frame.
     [[nodiscard]] bool active() const { return sea_.has_value() && images_ready_; }
@@ -126,6 +138,14 @@ private:
     /// Fill a mip chain from its top level, and leave every level readable.
     void generate_mips(VkCommandBuffer cmd, const Image& image) const;
 
+    /// Whether `from` and `to` differ by little enough that the sea drawn
+    /// from one still stands for the other.
+    [[nodiscard]] static bool near_enough(const FftContributor& from, const FftContributor& to);
+    /// Put a shaped spectrum to work: on the GPU from the next record().
+    void adopt(const FftContributor& drawn_from, water::SpectrumField&& field);
+    /// Take a worker's finished spectrum, if there is one.
+    void collect_reshape();
+
     /// Asked for through FJELL_VERIFY_WATER_FFT: simulate a fixed sea at a
     /// fixed time, read the surface back, and hold it to the CPU's plain
     /// Fourier sum of the same spectrum.
@@ -144,6 +164,15 @@ private:
     VkSampler sampler_{VK_NULL_HANDLE};
 
     std::optional<FftContributor> sea_;
+    /// The settings the spectrum on the GPU was shaped from, which trail
+    /// `sea_` by whatever is too small to redraw for or still being shaped.
+    std::optional<FftContributor> drawn_from_;
+    water::SpectrumNoise noise_;
+    struct Reshape {
+        FftContributor sea;
+        std::future<water::SpectrumField> field;
+    };
+    std::optional<Reshape> reshaping_;
     std::uint32_t resolution_{0};
     std::uint32_t mips_{1};
     float k_spacing_{0.0f};

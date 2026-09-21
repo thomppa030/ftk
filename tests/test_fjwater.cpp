@@ -1396,6 +1396,7 @@ TEST_CASE("A simulated contributor survives a round trip beside an authored one"
     FftContributor fft;
     fft.wind_direction = {0.6f, -0.8f};
     fft.wind_speed = 13.5f;
+    fft.answers_weather = true;
     fft.fetch = 42000.0f;
     fft.spread_degrees = 18.0f;
     fft.high_cut = 6.0f;
@@ -1416,4 +1417,39 @@ TEST_CASE("A simulated contributor survives a round trip beside an authored one"
     REQUIRE(std::get<FftContributor>(loaded->contributors[1]) == fft);
 
     std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("A simulated sea answers the weather only when told to", "[fjwater]") {
+    FftContributor authored;
+    authored.wind_direction = {1.0f, 0.0f};
+    authored.wind_speed = 8.0f;
+    FjWaterData water;
+    water.contributors.emplace_back(authored);
+
+    const glm::vec2 gale{0.0f, 20.0f};
+    REQUIRE(std::get<FftContributor>(water::apply_wind(water, gale).contributors[0]) == authored);
+
+    std::get<FftContributor>(water.contributors[0]).answers_weather = true;
+    const auto blown = std::get<FftContributor>(water::apply_wind(water, gale).contributors[0]);
+    REQUIRE(blown.wind_speed == Approx(20.0f));
+    REQUIRE(blown.wind_direction.x == Approx(0.0f).margin(1e-6));
+    REQUIRE(blown.wind_direction.y == Approx(1.0f));
+    // Everything that is not the wind is the author's, untouched.
+    FftContributor same_wind = blown;
+    same_wind.wind_speed = authored.wind_speed;
+    same_wind.wind_direction = authored.wind_direction;
+    same_wind.answers_weather = false;
+    REQUIRE(same_wind == authored);
+
+    // More wind is a bigger sea, which is the spectrum's doing and not a dial's.
+    REQUIRE(water::wave_height(water::apply_wind(water, gale))
+            > water::wave_height(water::apply_wind(water, {0.0f, 6.0f})));
+
+    // A calm flattens it and leaves it facing the way it was, so there is a
+    // heading for the wind to come back to and never a NaN in one.
+    const auto calm = std::get<FftContributor>(
+        water::apply_wind(water, {0.0f, 0.0f}).contributors[0]);
+    REQUIRE(calm.wind_speed == Approx(0.0f));
+    REQUIRE(calm.wind_direction == authored.wind_direction);
+    REQUIRE(water::wave_height(water::apply_wind(water, {0.0f, 0.0f})) == Approx(0.0f));
 }
