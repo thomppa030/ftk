@@ -583,3 +583,48 @@ TEST_CASE("Taking the strongest waves leaves out exactly what it says", "[water_
     REQUIRE(water::strongest_waves(field, 0).waves.empty());
     REQUIRE(water::strongest_waves(water::SpectrumField{}, 10).waves.empty());
 }
+
+TEST_CASE("The closed-form waves change across the sea as their transform says", "[water_spectrum]") {
+    // The Jacobian entries of the closed-form waves against the same entries
+    // by the other route: multiply each spectrum by i k and transform. Nothing
+    // is shared between them but the spectrum.
+    FftContributor sea = physical_sea();
+    sea.resolution = 16;
+    sea.patch_size = 96.0f;
+    sea.wind_direction = {0.4f, 0.9f};
+    const float choppiness = 2.2f;
+    const float time = 3.4f;
+    const auto field = water::generate_spectrum(sea);
+    const auto all = water::strongest_waves(field, 16 * 16);
+
+    water::SpectrumField travelling = field;   // without the standing Nyquist ripples
+    for (std::uint32_t i = 0; i < 16; ++i) {
+        travelling.amplitudes[8 * 16 + i] = glm::vec2(0.0f);
+        travelling.amplitudes[i * 16 + 8] = glm::vec2(0.0f);
+    }
+    const auto fields = water::jacobian_fields(travelling, choppiness, time);
+
+    for (std::uint32_t z = 0; z < 16; ++z) {
+        for (std::uint32_t x = 0; x < 16; ++x) {
+            const glm::vec2 p{static_cast<float>(x) * 6.0f, static_cast<float>(z) * 6.0f};
+            const auto d = water::spectral_derivatives(all.waves, choppiness, p, time);
+            INFO("at (" << x << ", " << z << ")");
+            REQUIRE(d.xx == Approx(fields.xx[z * 16 + x]).margin(2e-4));
+            REQUIRE(d.zz == Approx(fields.zz[z * 16 + x]).margin(2e-4));
+            REQUIRE(d.xz == Approx(fields.xz[z * 16 + x]).margin(2e-4));
+
+            // The slopes, against the height itself a hand's width either side.
+            const float step = 0.05f;
+            const float rise_x =
+                (water::spectral_displacement(all.waves, choppiness, p + glm::vec2(step, 0), time).y
+                 - water::spectral_displacement(all.waves, choppiness, p - glm::vec2(step, 0), time).y)
+                / (2.0f * step);
+            const float rise_z =
+                (water::spectral_displacement(all.waves, choppiness, p + glm::vec2(0, step), time).y
+                 - water::spectral_displacement(all.waves, choppiness, p - glm::vec2(0, step), time).y)
+                / (2.0f * step);
+            REQUIRE(d.dh_dx == Approx(rise_x).margin(2e-3));
+            REQUIRE(d.dh_dz == Approx(rise_z).margin(2e-3));
+        }
+    }
+}

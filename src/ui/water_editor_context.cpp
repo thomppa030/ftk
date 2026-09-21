@@ -190,7 +190,7 @@ void WaterEditorContext::apply_preview_wind() {
     const float heading = glm::radians(preview_wind_heading_);
     const glm::vec2 wind = glm::vec2(std::cos(heading), std::sin(heading))
                          * preview_wind_speed_;
-    water->effective_water = water::apply_wind(water_, wind);
+    water->effective_water = water::apply_wind(water_, wind, &water->effective_water);
 }
 
 void WaterEditorContext::load_preview_material() {
@@ -736,6 +736,19 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
         changed = true;
     }
     ImGui::SetItemTooltip("Which sea of all the seas this spectrum describes.");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("What floats on it");
+    int physics_waves = static_cast<int>(sea.physics_waves);
+    if (ImGui::SliderInt("Physics waves", &physics_waves, 0, 256)) {
+        sea.physics_waves = static_cast<std::uint32_t>(std::max(physics_waves, 0));
+        changed = true;
+    }
+    ImGui::SetItemTooltip("How many of this sea's strongest waves a floating body feels. "
+                          "The simulation is on the GPU, which physics cannot read, so "
+                          "buoyancy is given the strongest waves in closed form — the same "
+                          "waves, on the same clock. 0 floats a body on the Gerstner "
+                          "contributors alone. Each one is work per floating point per tick.");
 
     if (changed) push_live();
 

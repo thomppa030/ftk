@@ -332,6 +332,8 @@ bool WaterFftPass::near_enough(const FftContributor& from, const FftContributor&
     // Choppiness is applied when the spectrum is turned, each frame, so it is
     // never a reason to draw the sea again.
     same_wind.choppiness = from.choppiness;
+    // Nor is how many of its waves physics feels, which the GPU never sees.
+    same_wind.physics_waves = from.physics_waves;
     if (same_wind != from) return false;
 
     if (std::abs(to.wind_speed - from.wind_speed) > SPEED_STEP) return false;

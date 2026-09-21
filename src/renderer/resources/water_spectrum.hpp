@@ -145,21 +145,6 @@ struct JacobianFields {
 [[nodiscard]] JacobianFields jacobian_fields(const SpectrumField& field, float choppiness,
                                              float time);
 
-/// One wavevector of a drawn sea as an ordinary travelling wave: the surface
-/// it makes is `amplitude * cos(dot(k, xz) - omega * time + phase)`, moving the
-/// way `k` points at the speed deep water gives a wave of that length.
-///
-/// The same wave the GPU transforms, written out so that it can be summed at a
-/// single point without transforming anything: same amplitude, same phase, same
-/// clock. That is what lets physics float a body on the simulated sea with no
-/// renderer involved, and get the same answer on every machine.
-struct SpectralWave {
-    glm::vec2 k{0.0f};       // rad/m, world XZ
-    float amplitude{0.0f};   // metres
-    float phase{0.0f};       // radians
-    float omega{0.0f};       // rad/s
-};
-
 /// The strongest waves of a drawn sea, and what taking only those leaves out.
 struct StrongestWaves {
     /// Strongest first. Waves of equal strength keep their grid order, so the
@@ -186,5 +171,20 @@ struct StrongestWaves {
 /// `strongest_waves()` will take.
 [[nodiscard]] glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves,
                                               float choppiness, glm::vec2 world_xz, float time);
+
+/// How the surface `waves` make changes across the rest plane at `world_xz`:
+/// the height's slopes, and the entries the horizontal pinch adds to the
+/// surface's Jacobian. Exact, from the same closed form as
+/// `spectral_displacement()`.
+struct SpectralDerivatives {
+    float dh_dx{0.0f};
+    float dh_dz{0.0f};
+    float xx{0.0f};   // d(displacement x)/dx
+    float zz{0.0f};   // d(displacement z)/dz
+    float xz{0.0f};   // d(displacement x)/dz, which is also d(displacement z)/dx
+};
+[[nodiscard]] SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
+                                                       float choppiness, glm::vec2 world_xz,
+                                                       float time);
 
 } // namespace fjell::water

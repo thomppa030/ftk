@@ -1,6 +1,7 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_gpu.hpp"
+#include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -1452,4 +1453,147 @@ TEST_CASE("A simulated sea answers the weather only when told to", "[fjwater]") 
     REQUIRE(calm.wind_speed == Approx(0.0f));
     REQUIRE(calm.wind_direction == authored.wind_direction);
     REQUIRE(water::wave_height(water::apply_wind(water, {0.0f, 0.0f})) == Approx(0.0f));
+}
+
+// --- A body that feels the simulated sea ---
+
+namespace {
+
+/// A swell with a simulated sea under it, asking physics to feel `waves` of it.
+[[nodiscard]] FjWaterData sea_physics_feels(std::uint32_t waves) {
+    FftContributor fft;
+    fft.wind_direction = {0.8f, 0.6f};
+    fft.wind_speed = 10.0f;
+    fft.fetch = 80000.0f;
+    fft.spread_degrees = 35.0f;
+    fft.high_cut = 0.0f;
+    fft.choppiness = 1.4f;
+    fft.amplitude_scale = 1.0f;
+    fft.patch_size = 128.0f;
+    fft.resolution = 64;
+    fft.physics_waves = waves;
+    FjWaterData water = sea({wave({0.2f, 1.0f}, 70.0f, 0.9f, 0.5f)});
+    water.contributors.emplace_back(fft);
+    return water;
+}
+
+} // namespace
+
+TEST_CASE("Physics feels the simulated sea when it is asked to", "[fjwater]") {
+    const FjWaterData authored = sea_physics_feels(48);
+    // A field straight from a file has no derived waves, and floats a body on
+    // the authored contributors alone.
+    REQUIRE_FALSE(authored.simulated_waves.has_value());
+
+    const FjWaterData effective = water::apply_wind(authored, {0.0f, 0.0f});
+    REQUIRE(effective.simulated_waves.has_value());
+    REQUIRE(effective.simulated_waves->waves.size() == 48);
+    REQUIRE(effective.simulated_waves->choppiness == Approx(1.4f));
+
+    // Asked for none, none are derived, and the evaluator is what it was.
+    const FjWaterData unfelt = water::apply_wind(sea_physics_feels(0), {0.0f, 0.0f});
+    REQUIRE_FALSE(unfelt.simulated_waves.has_value());
+
+    bool moved = false;
+    for (float x = -30.0f; x <= 30.0f; x += 7.0f) {
+        const glm::vec2 p(x, 5.0f - x * 0.3f);
+        const float time = 4.5f;
+        INFO("at x=" << x);
+
+        // The surface is the authored one plus the waves, and nothing else.
+        const glm::vec3 d = water::displace(effective, p, time);
+        const glm::vec3 expected = water::displace(unfelt, p, time)
+            + water::spectral_displacement(effective.simulated_waves->waves, 1.4f, p, time);
+        REQUIRE(d.x == Approx(expected.x).margin(1e-5));
+        REQUIRE(d.y == Approx(expected.y).margin(1e-5));
+        REQUIRE(d.z == Approx(expected.z).margin(1e-5));
+        if (glm::length(d - water::displace(unfelt, p, time)) > 0.05f) moved = true;
+
+        // The normal and the Jacobian are assembled from parts, and the parts
+        // could be put together wrongly while each is right. What they have to
+        // agree with is the displaced surface itself, measured a few
+        // centimetres either side — arithmetic, not another formula of mine.
+        const float step = 0.02f;
+        auto surface = [&](glm::vec2 rest) {
+            const glm::vec3 moved_by = water::displace(effective, rest, time);
+            return glm::vec3(rest.x + moved_by.x, moved_by.y, rest.y + moved_by.z);
+        };
+        const glm::vec3 along_x = (surface(p + glm::vec2(step, 0)) - surface(p - glm::vec2(step, 0)))
+                                / (2.0f * step);
+        const glm::vec3 along_z = (surface(p + glm::vec2(0, step)) - surface(p - glm::vec2(0, step)))
+                                / (2.0f * step);
+        const glm::vec3 measured_normal = glm::normalize(glm::cross(along_z, along_x));
+        const glm::vec3 n = water::normal_at(effective, p, time);
+        REQUIRE(n.x == Approx(measured_normal.x).margin(3e-3));
+        REQUIRE(n.y == Approx(measured_normal.y).margin(3e-3));
+        REQUIRE(n.z == Approx(measured_normal.z).margin(3e-3));
+
+        const float measured_jacobian = along_x.x * along_z.z - along_x.z * along_z.x;
+        REQUIRE(water::horizontal_jacobian(effective, p, time)
+                == Approx(measured_jacobian).margin(3e-3));
+
+        // And a body asking for the water over a column lands on it.
+        const glm::vec2 rest = water::rest_position_for(effective, p, time);
+        const glm::vec3 there = water::displace(effective, rest, time);
+        REQUIRE(rest.x + there.x == Approx(p.x).margin(1e-2));
+        REQUIRE(rest.y + there.z == Approx(p.y).margin(1e-2));
+    }
+    REQUIRE(moved);   // the waves are not nothing
+}
+
+TEST_CASE("A sea's waves for physics are kept while the sea is the same", "[fjwater]") {
+    const FjWaterData authored = sea_physics_feels(32);
+    const FjWaterData first = water::apply_wind(authored, {0.0f, 0.0f});
+
+    // Handed back, the waves are kept rather than drawn again. They are the
+    // same waves either way, so what shows the difference is a field whose
+    // waves have been marked: a derivation that kept them keeps the mark.
+    FjWaterData marked = first;
+    marked.simulated_waves->waves[0].amplitude = 123.0f;
+    REQUIRE(water::apply_wind(authored, {0.0f, 0.0f}, &marked).simulated_waves->waves[0].amplitude
+            == 123.0f);
+
+    // Choppiness is not the spectrum: the waves stand, the pinch follows.
+    FjWaterData choppier = authored;
+    std::get<FftContributor>(choppier.contributors[1]).choppiness = 2.5f;
+    const FjWaterData kept = water::apply_wind(choppier, {0.0f, 0.0f}, &marked);
+    REQUIRE(kept.simulated_waves->waves[0].amplitude == 123.0f);
+    REQUIRE(kept.simulated_waves->choppiness == Approx(2.5f));
+
+    // A different sea, or a different count, is drawn afresh.
+    FjWaterData windier = authored;
+    std::get<FftContributor>(windier.contributors[1]).wind_speed = 14.0f;
+    REQUIRE(water::apply_wind(windier, {0.0f, 0.0f}, &marked).simulated_waves->waves[0].amplitude
+            != 123.0f);
+    FjWaterData more = authored;
+    std::get<FftContributor>(more.contributors[1]).physics_waves = 40;
+    REQUIRE(water::apply_wind(more, {0.0f, 0.0f}, &marked).simulated_waves->waves.size() == 40);
+}
+
+TEST_CASE("A sea under the weather changes in steps", "[fjwater]") {
+    // The lagged wind drifts every frame. Winds a hair apart have to be the
+    // same sea, or it is drawn again every frame, and have to be the same sea
+    // on every machine given that wind, or boats float differently on each.
+    FjWaterData water = sea_physics_feels(16);
+    std::get<FftContributor>(water.contributors[1]).answers_weather = true;
+
+    auto blown = [&](glm::vec2 wind) {
+        return std::get<FftContributor>(water::apply_wind(water, wind).contributors[1]);
+    };
+    // Both within the step that rounds to 12.3, which runs from 12.25 to 12.35.
+    REQUIRE(blown({12.27f, 0.0f}) == blown({12.33f, 0.0f}));
+    REQUIRE(blown({12.30f, 0.0f}) == blown({12.30f, 0.02f}));
+    REQUIRE(blown({12.27f, 0.0f}).wind_speed == Approx(12.3f));
+    // Either side of 12.35 are different seas.
+    REQUIRE(blown({12.33f, 0.0f}) != blown({12.37f, 0.0f}));
+    REQUIRE(blown({0.0f, 12.0f}).wind_direction.y == Approx(1.0f));
+
+    // A round trip keeps the count.
+    auto path = (std::filesystem::temp_directory_path() / "fjell_physics_waves.fjwater").string();
+    REQUIRE(save_fjwater_file(path, water));
+    auto loaded = load_fjwater_file(path);
+    REQUIRE(loaded);
+    REQUIRE(std::get<FftContributor>(loaded->contributors[1]).physics_waves == 16);
+    REQUIRE_FALSE(loaded->simulated_waves.has_value());
+    std::filesystem::remove(path);
 }

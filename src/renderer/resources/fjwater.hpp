@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -278,7 +279,30 @@ struct FftContributor {
     /// seed is the same water on every machine.
     std::uint32_t seed{1};
 
+    /// How many of this sea's strongest waves physics feels. The simulation
+    /// lives on the GPU, so a floating body is given the sea's strongest waves
+    /// in closed form instead: the same waves, on the same clock, summed where
+    /// the Gerstner trains are. 0 floats a body on the authored contributors
+    /// alone. A few dozen carry most of a sea's height and none of its chop,
+    /// which is about what a hull answers anyway.
+    std::uint32_t physics_waves{0};
+
     [[nodiscard]] bool operator==(const FftContributor&) const = default;
+};
+
+/// One wavevector of a drawn sea as an ordinary travelling wave: the surface
+/// it makes is `amplitude * cos(dot(k, xz) - omega * time + phase)`, moving the
+/// way `k` points at the speed deep water gives a wave of that length.
+///
+/// The same wave the GPU transforms, written out so that it can be summed at a
+/// single point without transforming anything: same amplitude, same phase, same
+/// clock. That is what lets physics float a body on the simulated sea with no
+/// renderer involved, and get the same answer on every machine.
+struct SpectralWave {
+    glm::vec2 k{0.0f};       // rad/m, world XZ
+    float amplitude{0.0f};   // metres
+    float phase{0.0f};       // radians
+    float omega{0.0f};       // rad/s
 };
 
 /// One source of surface motion in a `.fjwater`. The surface is the sum of
@@ -310,6 +334,22 @@ struct FjWaterData {
     /// read differently under every material, so the one a sea was judged
     /// against is part of how to come back to it.
     std::string preview_material;
+
+    /// The simulated contributor's strongest waves, for the CPU to sum.
+    ///
+    /// Derived, never authored and never saved: `water::apply_wind()` fills it
+    /// in the field it returns, which is the field physics reads, and a field
+    /// straight from a file has none. `drawn_from` is the contributor they
+    /// were taken from, kept so that the next derivation can tell whether they
+    /// still stand and spare itself drawing the spectrum again.
+    struct SimulatedWaves {
+        std::vector<SpectralWave> waves;
+        /// Scales their horizontal pinch. The contributor's own, carried here
+        /// so the evaluators need nothing but this.
+        float choppiness{0.0f};
+        FftContributor drawn_from;
+    };
+    std::optional<SimulatedWaves> simulated_waves;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

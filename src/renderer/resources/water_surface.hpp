@@ -63,10 +63,12 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// The simulated contributor the surface sums, or nullptr when the field has
 /// none: the first of them, since the world runs one simulation.
 ///
-/// Drawn and not floated on. The simulation lives on the GPU, so physics sums
-/// the closed-form contributors and is blind to this one — a body rides the
-/// authored swell and ignores the simulated chop. The field-wide measures
-/// below do count it, because they describe the sea a player is looking at.
+/// The simulation itself lives on the GPU, which physics cannot read. What a
+/// floating body feels of it is its strongest waves in closed form, as many as
+/// the contributor's `physics_waves` asks for, carried in a field derived by
+/// `apply_wind()`; with none asked for, a body rides the authored contributors
+/// and ignores this one. The field-wide measures below count the whole of it
+/// either way, because they describe the sea a player is looking at.
 [[nodiscard]] const FftContributor* simulated_sea(const FjWaterData& water);
 
 /// Deep-water angular frequency for a wavelength: waves of different lengths
@@ -90,6 +92,10 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// A simulated contributor as the wind has made it: the same sea raised by
 /// `wind_xz` instead of by its authored wind, when it answers the weather, and
 /// unchanged when it does not. A calm leaves it flat and facing as it was.
+///
+/// The wind is taken in steps of 0.1 m/s and half a degree, so the sea changes
+/// when the wind has moved and not every frame, and at the same moments on
+/// every machine blown by the same wind.
 [[nodiscard]] FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz);
 
 /// The authored field as the wind has made it: every contributor's own answer
@@ -106,7 +112,14 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
 /// Everything downstream — both evaluators, the GPU packing, buoyancy — reads
 /// the result of this rather than the authored field, which is the only way
 /// the surface a boat floats on stays the surface the player sees.
-[[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz);
+///
+/// The result also carries the simulated contributor's strongest waves, where
+/// it asks physics to feel any (`FftContributor::physics_waves`), which is what
+/// lets the CPU evaluators below float a body on the simulated sea. Taking them
+/// means drawing the spectrum, so hand back the field derived last time as
+/// `previous` and they are kept for as long as the sea has not changed.
+[[nodiscard]] FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz,
+                                     const FjWaterData* previous = nullptr);
 
 /// How much of a rise or a fall in wave height a sea takes on per second,
 /// as the seconds a change takes to mostly arrive.

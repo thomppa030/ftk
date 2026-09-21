@@ -88,8 +88,10 @@ struct HorizontalJacobian {
     [[nodiscard]] float determinant() const { return xx * zz - xz * xz; }
 };
 
-[[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
-                                                float time) {
+// The Gerstner contributors' share alone, for whoever works the simulated
+// sea's share out another way.
+[[nodiscard]] HorizontalJacobian gerstner_jacobian_terms(const FjWaterData& water,
+                                                         glm::vec2 world_xz, float time) {
     // At rest it is the identity; as trains bunch together the diagonal falls.
     HorizontalJacobian j;
     for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
@@ -104,6 +106,21 @@ struct HorizontalJacobian {
         j.zz -= wa * t.dir.y * t.dir.y * s;
         j.xz -= wa * t.dir.x * t.dir.y * s;
     });
+    return j;
+}
+
+// Everything the CPU sums: the Gerstner contributors, and the simulated sea's
+// strongest waves where the field has been given them.
+[[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
+                                                float time) {
+    HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
+    if (water.simulated_waves.has_value()) {
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated_waves->waves, water.simulated_waves->choppiness, world_xz, time);
+        j.xx += d.xx;
+        j.zz += d.zz;
+        j.xz += d.xz;
+    }
     return j;
 }
 
@@ -234,15 +251,71 @@ FftContributor apply_wind(const FftContributor& water, glm::vec2 wind_xz) {
     // wind is being described by a different one. Nothing is scaled or turned
     // by hand the way a Gerstner contributor's trains are: more wind is a
     // taller, longer sea because that is what the spectrum says it is.
+    // In steps, not continuously: a tenth of a metre a second and half a
+    // degree, far under what shows on the water. The lagged wind drifts every
+    // frame, and a sea that was a different sea every frame would have to be
+    // drawn again every frame — by the GPU's spectrum and by the waves physics
+    // sums alike. Stepping it here, from the wind alone, also means every
+    // machine given the same wind steps at the same moment and floats its boats
+    // on the same sea, which a rule comparing against "what was drawn last"
+    // could not promise.
+    constexpr float SPEED_STEP = 0.1f;
+    constexpr float HEADING_STEP_DEGREES = 0.5f;
+
     FftContributor out = water;
-    out.wind_speed = glm::length(wind_xz);
+    const float speed = glm::length(wind_xz);
+    out.wind_speed = std::round(speed / SPEED_STEP) * SPEED_STEP;
     // A dead calm has no heading to take. The sea it leaves is flat whichever
     // way it faces, so it keeps the one it had for the wind to come back to.
-    if (out.wind_speed >= 1e-3f) out.wind_direction = wind_xz / out.wind_speed;
+    if (speed >= 1e-3f) {
+        const float heading = glm::degrees(std::atan2(wind_xz.y, wind_xz.x));
+        const float stepped = glm::radians(std::round(heading / HEADING_STEP_DEGREES)
+                                           * HEADING_STEP_DEGREES);
+        out.wind_direction = {std::cos(stepped), std::sin(stepped)};
+    }
     return out;
 }
 
-FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
+namespace {
+
+// What decides which waves a simulated sea has. Choppiness and the count are
+// left out: neither changes the spectrum, only what is done with it.
+[[nodiscard]] FftContributor spectrum_of(FftContributor sea) {
+    sea.choppiness = 0.0f;
+    sea.physics_waves = 0;
+    return sea;
+}
+
+// A ceiling on what physics may be asked to sum per point, well past where
+// more waves buy anything a floating body could feel.
+constexpr std::uint32_t MAX_PHYSICS_WAVES = 1024;
+
+// The simulated contributor's strongest waves for the field being derived,
+// taken from `previous` when it was derived from the same sea: drawing a
+// spectrum costs milliseconds and this runs every frame.
+void derive_simulated_waves(FjWaterData& out, const FjWaterData* previous) {
+    out.simulated_waves.reset();
+    const FftContributor* sea = simulated_sea(out);
+    if (sea == nullptr || sea->physics_waves == 0) return;
+    const std::uint32_t count = std::min(sea->physics_waves, MAX_PHYSICS_WAVES);
+
+    const bool still_stands = previous != nullptr && previous->simulated_waves.has_value()
+        && spectrum_of(previous->simulated_waves->drawn_from) == spectrum_of(*sea)
+        && previous->simulated_waves->drawn_from.physics_waves == sea->physics_waves;
+    if (still_stands) {
+        out.simulated_waves = previous->simulated_waves;
+    } else {
+        FjWaterData::SimulatedWaves derived;
+        derived.waves = strongest_waves(generate_spectrum(*sea), count).waves;
+        out.simulated_waves = std::move(derived);
+    }
+    out.simulated_waves->choppiness = sea->choppiness;
+    out.simulated_waves->drawn_from = *sea;
+}
+
+} // namespace
+
+FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz, const FjWaterData* previous) {
     FjWaterData out;
     out.preview_material = water.preview_material;
     out.contributors.reserve(water.contributors.size());
@@ -253,6 +326,7 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
             [&](const auto& kind) -> WaterContributor { return apply_wind(kind, wind_xz); },
             contributor));
     }
+    derive_simulated_waves(out, previous);
     return out;
 }
 
@@ -270,6 +344,10 @@ glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
         sum.z += t.q * t.amplitude * t.dir.y * c;
         sum.y += t.amplitude * s;
     });
+    if (water.simulated_waves.has_value()) {
+        sum += spectral_displacement(water.simulated_waves->waves,
+                                     water.simulated_waves->choppiness, world_xz, time);
+    }
     return sum;
 }
 
@@ -297,6 +375,14 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
         tangent.y += t.dir.y * wa * c;
         tangent.z -= t.q * t.dir.y * t.dir.y * wa * s;
     });
+    if (water.simulated_waves.has_value()) {
+        // Tangents add across contributors where normals do not, so the
+        // simulated waves go in before the cross product, as in the shader.
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated_waves->waves, water.simulated_waves->choppiness, world_xz, time);
+        binormal += glm::vec3(d.xx, d.dh_dx, d.xz);
+        tangent += glm::vec3(d.xz, d.dh_dz, d.zz);
+    }
 
     glm::vec3 n = glm::cross(tangent, binormal);
     float len = glm::length(n);
@@ -345,7 +431,10 @@ float folded_share(const FjWaterData& water) {
     for (std::uint32_t z = 0; z < n; ++z) {
         for (std::uint32_t x = 0; x < n; ++x) {
             const std::size_t cell = static_cast<std::size_t>(z) * n + x;
-            HorizontalJacobian j = jacobian_terms(
+            // The Gerstner share only: the simulated sea is measured whole
+            // just above, and a field that also carries its strongest waves
+            // for physics would otherwise have them counted twice.
+            HorizontalJacobian j = gerstner_jacobian_terms(
                 water, {static_cast<float>(x) * texel, static_cast<float>(z) * texel}, TIME);
             j.xx += simulated_part.xx[cell];
             j.zz += simulated_part.zz[cell];

@@ -134,6 +134,7 @@ constexpr const char* FFT_KIND = "fft";
     sea.patch_size = j.value("patch_size", defaults.patch_size);
     sea.resolution = j.value("resolution", defaults.resolution);
     sea.seed = j.value("seed", defaults.seed);
+    sea.physics_waves = j.value("physics_waves", defaults.physics_waves);
     return sea;
 }
 
@@ -151,6 +152,7 @@ constexpr const char* FFT_KIND = "fft";
     j["patch_size"] = sea.patch_size;
     j["resolution"] = sea.resolution;
     j["seed"] = sea.seed;
+    j["physics_waves"] = sea.physics_waves;
     return j;
 }
 

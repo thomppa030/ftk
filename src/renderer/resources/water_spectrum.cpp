@@ -422,4 +422,25 @@ glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves, float ch
     return sum;
 }
 
+SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
+                                         float choppiness, glm::vec2 world_xz, float time) {
+    SpectralDerivatives sum;
+    for (const SpectralWave& wave : waves) {
+        const float k_len = glm::length(wave.k);
+        if (k_len < 1e-6f) continue;
+        const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
+        const float a_sin = wave.amplitude * std::sin(angle);
+        // The pinch is -(k / |k|) c A sin(angle), so across the plane it
+        // changes as -(k k^T / |k|) c A cos(angle).
+        const float spread = -wave.amplitude * std::cos(angle) * choppiness / k_len;
+
+        sum.dh_dx -= wave.k.x * a_sin;
+        sum.dh_dz -= wave.k.y * a_sin;
+        sum.xx += wave.k.x * wave.k.x * spread;
+        sum.zz += wave.k.y * wave.k.y * spread;
+        sum.xz += wave.k.x * wave.k.y * spread;
+    }
+    return sum;
+}
+
 } // namespace fjell::water
