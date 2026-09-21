@@ -142,6 +142,11 @@ private:
     };
 
     void create_layout();
+    /// Read the templates and hash every file in shaders/include/. Run at
+    /// construction and again by recreate_all(), which is what an edited
+    /// include leads to: until they are read again the templates are the old
+    /// text and the SPIR-V cache key is the old key.
+    void load_includes();
     void compile_entry(Entry& entry);
     void create_pipelines(Entry& entry, const std::string& spv_path);
     void destroy_entry_pipelines(Entry& entry);

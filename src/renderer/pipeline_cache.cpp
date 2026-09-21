@@ -80,9 +80,21 @@ PipelineCache::PipelineCache(Device& device,
     spv_cache_dir_ = generated_dir_ + "/.fjcache";
     std::filesystem::create_directories(spv_cache_dir_);
 
+    load_includes();
+
+    create_layout();
+
+    // Register standard.fjsl as pipeline ID 0
+    register_shader("shaders/standard.fjsl");
+
+    FJELL_GFX_DEBUG("PipelineCache created with standard shader (ID 0)");
+}
+
+void PipelineCache::load_includes() {
     // One hash over every include, in a fixed order so two runs over the same
-    // files agree. Taken once: they cannot change while the engine is
-    // running without a reload, and a reload rebuilds everything anyway.
+    // files agree. It keys the SPIR-V cache: what a shader pulls in with
+    // #include is not in its generated source, so without this an edited
+    // include would find the old binary under an unchanged key.
     {
         std::vector<std::filesystem::path> includes;
         std::error_code ec;
@@ -125,13 +137,6 @@ PipelineCache::PipelineCache(Device& device,
     depth_vertex_template_ = load_template("fjell_depth_vertex_template.glsl");
     shadow_vertex_template_ = load_template("fjell_shadow_vertex_template.glsl");
     outline_vertex_template_ = load_template("fjell_outline_vertex_template.glsl");
-
-    create_layout();
-
-    // Register standard.fjsl as pipeline ID 0
-    register_shader("shaders/standard.fjsl");
-
-    FJELL_GFX_DEBUG("PipelineCache created with standard shader (ID 0)");
 }
 
 PipelineCache::~PipelineCache() {
@@ -1122,6 +1127,9 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
 
 void PipelineCache::recreate_all() {
     vkDeviceWaitIdle(device_.handle());
+    // Everything is rebuilt because an include may have changed, and the
+    // templates every shader is generated against are includes.
+    load_includes();
     int failures = 0;
     for (auto& entry : entries_) {
         compile_entry(entry);

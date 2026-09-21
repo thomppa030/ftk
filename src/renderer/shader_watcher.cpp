@@ -27,7 +27,7 @@ void ShaderWatcher::rewatch() {
         if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".fjsl") {
             FJELL_GFX_INFO("Shader changed: {}", path.filename().string());
             if (ext == ".fjsl") {
-                changes_.fjsl_paths.push_back(path.string());
+                if (mirror(path, "")) changes_.fjsl_paths.push_back(path.string());
             } else if (recompile(path.filename().string())) {
                 // A raw stage is one of the engine's own, and what reads it is
                 // not written down anywhere: rebuild everything.
@@ -46,7 +46,7 @@ void ShaderWatcher::rewatch() {
         watcher_.watch(include_dir, [this](const std::filesystem::path& path) {
             if (path.extension() != ".glsl") return;
             FJELL_GFX_INFO("Shader include changed: {}", path.filename().string());
-            changes_.rebuild_everything = true;
+            if (mirror(path, "include")) changes_.rebuild_everything = true;
         });
         FJELL_GFX_INFO("Shader hot-reload watching includes: {}", include_dir);
     }
@@ -60,7 +60,7 @@ void ShaderWatcher::rewatch() {
         watcher_.watch(lib_dir, [this](const std::filesystem::path& path) {
             if (path.extension() != ".fjsl") return;
             FJELL_GFX_INFO("Shader function changed: {}", path.filename().string());
-            changes_.fjsl_paths.push_back(path.string());
+            if (mirror(path, "lib")) changes_.fjsl_paths.push_back(path.string());
         });
         FJELL_GFX_INFO("Shader hot-reload watching functions: {}", lib_dir);
     }
@@ -83,6 +83,26 @@ ShaderWatcher::Changes ShaderWatcher::poll() {
     changes_ = {};
     (void)watcher_.poll();
     return std::move(changes_);
+}
+
+bool ShaderWatcher::mirror(const std::filesystem::path& changed, const std::string& subdir) {
+    const std::filesystem::path dst =
+        std::filesystem::path(output_dir_) / subdir / changed.filename();
+
+    std::error_code ec;
+    // An install that runs from its sources has nothing to mirror, and
+    // copying a file onto itself is an error rather than a no-op.
+    if (std::filesystem::equivalent(changed, dst, ec)) return true;
+
+    std::filesystem::create_directories(dst.parent_path(), ec);
+    std::filesystem::copy_file(changed, dst,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        FJELL_GFX_ERROR("Shader hot-reload could not copy {} to {}: {}",
+                        changed.string(), dst.string(), ec.message());
+        return false;
+    }
+    return true;
 }
 
 bool ShaderWatcher::recompile(const std::string& filename) {
