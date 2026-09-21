@@ -631,9 +631,15 @@ void WaterFftPass::record(const FrameContext& ctx) {
 }
 
 void WaterFftPass::begin_verification() {
+    // Every setting spelled out: this is a fixed sea to hold the transform to,
+    // and it should not move when a contributor's defaults do.
     FftContributor sea;
     sea.wind_direction = {0.8f, 0.6f};
     sea.wind_speed = 9.0f;
+    sea.fetch = 100000.0f;
+    sea.spread_degrees = 35.0f;
+    sea.high_cut = 0.0f;
+    sea.amplitude_scale = 1.0f;
     sea.patch_size = 96.0f;
     // Small enough that the plain Fourier sum it is held to takes a moment
     // rather than minutes, large enough to run every kind of butterfly stage.

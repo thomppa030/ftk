@@ -47,7 +47,9 @@ over its passage rather than at its arrival. More wind is a taller, longer sea
 because that is what the spectrum says, not because a dial scaled it. A dead calm
 leaves it flat. In the editor the **Preview wind** stands in for the weather.
 
-**Stylisation**, because a correct ocean is busier than a readable one:
+**Stylisation**, because a correct ocean is busier than a readable one. A new
+contributor opens stylised — height 2.9, choppiness 3, a 1.6 m high cut — since
+the physical amounts (1, 1 and none) are correct and read as tame:
 
 | | |
 |---|---|
@@ -70,14 +72,14 @@ afresh.
 ```json
 {
     "kind": "fft",
-    "wind_direction": [1.0, 0.3],
+    "wind_direction": [1.0, 0.0],
     "wind_speed": 9.0,
     "answers_weather": false,
     "fetch": 60000.0,
-    "spread_degrees": 35.0,
-    "high_cut": 0.0,
-    "choppiness": 1.0,
-    "amplitude_scale": 1.0,
+    "spread_degrees": 36.0,
+    "high_cut": 1.6,
+    "choppiness": 3.0,
+    "amplitude_scale": 2.9,
     "patch_size": 256.0,
     "resolution": 256,
     "seed": 1

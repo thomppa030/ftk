@@ -217,14 +217,19 @@ struct GerstnerContributor {
 /// the wind that is raising it, which is every sea a game shows. The three
 /// dials after the wind are stylisation on top of it, because a correct ocean
 /// is busier than a readable one.
+///
+/// The defaults are a stylised sea rather than a physical one: the physical
+/// amounts (height 1, choppiness 1, no high cut) are correct and read as tame,
+/// which is not what a new contributor in this engine's art style wants to
+/// open on. The spectrum under them is untouched — they are the dials.
 struct FftContributor {
     /// Direction the wind blows across the ground plane, world XZ. Waves
     /// travel with it.
     glm::vec2 wind_direction{1.0f, 0.0f};
 
-    /// Wind speed the spectrum is raised by, in m/s. 8 is a fresh breeze, the
-    /// same reference a Gerstner contributor is authored at.
-    float wind_speed{8.0f};
+    /// Wind speed the spectrum is raised by, in m/s. 8 to 10 is a fresh breeze,
+    /// about the reference a Gerstner contributor is authored at.
+    float wind_speed{9.0f};
 
     /// Whether the weather's wind replaces the two above. Off, the sea is the
     /// one its own wind raises, whatever the weather does — a canal, a pool,
@@ -237,28 +242,28 @@ struct FftContributor {
     /// With wind speed it decides how grown the sea is: a short fetch is a
     /// lake's steep short chop, a long one the open ocean's heavy swell under
     /// the same wind.
-    float fetch{100000.0f};
+    float fetch{60000.0f};
 
     /// Half-angle, in degrees either side of the wind, at which the sea
     /// carries half the energy it carries straight downwind. Narrow it and
     /// the crests become long, parallel, graphic ridges; widen it and the sea
     /// turns confused.
-    float spread_degrees{35.0f};
+    float spread_degrees{36.0f};
 
     /// Wavelength in metres below which the sea is faded out, or 0 to keep
     /// everything the grid can hold. The single biggest stylisation control:
     /// it is what turns a busy correct ocean into a few big readable swells.
     /// A fade rather than a wall, so nothing rings.
-    float high_cut{0.0f};
+    float high_cut{1.6f};
 
     /// How far crests are pinched, as a multiplier on the horizontal
     /// displacement the spectrum implies. 0 is a heightfield of rolling
     /// hills, 1 the physical amount, and past it crests sharpen until they
     /// fold. The same motion a Gerstner train's steepness buys.
-    float choppiness{1.0f};
+    float choppiness{3.0f};
 
     /// Multiplies the height of the whole simulated sea.
-    float amplitude_scale{1.0f};
+    float amplitude_scale{2.9f};
 
     /// The side of the square of sea that is simulated, in metres; it tiles
     /// beyond that. It wants to hold several of the longest waves the wind

@@ -17,6 +17,21 @@ constexpr float GRAVITY = 9.81f;
 constexpr float PI = 3.14159265358979323846f;
 constexpr double PI_D = 3.14159265358979323846;
 
+/// The sea as physics describes it, with no stylisation on top: the case the
+/// published figures and the arithmetic below are about. Spelled out rather
+/// than left to the contributor's defaults, which are a stylised sea.
+[[nodiscard]] FftContributor physical_sea() {
+    FftContributor sea;
+    sea.wind_direction = {1.0f, 0.0f};
+    sea.wind_speed = 8.0f;
+    sea.fetch = 100000.0f;
+    sea.spread_degrees = 35.0f;
+    sea.high_cut = 0.0f;
+    sea.choppiness = 1.0f;
+    sea.amplitude_scale = 1.0f;
+    return sea;
+}
+
 /// Variance of the surface height the spectrum describes: its integral over
 /// frequency, by the midpoint rule on a grid far finer than the peak is wide.
 [[nodiscard]] double height_variance(const FftContributor& sea, float from = 0.01f,
@@ -54,7 +69,7 @@ TEST_CASE("The spectrum peaks at its peak frequency", "[water_spectrum]") {
     // Not a convention of this code: the JONSWAP shape is built so that its
     // maximum falls exactly on the peak frequency, whatever the wind.
     for (float wind : {4.0f, 10.0f, 25.0f}) {
-        FftContributor sea;
+        FftContributor sea = physical_sea();
         sea.wind_speed = wind;
         const float peak = water::peak_frequency(sea);
 
@@ -70,7 +85,7 @@ TEST_CASE("The spectrum peaks at its peak frequency", "[water_spectrum]") {
 }
 
 TEST_CASE("The spectrum holds the energy JONSWAP measured", "[water_spectrum]") {
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.wind_speed = 10.0f;
     sea.fetch = 100000.0f;
 
@@ -99,7 +114,7 @@ TEST_CASE("The spectrum holds the energy JONSWAP measured", "[water_spectrum]") 
 }
 
 TEST_CASE("More wind and more fetch make a longer, taller sea", "[water_spectrum]") {
-    FftContributor lake;
+    FftContributor lake = physical_sea();
     lake.wind_speed = 8.0f;
     lake.fetch = 5000.0f;
     FftContributor ocean = lake;
@@ -120,7 +135,7 @@ TEST_CASE("More wind and more fetch make a longer, taller sea", "[water_spectrum
 
 TEST_CASE("Spreading shares energy out without adding any", "[water_spectrum]") {
     for (float spread : {5.0f, 35.0f, 80.0f}) {
-        FftContributor sea;
+        FftContributor sea = physical_sea();
         sea.spread_degrees = spread;
 
         const int steps = 20000;
@@ -145,7 +160,7 @@ TEST_CASE("The grid holds the variance the spectrum has", "[water_spectrum]") {
     // a factor goes missing if one is going to: the sum over the grid has to
     // come back to the integral over frequency it was derived from. Compared
     // over the band of frequencies the grid can hold.
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.wind_speed = 10.0f;
     sea.wind_direction = {0.6f, -0.8f};
     sea.patch_size = 600.0f;
@@ -168,7 +183,7 @@ TEST_CASE("A drawn sea animates into a real surface of the right height", "[wate
     // conjugate of its opposite, transform, and what comes out is a real
     // heightfield whose variance is the spectrum's. Done here with a plain
     // Fourier sum, at a size where that is affordable.
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.wind_speed = 10.0f;
     sea.patch_size = 300.0f;
     sea.resolution = 32;
@@ -220,7 +235,7 @@ TEST_CASE("A drawn sea animates into a real surface of the right height", "[wate
 }
 
 TEST_CASE("The sea runs downwind", "[water_spectrum]") {
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.wind_direction = {0.0f, 1.0f};
     const glm::vec2 downwind{0.0f, 0.1f};
     REQUIRE(water::wavenumber_spectrum(sea, downwind) > 0.0f);
@@ -231,7 +246,7 @@ TEST_CASE("The sea runs downwind", "[water_spectrum]") {
 }
 
 TEST_CASE("The high cut takes out the short waves and leaves the long", "[water_spectrum]") {
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     FftContributor cut = sea;
     cut.high_cut = 8.0f;
 
@@ -244,7 +259,7 @@ TEST_CASE("The high cut takes out the short waves and leaves the long", "[water_
 }
 
 TEST_CASE("A seed is one sea, and another seed another", "[water_spectrum]") {
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.resolution = 64;
     const auto a = water::generate_spectrum(sea);
     const auto b = water::generate_spectrum(sea);
@@ -259,7 +274,7 @@ TEST_CASE("A seed is one sea, and another seed another", "[water_spectrum]") {
 }
 
 TEST_CASE("A spectrum cannot be drawn on no grid", "[water_spectrum]") {
-    FftContributor sea;
+    FftContributor sea = physical_sea();
     sea.resolution = 1;
     REQUIRE(water::generate_spectrum(sea).amplitudes.empty());
 
@@ -338,7 +353,7 @@ TEST_CASE("The sea's size in closed form is the spectrum's own", "[water_spectru
     // variance is the spectrum's integral, which can simply be done.
     for (float wind : {5.0f, 12.0f, 24.0f}) {
         for (float fetch : {8000.0f, 150000.0f}) {
-            FftContributor sea;
+            FftContributor sea = physical_sea();
             sea.wind_speed = wind;
             sea.fetch = fetch;
             sea.amplitude_scale = 1.5f;
@@ -347,7 +362,7 @@ TEST_CASE("The sea's size in closed form is the spectrum's own", "[water_spectru
                     == Approx(2.0 * std::sqrt(height_variance(sea)) * 1.5).epsilon(0.03));
         }
     }
-    FftContributor calm;
+    FftContributor calm = physical_sea();
     calm.wind_speed = 0.0f;
     REQUIRE(water::significant_amplitude(calm) == 0.0f);
 }
@@ -357,7 +372,7 @@ TEST_CASE("Kept noise under a new wind is the same sea, grown", "[water_spectrum
     // time: the random part is fixed by the seed, so every wavevector keeps
     // its phase while the spectrum over it changes. If the phases moved, the
     // water would jump every time the wind did.
-    FftContributor breeze;
+    FftContributor breeze = physical_sea();
     breeze.resolution = 64;
     breeze.wind_speed = 7.0f;
     FftContributor gale = breeze;
