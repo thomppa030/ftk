@@ -482,3 +482,104 @@ TEST_CASE("One spectral wave folds exactly where its Gerstner train does", "[wat
     }
     REQUIRE(folded > 0);
 }
+
+// --- A drawn sea as waves physics can sum ---
+
+TEST_CASE("Every wave of a sea, summed in closed form, is its transform", "[water_spectrum]") {
+    // The closed-form waves are meant to be the GPU's sea written another way.
+    // The transform of the evolved spectrum is that sea by a different route
+    // entirely — no amplitudes, phases or travelling waves in it, only a
+    // Fourier sum — so agreeing with it at every sample, at several times,
+    // pins the pairing factor, the phase, the dispersion and the sign of the
+    // horizontal term all at once.
+    FftContributor sea = physical_sea();
+    sea.resolution = 16;
+    sea.patch_size = 96.0f;
+    sea.wind_direction = {0.7f, -0.5f};
+    const float choppiness = 1.6f;
+    const auto field = water::generate_spectrum(sea);
+    const auto all = water::strongest_waves(field, 16 * 16);
+
+    // The grid's highest frequency is its own opposite and so a standing
+    // ripple, which no travelling wave stands for; strongest_waves() leaves it
+    // out and says how little that is. The transform it is held to leaves the
+    // same cells out, so the two are the same sea.
+    REQUIRE(all.height_share > 0.995f);
+    REQUIRE(all.height_share < 1.0f);
+    water::SpectrumField travelling = field;
+    for (std::uint32_t i = 0; i < 16; ++i) {
+        travelling.amplitudes[8 * 16 + i] = glm::vec2(0.0f);
+        travelling.amplitudes[i * 16 + 8] = glm::vec2(0.0f);
+    }
+
+    for (float time : {0.0f, 1.3f, 17.0f}) {
+        const auto spectra = water::evolve_spectrum(travelling, choppiness, time);
+        const auto height = water::inverse_transform_reference(spectra.height, 16);
+        const auto along_x = water::inverse_transform_reference(spectra.along_x, 16);
+        const auto along_z = water::inverse_transform_reference(spectra.along_z, 16);
+        for (std::uint32_t z = 0; z < 16; ++z) {
+            for (std::uint32_t x = 0; x < 16; ++x) {
+                const glm::vec2 p{static_cast<float>(x) * 6.0f, static_cast<float>(z) * 6.0f};
+                const glm::vec3 d = water::spectral_displacement(all.waves, choppiness, p, time);
+                INFO("at (" << x << ", " << z << ") t=" << time);
+                REQUIRE(d.y == Approx(height[z * 16 + x]).margin(2e-4));
+                REQUIRE(d.x == Approx(along_x[z * 16 + x]).margin(2e-4));
+                REQUIRE(d.z == Approx(along_z[z * 16 + x]).margin(2e-4));
+            }
+        }
+    }
+}
+
+TEST_CASE("Taking the strongest waves leaves out exactly what it says", "[water_spectrum]") {
+    // What a body floating on N waves does not feel is the rest of the sea,
+    // and how much that is follows from the spectrum by arithmetic: the waves
+    // of a grid are orthogonal over it, so the mean square of what is left out
+    // is the summed variance of the waves left out. height_share claims that
+    // number; this measures it on the surface instead.
+    FftContributor sea = physical_sea();
+    sea.resolution = 32;
+    sea.patch_size = 200.0f;
+    const auto field = water::generate_spectrum(sea);
+    const auto spectra = water::evolve_spectrum(field, 1.0f, 2.5f);
+    const auto full = water::inverse_transform(spectra.height, 32);
+
+    double full_variance = 0.0;
+    for (float h : full) full_variance += static_cast<double>(h) * h;
+    full_variance /= static_cast<double>(full.size());
+
+    for (std::uint32_t count : {4u, 20u, 80u, 300u}) {
+        const auto some = water::strongest_waves(field, count);
+        REQUIRE(some.waves.size() == count);
+
+        double missed = 0.0;
+        for (std::uint32_t z = 0; z < 32; ++z) {
+            for (std::uint32_t x = 0; x < 32; ++x) {
+                const glm::vec2 p{static_cast<float>(x) * 200.0f / 32.0f,
+                                  static_cast<float>(z) * 200.0f / 32.0f};
+                const double gap = full[z * 32 + x]
+                                 - water::spectral_displacement(some.waves, 1.0f, p, 2.5f).y;
+                missed += gap * gap;
+            }
+        }
+        missed /= static_cast<double>(full.size());
+
+        const double claimed_missed = 1.0 - static_cast<double>(some.height_share) * some.height_share;
+        INFO(count << " waves");
+        REQUIRE(missed / full_variance == Approx(claimed_missed).margin(0.01));
+    }
+
+    // Strongest first, and more waves never carry less.
+    const auto few = water::strongest_waves(field, 20);
+    const auto more = water::strongest_waves(field, 80);
+    for (std::size_t i = 1; i < more.waves.size(); ++i) {
+        REQUIRE(more.waves[i].amplitude <= more.waves[i - 1].amplitude);
+    }
+    REQUIRE(more.height_share > few.height_share);
+    REQUIRE(more.shortest_wavelength <= few.shortest_wavelength);
+    for (std::size_t i = 0; i < few.waves.size(); ++i) {
+        REQUIRE(few.waves[i].k == more.waves[i].k);   // the same list, longer
+    }
+
+    REQUIRE(water::strongest_waves(field, 0).waves.empty());
+    REQUIRE(water::strongest_waves(water::SpectrumField{}, 10).waves.empty());
+}

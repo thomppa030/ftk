@@ -145,4 +145,46 @@ struct JacobianFields {
 [[nodiscard]] JacobianFields jacobian_fields(const SpectrumField& field, float choppiness,
                                              float time);
 
+/// One wavevector of a drawn sea as an ordinary travelling wave: the surface
+/// it makes is `amplitude * cos(dot(k, xz) - omega * time + phase)`, moving the
+/// way `k` points at the speed deep water gives a wave of that length.
+///
+/// The same wave the GPU transforms, written out so that it can be summed at a
+/// single point without transforming anything: same amplitude, same phase, same
+/// clock. That is what lets physics float a body on the simulated sea with no
+/// renderer involved, and get the same answer on every machine.
+struct SpectralWave {
+    glm::vec2 k{0.0f};       // rad/m, world XZ
+    float amplitude{0.0f};   // metres
+    float phase{0.0f};       // radians
+    float omega{0.0f};       // rad/s
+};
+
+/// The strongest waves of a drawn sea, and what taking only those leaves out.
+struct StrongestWaves {
+    /// Strongest first. Waves of equal strength keep their grid order, so the
+    /// same spectrum gives the same list everywhere.
+    std::vector<SpectralWave> waves;
+    /// How much of the sea's height these carry, 0 to 1: the root of their
+    /// share of its variance, since height goes as the standard deviation.
+    float height_share{0.0f};
+    /// The shortest wavelength among them, in metres; 0 when there are none.
+    /// Everything shorter than this is what a body floating on them misses.
+    float shortest_wavelength{0.0f};
+};
+
+/// The `count` strongest wavevectors of `field`, or all that can be taken when
+/// there are fewer. The grid's highest frequency along either axis is never
+/// taken — it is a standing ripple rather than a travelling wave — so
+/// `height_share` stops a hair short of 1 even when everything else is.
+[[nodiscard]] StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count);
+
+/// Where `waves` have moved the surface at rest position `world_xz`: x and z
+/// the horizontal pinch toward crests, scaled by `choppiness`, y the height.
+/// The closed-form counterpart of transforming `evolve_spectrum()`, and equal
+/// to it at the grid's sample points when `waves` is every wave that
+/// `strongest_waves()` will take.
+[[nodiscard]] glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves,
+                                              float choppiness, glm::vec2 world_xz, float time);
+
 } // namespace fjell::water

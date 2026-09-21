@@ -347,4 +347,79 @@ JacobianFields jacobian_fields(const SpectrumField& field, float choppiness, flo
     return fields;
 }
 
+StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count) {
+    StrongestWaves out;
+    const std::uint32_t n = field.resolution;
+
+    // A stored amplitude h makes a wave 2|h| tall carrying a variance of
+    // 2|h|^2, once it has been paired with the conjugate of its opposite.
+    struct Cell {
+        float variance;
+        std::uint32_t index;
+    };
+    std::vector<Cell> cells;
+    cells.reserve(field.amplitudes.size());
+    double total = 0.0;
+    for (std::uint32_t i = 0; i < field.amplitudes.size(); ++i) {
+        const glm::vec2 a = field.amplitudes[i];
+        const float variance = 2.0f * (a.x * a.x + a.y * a.y);
+        if (variance <= 0.0f) continue;
+        total += static_cast<double>(variance);
+        // The grid's highest frequency along either axis is its own opposite:
+        // there +k and -k are one cell, so what the simulation makes of it is
+        // a ripple standing in place rather than a wave going anywhere, and
+        // no travelling wave stands for it. It counts toward the sea's height
+        // and is never taken. These are the shortest waves the grid holds,
+        // the last a floating body would be given in any case.
+        if (i % n == n / 2 || i / n == n / 2) continue;
+        cells.push_back({variance, i});
+    }
+    if (cells.empty() || count == 0) return out;
+
+    const std::size_t taken = std::min<std::size_t>(count, cells.size());
+    // By strength, and by place in the grid where strengths tie, so the order
+    // is the spectrum's and not the sort's.
+    auto stronger = [](const Cell& a, const Cell& b) {
+        return a.variance != b.variance ? a.variance > b.variance : a.index < b.index;
+    };
+    std::partial_sort(cells.begin(), cells.begin() + static_cast<std::ptrdiff_t>(taken),
+                      cells.end(), stronger);
+
+    out.waves.reserve(taken);
+    double carried = 0.0;
+    float largest_k = 0.0f;
+    for (std::size_t i = 0; i < taken; ++i) {
+        const glm::vec2 a = field.amplitudes[cells[i].index];
+        SpectralWave wave;
+        wave.k = {field.wavenumber(cells[i].index % n), field.wavenumber(cells[i].index / n)};
+        const float k_len = glm::length(wave.k);
+        wave.amplitude = 2.0f * glm::length(a);
+        wave.phase = std::atan2(a.y, a.x);
+        wave.omega = std::sqrt(GRAVITY * k_len);
+        out.waves.push_back(wave);
+        carried += static_cast<double>(cells[i].variance);
+        largest_k = std::max(largest_k, k_len);
+    }
+    out.height_share = static_cast<float>(std::sqrt(carried / total));
+    out.shortest_wavelength = largest_k > 0.0f ? TAU / largest_k : 0.0f;
+    return out;
+}
+
+glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves, float choppiness,
+                                glm::vec2 world_xz, float time) {
+    glm::vec3 sum{0.0f};
+    for (const SpectralWave& wave : waves) {
+        const float k_len = glm::length(wave.k);
+        if (k_len < 1e-6f) continue;
+        const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
+        sum.y += wave.amplitude * std::cos(angle);
+        // A quarter cycle ahead of the height, along k: toward the crest from
+        // both sides of it, as evolve_spectrum() has it.
+        const float pinch = -wave.amplitude * std::sin(angle) * choppiness / k_len;
+        sum.x += wave.k.x * pinch;
+        sum.z += wave.k.y * pinch;
+    }
+    return sum;
+}
+
 } // namespace fjell::water
