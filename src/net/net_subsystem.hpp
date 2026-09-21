@@ -2,7 +2,7 @@
 // loop. They share one NetManager (owned by Engine), the same way Physics owns
 // a PhysicsWorld.
 //
-// Ordering matters (see Plans/networking-replication.md "Tick ordering"):
+// Ordering matters (see Plans/done/networking/networking-replication.md "Tick ordering"):
 //   NetReceive runs at the FRONT of play_phase_0_ (before scripts), so scripts
 //   see up-to-date remote state.
 //   NetSend runs in late_always_ (after physics + compute_world_matrices), so it

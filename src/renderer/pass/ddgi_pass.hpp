@@ -86,7 +86,7 @@ struct DdgiConfig {
     // exists WITHIN one probe before that blend runs. At 6 it's visible as
     // a faint grid pattern on large, flat, textureless, brightly-lit
     // surfaces (nothing else masks the under-sampling) — see
-    // Plans/gi-shadow-artifact-investigation.md. 8 is a moderate first
+    // Plans/parked/lighting/gi-shadow-artifact-investigation.md. 8 is a moderate first
     // step: ~78% more per-probe irradiance-update compute
     // (proportional to side²), and atlas VRAM that scales with the probe
     // count — cheap on both fronts, revisit higher if still visible.
