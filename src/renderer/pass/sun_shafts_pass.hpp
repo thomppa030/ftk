@@ -31,7 +31,8 @@ class SunShaftsPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;
     static constexpr uint32_t RESOLUTION_DIVISOR = 2;  // half-res
-    /// The march's output, this frame only: a graph transient.
+    /// The march's output, this frame only: a graph transient. Alpha carries
+    /// each ray's length, which the resolve filters by.
     static constexpr VkFormat RAW_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr const char* RAW_NAME = "sun_shafts_raw";
     /// The resolved shafts, kept from frame to frame.

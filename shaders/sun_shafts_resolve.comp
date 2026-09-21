@@ -14,6 +14,22 @@
 // float's precision.
 #define FJELL_SHAFT_SKY_DISTANCE 10000.0
 
+// How far a neighbour's ray may differ in length from this pixel's and still
+// count as the same surface, as a share of this pixel's own, with a floor in
+// metres so the share does not close to nothing right in front of the camera.
+//
+// Looser than the upsample's, which compares four taps within one half-res
+// cell. This compares across cells, and on ground seen at a shallow angle one
+// cell up the screen is already several percent further away: a tolerance that
+// tight would call a flat field a row of silhouettes and filter none of it.
+#define FJELL_SHAFT_NEIGHBOUR_TOLERANCE 0.1
+#define FJELL_SHAFT_NEIGHBOUR_FLOOR 0.05
+
+// How much a neighbour has to count toward the mean before it also bounds the
+// history. Below this it is mostly a different surface, and letting it widen
+// the range is how history from that other surface gets through.
+#define FJELL_SHAFT_CLAMP_WEIGHT 0.3
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
@@ -38,7 +54,48 @@ void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     if (coord.x >= int(pc.output_size.x) || coord.y >= int(pc.output_size.y)) return;
 
-    vec3 result = texelFetch(shafts_raw, coord, 0).rgb;
+    // This frame's value and the range history is held to, from one read of
+    // the 3x3 around the pixel.
+    //
+    // The mean is the pass's spatial filter. The march dithers with
+    // interleaved gradient noise, which is built so that any 3x3 block holds a
+    // well-spread set of offsets, and averaging one is what that noise is for.
+    //
+    // The range is what rejects history that no longer describes what is here:
+    // whatever this pixel showed last frame, it cannot now be far outside what
+    // its neighbours on the same surface show. Taken from the unfiltered
+    // neighbours, so the march's own noise is inside it and does not get valid
+    // history thrown out.
+    //
+    // Both count a neighbour only so far as its ray ran about as long as this
+    // one's. A shaft value is mostly a function of ray length, so across a
+    // silhouette the 3x3 holds two populations — short rays on the figure,
+    // long ones past it — and a range spanning both would pass exactly the
+    // history it is there to stop, while a mean of both would smear the figure
+    // into the air behind it.
+    vec4 centre = texelFetch(shafts_raw, coord, 0);
+    float tolerance = max(FJELL_SHAFT_NEIGHBOUR_FLOOR, centre.a * FJELL_SHAFT_NEIGHBOUR_TOLERANCE);
+
+    vec3 sum = vec3(0.0);
+    float total_weight = 0.0;
+    vec3 range_min = centre.rgb;
+    vec3 range_max = centre.rgb;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 tap = clamp(coord + ivec2(dx, dy), ivec2(0), ivec2(pc.output_size) - 1);
+            vec4 neighbour = texelFetch(shafts_raw, tap, 0);
+            float diff = (neighbour.a - centre.a) / tolerance;
+            float weight = exp(-diff * diff);
+            sum += neighbour.rgb * weight;
+            total_weight += weight;
+            if (weight > FJELL_SHAFT_CLAMP_WEIGHT) {
+                range_min = min(range_min, neighbour.rgb);
+                range_max = max(range_max, neighbour.rgb);
+            }
+        }
+    }
+    // The centre always weighs one, so the total cannot vanish.
+    vec3 result = sum / total_weight;
 
     if (pc.history_blend > 0.0) {
         ShaftRay ray = shaft_ray(coord, pc.output_size, pc.full_size, pc.max_reach);
@@ -83,6 +140,7 @@ void main() {
         if (all(greaterThanEqual(prev_uv, vec2(0.0))) &&
                 all(lessThanEqual(prev_uv, vec2(1.0)))) {
                 vec3 history = texture(shafts_history, prev_uv).rgb;
+                history = clamp(history, range_min, range_max);
                 result = mix(result, history, pc.history_blend);
             }
         }

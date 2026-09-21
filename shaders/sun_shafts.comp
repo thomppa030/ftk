@@ -311,5 +311,8 @@ void main() {
 
     vec3 result = sun_color * accumulated * ray_gain;
 
-    imageStore(shafts_raw, coord, vec4(result, 1.0));
+    // The ray's length rides along in alpha. A shaft value is mostly a function
+    // of how far its ray ran, so whoever filters these has to know which
+    // neighbours ran about as far, and the march is where that is known.
+    imageStore(shafts_raw, coord, vec4(result, scene_dist));
 }
