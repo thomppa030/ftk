@@ -100,6 +100,13 @@ public:
 
     [[nodiscard]] bool enabled() const { return enabled_; }
 
+    /// The catalog name the composite reads depth under: the scene depth with
+    /// the sea laid over it, which is the scene depth itself where no water
+    /// draws. The composite lays fog over a pixel for the distance to what is
+    /// seen there, and over the sea that is the surface — read against the
+    /// opaque scene alone it fogs the water for the distance to the bed.
+    static constexpr const char* COMPOSITE_DEPTH_NAME = "surface_depth";
+
     // Getters for follower passes.
     [[nodiscard]] VkSampler fog_sampler() const { return linear_sampler_; }
     [[nodiscard]] VkDescriptorSetLayout inject_set_layout() const { return inject_set_layout_; }

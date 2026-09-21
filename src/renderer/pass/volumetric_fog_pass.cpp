@@ -656,7 +656,7 @@ void FogCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     auto integrated = builder.create("fog_integrated", integrated_desc);
     builder.read(integrated, ResourceAccess::sampled_compute);
 
-    auto depth = builder.import_named(ctx, "depth");
+    auto depth = builder.import_named(ctx, FogCore::COMPOSITE_DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
@@ -676,6 +676,9 @@ void FogCompositePass::record(const FrameContext& ctx) {
     const auto* integrated_res = ctx.registry->find_image("fog_integrated");
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
+    const VkImageView composite_depth = ctx.registry->image_view(FogCore::COMPOSITE_DEPTH_NAME);
+    if (composite_depth == VK_NULL_HANDLE) { return; }
+
     FJELL_PROFILE_SCOPE_N("record_fog_composite");
     FJELL_GPU_ZONE(ctx, "Fog Composite");
 
@@ -692,7 +695,7 @@ void FogCompositePass::record(const FrameContext& ctx) {
     b[1].binding = 1;
     b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     b[1].image.sampler = core_->fog_sampler();
-    b[1].image.imageView = ctx.target->depth_view();
+    b[1].image.imageView = composite_depth;
     b[1].image.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     b[2].binding = 2;
     b[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
