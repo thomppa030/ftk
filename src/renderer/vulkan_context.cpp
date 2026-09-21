@@ -763,6 +763,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         prep_ctx.scene = scene;
         prep_ctx.environment = &environment;
         prep_ctx.frame_index = current_frame_;
+        // The clock the global UBO's `time` carries, already advanced for this
+        // frame, for a pass that steps something on it before recording.
+        prep_ctx.elapsed_time = elapsed_time_;
         // Terrain uploads its ray mesh here: this is the pass hook that carries
         // the scene, and geometry has to reach the mega-buffer before the TLAS
         // is built during recording.
