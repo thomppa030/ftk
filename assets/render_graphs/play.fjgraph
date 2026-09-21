@@ -84,6 +84,8 @@
         { "class": "FogIntegratePass", "name": "fog_integrate" },
         { "class": "FogCompositePass", "name": "fog_composite" },
         { "class": "SunShaftsPass",    "name": "sun_shafts" },
+        { "class": "SunShaftsResolvePass",   "name": "sun_shafts_resolve" },
+        { "class": "SunShaftsCompositePass", "name": "sun_shafts_composite" },
         { "class": "ContactShadowPass","name": "contact_shadow" },
         { "class": "CloudShadowPass",  "name": "cloud_shadow" },
         { "class": "MotionFieldPass",  "name": "motion_field" },

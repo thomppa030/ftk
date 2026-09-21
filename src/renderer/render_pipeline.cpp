@@ -4,6 +4,7 @@
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -213,6 +214,29 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             }
         }
     }
+
+        // Sun shaft history ping-pong. Sized here because a resize replaces
+        // the images and the graph has to be handed the ones this frame uses —
+        // and only for a viewport that runs the shafts, or a thumbnail
+        // rendering between two frames would resize them twice over.
+        if (auto* shafts = passes.try_get<SunShaftsPass>("sun_shafts");
+            shafts != nullptr && shafts->enabled() && pass_enabled_for_viewport("sun_shafts")) {
+            auto& imgs = shafts->frame_images(
+                {decl_ctx.viewport_extent.x, decl_ctx.viewport_extent.y});
+            auto add_history = [&](std::string_view name, uint32_t idx) {
+                ImportedImage img{};
+                img.image = imgs.shafts[idx].image;
+                img.view = imgs.shafts[idx].view;
+                img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+                img.base_layer = 0;
+                img.layer_count = 1;
+                img.mip_count = 1;
+                img.persistent = true;
+                decl_ctx.imports.emplace(fg_name_hash(name), img);
+            };
+            add_history(SunShaftsPass::HISTORY_CUR_NAME, imgs.cur_index());
+            add_history(SunShaftsPass::HISTORY_PREV_NAME, imgs.prev_index());
+        }
 
         passes.collect_exports_all(decl_ctx);
     }

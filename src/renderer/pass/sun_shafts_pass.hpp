@@ -1,7 +1,6 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/renderer_constants.hpp"
 
 #include <array>
 #include <glm/glm.hpp>
@@ -21,11 +20,24 @@ namespace fjell {
 // 2013) for the screen-space shadow-map ray-march, and Sebastien Hillaire's
 // "Physically Based and Unified Volumetric Rendering in Frostbite"
 // (SIGGRAPH 2015) for the energy-conserving Beer-Lambert integration.
+//
+// Three graph nodes. This one marches and owns everything the other two use:
+// the pipelines, the history and the frame's settings. `sun_shafts_resolve`
+// blends the march into the history and `sun_shafts_composite` adds the result
+// to the frame; both find this pass by name in post_create(). They are split
+// so the resolve can read the finished march — a dispatch cannot read its own
+// output's neighbours, and rejecting stale history needs exactly that.
 class SunShaftsPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;
     static constexpr uint32_t RESOLUTION_DIVISOR = 2;  // half-res
+    /// The march's output, this frame only: a graph transient.
+    static constexpr VkFormat RAW_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr const char* RAW_NAME = "sun_shafts_raw";
+    /// The resolved shafts, kept from frame to frame.
     static constexpr VkFormat SHAFTS_FORMAT = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    static constexpr const char* HISTORY_CUR_NAME = "sun_shafts_cur";
+    static constexpr const char* HISTORY_PREV_NAME = "sun_shafts_prev";
 
     struct Image {
         VkImage image{VK_NULL_HANDLE};
@@ -34,30 +46,33 @@ public:
     };
 
     struct Images {
-        // Ping-pong: each frame writes to shafts[cur] and samples shafts[1-cur]
-        // as history for temporal reprojection.
+        // Ping-pong: each frame resolves into shafts[cur] and samples
+        // shafts[prev] as history. The graph tracks their layouts; they reach
+        // it as imports each frame.
         std::array<Image, 2> shafts{};
-        std::array<bool, 2> shafts_ready{};  // layout is SHADER_READ_ONLY after first write
+        /// False until a resolve has written, and again after a resize: the
+        /// history holds nothing worth blending with.
+        bool history_valid{false};
 
         VkExtent2D extent{};
         uint32_t ping_pong{0};
         uint32_t frame_counter{0};
 
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        // Per-frame-in-flight descriptor sets so we never update a set while
-        // a previous frame's command buffer is still using it.
-        std::array<std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>, 2> march_sets{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> composite_sets{};
+        [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
+        [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
 
         void create(VkDevice device, VmaAllocator allocator,
-                    VkDescriptorSetLayout march_layout,
-                    VkDescriptorSetLayout composite_layout,
                     uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                    VkDescriptorSetLayout march_layout,
-                    VkDescriptorSetLayout composite_layout,
                     uint32_t screen_w, uint32_t screen_h);
+    };
+
+    /// What the march and the resolve both need to rebuild a pixel's ray.
+    struct RayPush {
+        glm::uvec2 output_size;
+        glm::uvec2 full_size;
+        float max_reach;
     };
 
     Result<> create(Device& device, const PassResources& resources) override;
@@ -68,6 +83,23 @@ public:
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     [[nodiscard]] bool enabled() const { return enabled_; }
+
+    /// The history images for this frame, sized to the viewport. Called while
+    /// the frame's imports are gathered, before anything declares: a resize
+    /// replaces the images, and the graph has to be handed the new ones.
+    [[nodiscard]] Images& frame_images(VkExtent2D viewport);
+    [[nodiscard]] Images& images() { return default_images_; }
+
+    [[nodiscard]] RayPush ray_push(const Images& imgs, VkExtent2D viewport) const;
+    [[nodiscard]] float upsample_depth_tolerance() const { return upsample_depth_tolerance_; }
+
+    [[nodiscard]] VkSampler sampler() const { return linear_sampler_; }
+    [[nodiscard]] VkDescriptorSetLayout resolve_set_layout() const { return resolve_set_layout_; }
+    [[nodiscard]] VkPipelineLayout resolve_pipeline_layout() const { return resolve_pipeline_layout_; }
+    [[nodiscard]] VkPipeline resolve_pipeline() const { return resolve_pipeline_; }
+    [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_set_layout_; }
+    [[nodiscard]] VkPipelineLayout composite_pipeline_layout() const { return composite_pipeline_layout_; }
+    [[nodiscard]] VkPipeline composite_pipeline() const { return composite_pipeline_; }
 
     /// How far a half-res tap's surface may sit from a pixel's own, as a share
     /// of that pixel's distance, before the tap stops counting in the upsample.
@@ -102,11 +134,43 @@ private:
     VkPipelineLayout march_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline march_pipeline_{VK_NULL_HANDLE};
 
+    VkDescriptorSetLayout resolve_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout resolve_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline resolve_pipeline_{VK_NULL_HANDLE};
+
     VkDescriptorSetLayout composite_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout composite_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline composite_pipeline_{VK_NULL_HANDLE};
 
     Images default_images_;
+};
+
+/// Blends this frame's march into the shaft history.
+class SunShaftsResolvePass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+
+private:
+    SunShaftsPass* core_{nullptr};
+};
+
+/// Upsamples the resolved shafts and adds them to the frame.
+class SunShaftsCompositePass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+
+private:
+    SunShaftsPass* core_{nullptr};
 };
 
 } // namespace fjell
