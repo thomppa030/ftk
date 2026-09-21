@@ -3,11 +3,26 @@
 // Takes where it is looking and where the sun is rather than reading a sky's
 // built-ins, so the same function draws a sun wherever the caller can answer
 // those — a sky, a reflection, a preview.
+//
+// Drawn as a sun seen close up and exaggerated, not as a distant dot: the
+// photosphere churns, so the limb is genuinely unstable and the surface is
+// convection cells rather than a smooth gradient. `stylize` at 0 is a clean
+// circle and every term below is an identity there; at 1 it is fully painted.
 shader_function;
 
 in vec3 view_dir;
 in vec3 sun_dir;
 in vec3 sun_color;
+in float time;
+// How much air the view ray looks through, relative to straight up, as a
+// brightness scale — `fjell_air_mass_gain()` in fjell_air_mass.glsl. A port
+// rather than a call, so this function stays self-contained and draws a sun
+// wherever the caller can answer it; 1.0 is a sky with no air in it.
+in float air_gain;
+// How much of the body is above the horizon, 1 well up and 0 below — see
+// `fjell_horizon_fade()`. A port for the same reason `air_gain` is one: this
+// function does not know where the caller's horizon is, or whether it has one.
+in float horizon_fade;
 
 out vec3 color;
 
@@ -18,40 +33,302 @@ uniform float size : hint_range(0.1, 8.0, 0.01) = 1.8;
 // How far the glow reaches past the limb, in degrees, and how bright it is.
 // Named halo_size/halo so a composition calling this `sun` gives exactly the
 // sun_size/sun_halo_size/sun_halo a scene already has authored values for.
-uniform float halo_size : hint_range(0.0, 30.0, 0.1) = 1.2;
+// Wide, because this is the air around the sun rather than a ring on the
+// disc: it is what a hazy sky does for tens of degrees, and drawn here it is
+// occluded by the clouds and the terrain in front of it, which a screen-space
+// glow added afterwards can never be.
+uniform float halo_size : hint_range(0.0, 45.0, 0.1) = 8.0;
 uniform float halo : hint_range(0.0, 4.0, 0.05) = 1.0;
+// Where the tight lobe is half-bright, in degrees. The aureole hugging the
+// disc, as distinct from the haze reaching out past it.
+uniform float halo_core : hint_range(0.1, 6.0, 0.05) = 1.5;
+// How much of the glow is the broad lobe rather than the tight one. 0 is a
+// close aureole and open sky beyond it; up toward 1 the haze carries tens of
+// degrees, which is what a hazy or dusty sky looks like.
+uniform float halo_spread : hint_range(0.0, 1.0, 0.01) = 0.45;
+// How hard the halo stretches toward the horizon, where the ray crosses more
+// air. 0 leaves it a circle.
+uniform float halo_stretch : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+// What is left of the glow once the sun is below the horizon. The disc has
+// gone by then; this is the light it still throws up into the air from under
+// the edge of the world. Named here rather than taken from the sky's includes:
+// a composed function is inlined into whatever calls it and cannot assume what
+// that file has in scope.
+#define FJELL_SUN_DISC_AFTERGLOW 0.15
+
+group "Painted sun";
+// The master dial. 0 is a clean disc with a smooth falloff; 1 is the painted
+// photosphere. Every term below is an identity at 0, so the style is turned
+// up against a working sun rather than replacing it.
+uniform float stylize : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How far the limb strays from a circle, as a share of the radius. The edge
+// is where a folded, multiplicatively sharpened field crosses its cut, so it
+// makes tongues that reach and bites that cut deep rather than an even wobble.
+uniform float churn : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How many features run around the limb. Low reads as a few long tongues,
+// high as a fine burr. The disc is only a couple of hundred pixels around, so
+// past about 20 the features stop resolving.
+uniform float churn_detail : hint_range(2.0, 24.0, 0.5) = 9.0;
+// How fast the surface reorganises, in noise units per second. The octaves
+// drift against each other rather than the field sliding rigidly, so the
+// shapes change instead of merely moving. 0 freezes it.
+uniform float churn_speed : hint_range(0.0, 2.0, 0.01) = 0.3;
+// How strongly the surface breaks into convection cells: bright centres with
+// darker lanes between them. This is what reads as a sun rather than a glowing
+// coin, and it is the one thing a distant dot cannot show.
+uniform float granulation : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How many flat values the surface is cut into, and how hard the step is.
+// Banding the shading and not the silhouette: the outline comes from the
+// field and stays where the field put it, while the light inside it steps.
+uniform float shade_bands : hint_range(0.0, 8.0, 1.0) = 4.0;
+uniform float shade_hardness : hint_range(0.0, 1.0, 0.01) = 1.0;
+// How much darker the limb is than the centre. A real sun is visibly darker
+// at its edge; stepped into flat values it is what makes the disc read as a
+// sphere instead of a sticker, and it keeps the edge under the bloom knee so
+// the silhouette stays crisp.
+uniform float limb_darkening : hint_range(0.0, 1.0, 0.01) = 0.75;
+// Bright fragments that break away past the limb, where the field clears its
+// cut outside the disc. An edge mark, a few percent of the sun — the same
+// trick the clouds draw their thin scraps with.
+uniform float prominence : hint_range(0.0, 1.0, 0.01) = 0.6;
+
+// The four values the surface is drawn from, darkest lane to hottest cell.
+//
+// Two colours mixed between can only interpolate a line. Four stops can turn,
+// which is what lets the sun run deep amber in its lanes through orange to a
+// white-hot core rather than along one straight ramp.
+//
+// These land on the bloom curve, which is not free: a pixel under about 0.5
+// never blooms, one over 1.0 always does. So the dark stops keep the lanes
+// and the limb crisp while the bright stops bleed — the banding decides what
+// glows as much as it decides what colour it is.
+uniform vec3 shade0 : hint_color = vec3(0.55, 0.20, 0.05);
+uniform vec3 shade1 : hint_color = vec3(1.00, 0.45, 0.10);
+uniform vec3 shade2 : hint_color = vec3(1.30, 0.85, 0.35);
+uniform vec3 shade3 : hint_color = vec3(1.50, 1.35, 1.05);
+
+// Value noise and its folded sum. Spelled here rather than shared with the
+// clouds: those read file-scope globals a caller sets, and a function composed
+// into someone else's program cannot assume what that program has in scope.
+float sun_hash(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+float sun_noise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    // Quintic rather than smoothstep: smoothstep's second derivative is not
+    // zero at a cell boundary, so the slope jumps there and a broad gradient
+    // across one cell draws a faint straight-edged facet.
+    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    return mix(mix(mix(sun_hash(i),                    sun_hash(i + vec3(1,0,0)), u.x),
+                   mix(sun_hash(i + vec3(0,1,0)),      sun_hash(i + vec3(1,1,0)), u.x), u.y),
+               mix(mix(sun_hash(i + vec3(0,0,1)),      sun_hash(i + vec3(1,0,1)), u.x),
+                   mix(sun_hash(i + vec3(0,1,1)),      sun_hash(i + vec3(1,1,1)), u.x), u.y), u.z);
+}
+
+// Folded octaves: `abs()` creases the noise at every zero crossing, and the
+// creases are what read as tongues and lanes. Plain fbm gives a soft lumpy
+// outline — the same difference the clouds get their torn edges from.
+//
+// Each octave is offset as well as scaled, so they drift in different
+// directions and the field reorganises as it moves instead of sliding rigidly.
+float sun_turbulence(vec3 p, float drift) {
+    float sum = 0.0;
+    float amplitude = 1.0;
+    float total = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        sum += abs(sun_noise(p) * 2.0 - 1.0) * amplitude;
+        total += amplitude;
+        p = p * 2.03 + drift;   // not exactly 2, so cells never line up
+        amplitude *= 0.5;
+        drift *= 2.0;           // fine detail races, coarse forms crawl
+    }
+    return sum / max(total, 1e-4);
+}
+
+// Cut a value into flat steps. `hardness` at 0 leaves it untouched; at 1 the
+// step is a hard edge with only a pixel of ramp on it.
+float sun_posterize(float x, float bands, float hardness) {
+    float count = max(bands, 2.0);
+    float scaled = x * count;
+    float index = floor(scaled);
+    float within = scaled - index;
+    float keep = 1.0 - hardness;
+    float shaped = keep <= 1e-4
+        ? step(0.5, within)
+        : clamp((within - 0.5) / keep + 0.5, 0.0, 1.0);
+    shaped = shaped * shaped * (3.0 - 2.0 * shaped);
+    return (index + mix(within, shaped, hardness)) / count;
+}
+
+// The four stops, walked as one ramp.
+vec3 sun_palette(float t) {
+    t = clamp(t, 0.0, 1.0) * 3.0;
+    if (t < 1.0) return mix(shade0, shade1, t);
+    if (t < 2.0) return mix(shade1, shade2, t - 1.0);
+    return mix(shade2, shade3, t - 2.0);
+}
 
 void main() {
     // Work in angle rather than in the cosine: near the disc the cosine is
     // flat to four decimal places, so an edge written there is unreadable.
     float angle = degrees(acos(clamp(dot(view_dir, sun_dir), -1.0, 1.0)));
 
-    // The limb is soft over a fixed share of the radius, so a sun of any
-    // size keeps the same crispness. The disc is not flat: it falls off
-    // toward the limb, so only the middle clips to white and the edge stays
-    // under the bloom threshold. A plateau saturates edge to edge and the
-    // eye reads the whole coin, which is what makes a small sun look big.
-    float disc = 1.0 - smoothstep(size * 0.35, size, angle);
+    // The disc's own frame. `offset` is where this pixel sits across the face
+    // in units of the radius, which is what the surface is drawn in; its
+    // length doubles as how far out we are, so the limb and the centre are
+    // the same measurement.
+    vec3 axis = abs(sun_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 right = normalize(cross(sun_dir, axis));
+    vec3 up = cross(right, sun_dir);
+    vec2 offset = vec2(dot(view_dir, right), dot(view_dir, up));
+    // Normalized so the field is fixed to the disc: at the limb this is 1
+    // whatever angular size the sun was authored at, so the same dials draw
+    // the same sun large or small.
+    vec2 face = offset / max(radians(size), 1e-6);
 
-    // The glow falls away sharply at the limb and trails off thin, the way
-    // air actually scatters the sun: brightest where it touches the disc, an
-    // order of magnitude down a disc-width out. A smoothstep ramp instead
-    // holds most of its brightness across the first half of its reach, which
-    // paints a broad bright ring rather than a glow.
-    float t = max(angle - size, 0.0) / max(halo_size, 1e-4);
-    float falloff = 1.0 / (1.0 + 64.0 * t * t);
-    falloff *= 1.0 - smoothstep(0.5, 1.0, t);   // and reach zero by halo_size
+    float drift = time * churn_speed;
 
-    // Normalized so the disc sits a little over the white point whatever the
-    // light's intensity: its hue still follows the sun through the day, its
-    // brightness does not chase the exposure.
+    // ── The field ───────────────────────────────────────────────────────────
+    // One field decides the silhouette and the surface both, so the cells a
+    // tongue is made of are the same cells the face is made of rather than
+    // two unrelated noises that happen to overlap.
+    float turb = sun_turbulence(vec3(face * churn_detail, drift), drift * 0.6);
+    // Folded octaves do not sit around 0.5: `abs()` reflects the noise about
+    // its own middle, which leaves the sum near 0.385. Centring on 0.5 puts
+    // four fifths of the field negative, and the sun comes out nibbled all
+    // round with nothing ever reaching out. Measured, not assumed.
+    const float FIELD_MID = 0.385;
+    float base = turb - FIELD_MID;
+    // Multiplicative, not additive. Multiplying the field by itself plus its
+    // own magnitude is what empties most of it and leaves isolated forms; an
+    // additive blend only ever produces another even wash, which is a lumpy
+    // circle rather than tongues.
+    float field = base * (turb * 1.4 + abs(base) * 2.6);
+
+    // ── The silhouette ──────────────────────────────────────────────────────
+    // The limb is where the field crosses its cut, not a displaced radius. A
+    // cut can leave a tongue standing well outside the circle and bite deep
+    // into it; a displacement can only ever dent an outline it keeps.
+    float radial = length(face);
+    float wobble = field * churn * stylize * 0.45;
+    float limb = 1.0 + wobble;
+    // The soft edge is a share of the authored radius rather than of the
+    // strayed limb, so a deep tongue stays as crisp as a shallow one instead
+    // of blurring in proportion to how far it reached.
+    float edge = mix(0.30, 0.055, stylize);
+    float disc = 1.0 - smoothstep(limb - edge, limb, radial);
+
+    // ── The surface ─────────────────────────────────────────────────────────
+    // Convection cells: bright centres, darker lanes between. The folded
+    // field is already creased at its zero crossings, which is where the
+    // lanes are, so the cells come from the same evaluation as the edge.
+    float cells = sun_turbulence(vec3(face * churn_detail * 2.2 + 11.3,
+                                      drift * 1.7), drift);
+    // Inverted: a crease is a lane, and the ground between creases is a cell.
+    float heat = 1.0 - cells;
+
+    // Darker toward the limb. A real sun is visibly darker at its edge, and
+    // it is what makes a disc read as a sphere; it also keeps the edge under
+    // the bloom knee, so the silhouette stays crisp instead of smearing.
+    float centre = sqrt(max(1.0 - min(radial * radial, 1.0), 0.0));
+    heat = mix(heat, heat * mix(0.35, 1.0, centre), limb_darkening * stylize);
+    heat = mix(0.62, heat, granulation * stylize);
+
+    // Cut into flat values. This is the one place banding belongs: the
+    // silhouette came from the field above and keeps whatever shape the field
+    // gave it, while the light inside steps. Banding the outline instead puts
+    // the hard boundary where it crawls as the surface churns.
+    if (shade_bands >= 2.0 && stylize > 0.0) {
+        float stepped = sun_posterize(clamp(heat, 0.0, 1.0), shade_bands, shade_hardness);
+        heat = mix(heat, stepped, stylize);
+    }
+
+    // ── Prominences ─────────────────────────────────────────────────────────
+    // Where the field clears its cut outside the disc, a fragment of surface
+    // stands away from the limb. The same edge mark the clouds draw their
+    // thin scraps with, and the thing a displaced radius cannot do at all.
+    float flare_out = 0.0;
+    if (prominence > 0.0 && stylize > 0.0) {
+        float beyond = max(radial - limb, 0.0);
+        float reach = max(wobble, 0.0) + 0.22;
+        flare_out = max(1.0 - beyond / max(reach, 1e-4), 0.0);
+        flare_out *= flare_out * smoothstep(0.0, 0.35, max(field, 0.0));
+        flare_out *= prominence * stylize * (1.0 - disc);
+    }
+
+    // ── The glow past the limb ──────────────────────────────────────────────
+    // The air around the sun, not a ring on the disc. It falls away sharply
+    // at the limb and then trails a long way out — an aureole is bright in
+    // the first degree or two and still faintly there ten degrees off, which
+    // is why the reach is wide and the falloff steep rather than the two
+    // being one number.
+    //
+    // Anchored in degrees, so widening `halo_size` lengthens the tail instead
+    // of stretching the whole curve: scaled by the reach alone, a wide halo
+    // is a narrow one drawn larger, and the bright core grows with it until
+    // it is a disc in its own right.
+    // Two lobes, because that is what the air actually does: a tight aureole
+    // from forward scatter close to the disc, and a broad one from haze that
+    // carries tens of degrees out. One lobe cannot be both — tuned tight it
+    // is gone by five degrees, tuned wide it has no core and the sun sits in
+    // a flat wash.
+    //
+    // The broad lobe is what fills the band the shafts used to paint. They
+    // covered it with an angular mask holding a constant value, which is why
+    // it read as a uniform plate; here it is a falloff, and it is occluded by
+    // whatever stands in front of the sky.
+    float out_deg = max(angle - size * limb, 0.0);
+    float near = out_deg / max(halo_core, 1e-4);
+    float wide = out_deg / max(halo_size * 0.4, 1e-4);
+    float falloff = mix(1.0 / (1.0 + near * near),
+                        1.0 / (1.0 + wide * wide),
+                        halo_spread);
+    // Faded to nothing by the reach, so the halo ends somewhere definite.
+    falloff *= 1.0 - smoothstep(0.35, 1.0, out_deg / max(halo_size, 1e-4));
+    // More air toward the horizon means more of the sun scattered toward the
+    // eye, so the halo stretches down rather than staying a circle. Drawn
+    // here, it is behind the clouds and the terrain: this is the sky, so
+    // anything in front of it covers it, which a glow composited afterwards
+    // can never be.
+    falloff *= mix(1.0, air_gain, halo_stretch);
+
+    // ── Colour ──────────────────────────────────────────────────────────────
+    // Normalized so the disc sits where it was authored whatever the light's
+    // intensity: its hue still follows the sun through the day, its brightness
+    // does not chase the exposure.
     float peak = max(sun_color.r, max(sun_color.g, sun_color.b));
     vec3 hue = sun_color / max(peak, 1e-4);
     float lit = step(1e-4, peak);
+
     // Just over the white point: bright enough to bloom, not so bright that
     // the disc blows out to a white blob at high exposure. Spelled here rather
     // than taken from the sky's includes — a function is composed into
     // whatever calls it and cannot assume what that file has in scope.
     const float disc_nits = 1.35;
-    color = hue * lit * (disc * disc_nits + falloff * 0.15 * halo);
+
+    // The palette carries its own values, so the sun's own colours survive
+    // rather than being flattened to the light's hue; the light still tints
+    // it, which is what warms the disc through sunrise and sunset.
+    vec3 painted = sun_palette(heat) * mix(vec3(1.0), hue, 0.5);
+    vec3 plain = hue * disc_nits;
+    vec3 body = mix(plain, painted, stylize);
+
+    // Below the horizon the disc is gone but the air above it is not: a sun
+    // just set still lights the sky from underneath, which is the whole of
+    // twilight. So the disc and its flares take the fade whole and the glow
+    // keeps a trace of itself past it.
+    //
+    // The sky's own horizon colour is doing some of this already, and the two
+    // add — this is the light the sun is still throwing, not a second sunset.
+    float body_fade = horizon_fade;
+    float glow_fade = mix(FJELL_SUN_DISC_AFTERGLOW, 1.0, horizon_fade);
+
+    color = lit * (body * disc * body_fade
+                   + body * flare_out * body_fade
+                   + hue * falloff * 0.15 * halo * glow_fade);
 }
