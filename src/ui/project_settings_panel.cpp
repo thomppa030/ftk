@@ -216,6 +216,28 @@ void ProjectSettingsPanel::draw_render_section() {
         ImGui::TreePop();
     }
 
+    // ── Sun Shafts ─────────────────────────────────────────────────────
+    // Temporary: one dial, exposed to find a value rather than because a
+    // project has anything to say about it. See RenderSettings::SunShafts.
+    if (ImGui::TreeNodeEx("Sun Shafts (temporary)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent();
+        if (ImGui::SliderFloat("Upsample Depth Tolerance##shafts",
+                               &s.sun_shafts.upsample_depth_tolerance, 0.01f, 0.5f)) {
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "How far a half-res tap's surface may sit from a pixel's own, as a share\n"
+                "of that pixel's distance, before it stops counting in the upsample.\n\n"
+                "Lower keeps shaft light off the near side of a silhouette. Too low and\n"
+                "taps that agreed are rejected, leaving the upsample on its nearest-tap\n"
+                "fallback, which reads as blocky.\n\n"
+                "Temporary: here to find a value. 0.05 has held so far.");
+        }
+        ImGui::Unindent();
+        ImGui::TreePop();
+    }
+
     // ── Tonemap ────────────────────────────────────────────────────────
     if (ImGui::TreeNodeEx("Tonemap", ImGuiTreeNodeFlags_DefaultOpen)) {
         using TmOp = RenderSettings::Tonemap::Operator;

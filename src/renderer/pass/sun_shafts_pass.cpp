@@ -36,6 +36,7 @@ struct ShaftsMarchPush {
 struct ShaftsCompositePush {
     glm::uvec2 viewport_size;
     glm::uvec2 shafts_size;
+    float depth_tolerance;
 };
 
 namespace {
@@ -605,6 +606,9 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     ShaftsCompositePush comp_push{};
     comp_push.viewport_size = glm::uvec2(extent.width, extent.height);
     comp_push.shafts_size = glm::uvec2(imgs.extent.width, imgs.extent.height);
+    // Clamped above zero: a zero tolerance rejects every tap including the
+    // pixel's own, and the upsample would fall back to nearest everywhere.
+    comp_push.depth_tolerance = std::max(upsample_depth_tolerance_, 1e-4F);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
     std::array composite_sets{global_set, imgs.composite_sets[frame_index]};

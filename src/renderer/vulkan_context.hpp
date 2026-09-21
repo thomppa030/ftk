@@ -31,6 +31,7 @@
 #include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
+#include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
@@ -200,6 +201,7 @@ public:
   [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_inject"); }
   [[nodiscard]] MotionFieldPass &motion_field_pass() { return passes_.get<MotionFieldPass>("motion_field"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
+  [[nodiscard]] SunShaftsPass &sun_shafts_pass() { return passes_.get<SunShaftsPass>("sun_shafts"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
   [[nodiscard]] SsGiPass &ss_gi_pass() { return passes_.get<SsGiPass>("ss_gi"); }
   [[nodiscard]] WaterPass &water_pass() { return passes_.get<WaterPass>("water"); }

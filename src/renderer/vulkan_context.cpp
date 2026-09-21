@@ -240,6 +240,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     rt_reflection_pass().set_mode(requested_mode);
     rt_reflection_pass().set_intensity(s.ssr.intensity);
     rt_reflection_pass().set_max_trace_dist(s.ssr.max_trace_dist);
+    sun_shafts_pass().set_upsample_depth_tolerance(s.sun_shafts.upsample_depth_tolerance);
 
     // Tonemap
     tonemap_pass().set_operator(static_cast<TonemapPass::Operator>(s.tonemap.op));

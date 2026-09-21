@@ -69,6 +69,14 @@ public:
 
     [[nodiscard]] bool enabled() const { return enabled_; }
 
+    /// How far a half-res tap's surface may sit from a pixel's own, as a share
+    /// of that pixel's distance, before the tap stops counting in the upsample.
+    /// A project setting rather than an environment one: it trades a halo at a
+    /// silhouette against blockiness, which is a quality knob, not a look.
+    void set_upsample_depth_tolerance(float tolerance) {
+        upsample_depth_tolerance_ = tolerance;
+    }
+
 private:
     static Image create_image(VkDevice device, VmaAllocator allocator,
                               uint32_t w, uint32_t h);
@@ -83,6 +91,7 @@ private:
     float directionality_{1.0f};
     float threshold_{0.0f};
     float fog_density_{0.0f};
+    float upsample_depth_tolerance_{0.05f};
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

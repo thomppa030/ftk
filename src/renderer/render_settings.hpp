@@ -53,6 +53,23 @@ struct RenderSettings {
     // ── Post-processing ──
     struct Gtao { bool enabled{true}; } gtao;
     struct Bloom { bool enabled{true}; } bloom;
+    struct SunShafts {
+        /// How far a half-res tap's surface may sit from a pixel's own, as a
+        /// share of that pixel's distance, before the tap stops counting when
+        /// the shafts are upsampled. Relative rather than absolute so it means
+        /// the same at five metres and five hundred.
+        ///
+        /// Lower keeps shaft light off the near side of a silhouette; too low
+        /// rejects taps that agreed and the upsample falls back to the nearest
+        /// one, which reads as blocky.
+        ///
+        /// TEMPORARY. Exposed to find a value, and the default was it — no
+        /// scene has wanted another. It tunes the quality of a filter rather
+        /// than describing anything about a project, so it does not earn a
+        /// permanent place in the settings; fold it back into a constant in
+        /// the shader once a second scene has agreed.
+        float upsample_depth_tolerance{0.05f};
+    } sun_shafts;
     struct Ssr {
         // Reflection backend selection. RayTraced requires VK_KHR_ray_tracing_pipeline;
         // it falls back to ScreenSpace at runtime if the device doesn't support RT.

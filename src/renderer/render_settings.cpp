@@ -53,6 +53,9 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
         }},
         {"gtao",  {{"enabled", s.gtao.enabled}}},
         {"bloom", {{"enabled", s.bloom.enabled}}},
+        {"sun_shafts", {
+            {"upsample_depth_tolerance", s.sun_shafts.upsample_depth_tolerance},
+        }},
         {"ssr", {
             {"mode",      static_cast<uint32_t>(s.ssr.mode)},
             {"intensity", s.ssr.intensity},
@@ -122,6 +125,11 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         s.ssr.intensity = r.value("intensity", s.ssr.intensity);
         s.ssr.thickness = r.value("thickness", s.ssr.thickness);
         s.ssr.max_trace_dist = r.value("max_trace_dist", s.ssr.max_trace_dist);
+    }
+    if (j.contains("sun_shafts")) {
+        const auto& ss = j["sun_shafts"];
+        s.sun_shafts.upsample_depth_tolerance =
+            ss.value("upsample_depth_tolerance", s.sun_shafts.upsample_depth_tolerance);
     }
     if (j.contains("tonemap")) {
         const auto& t = j["tonemap"];
