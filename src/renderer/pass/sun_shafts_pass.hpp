@@ -93,6 +93,15 @@ public:
     [[nodiscard]] Images& frame_images(VkExtent2D viewport);
     [[nodiscard]] Images& images() { return default_images_; }
 
+    /// The catalog name all three nodes read depth under: the scene depth
+    /// with the sea laid over it, which is the scene depth itself where no
+    /// water draws. A beam lights the air in front of a surface, and the sea is
+    /// one — read against the opaque scene alone, a ray over the shallows runs
+    /// on through the water to the floor. All three have to agree, or the
+    /// upsample weighs a tap that ended on the water against a pixel depth
+    /// taken from the seabed.
+    static constexpr const char* DEPTH_NAME = "surface_depth";
+
     [[nodiscard]] RayPush ray_push(const Images& imgs, VkExtent2D viewport) const;
     [[nodiscard]] float upsample_depth_tolerance() const { return upsample_depth_tolerance_; }
 

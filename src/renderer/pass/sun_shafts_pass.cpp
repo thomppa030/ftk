@@ -347,7 +347,7 @@ SunShaftsPass::RayPush SunShaftsPass::ray_push(const Images& imgs, VkExtent2D vi
 void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled_) { return; }
 
-    auto depth = builder.import_named(ctx, "depth");
+    auto depth = builder.import_named(ctx, DEPTH_NAME);
     builder.read(depth, ResourceAccess::sampled_compute);
     // The march samples the cascades every step, so the shadow pass has to
     // finish first. Declared rather than left to the producer's inline
@@ -369,6 +369,8 @@ void SunShaftsPass::record(const FrameContext& ctx) {
 
     auto* raw = ctx.registry->find_image(RAW_NAME);
     if (raw == nullptr || raw->view == VK_NULL_HANDLE) return;
+    const VkImageView surface_depth = ctx.registry->image_view(DEPTH_NAME);
+    if (surface_depth == VK_NULL_HANDLE) return;
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts");
     FJELL_GPU_ZONE(ctx, "Sun Shafts");
@@ -379,7 +381,7 @@ void SunShaftsPass::record(const FrameContext& ctx) {
 
     std::array bindings{
         storage(0, raw->view),
-        sampled(1, linear_sampler_, ctx.target->depth_view(),
+        sampled(1, linear_sampler_, surface_depth,
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
     };
     VkDescriptorSet set = ctx.descriptor_cache->acquire(march_set_layout_, bindings);
@@ -438,7 +440,7 @@ void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& c
     auto raw = builder.create(SunShaftsPass::RAW_NAME, raw_desc());
     auto cur = builder.import_named(ctx, SunShaftsPass::HISTORY_CUR_NAME);
     auto prev = builder.import_named(ctx, SunShaftsPass::HISTORY_PREV_NAME);
-    auto depth = builder.import_named(ctx, "depth");
+    auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     // The resolved velocity: under MSAA the multisampled one cannot be sampled.
     auto velocity = builder.import_named(ctx, "velocity");
     builder.read(raw, ResourceAccess::sampled_compute);
@@ -454,6 +456,8 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
 
     auto* raw = ctx.registry->find_image(SunShaftsPass::RAW_NAME);
     if (raw == nullptr || raw->view == VK_NULL_HANDLE) { return; }
+    const VkImageView surface_depth = ctx.registry->image_view(SunShaftsPass::DEPTH_NAME);
+    if (surface_depth == VK_NULL_HANDLE) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts_resolve");
     FJELL_GPU_ZONE(ctx, "Sun Shafts Resolve");
@@ -465,7 +469,7 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
         storage(0, imgs.shafts[imgs.cur_index()].view),
         sampled(1, core_->sampler(), raw->view),
         sampled(2, core_->sampler(), imgs.shafts[imgs.prev_index()].view),
-        sampled(3, core_->sampler(), ctx.target->depth_view(),
+        sampled(3, core_->sampler(), surface_depth,
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
         sampled(4, core_->sampler(), ctx.target->velocity_view()),
     };
@@ -508,7 +512,7 @@ void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext&
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto shafts = builder.import_named(ctx, SunShaftsPass::HISTORY_CUR_NAME);
-    auto depth = builder.import_named(ctx, "depth");
+    auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
     builder.read(shafts, ResourceAccess::sampled_compute);
     builder.read(depth, ResourceAccess::sampled_compute);
@@ -517,7 +521,10 @@ void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext&
 
 void SunShaftsCompositePass::record(const FrameContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
-    if (ctx.target == nullptr) { return; }
+    if (ctx.target == nullptr || ctx.registry == nullptr) { return; }
+
+    const VkImageView surface_depth = ctx.registry->image_view(SunShaftsPass::DEPTH_NAME);
+    if (surface_depth == VK_NULL_HANDLE) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts_composite");
     FJELL_GPU_ZONE(ctx, "Sun Shafts Composite");
@@ -528,7 +535,7 @@ void SunShaftsCompositePass::record(const FrameContext& ctx) {
 
     std::array bindings{
         sampled(0, core_->sampler(), imgs.shafts[imgs.cur_index()].view),
-        sampled(1, core_->sampler(), ctx.target->depth_view(),
+        sampled(1, core_->sampler(), surface_depth,
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
         storage(2, ctx.target->color_view()),
     };
