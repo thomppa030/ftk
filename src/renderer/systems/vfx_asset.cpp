@@ -263,7 +263,9 @@ void resolve_vfx_textures(VfxEffect& effect, ResourceManager& resources,
             auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
             if (tex_mod->texture_path.empty() || tex_mod->bindless_index != 0) continue;
 
-            auto resolved = base_path::resolve_asset(tex_mod->texture_path, project);
+            // Either tree may own the texture: an engine effect ships its
+            // own sprites, and a project may replace one by path.
+            auto resolved = base_path::resolve_shared(tex_mod->texture_path, project);
             auto result = resources.load_texture(resolved);
             if (result) {
                 tex_mod->bindless_index = resources.bindless_index(*result);

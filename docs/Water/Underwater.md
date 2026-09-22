@@ -85,6 +85,26 @@ and nothing when the camera is away from the surface.
 
 There is no drawn meniscus line; the medium's own edge is the waterline.
 
+## Breath
+
+Whoever has their head under a water surface breathes out while play runs.
+The environment hangs an emitter node at the mouth of each such motion
+source, the way the weather hangs its rain over the camera, with the
+engine's `engine_assets/effects/breath.fjvfx` (a project replaces it by
+shipping a file of the same path, and the same goes for the sprite it uses,
+`engine_assets/textures/bubble.png`). Every few seconds a breath goes out: a
+burst of a few large bubbles and, over the exhale, a stream of small ones,
+each rising on its own buoyancy against drag, wobbling on noise, growing a
+little as the pressure drops, spinning slowly, and popping into a spray of
+droplets at the surface through a sub-emitter. Going under lets a breath out
+at once. A head that surfaces stops breathing out and keeps its node for one
+bubble's life, so the last breath finishes rising.
+
+The engine drives only the rhythm and the depth: the period and exhale
+length are constants on `EnvironmentSubsystem`, and each emitter's bubbles
+are given the life they need to reach the surface at that emitter's own rise
+speed, read from its buoyancy and drag, so the look stays in the effect.
+
 ## Not yet
 
 Caustics on the bed. Swimming and diving are a separate plan.

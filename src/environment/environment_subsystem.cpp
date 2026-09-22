@@ -10,6 +10,8 @@
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/systems/vfx_asset.hpp"
+#include "renderer/systems/vfx_emitter.hpp"
+#include "renderer/systems/vfx_module.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
@@ -25,6 +27,7 @@
 #include "scene/scene.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 
 namespace fjell {
@@ -76,6 +79,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     dispatch_changes(ctx);
 
     update_water(ctx);
+    update_breathing(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
     // the node's direction at the resolved value so everything that reads
@@ -557,6 +561,178 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
     }
 }
 
+namespace {
+
+/// The modules of an emitter that the breath drives, found once per tick.
+struct BreathDials {
+    SpawnRateModule* rate{nullptr};
+    InitialLifetimeModule* lifetime{nullptr};
+    InitialPositionModule* position{nullptr};
+    /// How fast a bubble rises once the emitter's buoyancy and drag balance:
+    /// the force over the drag. What a bubble's life is measured against.
+    float rise_speed{0.5f};
+};
+
+[[nodiscard]] BreathDials breath_dials(VfxEmitter& emitter) {
+    BreathDials dials;
+    for (auto& module : emitter.spawn_modules) {
+        if (module->type() == ModuleType::spawn_rate) {
+            dials.rate = static_cast<SpawnRateModule*>(module.get());
+        } else if (module->type() == ModuleType::initial_lifetime) {
+            dials.lifetime = static_cast<InitialLifetimeModule*>(module.get());
+        } else if (module->type() == ModuleType::initial_position) {
+            dials.position = static_cast<InitialPositionModule*>(module.get());
+        }
+    }
+    float force = 0.0f;
+    float drag = 0.0f;
+    for (auto& module : emitter.update_modules) {
+        if (module->type() == ModuleType::gravity) {
+            force = static_cast<GravityModule*>(module.get())->force.y;
+        } else if (module->type() == ModuleType::drag) {
+            drag = static_cast<DragModule*>(module.get())->drag;
+        }
+    }
+    if (force > 0.0f && drag > 0.0f) dials.rise_speed = force / drag;
+    return dials;
+}
+
+} // namespace
+
+void EnvironmentSubsystem::update_breathing(const TickContext& ctx) {
+    // Breath belongs to play, like the rain: an editor scrub should not
+    // wrap the character in bubbles.
+    if (!playing() || resources_ == nullptr) {
+        stop_breathing(ctx.scene);
+        return;
+    }
+    const float time = ctx.clock.game_elapsed();
+
+    // Whose head is under which water, and how far.
+    struct Under {
+        const MotionSource* source;
+        glm::vec3 mouth;
+        float depth;   // surface above the mouth, metres
+    };
+    std::vector<Under> under;
+    for (const MotionSource& source : state_.motion_sources) {
+        const glm::vec2 xz(source.position.x, source.position.z);
+        const glm::vec3 mouth = source.position
+            + glm::vec3(0.0f, source.height - BREATH_MOUTH_BELOW_TOP, 0.0f);
+        for (const auto& obj : ctx.scene.objects()) {
+            const auto* water = obj->components.get<WaterComponent>();
+            if (water == nullptr) continue;
+            const auto* spatial = obj->as_spatial();
+            if (spatial == nullptr) continue;
+            const glm::vec3 centre{spatial->world_matrix_[3]};
+            if (water->extent == WaterComponent::Extent::bounded) {
+                const float half = water->size * 0.5f;
+                if (std::abs(xz.x - centre.x) > half || std::abs(xz.y - centre.z) > half) continue;
+            }
+            const float surface = centre.y + water::height_at(water->effective_water, xz, time);
+            if (surface <= mouth.y) continue;
+            under.push_back({&source, mouth, surface - mouth.y});
+            break;
+        }
+    }
+
+    for (const Under& u : under) {
+        auto it = std::find_if(breathing_.begin(), breathing_.end(),
+                               [&](const Breathing& b) { return b.source_id == u.source->node_id; });
+        const bool fresh = it == breathing_.end();
+        if (fresh) {
+            auto effect = std::make_shared<VfxEffect>(load_vfx_effect(
+                base_path::resolve_shared(std::string(BREATH_EFFECT), ctx.project)));
+            if (effect->emitters.empty()) {
+                FJELL_CORE_ERROR("Breath: '{}' holds no emitter", BREATH_EFFECT);
+                return;
+            }
+            resolve_vfx_textures(*effect, *resources_, ctx.project);
+            auto node = std::make_unique<Node3D>();
+            node->name = "Breath";
+            auto& emitter = node->components.add<EmitterComponent>();
+            emitter.vfx_path = std::string(BREATH_EFFECT);
+            emitter.effect = effect;
+            // Bursts are fired from here, on the breath's own rhythm.
+            emitter.looping = false;
+            Breathing started;
+            started.source_id = u.source->node_id;
+            started.node_id = ctx.scene.add_node(std::move(node));
+            started.effect = std::move(effect);
+            // Going under lets a breath out at once.
+            started.breath_clock = BREATH_PERIOD;
+            breathing_.push_back(std::move(started));
+            it = std::prev(breathing_.end());
+        }
+        Breathing& b = *it;
+        b.surfaced_for = 0.0f;
+        b.breath_clock += ctx.dt;
+        const bool exhale_now = b.breath_clock >= BREATH_PERIOD;
+        if (exhale_now) b.breath_clock = 0.0f;
+
+        // Every bubble is given the life it needs to reach the surface at
+        // its own rise speed, so it pops there rather than hanging under it
+        // or sailing through. The stream swells and dies over the exhale;
+        // the cluster is a burst fired at its start.
+        const float stream = b.breath_clock < BREATH_EXHALE
+            ? std::sin(b.breath_clock / BREATH_EXHALE * 3.14159265f) : 0.0f;
+        for (VfxEmitter& emitter : b.effect->emitters) {
+            BreathDials dials = breath_dials(emitter);
+            if (dials.lifetime != nullptr && emitter.name != "pop") {
+                const float life = std::max(u.depth, 0.05f) / dials.rise_speed;
+                dials.lifetime->lifetime_min = life * 0.9f;
+                dials.lifetime->lifetime_max = life * 1.05f;
+            }
+            if (dials.rate != nullptr) {
+                dials.rate->rate = BREATH_STREAM_RATE * stream * u.source->strength;
+            }
+            // The breath appears around the head, outside it, on a ring the
+            // size of the source: the pop's own spread is its own.
+            if (dials.position != nullptr && emitter.name != "pop") {
+                dials.position->radius =
+                    u.source->radius * BREATH_SPREAD_SHARE + BREATH_SPREAD_MARGIN;
+            }
+        }
+        if (auto* node = ctx.scene.find(b.node_id)) {
+            if (auto* spatial = node->as_spatial()) spatial->transform.position = u.mouth;
+            if (exhale_now) {
+                if (auto* emitter = node->components.get<EmitterComponent>()) emitter->fire = true;
+            }
+        }
+    }
+
+    // A head that has surfaced stops breathing out at once and keeps its
+    // node for one bubble's life, so what it breathed still reaches the top.
+    for (std::size_t i = 0; i < breathing_.size();) {
+        Breathing& b = breathing_[i];
+        const bool still_under = std::any_of(under.begin(), under.end(), [&](const Under& u) {
+            return u.source->node_id == b.source_id;
+        });
+        if (!still_under) {
+            b.surfaced_for += ctx.dt;
+            float longest = 0.0f;
+            for (VfxEmitter& emitter : b.effect->emitters) {
+                BreathDials dials = breath_dials(emitter);
+                if (dials.rate != nullptr) dials.rate->rate = 0.0f;
+                if (dials.lifetime != nullptr) longest = std::max(longest, dials.lifetime->lifetime_max);
+            }
+            if (b.surfaced_for > longest) {
+                ctx.scene.queue_destroy(b.node_id);
+                breathing_.erase(breathing_.begin() + static_cast<std::ptrdiff_t>(i));
+                continue;
+            }
+        }
+        ++i;
+    }
+}
+
+void EnvironmentSubsystem::stop_breathing(Scene& scene) {
+    for (const Breathing& b : breathing_) {
+        if (b.node_id != 0) scene.queue_destroy(b.node_id);
+    }
+    breathing_.clear();
+}
+
 void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
     if (!playing()) {
         stop_lightning(ctx.scene);
@@ -666,6 +842,7 @@ void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
     stop_beds(outgoing_beds_);
     stop_precipitation(ctx.scene);
     stop_lightning(ctx.scene);
+    stop_breathing(ctx.scene);
     phases_seen_ = false;
     // Leaving play puts the editor's own weather back; the sea starts from
     // that rather than easing down from whatever the session ended in.

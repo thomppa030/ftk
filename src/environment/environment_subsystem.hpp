@@ -6,12 +6,15 @@
 #include "environment/weather_player.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace fjell {
+
+struct VfxEffect;
 
 class AudioSubsystem;
 class ScriptSubsystem;
@@ -152,6 +155,38 @@ private:
     /// until the first tick, which starts it at whatever is already blowing
     /// rather than building the sea up from a calm the scene never had.
     std::optional<glm::vec2> sea_wind_;
+
+    /// Breath, from whoever has their head under a water surface: every few
+    /// seconds a cluster of larger bubbles and a short stream of small ones
+    /// from the mouth, each given the life it needs to reach the surface. One
+    /// emitter node per submerged head, kept for a bubble's life after the
+    /// head surfaces so the last breath finishes rising.
+    struct Breathing {
+        uint32_t source_id{0};
+        uint32_t node_id{0};
+        std::shared_ptr<VfxEffect> effect;
+        /// Seconds into the current breath cycle; a breath is let out at 0.
+        float breath_clock{0.0f};
+        /// Seconds since the head was last under the water.
+        float surfaced_for{0.0f};
+    };
+    std::vector<Breathing> breathing_;
+    void update_breathing(const TickContext& ctx);
+    void stop_breathing(Scene& scene);
+
+    /// Seconds between breaths, and how long the exhale lasts within one.
+    static constexpr float BREATH_PERIOD = 3.4f;
+    static constexpr float BREATH_EXHALE = 0.7f;
+    /// The stream of small bubbles at the height of the exhale, per second.
+    static constexpr float BREATH_STREAM_RATE = 45.0f;
+    /// Where the mouth is, below the top of the motion source.
+    static constexpr float BREATH_MOUTH_BELOW_TOP = 0.15f;
+    /// How far out from the mouth a breath appears, as a share of the
+    /// source's radius plus a margin: outside the head, where it can be seen,
+    /// rather than inside the mesh until it has risen clear of it.
+    static constexpr float BREATH_SPREAD_SHARE = 0.45f;
+    static constexpr float BREATH_SPREAD_MARGIN = 0.06f;
+    static constexpr std::string_view BREATH_EFFECT = "engine_assets/effects/breath.fjvfx";
 
     WeatherPlayer player_;
     ClimateDirector director_;
