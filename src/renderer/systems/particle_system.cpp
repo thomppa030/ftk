@@ -401,8 +401,12 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+        // Blended: the quad's alpha decides how much of it is there, and
+        // the metallic/roughness attachment has no alpha, so writing it
+        // would stamp the particle's values over the opaque surface under
+        // the whole quad. Only the opaque pipelines write it.
         VkPipelineColorBlendAttachmentState mr_blend{};
-        mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        mr_blend.colorWriteMask = 0;
         mr_blend.blendEnable = VK_FALSE;
 
         VkPipelineColorBlendAttachmentState normal_blend{};
@@ -505,7 +509,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
         VkPipelineColorBlendAttachmentState mr_blend{};
-        mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        mr_blend.colorWriteMask = 0; // blended, see create_lit_pipeline
         mr_blend.blendEnable = VK_FALSE;
 
         VkPipelineColorBlendAttachmentState mesh_normal_blend{};
@@ -996,8 +1000,12 @@ void ParticleSystem::recreate_pipelines() {
         blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+        // Blended: the quad's alpha decides how much of it is there, and
+        // the metallic/roughness attachment has no alpha, so writing it
+        // would stamp the particle's values over the opaque surface under
+        // the whole quad. Only the opaque pipelines write it.
         VkPipelineColorBlendAttachmentState mr_blend{};
-        mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        mr_blend.colorWriteMask = 0;
         mr_blend.blendEnable = VK_FALSE;
 
         VkPipelineColorBlendAttachmentState normal_blend{};
