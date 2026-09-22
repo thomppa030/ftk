@@ -32,7 +32,7 @@ void main() {
 
     // Read a reference particle to get emitter_index
     Particle p_ref = particles[base_offset];
-    if (p_ref.emitter_index >= 256u) {
+    if (p_ref.emitter_index >= uint(emitter_data.length())) {
         // Safety: invalid emitter index
         gl_Position = vec4(0.0);
         frag_color = vec4(0.0);

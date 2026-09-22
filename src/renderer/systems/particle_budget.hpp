@@ -33,11 +33,16 @@ using ParticleRange = std::pair<std::uint32_t, std::uint32_t>;
 /// Every effect in the scene shares this many particles: the ceiling the
 /// mega-buffer can grow to. An emitter that would take the scene past it is
 /// refused with a warning rather than allowed to exhaust the buffer.
-inline constexpr std::uint32_t MAX_SCENE_PARTICLES = 65536;
+///
+/// The ceiling reserves address space, not memory: the buffer is sparse and
+/// commits pages as emitters arrive. What a budget costs is paid per slot
+/// each frame, simulated and drawn whether the slot is alive or not, so the
+/// number to be careful with is an emitter's Max Particles, not this one.
+inline constexpr std::uint32_t MAX_SCENE_PARTICLES = 1u << 20;
 
 /// And this many emitters, for the same reason: the per-emitter buffers have
 /// the same kind of hard ceiling as the particle one.
-inline constexpr std::uint32_t MAX_SCENE_EMITTERS = 512;
+inline constexpr std::uint32_t MAX_SCENE_EMITTERS = 2048;
 
 /// How big to grow a mega-buffer that must hold `needed`, given what it holds
 /// now and the most it can ever hold.

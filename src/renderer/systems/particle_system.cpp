@@ -35,6 +35,9 @@ constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 // definition for why the enforcement has to live there.
 constexpr uint32_t MODULE_BUDGET_BYTES = 2048;
 
+// Sub-emitter events a parent may report per frame; matches the GLSL define.
+constexpr uint32_t MAX_SUB_EVENTS_PER_EMITTER = 256;
+
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
@@ -50,9 +53,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     // Small initial commit — sparse growth is cheap (no device stall), so
     // there's no reason to over-commit up front like MegaBuffer does for
     // its much larger, load-time-known mesh data. Virtual capacity caps
-    // how far ensure_capacity() can ever grow: 65536 particles is comfortably
-    // above any single scene observed so far (stress_test.fjell peaked at
-    // 2900 across 4 emitters), with headroom for many concurrent effects.
+    // how far ensure_capacity() can ever grow: the scene budgets in
+    // particle_budget.hpp, which reserve address space and nothing else.
     //
     // The counter/indirect buffers are naturally tiny (a handful of uints
     // per emitter) — their virtual capacity must still be at least one
@@ -63,13 +65,9 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     // live via validation, not by inspection. Floor both at 1MB, which is
     // already far more headroom than any realistic emitter count needs.
     constexpr VkDeviceSize INITIAL_PARTICLES = 512;
-    constexpr VkDeviceSize MAX_PARTICLES = 65536;
-    static_assert(MAX_PARTICLES == ParticleSystem::MAX_SCENE_PARTICLES,
-                  "the emitter budget and the buffer's ceiling are the same number");
+    constexpr VkDeviceSize MAX_PARTICLES = MAX_SCENE_PARTICLES;
     constexpr VkDeviceSize INITIAL_EMITTERS = 8;
-    constexpr VkDeviceSize MAX_EMITTERS = 512;
-    static_assert(MAX_EMITTERS == ParticleSystem::MAX_SCENE_EMITTERS,
-                  "the emitter budget and the buffer's ceiling are the same number");
+    constexpr VkDeviceSize MAX_EMITTERS = MAX_SCENE_EMITTERS;
     constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
 
     auto& upload = *resources.upload_context;
@@ -1300,8 +1298,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // Sub-emitter event buffer: 64 bytes per event, 256 events per emitter max
     constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
-    constexpr VkDeviceSize MAX_EVENTS = 256;
-    VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_EVENTS * EVENT_SIZE);
+    VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_SUB_EVENTS_PER_EMITTER * EVENT_SIZE);
     if (sub_event_buffer_) deleter_->retire(std::move(sub_event_buffer_));
     sub_event_buffer_ = std::make_unique<Buffer>(
         allocator_, event_buf_size,
@@ -1925,6 +1922,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
     emitter_data_cache_.clear();
     emitter_data_cache_.resize(emitter_count);
     uint32_t max_emit_count = 0;
+    uint32_t max_child_emit = 0; // threads the child emit pass needs across emitters
 
     auto* module_ptr = static_cast<uint8_t*>(module_buffer.mapped());
     uint32_t module_word_offset = 0;
@@ -2175,7 +2173,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
         // Sub-emitter fields: detect if this emitter is a child of another
         // sub_event_offset: where this emitter's events are stored (as parent)
         // sub_event_source: which emitter is the parent (0xFFFFFFFF if none)
-        data.sub_event_offset = static_cast<uint32_t>(i) * 256; // MAX_SUB_EVENTS_PER_EMITTER
+        data.sub_event_offset = static_cast<uint32_t>(i) * MAX_SUB_EVENTS_PER_EMITTER;
         data.sub_event_source = 0xFFFFFFFF; // not a child by default
         data.sub_burst_count = 0;
         data.sub_vel_inherit = 0.0f;
@@ -2209,9 +2207,13 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
             if (data.sub_event_source != 0xFFFFFFFF) break;
         }
 
-        // Child emitters never emit on their own — only from events
+        // Child emitters never emit on their own — only from events. A
+        // parent reports at most MAX_SUB_EVENTS_PER_EMITTER events a frame
+        // and each spawns a burst.
         if (data.sub_event_source != 0xFFFFFFFF) {
             data.emit_count = 0;
+            max_child_emit = std::max(max_child_emit,
+                                      MAX_SUB_EVENTS_PER_EMITTER * std::max(data.sub_burst_count, 1u));
         }
 
         // Evaluate expression graph (writes computed values to module members).
@@ -2323,8 +2325,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
 
     // ── Phase 3: Emit child emitters (sub_emit_pass=1, consume events) ──
     push.sub_emit_pass = 1;
-    {
-        uint32_t max_child_emit = 256 * 100; // MAX_SUB_EVENTS * generous max burst
+    if (max_child_emit > 0) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
         bind_compute_sets();
         vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
