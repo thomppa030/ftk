@@ -64,7 +64,7 @@ layout(push_constant) uniform PushConstants {
     // matches WaterPushConstants and the fragment stage, which does read it.
     vec2  wave_direction;
     uint  infinite;
-    uint  _pad;
+    float simulated_patch_size;   // unread here; the field buffer carries it for this stage
     // Unread by this stage; present so the block matches WaterPushConstants
     // and the fragment stage, which samples the scene SDF for contact foam.
     vec3  sdf_volume_min;

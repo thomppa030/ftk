@@ -762,6 +762,7 @@ void WaterPass::record(const FrameContext& ctx) {
         push.delta_time = ctx.delta_time;
         push.wave_direction = water::dominant_direction(wc->effective_water);
         push.infinite = infinite ? 1U : 0U;
+        push.simulated_patch_size = bound_field_.simulated_patch_size;
         push.sdf_volume_min = sdf_volume_min_;
         push.sdf_volume_max = sdf_volume_max_;
 

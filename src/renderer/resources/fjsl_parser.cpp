@@ -1644,8 +1644,9 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // above, so the in-main slot becomes empty.
     replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
     // Composed functions go in ahead of the consumer's own globals, at file
-    // scope and above main() — the unlit path finds main()'s closing brace with
-    // rfind('}'), so nothing may be emitted after it. The composition lists
+    // scope and above main() — a template without an FJSL_LIGHTING_END marker
+    // has its unlit path cut to main()'s closing brace, found with rfind('}'),
+    // so nothing may be emitted after it. The composition lists
     // dependencies first, so a function's helpers are declared before the code
     // that calls them.
     // Each composed file's uniforms occupy a run of the consumer's param
@@ -1709,8 +1710,18 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         const std::string lighting_marker = "    // \xe2\x94\x80\xe2\x94\x80 PBR lighting";
         auto lighting_pos = result.find(lighting_marker);
         if (lighting_pos != std::string::npos) {
-            // Find the closing brace of main() — last '}' in the file
-            auto main_end = result.rfind('}');
+            // The block ends where the template says it does, so that what a
+            // template puts after its lighting — a debug view, say — is kept
+            // for an unlit shader too. A template that does not say has its
+            // block run to the closing brace of main(), the last '}' in the
+            // file, and may put nothing after the lighting call.
+            const std::string end_marker = "/*FJSL_LIGHTING_END*/";
+            auto main_end = result.find(end_marker, lighting_pos);
+            if (main_end != std::string::npos) {
+                main_end += end_marker.size();
+            } else {
+                main_end = result.rfind('}');
+            }
             if (main_end != std::string::npos) {
                 // Every attachment the pass binds has to be written, including
                 // the ones an unlit surface has no opinion about: a fragment

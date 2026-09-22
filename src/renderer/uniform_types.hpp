@@ -54,6 +54,7 @@ enum class DebugLightChannel : int {
     NormalRecon   = 11, // geometric normal from the G-buffer
     AoApplied     = 12, // ambient after AO, the composited result
     SunShafts     = 13, // sun shaft buffer alone, replaces the frame at the shafts composite
+    WaterTiles    = 14, // the simulated sea's texture tiles drawn on the water: edges and a checker
 };
 
 struct PointLight {

@@ -39,7 +39,10 @@ struct WaterPushConstants {
     /// placed square. The bounded fields above are unread in that case: an
     /// infinite sea has no corner and no size.
     uint32_t infinite;
-    uint32_t _pad;
+    /// Metres the simulated sea's textures tile over, or 0 with none running.
+    /// The mesh stage reads it from the field buffer; this is for the fragment
+    /// stage, which has no field buffer and wants it for the tile debug view.
+    float simulated_patch_size;
     /// World bounds of the scene SDF, for the fragment stage to map a world
     /// position into the volume. The same pair DdgiPass is handed, from the
     /// same `SceneSdfPass::volume_min()` / `volume_max()`, because there is

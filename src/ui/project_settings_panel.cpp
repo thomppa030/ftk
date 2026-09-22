@@ -320,6 +320,7 @@ void ProjectSettingsPanel::draw_debug_section() {
         "AO: surface normal",
         "AO: applied to ambient",
         "Sun shafts",
+        "Water: simulated tiles",
     };
     int channel = vk_->debug_light_channel();
     if (ImGui::Combo("Channel", &channel, kChannelNames,

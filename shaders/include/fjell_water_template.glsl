@@ -57,7 +57,7 @@ layout(push_constant) uniform PushConstants {
     float delta_time;
     vec2  wave_direction;
     uint  infinite;
-    uint  _pad;
+    float simulated_patch_size;
     vec3  sdf_volume_min;
     float _pad1;
     vec3  sdf_volume_max;
@@ -270,4 +270,32 @@ void main() {
     fjell_shade_surface(NORMAL, VIEW_DIR, WORLD_POS, frag_world_normal,
                         ALBEDO, ALPHA, METALLIC, ROUGHNESS, EMISSION, AO,
                         frag_clip_pos, frag_prev_clip_pos);
+    /*FJSL_LIGHTING_END*/
+
+    // ── Debug: where the simulated sea's texture repeats ──
+    // A checker per tile and a bright line along every tile edge, so a seam
+    // on the water can be seen against where the texture wraps. Drawn from
+    // the world position rather than the rest position the texture is sampled
+    // at, so the lines sit up to the horizontal displacement off the true
+    // edge: near enough to tell whether a seam runs along it.
+    if (ubo.debug_light_channel == DEBUG_LIGHT_CHANNEL_WATER_TILES) {
+        float tile_size = push.simulated_patch_size;
+        if (tile_size <= 0.0) {
+            out_color = vec4(0.4, 0.0, 0.4, 1.0);   // no simulated sea on this water
+        } else {
+            vec2 tile = WORLD_POS.xz / tile_size;
+            vec2 in_tile = fract(tile);
+            // Metres to the nearest tile edge, and a line about two pixels
+            // wide across it whatever the distance.
+            float to_edge = min(min(in_tile.x, 1.0 - in_tile.x), min(in_tile.y, 1.0 - in_tile.y)) * tile_size;
+            float line_width = 2.0 * fwidth(to_edge);
+            float edge = 1.0 - smoothstep(0.0, line_width, to_edge);
+            vec2 which = floor(tile);
+            float checker = mod(which.x + which.y, 2.0);
+            vec3 tint = mix(vec3(0.05, 0.25, 0.45), vec3(0.10, 0.45, 0.35), checker);
+            // Lit by the geometry alone, so the surface's shape still reads.
+            float shade = 0.5 + 0.5 * max(NORMAL.y, 0.0);
+            out_color = vec4(mix(tint * shade, vec3(1.0, 0.2, 0.9), edge), 1.0);
+        }
+    }
 }
