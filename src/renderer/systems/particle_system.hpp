@@ -353,7 +353,6 @@ private:
     bool vfx_changed_{false};
     std::string vfx_changed_path_;
     std::string vfx_relative_path_;
-    std::shared_ptr<VfxEffect> vfx_pending_effect_;
     std::unordered_set<const Scene*> vfx_reloaded_scenes_;
     void setup_vfx_watcher(const RenderSubsystemContext& ctx);
     void reload_changed_vfx(const RenderSubsystemContext& ctx);

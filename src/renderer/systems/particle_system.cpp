@@ -2739,7 +2739,6 @@ void ParticleSystem::setup_vfx_watcher(const RenderSubsystemContext& ctx) {
                 vfx_changed_ = true;
                 vfx_changed_path_ = p.string();
                 vfx_relative_path_.clear();
-                vfx_pending_effect_.reset();
                 vfx_reloaded_scenes_.clear();
             }
         });
@@ -2753,35 +2752,36 @@ void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
     if (vfx_reloaded_scenes_.contains(ctx.scene)) return;
     vfx_reloaded_scenes_.insert(ctx.scene);
 
-    // Parse and cache effect on first call
-    if (!vfx_pending_effect_) {
+    if (vfx_relative_path_.empty()) {
         auto root = ctx.project->root().string();
         if (vfx_changed_path_.starts_with(root)) {
             vfx_relative_path_ = vfx_changed_path_.substr(root.size());
             if (!vfx_relative_path_.empty() && vfx_relative_path_[0] == '/')
                 vfx_relative_path_ = vfx_relative_path_.substr(1);
         }
+    }
+
+    // Each node gets its own copy: an emitter's playback state (its clock,
+    // accumulators, whether its burst has fired) lives on the effect, and
+    // two nodes sharing one would advance it twice a frame and fire once
+    // between them.
+    int replaced = 0;
+    for (const auto& obj : ctx.scene->objects()) {
+        auto* ec = obj->components.get<EmitterComponent>();
+        if (!ec) continue;
+        if (ec->vfx_path != vfx_relative_path_ && ec->vfx_path != vfx_changed_path_) continue;
         try {
             auto effect = load_vfx_effect(vfx_changed_path_);
             if (ctx.resource_manager)
                 resolve_vfx_textures(effect, *ctx.resource_manager, ctx.project);
-            vfx_pending_effect_ = std::make_shared<VfxEffect>(std::move(effect));
+            ec->effect = std::make_shared<VfxEffect>(std::move(effect));
+            replaced++;
         } catch (const std::exception& e) {
             FJELL_CORE_ERROR("VFX hot-reload failed: {}", e.what());
             // Clear state so we don't retry every frame
             vfx_changed_ = false;
             vfx_changed_path_.clear();
             return;
-        }
-    }
-
-    int replaced = 0;
-    for (const auto& obj : ctx.scene->objects()) {
-        auto* ec = obj->components.get<EmitterComponent>();
-        if (!ec) continue;
-        if (ec->vfx_path == vfx_relative_path_ || ec->vfx_path == vfx_changed_path_) {
-            ec->effect = vfx_pending_effect_;
-            replaced++;
         }
     }
 
