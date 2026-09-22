@@ -1,8 +1,34 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <optional>
+#include <utility>
+#include <vector>
 
 namespace fjell {
+
+/// A run of particles an emitter holds: [begin, end).
+using ParticleRange = std::pair<std::uint32_t, std::uint32_t>;
+
+/// Where a run of `count` particles fits among `used`, or nullopt when it
+/// does not fit under `ceiling`. `used` is sorted by begin on the way in.
+///
+/// First fit: the gap an effect left when it ended is where the next one
+/// goes. Placing every new emitter past the highest one instead would let
+/// a scene that keeps spawning and ending effects climb the buffer until
+/// the ceiling refused an effect that had plenty of room below it.
+[[nodiscard]] inline std::optional<std::uint32_t> first_fit_range(
+    std::vector<ParticleRange> used, std::uint32_t count, std::uint32_t ceiling) {
+    std::sort(used.begin(), used.end());
+    std::uint32_t cursor = 0;
+    for (const auto& [begin, end] : used) {
+        if (begin >= cursor && begin - cursor >= count) return cursor;
+        cursor = std::max(cursor, end);
+    }
+    if (cursor + count <= ceiling) return cursor;
+    return std::nullopt;
+}
 
 /// Every effect in the scene shares this many particles: the ceiling the
 /// mega-buffer can grow to. An emitter that would take the scene past it is

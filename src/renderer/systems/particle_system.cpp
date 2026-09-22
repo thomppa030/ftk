@@ -1514,12 +1514,8 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
                     total_particles, emitter_count);
 }
 
-void ParticleSystem::init_emitter_ranges() {
-    init_emitter_range(0, static_cast<uint32_t>(emitters_.size()));
-}
-
-void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
-    if (from >= to) return;
+void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
+    if (slots.empty()) return;
 
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1538,7 +1534,7 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
              "Failed to begin particle init command buffer");
 
     // Zero particle buffer and indirect draw commands for the target range
-    for (uint32_t i = from; i < to; ++i) {
+    for (uint32_t i : slots) {
         const auto& em = emitters_[i];
         VkDeviceSize particle_offset = static_cast<VkDeviceSize>(em.base_offset) * PARTICLE_STRIDE;
         VkDeviceSize particle_size = static_cast<VkDeviceSize>(em.max_particles) * PARTICLE_STRIDE;
@@ -1550,7 +1546,7 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
 
     // Initialize dead lists per emitter
     constexpr VkDeviceSize max_update = 65536;
-    for (uint32_t i = from; i < to; ++i) {
+    for (uint32_t i : slots) {
         const auto& em = emitters_[i];
         std::vector<uint32_t> indices(em.max_particles);
         for (uint32_t j = 0; j < em.max_particles; ++j) indices[j] = j;
@@ -1569,7 +1565,7 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
     }
 
     // Initialize counters for the target range only (3 uints: alive, dead, trail_head)
-    for (uint32_t i = from; i < to; ++i) {
+    for (uint32_t i : slots) {
         uint32_t counters[3] = {0, emitters_[i].max_particles, 0};
         VkDeviceSize counter_offset = static_cast<VkDeviceSize>(i) * 3 * sizeof(uint32_t);
         vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), counter_offset,
@@ -1707,7 +1703,42 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
 // ── Internal implementations ───────────────────────────────────────────
 
 void ParticleSystem::release_scene(uint64_t scene_id) {
-    std::erase_if(emitters_, [scene_id](const EmitterGpu& gpu) { return gpu.scene_id == scene_id; });
+    for (auto& gpu : emitters_) {
+        if (gpu.active && gpu.scene_id == scene_id) free_slot(gpu);
+    }
+}
+
+uint32_t ParticleSystem::allocate_slot() {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
+        if (!emitters_[i].active) return i;
+    }
+    emitters_.emplace_back();
+    return static_cast<uint32_t>(emitters_.size() - 1);
+}
+
+std::optional<uint32_t> ParticleSystem::allocate_particle_range(uint32_t count) const {
+    std::vector<ParticleRange> used;
+    used.reserve(emitters_.size());
+    for (const auto& gpu : emitters_) {
+        if (gpu.active) used.emplace_back(gpu.base_offset, gpu.base_offset + gpu.max_particles);
+    }
+    return first_fit_range(std::move(used), count, MAX_SCENE_PARTICLES);
+}
+
+void ParticleSystem::free_slot(EmitterGpu& gpu) {
+    // Its particles are left as they are: nothing draws the range, an
+    // inactive slot's data holds them still, and the next emitter to take
+    // the range zeroes it. Everything a consumer might test is cleared so
+    // the slot reads as empty to the draw and DDGI loops that walk it.
+    gpu = EmitterGpu{};
+}
+
+uint32_t ParticleSystem::particle_extent() const {
+    uint32_t extent = 0;
+    for (const auto& gpu : emitters_) {
+        if (gpu.active) extent = std::max(extent, gpu.base_offset + gpu.max_particles);
+    }
+    return extent;
 }
 
 void ParticleSystem::sync_emitters(Scene& scene) {
@@ -1733,24 +1764,20 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     }
 
     auto key_match = [scene_id](const EmitterGpu& gpu, const EmitterKey& key) {
-        return gpu.scene_id == scene_id && gpu.object_id == key.object_id
+        return gpu.active && gpu.scene_id == scene_id && gpu.object_id == key.object_id
             && gpu.emitter_index == key.emitter_index;
     };
 
-    // Remove this scene's dead emitters. Other scenes' emitters are not
+    // Free this scene's dead emitters. Other scenes' emitters are not
     // this sync's to judge; they stay until their own scene is synced or
     // released.
-    for (auto it = emitters_.begin(); it != emitters_.end();) {
-        if (it->scene_id != scene_id) { ++it; continue; }
+    for (auto& gpu : emitters_) {
+        if (!gpu.active || gpu.scene_id != scene_id) continue;
         bool alive = false;
         for (const auto& se : scene_emitters) {
-            if (key_match(*it, se)) { alive = true; break; }
+            if (key_match(gpu, se)) { alive = true; break; }
         }
-        if (!alive) {
-            it = emitters_.erase(it);
-        } else {
-            ++it;
-        }
+        if (!alive) free_slot(gpu);
     }
 
     // Find new emitters not in the current list
@@ -1765,45 +1792,42 @@ void ParticleSystem::sync_emitters(Scene& scene) {
 
     if (new_emitters.empty()) return;
 
-    FJELL_GFX_DEBUG("Particle sync: {} existing, {} new",
+    FJELL_GFX_DEBUG("Particle sync: {} slots, {} new",
                     emitters_.size(), new_emitters.size());
 
-    // Compute next free offset (end of all existing allocations)
-    uint32_t next_offset = 0;
-    for (const auto& em : emitters_) {
-        uint32_t end = em.base_offset + em.max_particles;
-        if (end > next_offset) next_offset = end;
-    }
-
-    // Append new emitters (order must be stable — particles store emitter_index
-    // at emit time and use it to look up EmitterData in the sim shader)
-    uint32_t first_new = static_cast<uint32_t>(emitters_.size());
+    std::vector<uint32_t> new_slots;
     for (const auto& ne : new_emitters) {
         // Every effect in the scene shares one particle budget. An emitter
         // that would take the scene past it is refused here, naming itself
         // and what it asked for, rather than growing the buffer until it
         // throws with nothing to act on: a greedy effect is an authoring
         // mistake and the scene should keep running while it is fixed.
-        if (next_offset + ne.max_particles > MAX_SCENE_PARTICLES) {
+        auto range = allocate_particle_range(ne.max_particles);
+        if (!range) {
+            uint32_t held = 0;
+            for (const auto& gpu : emitters_) {
+                if (gpu.active) held += gpu.max_particles;
+            }
             FJELL_GFX_WARN("Particles: emitter {} of node {} asked for {} particles, "
                            "but only {} of the scene's {} are left — it will not emit. "
                            "Lower its Max Particles, or another effect's.",
                            ne.emitter_index, ne.object_id, ne.max_particles,
-                           MAX_SCENE_PARTICLES - next_offset, MAX_SCENE_PARTICLES);
+                           MAX_SCENE_PARTICLES - held, MAX_SCENE_PARTICLES);
             continue;
         }
-        EmitterGpu gpu{};
+        uint32_t slot = allocate_slot();
+        auto& gpu = emitters_[slot];
+        gpu.active = true;
         gpu.scene_id = scene_id;
         gpu.object_id = ne.object_id;
         gpu.emitter_index = ne.emitter_index;
         gpu.max_particles = ne.max_particles;
-        gpu.base_offset = next_offset;
+        gpu.base_offset = *range;
         gpu.blend_mode = ne.blend_mode;
-        emitters_.push_back(gpu);
-        next_offset += ne.max_particles;
+        new_slots.push_back(slot);
     }
 
-    uint32_t total = next_offset;
+    uint32_t total = particle_extent();
     uint32_t count = static_cast<uint32_t>(emitters_.size());
 
     bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
@@ -1812,7 +1836,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     // buffers grow in place (ensure_capacity above), and the buffers/
     // descriptor sets rebuild_mega_buffers still fully recreates are
     // retired through DeferredDeleter instead of being freed immediately
-    // — see its call sites. init_emitter_range submits and waits for its
+    // — see its call sites. init_emitter_slots submits and waits for its
     // own init command buffer regardless of this branch, so neither path
     // needs an additional wait beforehand.
     if (needs_realloc) {
@@ -1820,7 +1844,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         uint32_t new_count = grow_buffer_to(count, emitter_capacity_, MAX_SCENE_EMITTERS);
         rebuild_mega_buffers(new_total, new_count);
     }
-    init_emitter_range(first_new, count);
+    init_emitter_slots(new_slots);
 }
 
 void ParticleSystem::upload_primitives(MegaBuffer& mega_buffer) {
@@ -1939,8 +1963,9 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     Frustum frustum = Frustum::from_vp_matrix_zo(view_projection);
 
     uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
-    uint32_t total_max = 0;
-    for (const auto& em : emitters_) total_max += em.max_particles;
+    // Ranges are allocated first fit, so a freed gap below a live emitter
+    // is part of what the simulation has to cover.
+    uint32_t total_max = particle_extent();
 
     // Build emitter metadata
     emitter_data_cache_.clear();
@@ -1954,8 +1979,8 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         auto& gpu = emitters_[i];
         // An emitter of another scene is looked up nowhere: a node id is
         // only unique within its scene, and it has to freeze, not follow a
-        // stranger's node.
-        gpu.in_scene = gpu.scene_id == scene.id();
+        // stranger's node. A free slot has no node at all.
+        gpu.in_scene = gpu.active && gpu.scene_id == scene.id();
         auto* obj = gpu.in_scene ? scene.find(gpu.object_id) : nullptr;
         auto& data = emitter_data_cache_[i];
         std::memset(&data, 0, sizeof(data));
@@ -2206,6 +2231,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // object in the same scene, since node ids repeat across scenes.
         for (uint32_t pi = 0; pi < emitter_count; ++pi) {
             if (pi == i) continue;
+            if (!emitters_[pi].active) continue;
             if (emitters_[pi].scene_id != gpu.scene_id) continue;
             if (emitters_[pi].object_id != gpu.object_id) continue;
             // Find the parent's VfxEmitter to check for SubEmitterModule

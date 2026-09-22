@@ -23,6 +23,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -135,6 +136,12 @@ private:
 public:
     // Public for DDGI RT TLAS integration (mesh particle emitters as proxy geometry)
     struct EmitterGpu {
+        // A slot in emitters_. Slots are never erased: particles carry
+        // their emitter's index for their whole life and the per-emitter
+        // counters live at that index, so an emitter that goes away leaves
+        // its slot free for the next one rather than shifting everything
+        // above it onto the wrong data.
+        bool active{false};
         // The scene the emitter's node lives in. Every scene rendered keeps
         // its emitters here; a dispatch only drives the ones of the scene
         // it is given and freezes the rest, so a preview scene rendered
@@ -174,8 +181,18 @@ public:
 private:
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
-    void init_emitter_ranges();
-    void init_emitter_range(uint32_t from, uint32_t to);
+    /// Zero the particles and reset the counters of the given slots.
+    void init_emitter_slots(const std::vector<uint32_t>& slots);
+    /// A free slot in emitters_, appending one when none is free.
+    [[nodiscard]] uint32_t allocate_slot();
+    /// The first run of `count` particles no active emitter holds, or
+    /// nullopt when there is none under the scene ceiling.
+    [[nodiscard]] std::optional<uint32_t> allocate_particle_range(uint32_t count) const;
+    /// The slot's particles and range are up for reuse.
+    void free_slot(EmitterGpu& gpu);
+    /// One past the highest particle any active emitter holds: how far the
+    /// simulation has to reach and how big the buffers must be.
+    [[nodiscard]] uint32_t particle_extent() const;
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

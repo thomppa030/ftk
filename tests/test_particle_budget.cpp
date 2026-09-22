@@ -50,3 +50,28 @@ TEST_CASE("A request at the ceiling is met exactly", "[particles]") {
     // rounded down by the clamp.
     REQUIRE(grow_buffer_to(PARTICLES, 1024, PARTICLES) == PARTICLES);
 }
+
+TEST_CASE("A new emitter takes the first gap that holds it", "[particles]") {
+    // Rain that stops and starts while a pooled one-shot sits above it must
+    // land back where it was, not climb past the one-shot every time.
+    std::vector<ParticleRange> used{{11600, 21600}};
+    REQUIRE(first_fit_range(used, 11600, PARTICLES) == 0);
+    REQUIRE(first_fit_range(used, 11601, PARTICLES) == 21600);
+
+    // A gap between two live emitters is found regardless of slot order.
+    used = {{30000, 31000}, {0, 1000}, {5000, 6000}};
+    REQUIRE(first_fit_range(used, 4000, PARTICLES) == 1000);
+    REQUIRE(first_fit_range(used, 4001, PARTICLES) == 6000);
+}
+
+TEST_CASE("Nothing fits past the ceiling", "[particles]") {
+    std::vector<ParticleRange> used{{0, PARTICLES - 100}};
+    REQUIRE(first_fit_range(used, 100, PARTICLES) == PARTICLES - 100);
+    REQUIRE_FALSE(first_fit_range(used, 101, PARTICLES).has_value());
+    REQUIRE_FALSE(first_fit_range({}, PARTICLES + 1, PARTICLES).has_value());
+}
+
+TEST_CASE("An empty buffer starts at zero", "[particles]") {
+    REQUIRE(first_fit_range({}, 500, PARTICLES) == 0);
+    REQUIRE(first_fit_range({}, PARTICLES, PARTICLES) == 0);
+}
