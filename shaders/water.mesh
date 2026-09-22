@@ -83,7 +83,7 @@ layout(push_constant) uniform PushConstants {
     uint  wake_count;
     // Unread by this stage: whether the camera is under this water.
     uint  camera_below;
-    uint  _pad_a;
+    uint  line_active;   // the waterline dispatch alone reads it
     uint  _pad_b;
     uint  _pad_c;
 } push;

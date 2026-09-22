@@ -28,8 +28,16 @@ layout(push_constant) uniform PushConstants {
     float motion_response;      // how far the haze answers movement
     float density_field_debug;  // paints the stirred air; 0 is off
     uint fog_material_id;       // the source's row in the material buffer
+    uint source_kind;           // FOG_SOURCE_HAZE, _VOLUME or _WATER
+    uint camera_below;          // water: 1 when the camera is under the surface
 } pc;
 
 const uint FOG_HAZE = 0xffffffffu;
+
+// What a medium dispatch adds: the scene's haze, a placed volume, or the body
+// of a water whose froxels are told from the surface depth.
+const uint FOG_SOURCE_HAZE = 0u;
+const uint FOG_SOURCE_VOLUME = 1u;
+const uint FOG_SOURCE_WATER = 2u;
 
 #endif // FJELL_FOG_PUSH_GLSL

@@ -4,6 +4,7 @@
 #include "renderer/resources/water_derivation.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/resource_handle.hpp"
+#include "core/named_value.hpp"
 #include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 
@@ -97,6 +98,18 @@ struct WaterComponent : NodeComponent {
     MaterialHandle material_handle;
     Material* material{nullptr};
     std::string material_path;
+
+    /// What the body of the water is made of, for a camera under it and for
+    /// looking down into it: a `.fjmat` whose shader is `shader_type fog`,
+    /// drawn by the volumetric fog into every froxel inside the water. Empty
+    /// is no medium at all — the water is a surface and nothing else, which
+    /// a puddle or a pool a camera never enters is content with.
+    MaterialHandle medium_material_handle;
+    Material* medium_material{nullptr};
+    std::string medium_material_path;
+    /// Every uniform the medium's shader declares, at the material's values,
+    /// as the fog pass is handed them. Read each tick.
+    std::vector<NamedValue> medium_values_;
 
     /// Per-node override of the surface material. Created on the first
     /// `set_param` from a script and dropped by `reset`, so a sea whose

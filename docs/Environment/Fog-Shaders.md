@@ -55,6 +55,20 @@ smearing a blob across it.
 
 A shader may `return;` early from either hook.
 
+## Sources
+
+A medium dispatch is one source of fog: the Volumetric Fog node's haze, which
+reaches everywhere and writes first; each Fog Volume, over the froxels its
+shape reaches; and each body of water that names a **Medium** material, over
+every froxel that lies inside the water along its ray. Which froxels those are
+is told from the surface depth the water pass leaves against the scene depth:
+between the drawn surface and the scene behind it when the camera is above,
+from the eye to whichever ends the water when it is under, so a water's
+`density()` never has to say where the surface is: `OCCUPANCY` is one
+and `ORIGIN` is the water node, whose y is the surface at rest. Sources add.
+`shaders/water_medium.fjsl` is the engine's water medium. See
+[Underwater](../Water/Underwater.md).
+
 ## `density()` built-ins
 
 `DENSITY`, `COLOR` and `SCATTERING` are the outputs. Everything else is an

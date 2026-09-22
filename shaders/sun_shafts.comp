@@ -95,6 +95,12 @@ layout(push_constant) uniform PushConstants {
     uint frame_index;
     float directionality;
     float threshold;
+    // Under a body of water the march is through its medium: its density,
+    // in the fog's unit, for the extinction, and its scattering for what the
+    // beams are worth. The haze's are left alone.
+    float water_density;
+    float water_scattering;
+    uint  camera_below;
 } pc;
 
 const float PI = 3.14159265;
@@ -284,14 +290,25 @@ void main() {
         // fog) so a dense setting brightens the shafts linearly instead of
         // saturating the ray before it reaches the shadow wedges near the
         // ground, which is where a side or top-down view gets its shape.
-        float extinction = pc.density * 0.1;
+        // Under the surface every step of the march is in water, since the
+        // surface is what the ray stops at, so the water's density stands in
+        // for the haze's along the whole ray.
+        bool in_water = pc.camera_below != 0u;
+        float density = in_water ? pc.water_density : pc.density;
+        float extinction = density * 0.1;
         float seg_tr = exp(-extinction * step_size);
 
         // In-scatter: phase × density × (1 - seg_tr)/extinction gives the
         // energy-conserving per-segment contribution; sun radiance and
-        // shadow scale it.
-        float seg_light = phase * pc.density * dist_fade * cascade_fade
-                          * (1.0 - seg_tr) / max(extinction, 1e-6);
+        // shadow scale it. That normalisation is the haze's, and it
+        // saturates at ten times the phase — reached over a hundred metres
+        // of thin haze, which the distance fade cuts, but within a few
+        // metres of water, where it is a wall of white. In water the segment
+        // is worth phase × scattering × what it absorbed, and no more.
+        float seg_light = in_water
+            ? phase * pc.water_scattering * dist_fade * cascade_fade * (1.0 - seg_tr)
+            : phase * density * dist_fade * cascade_fade
+              * (1.0 - seg_tr) / max(extinction, 1e-6);
 
         accumulated += transmittance * seg_light * shadow;
         unshadowed += transmittance * seg_light;

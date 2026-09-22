@@ -511,10 +511,32 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
     // and the weather editor scrubs a front past a scene precisely so they
     // can; stopping at the play boundary would leave that dial blind.
     const float time = ctx.clock.game_elapsed();
+    state_.water_media.clear();
     for (const auto& obj : ctx.scene.objects()) {
         auto* water = obj->components.get<WaterComponent>();
         if (water == nullptr) continue;
         water->effective_water = water->derivation.derive(water->water, wind_xz, ctx.workers);
+
+        // What the body of the water is made of, for the fog pass. The
+        // material is followed through its handle, which a reload of the
+        // asset replaces in place, and its values read now so a hot edit
+        // shows this frame.
+        if (water->medium_material_handle.valid() && resources_ != nullptr) {
+            water->medium_material = resources_->get(water->medium_material_handle);
+        }
+        if (water->medium_material != nullptr) {
+            read_fog_material_values(water->medium_material, DEFAULT_WATER_MEDIUM_SHADER,
+                                     water->medium_values_, resources_);
+            WaterMedium medium;
+            medium.node_id = obj->id;
+            if (const auto* spatial = obj->as_spatial()) {
+                medium.origin = glm::vec3(spatial->world_matrix_[3]);
+            }
+            medium.pipeline_id = water->medium_material->pipeline_id();
+            medium.material_id = water->medium_material->material_id();
+            medium.uniforms = water->medium_values_;
+            state_.water_media.push_back(std::move(medium));
+        }
 
         // What has moved through it, on top of the sea the wind made. The
         // trails are laid against that sea, since whether a wader's feet are

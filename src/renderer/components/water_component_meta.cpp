@@ -42,6 +42,31 @@ void load_water_material(WaterComponent& water, ResourceManager* resources,
     water.material = resources->get(*handle);
 }
 
+// Resolve the medium material, or clear it. Bound to nothing rather than to
+// the wrong kind of shader: the fog pass would build no pipeline from a
+// spatial material, and the log says why once.
+void load_water_medium(WaterComponent& water, ResourceManager* resources,
+                       const Project* project) {
+    water.medium_material_handle = {};
+    water.medium_material = nullptr;
+    if (water.medium_material_path.empty() || resources == nullptr) return;
+    auto resolved = base_path::resolve_asset(water.medium_material_path, project);
+    auto handle = resources->load_material_asset(resolved, project);
+    if (!handle) {
+        FJELL_CORE_ERROR("water medium: {}", handle.error());
+        return;
+    }
+    Material* material = resources->get(*handle);
+    if (material != nullptr && material->shader_type() != ShaderType::Fog) {
+        FJELL_CORE_ERROR("water medium: '{}' is shader_type '{}', a water's medium needs "
+                         "shader_type fog; the water has no medium",
+                         water.medium_material_path, shader_type_name(material->shader_type()));
+        return;
+    }
+    water.medium_material_handle = *handle;
+    water.medium_material = material;
+}
+
 // Read the .fjwater the component points at. A path that does not load leaves
 // the field empty, which is flat water rather than a missing surface.
 void load_water_field(WaterComponent& water, const Project* project) {
@@ -93,6 +118,14 @@ const bool registered = [] {
                                  .ctx = &ctx},
                                 water->material_path)) {
                 load_water_material(*water, ctx.resource_manager, project);
+                changed = true;
+            }
+            if (asset_ref_field({.label = "Medium",
+                                 .id = "##WaterMediumRef",
+                                 .extensions = mat_exts,
+                                 .ctx = &ctx},
+                                water->medium_material_path)) {
+                load_water_medium(*water, ctx.resource_manager, project);
                 changed = true;
             }
 
@@ -171,6 +204,9 @@ const bool registered = [] {
             if (!water->material_path.empty()) {
                 out["material"] = base_path::asset_reference(water->material_path, proj);
             }
+            if (!water->medium_material_path.empty()) {
+                out["medium"] = base_path::asset_reference(water->medium_material_path, proj);
+            }
             out["size"] = water->size;
             out["patches_per_side"] = water->patches_per_side;
             if (water->extent == WaterComponent::Extent::infinite) {
@@ -183,12 +219,14 @@ const bool registered = [] {
             auto& water = node.components.add<WaterComponent>();
             water.water_path = j.value("water_path", std::string{});
             water.material_path = j.value("material", std::string{});
+            water.medium_material_path = j.value("medium", std::string{});
             water.size = j.value("size", 200.0f);
             water.patches_per_side = j.value("patches_per_side", 24u);
             water.extent = j.value("extent", std::string{}) == "infinite"
                                ? WaterComponent::Extent::infinite
                                : WaterComponent::Extent::bounded;
             load_water_material(water, &res, proj);
+            load_water_medium(water, &res, proj);
             load_water_field(water, proj);
         },
 

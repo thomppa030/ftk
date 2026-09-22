@@ -128,6 +128,10 @@ public:
     /// The catalog name of the accumulated medium the medium pass writes and
     /// the light pass reads.
     static constexpr const char* MEDIUM_NAME = "fog_medium";
+    /// The catalog name of the waterline mask: one texel per froxel column,
+    /// 1 where the column begins on the other side of a water's surface from
+    /// the camera. Written by the water pass at the medium node's request.
+    static constexpr const char* WATER_LINE_NAME = "water_line";
 
     // Getters for follower passes.
     [[nodiscard]] VkSampler fog_sampler() const { return linear_sampler_; }
@@ -177,7 +181,16 @@ public:
         // The source's row in the material buffer: the pass's own copy of
         // the node's material, holding this frame's resolved uniform values.
         uint32_t fog_material_id;
+        // Which kind of source this dispatch adds: SOURCE_HAZE, SOURCE_VOLUME
+        // or SOURCE_WATER.
+        uint32_t source_kind;
+        // For a water source: whether the camera is under its surface, which
+        // decides which side of the surface depth the water is on.
+        uint32_t camera_below;
     };
+    static constexpr uint32_t SOURCE_HAZE = 0;
+    static constexpr uint32_t SOURCE_VOLUME = 1;
+    static constexpr uint32_t SOURCE_WATER = 2;
     static constexpr uint32_t HAZE = ~0u;
 
     /// The block as the haze fills it; a volume dispatch overwrites the
@@ -194,6 +207,17 @@ public:
         glm::mat4 transform{1.0f};  // world, for the froxel box and ORIGIN
     };
     [[nodiscard]] const std::vector<VolumeDraw>& volume_draws() const { return volume_draws_; }
+
+    /// One body of water the medium pass draws this frame. Over the whole
+    /// grid: which froxels are inside it is told from the surface depth in
+    /// the shader, not from a box on the CPU.
+    struct WaterDraw {
+        uint32_t node_id{0};
+        VkPipeline pipeline{VK_NULL_HANDLE};
+        uint32_t material_id{0};    // the pass's row for this water
+        glm::vec3 origin{0.0f};     // the node's position: ORIGIN
+    };
+    [[nodiscard]] const std::vector<WaterDraw>& water_draws() const { return water_draws_; }
 
 private:
     static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
@@ -265,12 +289,15 @@ private:
 
     Fallback haze_fallback_;
     Fallback volume_fallback_;
+    Fallback water_fallback_;
     Instance haze_instance_;
     // By node id, so a volume keeps its row across frames. A volume that
     // leaves the scene leaves its row behind, as the bindless registry is
     // append-only; a handful of orphaned floats per removed volume.
     std::unordered_map<uint32_t, Instance> volume_instances_;
     std::vector<VolumeDraw> volume_draws_;
+    std::unordered_map<uint32_t, Instance> water_instances_;
+    std::vector<WaterDraw> water_draws_;
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

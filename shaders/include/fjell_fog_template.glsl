@@ -79,6 +79,18 @@ layout(set = 2, binding = 0, rgba16f) uniform readonly image3D fog_medium;
 layout(set = 2, binding = 1, rgba16f) uniform writeonly image3D scatter_volume;
 #else
 layout(set = 2, binding = 0, rgba16f) uniform image3D fog_medium;
+// The scene depth with the sea laid over it, as the water pass leaves it:
+// where a body of water begins along each froxel's ray.
+layout(set = 2, binding = 2) uniform sampler2D surface_depth_tex;
+// The waterline: 1 where this column's near-plane point is on the other side
+// of the surface from the camera, because the near plane cut the surface
+// away there and the column starts in the other medium. One texel per
+// column, read at the column's own coordinate.
+layout(set = 2, binding = 3, r8) uniform readonly image2D water_line_img;
+// The opaque scene's depth. Where the surface depth is nearer than this a
+// water surface was drawn in front of the scene, and the water behind that
+// surface ends at the scene.
+layout(set = 2, binding = 4) uniform sampler2D scene_depth_tex;
 #endif
 
 #include "fjell_fog_push.glsl"
@@ -389,7 +401,7 @@ void main() {
     FjellFroxel f = fjell_froxel(coord);
     vec3 world_pos = f.world_pos;
 
-    const bool fjell_haze = pc.volume_index == FOG_HAZE;
+    const bool fjell_haze = pc.source_kind == FOG_SOURCE_HAZE;
 
     // Where the point sits for this source. A volume that does not reach
     // the froxel adds nothing and leaves the image as the sources before it
@@ -398,7 +410,50 @@ void main() {
     float fjell_occupancy = 1.0;
     vec3 fjell_drift = vec3(0.0);
     float fjell_motion_response = pc.motion_response;
-    if (!fjell_haze) {
+    if (pc.source_kind == FOG_SOURCE_WATER) {
+        // Inside the water along this froxel's ray? Two depths say: the
+        // surface depth the water pass left, which is the surface where it
+        // was drawn and the scene everywhere else, and the opaque scene's
+        // own. Where the two differ a surface was drawn in front of the
+        // scene, and the water lies between them. Where they agree nothing
+        // was drawn, and beyond an object there is no water at all — a rule
+        // that filled the column behind every character and hilltop with
+        // water leaked out around their edges as a dark rim.
+        //
+        // A column that starts in water holds water up to whatever ends it,
+        // the surface or the scene, whichever the surface depth is. Which
+        // medium a column starts in is the camera's side, except where the
+        // near plane has cut the surface away and the waterline says the
+        // column is on the other side.
+        //
+        // Exact texels, never filtered: a depth interpolated across a
+        // silhouette is a point in mid-air that nothing is at. The froxel's
+        // uv is the one it was unprojected from, jitter included.
+        ivec2 depth_size = textureSize(surface_depth_tex, 0);
+        ivec2 depth_texel = clamp(ivec2(f.froxel_uv.xy * vec2(depth_size)), ivec2(0), depth_size - 1);
+        float raw_surface = texelFetch(surface_depth_tex, depth_texel, 0).r;
+        float raw_scene = texelFetch(scene_depth_tex, depth_texel, 0).r;
+        float surface_z = pc.far_plane;
+        if (raw_surface < 1.0) {
+            vec4 clip_pos = vec4(f.froxel_uv.xy * 2.0 - 1.0, raw_surface, 1.0);
+            vec4 view_pos = ubo.inv_projection * clip_pos;
+            surface_z = -view_pos.z / view_pos.w;
+        }
+        float scene_z = pc.far_plane;
+        if (raw_scene < 1.0) {
+            vec4 clip_pos = vec4(f.froxel_uv.xy * 2.0 - 1.0, raw_scene, 1.0);
+            vec4 view_pos = ubo.inv_projection * clip_pos;
+            scene_z = -view_pos.z / view_pos.w;
+        }
+        bool surface_drawn = raw_surface < raw_scene;
+        bool crossed = imageLoad(water_line_img, coord.xy).r > 0.5;
+        bool starts_in_water = (pc.camera_below != 0u) != crossed;
+        bool inside = starts_in_water
+            ? f.linear_depth < surface_z
+            : surface_drawn && f.linear_depth > surface_z && f.linear_depth < scene_z;
+        if (!inside) return;
+        fjell_motion_response = 0.0;
+    } else if (!fjell_haze) {
         GpuFogVolume vol = fog_volumes[pc.volume_index];
         fjell_occupancy = volume_occupancy(int(vol.shape_falloff.x), vol.inv_transform,
                                      world_pos, vol.shape_falloff.y);

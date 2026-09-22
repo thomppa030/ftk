@@ -215,6 +215,11 @@ the full-resolution sky with its clouds comes from the screen copy, and the
 rim of the window past the frame's edge from `sky_cubemap`. A material that
 ignores `BELOW` shows its topside from underneath.
 
+The body of the water is a **Medium** material on the component, a
+`shader_type fog` `.fjmat` the volumetric fog draws into every froxel inside
+the water. Empty is no medium: a surface and nothing else. See
+[Underwater](Underwater.md).
+
 ### Meeting solid things
 
 `SDF_DISTANCE` is how far the surface is from solid geometry, in metres, read

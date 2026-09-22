@@ -87,7 +87,7 @@ layout(push_constant) uniform PushConstants {
     vec3  sdf_volume_max;
     uint  wake_count;
     uint  camera_below;
-    uint  _pad_a;
+    uint  line_active;
     uint  _pad_b;
     uint  _pad_c;
 } push;

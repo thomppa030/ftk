@@ -16,6 +16,7 @@
 // to emit the right transitions on the first access of the new frame.
 
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/pass/water_pass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu_context.hpp"
@@ -230,13 +231,14 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create fog sampler");
     }
 
-    // Medium set layout: binding 0 = storage image (the accumulated medium).
-    // Light set layout: binding 0 = the medium (read), binding 1 = scatter
-    // (write). Set 1 of both is the material set the fog shader reads its
-    // uniforms from; the pipelines themselves are built per fog shader in
-    // prepare_frame, not here.
+    // Medium set layout: binding 0 = storage image (the accumulated medium),
+    // binding 2 = sampler2D (the surface depth, for which froxels a body of
+    // water reaches). Light set layout: binding 0 = the medium (read),
+    // binding 1 = scatter (write). Set 1 of both is the material set the fog
+    // shader reads its uniforms from; the pipelines themselves are built per
+    // fog shader in prepare_frame, not here.
     {
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         bindings[0].descriptorCount = 1;
@@ -245,13 +247,31 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        // The waterline mask: which columns begin on the far side of a
+        // water's surface from the camera.
+        bindings[3].binding = 3;
+        bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        bindings[3].descriptorCount = 1;
+        bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        // The opaque scene depth: where it and the surface depth differ a
+        // water surface was drawn, and the water ends at the scene behind it.
+        bindings[4].binding = 4;
+        bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[4].descriptorCount = 1;
+        bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
         VkDescriptorSetLayoutCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        ci.bindingCount = 1;
-        ci.pBindings = bindings.data();
+        const std::array medium_bindings{bindings[0], bindings[2], bindings[3], bindings[4]};
+        ci.bindingCount = static_cast<uint32_t>(medium_bindings.size());
+        ci.pBindings = medium_bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &medium_set_layout_);
         ci.bindingCount = 2;
+        ci.pBindings = bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &light_set_layout_);
 
         std::array medium_layouts{global_set_layout, resources.material_set_layout, medium_set_layout_};
@@ -393,6 +413,7 @@ void FogCore::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
 void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     enabled_ = false;
     volume_draws_.clear();
+    water_draws_.clear();
     if (ctx.environment == nullptr) { return; }
 
     const auto& fog = ctx.environment->fog;
@@ -416,6 +437,7 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (pipeline_cache_ == nullptr || bindless_ == nullptr) { return; }
     ensure_fallback(haze_fallback_, DEFAULT_FOG_SHADER);
     ensure_fallback(volume_fallback_, DEFAULT_FOG_VOLUME_SHADER);
+    ensure_fallback(water_fallback_, DEFAULT_WATER_MEDIUM_SHADER);
 
     uint32_t pipeline_id = fog.pipeline_id;
     uint32_t source_row = fog.material_id;
@@ -436,6 +458,15 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         Instance& instance = volume_instances_[volume.node_id];
         apply_instance(instance, volume_pipeline, volume_row, volume.uniforms);
         volume_draws_.push_back({i, mp->medium, instance.material_id, volume.transform});
+    }
+    for (const WaterMedium& water : ctx.environment->water_media) {
+        uint32_t water_pipeline = water.pipeline_id;
+        uint32_t water_row = water.material_id;
+        const MaterialPipeline* mp = resolve_source(water_pipeline, water_row, water_fallback_);
+        if (mp == nullptr) { continue; }
+        Instance& instance = water_instances_[water.node_id];
+        apply_instance(instance, water_pipeline, water_row, water.uniforms);
+        water_draws_.push_back({water.node_id, mp->medium, instance.material_id, water.origin});
     }
     enabled_ = true;
 }
@@ -648,6 +679,8 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.jitter_z = halton(frame_idx, 2) - 0.5F;
     push.volume_index = HAZE;
     push.fog_material_id = haze_instance_.material_id;
+    push.source_kind = SOURCE_HAZE;
+    push.camera_below = 0;
     return push;
 }
 
@@ -747,11 +780,26 @@ PassSetup FogMediumPass::setup() const {
     };
 }
 
-void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
+void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled()) { return; }
 
     auto medium = builder.create(MEDIUM_NAME, medium_desc());
     builder.write(medium, ResourceAccess::storage_write_compute);
+    // The surface depth, for which froxels lie inside a body of water. Read
+    // whether or not a water draws this frame, so the set is one shape.
+    auto depth = builder.import_named(ctx, COMPOSITE_DEPTH_NAME);
+    builder.read(depth, ResourceAccess::sampled_compute);
+    auto scene_depth = builder.import_named(ctx, "depth");
+    builder.read(scene_depth, ResourceAccess::sampled_compute);
+    // The waterline mask, written by the water pass's dispatch at the start
+    // of this node's recording and read by every medium dispatch after it.
+    // One texel per froxel column.
+    TextureDesc line_desc{};
+    line_desc.format = VK_FORMAT_R8_UNORM;
+    line_desc.size_class = SizeClass::viewport;
+    line_desc.viewport_divisor = SCREEN_DIVISOR;
+    auto line = builder.create(WATER_LINE_NAME, line_desc);
+    builder.write(line, ResourceAccess::storage_write_compute);
 }
 
 void FogMediumPass::record(const FrameContext& ctx) {
@@ -770,16 +818,61 @@ void FogMediumPass::record(const FrameContext& ctx) {
     auto* cmd = ctx.cmd;
     auto extent = ctx.target->extent();
 
-    FrameCacheBinding b{};
-    b.binding = 0;
-    b.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    b.image.imageView = medium_res->view;
-    b.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(medium_set_layout(), std::span{&b, 1});
+    const VkImageView surface_depth = ctx.registry->image_view(COMPOSITE_DEPTH_NAME);
+    if (surface_depth == VK_NULL_HANDLE) { return; }
+    const VkImageView scene_depth = ctx.registry->image_view("depth");
+    if (scene_depth == VK_NULL_HANDLE) { return; }
+    const auto* line_res = ctx.registry->find_image(WATER_LINE_NAME);
+    if (line_res == nullptr || line_res->image == VK_NULL_HANDLE) { return; }
 
     uint32_t vol_w = imgs->volume_extent.width;
     uint32_t vol_h = imgs->volume_extent.height;
     uint32_t vol_d = imgs->volume_extent.depth;
+
+    // The waterline first, from the water pass, then made visible to the
+    // medium dispatches that sample it. The image stays GENERAL.
+    if (auto* water_pass = ctx.passes != nullptr ? ctx.passes->try_get<WaterPass>("water")
+                                                 : nullptr) {
+        water_pass->record_water_line(ctx, line_res->view, {vol_w, vol_h});
+        VkImageMemoryBarrier2 line_barrier{};
+        line_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        line_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        line_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        line_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        line_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+        line_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        line_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        line_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        line_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        line_barrier.image = line_res->image;
+        line_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkDependencyInfo line_dep{};
+        line_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        line_dep.imageMemoryBarrierCount = 1;
+        line_dep.pImageMemoryBarriers = &line_barrier;
+        vkCmdPipelineBarrier2(cmd, &line_dep);
+    }
+
+    std::array<FrameCacheBinding, 4> b{};
+    b[0].binding = 0;
+    b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    b[0].image.imageView = medium_res->view;
+    b[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b[1].binding = 2;
+    b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[1].image.sampler = fog_sampler();
+    b[1].image.imageView = surface_depth;
+    b[1].image.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    b[2].binding = 3;
+    b[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    b[2].image.imageView = line_res->view;
+    b[2].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b[3].binding = 4;
+    b[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[3].image.sampler = fog_sampler();
+    b[3].image.imageView = scene_depth;
+    b[3].image.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    VkDescriptorSet set = ctx.descriptor_cache->acquire(medium_set_layout(), b);
     uint32_t groups_x = (vol_w + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (vol_h + TILE_SIZE - 1) / TILE_SIZE;
 
@@ -830,6 +923,7 @@ void FogMediumPass::record(const FrameContext& ctx) {
         }
         push.volume_index = draw.index;
         push.fog_material_id = draw.material_id;
+        push.source_kind = SOURCE_VOLUME;
         push.origin_x = draw.transform[3].x;
         push.origin_y = draw.transform[3].y;
         push.origin_z = draw.transform[3].z;
@@ -837,6 +931,31 @@ void FogMediumPass::record(const FrameContext& ctx) {
                            0, sizeof(push), &push);
         vkCmdDispatchBase(cmd, range.base.x, range.base.y, range.base.z,
                           range.count.x, range.count.y, range.count.z);
+    }
+
+    // Each body of water, over the whole grid: the shader tells which froxels
+    // are inside it from the surface depth, on the side the camera is not.
+    // The water pass decided that side this frame, from the wave field over
+    // the camera's column.
+    if (!water_draws().empty() && ctx.passes != nullptr) {
+        const auto& water_pass = ctx.passes->get<WaterPass>("water");
+        for (const WaterDraw& draw : water_draws()) {
+            vkCmdPipelineBarrier2(cmd, &dep);
+            if (draw.pipeline != bound) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, draw.pipeline);
+                bound = draw.pipeline;
+            }
+            push.volume_index = HAZE;
+            push.fog_material_id = draw.material_id;
+            push.source_kind = SOURCE_WATER;
+            push.camera_below = water_pass.camera_below(draw.node_id) ? 1U : 0U;
+            push.origin_x = draw.origin.x;
+            push.origin_y = draw.origin.y;
+            push.origin_z = draw.origin.z;
+            vkCmdPushConstants(cmd, medium_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(push), &push);
+            vkCmdDispatch(cmd, groups_x, groups_y, vol_d);
+        }
     }
 }
 

@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -135,6 +136,15 @@ private:
     float directionality_{1.0f};
     float threshold_{0.0f};
     float fog_density_{0.0f};
+    /// The `density` and `scattering` of each body of water's medium, by
+    /// node id, for a march under the surface: there the ray is in water,
+    /// not haze, and the water's own extinction shapes the beams while its
+    /// scattering says what they are worth.
+    struct WaterMarch {
+        float density{0.0f};
+        float scattering{1.0f};
+    };
+    std::unordered_map<uint32_t, WaterMarch> water_march_;
     float upsample_depth_tolerance_{0.05f};
 
     VkDevice device_{VK_NULL_HANDLE};

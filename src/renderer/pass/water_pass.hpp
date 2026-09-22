@@ -65,7 +65,10 @@ struct WaterPushConstants {
     /// folded crest turns its normal over and would otherwise read as seen
     /// from below.
     uint32_t camera_below;
-    uint32_t _pad_a;
+    /// For the waterline dispatch alone: nonzero when a body of water is
+    /// close enough to the camera for the near plane to cut its surface, so
+    /// the mask is worth working out; zero writes an empty mask.
+    uint32_t line_active;
     uint32_t _pad_b;
     uint32_t _pad_c;
 };
@@ -159,11 +162,31 @@ public:
         return it != camera_gap_.end() && it->second < 0.0F;
     }
 
+    /// The waterline: where the near plane cuts a surface, which pixels are
+    /// on the other side of it from the camera. Written into `mask`, one
+    /// texel per froxel column, for the fog to know that those columns begin
+    /// in water when the camera is in air and in air when it is in water.
+    /// Recorded from the fog medium pass, outside any rendering scope, once
+    /// the water's buffers for the frame are in place. Writes an empty mask
+    /// when no surface is within reach of the camera.
+    void record_water_line(const FrameContext& ctx, VkImageView mask, VkExtent2D size);
+
+    /// How close, in metres, a surface has to be to the camera for the
+    /// waterline to be worked out. The near plane is centimetres; the slack
+    /// is for a crest arriving between one frame and the next.
+    static constexpr float LINE_REACH_METRES = 1.0F;
+
 private:
     /// Per water node: how far the camera stands above its surface, negative
     /// under it.
     std::unordered_map<uint32_t, float> camera_gap_;
 
+    /// The waterline compute pipeline: the water set as the mesh stage has
+    /// it, plus the mask it writes.
+    VkShaderModule line_module_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout line_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout line_layout_{VK_NULL_HANDLE};
+    VkPipeline line_pipeline_{VK_NULL_HANDLE};
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a

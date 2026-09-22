@@ -12,6 +12,7 @@
 #include "renderer/resources/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "environment/fog_track.hpp"
+#include "renderer/pass/water_pass.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -33,6 +34,15 @@ struct ShaftsMarchPush {
     uint32_t frame_index;
     float directionality;
     float threshold;
+    // When the camera is under a body of water the whole march is in it:
+    // its medium's density replaces the haze's, unscaled, since water is
+    // measured in the fog's unit already and its beams live within metres,
+    // and its scattering is what the beams are worth. The haze's in-scatter
+    // normalisation saturates at ten times the phase, which a medium this
+    // dense reaches within metres: a wall of white rather than beams.
+    float water_density;
+    float water_scattering;
+    uint32_t camera_below;
 };
 
 struct ShaftsResolvePush {
@@ -324,6 +334,23 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
     // The march reads one scalar density: the fog material's `density`
     // uniform where its shader declares one, else nothing to march through.
     fog_density_ = ctx.environment->fog.scalar(fog_track::DENSITY_UNIFORM, 0.0F);
+
+    // Each water medium's density, read the way the haze's is: a medium
+    // whose shader declares none has nothing for the sun to scatter from.
+    water_march_.clear();
+    for (const WaterMedium& water : ctx.environment->water_media) {
+        WaterMarch march;
+        bool has_density = false;
+        for (const NamedValue& value : water.uniforms) {
+            if (value.name == fog_track::DENSITY_UNIFORM) {
+                march.density = value.values[0];
+                has_density = true;
+            } else if (value.name == "scattering") {
+                march.scattering = value.values[0];
+            }
+        }
+        if (has_density) water_march_[water.node_id] = march;
+    }
 }
 
 PassSetup SunShaftsPass::setup() const {
@@ -407,6 +434,22 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     push.frame_index = imgs.frame_counter % 64;
     push.directionality = std::clamp(directionality_, 0.0f, 1.0f);
     push.threshold = std::clamp(threshold_, 0.0f, 0.95f);
+    // Under a body of water with a medium, the march is through that water.
+    // The water pass decided the camera's side this frame.
+    push.water_density = 0.0f;
+    push.water_scattering = 0.0f;
+    push.camera_below = 0;
+    if (!water_march_.empty() && ctx.passes != nullptr) {
+        const auto& water_pass = ctx.passes->get<WaterPass>("water");
+        for (const auto& [node_id, march] : water_march_) {
+            if (water_pass.camera_below(node_id)) {
+                push.water_density = std::max(march.density, 1e-4f);
+                push.water_scattering = march.scattering * density_mult_;
+                push.camera_below = 1;
+                break;
+            }
+        }
+    }
 
     std::array sets{ctx.global_descriptor_set, set};
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, march_pipeline_);

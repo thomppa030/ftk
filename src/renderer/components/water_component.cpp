@@ -29,6 +29,9 @@ void clone_component(const ComponentStorage& /*from*/, const WaterComponent& src
     dst.effective_water = src.effective_water;
     dst.material_handle = src.material_handle;
     dst.material = src.material;
+    dst.medium_material_handle = src.medium_material_handle;
+    dst.medium_material = src.medium_material;
+    dst.medium_material_path = src.medium_material_path;
     dst.material_path = src.material_path;
 }
 

@@ -1,0 +1,97 @@
+#version 460
+
+// The waterline: which froxel columns begin on the other side of a water's
+// surface from the camera.
+//
+// A camera within centimetres of the surface has the near plane cut through
+// the mesh, and the pixels the cut leaves show whatever is behind the surface
+// with no surface drawn in front of it: a slit of sky from under the water,
+// or a slit of bed from over it. The fog needs to know that those columns
+// start in the other medium. So for each froxel column this asks where its
+// near-plane point is, evaluates the surface over that point from the same
+// field the mesh draws — trains, simulated sea, wakes — and marks the column
+// when the point and the camera are on different sides.
+//
+// One texel per froxel column, at the fog's own grid, which is all the fog
+// can use. Written empty when no surface is near the camera.
+
+#include "fjell_global_ubo.glsl"
+#include "fjell_water_field.glsl"
+#include "fjell_water_wake_record.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+layout(set = 2, binding = 0) uniform WaterFieldBuffer {
+    FjellWaterField field;
+} water;
+#define FJELL_WATER_FIELD water.field
+#include "fjell_water_waves.glsl"
+
+layout(set = 2, binding = 2) uniform sampler2D simulated_displacement;
+
+layout(std430, set = 2, binding = 5) readonly buffer WakeBuffer {
+    FjellWakeSource sources[];
+} wakes;
+#define FJELL_WATER_WAKES wakes.sources
+#include "fjell_water_wake.glsl"
+
+layout(set = 3, binding = 0, r8) uniform writeonly image2D water_line;
+
+// Mirrors WaterPushConstants. Only surface_height, simulated_patch_size, the
+// wake range, camera_below and line_active are read here.
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;
+    float world_size;
+    float surface_height;
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  water_material_id;
+    float delta_time;
+    vec2  wave_direction;
+    uint  infinite;
+    float simulated_patch_size;
+    vec3  sdf_volume_min;
+    uint  wake_first;
+    vec3  sdf_volume_max;
+    uint  wake_count;
+    uint  camera_below;
+    uint  line_active;
+    uint  _pad_b;
+    uint  _pad_c;
+} push;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(water_line);
+    if (any(greaterThanEqual(coord, size))) return;
+
+    if (push.line_active == 0u) {
+        imageStore(water_line, coord, vec4(0.0));
+        return;
+    }
+
+    // The near-plane point of this column.
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    vec4 near = ubo.inv_view_proj * vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+    near /= near.w;
+
+    // The surface over it. Evaluated at the point's own column as rest
+    // position: the trains move the surface sideways by less than the near
+    // plane is wide, which is not a difference this mask can show.
+    vec2 rest = near.xz;
+    float height = push.surface_height + fjell_water_displace(rest, ubo.time).y;
+    if (push.simulated_patch_size > 0.0) {
+        float texels = float(textureSize(simulated_displacement, 0).x);
+        vec2 sea_uv = rest / push.simulated_patch_size + 0.5 / texels;
+        height += textureLod(simulated_displacement, sea_uv, 0.0).y;
+    }
+    if (push.wake_count > 0u) {
+        height += fjell_water_wake_surface(push.wake_first, push.wake_count, rest, ubo.time, 0.0).height;
+    }
+
+    bool under = near.y < height;
+    bool other_side = under != (push.camera_below != 0u);
+    imageStore(water_line, coord, vec4(other_side ? 1.0 : 0.0));
+}

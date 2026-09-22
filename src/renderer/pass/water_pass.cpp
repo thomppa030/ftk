@@ -60,7 +60,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     set_bindings[0].binding = 0;
     set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     set_bindings[0].descriptorCount = 1;
-    set_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+    set_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
     // The clipmap's level table. The task stage reads it to turn a workgroup
     // into a patch of a level; the mesh stage declares it so both stages see
     // the same set.
@@ -75,7 +75,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         set_bindings[binding].binding = binding;
         set_bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         set_bindings[binding].descriptorCount = 1;
-        set_bindings[binding].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+        set_bindings[binding].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
     }
     // The wakes. The mesh stage moves the surface by the wide ones; the
     // fragment stage shades the narrow ones per pixel and reads how churned
@@ -83,7 +83,8 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     set_bindings[5].binding = 5;
     set_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     set_bindings[5].descriptorCount = 1;
-    set_bindings[5].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    set_bindings[5].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT
+                               | VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -155,6 +156,59 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create water pipeline layout");
     }
 
+    // The waterline: a compute dispatch over the froxel columns that asks the
+    // wave field, for each, whether the near plane's point lies on the other
+    // side of the surface from the camera. Its set 2 is the water set the mesh
+    // stage reads; set 3 is the mask it writes.
+    {
+        VkDescriptorSetLayoutBinding mask_binding{};
+        mask_binding.binding = 0;
+        mask_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        mask_binding.descriptorCount = 1;
+        mask_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        VkDescriptorSetLayoutCreateInfo mask_layout_info{};
+        mask_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        mask_layout_info.bindingCount = 1;
+        mask_layout_info.pBindings = &mask_binding;
+        if (vkCreateDescriptorSetLayout(device_, &mask_layout_info, nullptr, &line_set_layout_)
+            != VK_SUCCESS) {
+            return make_error("Failed to create waterline set layout");
+        }
+
+        std::array<VkDescriptorSetLayout, 4> line_sets = {resources.global_set_layout,
+                                                          resources.material_set_layout,
+                                                          water_set_layout_, line_set_layout_};
+        VkPushConstantRange line_push{};
+        line_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        line_push.size = sizeof(WaterPushConstants);
+        VkPipelineLayoutCreateInfo line_layout_info{};
+        line_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        line_layout_info.setLayoutCount = static_cast<uint32_t>(line_sets.size());
+        line_layout_info.pSetLayouts = line_sets.data();
+        line_layout_info.pushConstantRangeCount = 1;
+        line_layout_info.pPushConstantRanges = &line_push;
+        if (vkCreatePipelineLayout(device_, &line_layout_info, nullptr, &line_layout_)
+            != VK_SUCCESS) {
+            return make_error("Failed to create waterline pipeline layout");
+        }
+
+        auto line_code = read_spirv(base_path::resolve("shaders/water_line.comp.spv"));
+        line_module_ = create_shader_module(device_, line_code);
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = line_module_;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo line_ci{};
+        line_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        line_ci.stage = stage;
+        line_ci.layout = line_layout_;
+        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &line_ci, nullptr,
+                                     &line_pipeline_) != VK_SUCCESS) {
+            return make_error("Failed to create waterline pipeline");
+        }
+    }
+
     return {};
 }
 
@@ -163,6 +217,22 @@ void WaterPass::destroy() {
     field_buffer_.reset();
     clipmap_buffer_.reset();
     for (auto& buffer : wake_buffers_) buffer.reset();
+    if (line_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, line_pipeline_, nullptr);
+        line_pipeline_ = VK_NULL_HANDLE;
+    }
+    if (line_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, line_layout_, nullptr);
+        line_layout_ = VK_NULL_HANDLE;
+    }
+    if (line_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, line_set_layout_, nullptr);
+        line_set_layout_ = VK_NULL_HANDLE;
+    }
+    if (line_module_ != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(device_, line_module_, nullptr);
+        line_module_ = VK_NULL_HANDLE;
+    }
     if (mesh_module_ != VK_NULL_HANDLE) {
         vkDestroyShaderModule(device_, mesh_module_, nullptr);
         mesh_module_ = VK_NULL_HANDLE;
@@ -540,6 +610,55 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     field_buffer_->write(&field, sizeof(field));
     bound_field_ = field;
     bound_water_ = &comp;
+}
+
+void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkExtent2D size) {
+    if (ctx.scene == nullptr || line_pipeline_ == VK_NULL_HANDLE || simulation_ == nullptr) return;
+
+    // The body of water nearest the camera, if any is within reach of the
+    // near plane. One: a camera cannot be at two surfaces at once.
+    const Node* nearest = nullptr;
+    const WaterComponent* water = nullptr;
+    float nearest_gap = LINE_REACH_METRES;
+    for (const auto& node : ctx.scene->objects()) {
+        const auto* wc = node->components.get<WaterComponent>();
+        if (wc == nullptr) continue;
+        const auto gap = camera_gap_.find(node->id);
+        if (gap == camera_gap_.end() || std::abs(gap->second) >= nearest_gap) continue;
+        nearest_gap = std::abs(gap->second);
+        nearest = node.get();
+        water = wc;
+    }
+
+    WaterPushConstants push{};
+    if (water != nullptr) {
+        bind_water_field(*water);
+        const auto* spatial = nearest->as_spatial();
+        push.surface_height = spatial != nullptr ? spatial->world_matrix_[3].y : 0.0F;
+        push.simulated_patch_size = bound_field_.simulated_patch_size;
+        if (const auto range = wake_ranges_.find(water); range != wake_ranges_.end()) {
+            push.wake_first = range->second.first;
+            push.wake_count = range->second.count;
+        }
+        push.camera_below = camera_below(nearest->id) ? 1U : 0U;
+        push.line_active = 1;
+    }
+
+    FrameCacheBinding mask_binding{};
+    mask_binding.binding = 0;
+    mask_binding.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    mask_binding.image.imageView = mask;
+    mask_binding.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    const VkDescriptorSet mask_set =
+        ctx.descriptor_cache->acquire(line_set_layout_, std::span{&mask_binding, 1});
+
+    std::array<VkDescriptorSet, 4> sets = {ctx.global_descriptor_set, ctx.bindless_set,
+                                          acquire_water_set(ctx), mask_set};
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_layout_, 0,
+                            static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, line_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    vkCmdDispatch(ctx.cmd, (size.width + 7) / 8, (size.height + 7) / 8, 1);
 }
 
 void WaterPass::upload_wakes(const FrameContext& ctx) {

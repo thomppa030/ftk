@@ -67,6 +67,9 @@ inline constexpr std::string_view DEFAULT_FOG_SHADER = "shaders/fog.fjsl";
 /// The shader a Fog Volume draws with when it names no material: a bank of
 /// one colour, broken into drifting wisps.
 inline constexpr std::string_view DEFAULT_FOG_VOLUME_SHADER = "shaders/fog_volume.fjsl";
+/// The shader a body of water's medium falls back to when the material it
+/// names cannot draw: clear water that darkens and blues with distance.
+inline constexpr std::string_view DEFAULT_WATER_MEDIUM_SHADER = "shaders/water_medium.fjsl";
 
 /// The volumetric fog node's haze. `enabled` is false when the scene has none.
 ///
@@ -174,6 +177,22 @@ struct FogVolume {
 /// alike, is `environment/fog_track.hpp`: a track names a uniform of the
 /// node's material.
 
+/// The body of one body of water, as a source of fog: a WaterComponent that
+/// names a medium material. The fog pass draws it into every froxel that lies
+/// inside the water along its ray, which it tells from the surface depth the
+/// water pass leaves, so nothing here says where the surface is.
+struct WaterMedium {
+    /// The node, which keys the pass's own row for it across frames.
+    uint32_t node_id{0};
+    /// The node's position: ORIGIN in the shader, whose y is the surface at
+    /// rest, so a medium can darken by depth below it.
+    glm::vec3 origin{0.0f};
+    uint32_t pipeline_id{FogSettings::NO_MATERIAL};
+    uint32_t material_id{FogSettings::NO_MATERIAL};
+    /// Colours in sRGB, as `hint_color` is authored everywhere.
+    std::vector<NamedValue> uniforms;
+};
+
 struct SunShaftSettings {
     bool enabled{false};
     float intensity{1.0f};
@@ -269,6 +288,8 @@ struct EnvironmentState {
     /// Everything moving through the world this frame, for the motion field.
     /// Empty when nothing moves, which is what lets the pass skip its work.
     std::vector<MotionSource> motion_sources;
+    /// The bodies of water that are a medium this frame.
+    std::vector<WaterMedium> water_media;
     SunShaftSettings sun_shafts;
 
     WeatherParams weather;
