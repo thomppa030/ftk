@@ -1,3 +1,4 @@
+#include "environment/fog_track.hpp"
 #include "ui/weather_editor_context.hpp"
 
 #include "core/log.hpp"
@@ -43,8 +44,6 @@ std::vector<TrackTimelineEditor::Preset> weather_presets() {
         P{std::string(WIND_SPEED), TrackKind::Float, TrackMode::Override, 0.0f, 30.0f},
         P{std::string(WIND_GUST), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
         P{std::string(WIND_VEER), TrackKind::Float, TrackMode::Override, -180.0f, 180.0f},
-        P{std::string(FOG_DENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 5.0f},
-        P{std::string(FOG_COLOR), TrackKind::Color, TrackMode::Override},
         P{std::string(SUN_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
         P{std::string(AMBIENT_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
         P{std::string(SKY_TINT), TrackKind::Color, TrackMode::Multiply},
@@ -61,6 +60,10 @@ void copy_to(char* dst, size_t size, const std::string& src) {
 
 WeatherEditorContext::WeatherEditorContext(WeatherEditorDeps deps) : deps_{deps} {
     tracks_.set_presets(weather_presets());
+    tracks_.set_note([this](std::string_view name) -> std::string {
+        if (deps_.scene == nullptr || deps_.vulkan_context == nullptr) return {};
+        return fog_track::problem(name, *deps_.scene, deps_.vulkan_context->pipeline_cache());
+    });
     timeline_.set_duration(static_cast<float>(WEATHER_PHASE_COUNT));
     timeline_.set_looping(false);
     timeline_.set_speed(0.25f);
@@ -392,6 +395,21 @@ void WeatherEditorContext::draw_event_panel() {
         draw_properties();
     }
     if (ImGui::CollapsingHeader("Tracks", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // The fog tracks on offer are whatever uniforms the scene's fog
+        // materials declare right now, so they follow a material swap or a
+        // shader edit without the editor being reopened.
+        {
+            auto presets = weather_presets();
+            if (deps_.scene != nullptr && deps_.vulkan_context != nullptr) {
+                for (const auto& fog : fog_track::presets(*deps_.scene, deps_.vulkan_context->pipeline_cache())) {
+                    presets.push_back({fog.name, fog.color ? TrackKind::Color : TrackKind::Float,
+                                       fog.name.ends_with(fog_track::DENSITY_UNIFORM) ? TrackMode::Multiply
+                                                                                      : TrackMode::Override,
+                                       fog.range_min, fog.range_max});
+                }
+            }
+            tracks_.set_presets(std::move(presets));
+        }
         if (tracks_.draw("##weather_tracks", event_.tracks, cursor_, format_phase_time)) {
             dirty_ = true;
             push_live();

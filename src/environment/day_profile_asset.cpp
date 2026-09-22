@@ -1,6 +1,7 @@
 #include "environment/day_profile_asset.hpp"
 
 #include "environment/environment_state.hpp"
+#include "environment/fog_track.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -45,50 +46,22 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     tracks.apply(AMBIENT_INTENSITY, hour, state.ambient_intensity);
     tracks.apply(SKY_TOP, hour, state.sky.top_color);
     tracks.apply(SKY_BOTTOM, hour, state.sky.bottom_color);
-    // The fog's look is its material now; the two fog tracks fold into the
-    // material's own uniforms by the names they always reached.
-    if (const auto v = tracks.value_of(FOG_DENSITY, hour)) {
-        if (auto* u = find_named(state.fog.uniforms, fog_track::DENSITY_UNIFORM)) {
-            fold_track(*u, tracks.find(FOG_DENSITY)->mode, *v);
-        }
-    }
-    if (const auto c = tracks.color_of(FOG_COLOR, hour)) {
-        if (auto* u = find_named(state.fog.uniforms, fog_track::COLOR_UNIFORM)) {
-            fold_track(*u, tracks.find(FOG_COLOR)->mode, *c);
-        }
-    }
     tracks.apply(EXPOSURE_BIAS, hour, state.exposure_bias);
     tracks.apply(STAR_INTENSITY, hour, state.star_intensity);
 
-    // Grouped fog tracks reach the scene's fog volumes: `fog_density.valley`
-    // scales every volume grouped `valley`, leaving the global fog and every
-    // other group alone. The hour gives a mist its shape; a weather event
-    // scales what the hour decided, later and on top.
+    // Fog tracks name a uniform of the haze's material or of a group's
+    // volumes: `fog.density` thickens the haze, `fog.valley.noise_contrast`
+    // breaks the valley's banks into wisps. The hour gives a mist its shape;
+    // a weather event scales what the hour decided, later and on top.
     for (const auto& track : tracks.tracks) {
-        const auto density_group =
-            fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX);
-        if (!density_group.empty()) {
-            if (const auto v = tracks.value_of(track.name, hour)) {
-                for (auto& volume : state.fog_volumes) {
-                    if (volume.group != density_group) continue;
-                    if (auto* u = find_named(volume.uniforms, fog_track::DENSITY_UNIFORM)) {
-                        fold_track(*u, track.mode, *v);
-                    }
-                }
-            }
-            continue;
-        }
-        const auto color_group =
-            fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX);
-        if (!color_group.empty()) {
+        const auto target = fog_track::parse(track.name);
+        if (!target) continue;
+        if (track.kind == TrackKind::Color) {
             if (const auto c = tracks.color_of(track.name, hour)) {
-                for (auto& volume : state.fog_volumes) {
-                    if (volume.group != color_group) continue;
-                    if (auto* u = find_named(volume.uniforms, fog_track::COLOR_UNIFORM)) {
-                        fold_track(*u, track.mode, *c);
-                    }
-                }
+                fog_track::apply(state, *target, track.mode, *c);
             }
+        } else if (const auto v = tracks.value_of(track.name, hour)) {
+            fog_track::apply(state, *target, track.mode, *v);
         }
     }
 
@@ -96,11 +69,7 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     // profile or a node override applied before this, is replaced: the
     // profile is the animated source and wins over a static override.
     for (const auto& track : tracks.tracks) {
-        if (is_builtin(track.name)) continue;
-        if (!fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX).empty() ||
-            !fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX).empty()) {
-            continue;
-        }
+        if (is_builtin(track.name) || fog_track::parse(track.name)) continue;
         NamedValue value;
         value.name = track.name;
         if (track.kind == TrackKind::Color) {

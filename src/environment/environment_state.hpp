@@ -147,8 +147,8 @@ struct FogVolume {
     glm::mat4 transform{1.0f};
     float edge_falloff{0.2f};
     ColliderShape shape{ColliderShape::Box};
-    /// The volume's group, for the `fog_density.<group>` tracks a day profile
-    /// and a weather event scale it by. Empty means neither reaches it.
+    /// The volume's group, for the `fog.<group>.<uniform>` tracks a day
+    /// profile and a weather event drive it by. Empty means neither reaches it.
     std::string group;
 
     uint32_t pipeline_id{FogSettings::NO_MATERIAL};
@@ -170,34 +170,9 @@ struct FogVolume {
     float density_field_debug{0.0f};
 };
 
-/// A day profile and a weather event both reach fog volumes by the same
-/// naming convention: a track called `fog_density.valley` scales the density
-/// of every volume whose group is `valley`, and `fog_color.valley` sets their
-/// colour. The ungrouped `fog_density` and `fog_color` keep meaning the global
-/// fog alone, so a profile written before volumes existed still does what it
-/// always did.
-namespace fog_group_track {
-
-/// The group a track name addresses, or empty when it addresses none. The
-/// prefix must be `fog_density.` or `fog_color.`, which is what keeps these
-/// out of the sky-uniform fallthrough that takes every other unknown name.
-[[nodiscard]] std::string_view group_of(std::string_view track_name,
-                                        std::string_view prefix);
-
-inline constexpr std::string_view DENSITY_PREFIX = "fog_density.";
-inline constexpr std::string_view COLOR_PREFIX = "fog_color.";
-
-} // namespace fog_group_track
-
-/// The fog tracks that predate the fog material keep their names and reach
-/// the material's uniforms: `fog_density` is the shader's `density` and
-/// `fog_color` its `color`, so a profile written against the old fog node
-/// still does what it did. A shader that declares neither name is simply not
-/// reached by them.
-namespace fog_track {
-inline constexpr std::string_view DENSITY_UNIFORM = "density";
-inline constexpr std::string_view COLOR_UNIFORM = "color";
-} // namespace fog_track
+/// How a day profile and a weather event reach the fog, haze and volumes
+/// alike, is `environment/fog_track.hpp`: a track names a uniform of the
+/// node's material.
 
 struct SunShaftSettings {
     bool enabled{false};

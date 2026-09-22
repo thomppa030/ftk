@@ -2,6 +2,7 @@
 #include "environment/color_gradient.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "environment/environment_state.hpp"
+#include "environment/fog_track.hpp"
 #include "environment/track_set.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -135,6 +136,71 @@ TEST_CASE("A day profile folds into the environment and leaves the rest alone", 
     REQUIRE(day_track::kind_of(day_track::SUN_INTENSITY) == TrackKind::Float);
     REQUIRE(day_track::is_builtin(day_track::STAR_INTENSITY));
     REQUIRE_FALSE(day_track::is_builtin("haze"));
+}
+
+TEST_CASE("A fog track names a uniform of the haze or of a group", "[tracks][fog]") {
+    using fog_track::parse;
+    auto t = parse("fog.density");
+    REQUIRE(t);
+    REQUIRE(t->group.empty());
+    REQUIRE(t->uniform == "density");
+    t = parse("fog.valley.noise_contrast");
+    REQUIRE(t);
+    REQUIRE(t->group == "valley");
+    REQUIRE(t->uniform == "noise_contrast");
+    // A group may carry dots of its own; the uniform never does.
+    t = parse("fog.river.lower.density");
+    REQUIRE(t);
+    REQUIRE(t->group == "river.lower");
+    REQUIRE(t->uniform == "density");
+    // The four names from before the fog had a material.
+    REQUIRE(parse("fog_density")->uniform == "density");
+    REQUIRE(parse("fog_density")->group.empty());
+    REQUIRE(parse("fog_color")->uniform == "color");
+    REQUIRE(parse("fog_density.valley")->group == "valley");
+    REQUIRE(parse("fog_color.valley")->uniform == "color");
+    // Not fog tracks: they fall through to the sky uniforms.
+    REQUIRE_FALSE(parse("haze"));
+    REQUIRE_FALSE(parse("fog"));
+    REQUIRE_FALSE(parse("fog."));
+    REQUIRE_FALSE(parse("fog..x"));
+    REQUIRE_FALSE(parse("foggy.density"));
+    REQUIRE(fog_track::name_for("", "density") == "fog.density");
+    REQUIRE(fog_track::name_for("valley", "color") == "fog.valley.color");
+}
+
+TEST_CASE("A fog track drives any uniform the material declares", "[tracks][fog]") {
+    DayProfileAsset profile;
+    profile.tracks.add("fog.density", TrackKind::Float, TrackMode::Multiply)
+        .curve.keyframes = {{0.5f, 2.0f, 0.0f, 0.0f}};
+    profile.tracks.add("fog.valley.noise_contrast", TrackKind::Float, TrackMode::Override)
+        .curve.keyframes = {{0.5f, 0.8f, 0.0f, 0.0f}};
+    profile.tracks.add("fog.valley.color", TrackKind::Color, TrackMode::Override)
+        .gradient.keys = {{0.5f, glm::vec3(0.9f, 0.5f, 0.2f)}};
+    profile.tracks.add("fog.nowhere", TrackKind::Float, TrackMode::Override)
+        .curve.keyframes = {{0.5f, 7.0f, 0.0f, 0.0f}};
+
+    EnvironmentState state;
+    state.fog.uniforms = {NamedValue{.name = "density", .count = 1, .values = {0.01f}}};
+    state.fog_volumes.push_back(FogVolume{
+        .group = "valley",
+        .uniforms = {NamedValue{.name = "noise_contrast", .count = 1, .values = {0.0f}},
+                     NamedValue{.name = "color", .count = 3, .values = {0.5f, 0.5f, 0.5f},
+                                .srgb = true}}});
+    state.fog_volumes.push_back(FogVolume{
+        .group = "cave",
+        .uniforms = {NamedValue{.name = "noise_contrast", .count = 1, .values = {0.0f}}}});
+    profile.apply(12.0f, state);
+
+    REQUIRE(state.fog.scalar("density", 0.0f) == Approx(0.02f));
+    REQUIRE(find_named(state.fog_volumes[0].uniforms, "noise_contrast")->values[0] == Approx(0.8f));
+    REQUIRE(find_named(state.fog_volumes[1].uniforms, "noise_contrast")->values[0] == Approx(0.0f));
+    const NamedValue* c = find_named(state.fog_volumes[0].uniforms, "color");
+    REQUIRE(close(color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2])),
+                  glm::vec3(0.9f, 0.5f, 0.2f)));
+    // A uniform nothing declares reaches nothing, and is not a sky uniform.
+    REQUIRE(find_named(state.fog.uniforms, "nowhere") == nullptr);
+    REQUIRE(state.sky_uniforms.empty());
 }
 
 TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {

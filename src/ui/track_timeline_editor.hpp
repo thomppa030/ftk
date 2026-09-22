@@ -30,6 +30,11 @@ public:
 
     void set_presets(std::vector<Preset> presets) { presets_ = std::move(presets); }
 
+    /// Something to say about a track by its name, shown under the selected
+    /// track's title: a fog track that reaches nothing in the scene, say.
+    /// Empty means nothing to say.
+    void set_note(std::function<std::string(std::string_view)> note) { note_ = std::move(note); }
+
     /// Draw the editor for `set`. `cursor` is the current time in the set's
     /// domain units, drawn as a line; `format_time` renders a domain value as
     /// a label. Returns true when the set changed this frame.
@@ -45,6 +50,8 @@ private:
     bool draw_color_track(Track& track, const TrackSet& set, float cursor,
                           const std::function<std::string(float)>& format_time);
     [[nodiscard]] const Preset* preset_for(std::string_view name) const;
+
+    std::function<std::string(std::string_view)> note_;
 
     struct Range {
         float min{0.0f};

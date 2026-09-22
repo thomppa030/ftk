@@ -1,6 +1,7 @@
 #include "environment/weather_player.hpp"
 
 #include "environment/environment_state.hpp"
+#include "environment/fog_track.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -204,48 +205,20 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         over(PRECIPITATION, w.precipitation);
         over(WIND_SPEED, w.wind_speed);
         over(LIGHTNING_RATE, w.lightning_rate);
-        // The fog's look is its material; the two fog tracks reach the
-        // uniforms they always did, faded in by the event's presence.
-        if (auto v = t.value_of(FOG_DENSITY, x)) {
-            if (auto* u = find_named(state.fog.uniforms, fog_track::DENSITY_UNIFORM)) {
-                fold_track(*u, t.find(FOG_DENSITY)->mode, *v, wt);
-            }
-        }
-        if (auto c = t.color_of(FOG_COLOR, x)) {
-            if (auto* u = find_named(state.fog.uniforms, fog_track::COLOR_UNIFORM)) {
-                fold_track(*u, t.find(FOG_COLOR)->mode, *c, wt);
-            }
-        }
-
-        // Grouped fog tracks scale the scene's fog volumes, on top of whatever
-        // the hour's day profile already made of them: a storm at dawn is
-        // thicker than a clear dawn. They ride the same weight as every other
-        // track, so an event fading out relaxes its hold rather than dropping it.
+        // Fog tracks name a uniform of the haze's material or of a group's
+        // volumes, on top of whatever the hour's day profile already made of
+        // them: a storm at dawn is thicker than a clear dawn. They ride the
+        // same weight as every other track, so an event fading out relaxes
+        // its hold rather than dropping it.
         for (const auto& track : t.tracks) {
-            const auto density_group =
-                fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX);
-            if (!density_group.empty()) {
-                if (auto v = t.value_of(track.name, x)) {
-                    for (auto& volume : state.fog_volumes) {
-                        if (volume.group != density_group) continue;
-                        if (auto* u = find_named(volume.uniforms, fog_track::DENSITY_UNIFORM)) {
-                            fold_track(*u, track.mode, *v, wt);
-                        }
-                    }
-                }
-                continue;
-            }
-            const auto color_group =
-                fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX);
-            if (!color_group.empty()) {
+            const auto target = fog_track::parse(track.name);
+            if (!target) continue;
+            if (track.kind == TrackKind::Color) {
                 if (auto c = t.color_of(track.name, x)) {
-                    for (auto& volume : state.fog_volumes) {
-                        if (volume.group != color_group) continue;
-                        if (auto* u = find_named(volume.uniforms, fog_track::COLOR_UNIFORM)) {
-                            fold_track(*u, track.mode, *c, wt);
-                        }
-                    }
+                    fog_track::apply(state, *target, track.mode, *c, wt);
                 }
+            } else if (auto v = t.value_of(track.name, x)) {
+                fog_track::apply(state, *target, track.mode, *v, wt);
             }
         }
         over(SUN_INTENSITY, state.sun.intensity);
@@ -260,7 +233,7 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         // Anything else is the event's own value: a sky uniform, a gameplay
         // number, read by name.
         for (const auto& track : t.tracks) {
-            if (is_builtin(track.name)) continue;
+            if (is_builtin(track.name) || fog_track::parse(track.name)) continue;
             NamedValue value;
             value.name = track.name;
             if (track.kind == TrackKind::Color) {

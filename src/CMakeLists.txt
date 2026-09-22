@@ -41,6 +41,8 @@ add_executable(fjell
     core/capture_service.cpp
     core/engine.cpp
     environment/environment_resolver.cpp
+    environment/fog_track.cpp
+    environment/fog_track_scene.cpp
     environment/environment_subsystem.cpp
     environment/environment_overrides.cpp
     environment/environment_scenario.cpp

@@ -711,8 +711,7 @@ void PropertiesPanel::draw() {
                 }
                 ImGui::TextDisabled("Size comes from the node's scale.");
                 if (!fv->fog_group.empty()) {
-                    ImGui::TextDisabled("Driven by fog_density.%s and fog_color.%s.",
-                                        fv->fog_group.c_str(), fv->fog_group.c_str());
+                    ImGui::TextDisabled("Driven by fog.%s.<uniform> tracks.", fv->fog_group.c_str());
                 }
 
                 // How the bank's field moves through the world. What the

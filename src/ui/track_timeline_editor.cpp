@@ -52,6 +52,12 @@ bool TrackTimelineEditor::draw(const char* id, TrackSet& set, float cursor,
         ImGui::Text("%s", display_name(track->name).c_str());
         ImGui::SameLine();
         ImGui::TextDisabled("(%s)", mode_label(track->mode));
+        if (note_) {
+            const std::string note = note_(track->name);
+            if (!note.empty()) {
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "%s", note.c_str());
+            }
+        }
         ImGui::Separator();
         if (track->kind == TrackKind::Float) {
             changed |= draw_float_track(*track, set, cursor, format_time);

@@ -19,6 +19,7 @@
 #include "core/math/color_space.hpp"
 #include "core/project.hpp"
 #include "environment/environment_state.hpp"
+#include "environment/fog_track.hpp"
 #include "core/log.hpp"
 #include "environment/weather_asset.hpp"
 

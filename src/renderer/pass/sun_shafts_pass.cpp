@@ -11,6 +11,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "environment/environment_state.hpp"
+#include "environment/fog_track.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"

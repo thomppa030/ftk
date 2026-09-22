@@ -1,3 +1,4 @@
+#include "environment/fog_track.hpp"
 #include "ui/day_profile_editor_context.hpp"
 
 #include "core/log.hpp"
@@ -37,8 +38,6 @@ std::vector<TrackTimelineEditor::Preset> day_presets() {
         P{std::string(AMBIENT_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
         P{std::string(SKY_TOP), TrackKind::Color, TrackMode::Override},
         P{std::string(SKY_BOTTOM), TrackKind::Color, TrackMode::Override},
-        P{std::string(FOG_COLOR), TrackKind::Color, TrackMode::Override},
-        P{std::string(FOG_DENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 4.0f},
         P{std::string(EXPOSURE_BIAS), TrackKind::Float, TrackMode::Override, -4.0f, 4.0f},
         P{std::string(MOON_COLOR), TrackKind::Color, TrackMode::Multiply},
         P{std::string(MOON_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
@@ -50,6 +49,10 @@ std::vector<TrackTimelineEditor::Preset> day_presets() {
 
 DayProfileEditorContext::DayProfileEditorContext(DayProfileEditorDeps deps) : deps_{deps} {
     tracks_.set_presets(day_presets());
+    tracks_.set_note([this](std::string_view name) -> std::string {
+        if (deps_.scene == nullptr || deps_.vulkan_context == nullptr) return {};
+        return fog_track::problem(name, *deps_.scene, deps_.vulkan_context->pipeline_cache());
+    });
     timeline_.set_duration(24.0f);
     timeline_.set_looping(true);
     // The transport runs in hours per second; one hour a second reads well.
@@ -226,6 +229,21 @@ void DayProfileEditorContext::draw_tracks_panel() {
     }
     ImGui::Separator();
 
+    // The fog tracks on offer are whatever uniforms the scene's fog
+    // materials declare right now, so they follow a material swap or a
+    // shader edit without the editor being reopened.
+    {
+        auto presets = day_presets();
+        if (deps_.scene != nullptr && deps_.vulkan_context != nullptr) {
+            for (const auto& fog : fog_track::presets(*deps_.scene, deps_.vulkan_context->pipeline_cache())) {
+                presets.push_back({fog.name, fog.color ? TrackKind::Color : TrackKind::Float,
+                                   fog.name.ends_with(fog_track::DENSITY_UNIFORM) ? TrackMode::Multiply
+                                                                                  : TrackMode::Override,
+                                   fog.range_min, fog.range_max});
+            }
+        }
+        tracks_.set_presets(std::move(presets));
+    }
     if (tracks_.draw("##day_tracks", profile_.tracks, cursor_hour_, format_hour)) {
         dirty_ = true;
         push_live();

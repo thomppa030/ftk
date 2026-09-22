@@ -14,15 +14,6 @@
 
 namespace fjell {
 
-namespace fog_group_track {
-
-std::string_view group_of(std::string_view track_name, std::string_view prefix) {
-    if (!track_name.starts_with(prefix)) return {};
-    return track_name.substr(prefix.size());
-}
-
-} // namespace fog_group_track
-
 namespace {
 
 // The sun a scene gets when it has no directional light: a warm key light
