@@ -3,6 +3,7 @@
 #include "core/clock.hpp"
 #include "core/frame_context.hpp"
 #include "core/profiler.hpp"
+#include "core/thread_pool.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/physics_types.hpp"
@@ -11,6 +12,8 @@
 #include "scene/scene.hpp"
 
 #include <cmath>
+#include <utility>
+#include <vector>
 
 namespace fjell {
 
@@ -87,6 +90,26 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
     const float gravity = std::abs(world_->gravity().y);
     if (gravity <= 0.0f) return;
 
+    // Three passes: gather what each floating body is, work out its forces,
+    // apply them. The middle pass is the whole cost — every wave summed at
+    // every sample point — and each body's is independent of every other's,
+    // so it runs across the thread pool. The passes either side stay in scene
+    // order on this thread: reading the physics world and writing forces into
+    // it in a fixed order is what makes the result the same whichever thread
+    // got which body, and the same on every machine.
+    struct Floating {
+        uint32_t id;
+        const BuoyancyComponent* buoyancy;
+        BuoyancySamples samples;
+        glm::mat4 world;
+        glm::vec3 velocity;
+        glm::vec3 spin;
+        // Filled by the parallel pass.
+        std::vector<std::pair<glm::vec3, glm::vec3>> forces;   // at point, force
+        bool any_submerged{false};
+    };
+    std::vector<Floating> floating;
+
     for (const auto& obj : ctx.scene.objects()) {
         auto* buoyancy = obj->components.get<BuoyancyComponent>();
         if (buoyancy == nullptr) continue;
@@ -94,25 +117,34 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
         if (rb == nullptr || rb->body_type != BodyType::Dynamic) continue;
 
-        const BuoyancySamples samples =
+        BuoyancySamples samples =
             buoyancy_samples(*buoyancy, obj->components.get<ColliderComponent>());
         if (samples.points.empty() || samples.volume <= 0.0f) continue;
 
         const auto* spatial = obj->as_spatial();
         if (spatial == nullptr) continue;
 
-        const glm::mat4 world = ctx.scene.current_world_matrix(*spatial);
-        const glm::vec3 body_velocity = world_->get_linear_velocity(obj->id);
-        const glm::vec3 body_spin = world_->get_angular_velocity(obj->id);
-        const glm::vec3 centre{world[3]};
+        floating.push_back({
+            .id = obj->id,
+            .buoyancy = buoyancy,
+            .samples = std::move(samples),
+            .world = ctx.scene.current_world_matrix(*spatial),
+            .velocity = world_->get_linear_velocity(obj->id),
+            .spin = world_->get_angular_velocity(obj->id),
+            .forces = {},
+            .any_submerged = false,
+        });
+    }
+    if (floating.empty()) return;
 
+    auto evaluate = [&](Floating& body) {
+        const glm::vec3 centre{body.world[3]};
         // Every point carries the same share, so sampling a body more finely
         // resolves its motion without floating it higher.
-        const float share = samples.volume / static_cast<float>(samples.points.size());
+        const float share = body.samples.volume / static_cast<float>(body.samples.points.size());
 
-        bool any_submerged = false;
-        for (const auto& local : samples.points) {
-            const glm::vec3 point{world * glm::vec4(local, 1.0f)};
+        for (const auto& local : body.samples.points) {
+            const glm::vec3 point{body.world * glm::vec4(local, 1.0f)};
 
             float surface_y = 0.0f;
             const WaterComponent* water =
@@ -135,29 +167,68 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
             // plus whatever the body's spin adds out here at the rim. Without
             // the spin term the drag cannot damp a roll, only a heave.
             const glm::vec3 point_velocity =
-                body_velocity + glm::cross(body_spin, point - centre);
+                body.velocity + glm::cross(body.spin, point - centre);
 
             // What the water is doing here, so a raft drifts with a swell
             // instead of being dragged through it.
-            const glm::vec3 flow = buoyancy->follow_current ? surface.velocity : glm::vec3{0.0f};
+            const glm::vec3 flow =
+                body.buoyancy->follow_current ? surface.velocity : glm::vec3{0.0f};
 
-            const BuoyancyForce f = buoyancy_at(depth, share, buoyancy->density,
-                                                buoyancy->drag, point_velocity, flow,
+            const BuoyancyForce f = buoyancy_at(depth, share, body.buoyancy->density,
+                                                body.buoyancy->drag, point_velocity, flow,
                                                 gravity);
             if (!f.submerged) continue;
-            any_submerged = true;
+            body.any_submerged = true;
+            body.forces.emplace_back(point, f.force);
+        }
+    };
 
+    // Handing the bodies to the workers and waiting for them costs about
+    // fifteen microseconds whatever they do, so it is only done when there is
+    // a good deal more than that to do: the work is one wave summed at one
+    // sample point, and the threshold is a few thousand of those, about four
+    // dispatches' worth serially. Below it a scene of a few boats on an
+    // authored sea runs on this thread. Either way gives the same bits.
+    constexpr std::size_t PARALLEL_ABOVE_POINT_WAVES = 2000;
+    // An upper estimate: every point on the most waves any water in the scene
+    // sums. Which water a point is over is not known until it is evaluated,
+    // and a scene rarely has more than one or two.
+    std::size_t most_waves = 0;
+    for (const auto& obj : ctx.scene.objects()) {
+        const auto* water = obj->components.get<WaterComponent>();
+        if (water == nullptr) continue;
+        const FjWaterData& field = water->effective_water;
+        std::size_t waves = field.packed_trains ? field.packed_trains->count : 0;
+        if (field.simulated) waves += field.simulated->packed.count;
+        most_waves = std::max(most_waves, waves);
+    }
+    std::size_t points = 0;
+    for (const Floating& body : floating) points += body.samples.points.size();
+    const std::size_t point_waves = points * most_waves;
+
+    // One body per index, so a chunk writes only to its own slots and no two
+    // threads touch the same record.
+    const auto count = static_cast<uint32_t>(floating.size());
+    if (ctx.workers != nullptr && point_waves > PARALLEL_ABOVE_POINT_WAVES) {
+        ctx.workers->parallel_for(0, count, [&](uint32_t, uint32_t begin, uint32_t end) {
+            for (uint32_t i = begin; i < end; ++i) evaluate(floating[i]);
+        });
+    } else {
+        for (auto& body : floating) evaluate(body);
+    }
+
+    for (const Floating& body : floating) {
+        for (const auto& [point, force] : body.forces) {
             // At the point rather than at the centre of mass: it is the
             // disagreement between the points that makes a hull pitch and
             // roll instead of merely rising and falling.
-            world_->apply_force_at(obj->id, f.force, point);
+            world_->apply_force_at(body.id, force, point);
         }
-
         // Water resists a body turning as well as moving through it, and a
         // hull that should glide forward may still want to resist being spun.
-        if (any_submerged && buoyancy->angular_drag > 0.0f) {
+        if (body.any_submerged && body.buoyancy->angular_drag > 0.0f) {
             world_->set_angular_velocity(
-                obj->id, body_spin * std::max(1.0f - buoyancy->angular_drag * ctx.dt, 0.0f));
+                body.id, body.spin * std::max(1.0f - body.buoyancy->angular_drag * ctx.dt, 0.0f));
         }
     }
 }
