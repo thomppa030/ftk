@@ -28,6 +28,12 @@ enum class ResourceAccess : uint8_t {
     storage_write_compute,
     storage_read_write_compute,
 
+    // Ray tracing shaders (vkCmdTraceRaysKHR). A distinct pipeline stage
+    // from compute: a barrier addressed to the compute stage does not
+    // order a trace.
+    sampled_raytracing,
+    storage_write_raytracing,
+
     // Buffers (reads)
     uniform_read,
     storage_buffer_read_compute,
@@ -52,6 +58,7 @@ enum class ResourceAccess : uint8_t {
         case ResourceAccess::depth_attachment:
         case ResourceAccess::storage_write_compute:
         case ResourceAccess::storage_read_write_compute:
+        case ResourceAccess::storage_write_raytracing:
         case ResourceAccess::storage_buffer_write_compute:
         case ResourceAccess::storage_buffer_read_write_compute:
         case ResourceAccess::transfer_dst:
@@ -66,6 +73,7 @@ enum class ResourceAccess : uint8_t {
         case ResourceAccess::color_attachment:
         case ResourceAccess::depth_attachment:
         case ResourceAccess::storage_write_compute:
+        case ResourceAccess::storage_write_raytracing:
         case ResourceAccess::storage_buffer_write_compute:
         case ResourceAccess::transfer_dst:
             return false;

@@ -697,17 +697,17 @@ PassSetup RtReflectionPass::setup() const {
 void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // The output image lives in PostProcessResources (one per viewport),
     // not the framegraph. We declare side-effects so the pass isn't
-    // culled, and import the screen-space inputs we read so the graph
-    // emits the right barriers for them.
+    // culled, and import the screen-space inputs the trace reads so the
+    // graph brings them to the ray tracing stage.
     builder.has_side_effects();
 
     if (ray_traced_active()) {
         auto depth = builder.import_named(ctx, "depth");
         auto normal = builder.import_named(ctx, "normal");
         auto mr = builder.import_named(ctx, "mr");
-        builder.read(depth, ResourceAccess::sampled_compute);
-        builder.read(normal, ResourceAccess::sampled_compute);
-        builder.read(mr, ResourceAccess::sampled_compute);
+        builder.read(depth, ResourceAccess::sampled_raytracing);
+        builder.read(normal, ResourceAccess::sampled_raytracing);
+        builder.read(mr, ResourceAccess::sampled_raytracing);
     }
 }
 
@@ -790,38 +790,14 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     auto cmd = ctx.cmd;
 
-    // ── Pre-trace: raw target to GENERAL, extend depth/normal/MR to RT stage ──
+    // ── Pre-trace: raw target to GENERAL ──
     // The trace writes raw_image; the denoise below reads it and writes
-    // out_image, which is what the composite sees.
+    // out_image, which is what the composite sees. Depth, normal and MR
+    // arrive at the ray tracing stage through the graph's barriers.
     emit_image_barrier(cmd, imgs->raw_image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-
-    emit_image_barrier(cmd, ctx.target->depth_image(),
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT
-            | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
-            | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-        VK_ACCESS_2_SHADER_READ_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT);
-    emit_image_barrier(cmd, ctx.target->normal_image(),
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-        VK_ACCESS_2_SHADER_READ_BIT);
-    emit_image_barrier(cmd, ctx.target->mr_image(),
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-        VK_ACCESS_2_SHADER_READ_BIT);
 
     // ── Update descriptor set ──
     // First-use writes: static bindings (vertex/index SSBOs, output, UBOs).
