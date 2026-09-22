@@ -371,6 +371,12 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.target = &target;
     ctx.queue = &gatherer_.render_queue();
     ctx.camera_position = gatherer_.camera_position();
+    // The camera this viewport is drawn from, for a pass that has to place
+    // something in the view before recording it. The same matrices feed the
+    // global UBO; a pass reconstructing from depth still wants inv_view_proj
+    // below, which carries the TAA jitter.
+    ctx.view = gatherer_.view_matrix();
+    ctx.projection = gatherer_.projection_matrix();
     // Previews bind their own private global set; everyone else the per-frame set.
     ctx.global_descriptor_set = global_set != VK_NULL_HANDLE
         ? global_set : gpu_.global_descriptor_set(current_frame_);
@@ -1144,15 +1150,11 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
         // The shader takes a world position into the volume's own space, where
         // the shape is the unit box or sphere, so the inverse is what it needs.
         gpu.inv_transform = glm::inverse(v.transform);
-        gpu.color_density = glm::vec4(v.color, v.density);
-        gpu.shape_falloff = glm::vec4(static_cast<float>(v.shape), v.edge_falloff, 0.0f, 0.0f);
-        gpu.scatter_params = glm::vec4(v.scattering_mult, 0.0f, 0.0f, 0.0f);
-
+        gpu.shape_falloff = glm::vec4(static_cast<float>(v.shape), v.edge_falloff,
+                                      v.motion_response, 0.0f);
         // Already integrated by EnvironmentSubsystem::advance_fog_volumes, so
         // that drift stays continuous while the wind turns it.
-        gpu.noise_drift = glm::vec4(v.noise_drift, v.noise_scale);
-        gpu.noise_shape = glm::vec4(v.noise_contrast, static_cast<float>(v.noise_octaves),
-                                    v.motion_response, 0.0f);
+        gpu.drift = glm::vec4(v.drift, 0.0f);
         dst[i] = gpu;
     }
 }
