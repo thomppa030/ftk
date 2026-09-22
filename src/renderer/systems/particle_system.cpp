@@ -46,16 +46,6 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     sample_count_ = resources.sample_count;
     deleter_ = resources.deferred_deleter;
 
-    auto families = device.find_queue_families();
-    VkCommandPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_ci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    pool_ci.queueFamilyIndex = families.graphics.value();
-    if (vkCreateCommandPool(device_, &pool_ci, nullptr, &command_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create particle command pool");
-    }
-    queue_ = device.graphics_queue();
-
     // ── GPU-only mega buffers (sparse-growing, see growable_buffer.hpp) ──
     // Small initial commit — sparse growth is cheap (no device stall), so
     // there's no reason to over-commit up front like MegaBuffer does for
@@ -96,6 +86,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         INITIAL_EMITTERS * 3 * sizeof(uint32_t),
         std::max(MAX_EMITTERS * 3 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_counters");
 
+    // Bound to every compute set but read by no shader: emission overwrites
+    // the oldest slot of a ring, so nothing hands out free indices.
     mega_dead_list_buffer_ = std::make_unique<GrowableBuffer>(
         device, allocator_, upload, deleter,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -1243,7 +1235,6 @@ void ParticleSystem::destroy() {
     safe_destroy(emit_pipeline_, vkDestroyPipeline);
     safe_destroy(compute_layout_, vkDestroyPipelineLayout);
     safe_destroy(compute_set_layout_, vkDestroyDescriptorSetLayout);
-    safe_destroy(command_pool_, vkDestroyCommandPool);
 }
 
 void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count) {
@@ -1515,75 +1506,62 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 }
 
 void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
-    if (slots.empty()) return;
-
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd),
-             "Failed to allocate particle init command buffer");
-
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin_info),
-             "Failed to begin particle init command buffer");
-
-    // Zero particle buffer and indirect draw commands for the target range
     for (uint32_t i : slots) {
         const auto& em = emitters_[i];
-        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(em.base_offset) * PARTICLE_STRIDE;
-        VkDeviceSize particle_size = static_cast<VkDeviceSize>(em.max_particles) * PARTICLE_STRIDE;
-        vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), particle_offset, particle_size, 0);
-
-        VkDeviceSize indirect_offset = static_cast<VkDeviceSize>(i) * 4 * sizeof(uint32_t);
-        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), indirect_offset, 4 * sizeof(uint32_t), 0);
+        pending_inits_.push_back({i, em.base_offset, em.max_particles, true});
     }
+}
 
-    // Initialize dead lists per emitter
-    constexpr VkDeviceSize max_update = 65536;
-    for (uint32_t i : slots) {
-        const auto& em = emitters_[i];
-        std::vector<uint32_t> indices(em.max_particles);
-        for (uint32_t j = 0; j < em.max_particles; ++j) indices[j] = j;
+void ParticleSystem::record_pending_inits(VkCommandBuffer cmd) {
+    if (pending_inits_.empty()) return;
 
-        VkDeviceSize offset = static_cast<VkDeviceSize>(em.base_offset) * sizeof(uint32_t);
-        VkDeviceSize remaining = static_cast<VkDeviceSize>(em.max_particles) * sizeof(uint32_t);
-        const auto* src = reinterpret_cast<const char*>(indices.data());
+    // Earlier frames may still be simulating or drawing these ranges; the
+    // fills have to come after them, and the dispatches that follow have to
+    // see the fills.
+    auto memory_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                              VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
+        VkMemoryBarrier2 barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        barrier.srcStageMask = src_stage;
+        barrier.srcAccessMask = src_access;
+        barrier.dstStageMask = dst_stage;
+        barrier.dstAccessMask = dst_access;
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    };
+    constexpr VkPipelineStageFlags2 USER_STAGES = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+        | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    constexpr VkAccessFlags2 USER_ACCESS = VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+        | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
-        while (remaining > 0) {
-            VkDeviceSize chunk = std::min(remaining, max_update);
-            vkCmdUpdateBuffer(cmd, mega_dead_list_buffer_->handle(), offset, chunk, src);
-            offset += chunk;
-            src += chunk;
-            remaining -= chunk;
+    memory_barrier(USER_STAGES, USER_ACCESS,
+                   VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+    for (const auto& init : pending_inits_) {
+        // A zeroed particle has lifetime 0: dead until emission overwrites it.
+        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(init.base_offset) * PARTICLE_STRIDE;
+        VkDeviceSize particle_size = static_cast<VkDeviceSize>(init.max_particles) * PARTICLE_STRIDE;
+        if (particle_size > 0) {
+            vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), particle_offset, particle_size, 0);
         }
-    }
+        if (!init.reset_counters) continue;
 
-    // Initialize counters for the target range only (3 uints: alive, dead, trail_head)
-    for (uint32_t i : slots) {
-        uint32_t counters[3] = {0, emitters_[i].max_particles, 0};
-        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(i) * 3 * sizeof(uint32_t);
+        VkDeviceSize indirect_offset = static_cast<VkDeviceSize>(init.slot) * 4 * sizeof(uint32_t);
+        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), indirect_offset, 4 * sizeof(uint32_t), 0);
+
+        // alive, dead, trail_head
+        uint32_t counters[3] = {0, init.max_particles, 0};
+        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(init.slot) * 3 * sizeof(uint32_t);
         vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), counter_offset,
                           sizeof(counters), counters);
     }
+    pending_inits_.clear();
 
-    vk_check(vkEndCommandBuffer(cmd), "Failed to end particle init command buffer");
-
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-
-    vk_check(vkQueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE),
-             "Failed to submit particle init commands");
-    vkQueueWaitIdle(queue_);
-
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+    memory_barrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                   USER_STAGES, USER_ACCESS);
 }
 
 // ── RenderSubsystem overrides ──────────────────────────────────────────
@@ -1726,10 +1704,12 @@ std::optional<uint32_t> ParticleSystem::allocate_particle_range(uint32_t count) 
 }
 
 void ParticleSystem::free_slot(EmitterGpu& gpu) {
-    // Its particles are left as they are: nothing draws the range, an
-    // inactive slot's data holds them still, and the next emitter to take
-    // the range zeroes it. Everything a consumer might test is cleared so
-    // the slot reads as empty to the draw and DDGI loops that walk it.
+    // Its particles are killed at the next dispatch rather than left to
+    // expire: a trail's never would, and until then they would be simulated
+    // against whatever the slot holds next. Everything a consumer might
+    // test is cleared so the slot reads as empty to the draw and DDGI
+    // loops that walk it.
+    pending_inits_.push_back({0, gpu.base_offset, gpu.max_particles, false});
     gpu = EmitterGpu{};
 }
 
@@ -1836,9 +1816,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     // buffers grow in place (ensure_capacity above), and the buffers/
     // descriptor sets rebuild_mega_buffers still fully recreates are
     // retired through DeferredDeleter instead of being freed immediately
-    // — see its call sites. init_emitter_slots submits and waits for its
-    // own init command buffer regardless of this branch, so neither path
-    // needs an additional wait beforehand.
+    // — see its call sites.
     if (needs_realloc) {
         uint32_t new_total = grow_buffer_to(total, total_particle_capacity_, MAX_SCENE_PARTICLES);
         uint32_t new_count = grow_buffer_to(count, emitter_capacity_, MAX_SCENE_EMITTERS);
@@ -1952,6 +1930,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                                       const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
+    record_pending_inits(cmd);
     // One long frame would otherwise move every particle far enough in a
     // single step to pass through whatever it was about to hit. Past this
     // the simulation runs slow instead.

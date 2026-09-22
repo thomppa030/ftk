@@ -181,8 +181,22 @@ public:
 private:
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
-    /// Zero the particles and reset the counters of the given slots.
+
+    // Buffer regions to clear before the next dispatch. Sync runs before
+    // any command buffer is open, so what it changes is queued here and
+    // recorded into the frame ahead of the simulation, rather than
+    // submitted on its own and waited for: a spawn must not drain the GPU.
+    struct SlotInit {
+        uint32_t slot;
+        uint32_t base_offset;
+        uint32_t max_particles;
+        bool reset_counters; // a slot taken anew; a freed one only loses its particles
+    };
+    std::vector<SlotInit> pending_inits_;
+    /// Zero the particles and reset the counters of the given slots, at
+    /// the next dispatch.
     void init_emitter_slots(const std::vector<uint32_t>& slots);
+    void record_pending_inits(VkCommandBuffer cmd);
     /// A free slot in emitters_, appending one when none is free.
     [[nodiscard]] uint32_t allocate_slot();
     /// The first run of `count` particles no active emitter holds, or
@@ -197,8 +211,6 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
-    VkQueue queue_{VK_NULL_HANDLE};
     DeferredDeleter* deleter_{nullptr}; // retires replaced buffers instead of
                                         // freeing them while a frame in
                                         // flight might still be reading them
