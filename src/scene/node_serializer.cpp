@@ -69,10 +69,12 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         }
     });
 
-    // EmitterComponent serializes VFX asset path via _vfx_path sentinel
+    // EmitterComponent serializes VFX asset path via _vfx_path sentinel;
+    // whatever else it wrote (looping) stays under its own key
     if (j.contains("emitter") && j["emitter"].contains("_vfx_path")) {
         j["vfx"] = j["emitter"]["_vfx_path"];
-        j.erase("emitter");
+        j["emitter"].erase("_vfx_path");
+        if (j["emitter"].empty()) j.erase("emitter");
     }
 
     // Transform (spatial nodes only)
