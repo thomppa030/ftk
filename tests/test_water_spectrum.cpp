@@ -628,3 +628,17 @@ TEST_CASE("The closed-form waves change across the sea as their transform says",
         }
     }
 }
+
+TEST_CASE("A spectral wave carries its own length", "[water_spectrum]") {
+    // |k| is kept beside k so that summing at a point takes no square root.
+    // It has to be exactly length(k), and never zero.
+    FftContributor sea = physical_sea();
+    sea.resolution = 32;
+    const auto all = water::strongest_waves(water::generate_spectrum(sea), 32 * 32);
+    REQUIRE(all.waves.size() > 100);
+    for (const SpectralWave& w : all.waves) {
+        const float k_len = glm::length(w.k);
+        REQUIRE(k_len > 0.0f);
+        REQUIRE(w.k_len == k_len);
+    }
+}

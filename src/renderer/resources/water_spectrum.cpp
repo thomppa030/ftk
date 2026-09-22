@@ -365,6 +365,9 @@ StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count) 
         const float variance = 2.0f * (a.x * a.x + a.y * a.y);
         if (variance <= 0.0f) continue;
         total += static_cast<double>(variance);
+        // The mean has no direction to travel in, and a drawn sea gives it no
+        // energy in any case. Left out so that no wave's |k| is ever zero.
+        if (i == 0) continue;
         // The grid's highest frequency along either axis is its own opposite:
         // there +k and -k are one cell, so what the simulation makes of it is
         // a ripple standing in place rather than a wave going anywhere, and
@@ -396,6 +399,7 @@ StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count) 
         wave.amplitude = 2.0f * glm::length(a);
         wave.phase = std::atan2(a.y, a.x);
         wave.omega = std::sqrt(GRAVITY * k_len);
+        wave.k_len = k_len;
         out.waves.push_back(wave);
         carried += static_cast<double>(cells[i].variance);
         largest_k = std::max(largest_k, k_len);
@@ -409,13 +413,11 @@ glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves, float ch
                                 glm::vec2 world_xz, float time) {
     glm::vec3 sum{0.0f};
     for (const SpectralWave& wave : waves) {
-        const float k_len = glm::length(wave.k);
-        if (k_len < 1e-6f) continue;
         const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
         sum.y += wave.amplitude * std::cos(angle);
         // A quarter cycle ahead of the height, along k: toward the crest from
         // both sides of it, as evolve_spectrum() has it.
-        const float pinch = -wave.amplitude * std::sin(angle) * choppiness / k_len;
+        const float pinch = -wave.amplitude * std::sin(angle) * choppiness / wave.k_len;
         sum.x += wave.k.x * pinch;
         sum.z += wave.k.y * pinch;
     }
@@ -426,16 +428,14 @@ SpectralMotion spectral_motion(const std::vector<SpectralWave>& waves, float cho
                                glm::vec2 world_xz, float time) {
     SpectralMotion m;
     for (const SpectralWave& wave : waves) {
-        const float k_len = glm::length(wave.k);
-        if (k_len < 1e-6f) continue;
         const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
         const float c = std::cos(angle);
         const float s = std::sin(angle);
         // The angle falls at omega, so d/dt cos = omega sin, d/dt sin = -omega cos.
         m.displacement.y += wave.amplitude * c;
         m.velocity.y += wave.amplitude * s * wave.omega;
-        const float pinch = -wave.amplitude * s * choppiness / k_len;
-        const float pinch_rate = wave.amplitude * c * choppiness / k_len * wave.omega;
+        const float pinch = -wave.amplitude * s * choppiness / wave.k_len;
+        const float pinch_rate = wave.amplitude * c * choppiness / wave.k_len * wave.omega;
         m.displacement.x += wave.k.x * pinch;
         m.displacement.z += wave.k.y * pinch;
         m.velocity.x += wave.k.x * pinch_rate;
@@ -448,13 +448,11 @@ SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
                                          float choppiness, glm::vec2 world_xz, float time) {
     SpectralDerivatives sum;
     for (const SpectralWave& wave : waves) {
-        const float k_len = glm::length(wave.k);
-        if (k_len < 1e-6f) continue;
         const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
         const float a_sin = wave.amplitude * std::sin(angle);
         // The pinch is -(k / |k|) c A sin(angle), so across the plane it
         // changes as -(k k^T / |k|) c A cos(angle).
-        const float spread = -wave.amplitude * std::cos(angle) * choppiness / k_len;
+        const float spread = -wave.amplitude * std::cos(angle) * choppiness / wave.k_len;
 
         sum.dh_dx -= wave.k.x * a_sin;
         sum.dh_dz -= wave.k.y * a_sin;

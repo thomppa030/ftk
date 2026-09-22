@@ -304,6 +304,13 @@ struct SpectralWave {
     float amplitude{0.0f};   // metres
     float phase{0.0f};       // radians
     float omega{0.0f};       // rad/s
+    /// |k|. It follows from `k`; kept so a wave summed at thousands of points a
+    /// tick does not take a square root at each. Never zero: the mean is not a
+    /// wave. Only the length is kept and not, say, k/|k| or A/|k|, because the
+    /// sums divide by it after the sine, and a product reassociated around a
+    /// trig value rounds differently — the surface a body floats on has to be
+    /// the same bits on every machine and the same bits as before.
+    float k_len{1.0f};
 };
 
 namespace water {
