@@ -2,7 +2,10 @@
 
 #include "renderer/resources/water_spectrum.hpp"
 
+#include "core/simd_trig.hpp"
+
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <variant>
 
@@ -53,30 +56,67 @@ constexpr float TAU = 6.28318530717958647692f;
     return headroom;
 }
 
-struct WaveTerms {
-    glm::vec2 dir{1.0f, 0.0f};
-    float k{0.0f};          // angular wavenumber
-    float amplitude{0.0f};
-    float q{0.0f};          // horizontal bunching
-    float omega{0.0f};      // angular frequency, after the speed scales
-    float phase{0.0f};      // dot(dir, xz) * k - omega * t
+// One train as the sum wants it. Only ever handed a train that moves the
+// surface, which is what lets it divide by the direction's length and the
+// wavelength without asking.
+struct PreparedTrain {
+    glm::vec2 dir;
+    float k;
+    float amplitude;
+    float q;
+    float omega;
 };
 
-// Everything both the displacement and its derivatives need, computed once.
-// Only ever handed a train that moves the surface, which is what lets it
-// divide by the direction's length and the wavelength without asking.
-[[nodiscard]] WaveTerms terms_for(const WaterWave& wave, const GerstnerContributor& contributor,
-                                  glm::vec2 world_xz, float time) {
-    WaveTerms t;
+[[nodiscard]] PreparedTrain prepare(const WaterWave& wave, const GerstnerContributor& contributor) {
+    PreparedTrain t;
     t.dir = wave.direction / glm::length(wave.direction);
     t.k = TAU / wave.wavelength;
     t.amplitude = wave.amplitude * contributor.amplitude_scale;
     t.q = steepness_to_q(wave.steepness, t.k, t.amplitude,
                          steepness_budget(contributor.steepness_headroom));
-
     t.omega = std::sqrt(GRAVITY * t.k) * wave.speed * contributor.speed_scale;
-    t.phase = glm::dot(t.dir, world_xz) * t.k - t.omega * time;
     return t;
+}
+
+// Eight trains' phases at a point and time, and their sines and cosines.
+struct TrainAngles {
+    simd::f32x8 sin;
+    simd::f32x8 cos;
+};
+
+[[nodiscard]] TrainAngles train_angles(const PackedTrains& t, std::size_t i, glm::vec2 world_xz,
+                                       float time) {
+    // dot(dir, xz) * k - omega * t.
+    const simd::f32x8 dx = _mm256_loadu_ps(&t.dir_x[i]);
+    const simd::f32x8 dz = _mm256_loadu_ps(&t.dir_z[i]);
+    simd::f32x8 along = _mm256_fmadd_ps(dz, _mm256_set1_ps(world_xz.y),
+                                        _mm256_mul_ps(dx, _mm256_set1_ps(world_xz.x)));
+    simd::f32x8 phase = _mm256_fnmadd_ps(_mm256_loadu_ps(&t.omega[i]), _mm256_set1_ps(time),
+                                         _mm256_mul_ps(along, _mm256_loadu_ps(&t.k[i])));
+    TrainAngles a;
+    simd::sincos(phase, a.sin, a.cos);
+    return a;
+}
+
+[[nodiscard]] float sum8(simd::f32x8 v) {
+    const __m128 lo = _mm256_castps256_ps128(v);
+    const __m128 hi = _mm256_extractf128_ps(v, 1);
+    __m128 r = _mm_add_ps(lo, hi);
+    r = _mm_add_ps(r, _mm_movehl_ps(r, r));
+    r = _mm_add_ss(r, _mm_shuffle_ps(r, r, 1));
+    return _mm_cvtss_f32(r);
+}
+
+// The trains the evaluators sum. A field reaches them prepared — through
+// apply_wind(), which is how every field the world runs on is made — or not
+// at all: preparing here instead would be six allocations per sample point,
+// and a fallback that costs three times the fast path is a trap, not a
+// convenience.
+[[nodiscard]] const PackedTrains& trains_of(const FjWaterData& water) {
+    assert(water.packed_trains.has_value()
+           && "evaluating a field whose trains were never prepared: derive it with "
+              "water::apply_wind() first");
+    return *water.packed_trains;
 }
 
 // d(displaced)/d(rest) of the horizontal displacement, as the three distinct
@@ -94,19 +134,25 @@ struct HorizontalJacobian {
 [[nodiscard]] HorizontalJacobian gerstner_jacobian_terms(const FjWaterData& water,
                                                          glm::vec2 world_xz, float time) {
     // At rest it is the identity; as trains bunch together the diagonal falls.
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 xx = _mm256_setzero_ps(), zz = _mm256_setzero_ps(), xz = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        const simd::f32x8 dx = _mm256_loadu_ps(&t.dir_x[i]);
+        const simd::f32x8 dz = _mm256_loadu_ps(&t.dir_z[i]);
+        // wa = k * A * q, times sin.
+        const simd::f32x8 was = _mm256_mul_ps(
+            _mm256_mul_ps(_mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i])),
+                          _mm256_loadu_ps(&t.q[i])),
+            a.sin);
+        xx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dx), was, xx);
+        zz = _mm256_fnmadd_ps(_mm256_mul_ps(dz, dz), was, zz);
+        xz = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), was, xz);
+    }
     HorizontalJacobian j;
-    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
-                                     const WaterWave& wave) {
-        WaveTerms t = terms_for(wave, contributor, world_xz, time);
-        if (t.amplitude == 0.0f) return;
-
-        float s = std::sin(t.phase);
-        float wa = t.k * t.amplitude * t.q;
-
-        j.xx -= wa * t.dir.x * t.dir.x * s;
-        j.zz -= wa * t.dir.y * t.dir.y * s;
-        j.xz -= wa * t.dir.x * t.dir.y * s;
-    });
+    j.xx += sum8(xx);
+    j.zz += sum8(zz);
+    j.xz += sum8(xz);
     return j;
 }
 
@@ -126,6 +172,30 @@ struct HorizontalJacobian {
 }
 
 } // namespace
+
+PackedTrains pack_trains(const FjWaterData& water) {
+    std::vector<PreparedTrain> prepared;
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        prepared.push_back(prepare(wave, contributor));
+    });
+    PackedTrains p;
+    p.count = prepared.size();
+    const std::size_t padded = (prepared.size() + 7) / 8 * 8;
+    for (auto* field : {&p.dir_x, &p.dir_z, &p.k, &p.amplitude, &p.q, &p.omega}) {
+        field->assign(padded, 0.0f);
+    }
+    // A padding train has amplitude zero and adds nothing whatever its phase.
+    for (std::size_t i = 0; i < prepared.size(); ++i) {
+        p.dir_x[i] = prepared[i].dir.x;
+        p.dir_z[i] = prepared[i].dir.y;
+        p.k[i] = prepared[i].k;
+        p.amplitude[i] = prepared[i].amplitude;
+        p.q[i] = prepared[i].q;
+        p.omega[i] = prepared[i].omega;
+    }
+    return p;
+}
 
 const FftContributor* simulated_sea(const FjWaterData& water) {
     for (const auto& contributor : water.contributors) {
@@ -322,6 +392,7 @@ FjWaterData apply_wind(const FjWaterData& water, glm::vec2 wind_xz) {
             [&](const auto& kind) -> WaterContributor { return apply_wind(kind, wind_xz); },
             contributor));
     }
+    out.packed_trains = pack_trains(out);
     return out;
 }
 
@@ -344,23 +415,27 @@ FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
 
 SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time) {
     SurfaceMotion m;
-    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
-                                     const WaterWave& wave) {
-        WaveTerms t = terms_for(wave, contributor, world_xz, time);
-        if (t.amplitude == 0.0f) return;
-
-        float c = std::cos(t.phase);
-        float s = std::sin(t.phase);
-        // The same terms displace() sums, and their time derivatives: the
-        // phase falls at omega, so cos becomes omega sin and sin becomes
-        // -omega cos.
-        m.displacement.x += t.q * t.amplitude * t.dir.x * c;
-        m.displacement.z += t.q * t.amplitude * t.dir.y * c;
-        m.displacement.y += t.amplitude * s;
-        m.velocity.x += t.q * t.amplitude * t.dir.x * s * t.omega;
-        m.velocity.z += t.q * t.amplitude * t.dir.y * s * t.omega;
-        m.velocity.y -= t.amplitude * c * t.omega;
-    });
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 dx = _mm256_setzero_ps(), dy = _mm256_setzero_ps(), dz = _mm256_setzero_ps();
+    simd::f32x8 vx = _mm256_setzero_ps(), vy = _mm256_setzero_ps(), vz = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        const simd::f32x8 amp = _mm256_loadu_ps(&t.amplitude[i]);
+        const simd::f32x8 omega = _mm256_loadu_ps(&t.omega[i]);
+        // q * A * dir, the horizontal bunching toward the crest; then the crest.
+        const simd::f32x8 qa = _mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), amp);
+        const simd::f32x8 qax = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_x[i]));
+        const simd::f32x8 qaz = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_z[i]));
+        dx = _mm256_fmadd_ps(qax, a.cos, dx);
+        dz = _mm256_fmadd_ps(qaz, a.cos, dz);
+        dy = _mm256_fmadd_ps(amp, a.sin, dy);
+        // The phase falls at omega: cos becomes omega sin, sin becomes -omega cos.
+        vx = _mm256_fmadd_ps(_mm256_mul_ps(qax, a.sin), omega, vx);
+        vz = _mm256_fmadd_ps(_mm256_mul_ps(qaz, a.sin), omega, vz);
+        vy = _mm256_fnmadd_ps(_mm256_mul_ps(amp, a.cos), omega, vy);
+    }
+    m.displacement = {sum8(dx), sum8(dy), sum8(dz)};
+    m.velocity = {sum8(vx), sum8(vy), sum8(vz)};
     if (water.simulated.has_value()) {
         const SpectralMotion s = spectral_motion(water.simulated->packed,
                                                  water.simulated->choppiness, world_xz, time);
@@ -371,50 +446,32 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
 }
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
-    glm::vec3 sum{0.0f};
-    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
-                                     const WaterWave& wave) {
-        WaveTerms t = terms_for(wave, contributor, world_xz, time);
-        if (t.amplitude == 0.0f) return;
-
-        float c = std::cos(t.phase);
-        float s = std::sin(t.phase);
-        // Horizontal bunching toward the crest, then the crest itself.
-        sum.x += t.q * t.amplitude * t.dir.x * c;
-        sum.z += t.q * t.amplitude * t.dir.y * c;
-        sum.y += t.amplitude * s;
-    });
-    if (water.simulated.has_value()) {
-        sum += spectral_displacement(water.simulated->packed,
-                                     water.simulated->choppiness, world_xz, time);
-    }
-    return sum;
+    return surface_motion(water, world_xz, time).displacement;
 }
 
 glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     // Partial derivatives of the displaced surface with respect to the rest
     // position. The normal is the cross product of the two tangents; writing
     // the sums out avoids building both tangents separately.
-    glm::vec3 binormal{1.0f, 0.0f, 0.0f};  // d/dx
-    glm::vec3 tangent{0.0f, 0.0f, 1.0f};   // d/dz
-
-    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
-                                     const WaterWave& wave) {
-        WaveTerms t = terms_for(wave, contributor, world_xz, time);
-        if (t.amplitude == 0.0f) return;
-
-        float c = std::cos(t.phase);
-        float s = std::sin(t.phase);
-        float wa = t.k * t.amplitude;
-
-        binormal.x -= t.q * t.dir.x * t.dir.x * wa * s;
-        binormal.y += t.dir.x * wa * c;
-        binormal.z -= t.q * t.dir.x * t.dir.y * wa * s;
-
-        tangent.x -= t.q * t.dir.x * t.dir.y * wa * s;
-        tangent.y += t.dir.y * wa * c;
-        tangent.z -= t.q * t.dir.y * t.dir.y * wa * s;
-    });
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 bx = _mm256_setzero_ps(), by = _mm256_setzero_ps(), bz = _mm256_setzero_ps();
+    simd::f32x8 tx = _mm256_setzero_ps(), ty = _mm256_setzero_ps(), tz = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        const simd::f32x8 dx = _mm256_loadu_ps(&t.dir_x[i]);
+        const simd::f32x8 dz = _mm256_loadu_ps(&t.dir_z[i]);
+        const simd::f32x8 wa = _mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i]));
+        const simd::f32x8 qwas = _mm256_mul_ps(_mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), wa), a.sin);
+        const simd::f32x8 wac = _mm256_mul_ps(wa, a.cos);
+        bx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dx), qwas, bx);
+        by = _mm256_fmadd_ps(dx, wac, by);
+        bz = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, bz);
+        tx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, tx);
+        ty = _mm256_fmadd_ps(dz, wac, ty);
+        tz = _mm256_fnmadd_ps(_mm256_mul_ps(dz, dz), qwas, tz);
+    }
+    glm::vec3 binormal{1.0f + sum8(bx), sum8(by), sum8(bz)};  // d/dx
+    glm::vec3 tangent{sum8(tx), sum8(ty), 1.0f + sum8(tz)};   // d/dz
     if (water.simulated.has_value()) {
         // Tangents add across contributors where normals do not, so the
         // simulated waves go in before the cross product, as in the shader.
@@ -436,9 +493,14 @@ float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz, float ti
     return jacobian_terms(water, world_xz, time).determinant();
 }
 
-float folded_share(const FjWaterData& water) {
+float folded_share(const FjWaterData& authored) {
     // Pinched to a point counts as folded, which is where crest() reads 1.
     constexpr float FOLDED_AT = 1e-3f;
+
+    // Asked about an authored field, once per edit; the evaluators want its
+    // trains prepared, which is a moment's work against the sampling below.
+    FjWaterData water = authored;
+    water.packed_trains = pack_trains(water);
 
     const FftContributor* simulated = simulated_sea(water);
     if (simulated == nullptr || simulated->resolution < 2 || simulated->patch_size <= 0.0f) {

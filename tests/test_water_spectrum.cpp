@@ -337,7 +337,7 @@ TEST_CASE("One wavevector of a simulated sea is one Gerstner train", "[water_spe
             for (std::uint32_t x = 0; x < n; x += 3) {
                 const glm::vec2 p{static_cast<float>(x) * patch / n,
                                   static_cast<float>(z) * patch / n};
-                const glm::vec3 expected = water::displace(gerstner, p, time);
+                const glm::vec3 expected = water::displace(water::apply_wind(gerstner, {0.0f, 0.0f}), p, time);
                 INFO("at (" << x << ", " << z << ") t=" << time);
                 REQUIRE(height[z * n + x] == Approx(expected.y).margin(1e-4));
                 REQUIRE(along_x[z * n + x] == Approx(expected.x).margin(1e-4));
@@ -477,7 +477,7 @@ TEST_CASE("One spectral wave folds exactly where its Gerstner train does", "[wat
                                     - fields.xz[cell] * fields.xz[cell];
             const glm::vec2 p{static_cast<float>(x) * patch / n, static_cast<float>(z) * patch / n};
             INFO("at (" << x << ", " << z << ")");
-            REQUIRE(determinant == Approx(water::horizontal_jacobian(gerstner, p, time)).margin(2e-3));
+            REQUIRE(determinant == Approx(water::horizontal_jacobian(water::apply_wind(gerstner, {0.0f, 0.0f}), p, time)).margin(2e-3));
             if (determinant < 0.0f) ++folded;
         }
     }

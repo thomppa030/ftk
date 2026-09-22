@@ -328,6 +328,20 @@ struct PackedWaves {
     std::size_t count{0};   // real waves; the arrays run to the next eight
 };
 
+/// The Gerstner trains the surface sums, worked out for summing: direction
+/// normalised, wavenumber, amplitude and speed under their contributor's
+/// scales, steepness turned into the Gerstner q, each in an array of its own
+/// and padded to a multiple of eight with trains of zero amplitude.
+///
+/// A train is stored the way an author writes it, and turning that into what
+/// the sum needs costs a normalisation, two divides and a square root. Done
+/// per train per sample point per tick that was two thirds of what a train
+/// cost; done here it is done once per frame.
+struct PackedTrains {
+    std::vector<float> dir_x, dir_z, k, amplitude, q, omega;
+    std::size_t count{0};
+};
+
 /// One sea drawn from a spectrum: the complex amplitude of every wavevector
 /// on the grid at time zero.
 struct SpectrumField {
@@ -406,6 +420,13 @@ struct FjWaterData {
         float choppiness{0.0f};
     };
     std::optional<SimulatedSea> simulated;
+
+    /// The Gerstner trains as the CPU evaluators sum them: exactly the trains
+    /// `water::for_each_summed_train()` visits, prepared. Derived by
+    /// `water::apply_wind()` into the field it returns and never saved. The
+    /// point evaluators require it; a field without it is not one the world
+    /// runs on.
+    std::optional<water::PackedTrains> packed_trains;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

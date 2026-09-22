@@ -281,7 +281,9 @@ void WaterEditorContext::push_live() {
         water->water_loaded = true;
         // Shown at once rather than waiting a frame for the weather to
         // rederive it; a scene with wind overwrites this on its next tick.
-        water->effective_water = water_;
+        // Through the node's own derivation, so the sea it last drew is kept
+        // where the edit did not change it.
+        water->effective_water = water->derivation.derive(water_, {0.0f, 0.0f}, deps_.thread_pool);
     }
 }
 

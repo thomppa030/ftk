@@ -6,6 +6,8 @@
 #include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 
+#include <glm/gtc/constants.hpp>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -71,6 +73,14 @@ namespace {
     return water;
 }
 
+/// `water` as the world would run it: through apply_wind() with no wind, so
+/// its trains are prepared for the point evaluators. Every field a test
+/// evaluates goes through here, as every field the engine evaluates goes
+/// through apply_wind().
+[[nodiscard]] FjWaterData run(const FjWaterData& water) {
+    return water::apply_wind(water, {0.0f, 0.0f});
+}
+
 [[nodiscard]] GerstnerContributor& gerstner(FjWaterData& water, std::size_t index = 0) {
     return std::get<GerstnerContributor>(water.contributors.at(index));
 }
@@ -110,6 +120,7 @@ struct FieldPair {
         block.waves[i].steepness = waves[i].steepness;
         block.waves[i].speed = waves[i].speed;
     }
+    pair.cpu = run(pair.cpu);
     return pair;
 }
 
@@ -159,19 +170,19 @@ TEST_CASE("Shader and CPU wave fields agree", "[fjwater]") {
                 // the crest; these sit an order above that. A formula that
                 // actually drifted would miss by far more than a wave's
                 // width of a millimetre.
-                glm::vec3 cpu_d = water::displace(field.cpu, p, time);
+                glm::vec3 cpu_d = water::displace(run(field.cpu), p, time);
                 vec3 gpu_d = fjell_water_displace(field.gpu, p, time);
                 REQUIRE(cpu_d.x == Approx(gpu_d.x).margin(1e-3));
                 REQUIRE(cpu_d.y == Approx(gpu_d.y).margin(1e-3));
                 REQUIRE(cpu_d.z == Approx(gpu_d.z).margin(1e-3));
 
-                glm::vec3 cpu_n = water::normal_at(field.cpu, p, time);
+                glm::vec3 cpu_n = water::normal_at(run(field.cpu), p, time);
                 vec3 gpu_n = fjell_water_normal(field.gpu, p, time);
                 REQUIRE(cpu_n.x == Approx(gpu_n.x).margin(1e-2));
                 REQUIRE(cpu_n.y == Approx(gpu_n.y).margin(1e-2));
                 REQUIRE(cpu_n.z == Approx(gpu_n.z).margin(1e-2));
 
-                REQUIRE(water::crest(field.cpu, p, time)
+                REQUIRE(water::crest(run(field.cpu), p, time)
                         == Approx(fjell_water_crest(field.gpu, p, time)).margin(1e-3));
             }
         }
@@ -262,9 +273,9 @@ TEST_CASE("Shader and CPU agree under the global scales", "[fjwater]") {
         for (float x = -20.0f; x <= 20.0f; x += 5.0f) {
             glm::vec2 p(x, x * 0.5f);
             INFO("at x=" << x << " t=" << time);
-            REQUIRE(water::displace(field.cpu, p, time).y
+            REQUIRE(water::displace(run(field.cpu), p, time).y
                     == Approx(fjell_water_displace(field.gpu, p, time).y).margin(1e-3));
-            REQUIRE(water::crest(field.cpu, p, time)
+            REQUIRE(water::crest(run(field.cpu), p, time)
                     == Approx(fjell_water_crest(field.gpu, p, time)).margin(1e-3));
         }
     }
@@ -281,7 +292,7 @@ TEST_CASE("Both halves drop a degenerate wave the same way", "[fjwater]") {
 
     for (float x = -10.0f; x <= 10.0f; x += 3.0f) {
         glm::vec2 p(x, 2.0f);
-        REQUIRE(water::displace(field.cpu, p, 1.0f).y
+        REQUIRE(water::displace(run(field.cpu), p, 1.0f).y
                 == Approx(fjell_water_displace(field.gpu, p, 1.0f).y).margin(1e-3));
     }
 }
@@ -309,10 +320,10 @@ TEST_CASE("Splitting a sea across contributors leaves the surface where it was",
             for (float z = -40.0f; z <= 40.0f; z += 9.0f) {
                 glm::vec2 p(x, z);
                 INFO("at (" << x << ", " << z << ") t=" << time);
-                REQUIRE(water::displace(split, p, time) == water::displace(whole, p, time));
-                REQUIRE(water::normal_at(split, p, time) == water::normal_at(whole, p, time));
-                REQUIRE(water::horizontal_jacobian(split, p, time)
-                        == water::horizontal_jacobian(whole, p, time));
+                REQUIRE(water::displace(run(split), p, time) == water::displace(run(whole), p, time));
+                REQUIRE(water::normal_at(run(split), p, time) == water::normal_at(run(whole), p, time));
+                REQUIRE(water::horizontal_jacobian(run(split), p, time)
+                        == water::horizontal_jacobian(run(whole), p, time));
             }
         }
     }
@@ -343,8 +354,8 @@ TEST_CASE("Each contributor's trains move under its own scales", "[fjwater]") {
         for (float x = -30.0f; x <= 30.0f; x += 7.0f) {
             glm::vec2 p(x, x * 0.6f - 4.0f);
             INFO("at x=" << x << " t=" << time);
-            glm::vec3 together = water::displace(both, p, time);
-            glm::vec3 apart = water::displace(swell, p, time) + water::displace(chop, p, time);
+            glm::vec3 together = water::displace(run(both), p, time);
+            glm::vec3 apart = water::displace(run(swell), p, time) + water::displace(run(chop), p, time);
             REQUIRE(together.x == Approx(apart.x).margin(1e-4));
             REQUIRE(together.y == Approx(apart.y).margin(1e-4));
             REQUIRE(together.z == Approx(apart.z).margin(1e-4));
@@ -387,7 +398,7 @@ TEST_CASE("Contributors past the limit are not summed", "[fjwater]") {
     over.contributors.emplace_back(std::move(extra));
 
     glm::vec2 p(3.0f, -7.0f);
-    REQUIRE(water::displace(over, p, 1.5f) == water::displace(water, p, 1.5f));
+    REQUIRE(water::displace(run(over), p, 1.5f) == water::displace(run(water), p, 1.5f));
     REQUIRE(water::wave_height(over) == Approx(water::wave_height(water)));
     REQUIRE(water::shortest_wavelength(over) == Approx(20.0f));
 }
@@ -396,9 +407,9 @@ TEST_CASE("Contributors past the limit are not summed", "[fjwater]") {
 
 TEST_CASE("Flat water is flat", "[fjwater]") {
     FjWaterData water;  // no waves
-    REQUIRE(water::height_at(water, {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
-    REQUIRE(water::normal_at(water, {3.0f, 7.0f}, 5.0f).y == Approx(1.0f));
-    REQUIRE(water::crest(water, {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
+    REQUIRE(water::height_at(run(water), {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
+    REQUIRE(water::normal_at(run(water), {3.0f, 7.0f}, 5.0f).y == Approx(1.0f));
+    REQUIRE(water::crest(run(water), {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
 }
 
 TEST_CASE("A wave stays within its amplitude", "[fjwater]") {
@@ -408,7 +419,7 @@ TEST_CASE("A wave stays within its amplitude", "[fjwater]") {
     float highest = -100.0f;
     float lowest = 100.0f;
     for (float x = 0.0f; x < 40.0f; x += 0.05f) {
-        float h = water::height_at(water, {x, 0.0f}, 0.0f);
+        float h = water::height_at(run(water), {x, 0.0f}, 0.0f);
         highest = std::max(highest, h);
         lowest = std::min(lowest, h);
     }
@@ -424,7 +435,7 @@ TEST_CASE("Steeper waves pinch harder", "[fjwater]") {
         gerstner(water).waves = {wave({1.0f, 0.0f}, 20.0f, 1.0f, steepness)};
         float peak = 0.0f;
         for (float x = 0.0f; x < 20.0f; x += 0.05f) {
-            peak = std::max(peak, water::crest(water, {x, 0.0f}, 0.0f));
+            peak = std::max(peak, water::crest(run(water), {x, 0.0f}, 0.0f));
         }
         return peak;
     };
@@ -448,7 +459,7 @@ TEST_CASE("Steepness cannot fold the surface over itself", "[fjwater]") {
 
     float worst = 1.0f;
     for (float x = 0.0f; x < 20.0f; x += 0.01f) {
-        worst = std::min(worst, water::horizontal_jacobian(water, {x, 0.0f}, 0.0f));
+        worst = std::min(worst, water::horizontal_jacobian(run(water), {x, 0.0f}, 0.0f));
     }
     REQUIRE(worst >= 0.0f);
 }
@@ -464,7 +475,7 @@ TEST_CASE("A field past its fold limit is reported as folded", "[fjwater]") {
 
     float worst = 1.0f;
     for (float x = 0.0f; x < 20.0f; x += 0.01f) {
-        worst = std::min(worst, water::horizontal_jacobian(water, {x, 0.0f}, 0.0f));
+        worst = std::min(worst, water::horizontal_jacobian(run(water), {x, 0.0f}, 0.0f));
     }
     REQUIRE(worst < 0.0f);
 }
@@ -483,7 +494,7 @@ TEST_CASE("Both evaluators agree on the Jacobian", "[fjwater]") {
         for (float x = -20.0f; x <= 20.0f; x += 2.5f) {
             for (float z = -20.0f; z <= 20.0f; z += 2.5f) {
                 glm::vec2 p{x, z};
-                REQUIRE(water::horizontal_jacobian(field.cpu, p, time)
+                REQUIRE(water::horizontal_jacobian(run(field.cpu), p, time)
                         == Approx(fjell_water_jacobian(field.gpu, p, time)).margin(1e-3));
             }
         }
@@ -518,12 +529,12 @@ TEST_CASE("The iterative height lands on the surface", "[fjwater]") {
         // Re-run the solve to recover the rest position behind the answer,
         // then confirm that position really does displace over the target and
         // really does carry that height.
-        glm::vec2 rest = water::rest_position_for(water, target, 2.0f);
-        glm::vec3 d = water::displace(water, rest, 2.0f);
+        glm::vec2 rest = water::rest_position_for(run(water), target, 2.0f);
+        glm::vec3 d = water::displace(run(water), rest, 2.0f);
 
         REQUIRE(rest.x + d.x == Approx(target.x).margin(1e-2));
         REQUIRE(rest.y + d.z == Approx(target.y).margin(1e-2));
-        REQUIRE(d.y == Approx(water::height_at_iterative(water, target, 2.0f)).margin(1e-4));
+        REQUIRE(d.y == Approx(water::height_at_iterative(run(water), target, 2.0f)).margin(1e-4));
     }
 }
 
@@ -537,7 +548,7 @@ TEST_CASE("A sea travels in the direction its waves do", "[fjwater]") {
         float best_x = 0.0f;
         float best_h = -100.0f;
         for (float x = 0.0f; x < 20.0f; x += 0.01f) {
-            float h = water::height_at(water, {x, 0.0f}, time);
+            float h = water::height_at(run(water), {x, 0.0f}, time);
             if (h > best_h) { best_h = h; best_x = x; }
         }
         return best_x;
@@ -1068,7 +1079,7 @@ TEST_CASE("An old .fjwater keeps the surface it was tuned to", "[fjwater]") {
     REQUIRE(reloaded->contributors.size() == 1);
     for (float x = -20.0f; x <= 20.0f; x += 4.0f) {
         glm::vec2 p(x, 3.0f - x * 0.5f);
-        REQUIRE(water::displace(*reloaded, p, 6.5f) == water::displace(*loaded, p, 6.5f));
+        REQUIRE(water::displace(run(*reloaded), p, 6.5f) == water::displace(run(*loaded), p, 6.5f));
     }
 
     std::filesystem::remove_all(dir);
@@ -1156,7 +1167,7 @@ TEST_CASE("Several contributors survive a round trip", "[fjwater]") {
 
     for (float x = -20.0f; x <= 20.0f; x += 4.0f) {
         glm::vec2 p(x, 1.0f + x * 0.25f);
-        REQUIRE(water::displace(*loaded, p, 4.0f) == water::displace(written, p, 4.0f));
+        REQUIRE(water::displace(run(*loaded), p, 4.0f) == water::displace(run(written), p, 4.0f));
     }
 
     std::filesystem::remove_all(dir);
@@ -1339,19 +1350,19 @@ TEST_CASE("Packing for the GPU keeps the sea the CPU sees", "[fjwater]") {
             for (float z = -30.0f; z <= 30.0f; z += 10.0f) {
                 glm::vec2 p(x, z);
                 INFO("at (" << x << ", " << z << ") t=" << time);
-                glm::vec3 cpu_d = water::displace(water, p, time);
+                glm::vec3 cpu_d = water::displace(run(water), p, time);
                 vec3 gpu_d = fjell_water_displace(shader_field, p, time);
                 REQUIRE(cpu_d.x == Approx(gpu_d.x).margin(1e-3));
                 REQUIRE(cpu_d.y == Approx(gpu_d.y).margin(1e-3));
                 REQUIRE(cpu_d.z == Approx(gpu_d.z).margin(1e-3));
 
-                glm::vec3 cpu_n = water::normal_at(water, p, time);
+                glm::vec3 cpu_n = water::normal_at(run(water), p, time);
                 vec3 gpu_n = fjell_water_normal(shader_field, p, time);
                 REQUIRE(cpu_n.x == Approx(gpu_n.x).margin(1e-2));
                 REQUIRE(cpu_n.y == Approx(gpu_n.y).margin(1e-2));
                 REQUIRE(cpu_n.z == Approx(gpu_n.z).margin(1e-2));
 
-                REQUIRE(water::horizontal_jacobian(water, p, time)
+                REQUIRE(water::horizontal_jacobian(run(water), p, time)
                         == Approx(fjell_water_jacobian(shader_field, p, time)).margin(1e-3));
             }
         }
@@ -1376,10 +1387,10 @@ TEST_CASE("Physics does not see the simulated sea", "[fjwater]") {
 
     for (float x = -20.0f; x <= 20.0f; x += 5.0f) {
         glm::vec2 p(x, 4.0f - x * 0.5f);
-        REQUIRE(water::displace(with_simulation, p, 2.5f) == water::displace(authored, p, 2.5f));
-        REQUIRE(water::normal_at(with_simulation, p, 2.5f) == water::normal_at(authored, p, 2.5f));
-        REQUIRE(water::horizontal_jacobian(with_simulation, p, 2.5f)
-                == water::horizontal_jacobian(authored, p, 2.5f));
+        REQUIRE(water::displace(run(with_simulation), p, 2.5f) == water::displace(run(authored), p, 2.5f));
+        REQUIRE(water::normal_at(run(with_simulation), p, 2.5f) == water::normal_at(run(authored), p, 2.5f));
+        REQUIRE(water::horizontal_jacobian(run(with_simulation), p, 2.5f)
+                == water::horizontal_jacobian(run(authored), p, 2.5f));
     }
     REQUIRE(water::bed_agitation(with_simulation, 3.0f) == water::bed_agitation(authored, 3.0f));
 
@@ -1512,12 +1523,12 @@ TEST_CASE("Physics feels the simulated sea when it is asked to", "[fjwater]") {
 
         // The surface is the authored one plus the waves, and nothing else.
         const glm::vec3 d = water::displace(effective, p, time);
-        const glm::vec3 expected = water::displace(unfelt, p, time)
+        const glm::vec3 expected = water::displace(run(unfelt), p, time)
             + water::spectral_displacement(effective.simulated->waves, 1.4f, p, time);
         REQUIRE(d.x == Approx(expected.x).margin(1e-5));
         REQUIRE(d.y == Approx(expected.y).margin(1e-5));
         REQUIRE(d.z == Approx(expected.z).margin(1e-5));
-        if (glm::length(d - water::displace(unfelt, p, time)) > 0.05f) moved = true;
+        if (glm::length(d - water::displace(run(unfelt), p, time)) > 0.05f) moved = true;
 
         // The normal and the Jacobian are assembled from parts, and the parts
         // could be put together wrongly while each is right. What they have to
@@ -1696,11 +1707,11 @@ TEST_CASE("The surface's velocity is the derivative of where it is", "[fjwater]"
     for (float time : {0.0f, 2.7f, 31.0f}) {
         for (float x = -25.0f; x <= 25.0f; x += 5.0f) {
             const glm::vec2 p(x, 3.0f - 0.4f * x);
-            const water::SurfaceMotion m = water::surface_motion(water, p, time);
+            const water::SurfaceMotion m = water::surface_motion(run(water), p, time);
             INFO("at x=" << x << " t=" << time);
 
             // The displacement is displace(), exactly: the same sums.
-            REQUIRE(m.displacement == water::displace(water, p, time));
+            REQUIRE(m.displacement == water::displace(run(water), p, time));
 
             // A third of the step must cut the disagreement with the
             // difference by well over half, which is what a derivative means;
@@ -1710,7 +1721,7 @@ TEST_CASE("The surface's velocity is the derivative of where it is", "[fjwater]"
             // metres tall is rounding, not slope — measured, the error turns
             // and grows again under about 3e-3.
             auto difference = [&](float h) {
-                return (water::displace(water, p, time + h) - water::displace(water, p, time - h))
+                return (water::displace(run(water), p, time + h) - water::displace(run(water), p, time - h))
                      / (2.0f * h);
             };
             const float coarse = glm::length(difference(3e-2f) - m.velocity);
@@ -1724,8 +1735,8 @@ TEST_CASE("The surface's velocity is the derivative of where it is", "[fjwater]"
     // had. The exact velocity sits within a tick's acceleration of it.
     const float dt = 1.0f / 60.0f;
     const glm::vec2 p(4.0f, -7.0f);
-    const glm::vec3 old_flow = (water::displace(water, p, 5.0f) - water::displace(water, p, 5.0f - dt)) / dt;
-    REQUIRE(glm::length(water::surface_motion(water, p, 5.0f).velocity - old_flow) < 0.15f);
+    const glm::vec3 old_flow = (water::displace(run(water), p, 5.0f) - water::displace(run(water), p, 5.0f - dt)) / dt;
+    REQUIRE(glm::length(water::surface_motion(run(water), p, 5.0f).velocity - old_flow) < 0.15f);
 }
 
 TEST_CASE("A derived sea's packed waves are its waves", "[fjwater]") {
@@ -1750,4 +1761,31 @@ TEST_CASE("A derived sea's packed waves are its waves", "[fjwater]") {
     eff = water::derive_effective(authored, {0.0f, 0.0f}, &eff);
     REQUIRE(eff.simulated->waves.size() == 37);
     in_step(*eff.simulated);
+}
+
+TEST_CASE("The world's field carries its trains prepared", "[fjwater]") {
+    // Every field the engine evaluates comes through apply_wind(), and it is
+    // apply_wind() that prepares the trains the point evaluators read. What
+    // that has to give is exactly the trains for_each_summed_train() visits,
+    // in its order, padded to eight.
+    FjWaterData raw = sea({
+        wave({1.0f, 0.3f}, 28.0f, 1.4f, 0.85f, 1.0f),
+        wave({0.0f, 0.0f}, 20.0f, 1.0f, 0.5f),    // no direction: not summed, not prepared
+        wave({-0.4f, 1.0f}, 13.0f, 0.6f, 0.7f, 1.3f),
+    });
+    raw.contributors.emplace_back(GerstnerContributor{});
+    gerstner(raw, 1).waves = {wave({0.2f, 1.0f}, 60.0f, 1.0f, 0.4f)};
+    gerstner(raw, 1).amplitude_scale = 1.7f;
+    REQUIRE_FALSE(raw.packed_trains.has_value());
+
+    const FjWaterData prepared = water::apply_wind(raw, {0.0f, 0.0f});
+    REQUIRE(prepared.packed_trains.has_value());
+    const auto& t = *prepared.packed_trains;
+    REQUIRE(t.count == 3);
+    REQUIRE(t.k.size() == 8);
+    // The third summed train is the second contributor's, under its scale.
+    REQUIRE(t.amplitude[2] == Approx(1.7f));
+    REQUIRE(t.k[2] == Approx(glm::two_pi<float>() / 60.0f));
+    REQUIRE(glm::length(glm::vec2(t.dir_x[0], t.dir_z[0])) == Approx(1.0f));
+    for (std::size_t i = 3; i < 8; ++i) REQUIRE(t.amplitude[i] == 0.0f);
 }

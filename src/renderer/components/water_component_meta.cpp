@@ -47,23 +47,21 @@ void load_water_material(WaterComponent& water, ResourceManager* resources,
 void load_water_field(WaterComponent& water, const Project* project) {
     water.water_loaded = false;
     water.water = {};
-    if (water.water_path.empty()) {
-        water.effective_water = water.water;
-        return;
+    if (!water.water_path.empty()) {
+        auto loaded = load_fjwater_file(base_path::resolve_asset(water.water_path, project));
+        if (loaded) {
+            water.water = std::move(*loaded);
+            water.water_loaded = true;
+        } else {
+            FJELL_CORE_ERROR("water: {}", loaded.error());
+        }
     }
-    auto loaded = load_fjwater_file(base_path::resolve_asset(water.water_path, project));
-    if (!loaded) {
-        FJELL_CORE_ERROR("water: {}", loaded.error());
-        water.effective_water = water.water;
-        return;
-    }
-    water.water = std::move(*loaded);
-    water.water_loaded = true;
-    // What the renderer reads, seeded here so a body of water draws the sea
-    // it was authored with from the first frame. A scene with weather
-    // overwrites this every tick; one without never does, and this is the
-    // field it keeps.
-    water.effective_water = water.water;
+    // What the renderer and physics read, derived here in still air so a body
+    // of water has the sea it was authored with from the first frame — its
+    // trains prepared and its simulated sea drawn, which is what the
+    // evaluators require. A scene with weather derives it again every tick;
+    // one without never does, and this is the field it keeps.
+    water.effective_water = water::derive_effective(water.water, {0.0f, 0.0f});
 }
 
 const bool registered = [] {

@@ -61,6 +61,10 @@ void for_each_summed_train(const FjWaterData& water, Fn&& fn) {
     }
 }
 
+/// The Gerstner trains `for_each_summed_train()` visits, prepared for the
+/// evaluators. `apply_wind()` puts this in the field it returns.
+[[nodiscard]] PackedTrains pack_trains(const FjWaterData& water);
+
 /// The simulated contributor the surface sums, or nullptr when the field has
 /// none: the first of them, since the world runs one simulation.
 ///
@@ -221,6 +225,12 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 /// height. Add this to a flat vertex to get the water surface.
 [[nodiscard]] glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time);
 
+/// The point evaluators below — surface_motion() through height_at_iterative()
+/// — read a field the world runs on: one that came through `apply_wind()`
+/// (or `derive_effective()` / `SeaDerivation`, which call it), with its trains
+/// prepared. A field straight from a file or built by hand is not one, and is
+/// an assertion failure to evaluate, not a slower answer.
+///
 /// Where the surface at rest position `world_xz` has moved to at `time`, and
 /// how fast it is moving there. One evaluation of the field for both: the
 /// velocity is the exact time derivative of the displacement, from the same
@@ -248,7 +258,8 @@ struct SurfaceMotion {
 [[nodiscard]] float horizontal_jacobian(const FjWaterData& water, glm::vec2 world_xz,
                                         float time);
 
-/// How much of the whole sea has folded through itself, 0 to 1: the share of
+/// How much of the whole sea has folded through itself, 0 to 1, for the field
+/// as authored: the share of
 /// the surface where the horizontal Jacobian of every contributor together has
 /// reached zero or gone below it.
 ///
