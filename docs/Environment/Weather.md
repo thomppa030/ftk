@@ -43,8 +43,7 @@ multiply-or-override mode, and a track it lacks leaves that value alone.
 | `wind_speed` | curve | override | Metres per second, before gusts. |
 | `wind_gust` | curve | override | How much the wind breathes, 0 to 1. |
 | `wind_veer` | curve | override | Degrees added to the wind's heading over the event, so a storm can swing round as it passes. |
-| `fog_density` | curve | multiply | Scales the fog node's density. |
-| `fog_color` | colour | override | The fog's colour. |
+| `fog.<uniform>` | as declared | multiply for density, else override | A uniform of the haze's [fog material](Fog-Shaders.md), on top of what the hour made of it; `fog.<group>.<uniform>` reaches the [fog volumes](Fog-Volumes.md) in that group. `fog_density` and `fog_color` are the older names for the density and colour. |
 | `sun_intensity` | curve | multiply | Dims the sun. |
 | `ambient_intensity` | curve | multiply | Dims the ambient. |
 | `sky_tint` | colour | multiply | Tints the sky shader's output through `SKY_TINT`. |

@@ -5,7 +5,7 @@
 ## Scope
 The Godot-inspired shader format. Author a `fragment()` (and optionally `vertex()`) that extends the engine's PBR pipeline by writing to built-in outputs. Empty `fragment()` = standard PBR.
 
-Two other shader types share the format: `shader_type sky;` for the sky pass, and `shader_type ui;` for game UI quads, documented in [Game-UI/Materials](../Game-UI/Materials.md).
+Other shader types share the format: `shader_type sky;` for the sky pass ([Sky Shaders](../Environment/Sky-Shaders.md)), `shader_type ui;` for game UI quads ([Game-UI/Materials](../Game-UI/Materials.md)), `shader_type terrain;` and `shader_type water;` for those surfaces, and `shader_type fog;` for the volumetric fog ([Fog Shaders](../Environment/Fog-Shaders.md)).
 
 ## Planned sections
 - File anatomy
