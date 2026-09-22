@@ -124,9 +124,7 @@ public:
     void release_scene(uint64_t scene_id);
 
 private:
-    void dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index, float dt, Scene& scene,
-                          const glm::vec3& wind, VkDescriptorSet global_set,
-                          const glm::vec3& camera_pos,
+    void dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
                           const glm::mat4& view_projection);
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);

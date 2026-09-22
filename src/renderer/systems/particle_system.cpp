@@ -12,6 +12,9 @@
 #include "renderer/systems/vfx_expression_eval.hpp"
 #include "renderer/systems/vfx_module.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -940,10 +943,7 @@ void ParticleSystem::record_compute(const FrameContext& ctx) {
         ? ctx.environment->weather.wind_direction *
               (ctx.environment->weather.wind_speed * ctx.environment->weather.wind_gust)
         : glm::vec3{0.0f};
-    dispatch_compute(ctx.cmd, ctx.frame_index, ctx.delta_time, scene_ref, wind,
-                     ctx.global_descriptor_set,
-                     ctx.camera_position,
-                     cached_view_projection_);
+    dispatch_compute(ctx, scene_ref, wind, cached_view_projection_);
     insert_barriers(ctx.cmd);
 }
 
@@ -967,6 +967,7 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
         if (em.visible && em.is_distortion) { has_any = true; break; }
     }
     if (!has_any) return;
+    FJELL_GPU_ZONE(ctx, "Particles: Distortion");
 
     VkDescriptorSet frame_set = render_sets_[region_];
     if (frame_set == VK_NULL_HANDLE) return;
@@ -1271,15 +1272,17 @@ uint32_t ParticleSystem::take_region(uint32_t frame_index) {
     return region;
 }
 
-void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index, float dt,
-                                      Scene& scene, const glm::vec3& wind,
-                                      VkDescriptorSet global_set,
-                                      const glm::vec3& camera_pos,
+void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
                                       const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
+    FJELL_GPU_ZONE(ctx, "Particles: Compute");
+    VkCommandBuffer cmd = ctx.cmd;
+    VkDescriptorSet global_set = ctx.global_descriptor_set;
+    const glm::vec3 camera_pos = ctx.camera_position;
+    float dt = ctx.delta_time;
     record_pending_inits(cmd);
-    region_ = take_region(frame_index);
+    region_ = take_region(ctx.frame_index);
     Buffer& emitter_data_buffer = *emitter_data_buffers_[region_];
     Buffer& module_buffer = *module_buffers_[region_];
     VkDescriptorSet compute_set = compute_sets_[region_];
@@ -1697,6 +1700,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
     // ── Phase 1: Emit normal emitters (sub_emit_pass=0, skip children) ──
     push.sub_emit_pass = 0;
     if (max_emit_count > 0) {
+        FJELL_GPU_ZONE(ctx, "Particles: Emit");
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.emit);
         bind_compute_sets();
         vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1706,16 +1710,20 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
     }
 
     // ── Phase 2: Simulate (writes sub-emitter events on death/collision) ──
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.sim);
-    bind_compute_sets();
-    vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (total_max + 255) / 256, 1, 1);
-    compute_barrier();
+    {
+        FJELL_GPU_ZONE(ctx, "Particles: Simulate");
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.sim);
+        bind_compute_sets();
+        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(push), &push);
+        vkCmdDispatch(cmd, (total_max + 255) / 256, 1, 1);
+        compute_barrier();
+    }
 
     // ── Phase 3: Emit child emitters (sub_emit_pass=1, consume events) ──
     push.sub_emit_pass = 1;
     if (max_child_emit > 0) {
+        FJELL_GPU_ZONE(ctx, "Particles: Emit Children");
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.emit);
         bind_compute_sets();
         vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1726,11 +1734,14 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
 
     // ── Phase 4: Indirect prep (billboard/trail emitters) ──
     push.sub_emit_pass = 0;
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.indirect);
-    bind_compute_sets();
-    vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-    vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);
+    {
+        FJELL_GPU_ZONE(ctx, "Particles: Indirect");
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.indirect);
+        bind_compute_sets();
+        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(push), &push);
+        vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);
+    }
 
     // ── Phase 5: Mesh instance compaction (mesh emitters) ──
     // Compacts alive particles into a dense GpuMeshInstance range per
@@ -1751,6 +1762,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
             if (em.is_mesh && em.max_particles > max_slots) max_slots = em.max_particles;
         }
         if (max_slots > 0) {
+            FJELL_GPU_ZONE(ctx, "Particles: Mesh Compact");
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.mesh_instance);
             bind_mesh_compute_set();
 
@@ -1813,6 +1825,7 @@ void ParticleSystem::insert_barriers(VkCommandBuffer cmd) {
 void ParticleSystem::record_render(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("particle_record_render");
     if (emitters_.empty()) return;
+    FJELL_GPU_ZONE(ctx, "Particles: Transparent");
 
     // Update this dispatch's depth texture descriptor: the region's set is
     // in use by nothing else, see take_region.
@@ -2011,6 +2024,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
         if (em.visible && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
     }
     if (!any_opaque) return;
+    FJELL_GPU_ZONE(ctx, "Particles: Opaque");
 
     VkDescriptorSet frame_set = render_sets_[region_];
     // No depth descriptor update needed — binding 1 is partially bound,
