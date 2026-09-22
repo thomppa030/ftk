@@ -1,0 +1,191 @@
+shader_type sky;
+
+// A 1:1 port of the Godot cloud shader Kay supplied, kept for A/B against the
+// engine's own `cloud_layer()`. Same noise, same loop counts, same weights,
+// same combination — only the plumbing differs: the original was a quad with
+// a UV, this is a sky, so the sheet is sampled where the view ray crosses a
+// shell above the world rather than across a texture.
+//
+// Nothing here reads CLOUD_COVERAGE, CLOUD_DENSITY or the weather front. That
+// is deliberate: the point is to see the reference's look unaltered, and
+// wiring it to the weather would be the beginning of changing it. It casts no
+// cloud shadow either, because the shadow map reads `fjell_cloud_amount()`
+// and this draws its own field. A look to judge, not a sky to ship.
+
+// ── Sky ─────────────────────────────────────────────────────────────────────
+group "Sky";
+uniform vec3 zenith_color : hint_color = vec3(0.349, 0.584, 0.767);
+uniform vec3 horizon_color : hint_color = vec3(0.978, 0.827, 0.626);
+uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
+uniform float sun_size : hint_range(0.1, 4.0, 0.01) = 1.8;
+uniform float sun_halo_size : hint_range(0.0, 30.0, 0.1) = 1.2;
+uniform float sun_halo : hint_range(0.0, 4.0, 0.05) = 1.0;
+uniform float moon_size : hint_range(0.1, 4.0, 0.01) = 0.5;
+
+// ── Clouds ──────────────────────────────────────────────────────────────────
+group "Clouds";
+// The reference's own uniforms, with its own defaults. `speed` is divided by
+// ten in the body exactly as the original does.
+//
+// `darkness_amount` and `detail` are worth understanding rather than treating
+// as brightness: their product is the *slope of a clamped ramp* over the raw
+// field, and the field spans roughly -3.4 to 14.1 while the ramp only uses
+// the first few percent of it. Low values leave a wide gradient band — about
+// a fifth of the sky showing interior tone — and high values crush it toward
+// a hard cut. So the pair decides how much internal structure a cloud shows
+// before it goes flat white, which is a contrast control, not a gain.
+uniform float noise_scale : hint_range(0.5, 40.0, 0.01) = 11.24;
+uniform float speed : hint_range(0.0, 2.0, 0.01) = 0.16;
+uniform float darkness_amount : hint_range(0.0, 20.0, 0.005) = 9.155;
+uniform float detail : hint_range(0.0, 1.0, 0.01) = 0.23;
+uniform float amount : hint_range(0.0, 1.0, 0.01) = 0.12;
+uniform float bloom : hint_range(0.0, 8.0, 0.05) = 2.0;
+uniform float alpha : hint_range(0.0, 20.0, 0.05) = 8.0;
+uniform vec3 cloud_tint : hint_color = vec3(1.0, 1.0, 1.0);
+
+// How many metres of world the sheet's one unit of UV covers. The original
+// had a quad with UV in 0..1 and no world scale to answer to; a sky needs
+// one, and this is the only number in the file the reference did not fix.
+//
+// Set with `sheet_height` so one cloud is about 600 m across a sheet 2200 m
+// up — roughly fifteen degrees seen straight overhead, four clouds across a
+// sixty degree view. The pair only means anything as a ratio: straight up you
+// are as close to the sheet as you ever get, so `2*atan(size / 2 / height)`
+// is the widest a cloud can ever look, and too large a ratio puts a single
+// cloud across the whole screen at the zenith.
+//
+// `sheet_metres / noise_scale` is one cloud, so these two track together:
+// 6740 / 11.24 is 600 m.
+uniform float sheet_metres : hint_range(500.0, 100000.0, 20.0) = 6740.0;
+// Height of the sheet above the world origin, in metres.
+uniform float sheet_height : hint_range(100.0, 8000.0, 50.0) = 2200.0;
+
+// ── The reference's noise, unchanged ────────────────────────────────────────
+// Simplex-style gradient noise on a skewed triangular lattice, then two
+// differently-weighted octave stacks combined multiplicatively. The folding
+// (`abs`) in the first stack is what creases the field; the multiply at the
+// end is what drives most of the sky to nothing and leaves isolated forms.
+
+const mat2 GODOT_ROT = mat2(vec2(1.6, 1.2), vec2(-1.2, 1.6));
+
+vec2 godot_hash(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+
+float godot_noise(vec2 p) {
+    const float K1 = 0.366025404;
+    const float K2 = 0.211324865;
+    vec2 i = floor(p + (p.x + p.y) * K1);
+    vec2 a = p - i + (i.x + i.y) * K2;
+    vec2 o = (a.x > a.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec2 b = a - o + K2;
+    vec2 c = a - 1.0 + 2.0 * K2;
+    vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
+    vec3 n = h * h * h * h * vec3(dot(a, godot_hash(i + 0.0)),
+                                  dot(b, godot_hash(i + o)),
+                                  dot(c, godot_hash(i + 1.0)));
+    return dot(n, vec3(70.0));
+}
+
+// How many octaves this pixel can resolve; set per fragment below. The
+// reference had no such budget because a quad is sampled at roughly one scale
+// throughout — a sky is not, and octaves finer than a pixel are what flicker
+// along the horizon as the camera moves.
+float godot_lod = 99.0;
+
+float godot_fbm(vec2 n) {
+    float total = 0.0;
+    float amplitude = 0.1;
+    for (int i = 0; i < 7; i++) {
+        float keep = clamp(godot_lod - float(i), 0.0, 1.0);
+        if (keep <= 0.0) break;
+        total += godot_noise(n) * amplitude * keep;
+        n = GODOT_ROT * n;
+        amplitude *= 0.4;
+    }
+    return total;
+}
+
+void sky() {
+    // The sky behind the clouds: the same two-colour gradient gradient_sky
+    // draws, so the A/B is between the cloud layers and nothing else.
+    float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
+    t = pow(t, horizon_softness);
+    SKY = mix(horizon_color, zenith_color, t) * SKY_TINT;
+
+    SKY += star_field(VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, TIME, CAMERA_POS.y);
+    SKY += moon_disc(VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, moon_size, CAMERA_POS.y);
+    if (!SKY_FOR_LIGHTING) {
+        SKY += sun_disc(VIEW_DIR, SUN_DIR, SUN_COLOR, sun_size, sun_halo_size, sun_halo, CAMERA_POS.y);
+    }
+
+    // Where the view ray crosses the sheet, in the original's UV units. This
+    // is the whole of the adaptation: everything below is the reference body.
+    //
+    // A ray at or below the horizon never reaches the sheet. Folded into a
+    // mask rather than an early return: the sky body is spliced into a
+    // function that owes its caller a colour.
+    //
+    // Against a shell, not a plane. A plane's distance is height/sin(el),
+    // which runs to infinity at the horizon, so the sheet foreshortens without
+    // limit and the last few degrees of sky become a band of stipple and then
+    // a smear. The shell ends — about 138 km out — and clouds converge to a
+    // line the way real ones do.
+    float ray = fjell_cloud_shell_distance(VIEW_DIR.y, CAMERA_POS.y, sheet_height);
+    float hits_sheet = step(0.0, ray);
+    vec3 hit = CAMERA_POS + VIEW_DIR * max(ray, 0.0);
+    vec2 uv = hit.xz / max(sheet_metres, 1.0);
+
+    // How much sheet lands in one pixel, and so how much of the field is
+    // worth evaluating. The ray's angle matters as much as its length: a
+    // grazing ray covers ground far faster than a steep one.
+    float footprint = max(ray, 0.0) * 0.001 / max(VIEW_DIR.y, 0.004);
+    float feature = sheet_metres / max(noise_scale, 0.01);
+    godot_lod = clamp(log2(max(feature / max(footprint * 2.0, 1e-3), 1.0)), 0.0, 99.0);
+
+    float time = TIME * (speed / 10.0);
+    float q = godot_fbm(uv * noise_scale * 0.5);
+
+    float r = 0.0;
+    vec2 tuv = uv * noise_scale + q - time;
+    float weight = 0.8;
+    for (int i = 0; i < 8; i++) {
+        float keep = clamp(godot_lod - float(i), 0.0, 1.0);
+        if (keep <= 0.0) break;
+        r += abs(weight * godot_noise(tuv)) * keep;
+        tuv = GODOT_ROT * tuv + time;
+        weight *= 0.7;
+    }
+
+    float f = 0.0;
+    tuv = uv * noise_scale + q - time;
+    weight = 0.7;
+    for (int i = 0; i < 8; i++) {
+        float keep = clamp(godot_lod - float(i), 0.0, 1.0);
+        if (keep <= 0.0) break;
+        f += weight * godot_noise(tuv) * keep;
+        tuv = GODOT_ROT * tuv + time;
+        weight *= 0.6;
+    }
+
+    f *= r + f;
+
+    vec3 cloud_color = clamp(cloud_tint * (darkness_amount * detail * f), 0.0, 1.0) * bloom;
+    float cloud_strength = clamp(amount + alpha * f * r, 0.0, 1.0);
+
+    // The original faded its quad out toward the edges, which a sky has no
+    // equivalent of — there is no edge to fade to. Distance takes its place:
+    // cloud detail finer than a pixel is noise that crawls as the camera
+    // moves, so the far sheet gives way toward the shell's horizon.
+    //
+    // Keyed to the budget rather than to an angle, so it starts exactly where
+    // the detail runs out instead of at a number that would have to be found
+    // again whenever sheet_metres or noise_scale changes.
+    float far = 1.0 - smoothstep(0.0, 1.6, godot_lod);
+    cloud_strength *= mix(1.0, 0.55, far) * hits_sheet;
+    cloud_color = mix(cloud_color, SKY, far * 0.7);
+
+    SKY = mix(SKY, cloud_color, cloud_strength);
+    SKY += cloud_color * cloud_strength * LIGHTNING * 3.0;
+}

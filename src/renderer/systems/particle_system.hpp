@@ -215,33 +215,47 @@ private:
                                         // freeing them while a frame in
                                         // flight might still be reading them
 
+    // Every pipeline the system draws or dispatches with, built together
+    // so a shader reload that fails anywhere keeps the previous set whole.
+    struct Pipelines {
+        VkPipeline emit{VK_NULL_HANDLE};
+        VkPipeline sim{VK_NULL_HANDLE};
+        VkPipeline indirect{VK_NULL_HANDLE};
+        VkPipeline mesh_instance{VK_NULL_HANDLE};   // alive-particle compaction for mesh emitters
+        VkPipeline additive{VK_NULL_HANDLE};        // billboard, unlit
+        VkPipeline alpha{VK_NULL_HANDLE};
+        VkPipeline trail_additive{VK_NULL_HANDLE};  // ribbon strip, unlit
+        VkPipeline trail_alpha{VK_NULL_HANDLE};
+        VkPipeline lit_additive{VK_NULL_HANDLE};    // billboard, PBR
+        VkPipeline lit_alpha{VK_NULL_HANDLE};
+        VkPipeline lit_trail_additive{VK_NULL_HANDLE};
+        VkPipeline lit_trail_alpha{VK_NULL_HANDLE};
+        VkPipeline mesh_additive{VK_NULL_HANDLE};   // instanced mesh, unlit
+        VkPipeline mesh_alpha{VK_NULL_HANDLE};
+        VkPipeline mesh_lit_additive{VK_NULL_HANDLE};
+        VkPipeline mesh_lit_alpha{VK_NULL_HANDLE};
+        VkPipeline opaque{VK_NULL_HANDLE};          // depth-writing, no blend
+        VkPipeline opaque_lit{VK_NULL_HANDLE};
+        VkPipeline mesh_opaque{VK_NULL_HANDLE};
+        VkPipeline mesh_opaque_lit{VK_NULL_HANDLE};
+        VkPipeline distortion{VK_NULL_HANDLE};      // UV-offset buffer, one R16G16 attachment
+    };
+    Pipelines pipelines_;
+    /// Build every pipeline from the shaders on disk into `out`. On any
+    /// failure nothing of `out` is left alive and false is returned.
+    [[nodiscard]] bool build_pipelines(Pipelines& out);
+    void destroy_pipelines(Pipelines& p);
+
     // Compute pipeline (shared set layout for all 3 shaders)
     VkDescriptorSetLayout compute_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout compute_layout_{VK_NULL_HANDLE};
-    VkPipeline emit_pipeline_{VK_NULL_HANDLE};
-    VkPipeline sim_pipeline_{VK_NULL_HANDLE};
-    VkPipeline indirect_pipeline_{VK_NULL_HANDLE};
 
-    // Render pipeline (billboard)
+    // Pipeline layouts: unlit (no push constants), lit (metallic/roughness/
+    // material push), distortion (strength push)
     VkDescriptorSetLayout render_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout render_layout_{VK_NULL_HANDLE};
-    VkPipeline render_additive_{VK_NULL_HANDLE};
-    VkPipeline render_alpha_{VK_NULL_HANDLE};
-
-    // Render pipeline (trail / ribbon)
-    VkPipeline render_trail_additive_{VK_NULL_HANDLE};
-    VkPipeline render_trail_alpha_{VK_NULL_HANDLE};
-
-    // Distortion render pipeline (single R16G16 attachment, 1x MSAA)
     VkPipelineLayout render_distortion_layout_{VK_NULL_HANDLE};
-    VkPipeline render_distortion_{VK_NULL_HANDLE};
-
-    // Lit render pipelines (separate layout with push constants)
     VkPipelineLayout render_lit_layout_{VK_NULL_HANDLE};
-    VkPipeline render_lit_additive_{VK_NULL_HANDLE};
-    VkPipeline render_lit_alpha_{VK_NULL_HANDLE};
-    VkPipeline render_lit_trail_additive_{VK_NULL_HANDLE};
-    VkPipeline render_lit_trail_alpha_{VK_NULL_HANDLE};
 
     // Dispatch regions. The emitter records and module bytes are written by
     // the CPU while the dispatch is recorded and read by the GPU when it
@@ -297,11 +311,7 @@ private:
     VkSampler depth_sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
 
-    // Opaque render pipelines (depth write, back-face cull)
-    VkPipeline render_opaque_{VK_NULL_HANDLE};          // unlit billboard opaque
-    VkPipeline render_opaque_lit_{VK_NULL_HANDLE};      // lit billboard opaque
-    VkPipeline render_mesh_opaque_{VK_NULL_HANDLE};     // unlit mesh opaque
-    VkPipeline render_mesh_opaque_lit_{VK_NULL_HANDLE}; // lit mesh opaque
+    // Opaque pipeline layouts (same sets; the lit one carries the push range)
     VkPipelineLayout render_opaque_layout_{VK_NULL_HANDLE};
     VkPipelineLayout render_opaque_lit_layout_{VK_NULL_HANDLE};
 
@@ -319,18 +329,10 @@ private:
     std::unique_ptr<Buffer> mesh_indirect_buffer_;
     std::unique_ptr<Buffer> mesh_instance_count_buffer_; // atomic counter per mesh emitter
 
-    VkPipeline mesh_instance_pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout mesh_compute_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout mesh_compute_layout_{VK_NULL_HANDLE};
     std::array<VkDescriptorSet, DISPATCH_REGIONS> mesh_compute_sets_{};
 
-    // Mesh render pipelines (unlit + lit) × (additive + alpha) = 4
-    VkPipeline render_mesh_additive_{VK_NULL_HANDLE};
-    VkPipeline render_mesh_alpha_{VK_NULL_HANDLE};
-    VkPipeline render_mesh_lit_additive_{VK_NULL_HANDLE};
-    VkPipeline render_mesh_lit_alpha_{VK_NULL_HANDLE};
-    VkPipelineLayout mesh_render_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout mesh_render_lit_layout_{VK_NULL_HANDLE};
 
     // Built-in primitive meshes
     MegaMeshEntry mesh_cube_{};
