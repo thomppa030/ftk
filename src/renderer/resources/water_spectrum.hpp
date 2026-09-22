@@ -154,6 +154,15 @@ struct StrongestWaves {
 [[nodiscard]] glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves,
                                               float choppiness, glm::vec2 world_xz, float time);
 
+/// `spectral_displacement()` and its exact time derivative from one pass over
+/// the waves.
+struct SpectralMotion {
+    glm::vec3 displacement{0.0f};
+    glm::vec3 velocity{0.0f};
+};
+[[nodiscard]] SpectralMotion spectral_motion(const std::vector<SpectralWave>& waves,
+                                             float choppiness, glm::vec2 world_xz, float time);
+
 /// How the surface `waves` make changes across the rest plane at `world_xz`:
 /// the height's slopes, and the entries the horizontal pinch adds to the
 /// surface's Jacobian. Exact, from the same closed form as

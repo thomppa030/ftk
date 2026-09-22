@@ -1677,3 +1677,53 @@ TEST_CASE("A sea under the weather changes in steps", "[fjwater]") {
     REQUIRE_FALSE(loaded->simulated.has_value());
     std::filesystem::remove(path);
 }
+
+TEST_CASE("The surface's velocity is the derivative of where it is", "[fjwater]") {
+    // surface_motion() gives the water's velocity from the same sines and
+    // cosines as its displacement. What it has to agree with is the
+    // displacement itself, a moment earlier and later: a central difference
+    // over a shrinking step converges on the derivative, and if it did not
+    // converge on this velocity the velocity would be wrong. Both halves of
+    // the field are in play, the trains and the simulated waves, on a sea
+    // with the pinch turned well up so the horizontal terms are not small.
+    FjWaterData authored = sea_physics_feels(40);
+    std::get<GerstnerContributor>(authored.contributors[0]).waves.push_back(
+        wave({-0.6f, 0.8f}, 23.0f, 0.7f, 0.9f, 1.3f));
+    std::get<FftContributor>(authored.contributors[1]).choppiness = 2.5f;
+    const FjWaterData water = water::derive_effective(authored, {0.0f, 0.0f});
+    REQUIRE(water.simulated->waves.size() == 40);
+
+    for (float time : {0.0f, 2.7f, 31.0f}) {
+        for (float x = -25.0f; x <= 25.0f; x += 5.0f) {
+            const glm::vec2 p(x, 3.0f - 0.4f * x);
+            const water::SurfaceMotion m = water::surface_motion(water, p, time);
+            INFO("at x=" << x << " t=" << time);
+
+            // The displacement is displace(), exactly: the same sums.
+            REQUIRE(m.displacement == water::displace(water, p, time));
+
+            // A third of the step must cut the disagreement with the
+            // difference by well over half, which is what a derivative means;
+            // a wrong sign or a missing omega on any term would leave the
+            // error where it is. The steps stay above a few milliseconds:
+            // below that the difference of two float displacements a few
+            // metres tall is rounding, not slope — measured, the error turns
+            // and grows again under about 3e-3.
+            auto difference = [&](float h) {
+                return (water::displace(water, p, time + h) - water::displace(water, p, time - h))
+                     / (2.0f * h);
+            };
+            const float coarse = glm::length(difference(3e-2f) - m.velocity);
+            const float fine = glm::length(difference(1e-2f) - m.velocity);
+            REQUIRE(fine <= 5e-4f);
+            REQUIRE(fine < coarse * 0.5f);
+        }
+    }
+
+    // What a body used to be given: the average velocity over the tick it just
+    // had. The exact velocity sits within a tick's acceleration of it.
+    const float dt = 1.0f / 60.0f;
+    const glm::vec2 p(4.0f, -7.0f);
+    const glm::vec3 old_flow = (water::displace(water, p, 5.0f) - water::displace(water, p, 5.0f - dt)) / dt;
+    REQUIRE(glm::length(water::surface_motion(water, p, 5.0f).velocity - old_flow) < 0.15f);
+}

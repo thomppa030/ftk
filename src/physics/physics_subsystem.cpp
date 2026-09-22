@@ -121,10 +121,13 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
 
             // The wave field is relative to the node holding it, and it is
             // the effective field rather than the authored one: a boat has to
-            // float on the sea the storm is blowing.
+            // float on the sea the storm is blowing. One evaluation gives where
+            // the surface is and how it is moving; every wave summed costs the
+            // same sine and cosine either way.
             const glm::vec2 local_xz(point.x, point.z);
-            const float wave_y =
-                surface_y + water::height_at(water->effective_water, local_xz, time);
+            const water::SurfaceMotion surface =
+                water::surface_motion(water->effective_water, local_xz, time);
+            const float wave_y = surface_y + surface.displacement.y;
             const float depth = submersion_depth(point.y, wave_y);
             if (depth <= 0.0f) continue;
 
@@ -136,13 +139,7 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
 
             // What the water is doing here, so a raft drifts with a swell
             // instead of being dragged through it.
-            glm::vec3 flow{0.0f};
-            if (buoyancy->follow_current) {
-                const glm::vec3 now = water::displace(water->effective_water, local_xz, time);
-                const glm::vec3 then =
-                    water::displace(water->effective_water, local_xz, time - ctx.dt);
-                if (ctx.dt > 1e-5f) flow = (now - then) / ctx.dt;
-            }
+            const glm::vec3 flow = buoyancy->follow_current ? surface.velocity : glm::vec3{0.0f};
 
             const BuoyancyForce f = buoyancy_at(depth, share, buoyancy->density,
                                                 buoyancy->drag, point_velocity, flow,

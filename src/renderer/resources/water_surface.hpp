@@ -221,6 +221,18 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 /// height. Add this to a flat vertex to get the water surface.
 [[nodiscard]] glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time);
 
+/// Where the surface at rest position `world_xz` has moved to at `time`, and
+/// how fast it is moving there. One evaluation of the field for both: the
+/// velocity is the exact time derivative of the displacement, from the same
+/// sines and cosines, where a difference of two displacements a tick apart
+/// costs a second evaluation and gives the average over the tick instead.
+struct SurfaceMotion {
+    glm::vec3 displacement{0.0f};
+    glm::vec3 velocity{0.0f};   // m/s, the water's own motion at this point
+};
+[[nodiscard]] SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz,
+                                           float time);
+
 /// Surface normal at the same rest position, from the analytic derivatives of
 /// displace(). Cheaper and smoother than finite differences and exact for the
 /// field as defined.

@@ -58,6 +58,7 @@ struct WaveTerms {
     float k{0.0f};          // angular wavenumber
     float amplitude{0.0f};
     float q{0.0f};          // horizontal bunching
+    float omega{0.0f};      // angular frequency, after the speed scales
     float phase{0.0f};      // dot(dir, xz) * k - omega * t
 };
 
@@ -73,8 +74,8 @@ struct WaveTerms {
     t.q = steepness_to_q(wave.steepness, t.k, t.amplitude,
                          steepness_budget(contributor.steepness_headroom));
 
-    float omega = std::sqrt(GRAVITY * t.k) * wave.speed * contributor.speed_scale;
-    t.phase = glm::dot(t.dir, world_xz) * t.k - omega * time;
+    t.omega = std::sqrt(GRAVITY * t.k) * wave.speed * contributor.speed_scale;
+    t.phase = glm::dot(t.dir, world_xz) * t.k - t.omega * time;
     return t;
 }
 
@@ -338,6 +339,34 @@ FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
         out.simulated = draw_simulated_sea(*sea);
     }
     return out;
+}
+
+SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time) {
+    SurfaceMotion m;
+    for_each_summed_train(water, [&](std::uint32_t, const GerstnerContributor& contributor,
+                                     const WaterWave& wave) {
+        WaveTerms t = terms_for(wave, contributor, world_xz, time);
+        if (t.amplitude == 0.0f) return;
+
+        float c = std::cos(t.phase);
+        float s = std::sin(t.phase);
+        // The same terms displace() sums, and their time derivatives: the
+        // phase falls at omega, so cos becomes omega sin and sin becomes
+        // -omega cos.
+        m.displacement.x += t.q * t.amplitude * t.dir.x * c;
+        m.displacement.z += t.q * t.amplitude * t.dir.y * c;
+        m.displacement.y += t.amplitude * s;
+        m.velocity.x += t.q * t.amplitude * t.dir.x * s * t.omega;
+        m.velocity.z += t.q * t.amplitude * t.dir.y * s * t.omega;
+        m.velocity.y -= t.amplitude * c * t.omega;
+    });
+    if (water.simulated.has_value()) {
+        const SpectralMotion s = spectral_motion(water.simulated->waves,
+                                                 water.simulated->choppiness, world_xz, time);
+        m.displacement += s.displacement;
+        m.velocity += s.velocity;
+    }
+    return m;
 }
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {

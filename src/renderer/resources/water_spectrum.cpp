@@ -422,6 +422,28 @@ glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves, float ch
     return sum;
 }
 
+SpectralMotion spectral_motion(const std::vector<SpectralWave>& waves, float choppiness,
+                               glm::vec2 world_xz, float time) {
+    SpectralMotion m;
+    for (const SpectralWave& wave : waves) {
+        const float k_len = glm::length(wave.k);
+        if (k_len < 1e-6f) continue;
+        const float angle = glm::dot(wave.k, world_xz) - wave.omega * time + wave.phase;
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        // The angle falls at omega, so d/dt cos = omega sin, d/dt sin = -omega cos.
+        m.displacement.y += wave.amplitude * c;
+        m.velocity.y += wave.amplitude * s * wave.omega;
+        const float pinch = -wave.amplitude * s * choppiness / k_len;
+        const float pinch_rate = wave.amplitude * c * choppiness / k_len * wave.omega;
+        m.displacement.x += wave.k.x * pinch;
+        m.displacement.z += wave.k.y * pinch;
+        m.velocity.x += wave.k.x * pinch_rate;
+        m.velocity.z += wave.k.y * pinch_rate;
+    }
+    return m;
+}
+
 SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
                                          float choppiness, glm::vec2 world_xz, float time) {
     SpectralDerivatives sum;
