@@ -840,6 +840,11 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
                                            QueueType queue) {
     if (slice.layout == new_layout
         && (slice.last_access & dst_access) == dst_access) {
+        // Another read of a slice already visible to this access needs
+        // no barrier, but the next write to it must wait for this reader
+        // too: fold its stage into the state so that barrier's srcStage
+        // covers every reader since the last write.
+        slice.last_stage |= stages_for_queue(dst_stage, queue);
         return;
     }
 
@@ -881,9 +886,11 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     dep.pImageMemoryBarriers = &barrier;
 
     if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
-        FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} on {} cb=0x{:x}",
+        FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
                        reinterpret_cast<uintptr_t>(img.image),
                        layout_str(slice.layout), layout_str(new_layout),
+                       static_cast<uint64_t>(barrier.srcStageMask),
+                       static_cast<uint64_t>(barrier.dstStageMask),
                        queue == QueueType::async_compute ? "compute" : "graphics",
                        reinterpret_cast<uintptr_t>(cmd));
     }
