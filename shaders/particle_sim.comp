@@ -45,7 +45,7 @@ layout(set = 1, binding = 4) uniform sampler2D depth_texture;
 layout(set = 1, binding = 9) uniform sampler3D scene_sdf;
 
 layout(push_constant) uniform PushConstants {
-    float dt;
+    float dt;            // the frame's; the simulation steps by each emitter's own
     uint  random_seed;
     uint  emitter_count;
     uint  total_max_particles;
@@ -119,6 +119,10 @@ void main() {
     if (p.lifetime <= 0.0) return;
 
     EmitterData em = emitters[p.emitter_index];
+    // The emitter's own step, not the frame's: a paused emitter's is zero,
+    // and so is that of an emitter whose scene is not the one dispatching,
+    // so a preview rendered between two frames leaves them where they are.
+    float step = em.dt;
 
     // Pre-scan for sub-emitter config
     bool has_sub_emitter = false;
@@ -138,7 +142,7 @@ void main() {
         }
     }
 
-    p.lifetime -= dt;
+    p.lifetime -= step;
     if (p.lifetime <= 0.0) {
         if ((em.flags & 1u) != 0u) {
             // Trail: keep alive for strip connectivity
@@ -169,7 +173,7 @@ void main() {
 
         if (mtype == MOD_GRAVITY) {
             vec3 force = MOD_VEC3(mo, 2);
-            p.velocity += force * dt;
+            p.velocity += force * step;
         }
         else if (mtype == MOD_WIND) {
             vec3 dir = MOD_VEC3(mo, 2);
@@ -180,7 +184,7 @@ void main() {
                 dir = env_ubo.wind_dir_speed_gust.xyz;
                 str *= env_ubo.wind_dir_speed_gust.w;
             }
-            p.velocity += dir * str * dt;
+            p.velocity += dir * str * step;
         }
         else if (mtype == MOD_ORBITAL) {
             uint omode = module_data[mo + 2];
@@ -196,9 +200,9 @@ void main() {
                 vec3 tangent = cross(ax, radial);
                 float r = length(radial);
                 if (r > 0.001) {
-                    p.velocity += normalize(tangent) * spd * dt;
+                    p.velocity += normalize(tangent) * spd * step;
                     if (omode == ORBITAL_SWIRL) {
-                        p.velocity -= normalize(radial) * pul * dt;
+                        p.velocity -= normalize(radial) * pul * step;
                     }
                 }
             } else {
@@ -210,7 +214,7 @@ void main() {
                     // Pick a tangent: cross with up, fallback to right
                     vec3 up = abs(radial.y) < 0.99 ? vec3(0,1,0) : vec3(1,0,0);
                     vec3 tangent = normalize(cross(up, radial));
-                    p.velocity += tangent * spd * dt;
+                    p.velocity += tangent * spd * step;
                 }
             }
         }
@@ -226,14 +230,14 @@ void main() {
         }
         else if (mtype == MOD_DRAG) {
             float drag_coeff = MOD_FLOAT(mo, 2);
-            p.velocity *= max(0.0, 1.0 - drag_coeff * dt);
+            p.velocity *= max(0.0, 1.0 - drag_coeff * step);
         }
         else if (mtype == MOD_NOISE) {
             float strength = MOD_FLOAT(mo, 2);
             float freq = MOD_FLOAT(mo, 3);
             float scroll = MOD_FLOAT(mo, 4);
             vec3 sample_pos = p.position * freq + vec3(0.0, scroll * (p.max_lifetime - p.lifetime), 0.0);
-            p.velocity += curl_noise(sample_pos) * strength * dt;
+            p.velocity += curl_noise(sample_pos) * strength * step;
         }
         else if (mtype == MOD_ATTRACT) {
             vec3 attract_pos = MOD_VEC3(mo, 2);
@@ -243,7 +247,7 @@ void main() {
             float dist = length(dir);
             if (dist > 0.001) {
                 float falloff = clamp(1.0 - dist / radius, 0.0, 1.0);
-                p.velocity += normalize(dir) * strength * falloff * dt;
+                p.velocity += normalize(dir) * strength * falloff * step;
             }
         }
         else if (mtype == MOD_VELOCITY_LIMIT) {
@@ -294,7 +298,7 @@ void main() {
                     collided = true;
                 } else {
                     float speed = length(p.velocity);
-                    float travel = speed * dt;
+                    float travel = speed * step;
                     if (travel > 0.0) {
                         vec3 dir = p.velocity / speed;
                         float t = scene_sdf_sweep(p.position, dir, travel, radius, sdf_min, sdf_max);
@@ -358,7 +362,7 @@ void main() {
         mo += msize;
     }
 
-    p.position += p.velocity * dt * move_fraction;
-    p.rotation += p.rotation_speed * dt;
+    p.position += p.velocity * step * move_fraction;
+    p.rotation += p.rotation_speed * step;
     particles[idx] = p;
 }
