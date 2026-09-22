@@ -333,7 +333,8 @@ struct SurfaceMotion {
 /// the flat surface that the waves have carried over that column.
 ///
 /// Solved by Newton over the horizontal displacement, to a millimetre or at
-/// most eight steps. Flat and moderate water converges in two or three; the
+/// most eight steps, each held to half the shortest wave present, and the
+/// best position seen is returned. Flat and moderate water converges in two or three; the
 /// budget is there for steep seas, where the first steps can overshoot before
 /// settling. On a steep sea the surface can also stand over the same column in
 /// more than one place, and this returns whichever branch the solve reaches —

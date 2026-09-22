@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <variant>
 
 namespace fjell::water {
@@ -618,27 +619,45 @@ glm::vec2 rest_position_for(const FjWaterData& water, glm::vec2 world_xz, float 
     // steepness-0.9 sea, error at one sample went 8.8, 1.1, 3.0, 0.44, 0.04.
     // So iterate to a tolerance with a ceiling rather than a fixed count, and
     // spend the steps only where they are needed.
+    //
+    // Near a fold the Jacobian is small without being zero, and an unbounded
+    // step through it lands hundreds of metres away — measured on a simulated
+    // sea at 256 waves. A step is held to half the shortest wave present,
+    // which is as far as the surface can carry a point in any case, and the
+    // best rest position seen is what is returned, so the solve can never end
+    // further off than it began.
     constexpr float TOLERANCE = 1e-3f;      // a millimetre of surface
     constexpr int MAX_STEPS = 8;
+    const float max_step = std::max(shortest_wavelength(water) * 0.5f, 0.5f);
 
     glm::vec2 rest = world_xz;
+    glm::vec2 best = rest;
+    float best_error = std::numeric_limits<float>::max();
     for (int i = 0; i < MAX_STEPS; ++i) {
         glm::vec3 d = displace(water, rest, time);
         glm::vec2 error = rest + glm::vec2(d.x, d.z) - world_xz;
-        if (glm::dot(error, error) < TOLERANCE * TOLERANCE) break;
+        const float error_len = glm::length(error);
+        if (error_len < best_error) {
+            best_error = error_len;
+            best = rest;
+        }
+        if (error_len < TOLERANCE) break;
 
         // d(displaced)/d(rest), the same terms crest() reduces to a scalar.
         const HorizontalJacobian j = jacobian_terms(water, rest, time);
         const float det = j.determinant();
         // A vanishing determinant is the surface pinched to a point, where
         // there is no single rest position to solve for. Stop rather than
-        // divide through it; the current guess is as good as it gets.
+        // divide through it; the best guess so far is as good as it gets.
         if (std::abs(det) < 1e-6f) break;
 
-        rest -= glm::vec2(( j.zz * error.x - j.xz * error.y) / det,
-                          (-j.xz * error.x + j.xx * error.y) / det);
+        glm::vec2 step(( j.zz * error.x - j.xz * error.y) / det,
+                       (-j.xz * error.x + j.xx * error.y) / det);
+        const float step_len = glm::length(step);
+        if (step_len > max_step) step *= max_step / step_len;
+        rest -= step;
     }
-    return rest;
+    return best;
 }
 
 float height_at_iterative(const FjWaterData& water, glm::vec2 world_xz, float time) {
