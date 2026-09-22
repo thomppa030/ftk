@@ -61,8 +61,12 @@ void main() {
     uint slot = (oldest_slot + strip_index) % em.max_particles;
     Particle p = particles[base_offset + slot];
 
-    // Width from particle size field
-    float w = p.size;
+    // The emitter's ribbon width, tapering towards the tail by as much as
+    // width_over_life leaves (0 tapers to nothing, 1 keeps it constant). A
+    // dead point stays in the strip at zero width so the ribbon shortens
+    // from the tail instead of holding its full length forever.
+    float life = p.max_lifetime > 0.0 ? clamp(p.lifetime / p.max_lifetime, 0.0, 1.0) : 0.0;
+    float w = p.lifetime > 0.0 ? em.trail_width * mix(life, 1.0, em.trail_width_over_life) : 0.0;
 
     // Get next particle for segment direction
     vec3 segment_dir;
