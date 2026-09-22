@@ -769,7 +769,7 @@ void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
 
         if (!l.vfx.empty() && resources_ != nullptr && vfx_ != nullptr) {
             if (auto handle = resources_->load_vfx_asset(base_path::resolve_asset(l.vfx, ctx.project))) {
-                vfx_->spawn(*handle, world, ctx.scene, *resources_);
+                vfx_->spawn(*handle, world, ctx.scene, *resources_, ctx.project);
             }
         }
         if (!strike->asset->audio.thunder.empty()) {

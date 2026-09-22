@@ -85,6 +85,10 @@ struct VfxEffect {
     /// Total effect duration (max of start_delay + effective_duration across emitters)
     [[nodiscard]] float total_duration() const;
 
+    /// When a one-shot of this effect is over: its last emitter has stopped
+    /// emitting and the last particle that emitter could have made has died.
+    [[nodiscard]] float time_to_finish() const;
+
     /// Reset all emitter runtime state (elapsed, burst, accumulators)
     void reset_playback();
 };

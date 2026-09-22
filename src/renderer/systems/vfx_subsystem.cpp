@@ -46,9 +46,13 @@ void VfxSubsystem::on_play_stop(const TickContext& ctx) {
 }
 
 VfxEffect VfxSubsystem::build_effect(const std::string& path,
-                                      ResourceManager& resources) {
+                                      ResourceManager& resources,
+                                      const Project* project) {
+    std::error_code ec;
+    auto written = std::filesystem::last_write_time(path, ec);
+
     auto it = json_cache_.find(path);
-    if (it == json_cache_.end()) {
+    if (it == json_cache_.end() || it->second.written != written) {
         std::ifstream f(path);
         if (!f.is_open()) {
             FJELL_CORE_ERROR("VFX: failed to open {}", path);
@@ -56,11 +60,11 @@ VfxEffect VfxSubsystem::build_effect(const std::string& path,
         }
         nlohmann::json j;
         f >> j;
-        it = json_cache_.emplace(path, std::move(j)).first;
+        it = json_cache_.insert_or_assign(path, CachedJson{std::move(j), written}).first;
     }
 
-    auto effect = load_vfx_effect_from_json(it->second);
-    resolve_vfx_textures(effect, resources);
+    auto effect = load_vfx_effect_from_json(it->second.json);
+    resolve_vfx_textures(effect, resources, project);
     return effect;
 }
 
@@ -84,7 +88,7 @@ uint32_t VfxSubsystem::reclaim_pooled(const std::string& path,
 }
 
 void VfxSubsystem::spawn(VfxAssetHandle asset_handle, const glm::vec3& position,
-                          Scene& scene, ResourceManager& resources) {
+                          Scene& scene, ResourceManager& resources, const Project* project) {
     auto* raw_effect = resources.get(asset_handle);
     if (!raw_effect) {
         FJELL_CORE_ERROR("VFX: invalid asset handle");
@@ -94,18 +98,27 @@ void VfxSubsystem::spawn(VfxAssetHandle asset_handle, const glm::vec3& position,
     auto path = resources.asset_path_of(asset_handle);
     if (path.empty()) return;
 
-    auto effect = build_effect(path, resources);
-    float max_life = effect.max_lifetime();
+    auto effect = build_effect(path, resources, project);
+    // A little past the end, so the last particles are gone before the
+    // node is taken back rather than cut off mid-life.
+    const float remaining = effect.time_to_finish() + 0.5f;
+
+    // A one-shot plays its emitters through once; looping is for placed
+    // emitters, and would keep a rate emitter going until the cut.
+    auto attach = [&](Node& node) {
+        auto& emitter = node.components.add<EmitterComponent>();
+        emitter.effect = std::make_shared<VfxEffect>(std::move(effect));
+        emitter.vfx_path = path;
+        emitter.looping = false;
+    };
 
     // Try to reclaim a pooled node with the same effect
     uint32_t node_id = reclaim_pooled(path, position, scene);
     if (node_id != 0) {
         auto* node = scene.find(node_id);
         if (node) {
-            auto& emitter = node->components.add<EmitterComponent>();
-            emitter.effect = std::make_shared<VfxEffect>(std::move(effect));
-            emitter.vfx_path = path;
-            oneshots_.push_back({node_id, max_life + 0.5f, path});
+            attach(*node);
+            oneshots_.push_back({node_id, remaining, path});
             return;
         }
     }
@@ -114,13 +127,10 @@ void VfxSubsystem::spawn(VfxAssetHandle asset_handle, const glm::vec3& position,
     auto node = std::make_unique<SceneNode>();
     node->name = "vfx_oneshot";
     node->transform.position = position;
-
-    auto& emitter = node->components.add<EmitterComponent>();
-    emitter.effect = std::make_shared<VfxEffect>(std::move(effect));
-    emitter.vfx_path = path;
+    attach(*node);
 
     node_id = scene.add_node(std::move(node));
-    oneshots_.push_back({node_id, max_life + 0.5f, path});
+    oneshots_.push_back({node_id, remaining, path});
 }
 
 } // namespace fjell

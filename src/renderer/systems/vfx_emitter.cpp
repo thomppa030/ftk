@@ -1,6 +1,7 @@
 #include "renderer/systems/vfx_emitter.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -133,6 +134,14 @@ float VfxEffect::total_duration() const {
         if (end > total) total = end;
     }
     return total;
+}
+
+float VfxEffect::time_to_finish() const {
+    float finish = 0.0f;
+    for (const auto& e : emitters) {
+        finish = std::max(finish, e.start_delay + e.effective_duration() + e.lifetime_max());
+    }
+    return finish;
 }
 
 void VfxEffect::reset_playback() {
