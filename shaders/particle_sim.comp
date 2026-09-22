@@ -13,10 +13,6 @@ layout(std430, set = 0, binding = 1) buffer Counters {
     uint counters[];  // [alive_0, dead_0, alive_1, dead_1, ...]
 };
 
-layout(std430, set = 0, binding = 2) buffer DeadList {
-    uint dead_indices[];
-};
-
 layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
     EmitterData emitters[];
 };

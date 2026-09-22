@@ -87,13 +87,6 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         INITIAL_EMITTERS * 3 * sizeof(uint32_t),
         std::max(MAX_EMITTERS * 3 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_counters");
 
-    // Bound to every compute set but read by no shader: emission overwrites
-    // the oldest slot of a ring, so nothing hands out free indices.
-    mega_dead_list_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, deleter,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_dead_list");
-
     mega_indirect_buffer_ = std::make_unique<GrowableBuffer>(
         device, allocator_, upload, deleter,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
@@ -106,13 +99,16 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_alive");
 
-    // ── Compute descriptor set layout (8 bindings) ──
-    // 0=particles, 1=counters, 2=dead_list, 3=emitter_data, 4=indirect, 5=modules
-    // 6=sub_emitter_events, 7=sub_emitter_event_counters
+    // ── Compute descriptor set layout ──
+    // 0=particles, 1=counters, 3=emitter_data, 4=indirect, 5=modules
+    // 6=sub_emitter_events, 7=sub_emitter_event_counters. Binding 2 once
+    // held a free list; emission is a ring and the number stays unused.
 
-    VkDescriptorSetLayoutBinding compute_bindings[8]{};
-    for (int i = 0; i < 8; ++i) {
-        compute_bindings[i].binding = static_cast<uint32_t>(i);
+    constexpr uint32_t COMPUTE_BINDING_IDS[] = {0, 1, 3, 4, 5, 6, 7};
+    constexpr uint32_t COMPUTE_BINDINGS = 7;
+    VkDescriptorSetLayoutBinding compute_bindings[COMPUTE_BINDINGS]{};
+    for (uint32_t i = 0; i < COMPUTE_BINDINGS; ++i) {
+        compute_bindings[i].binding = COMPUTE_BINDING_IDS[i];
         compute_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         compute_bindings[i].descriptorCount = 1;
         compute_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -120,7 +116,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 8;
+    layout_ci.bindingCount = COMPUTE_BINDINGS;
     layout_ci.pBindings = compute_bindings;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &compute_set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle compute set layout");
@@ -265,8 +261,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr uint32_t POOL_GENERATIONS = 2 * MAX_FRAMES_IN_FLIGHT + 1;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    // Per region: 8 compute + 5 render (particles, emitters, counters, instances, alive) + 8 compaction
-    pool_sizes[0].descriptorCount = (8 + 5 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
+    // Per region: 7 compute + 5 render (particles, emitters, counters, instances, alive) + 8 compaction
+    pool_sizes[0].descriptorCount = (7 + 5 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[1].descriptorCount = DISPATCH_REGIONS * POOL_GENERATIONS; // depth texture per render set
 
@@ -595,7 +591,6 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
 void ParticleSystem::destroy() {
     mega_particle_buffer_.reset();
     mega_counter_buffer_.reset();
-    mega_dead_list_buffer_.reset();
     mega_indirect_buffer_.reset();
     mega_alive_buffer_.reset();
     for (auto& b : emitter_data_buffers_) b.reset();
@@ -636,7 +631,6 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // that still does.
     mega_particle_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE);
     mega_counter_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t));
-    mega_dead_list_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
     mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
     mega_alive_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
 
@@ -732,7 +726,6 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // avoid. VK_WHOLE_SIZE tracks the buffer's own size automatically.
     VkDescriptorBufferInfo particle_info{mega_particle_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo alive_info{mega_alive_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
@@ -755,18 +748,17 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
             return w;
         };
 
-        // Compute set: 8 bindings
-        VkWriteDescriptorSet writes[8] = {
+        // Compute set
+        VkWriteDescriptorSet writes[7] = {
             storage_write(compute_sets_[r], 0, &particle_info),
             storage_write(compute_sets_[r], 1, &counter_info),
-            storage_write(compute_sets_[r], 2, &dead_list_info),
             storage_write(compute_sets_[r], 3, &emitter_info),
             storage_write(compute_sets_[r], 4, &indirect_info),
             storage_write(compute_sets_[r], 5, &module_info),
             storage_write(compute_sets_[r], 6, &sub_event_info),
             storage_write(compute_sets_[r], 7, &sub_counter_info),
         };
-        vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 7, writes, 0, nullptr);
 
         // Render set: particles, emitters, counters, alive list (depth is written per draw)
         VkWriteDescriptorSet render_writes[4] = {

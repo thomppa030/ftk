@@ -285,7 +285,6 @@ private:
     // add later) — they keep the older allocate/copy/retire growth path.
     std::unique_ptr<GrowableBuffer> mega_particle_buffer_;
     std::unique_ptr<GrowableBuffer> mega_counter_buffer_;
-    std::unique_ptr<GrowableBuffer> mega_dead_list_buffer_;
     std::unique_ptr<GrowableBuffer> mega_indirect_buffer_;
     std::unique_ptr<GrowableBuffer> mega_alive_buffer_;   // per-emitter dense alive indices
     std::array<std::unique_ptr<Buffer>, DISPATCH_REGIONS> emitter_data_buffers_; // HOST_VISIBLE, mapped
