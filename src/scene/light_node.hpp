@@ -126,34 +126,44 @@ protected:
     }
 };
 
-// Extra fog inside the volume, on top of the global height fog from the
-// VolumetricFogNode. Volumes add: overlapping ones are thicker, and colour and
-// scattering average across them by how much density each contributes.
+// Extra fog inside the volume, on top of the haze from the VolumetricFogNode.
+// Volumes add: overlapping ones are thicker, and each carries its own colour
+// and brightness into the sum. What the bank looks like is its material, a
+// `shader_type fog` .fjmat like the haze's; the node keeps the shape, how the
+// bank drifts, and how it answers movement. A volume with no material draws
+// with the engine's fog_volume.fjsl at its defaults.
 struct FogVolumeNode : VolumeNode {
-    float density{0.05f};
-    glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
+    /// The `.fjmat` the bank draws with, as an asset reference. Empty draws
+    /// the engine's default bank.
+    std::string material_path;
+    MaterialHandle material_handle{};
+    Material* material{nullptr};
+    /// The reference the handle was loaded from. Runtime state, not saved.
+    std::string material_bound_;
+    /// The node's own values for the material's uniforms, by name, over what
+    /// the .fjmat holds: one bank thicker than the material thirty banks
+    /// share. A `fog_density.<group>` track folds over both.
+    std::vector<NamedValue> params;
+    /// Every uniform the material's shader declares, at the material's own
+    /// value, read back each tick. Runtime state, not saved.
+    std::vector<NamedValue> material_values_;
+
     /// Which volumes a day profile or a weather event moves together. A
     /// `fog_density.<group>` track scales every volume tagged with it and
     /// leaves the rest alone, so one profile can raise the river mist without
     /// touching the fog in a cellar. Empty means nothing but the scene drives
     /// this volume.
     std::string fog_group;
-    /// Scales this volume's share of the scattering, leaving the global
-    /// scattering as the baseline: brighter or dimmer without being thicker.
-    float scattering_mult{1.0f};
 
-    // The fog inside the volume is broken up by a noise field that drifts, so
-    // a bank churns rather than sitting still.
-    /// How broken up the fog looks, 0 for none. Does not change how much fog
-    /// there is: the field averages to one whatever this is set to.
-    float noise_contrast{0.0f};
-    /// Metres per noise period — the size of a wisp.
-    float noise_scale{8.0f};
+    // The bank's field drifts through the world, so a bank churns rather than
+    // sitting still. The drift is the node's because it is accumulated frame
+    // by frame: a heading computed from the clock would tear the moment the
+    // wind turned it. The shader reads where the field has got to as DRIFT.
     /// The way the field drifts. Normalised on the way to the GPU, so its
     /// length does not matter and speed is the only thing that sets the pace.
-    glm::vec3 noise_direction{1.0f, 0.05f, 0.3f};
+    glm::vec3 drift_direction{1.0f, 0.05f, 0.3f};
     /// How fast it drifts, in metres per second.
-    float noise_speed{0.3f};
+    float drift_speed{0.3f};
     /// How far the weather's wind takes over: it turns the drift toward the
     /// wind's heading and trades the authored speed for the wind's own, so at
     /// 1 the fog runs downwind at wind speed and a calm day nearly stills it.
@@ -162,8 +172,6 @@ struct FogVolumeNode : VolumeNode {
     /// Metres per second of drift per metre per second of wind, at full
     /// influence. Fog does not travel at the speed of the air that carries it.
     float wind_speed_scale{0.15f};
-    /// Octaves of detail. Each one doubles the cost of sampling the field.
-    int noise_octaves{2};
 
     /// How far the volume answers things moving through it, 0 for not at all.
     /// A runner drags the fog along behind them and leaves it briefly thinner
@@ -197,22 +205,22 @@ struct FogVolumeNode : VolumeNode {
     /// frame rather than derived from a clock, because the direction and the
     /// speed both move with the wind and a field that jumped when the weather
     /// turned would tear. Runtime state, not saved.
-    glm::vec3 noise_drift_{0.0f};
+    glm::vec3 drift_{0.0f};
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<FogVolumeNode>();
         clone_volume_into(*copy);
-        copy->density = density;
-        copy->fog_color = fog_color;
+        copy->material_path = material_path;
+        copy->material_handle = material_handle;
+        copy->material = material;
+        copy->material_bound_ = material_bound_;
+        copy->params = params;
+        copy->material_values_ = material_values_;
         copy->fog_group = fog_group;
-        copy->scattering_mult = scattering_mult;
-        copy->noise_contrast = noise_contrast;
-        copy->noise_scale = noise_scale;
-        copy->noise_direction = noise_direction;
-        copy->noise_speed = noise_speed;
+        copy->drift_direction = drift_direction;
+        copy->drift_speed = drift_speed;
         copy->wind_influence = wind_influence;
         copy->wind_speed_scale = wind_speed_scale;
-        copy->noise_octaves = noise_octaves;
         copy->motion_response = motion_response;
         copy->vortex_strength = vortex_strength;
         copy->compression = compression;

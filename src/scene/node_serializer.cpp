@@ -174,23 +174,28 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         j["node_type"] = "fog_volume";
         j["fog_volume"] = {
             {"shape", static_cast<int>(fv->shape)},
-            {"density", fv->density},
-            {"color", color_to_json(fv->fog_color)},
             {"group", fv->fog_group},
-            {"scattering_mult", fv->scattering_mult},
             {"edge_falloff", fv->edge_falloff},
-            {"noise_contrast", fv->noise_contrast},
-            {"noise_scale", fv->noise_scale},
-            {"noise_direction", {fv->noise_direction.x, fv->noise_direction.y, fv->noise_direction.z}},
-            {"noise_speed", fv->noise_speed},
+            {"drift_direction", {fv->drift_direction.x, fv->drift_direction.y, fv->drift_direction.z}},
+            {"drift_speed", fv->drift_speed},
             {"wind_influence", fv->wind_influence},
             {"wind_speed_scale", fv->wind_speed_scale},
-            {"noise_octaves", fv->noise_octaves},
             {"motion_response", fv->motion_response},
             {"vortex_strength", fv->vortex_strength},
             {"compression", fv->compression},
             {"density_field_debug", fv->density_field_debug}
         };
+        if (!fv->material_path.empty()) {
+            j["fog_volume"]["material"] = base_path::asset_reference(fv->material_path, project);
+        }
+        if (!fv->params.empty()) {
+            auto& jp = j["fog_volume"]["params"] = nlohmann::json::object();
+            for (const auto& p : fv->params) {
+                auto values = nlohmann::json::array();
+                for (uint32_t i = 0; i < p.count; ++i) values.push_back(p.values[i]);
+                jp[p.name] = values;
+            }
+        }
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
         j["sky"] = {
@@ -471,33 +476,63 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             if (j.contains("fog_volume")) {
                 auto& jv = j["fog_volume"];
                 fv->shape = static_cast<ColliderShape>(jv.value("shape", 0));
-                fv->density = jv.value("density", 0.05f);
-                if (jv.contains("color")) {
-                    fv->fog_color = color_from_json(jv["color"]);
-                }
                 fv->fog_group = jv.value("group", std::string{});
-                fv->scattering_mult = jv.value("scattering_mult", 1.0f);
                 fv->edge_falloff = jv.value("edge_falloff", 0.2f);
-                fv->noise_contrast = jv.value("noise_contrast", 0.0f);
-                fv->noise_scale = jv.value("noise_scale", 8.0f);
-                if (jv.contains("noise_direction")) {
-                    auto& d = jv["noise_direction"];
-                    fv->noise_direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+                fv->material_path = jv.value("material", std::string{});
+                if (jv.contains("params") && jv["params"].is_object()) {
+                    for (const auto& [param_name, values] : jv["params"].items()) {
+                        if (!values.is_array() || values.empty()) continue;
+                        NamedValue p;
+                        p.name = param_name;
+                        p.count = static_cast<uint32_t>(std::min<size_t>(values.size(), 4));
+                        for (uint32_t i = 0; i < p.count; ++i) p.values[i] = values[i].get<float>();
+                        fv->params.push_back(std::move(p));
+                    }
                 }
-                // Drift was once one vector carrying both heading and pace.
-                // Split it back apart: its direction is the direction and its
-                // length is the speed.
-                if (jv.contains("noise_speed") && jv["noise_speed"].is_array()) {
-                    auto& s = jv["noise_speed"];
+                // A scene from before the volume had a material carries its
+                // look as fields. They become the node's own values for the
+                // default shader's uniforms, under the names those have, so
+                // the bank draws as it did; the next save writes them as
+                // params. The colour was saved in sRGB, as a param holds one.
+                const std::pair<const char*, const char*> legacy[] = {
+                    {"density", "density"}, {"scattering_mult", "scattering"},
+                    {"noise_contrast", "noise_contrast"}, {"noise_scale", "noise_scale"},
+                    {"noise_octaves", "noise_octaves"},
+                };
+                for (const auto& [key, uniform] : legacy) {
+                    if (!jv.contains(key) || find_named(fv->params, uniform) != nullptr) continue;
+                    fv->params.push_back(NamedValue{.name = uniform, .count = 1,
+                                                    .values = {jv[key].get<float>()}});
+                }
+                if (jv.contains("color") && jv["color"].is_array()
+                    && find_named(fv->params, fog_track::COLOR_UNIFORM) == nullptr) {
+                    const auto& c = jv["color"];
+                    fv->params.push_back(NamedValue{
+                        .name = std::string(fog_track::COLOR_UNIFORM), .count = 3,
+                        .values = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()},
+                        .srgb = true});
+                }
+                // The drift was the noise's before the noise moved into the
+                // shader, and before that one vector carrying both heading
+                // and pace: its direction is the direction and its length
+                // the speed.
+                const char* dir_key = jv.contains("drift_direction") ? "drift_direction"
+                                                                     : "noise_direction";
+                if (jv.contains(dir_key) && jv[dir_key].is_array()) {
+                    auto& d = jv[dir_key];
+                    fv->drift_direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+                }
+                const char* speed_key = jv.contains("drift_speed") ? "drift_speed" : "noise_speed";
+                if (jv.contains(speed_key) && jv[speed_key].is_array()) {
+                    auto& s = jv[speed_key];
                     const glm::vec3 drift{s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
-                    fv->noise_speed = glm::length(drift);
-                    if (fv->noise_speed > 1e-4f) fv->noise_direction = drift / fv->noise_speed;
+                    fv->drift_speed = glm::length(drift);
+                    if (fv->drift_speed > 1e-4f) fv->drift_direction = drift / fv->drift_speed;
                 } else {
-                    fv->noise_speed = jv.value("noise_speed", 0.3f);
+                    fv->drift_speed = jv.value(speed_key, 0.3f);
                 }
                 fv->wind_influence = jv.value("wind_influence", 0.0f);
                 fv->wind_speed_scale = jv.value("wind_speed_scale", 0.15f);
-                fv->noise_octaves = jv.value("noise_octaves", 2);
                 fv->motion_response = jv.value("motion_response", 0.0f);
                 fv->vortex_strength = jv.value("vortex_strength", 0.0f);
                 fv->compression = jv.value("compression", 0.0f);

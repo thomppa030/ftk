@@ -1294,6 +1294,7 @@ TEST_CASE("Every fog .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][fo
     }
     REQUIRE(sources.size() > 1);  // the engine ships fog.fjsl
 
+    // One generated source, two compute variants: the medium and the light.
     for (const auto& [name, text] : sources) {
         INFO("shader: " << name);
         auto meta = parse_fjsl(text);
@@ -1301,12 +1302,16 @@ TEST_CASE("Every fog .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][fo
         auto comp = out_dir / (name + ".fog.comp");
         std::ofstream(comp) << generate_fragment_shader(meta, tmpl);
 
-        auto spv = out_dir / (name + ".fog.spv");
-        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=compute -I "
-                                    + quoted(shader_dir / "include") + " "
-                                    + quoted(comp) + " -o " + quoted(spv));
-        INFO(output);
-        REQUIRE(status == 0);
+        for (const char* variant : {"", "-DFJELL_FOG_LIGHT"}) {
+            INFO("variant: " << (variant[0] == '\0' ? "medium" : "light"));
+            auto spv = out_dir / (name + ".fog.spv");
+            auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=compute "
+                                        + std::string(variant) + " -I "
+                                        + quoted(shader_dir / "include") + " "
+                                        + quoted(comp) + " -o " + quoted(spv));
+            INFO(output);
+            REQUIRE(status == 0);
+        }
     }
 }
 

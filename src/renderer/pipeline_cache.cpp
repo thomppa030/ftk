@@ -438,13 +438,15 @@ void PipelineCache::compile_entry(Entry& entry) {
         std::vector<ShaderJob> jobs;
 
         // The main stage is always compiled: a fragment for every drawn type,
-        // the fog pass's compute shader for a fog shader. A ui shader is one
+        // the fog pass's medium compute shader for a fog shader, which is
+        // compiled once more as the light variant. A ui shader is one
         // generated source compiled in two shapes, screen-space and
         // worldspace; a sky shader once more as the compute shader that fills
         // the lighting cubemap.
         const bool is_sky = shader_type == ShaderType::Sky;
         if (is_fog) {
-            jobs.push_back({next.generated_frag_path, stem + ".comp", {}, "compute"});
+            jobs.push_back({next.generated_frag_path, stem + ".medium.comp", {}, "compute"});
+            jobs.push_back({next.generated_frag_path, stem + ".light.comp", {"FJELL_FOG_LIGHT"}, "compute"});
         } else {
             jobs.push_back({next.generated_frag_path, stem + ".frag", {}, {}});
         }
@@ -497,7 +499,8 @@ void PipelineCache::compile_entry(Entry& entry) {
         std::string frag_spv = futures[0].get(); // the main stage is always index 0
         size_t idx = 1;
         if (is_fog) {
-            next.fog_compute_spv = frag_spv;
+            next.fog_medium_spv = frag_spv;
+            next.fog_light_spv = futures[idx++].get();
             frag_spv.clear();
         }
         if (is_ui) {
@@ -557,7 +560,8 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.ui_frag_spv = std::move(next.ui_frag_spv);
     entry.ui_world_frag_spv = std::move(next.ui_world_frag_spv);
     entry.sky_cubemap_spv = std::move(next.sky_cubemap_spv);
-    entry.fog_compute_spv = std::move(next.fog_compute_spv);
+    entry.fog_medium_spv = std::move(next.fog_medium_spv);
+    entry.fog_light_spv = std::move(next.fog_light_spv);
     entry.vert_spv = std::move(next.vert_spv);
     entry.mesh_spv = std::move(next.mesh_spv);
     entry.depth_vert_spv = std::move(next.depth_vert_spv);
@@ -1234,8 +1238,12 @@ const std::string& PipelineCache::sky_cubemap_spv(uint32_t id) const {
     return entries_[id].sky_cubemap_spv;
 }
 
-const std::string& PipelineCache::fog_compute_spv(uint32_t id) const {
-    return entries_[id].fog_compute_spv;
+const std::string& PipelineCache::fog_medium_spv(uint32_t id) const {
+    return entries_[id].fog_medium_spv;
+}
+
+const std::string& PipelineCache::fog_light_spv(uint32_t id) const {
+    return entries_[id].fog_light_spv;
 }
 
 } // namespace fjell

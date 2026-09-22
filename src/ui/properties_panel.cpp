@@ -110,15 +110,18 @@ static void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext&
     }
 }
 
-// The fog material's uniforms as rows on the Volumetric Fog node: each shows
-// the node's own value when it has one and the material's otherwise, and an
-// edit stores the node's value in `params`. A day profile or weather track of
-// the same name folds over both while it is bound.
-static void draw_fog_overrides(VolumetricFogNode& fog, const InspectorContext& ictx) {
+// The fog material's uniforms as rows on a Volumetric Fog or Fog Volume node:
+// each shows the node's own value when it has one and the material's
+// otherwise, and an edit stores the node's value in `params`. A day profile or
+// weather track of the same name folds over both while it is bound.
+static void draw_fog_overrides(const Material* material, std::string_view default_shader,
+                               std::vector<NamedValue>& params,
+                               const std::vector<NamedValue>& material_values,
+                               const InspectorContext& ictx) {
     if (ictx.pipeline_cache == nullptr) return;
-    const uint32_t pid = fog.material != nullptr
-        ? fog.material->pipeline_id()
-        : ictx.pipeline_cache->register_shader(std::string(DEFAULT_FOG_SHADER));
+    const uint32_t pid = material != nullptr
+        ? material->pipeline_id()
+        : ictx.pipeline_cache->register_shader(std::string(default_shader));
     if (pid >= ictx.pipeline_cache->shader_count()
         || ictx.pipeline_cache->has_compile_error(pid)) return;
     const auto& meta = ictx.pipeline_cache->metadata(pid);
@@ -134,8 +137,8 @@ static void draw_fog_overrides(VolumetricFogNode& fog, const InspectorContext& i
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
         const uint32_t count = uniform_float_count(u.type);
-        NamedValue* override = find_named(fog.params, u.name);
-        const NamedValue* base = find_named(fog.material_values_, u.name);
+        NamedValue* override = find_named(params, u.name);
+        const NamedValue* base = find_named(material_values, u.name);
 
         std::array<float, 4> temp{};
         for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
@@ -151,7 +154,7 @@ static void draw_fog_overrides(VolumetricFogNode& fog, const InspectorContext& i
         if (override != nullptr) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Reset")) {
-                fog.params.erase(fog.params.begin() + (override - fog.params.data()));
+                params.erase(params.begin() + (override - params.data()));
                 if (ictx.scene != nullptr) ictx.scene->mark_dirty();
                 ImGui::PopID();
                 continue;
@@ -164,7 +167,7 @@ static void draw_fog_overrides(VolumetricFogNode& fog, const InspectorContext& i
             value.count = count;
             value.values = temp;
             value.srgb = u.hint == UniformHint::Color;
-            set_named(fog.params, std::move(value));
+            set_named(params, std::move(value));
             if (ictx.scene != nullptr) ictx.scene->mark_dirty();
         }
         ImGui::PopID();
@@ -600,7 +603,8 @@ void PropertiesPanel::draw() {
                     ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s (engine default)",
                                         std::string(DEFAULT_FOG_SHADER).c_str());
                 }
-                draw_fog_overrides(*vf, ictx);
+                draw_fog_overrides(vf->material, DEFAULT_FOG_SHADER, vf->params,
+                                   vf->material_values_, ictx);
                 if (auto t = PropertyTable("##fog")) {
                     prop_row("Max Distance", [&] {
                         ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
@@ -664,27 +668,30 @@ void PropertiesPanel::draw() {
 
             if (auto* fv = dynamic_cast<FogVolumeNode*>(obj)) {
                 section_header("FOG VOLUME", ICON_LC_CLOUD);
+                // What the bank looks like is its material; the node keeps
+                // the shape, how the bank drifts and how it answers movement.
+                static const std::string volume_mat_exts[] = {".fjmat"};
+                if (asset_ref_field({.label = "Material",
+                                     .id = "##FogVolMatRef",
+                                     .extensions = volume_mat_exts,
+                                     .ctx = &ictx},
+                                    fv->material_path)) {
+                    scene_->mark_dirty();
+                }
+                if (fv->material != nullptr) {
+                    draw_material_inspector_for(fv->material);
+                } else {
+                    ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s (engine default)",
+                                        std::string(DEFAULT_FOG_VOLUME_SHADER).c_str());
+                }
+                draw_fog_overrides(fv->material, DEFAULT_FOG_VOLUME_SHADER, fv->params,
+                                   fv->material_values_, ictx);
                 if (auto t = PropertyTable("##fog_volume")) {
                     prop_row("Shape", [&] {
                         int shape = static_cast<int>(fv->shape);
                         const char* shapes[] = {"Box", "Sphere"};
                         if (ImGui::Combo("##FogVolShape", &shape, shapes, 2)) {
                             fv->shape = static_cast<ColliderShape>(shape);
-                            scene_->mark_dirty();
-                        }
-                    });
-                    prop_row("Density", [&] {
-                        if (ImGui::SliderFloat("##FogVolDensity", &fv->density, 0.0f, 1.0f, "%.4f")) {
-                            scene_->mark_dirty();
-                        }
-                    });
-                    prop_row("Color", [&] {
-                        if (color_edit_linear("##FogVolColor", fv->fog_color)) {
-                            scene_->mark_dirty();
-                        }
-                    });
-                    prop_row("Scattering", [&] {
-                        if (ImGui::SliderFloat("##FogVolScatter", &fv->scattering_mult, 0.0f, 4.0f)) {
                             scene_->mark_dirty();
                         }
                     });
@@ -708,45 +715,28 @@ void PropertiesPanel::draw() {
                                         fv->fog_group.c_str(), fv->fog_group.c_str());
                 }
 
-                section_header("NOISE", ICON_LC_AUDIO_WAVEFORM);
-                if (auto t = PropertyTable("##fog_volume_noise")) {
-                    prop_row("Contrast", [&] {
-                        if (ImGui::SliderFloat("##FogVolNoise", &fv->noise_contrast, 0.0f, 1.0f)) {
+                // How the bank's field moves through the world. What the
+                // field is, the wisps' size and contrast, is the material's.
+                section_header("DRIFT", ICON_LC_AUDIO_WAVEFORM);
+                if (auto t = PropertyTable("##fog_volume_drift")) {
+                    prop_row("Direction", [&] {
+                        if (ImGui::DragFloat3("##FogVolDriftDir", &fv->drift_direction.x, 0.01f, -1.0f, 1.0f, "%.2f")) {
                             scene_->mark_dirty();
                         }
                     });
-                }
-                if (fv->noise_contrast > 0.0f) {
-                    if (auto t = PropertyTable("##fog_volume_noise_params")) {
-                        prop_row("Scale", [&] {
-                            if (ImGui::SliderFloat("##FogVolNoiseScale", &fv->noise_scale, 0.5f, 64.0f, "%.1f m")) {
-                                scene_->mark_dirty();
-                            }
-                        });
-                        prop_row("Direction", [&] {
-                            if (ImGui::DragFloat3("##FogVolNoiseDir", &fv->noise_direction.x, 0.01f, -1.0f, 1.0f, "%.2f")) {
-                                scene_->mark_dirty();
-                            }
-                        });
-                        prop_row("Speed", [&] {
-                            if (ImGui::SliderFloat("##FogVolNoiseSpeed", &fv->noise_speed, 0.0f, 5.0f, "%.2f m/s")) {
-                                scene_->mark_dirty();
-                            }
-                        });
-                        prop_row("Wind", [&] {
-                            if (ImGui::SliderFloat("##FogVolWind", &fv->wind_influence, 0.0f, 1.0f)) {
-                                scene_->mark_dirty();
-                            }
-                        });
-                        if (fv->wind_influence > 0.0f) {
-                            prop_row("Wind Scale", [&] {
-                                if (ImGui::SliderFloat("##FogVolWindScale", &fv->wind_speed_scale, 0.0f, 1.0f, "%.2f")) {
-                                    scene_->mark_dirty();
-                                }
-                            });
+                    prop_row("Speed", [&] {
+                        if (ImGui::SliderFloat("##FogVolDriftSpeed", &fv->drift_speed, 0.0f, 5.0f, "%.2f m/s")) {
+                            scene_->mark_dirty();
                         }
-                        prop_row("Octaves", [&] {
-                            if (ImGui::SliderInt("##FogVolOctaves", &fv->noise_octaves, 1, 4)) {
+                    });
+                    prop_row("Wind", [&] {
+                        if (ImGui::SliderFloat("##FogVolWind", &fv->wind_influence, 0.0f, 1.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    if (fv->wind_influence > 0.0f) {
+                        prop_row("Wind Scale", [&] {
+                            if (ImGui::SliderFloat("##FogVolWindScale", &fv->wind_speed_scale, 0.0f, 1.0f, "%.2f")) {
                                 scene_->mark_dirty();
                             }
                         });

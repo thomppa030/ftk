@@ -28,12 +28,9 @@ struct GpuSpotLight {
 // inside it a point sits is fjell_volume.glsl's volume_occupancy().
 struct GpuFogVolume {
     mat4 inv_transform;     // world -> unit volume space
-    vec4 color_density;     // xyz = linear color, w = density
-    vec4 shape_falloff;     // x = FJELL_VOLUME_SHAPE_*, y = edge falloff
-    vec4 scatter_params;    // x = scattering multiplier
-    vec4 noise_drift;       // xyz = world metres drifted, w = noise scale
-    vec4 noise_shape;       // x = contrast (0 = no noise), y = octaves,
+    vec4 shape_falloff;     // x = FJELL_VOLUME_SHAPE_*, y = edge falloff,
                             //   z = motion response (0 = ignores movement)
+    vec4 drift;             // xyz = world metres the volume's field has drifted
 };
 
 // 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.

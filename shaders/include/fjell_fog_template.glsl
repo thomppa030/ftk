@@ -1,18 +1,28 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// FJSL fog template: the volumetric fog pass's medium and lighting dispatch,
-// with the look handed to a `shader_type fog;` .fjsl.
+// FJSL fog template: the volumetric fog pass's medium and light dispatches,
+// with the look handed to a `shader_type fog;` .fjsl. Compiled twice from
+// one generated source:
+//
+//   as is                   the medium variant, one dispatch per source of
+//                           fog. The haze covers the froxel grid and writes
+//                           what its density() decides; each placed volume
+//                           then adds its own over the froxels its bounds
+//                           reach. The image holds, per froxel, the sum of
+//                           colour × scattering × density and the sum of
+//                           density.
+//   with FJELL_FOG_LIGHT    the light variant, once over the grid from the
+//                           scene's fog node material: the stir, the distance
+//                           fade, then every light through light(), stored
+//                           as in-scatter and extinction for the temporal and
+//                           integrate steps behind it.
 //
 // The user writes density(), which says what the medium is at WORLD_POS —
 // DENSITY, COLOR and SCATTERING — and may write light(), which says how that
 // medium scatters one light toward the eye. Everything else here is the
-// engine's: reconstructing the froxel's position, the placed fog volumes,
-// the motion and density fields, shadows, the lights, and the store into the
-// scatter volume the temporal and integrate steps read.
-//
-// A fog shader is named for what it writes, a medium at a point, and not for
-// the froxel grid this pass happens to sample it on.
+// engine's. A fog shader is named for what it writes, a medium at a point,
+// and not for the froxel grid this pass happens to sample it on.
 
 #include "fjell_common.glsl"
 #include "fjell_global_ubo.glsl"
@@ -32,6 +42,7 @@ layout(set = 0, binding = 16) uniform sampler2D motion_field_tex;
 layout(set = 0, binding = 18) uniform sampler3D fog_density_field_tex;
 #include "fjell_fog_density_field.glsl"
 
+#ifdef FJELL_FOG_LIGHT
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
@@ -42,10 +53,11 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
-
+#else
 layout(set = 0, binding = 17) readonly buffer FogVolumeBuffer {
     GpuFogVolume fog_volumes[];
 };
+#endif
 
 // The material set: the fog shader's own textures and parameters live in the
 // same bindless tables every other material reads.
@@ -59,7 +71,15 @@ layout(set = 1, binding = 2) readonly buffer ParamsBuffer {
     float custom_params[];
 };
 
-layout(set = 2, binding = 0, rgba16f) uniform writeonly image3D scatter_volume;
+// The medium accumulated so far: rgb = Σ colour × scattering × density,
+// a = Σ density. The haze writes it, each volume adds to it, the light
+// variant reads it.
+#ifdef FJELL_FOG_LIGHT
+layout(set = 2, binding = 0, rgba16f) uniform readonly image3D fog_medium;
+layout(set = 2, binding = 1, rgba16f) uniform writeonly image3D scatter_volume;
+#else
+layout(set = 2, binding = 0, rgba16f) uniform image3D fog_medium;
+#endif
 
 #include "fjell_fog_push.glsl"
 
@@ -79,32 +99,8 @@ const int FOG_LIGHT_POINT = 1;
 const int FOG_LIGHT_SPOT = 2;
 const int FOG_LIGHT_AMBIENT = 3;
 
-// What answering movement is worth, at a volume's full response.
-//
-// The drag is a fraction of the volume's own noise period per metre-per-second,
-// not an absolute distance: a wisp is only displaced visibly if it moves a
-// real share of its own size, and a volume with 32 m wisps needs a far bigger
-// shift than one with 2 m wisps to read the same. A walk lands near a fifth of
-// a wisp, a run near a half.
-//
-// The thinning is deliberately slight. Air shoved aside is displaced, not
-// destroyed, and a strong thinning reads as a hole following the character
-// rather than as fog moving out of their way — the drag is what should carry
-// the effect.
-const float MOTION_DRAG = 0.25;
-const float MOTION_THIN = 0.15;
-const float MOTION_THIN_SMOOTH = 0.6;
-// How hard the two sides of a wake are pushed apart, against how hard the
-// whole thing is dragged along. This is what separates turning from sliding,
-// so it is deliberately the larger of the two — and because the wake's
-// direction is a unit vector, that ratio holds however wide the mark has
-// spread rather than fading out as it opens.
-//
-// Like the drag, a fraction of the volume's own noise period: half a wisp of
-// shear reads as the field being turned, and much past a whole one the wisp
-// lands somewhere uncorrelated with where it started and the wake stops
-// looking like one thing moving.
-const float MOTION_CURL = 0.4;
+// How far above what came through the fog still answers it: a walker stirs
+// the fog around their legs and leaves what is over their head alone.
 const float MOTION_FADE_METRES = 1.0;
 
 // What the height fog gives up along a path, and how much of it piles along
@@ -152,6 +148,7 @@ float henyey_greenstein(float g, float cos_theta) {
     return (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
 }
 
+#ifdef FJELL_FOG_LIGHT
 // ── Local light shadow sampling for volumetric ─────────────────────
 // 4-tap PCF with per-froxel jitter to reduce blockiness across frames.
 
@@ -277,6 +274,7 @@ float sample_shadow(vec3 world_pos) {
     float bias = 0.005 * (1.0 + float(cascade));
     return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias)) * cloud_shadow_factor(world_pos);
 }
+#endif // FJELL_FOG_LIGHT
 
 // Windowed attenuation for volumetric lights.
 // The near-source floor scales with light radius so that a froxel landing
@@ -297,17 +295,20 @@ float vol_attenuation(float dist, float radius) {
 // ── User-authored file-scope helpers / constants (generated by FJSL parser) ──
 /*FJSL_USER_GLOBALS*/
 
-// The fog shader's density() with its built-ins in scope. OCCUPANCY is one
-// here: this is the scene's haze, which is everywhere. The outputs are
+// The fog shader's density() with its built-ins in scope. The outputs are
 // parameters rather than a returned struct so a body may `return;` early,
 // and so a uniform named `density` cannot collide with a member.
-void fjell_fog_density(vec3 WORLD_POS, vec3 VIEW_DIR, float VIEW_DIST,
+//
+// For the haze OCCUPANCY is one, LOCAL_POS is the offset from the node and
+// DRIFT is zero. For a placed volume LOCAL_POS is the point in the volume's
+// own unit space, OCCUPANCY how far inside its shape the point sits, and
+// DRIFT how far the node has carried its field so far.
+void fjell_fog_density(vec3 WORLD_POS, vec3 VIEW_DIR, float VIEW_DIST, vec3 LOCAL_POS,
+                       float OCCUPANCY, vec3 DRIFT, float MOTION_RESPONSE,
                        MotionSample MOTION, MotionGradient MOTION_FALLOFF, float STIR,
                        inout float DENSITY, inout vec3 COLOR, inout float SCATTERING) {
     // ── Where ──
     vec3 ORIGIN = vec3(pc.origin_x, pc.origin_y, pc.origin_z);
-    vec3 LOCAL_POS = WORLD_POS - ORIGIN;
-    float OCCUPANCY = 1.0;
     vec3 CAMERA_POS = ubo.camera_position.xyz;
 
     // ── Bodies and time ──
@@ -340,59 +341,92 @@ void fjell_fog_light(int LIGHT_KIND, vec3 LIGHT_DIR, vec3 LIGHT_COLOR, float COS
     }
 }
 
-void main() {
-    ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
-    if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
+// Where this froxel is in the world, and which way the eye looks through it.
+struct FjellFroxel {
+    vec3 world_pos;
+    vec3 ray_dir;
+    float linear_depth;   // view-space depth of the jittered sample
+    vec3 froxel_uv;
+};
 
+FjellFroxel fjell_froxel(ivec3 coord) {
+    FjellFroxel f;
     // Froxel UV with precomputed Halton jitter for temporal stability
-    vec3 froxel_uv = (vec3(coord) + 0.5 + vec3(pc.jitter_x, pc.jitter_y, pc.jitter_z))
-                     / vec3(pc.volume_dims.xyz);
+    f.froxel_uv = (vec3(coord) + 0.5 + vec3(pc.jitter_x, pc.jitter_y, pc.jitter_z))
+                  / vec3(pc.volume_dims.xyz);
 
     // Reconstruct world position from froxel coordinates
-    float linear_depth = slice_to_depth(froxel_uv.z);
-    vec2 ndc_xy = froxel_uv.xy * 2.0 - 1.0;
+    f.linear_depth = slice_to_depth(f.froxel_uv.z);
+    vec2 ndc_xy = f.froxel_uv.xy * 2.0 - 1.0;
 
     // Get world-space ray from camera through this froxel
     vec4 near_world = ubo.inv_view_proj * vec4(ndc_xy, 0.0, 1.0);
     near_world /= near_world.w;
     vec4 far_world = ubo.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
     far_world /= far_world.w;
-    vec3 ray_dir = normalize(far_world.xyz - near_world.xyz);
+    f.ray_dir = normalize(far_world.xyz - near_world.xyz);
 
     // Walk from this froxel column's own near-plane point to the slice's
     // view-space depth. Starting at the near point instead of the eye keeps
     // the reconstruction valid for orthographic cameras, where each column
     // has a distinct origin; for perspective the two coincide.
     vec3 view_forward = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
-    float cos_angle = dot(ray_dir, view_forward);
+    float cos_angle = dot(f.ray_dir, view_forward);
     float near_dist = -(ubo.view * near_world).z;
-    float ray_dist = (linear_depth - near_dist) / max(cos_angle, 1e-6);
-    vec3 world_pos = near_world.xyz + ray_dir * ray_dist;
+    float ray_dist = (f.linear_depth - near_dist) / max(cos_angle, 1e-6);
+    f.world_pos = near_world.xyz + f.ray_dir * ray_dist;
+    return f;
+}
 
-    // What has come through here lately, for everything that answers it. One
-    // lookup for the froxel rather than one per source of fog: the map does
-    // not vary between them.
-    MotionSample motion = motion_at(world_pos);
-    // Which way the wake weakens, for telling its two sides apart. One
-    // lookup for the froxel; readers differ in how far they answer it, not in
-    // where the wake is.
-    MotionGradient motion_falloff = motion.recency > 0.0
+#ifndef FJELL_FOG_LIGHT
+
+// ── Medium variant: one source of fog into the accumulated fjell_medium ──
+
+void main() {
+    ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
+    if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
+
+    FjellFroxel f = fjell_froxel(coord);
+    vec3 world_pos = f.world_pos;
+
+    const bool fjell_haze = pc.volume_index == FOG_HAZE;
+
+    // Where the point sits for this source. A volume that does not reach
+    // the froxel adds nothing and leaves the image as the sources before it
+    // left it; the haze reaches everywhere and is the first to write.
+    vec3 fjell_local_pos = world_pos - vec3(pc.origin_x, pc.origin_y, pc.origin_z);
+    float fjell_occupancy = 1.0;
+    vec3 fjell_drift = vec3(0.0);
+    float fjell_motion_response = pc.motion_response;
+    if (!fjell_haze) {
+        GpuFogVolume vol = fog_volumes[pc.volume_index];
+        fjell_occupancy = volume_occupancy(int(vol.shape_falloff.x), vol.inv_transform,
+                                     world_pos, vol.shape_falloff.y);
+        if (fjell_occupancy <= 0.0) return;
+        fjell_local_pos = (vol.inv_transform * vec4(world_pos, 1.0)).xyz;
+        fjell_drift = vol.drift.xyz;
+        fjell_motion_response = vol.shape_falloff.z;
+    }
+
+    // What has come through here lately, for everything that answers it.
+    MotionSample fjell_motion = motion_at(world_pos);
+    // Which way the wake weakens, for telling its two sides apart.
+    MotionGradient fjell_motion_falloff = fjell_motion.recency > 0.0
         ? motion_gradient(world_pos, MOTION_FIELD_TEXEL_M)
         : MotionGradient(vec2(0.0), 0.0);
+    // What the air here has actually been through, as it stands now, for a
+    // shader that shapes its fjell_medium by it. The engine scales the whole
+    // fjell_medium by it in the light variant.
+    float fjell_stir = fog_density_stir(world_pos);
 
-    // What the air here has actually been through, as it stands now. Read
-    // once for the froxel: the shader may shape its medium by it, and the
-    // engine scales everything that makes fog by it below.
-    float stir = fog_density_stir(world_pos);
-
-    // The scene's haze, as the fog shader decides it.
-    float global_density = 0.0;
-    vec3 global_color = vec3(1.0);
-    float global_scattering = 1.0;
-    fjell_fog_density(world_pos, ray_dir, distance(world_pos, ubo.camera_position.xyz),
-                      motion, motion_falloff, stir,
-                      global_density, global_color, global_scattering);
-    global_density = max(global_density, 0.0);
+    float fjell_density = 0.0;
+    vec3 fjell_color = vec3(1.0);
+    float fjell_scattering = 1.0;
+    fjell_fog_density(world_pos, f.ray_dir, distance(world_pos, ubo.camera_position.xyz),
+                      fjell_local_pos, fjell_occupancy, fjell_drift, fjell_motion_response,
+                      fjell_motion, fjell_motion_falloff, fjell_stir,
+                      fjell_density, fjell_color, fjell_scattering);
+    fjell_density = max(fjell_density, 0.0);
 
     // The height fog is a smooth function of height with no wisps in it, so
     // there is nothing in it to displace — what it can do is give way. The air
@@ -402,160 +436,116 @@ void main() {
     //
     // The wake's falloff runs across the heading along its flanks and along
     // the heading through its middle, so one cross product separates the
-    // trough from the heaps beside it.
-    if (pc.motion_response > 0.0 && motion.recency > 0.0) {
-        float reach = 1.0 - smoothstep(motion.height, motion.height + MOTION_FADE_METRES,
+    // trough from the heaps beside it. A volume's own shader answers movement
+    // itself, with wisps to drag, and is left alone here.
+    if (fjell_haze && pc.motion_response > 0.0 && fjell_motion.recency > 0.0) {
+        float reach = 1.0 - smoothstep(fjell_motion.height, fjell_motion.height + MOTION_FADE_METRES,
                                        world_pos.y);
-        float stir_here = pc.motion_response * motion.recency * reach;
-        vec2 heading = length(motion.velocity) > 1e-4
-            ? normalize(motion.velocity) : vec2(0.0);
-        float flank = abs(heading.x * motion_falloff.direction.y
-                        - heading.y * motion_falloff.direction.x);
-        global_density *= max(1.0 - stir_here * (GLOBAL_MOTION_THIN - GLOBAL_MOTION_HEAP * flank),
-                              0.0);
+        float fjell_stir_here = pc.motion_response * fjell_motion.recency * reach;
+        vec2 heading = length(fjell_motion.velocity) > 1e-4
+            ? normalize(fjell_motion.velocity) : vec2(0.0);
+        float flank = abs(heading.x * fjell_motion_falloff.direction.y
+                        - heading.y * fjell_motion_falloff.direction.x);
+        fjell_density *= max(1.0 - fjell_stir_here * (GLOBAL_MOTION_THIN - GLOBAL_MOTION_HEAP * flank),
+                       0.0);
     }
 
-    // Local fog volumes add their density on top of the height fog, and their
-    // colour and scattering average in by how much density each contributes —
-    // so a warm bank reads warm where it is thick and fades to the global
-    // colour as it thins. Adding means overlaps are thicker and the order the
-    // volumes arrive in cannot matter.
-    float density_sum = global_density;
-    vec3 color_sum = global_color * global_density;
-    float scatter_sum = global_density;   // the global fog's own multiplier is 1
-
-    for (uint i = 0; i < pc.volume_count; ++i) {
-        GpuFogVolume vol = fog_volumes[i];
-        float occupancy = volume_occupancy(int(vol.shape_falloff.x), vol.inv_transform,
-                                           world_pos, vol.shape_falloff.y);
-        if (occupancy <= 0.0) continue;
-
-        // Something that came through pushes the fog along with it and leaves
-        // the air behind it briefly thinner. The drag is an offset into the
-        // noise, so the wisps themselves move rather than the volume dimming
-        // in a disc — displaced air rather than a hole punched in it.
-        vec3 motion_offset = vec3(0.0);
-        float response = vol.noise_shape.z;
-        if (response > 0.0 && motion.recency > 0.0) {
-            // Nothing stirs the air above what passed through it: a walker
-            // leaves the fog over their head alone. `motion.height` is the
-            // world Y of the top of what came through, so this is a plain
-            // comparison rather than a guess at where the ground was.
-            float reach = 1.0 - smoothstep(motion.height, motion.height + MOTION_FADE_METRES,
-                                           world_pos.y);
-            float stir_here = response * motion.recency * reach;
-            vec2 along = motion.velocity * stir_here * MOTION_DRAG * vol.noise_drift.w;
-
-            // Dragging alone slides the whole field, and a sheet that slides
-            // reads as a patch moving rather than as air turning — most
-            // plainly when the wind is pushing the fog another way and the
-            // two offsets simply add.
-            //
-            // So the sides of the wake are also pushed apart, across the
-            // path rather than along it. The wake's falloff points away from
-            // where the thing went, so its cross product with the heading is
-            // positive on one side and negative on the other: the field is
-            // sheared about the path instead of carried with it.
-            vec2 heading = length(motion.velocity) > 1e-4
-                ? normalize(motion.velocity) : vec2(0.0);
-            vec2 across = vec2(-heading.y, heading.x);
-            float side = heading.x * motion_falloff.direction.y
-                       - heading.y * motion_falloff.direction.x;
-            vec2 curl = across * side * stir_here * MOTION_CURL * vol.noise_drift.w;
-
-            motion_offset = vec3(along.x + curl.x, 0.0, along.y + curl.y);
-
-            // Smooth fog has no wisps to displace, so nothing about the drag
-            // would show: there the thinning is the whole effect and carries
-            // it alone. Where there is noise it stays a hint, because a hole
-            // following a walker is what this is trying not to look like.
-            float thin = mix(MOTION_THIN_SMOOTH, MOTION_THIN,
-                             clamp(vol.noise_shape.x, 0.0, 1.0));
-            occupancy *= max(1.0 - stir_here * thin, 0.0);
-        }
-
-        // The noise rides on top of the shape, so the edge still fades and the
-        // wisps live inside it rather than eating their way through it.
-        occupancy *= volume_noise(world_pos - motion_offset, vol.noise_drift.xyz, vol.noise_drift.w,
-                                  vol.noise_shape.x, int(vol.noise_shape.y));
-
-        float d = vol.color_density.w * occupancy;
-        density_sum += d;
-        color_sum += vol.color_density.xyz * d;
-        scatter_sum += vol.scatter_params.x * d;
+    // Sources add: overlaps are thicker, and the order they arrive in cannot
+    // matter. Colour and fjell_scattering are carried premultiplied by fjell_density,
+    // so a warm bank reads warm where it is thick and fades to the fjell_haze's
+    // colour as it thins.
+    vec4 fjell_contribution = vec4(fjell_color * fjell_scattering * fjell_density, fjell_density);
+    if (fjell_haze) {
+        imageStore(fog_medium, coord, fjell_contribution);
+    } else {
+        imageStore(fog_medium, coord, imageLoad(fog_medium, coord) + fjell_contribution);
     }
+}
 
-    // What the air here has actually been through, applied to everything that
-    // makes fog rather than inside the volume loop: the field does not know
-    // which fog it is stirring, and the height fog is as much fog as a placed
-    // bank is.
+#else
+
+// ── Light variant: the accumulated fjell_medium, lit ──
+
+void main() {
+    ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
+    if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
+
+    FjellFroxel f = fjell_froxel(coord);
+    vec3 world_pos = f.world_pos;
+    vec3 ray_dir = f.ray_dir;
+
+    vec4 fjell_medium = imageLoad(fog_medium, coord);
+    float fjell_density_sum = fjell_medium.a;
+    // Σ colour × fjell_scattering × fjell_density: what the fjell_medium here scatters per
+    // unit of light, before the lights are known.
+    vec3 fjell_scatter_sum = fjell_medium.rgb;
+
+    // What the air here has actually been through, applied to everything
+    // that makes fog: the field does not know which fog it is stirring, and
+    // the fjell_haze is as much fog as a placed bank is.
     //
     // A share of what is here rather than an amount of its own, so a wake is
     // as strong as the fog it is carved in and cannot light up clear air above
     // a bank. Scaled well below one so that the air thins where it was pushed
     // aside and thickens where it piled up without either reaching a hole or a
     // wall — displaced air, not removed air.
-    if (stir != 0.0) {
-        float scale = clamp(1.0 + stir * FOG_DENSITY_STRENGTH, FOG_DENSITY_FLOOR,
+    float fjell_stir = fog_density_stir(world_pos);
+    if (fjell_stir != 0.0) {
+        float scale = clamp(1.0 + fjell_stir * FOG_DENSITY_STRENGTH, FOG_DENSITY_FLOOR,
                             FOG_DENSITY_CEIL);
-        density_sum *= scale;
-        color_sum *= scale;
-        scatter_sum *= scale;
+        fjell_density_sum *= scale;
+        fjell_scatter_sum *= scale;
     }
 
-    // Colour and scattering are averages over the fog present here, weighted
-    // by how much density each source contributes. Taken before the distance
-    // fade below, which scales how much fog there is and not what colour it is.
-    float inv_density = 1.0 / max(density_sum, 1e-6);
-    vec3 fog_color = color_sum * inv_density;
-    float scatter_mult = scatter_sum * inv_density;
-
-    // Colours what the stir is doing to the fog that is here, red where the air
+    // Colours what the fjell_stir is doing to the fog that is here, red where the air
     // was shoved aside and blue where it piled up. It paints and adds nothing:
     // where there is no fog there is nothing to see, which is the point — this
     // shows the effect rather than the field behind it.
     //
     // Emitted rather than lit, so the colour reads the same at any hour and in
     // any weather instead of being one more thing the lighting scales.
-    vec3 debug_emit = vec3(0.0);
-    if (pc.density_field_debug > 0.0 && stir != 0.0) {
-        float show = clamp(abs(stir) * 6.0 * pc.density_field_debug, 0.0, 1.0);
-        debug_emit = (stir < 0.0 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.4, 1.0)) * show;
+    vec3 fjell_debug_emit = vec3(0.0);
+    if (pc.density_field_debug > 0.0 && fjell_stir != 0.0) {
+        float show = clamp(abs(fjell_stir) * 6.0 * pc.density_field_debug, 0.0, 1.0);
+        fjell_debug_emit = (fjell_stir < 0.0 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.4, 1.0)) * show;
     }
 
-    // Fade density to zero near max distance to prevent uniform grey wall.
-    // Use view-space depth (not ray_dist) so the fade is uniform across the
-    // screen — otherwise edge froxels fade earlier than center ones and the
+    // Fade fjell_density to zero near max distance to prevent uniform grey wall.
+    // Use view-space depth (not ray_dist) so the fjell_fade is uniform across the
+    // screen — otherwise edge froxels fjell_fade earlier than center ones and the
     // volume's frustum silhouette becomes visible against the sky. Volumes
-    // fade with it: one sitting at the far plane would otherwise punch a
-    // sharp edge through the fade.
-    float dist_ratio = linear_depth / pc.far_plane;
-    float fog_density = density_sum * (1.0 - smoothstep(0.7, 1.0, dist_ratio));
+    // fjell_fade with it: one sitting at the far plane would otherwise punch a
+    // sharp edge through the fjell_fade.
+    float dist_ratio = f.linear_depth / pc.far_plane;
+    float fjell_fade = 1.0 - smoothstep(0.7, 1.0, dist_ratio);
+    float fjell_fog_density = fjell_density_sum * fjell_fade;
 
-    // Early out for negligible density
-    if (fog_density < 1e-6) {
+    // Early out for negligible fjell_density
+    if (fjell_fog_density < 1e-6) {
         imageStore(scatter_volume, coord, vec4(0.0));
         return;
     }
 
     // Extinction controls fog opacity (how much light is blocked).
-    // Scattering controls in-scattered light brightness independently,
+    // Scattering controls in-fjell_scattered light brightness independently,
     // so god rays can be bright without making the fog opaque.
-    float extinction = fog_density * 0.1;
-    float scatter_coeff = fog_density * global_scattering * scatter_mult;
+    float fjell_extinction = fjell_fog_density * 0.1;
+    // What light() sees as the fjell_medium's colour: the colour × fjell_scattering the
+    // sources here average to, weighted by how much each contributed.
+    vec3 fjell_fog_color = fjell_scatter_sum / max(fjell_density_sum, 1e-6);
 
-    // Every light that reaches this froxel, scattered toward the eye by the
+    // Every light that reaches this froxel, fjell_scattered toward the eye by the
     // fog shader's light(). The sun first.
     vec3 sun_dir = ubo.light_direction.xyz;
-    vec3 scattered = vec3(0.0);
+    vec3 fjell_scattered = vec3(0.0);
     fjell_fog_light(FOG_LIGHT_SUN, sun_dir, ubo.light_color.xyz * ubo.light_direction.w,
                     dot(ray_dir, sun_dir), sample_shadow(world_pos),
-                    world_pos, ray_dir, fog_density, fog_color, scattered);
+                    world_pos, ray_dir, fjell_fog_density, fjell_fog_color, fjell_scattered);
 
     // Per-froxel rotation for PCF jitter (varies per froxel + frame for temporal smoothing)
     mat2 pcf_rot = vol_random_rotation(coord, pc.volume_dims.w);
 
-    // Point light scattering
+    // Point light fjell_scattering
     uint point_count = ubo.tile_info.z;
     for (uint i = 0; i < point_count; ++i) {
         GpuPointLight pl = point_lights[i];
@@ -573,10 +563,10 @@ void main() {
         fjell_fog_light(FOG_LIGHT_POINT, L,
                         pl.color_intensity.xyz * pl.color_intensity.w * pl.vol_params.x * atten,
                         dot(ray_dir, L), pl_shadow,
-                        world_pos, ray_dir, fog_density, fog_color, scattered);
+                        world_pos, ray_dir, fjell_fog_density, fjell_fog_color, fjell_scattered);
     }
 
-    // Spot light scattering
+    // Spot light fjell_scattering
     uint spot_count = ubo.tile_info.w;
     for (uint i = 0; i < spot_count; ++i) {
         GpuSpotLight sl = spot_lights[i];
@@ -600,7 +590,7 @@ void main() {
         fjell_fog_light(FOG_LIGHT_SPOT, L,
                         sl.color_intensity.xyz * sl.color_intensity.w * sl.vol_params.x * atten,
                         dot(ray_dir, L), sl_shadow,
-                        world_pos, ray_dir, fog_density, fog_color, scattered);
+                        world_pos, ray_dir, fjell_fog_density, fjell_fog_color, fjell_scattered);
     }
 
     // Ambient in-scatter: the sky, arriving from everywhere at once. It reads
@@ -612,21 +602,26 @@ void main() {
     // directional terms.
     vec3 sky_ambient = textureLod(sky_cubemap, ray_dir, 5.0).rgb;
     fjell_fog_light(FOG_LIGHT_AMBIENT, vec3(0.0), sky_ambient * ubo.ambient_color.w, 0.0, 1.0,
-                    world_pos, ray_dir, fog_density, fog_color, scattered);
+                    world_pos, ray_dir, fjell_fog_density, fjell_fog_color, fjell_scattered);
 
-    vec3 in_scattered = fog_color * scatter_coeff * scattered;
+    // Σ colour × fjell_scattering × fjell_density, faded with the fjell_density, times what
+    // the lights scatter: each source's share of the light is its own colour
+    // and brightness, and the sum is what the fjell_medium here sends to the eye.
+    vec3 in_scattered = fjell_scatter_sum * fjell_fade * fjell_scattered;
 
-    // The integrator divides what it is handed by extinction and scales it by
-    // how much of the slice the fog absorbs — right for light scattered out of
-    // a medium, wrong for a colour that is only here to be looked at. Undoing
+    // The integrator divides what it is handed by fjell_extinction and scales it by
+    // how much of the slice the fog absorbs — right for light fjell_scattered out of
+    // a fjell_medium, wrong for a colour that is only here to be looked at. Undoing
     // exactly that leaves the debug colour at the strength it was written,
     // whether the fog it sits in is thick or barely there.
-    if (debug_emit != vec3(0.0)) {
-        float slice_far = slice_to_depth(min(froxel_uv.z + 1.0 / float(pc.volume_dims.z), 1.0));
-        float thickness = max(slice_far - linear_depth, 1e-4);
-        float absorbed = 1.0 - exp(-extinction * thickness);
-        in_scattered += debug_emit * extinction / max(absorbed, 1e-7) * DEBUG_EMIT_GAIN;
+    if (fjell_debug_emit != vec3(0.0)) {
+        float slice_far = slice_to_depth(min(f.froxel_uv.z + 1.0 / float(pc.volume_dims.z), 1.0));
+        float thickness = max(slice_far - f.linear_depth, 1e-4);
+        float absorbed = 1.0 - exp(-fjell_extinction * thickness);
+        in_scattered += fjell_debug_emit * fjell_extinction / max(absorbed, 1e-7) * DEBUG_EMIT_GAIN;
     }
 
-    imageStore(scatter_volume, coord, vec4(in_scattered, extinction));
+    imageStore(scatter_volume, coord, vec4(in_scattered, fjell_extinction));
 }
+
+#endif // FJELL_FOG_LIGHT

@@ -1,0 +1,95 @@
+shader_type fog;
+
+// The engine's default for a placed Fog Volume: a bank of one colour, broken
+// into wisps by a noise field the node drifts through the world, that gives
+// way to whatever moves through it. Any Fog Volume without a material draws
+// with this at its defaults, and a .fjmat naming this shader tunes it.
+//
+// Meant for a volume: DENSITY is scaled by OCCUPANCY so the node's edge
+// falloff shows. On the scene's fog node OCCUPANCY is one everywhere and this
+// draws a uniform haze.
+
+uniform float density : hint_range(0.0, 2.0, 0.001) = 0.05;
+uniform vec3 color : hint_color = vec3(0.8, 0.85, 0.9);
+// How brightly the bank scatters light, without being thicker.
+uniform float scattering : hint_range(0.0, 4.0, 0.01) = 1.0;
+
+group "Wisps";
+// How broken up the fog looks, 0 for none. Does not change how much fog
+// there is: the field averages to one whatever this is set to.
+uniform float noise_contrast : hint_range(0.0, 1.0, 0.01) = 0.0;
+// Metres per noise period — the size of a wisp.
+uniform float noise_scale : hint_range(0.5, 64.0, 0.5) = 8.0;
+// Layers of detail. Each one doubles what sampling the field costs.
+uniform float noise_octaves : hint_range(1.0, 4.0, 1.0) = 2.0;
+
+group "Motion";
+// What answering movement is worth, at the node's full response.
+//
+// The drag is a fraction of the volume's own noise period per metre per
+// second, not an absolute distance: a wisp is only displaced visibly if it
+// moves a real share of its own size, and a volume with 32 m wisps needs a
+// far bigger shift than one with 2 m wisps to read the same. A walk lands
+// near a fifth of a wisp, a run near a half.
+uniform float drag : hint_range(0.0, 1.0, 0.01) = 0.25;
+// How hard the two sides of a wake are pushed apart, against how hard the
+// whole thing is dragged along. This is what separates turning from sliding,
+// so it is deliberately the larger of the two — and because the wake's
+// direction is a unit vector, that ratio holds however wide the mark has
+// spread rather than fading out as it opens. Half a wisp of shear reads as
+// the field being turned; much past a whole one the wisp lands somewhere
+// uncorrelated with where it started.
+uniform float curl : hint_range(0.0, 1.0, 0.01) = 0.4;
+// How much thinner the air is along the path, with wisps to drag and without.
+// Deliberately slight where there are wisps: air shoved aside is displaced,
+// not destroyed, and a strong thinning reads as a hole following the
+// character rather than as fog moving out of their way. Smooth fog has no
+// wisps to displace, so there the thinning is the whole effect.
+uniform float thin : hint_range(0.0, 1.0, 0.01) = 0.15;
+uniform float thin_smooth : hint_range(0.0, 1.0, 0.01) = 0.6;
+
+void density() {
+    float occupancy = OCCUPANCY;
+    vec3 motion_offset = vec3(0.0);
+
+    // Something that came through pushes the fog along with it and leaves
+    // the air behind it briefly thinner. The drag is an offset into the
+    // noise, so the wisps themselves move rather than the volume dimming
+    // in a disc — displaced air rather than a hole punched in it.
+    if (MOTION_RESPONSE > 0.0 && MOTION.recency > 0.0) {
+        // Nothing stirs the air above what passed through it: MOTION.height
+        // is the world Y of the top of what came through.
+        float reach = 1.0 - smoothstep(MOTION.height, MOTION.height + MOTION_FADE_METRES,
+                                       WORLD_POS.y);
+        float stir = MOTION_RESPONSE * MOTION.recency * reach;
+        vec2 along = MOTION.velocity * stir * drag * noise_scale;
+
+        // Dragging alone slides the whole field, and a sheet that slides
+        // reads as a patch moving rather than as air turning. So the sides
+        // of the wake are also pushed apart, across the path rather than
+        // along it: the wake's falloff points away from where the thing
+        // went, so its cross product with the heading is positive on one
+        // side and negative on the other, and the field is sheared about
+        // the path instead of carried with it.
+        vec2 heading = length(MOTION.velocity) > 1e-4
+            ? normalize(MOTION.velocity) : vec2(0.0);
+        vec2 across = vec2(-heading.y, heading.x);
+        float side = heading.x * MOTION_FALLOFF.direction.y
+                   - heading.y * MOTION_FALLOFF.direction.x;
+        vec2 shear = across * side * stir * curl * noise_scale;
+
+        motion_offset = vec3(along.x + shear.x, 0.0, along.y + shear.y);
+
+        float thinning = mix(thin_smooth, thin, clamp(noise_contrast, 0.0, 1.0));
+        occupancy *= max(1.0 - stir * thinning, 0.0);
+    }
+
+    // The noise rides on top of the shape, so the edge still fades and the
+    // wisps live inside it rather than eating their way through it.
+    occupancy *= volume_noise(WORLD_POS - motion_offset, DRIFT, noise_scale,
+                              noise_contrast, int(noise_octaves));
+
+    DENSITY = density * occupancy;
+    COLOR = color;
+    SCATTERING = scattering;
+}

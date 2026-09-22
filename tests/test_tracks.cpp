@@ -148,21 +148,34 @@ TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {
 
     EnvironmentState state;
     state.fog.uniforms = {NamedValue{.name = "density", .count = 1, .values = {0.01f}}};
-    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "valley"});
-    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "cave"});
-    state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = ""});
-    const glm::vec3 authored_color = state.fog_volumes[1].color;
+    auto bank = [](const char* group) {
+        return FogVolume{.group = group,
+                         .uniforms = {NamedValue{.name = "density", .count = 1, .values = {0.05f}},
+                                      NamedValue{.name = "color", .count = 3,
+                                                 .values = {0.5f, 0.5f, 0.5f}, .srgb = true}}};
+    };
+    state.fog_volumes.push_back(bank("valley"));
+    state.fog_volumes.push_back(bank("cave"));
+    state.fog_volumes.push_back(bank(""));
+    auto density_of = [&](size_t i) {
+        return find_named(state.fog_volumes[i].uniforms, "density")->values[0];
+    };
+    auto color_of = [&](size_t i) {
+        const NamedValue* c = find_named(state.fog_volumes[i].uniforms, "color");
+        return color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2]));
+    };
+    const glm::vec3 authored_color = color_of(1);
 
     profile.apply(12.0f, state);
 
     // The ungrouped track is the global fog's alone; it does not reach volumes.
     REQUIRE(state.fog.scalar("density", 0.0f) == Approx(0.02f));
-    REQUIRE(state.fog_volumes[0].density == Approx(0.15f));   // tagged: scaled
-    REQUIRE(state.fog_volumes[1].density == Approx(0.05f));   // another group
-    REQUIRE(state.fog_volumes[2].density == Approx(0.05f));   // untagged
+    REQUIRE(density_of(0) == Approx(0.15f));   // tagged: scaled
+    REQUIRE(density_of(1) == Approx(0.05f));   // another group
+    REQUIRE(density_of(2) == Approx(0.05f));   // untagged
 
-    REQUIRE(close(state.fog_volumes[0].color, glm::vec3(0.9f, 0.5f, 0.2f)));
-    REQUIRE(close(state.fog_volumes[1].color, authored_color));
+    REQUIRE(close(color_of(0), glm::vec3(0.9f, 0.5f, 0.2f)));
+    REQUIRE(close(color_of(1), authored_color));
 
     // A grouped track is not a sky uniform, however unknown its name looks.
     REQUIRE(state.sky_uniforms.empty());

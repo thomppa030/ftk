@@ -71,7 +71,9 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
             if (const auto v = tracks.value_of(track.name, hour)) {
                 for (auto& volume : state.fog_volumes) {
                     if (volume.group != density_group) continue;
-                    volume.density = track.mode == TrackMode::Multiply ? volume.density * *v : *v;
+                    if (auto* u = find_named(volume.uniforms, fog_track::DENSITY_UNIFORM)) {
+                        fold_track(*u, track.mode, *v);
+                    }
                 }
             }
             continue;
@@ -82,7 +84,9 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
             if (const auto c = tracks.color_of(track.name, hour)) {
                 for (auto& volume : state.fog_volumes) {
                     if (volume.group != color_group) continue;
-                    volume.color = track.mode == TrackMode::Multiply ? volume.color * *c : *c;
+                    if (auto* u = find_named(volume.uniforms, fog_track::COLOR_UNIFORM)) {
+                        fold_track(*u, track.mode, *c);
+                    }
                 }
             }
         }

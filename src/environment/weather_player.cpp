@@ -225,18 +225,26 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
             const auto density_group =
                 fog_group_track::group_of(track.name, fog_group_track::DENSITY_PREFIX);
             if (!density_group.empty()) {
-                for (auto& volume : state.fog_volumes) {
-                    if (volume.group != density_group) continue;
-                    over(track.name, volume.density);
+                if (auto v = t.value_of(track.name, x)) {
+                    for (auto& volume : state.fog_volumes) {
+                        if (volume.group != density_group) continue;
+                        if (auto* u = find_named(volume.uniforms, fog_track::DENSITY_UNIFORM)) {
+                            fold_track(*u, track.mode, *v, wt);
+                        }
+                    }
                 }
                 continue;
             }
             const auto color_group =
                 fog_group_track::group_of(track.name, fog_group_track::COLOR_PREFIX);
             if (!color_group.empty()) {
-                for (auto& volume : state.fog_volumes) {
-                    if (volume.group != color_group) continue;
-                    over_color(track.name, volume.color);
+                if (auto c = t.color_of(track.name, x)) {
+                    for (auto& volume : state.fog_volumes) {
+                        if (volume.group != color_group) continue;
+                        if (auto* u = find_named(volume.uniforms, fog_track::COLOR_UNIFORM)) {
+                            fold_track(*u, track.mode, *c, wt);
+                        }
+                    }
                 }
             }
         }

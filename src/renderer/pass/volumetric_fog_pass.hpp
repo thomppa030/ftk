@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -21,12 +22,19 @@ class PipelineCache;
 
 // ── Froxel-based volumetric fog pipeline ────────────────────────────────────
 //
-// Fog runs four compute dispatches authored as four independent DAG nodes:
+// Fog runs five compute steps authored as five independent DAG nodes:
 //
-//   fog_inject     — write density + light scattering into scatter[cur].
-//                    The shader is the fog node's material, a `shader_type
-//                    fog` .fjsl compiled through PipelineCache into the fog
-//                    template; the engine's fog.fjsl when the node has none.
+//   fog_medium     — one dispatch per source of fog into the single-frame
+//                    transient fog_medium: the haze over the whole froxel
+//                    grid, then each placed volume over the froxels its
+//                    bounds reach. Every source is a `shader_type fog`
+//                    material compiled through PipelineCache into the fog
+//                    template's medium variant; the engine's fog.fjsl and
+//                    fog_volume.fjsl stand in for a node with no material.
+//   fog_light      — the light variant of the haze's material, once over
+//                    the grid: reads fog_medium, applies the stir and the
+//                    distance fade, scatters every light through light()
+//                    into scatter[cur].
 //   fog_temporal   — blend scatter[cur] with scatter[prev] (the last
 //                    frame's result). Reads scatter[prev], reads+writes
 //                    scatter[cur].
@@ -35,25 +43,24 @@ class PipelineCache;
 //   fog_composite  — apply fog_integrated over the scene color.
 //
 // With each dispatch as its own RenderPass, the FrameGraph emits one
-// merged barrier per image per node and the single-frame fog_integrated
-// volume's lifetime collapses to [integrate..composite] (alias-eligible
+// merged barrier per image per node, and the single-frame transients
+// collapse to [medium..light] and [integrate..composite] (alias-eligible
 // with other single-frame transients of matching shape).
 //
 // Layering:
-//   • FogCore          — abstract base. Owns sampler, four descriptor
-//                        layouts, four pipelines, scene parameters, the
+//   • FogCore          — abstract base. Owns sampler, descriptor layouts,
+//                        the engine's own pipelines, the per-material fog
+//                        pipelines and rows, scene parameters, the
 //                        per-viewport Images struct (scatter ping-pong),
 //                        and prepare_frame() to source scene state. Itself
-//                        a RenderPass, registered as "fog_inject" through
-//                        FogInjectPass.
-//   • FogInjectPass    — concrete FogCore. Advances the ping-pong counter
-//                        at declare time so followers see a consistent
-//                        (cur, prev) pair for the whole frame. Runs the
-//                        inject dispatch.
-//   • FogTemporalPass,
+//                        a RenderPass, registered as "fog_medium" through
+//                        FogMediumPass.
+//   • FogMediumPass    — concrete FogCore. Records the medium dispatches.
+//   • FogLightPass,
+//     FogTemporalPass,
 //     FogIntegratePass,
 //     FogCompositePass — followers. Hold FogCore* set in post_create()
-//                        via passes.get<FogCore>("fog_inject"). Each
+//                        via passes.get<FogCore>("fog_medium"). Each
 //                        records exactly one dispatch.
 //
 // Resource flow:
@@ -62,13 +69,14 @@ class PipelineCache;
 //     "fog_scatter_cur" / "fog_scatter_prev" into DeclareContext.imports
 //     each frame based on the active viewport's ping-pong state, same
 //     pattern Hi-Z and GTAO use for their per-viewport images.
-//   • fog_integrated is a graph transient: FogIntegratePass create()s it,
-//     FogCompositePass create()s it again for the dedup-by-name read.
+//   • fog_medium and fog_integrated are graph transients: the writer
+//     create()s each, the reader create()s it again for the dedup-by-name
+//     read.
 //
 // Barrier contract: nodes declare only the accesses they perform. The
-// graph emits one merged barrier per image per node. No inline barriers
-// — scatter layout state carries across frames through the graph's
-// per-slice tracker, and fog_integrated is fully owned by the graph.
+// graph emits one merged barrier per image per node. The one inline
+// barrier is the medium pass's own, between its dispatches, because they
+// accumulate into one image inside one node.
 
 class FogCore : public RenderPass {
 public:
@@ -117,28 +125,34 @@ public:
     /// seen there, and over the sea that is the surface — read against the
     /// opaque scene alone it fogs the water for the distance to the bed.
     static constexpr const char* COMPOSITE_DEPTH_NAME = "surface_depth";
+    /// The catalog name of the accumulated medium the medium pass writes and
+    /// the light pass reads.
+    static constexpr const char* MEDIUM_NAME = "fog_medium";
 
     // Getters for follower passes.
     [[nodiscard]] VkSampler fog_sampler() const { return linear_sampler_; }
-    [[nodiscard]] VkDescriptorSetLayout inject_set_layout() const { return inject_set_layout_; }
+    [[nodiscard]] VkDescriptorSetLayout medium_set_layout() const { return medium_set_layout_; }
+    [[nodiscard]] VkDescriptorSetLayout light_set_layout() const { return light_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout temporal_set_layout() const { return temporal_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout integrate_set_layout() const { return integrate_set_layout_; }
     [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_set_layout_; }
-    [[nodiscard]] VkPipelineLayout inject_pipeline_layout() const { return inject_pipeline_layout_; }
+    [[nodiscard]] VkPipelineLayout medium_pipeline_layout() const { return medium_pipeline_layout_; }
+    [[nodiscard]] VkPipelineLayout light_pipeline_layout() const { return light_pipeline_layout_; }
     [[nodiscard]] VkPipelineLayout temporal_pipeline_layout() const { return temporal_pipeline_layout_; }
     [[nodiscard]] VkPipelineLayout integrate_pipeline_layout() const { return integrate_pipeline_layout_; }
     [[nodiscard]] VkPipelineLayout composite_pipeline_layout() const { return composite_pipeline_layout_; }
-    /// The compute pipeline built from this frame's fog shader, or null when
+    /// The haze material's two pipelines for this frame, or null when
     /// neither the node's material nor the engine's default has compiled.
-    [[nodiscard]] VkPipeline inject_pipeline() const { return inject_pipeline_; }
+    [[nodiscard]] VkPipeline medium_pipeline() const { return medium_pipeline_; }
+    [[nodiscard]] VkPipeline light_pipeline() const { return light_pipeline_; }
     [[nodiscard]] VkPipeline temporal_pipeline() const { return temporal_pipeline_; }
     [[nodiscard]] VkPipeline integrate_pipeline() const { return integrate_pipeline_; }
     [[nodiscard]] VkPipeline composite_pipeline() const { return composite_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
 
     // Scene-driven fog parameters + push-constant helper read by each node.
-    // Mirrors shaders/include/fjell_fog_push.glsl field for field; the four
-    // fog shaders all declare the block from that one include.
+    // Mirrors shaders/include/fjell_fog_push.glsl field for field; the fog
+    // shaders all declare the block from that one include.
     struct PushConstants {
         glm::uvec4 volume_dims;   // xyz = froxel grid, w = frame_index
         float near_plane;
@@ -149,42 +163,86 @@ public:
         float jitter_x;
         float jitter_y;
         float jitter_z;
-        // The fog node's world position: ORIGIN in the shader's density().
+        // The source's node position: ORIGIN in the shader's density().
         float origin_x;
         float origin_y;
         float origin_z;
-        // How many entries of fog_volume_ssbo the inject pass should read.
-        // The other three fog shaders share this block and ignore it.
-        uint32_t volume_count;
-        // How far the height fog answers things moving through it. Read by
-        // the inject pass; shared with the other three the same way.
+        // HAZE for the scene's fog, else the index of the volume a medium
+        // dispatch adds. The other steps share this block and ignore it.
+        uint32_t volume_index;
+        // How far the haze answers things moving through it.
         float motion_response;
         // Paints the stirred air so the density field can be seen. 0 is off.
         float density_field_debug;
-        // The fog's row in the material buffer: the pass's own copy of the
-        // node's material, holding this frame's resolved uniform values.
+        // The source's row in the material buffer: the pass's own copy of
+        // the node's material, holding this frame's resolved uniform values.
         uint32_t fog_material_id;
     };
+    static constexpr uint32_t HAZE = ~0u;
+
+    /// The block as the haze fills it; a volume dispatch overwrites the
+    /// source fields.
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
+
+    /// One placed volume the medium pass draws this frame, resolved to what
+    /// the dispatch needs.
+    struct VolumeDraw {
+        uint32_t index{0};          // its entry in the fog volume SSBO
+        VkPipeline pipeline{VK_NULL_HANDLE};
+        uint32_t material_id{0};    // the pass's row for this volume
+        glm::mat4 transform{1.0f};  // world, for the froxel box and ORIGIN
+    };
+    [[nodiscard]] const std::vector<VolumeDraw>& volume_draws() const { return volume_draws_; }
 
 private:
     static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
                                             uint32_t w, uint32_t h, uint32_t d);
     static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
 
-    /// Build, or fetch, the compute pipeline for a fog shader entry, keeping
-    /// it current with the entry's compile generation so a hot reload reaches
-    /// it. Null when the entry is not a fog shader or has never compiled.
-    VkPipeline ensure_material_pipeline(uint32_t pipeline_id);
-    /// Register the engine's fog.fjsl and seed a material row with its
-    /// defaults, for a node with no material or one that cannot draw.
-    void ensure_fallback_material();
-    /// Keep the pass's own material row a copy of the fog's source row, and
-    /// its params slice the frame's resolved uniform values. The source row
-    /// is the material's and is never written: a track folded in here must
-    /// not reach the asset the inspector shows and the scene saves.
-    void apply_material(uint32_t pipeline_id, uint32_t source_material_id,
+    /// The medium and light pipelines built from one fog shader entry.
+    struct MaterialPipeline {
+        VkPipeline medium{VK_NULL_HANDLE};
+        VkPipeline light{VK_NULL_HANDLE};
+        uint32_t generation{0};
+    };
+    /// The engine's default for a kind of node, registered once and given a
+    /// row seeded with the shader's own defaults.
+    struct Fallback {
+        bool ready{false};
+        uint32_t pipeline_id{0};
+        uint32_t material_id{~0u};
+    };
+    /// The pass's own row for one source. Taken once and kept: nothing hands
+    /// a row back, so a fresh one per rebuild would leak. The slice is only
+    /// retaken when a shader wants more room than the last one had.
+    struct Instance {
+        uint32_t material_id{~0u};
+        uint32_t param_offset{0};
+        uint32_t param_count{0};
+        uint32_t source_material{~0u};
+        uint32_t pipeline_id{~0u};
+        uint32_t generation{0};
+        std::vector<NamedValue> applied_uniforms;
+        bool applied{false};
+    };
+
+    /// Build, or fetch, both pipelines for a fog shader entry, keeping them
+    /// current with the entry's compile generation so a hot reload reaches
+    /// them. Null when the entry is not a fog shader or has never compiled.
+    const MaterialPipeline* ensure_material_pipeline(uint32_t pipeline_id);
+    /// Register an engine default and seed a material row with its defaults,
+    /// for a node with no material or one that cannot draw.
+    void ensure_fallback(Fallback& fallback, std::string_view shader);
+    /// The pipelines and source row a source draws with: its own material
+    /// when that compiles, else the kind's fallback. Null when neither does.
+    const MaterialPipeline* resolve_source(uint32_t& pipeline_id, uint32_t& material_id,
+                                           const Fallback& fallback);
+    /// Keep an instance row a copy of its source row, and its params slice
+    /// the frame's resolved uniform values. The source row is the material's
+    /// and is never written: a track folded in here must not reach the asset
+    /// the inspector shows and the scene saves.
+    void apply_instance(Instance& instance, uint32_t pipeline_id, uint32_t source_material_id,
                         const std::vector<NamedValue>& uniforms);
     void destroy_material_pipelines();
 
@@ -195,36 +253,24 @@ private:
     float temporal_blend_{0.9f};
     float motion_response_{0.0f};
     float density_field_debug_{0.0f};
-    uint32_t volume_count_{0};
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
     DeferredDeleter* deferred_deleter_{nullptr};
 
-    struct MaterialPipeline {
-        VkPipeline pipeline{VK_NULL_HANDLE};
-        uint32_t generation{0};
-    };
     std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
     // Entries already complained about, so a wrong-typed material is one
     // line in the log rather than one per frame.
     std::unordered_set<uint32_t> reported_entries_;
 
-    bool fallback_ready_{false};
-    uint32_t fallback_pipeline_id_{0};
-    uint32_t fallback_material_id_{~0u};
-
-    // The pass's own row and params slice. Taken once and kept: nothing hands
-    // a row back, so a fresh one per rebuild would leak. The slice is only
-    // retaken when a shader wants more room than the last one had.
-    uint32_t instance_material_id_{~0u};
-    uint32_t instance_param_offset_{0};
-    uint32_t instance_param_count_{0};
-    uint32_t instance_source_material_{~0u};
-    uint32_t instance_pipeline_id_{~0u};
-    uint32_t instance_generation_{0};
-    std::vector<NamedValue> applied_uniforms_;
-    bool uniforms_applied_{false};
+    Fallback haze_fallback_;
+    Fallback volume_fallback_;
+    Instance haze_instance_;
+    // By node id, so a volume keeps its row across frames. A volume that
+    // leaves the scene leaves its row behind, as the bindless registry is
+    // append-only; a handful of orphaned floats per removed volume.
+    std::unordered_map<uint32_t, Instance> volume_instances_;
+    std::vector<VolumeDraw> volume_draws_;
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
@@ -232,9 +278,13 @@ private:
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
 
-    VkDescriptorSetLayout inject_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout inject_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline inject_pipeline_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout medium_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout medium_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline medium_pipeline_{VK_NULL_HANDLE};
+
+    VkDescriptorSetLayout light_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout light_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline light_pipeline_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout temporal_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout temporal_pipeline_layout_{VK_NULL_HANDLE};
@@ -251,14 +301,26 @@ private:
     Images default_images_;
 };
 
-// Concrete inject node — IS the FogCore. Records inject dispatch, also
-// advances the ping-pong counter at declare time so all four nodes see
-// the same (cur, prev) pair for the whole frame.
-class FogInjectPass : public FogCore {
+// Concrete medium node — IS the FogCore. Records one dispatch per source of
+// fog into the accumulated medium.
+class FogMediumPass : public FogCore {
 public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
+};
+
+class FogLightPass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+
+private:
+    FogCore* core_{nullptr};
 };
 
 class FogTemporalPass : public RenderPass {

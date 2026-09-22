@@ -64,6 +64,9 @@ struct ContactShadowSettings {
 /// The shader a Volumetric Fog node draws with when it names no material:
 /// the engine's height fog, at its own defaults.
 inline constexpr std::string_view DEFAULT_FOG_SHADER = "shaders/fog.fjsl";
+/// The shader a Fog Volume draws with when it names no material: a bank of
+/// one colour, broken into drifting wisps.
+inline constexpr std::string_view DEFAULT_FOG_VOLUME_SHADER = "shaders/fog_volume.fjsl";
 
 /// The volumetric fog node's haze. `enabled` is false when the scene has none.
 ///
@@ -121,34 +124,42 @@ struct MotionSource {
     /// How far above `position` it reaches, so a consumer filling a volume can
     /// leave the air above a walker's head alone.
     float height{1.8f};
-    /// Scales the mark it leaves, for something that barely disturbs the air
-    /// or shoulders through it.
-    float strength{1.0f};
     /// How far below `position` it reaches: zero for a node whose origin is
     /// its feet, half its height for one whose origin is its middle. With
     /// `height` this is the span a body of water asks whether it is in.
     float bottom{0.0f};
+    /// Scales the mark it leaves, for something that barely disturbs the air
+    /// or shoulders through it.
+    float strength{1.0f};
 };
 
 /// One placed fog volume, resolved from a FogVolumeNode. The transform is the
 /// world matrix as authored; the renderer inverts it on the way to the GPU.
+///
+/// What the volume looks like is its material, resolved the same way the
+/// haze's is: the shader and row ids, and every uniform's value for this
+/// frame once the node's overrides and the group's tracks have folded over
+/// the material's.
 struct FogVolume {
+    /// The node this came from, which is what the pass keys its own row for
+    /// the volume by across frames.
+    uint32_t node_id{0};
     glm::mat4 transform{1.0f};
-    glm::vec3 color{0.8f, 0.85f, 0.9f};
-    float density{0.05f};
-    float scattering_mult{1.0f};
     float edge_falloff{0.2f};
     ColliderShape shape{ColliderShape::Box};
     /// The volume's group, for the `fog_density.<group>` tracks a day profile
     /// and a weather event scale it by. Empty means neither reaches it.
     std::string group;
 
-    float noise_contrast{0.0f};
-    float noise_scale{8.0f};
-    /// Where the field has drifted to, in world metres. Already integrated by
-    /// the node, so everything downstream only copies it.
-    glm::vec3 noise_drift{0.0f};
-    int noise_octaves{2};
+    uint32_t pipeline_id{FogSettings::NO_MATERIAL};
+    uint32_t material_id{FogSettings::NO_MATERIAL};
+    /// Colours in sRGB, as `hint_color` is authored everywhere.
+    std::vector<NamedValue> uniforms;
+
+    /// Where the node has carried its field to, in world metres, for the
+    /// shader's DRIFT. Already integrated by the node, so everything
+    /// downstream only copies it.
+    glm::vec3 drift{0.0f};
     /// How far the volume answers things moving through it, 0 for not at all.
     float motion_response{0.0f};
     /// How hard the rolls a body sheds turn the air behind it, 0 for none.

@@ -16,7 +16,7 @@ PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
         {"GtaoTracePass",  [](PostProcessConfig& c, bool v) { c.gtao = v; }},
         {"BloomDs0Pass",   [](PostProcessConfig& c, bool v) { c.bloom = v; }},
         {"SsrTracePass",   [](PostProcessConfig& c, bool v) { c.ssr = v; }},
-        {"FogInjectPass",  [](PostProcessConfig& c, bool v) { c.volumetric_fog = v; }},
+        {"FogMediumPass",  [](PostProcessConfig& c, bool v) { c.volumetric_fog = v; }},
         {"TonemapPass",    [](PostProcessConfig& c, bool v) { c.tonemap = v; }},
         {"DdgiPass",       [](PostProcessConfig& c, bool v) { c.ddgi = v; }},
         {"SsGiPass",       [](PostProcessConfig& c, bool v) { c.ss_gi = v; }},

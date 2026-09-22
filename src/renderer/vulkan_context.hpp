@@ -209,7 +209,7 @@ public:
   [[nodiscard]] AoPass &gtao_pass() { return passes_.get<AoPass>("ao_trace"); }
   [[nodiscard]] SsrCore &ssr_pass() { return passes_.get<SsrCore>("ssr_trace"); }
   [[nodiscard]] RtReflectionPass &rt_reflection_pass() { return passes_.get<RtReflectionPass>("rt_reflection"); }
-  [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_inject"); }
+  [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_medium"); }
   [[nodiscard]] MotionFieldPass &motion_field_pass() { return passes_.get<MotionFieldPass>("motion_field"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] SunShaftsPass &sun_shafts_pass() { return passes_.get<SunShaftsPass>("sun_shafts"); }

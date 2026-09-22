@@ -104,12 +104,9 @@ struct GpuSpotLight {
 // volume that comes to need it.
 struct GpuFogVolume {
     alignas(16) glm::mat4 inv_transform;   // world -> unit volume space
-    alignas(16) glm::vec4 color_density;   // xyz = linear color, w = density
-    alignas(16) glm::vec4 shape_falloff;   // x = ColliderShape, y = edge falloff
-    alignas(16) glm::vec4 scatter_params;  // x = scattering multiplier
-    alignas(16) glm::vec4 noise_drift;     // xyz = world metres drifted, w = scale
-    alignas(16) glm::vec4 noise_shape;     // x = contrast (0 = off), y = octaves,
+    alignas(16) glm::vec4 shape_falloff;   // x = ColliderShape, y = edge falloff,
                                            //   z = motion response (0 = ignores movement)
+    alignas(16) glm::vec4 drift;           // xyz = world metres the field has drifted
 };
 
 // Fog volumes are gathered per frame into one SSBO; past this many in a scene

@@ -43,9 +43,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         bind_climate(*env, ctx.resources);
         bind_weather(*env, ctx.resources);
     }
-    if (auto* fog = find_volumetric_fog(ctx.scene)) {
-        bind_fog_material(*fog, ctx.resources, ctx.project);
-    }
+    bind_fog_materials(ctx.scene, ctx.resources, ctx.project);
     if (env != nullptr && env->time_of_day_enabled) {
         const bool advancing = playing() || env->advance_in_editor;
         if (advancing && env->day_length > 0.0f) {
@@ -121,16 +119,16 @@ namespace {
 // the material's own value: read back from the material's row so a .fjmat
 // edited in the inspector or reloaded from disk is what the resolver seeds
 // from. A node with no material reads the default shader's declared values.
-void read_fog_material_values(VolumetricFogNode& fog, ResourceManager* resources) {
-    fog.material_values_.clear();
+void read_fog_material_values(const Material* material, std::string_view default_shader,
+                              std::vector<NamedValue>& out, ResourceManager* resources) {
+    out.clear();
     if (resources == nullptr) return;
     PipelineCache* cache = resources->pipeline_cache();
     if (cache == nullptr) return;
 
-    const Material* material = fog.material;
     const uint32_t pid = material != nullptr
         ? material->pipeline_id()
-        : cache->register_shader(std::string(DEFAULT_FOG_SHADER));
+        : cache->register_shader(std::string(default_shader));
     if (pid >= cache->shader_count()) return;
     const auto& meta = cache->metadata(pid);
     if (meta.shader_type != ShaderType::Fog) return;
@@ -152,45 +150,74 @@ void read_fog_material_values(VolumetricFogNode& fog, ResourceManager* resources
                 value.values[i] = u.default_value[i];
             }
         }
-        fog.material_values_.push_back(std::move(value));
+        out.push_back(std::move(value));
     }
 }
 
-} // namespace
-
-void EnvironmentSubsystem::bind_fog_material(VolumetricFogNode& fog, ResourceManager* resources,
-                                             const Project* project) {
-    if (fog.material_path != fog.material_bound_) {
-        fog.material_bound_ = fog.material_path;
-        fog.material_handle = {};
-        fog.material = nullptr;
-        if (!fog.material_path.empty() && resources != nullptr) {
+// The haze and a volume carry their material the same way; this keeps one
+// node's material following its path and reads its values back. `what`
+// names the node in the log, and `lights` says whether this node's material
+// is the one that lights the fog: only the haze's light() runs, so a
+// volume's is reported rather than silently ignored.
+template <typename FogNode>
+void bind_fog_node_material(FogNode& node, std::string_view default_shader, const char* what,
+                            bool lights, ResourceManager* resources, const Project* project) {
+    if (node.material_path != node.material_bound_) {
+        node.material_bound_ = node.material_path;
+        node.material_handle = {};
+        node.material = nullptr;
+        if (!node.material_path.empty() && resources != nullptr) {
             auto handle = resources->load_material_asset(
-                base_path::resolve_asset(fog.material_path, project), project);
+                base_path::resolve_asset(node.material_path, project), project);
             if (!handle) {
-                FJELL_CORE_ERROR("Volumetric fog: {}", handle.error());
+                FJELL_CORE_ERROR("{}: {}", what, handle.error());
             } else {
                 Material* material = resources->get(*handle);
                 if (material != nullptr && material->shader_type() != ShaderType::Fog) {
                     // Bound to nothing rather than to the wrong kind of
-                    // shader, so the node draws the engine's haze and says
+                    // shader, so the node draws the engine's default and says
                     // why once instead of failing to build a pipeline every
                     // frame.
-                    FJELL_CORE_ERROR("Volumetric fog: '{}' is shader_type '{}', a fog node "
-                                     "needs shader_type fog; drawing the default haze",
-                                     fog.material_path, shader_type_name(material->shader_type()));
+                    FJELL_CORE_ERROR("{}: '{}' is shader_type '{}', a fog node needs shader_type "
+                                     "fog; drawing the default",
+                                     what, node.material_path,
+                                     shader_type_name(material->shader_type()));
                 } else {
-                    fog.material_handle = *handle;
-                    fog.material = material;
+                    node.material_handle = *handle;
+                    node.material = material;
+                    if (material != nullptr && !lights && resources->pipeline_cache() != nullptr) {
+                        const auto& meta = resources->pipeline_cache()->metadata(material->pipeline_id());
+                        if (!meta.light_body.empty()) {
+                            FJELL_CORE_ERROR("{}: '{}' defines light(), which only the Volumetric "
+                                             "Fog node's material runs; the volume's medium draws, "
+                                             "its light() is ignored",
+                                             what, node.material_path);
+                        }
+                    }
                 }
             }
         }
-    } else if (resources != nullptr && fog.material_handle.valid()) {
+    } else if (resources != nullptr && node.material_handle.valid()) {
         // Same path: keep following the pool's object, which a reload of the
         // asset replaces in place.
-        fog.material = resources->get(fog.material_handle);
+        node.material = resources->get(node.material_handle);
     }
-    read_fog_material_values(fog, resources);
+    read_fog_material_values(node.material, default_shader, node.material_values_, resources);
+}
+
+} // namespace
+
+void EnvironmentSubsystem::bind_fog_materials(Scene& scene, ResourceManager* resources,
+                                              const Project* project) {
+    for (const auto& obj : scene.objects()) {
+        if (auto* fog = dynamic_cast<VolumetricFogNode*>(obj.get())) {
+            bind_fog_node_material(*fog, DEFAULT_FOG_SHADER, "Volumetric fog", true,
+                                   resources, project);
+        } else if (auto* volume = dynamic_cast<FogVolumeNode*>(obj.get())) {
+            bind_fog_node_material(*volume, DEFAULT_FOG_VOLUME_SHADER, "Fog volume", false,
+                                   resources, project);
+        }
+    }
 }
 
 void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManager* resources) {
@@ -355,10 +382,10 @@ void EnvironmentSubsystem::advance_fog_volumes(const TickContext& ctx) {
 
     for (const auto& obj : ctx.scene.objects()) {
         auto* volume = dynamic_cast<FogVolumeNode*>(obj.get());
-        if (volume == nullptr || volume->noise_contrast <= 0.0f) continue;
+        if (volume == nullptr) continue;
 
-        const glm::vec3 authored = glm::length(volume->noise_direction) > 1e-4f
-                                       ? glm::normalize(volume->noise_direction)
+        const glm::vec3 authored = glm::length(volume->drift_direction) > 1e-4f
+                                       ? glm::normalize(volume->drift_direction)
                                        : glm::vec3(0.0f, 0.0f, 1.0f);
 
         // The wind takes over the heading and the pace together, so a volume
@@ -368,9 +395,9 @@ void EnvironmentSubsystem::advance_fog_volumes(const TickContext& ctx) {
         const float influence = glm::clamp(volume->wind_influence, 0.0f, 1.0f);
         const glm::vec3 direction = glm::normalize(glm::mix(authored, wind_dir, influence));
         const float wind_pace = weather.wind_speed * volume->wind_speed_scale;
-        const float speed = glm::mix(volume->noise_speed, wind_pace, influence);
+        const float speed = glm::mix(volume->drift_speed, wind_pace, influence);
 
-        volume->noise_drift_ += direction * speed * ctx.dt;
+        volume->drift_ += direction * speed * ctx.dt;
     }
 }
 

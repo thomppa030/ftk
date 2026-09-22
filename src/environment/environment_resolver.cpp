@@ -209,23 +209,30 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
             }
         }
         if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get())) {
-            state.fog_volumes.push_back(FogVolume{
-                .transform = volume->world_matrix_,
-                .color = volume->fog_color,
-                .density = volume->density,
-                .scattering_mult = volume->scattering_mult,
-                .edge_falloff = volume->edge_falloff,
-                .shape = volume->shape,
-                .group = volume->fog_group,
-                .noise_contrast = volume->noise_contrast,
-                .noise_scale = volume->noise_scale,
-                .noise_drift = volume->noise_drift_,
-                .noise_octaves = volume->noise_octaves,
-                .motion_response = volume->motion_response,
-                .vortex_strength = volume->vortex_strength,
-                .compression = volume->compression,
-                .density_field_debug = volume->density_field_debug,
-            });
+            FogVolume resolved;
+            resolved.node_id = volume->id;
+            resolved.transform = volume->world_matrix_;
+            resolved.edge_falloff = volume->edge_falloff;
+            resolved.shape = volume->shape;
+            resolved.group = volume->fog_group;
+            resolved.drift = volume->drift_;
+            resolved.motion_response = volume->motion_response;
+            resolved.vortex_strength = volume->vortex_strength;
+            resolved.compression = volume->compression;
+            resolved.density_field_debug = volume->density_field_debug;
+            if (volume->material != nullptr) {
+                resolved.pipeline_id = volume->material->pipeline_id();
+                resolved.material_id = volume->material->material_id();
+            }
+            // The material's values under the node's own, as for the haze.
+            resolved.uniforms = volume->material_values_;
+            for (const auto& override : volume->params) {
+                if (auto* value = find_named(resolved.uniforms, override.name)) {
+                    const uint32_t count = std::min(value->count, override.count);
+                    for (uint32_t i = 0; i < count; ++i) value->values[i] = override.values[i];
+                }
+            }
+            state.fog_volumes.push_back(std::move(resolved));
             continue;
         }
         // Anything carrying a motion source writes into the motion field,
