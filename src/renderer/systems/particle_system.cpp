@@ -1968,11 +1968,17 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
 
         auto& sub = ec->effect->emitters[gpu.emitter_index];
 
-        // Manual fire button — reset burst for all sub-emitters
+        // Manual fire button — reset burst for all sub-emitters. One that
+        // has played out its loops starts a fresh cycle, past its delay.
         if (ec->fire) {
             sub.burst_fired = false;
             sub.burst_elapsed = 0.0f;
             sub.local_elapsed = 0.0f;
+            if (sub.finished) {
+                sub.finished = false;
+                sub.loops_completed = 0;
+                sub.emitter_elapsed = sub.start_delay;
+            }
         }
 
         // CPU-side emission accumulation (per sub-emitter). A burst is an
