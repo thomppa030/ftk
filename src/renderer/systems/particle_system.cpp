@@ -1967,9 +1967,13 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
             sub.local_elapsed = 0.0f;
         }
 
-        // CPU-side emission accumulation (per sub-emitter)
+        // CPU-side emission accumulation (per sub-emitter). A burst is an
+        // event: it plays once whether or not the camera sees it, so an
+        // explosion behind the player is not lost. The rate is the ongoing
+        // cost, and that is what culling and distance LOD scale.
         float eff_dt = sub.paused ? 0.0f : dt;
-        uint32_t emit_count = 0;
+        uint32_t burst_emit = 0;
+        uint32_t rate_emit = 0;
 
         // Advance emitter elapsed time
         if (!sub.paused && !sub.finished) {
@@ -2004,7 +2008,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
         if (emitting) {
             uint32_t burst = sub.burst_count();
             if (burst > 0 && !sub.burst_fired) {
-                emit_count = burst;
+                burst_emit = burst;
                 sub.burst_fired = true;
                 sub.burst_elapsed = 0.0f;
             }
@@ -2019,10 +2023,9 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
             }
 
             sub.emit_accumulator += sub.emission_rate() * dt;
-            emit_count += static_cast<uint32_t>(sub.emit_accumulator);
+            rate_emit += static_cast<uint32_t>(sub.emit_accumulator);
             sub.emit_accumulator -= std::floor(sub.emit_accumulator);
         }
-        if (emit_count > max_emit_count) max_emit_count = emit_count;
 
         glm::vec3 pos = glm::vec3(spatial->world_matrix_[3]);
         data.emitter_position = pos;
@@ -2038,10 +2041,8 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
                 if (mod->enabled && mod->type() == ModuleType::emit_over_distance) {
                     auto* eod = static_cast<const EmitOverDistanceModule*>(mod.get());
                     sub.distance_accumulator += frame_dist * eod->particles_per_meter;
-                    uint32_t distance_emit = static_cast<uint32_t>(sub.distance_accumulator);
+                    rate_emit += static_cast<uint32_t>(sub.distance_accumulator);
                     sub.distance_accumulator -= std::floor(sub.distance_accumulator);
-                    emit_count += distance_emit;
-                    if (emit_count > max_emit_count) max_emit_count = emit_count;
                     break;
                 }
             }
@@ -2064,10 +2065,12 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index,
             if (dist > 100.0f)      lod_factor = 0.0f;
             else if (dist > 60.0f)  lod_factor = 0.25f;
             else if (dist > 30.0f)  lod_factor = 0.5f;
-            emit_count = static_cast<uint32_t>(static_cast<float>(emit_count) * lod_factor);
+            rate_emit = static_cast<uint32_t>(static_cast<float>(rate_emit) * lod_factor);
         } else {
-            emit_count = 0;
+            rate_emit = 0;
         }
+        uint32_t emit_count = burst_emit + rate_emit;
+        max_emit_count = std::max(max_emit_count, emit_count);
 
         data.dt = eff_dt;
         data.gravity = {}; // read from modules now
