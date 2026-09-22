@@ -22,6 +22,7 @@
 #include "scene/scene.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <span>
 #include <vector>
@@ -208,6 +209,29 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // they are recentered once for the frame regardless of how many infinite
     // seas the scene holds.
     clipmap_.recenter(ctx.camera_position);
+
+    // How far the camera stands above each body of water, negative under
+    // it. Asked of the surface over the camera's column, since the trains
+    // move the surface sideways and the height at the camera's rest position
+    // is not the height above it.
+    camera_gap_.clear();
+    for (const auto& node : ctx.scene->objects()) {
+        const auto* wc = node->components.get<WaterComponent>();
+        if (wc == nullptr) continue;
+        const auto* spatial = node->as_spatial();
+        if (spatial == nullptr) continue;
+        const glm::vec3 centre{spatial->world_matrix_[3]};
+        const glm::vec2 cam_xz(ctx.camera_position.x, ctx.camera_position.z);
+        if (wc->extent == WaterComponent::Extent::bounded) {
+            const float half = wc->size * 0.5F;
+            if (std::abs(cam_xz.x - centre.x) > half || std::abs(cam_xz.y - centre.z) > half) {
+                continue;
+            }
+        }
+        const float surface = centre.y
+            + water::height_at_iterative(wc->effective_water, cam_xz, ctx.elapsed_time);
+        camera_gap_[node->id] = ctx.camera_position.y - surface;
+    }
 
     // The world runs one simulated sea: the first a water node asks for.
     if (simulation_ != nullptr) {
@@ -816,6 +840,7 @@ void WaterPass::record(const FrameContext& ctx) {
             push.wake_first = range->second.first;
             push.wake_count = range->second.count;
         }
+        push.camera_below = camera_below(node->id) ? 1U : 0U;
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,

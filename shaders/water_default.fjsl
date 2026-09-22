@@ -21,6 +21,7 @@ void fragment() {
     vec3 tint = mix(shallow, deep, 1.0 - transmitted);
     ALBEDO = mix(tint, behind, transmitted * clarity);
 
+
     // Whitecaps where the surface has pinched. CREST comes from the wave
     // field's own Jacobian, so foam follows the waves rather than being
     // painted on at a fixed height. WAKE is the crests of whatever has moved
@@ -34,4 +35,44 @@ void fragment() {
     // Thin water at the edges reveals what it is over, so it fades out rather
     // than ending in a hard line.
     ALPHA = max(mix(0.25, 0.95, 1.0 - transmitted), whitecap);
+
+    // The user code is inlined into the shader, so the underside overrides
+    // the outputs above rather than returning past the lighting.
+    if (BELOW > 0.5) {
+        // The water/air boundary from inside. Light leaving water bends away
+        // from the normal, and past the angle where it cannot leave at all
+        // the surface is a mirror: Snell's window, about 48 degrees across
+        // from straight up, holds the whole sky compressed into it and
+        // everything outside it reflects the water.
+        const float WATER_IOR = 1.333;
+        vec3 out_dir = refract(-VIEW_DIR, NORMAL, WATER_IOR);
+        float mirror = 1.0;
+        vec3 sky = deep;
+        if (dot(out_dir, out_dir) > 0.0) {
+            // Fresnel for the ray that does get out, water to air.
+            float cos_i = clamp(dot(NORMAL, VIEW_DIR), 0.0, 1.0);
+            float cos_t = clamp(dot(out_dir, -NORMAL), 0.0, 1.0);
+            float rs = (WATER_IOR * cos_i - cos_t) / (WATER_IOR * cos_i + cos_t);
+            float rp = (WATER_IOR * cos_t - cos_i) / (WATER_IOR * cos_t + cos_i);
+            mirror = 0.5 * (rs * rs + rp * rp);
+            // The sky the bent ray sees: from the screen copy where it lands
+            // on screen, at full resolution with its clouds, and from the
+            // cubemap for the rim of the window past the frame's edge.
+            vec3 hit = SCREEN_UV_TOWARD(out_dir);
+            sky = hit.z > 0.5 ? texture(SCREEN_TEXTURE, hit.xy).rgb
+                              : textureLod(sky_cubemap, out_dir, 0.0).rgb;
+        }
+        // The window shows the sky through the water above the eye; the
+        // mirror shows the water itself, which is the deep colour. Neither
+        // is a surface to light: the window is already light, and a metal's
+        // reflection here would be the sky's irradiance painted over the
+        // underside. So both are emitted as they are, and the medium between
+        // the eye and the surface tints them on the way.
+        vec3 window = mix(sky, deep, 1.0 - exp(-WATER_DEPTH_VERTICAL * absorption));
+        EMISSION = mix(window, deep, mirror);
+        ALBEDO = vec3(0.0);
+        METALLIC = 0.0;
+        ROUGHNESS = 1.0;
+        ALPHA = 1.0;
+    }
 }

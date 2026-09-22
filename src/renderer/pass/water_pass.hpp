@@ -59,8 +59,17 @@ struct WaterPushConstants {
     uint32_t wake_first;
     glm::vec3 sdf_volume_max;
     uint32_t wake_count;
+    /// Nonzero when the camera is under this body of water: below the surface
+    /// at its own position, worked out on the CPU from the wave field. The
+    /// fragment stage considers a pixel's underside only then, because a
+    /// folded crest turns its normal over and would otherwise read as seen
+    /// from below.
+    uint32_t camera_below;
+    uint32_t _pad_a;
+    uint32_t _pad_b;
+    uint32_t _pad_c;
 };
-static_assert(sizeof(WaterPushConstants) == 80, "push block layout must match the shaders");
+static_assert(sizeof(WaterPushConstants) == 96, "push block layout must match the shaders");
 
 /// Draws water. The surface is generated in the mesh shader from the node's
 /// `.fjwater` wave field, so this pass uploads that field and dispatches one
@@ -139,6 +148,22 @@ private:
     /// Pack every water node's wakes into this frame's wake buffer and note
     /// where each node's begin.
     void upload_wakes(const FrameContext& ctx);
+
+public:
+    /// Whether the camera is under the body of water `node_id`, as decided
+    /// this frame from the wave field at the camera's position. False for a
+    /// node that is not water. For the passes after this one that need the
+    /// camera's side: the fog, for which froxels are inside the water.
+    [[nodiscard]] bool camera_below(uint32_t node_id) const {
+        const auto it = camera_gap_.find(node_id);
+        return it != camera_gap_.end() && it->second < 0.0F;
+    }
+
+private:
+    /// Per water node: how far the camera stands above its surface, negative
+    /// under it.
+    std::unordered_map<uint32_t, float> camera_gap_;
+
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a

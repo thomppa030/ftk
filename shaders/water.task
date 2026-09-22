@@ -35,6 +35,11 @@ layout(push_constant) uniform PushConstants {
     uint  wake_first;
     vec3  sdf_volume_max;
     uint  wake_count;
+    // Unread by this stage: whether the camera is under this water.
+    uint  camera_below;
+    uint  _pad_a;
+    uint  _pad_b;
+    uint  _pad_c;
 } push;
 
 // Set 2 is the water's own. Binding 1 is the clipmap's level table, read by

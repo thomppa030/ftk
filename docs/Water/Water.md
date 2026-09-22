@@ -199,6 +199,22 @@ Both are in metres. `WATER_DEPTH_VERTICAL` is large rather than zero over open
 water — with no seabed to hit, the depth buffer reads the far plane — so a
 shore term keyed on a small depth simply never fires out at sea.
 
+### From below
+
+`BELOW` is 1 when the eye is under the surface and sees its underside, decided
+per pixel from the view direction against the surface normal, so an eye just
+under a crest still sees the next trough from above. On the underside
+`WORLD_NORMAL` points down at the eye, and the depths change meaning:
+`WATER_DEPTH` is the water between the eye and the surface, and
+`WATER_DEPTH_VERTICAL` is how far the surface stands above the eye. The look
+is the material's: `water_default.fjsl` mirrors the water outside Snell's
+window (about 48° from straight up, past which light cannot leave the water)
+and shows the sky through it inside: the view ray refracted with `refract()`,
+then `SCREEN_UV_TOWARD(dir)` says where that direction lands on the screen so
+the full-resolution sky with its clouds comes from the screen copy, and the
+rim of the window past the frame's edge from `sky_cubemap`. A material that
+ignores `BELOW` shows its topside from underneath.
+
 ### Meeting solid things
 
 `SDF_DISTANCE` is how far the surface is from solid geometry, in metres, read
