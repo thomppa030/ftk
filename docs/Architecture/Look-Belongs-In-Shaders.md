@@ -8,7 +8,8 @@ below points at what fog did.
 ## The rule
 
 **What is physically true of a thing goes on its node. What it looks like
-goes in a `.fjsl` with uniform hints.**
+goes in a `.fjsl` with uniform hints, and the node references a material
+that names that shader, never the shader itself.**
 
 A node is geometry, physics and wiring: where the thing is, how big, which
 group it belongs to, what it answers to. A shader is appearance: colour,
@@ -90,6 +91,14 @@ terrain or water node does.
 
 ### 3. Values in a `.fjmat`, overrides on the node
 
+The shader is where the look's *logic* lives; the material is what a node
+*references*. Most authoring never touches the shader: it picks a material
+and moves its sliders. A project writes a shader when the engine's default
+cannot do the look at all, a wisp field, a banded phase, and the material is
+how it deploys that shader. In between, a material's shader can `use`
+shader functions, so a look can be assembled from engine parts without
+writing the whole hook.
+
 Three levels, the same as the material system's:
 
 ```
@@ -107,8 +116,10 @@ linear light. The node reads its material's current values back each tick
 (`material_values_`) so the resolver can seed the frame from plain data
 without touching the renderer.
 
-Do not store the values on the node instead of a material. The sky still
-does, and is the odd one out.
+Do not store the values on the node instead of a material, and do not have
+the node reference a `.fjsl` directly. The sky does both, and that is why
+its values cannot be shared between scenes or edited as an asset; it is the
+odd one out.
 
 ### 4. A private GPU row per node
 
