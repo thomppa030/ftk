@@ -144,6 +144,15 @@ struct StrongestWaves {
 /// there are fewer. The grid's highest frequency along either axis is never
 /// taken — it is a standing ripple rather than a travelling wave — so
 /// `height_share` stops a hair short of 1 even when everything else is.
+///
+/// The weaker half of a cut set is tapered by rank, down to nothing at the
+/// cutoff. A sea under the weather is redrawn each time the wind steps and its
+/// strongest waves picked again; a wave near the cutoff then enters or leaves
+/// the set, and taken whole it would step the surface a body feels by its own
+/// amplitude where the sea itself barely moved. Tapered, a wave arrives at
+/// nothing and grows as it climbs the ranks. A set that is not cut — every
+/// wave taken — has no cutoff and no taper. `height_share` counts the waves as
+/// tapered.
 [[nodiscard]] StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count);
 
 /// `waves` laid out for the vector unit. `PackedWaves` says why.

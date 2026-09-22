@@ -390,20 +390,31 @@ StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count) 
     std::partial_sort(cells.begin(), cells.begin() + static_cast<std::ptrdiff_t>(taken),
                       cells.end(), stronger);
 
+    // The taper: full weight through the stronger half of a cut set, then
+    // down to nothing at the cutoff, so the set's edge is not a step and a
+    // wave shifting one rank shifts its weight by little.
+    const bool cut = taken < cells.size();
+    const std::size_t taper_from = cut ? taken - std::max<std::size_t>(taken / 2, 1) : taken;
+    auto weight = [&](std::size_t rank) {
+        if (rank < taper_from) return 1.0f;
+        return static_cast<float>(taken - rank) / static_cast<float>(taken - taper_from + 1);
+    };
+
     out.waves.reserve(taken);
     double carried = 0.0;
     float largest_k = 0.0f;
     for (std::size_t i = 0; i < taken; ++i) {
         const glm::vec2 a = field.amplitudes[cells[i].index];
+        const float w = weight(i);
         SpectralWave wave;
         wave.k = {field.wavenumber(cells[i].index % n), field.wavenumber(cells[i].index / n)};
         const float k_len = glm::length(wave.k);
-        wave.amplitude = 2.0f * glm::length(a);
+        wave.amplitude = 2.0f * glm::length(a) * w;
         wave.phase = std::atan2(a.y, a.x);
         wave.omega = std::sqrt(GRAVITY * k_len);
         wave.k_len = k_len;
         out.waves.push_back(wave);
-        carried += static_cast<double>(cells[i].variance);
+        carried += static_cast<double>(cells[i].variance) * w * w;
         largest_k = std::max(largest_k, k_len);
     }
     out.height_share = static_cast<float>(std::sqrt(carried / total));

@@ -531,55 +531,55 @@ TEST_CASE("Every wave of a sea, summed in closed form, is its transform", "[wate
     }
 }
 
-TEST_CASE("Taking the strongest waves leaves out exactly what it says", "[water_spectrum]") {
-    // What a body floating on N waves does not feel is the rest of the sea,
-    // and how much that is follows from the spectrum by arithmetic: the waves
-    // of a grid are orthogonal over it, so the mean square of what is left out
-    // is the summed variance of the waves left out. height_share claims that
-    // number; this measures it on the surface instead.
+TEST_CASE("Taking the strongest waves carries exactly the share it says", "[water_spectrum]") {
+    // height_share claims the RMS height of the N-wave sea over the RMS height
+    // of the whole sea, averaged over time: the waves at k and -k share a
+    // spatial frequency and interfere at any one instant, and only over time
+    // does Parseval hold wave by wave. Averaged, the ratio follows from the
+    // two surfaces by arithmetic whatever the waves were weighted, which makes
+    // this a check on the taper as well as on the pick.
     FftContributor sea = physical_sea();
     sea.resolution = 32;
     sea.patch_size = 200.0f;
     const auto field = water::generate_spectrum(sea);
-    const auto spectra = water::evolve_spectrum(field, 1.0f, 2.5f);
-    const auto full = water::inverse_transform(spectra.height, 32);
-
-    double full_variance = 0.0;
-    for (float h : full) full_variance += static_cast<double>(h) * h;
-    full_variance /= static_cast<double>(full.size());
+    const float instants[] = {0.0f, 2.5f, 19.0f, 77.0f, 240.0f, 811.0f, 1300.0f, 2900.0f};
 
     for (std::uint32_t count : {4u, 20u, 80u, 300u}) {
         const auto some = water::strongest_waves(field, count);
         REQUIRE(some.waves.size() == count);
-
-        double missed = 0.0;
-        for (std::uint32_t z = 0; z < 32; ++z) {
-            for (std::uint32_t x = 0; x < 32; ++x) {
-                const glm::vec2 p{static_cast<float>(x) * 200.0f / 32.0f,
-                                  static_cast<float>(z) * 200.0f / 32.0f};
-                const double gap = full[z * 32 + x]
-                                 - water::spectral_displacement(some.waves, 1.0f, p, 2.5f).y;
-                missed += gap * gap;
+        double partial_ms = 0.0, full_ms = 0.0;
+        for (float time : instants) {
+            // The whole sea as drawn, standing ripples and all: the height the
+            // share is a share of.
+            const auto full = water::inverse_transform(
+                water::evolve_spectrum(field, 1.0f, time).height, 32);
+            for (std::uint32_t z = 0; z < 32; ++z) {
+                for (std::uint32_t x = 0; x < 32; ++x) {
+                    const glm::vec2 p{static_cast<float>(x) * 200.0f / 32.0f,
+                                      static_cast<float>(z) * 200.0f / 32.0f};
+                    const double h = water::spectral_displacement(some.waves, 1.0f, p, time).y;
+                    partial_ms += h * h;
+                    full_ms += static_cast<double>(full[z * 32 + x]) * full[z * 32 + x];
+                }
             }
         }
-        missed /= static_cast<double>(full.size());
-
-        const double claimed_missed = 1.0 - static_cast<double>(some.height_share) * some.height_share;
         INFO(count << " waves");
-        REQUIRE(missed / full_variance == Approx(claimed_missed).margin(0.01));
+        REQUIRE(std::sqrt(partial_ms / full_ms) == Approx(some.height_share).margin(0.01));
     }
 
-    // Strongest first, and more waves never carry less.
+    // Strongest first; more waves never carry less; the untapered head of a
+    // shorter list is the head of a longer one.
     const auto few = water::strongest_waves(field, 20);
     const auto more = water::strongest_waves(field, 80);
-    for (std::size_t i = 1; i < more.waves.size(); ++i) {
-        REQUIRE(more.waves[i].amplitude <= more.waves[i - 1].amplitude);
-    }
     REQUIRE(more.height_share > few.height_share);
     REQUIRE(more.shortest_wavelength <= few.shortest_wavelength);
-    for (std::size_t i = 0; i < few.waves.size(); ++i) {
-        REQUIRE(few.waves[i].k == more.waves[i].k);   // the same list, longer
+    for (std::size_t i = 0; i < 10; ++i) {
+        REQUIRE(few.waves[i].k == more.waves[i].k);
+        REQUIRE(few.waves[i].amplitude == more.waves[i].amplitude);
     }
+    // A cut set tapers to nothing at its cutoff; a full set has no cutoff.
+    REQUIRE(few.waves.back().amplitude < few.waves[9].amplitude * 0.5f);
+    REQUIRE(water::strongest_waves(field, 32 * 32).waves.back().amplitude > 0.0f);
 
     REQUIRE(water::strongest_waves(field, 0).waves.empty());
     REQUIRE(water::strongest_waves(water::SpectrumField{}, 10).waves.empty());

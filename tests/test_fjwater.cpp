@@ -1600,13 +1600,20 @@ TEST_CASE("One draw feeds the renderer and physics alike", "[fjwater]") {
     const FjWaterData effective = water::derive_effective(sea_physics_feels(24), {0.0f, 0.0f});
     const auto& sea = *effective.simulated;
     const std::uint32_t n = sea.spectrum->resolution;
-    for (const SpectralWave& wave : sea.waves) {
+    for (std::size_t i = 0; i < sea.waves.size(); ++i) {
+        const SpectralWave& wave = sea.waves[i];
         const auto x = static_cast<std::uint32_t>(
             (static_cast<int>(std::lround(wave.k.x / sea.spectrum->k_spacing)) + static_cast<int>(n)) % static_cast<int>(n));
         const auto z = static_cast<std::uint32_t>(
             (static_cast<int>(std::lround(wave.k.y / sea.spectrum->k_spacing)) + static_cast<int>(n)) % static_cast<int>(n));
         const glm::vec2 amplitude = sea.spectrum->amplitudes[z * n + x];
-        REQUIRE(wave.amplitude == Approx(2.0f * glm::length(amplitude)).epsilon(1e-5));
+        // The stronger half is the spectrum's own; the weaker half is tapered
+        // toward the cutoff, and never more than the spectrum's.
+        if (i < sea.waves.size() / 2) {
+            REQUIRE(wave.amplitude == Approx(2.0f * glm::length(amplitude)).epsilon(1e-5));
+        } else {
+            REQUIRE(wave.amplitude <= 2.0f * glm::length(amplitude) * (1.0f + 1e-5f));
+        }
     }
 }
 
@@ -1788,4 +1795,186 @@ TEST_CASE("The world's field carries its trains prepared", "[fjwater]") {
     REQUIRE(t.k[2] == Approx(glm::two_pi<float>() / 60.0f));
     REQUIRE(glm::length(glm::vec2(t.dir_x[0], t.dir_z[0])) == Approx(1.0f));
     for (std::size_t i = 3; i < 8; ++i) REQUIRE(t.amplitude[i] == 0.0f);
+}
+
+// --- Auditing the waves physics feels, 0 to 256 ---
+//
+// Kay's tuned sea, written out rather than read from the project so the
+// numbers below mean the same thing on any machine: 9 m/s over 60 km,
+// choppiness 3, height x2.9, a 1.6 m high cut, 60 degrees of spread, 256 m
+// at 256. It folds about a sixth of its surface.
+
+namespace {
+
+[[nodiscard]] FjWaterData tuned_sea(std::uint32_t physics_waves, bool answers_weather = false) {
+    FftContributor fft;
+    fft.wind_direction = {0.99f, 0.12f};
+    fft.wind_speed = 9.0f;
+    fft.answers_weather = answers_weather;
+    fft.fetch = 60000.0f;
+    fft.spread_degrees = 60.0f;
+    fft.high_cut = 1.6f;
+    fft.choppiness = 3.0f;
+    fft.amplitude_scale = 2.42f;
+    fft.patch_size = 256.0f;
+    fft.resolution = 256;
+    fft.seed = 1;
+    fft.physics_waves = physics_waves;
+    FjWaterData water;
+    water.contributors.emplace_back(fft);
+    return water;
+}
+
+/// The whole simulated surface's height at every grid point, by the
+/// transform: the sea as drawn, standing Nyquist ripples and all.
+[[nodiscard]] std::vector<float> full_height(const FjWaterData::SimulatedSea& sea, float time) {
+    return water::inverse_transform(
+        water::evolve_spectrum(*sea.spectrum, sea.choppiness, time).height,
+        sea.spectrum->resolution);
+}
+
+[[nodiscard]] double rms(const std::vector<float>& v) {
+    double s = 0.0;
+    for (float x : v) s += static_cast<double>(x) * x;
+    return std::sqrt(s / static_cast<double>(v.size()));
+}
+
+} // namespace
+
+TEST_CASE("The readout's share of the height is the surface's", "[fjwater][audit]") {
+    // "feels N% of its height" is worked out from the spectrum. What it claims
+    // is a fact about the surface: the RMS height of the N-wave sea over the
+    // RMS height of the whole sea, averaged over time. Over time, because the
+    // waves at k and -k share a spatial frequency and travel opposite ways, so
+    // at any one instant they interfere and the surface's share sits a point
+    // or so either side of the average — measured 88.4% to 90.3% around a
+    // claimed 89.1% at 256 waves. Averaged over instants the interference
+    // cancels and Parseval holds, so an error in the claim would show as a
+    // mean that drifts from it.
+    const FjWaterData whole = water::derive_effective(tuned_sea(0), {0.0f, 0.0f});
+    const auto& sea = *whole.simulated;
+    const std::uint32_t n = sea.spectrum->resolution;
+    const float texel = 256.0f / static_cast<float>(n);
+    const float instants[] = {0.0f, 5.0f, 37.0f, 111.0f, 250.0f, 613.0f, 1000.0f, 1777.0f};
+
+    for (std::uint32_t count : {22u, 64u, 128u, 256u}) {
+        const water::StrongestWaves taken = water::strongest_waves(*sea.spectrum, count);
+        const FjWaterData felt = water::derive_effective(tuned_sea(count), {0.0f, 0.0f});
+        double partial_ms = 0.0, full_ms = 0.0;
+        for (float time : instants) {
+            const std::vector<float> full = full_height(sea, time);
+            for (std::uint32_t z = 0; z < n; z += 2) {
+                for (std::uint32_t x = 0; x < n; x += 2) {
+                    const double h = water::displace(
+                        felt, {static_cast<float>(x) * texel, static_cast<float>(z) * texel}, time).y;
+                    partial_ms += h * h;
+                    full_ms += static_cast<double>(full[z * n + x]) * full[z * n + x];
+                }
+            }
+        }
+        const double measured = std::sqrt(partial_ms / full_ms);
+        WARN(count << " waves: readout says " << taken.height_share * 100.0f
+             << "% of the height, the surface measures " << measured * 100.0
+             << "%, shortest wave " << taken.shortest_wavelength << " m");
+        REQUIRE(measured == Approx(taken.height_share).margin(0.01));
+    }
+}
+
+TEST_CASE("The rest-position solve converges on a folded sea", "[fjwater][audit]") {
+    // A body over a column asks which rest position stands over it. The
+    // solve is Newton with eight steps and a millimetre tolerance, tuned on
+    // Gerstner seas. On this sea at 256 waves and choppiness 3 the pinch is
+    // large and a sixth of the surface has folded, where the Jacobian goes
+    // through zero and no single rest position exists. What has to hold is
+    // that the solve lands on the surface — the residual it was asked for —
+    // wherever the surface has not folded; over a fold, any branch it lands on
+    // is real surface, and what is reported is how often it lands at all.
+    //
+    // Two things are required, both properties of a bounded solve rather than
+    // numbers picked here: it never ends further off than it began, and a
+    // miss is never further than one step, since a step is held to half the
+    // shortest wave.
+    const FjWaterData felt = water::derive_effective(tuned_sea(256), {0.0f, 0.0f});
+    int unfolded = 0, unfolded_missed = 0, folded = 0, folded_missed = 0, ran_away = 0;
+    float worst_unfolded = 0.0f;
+    for (float time : {0.0f, 3.3f, 17.9f}) {
+        for (float x = -120.0f; x <= 120.0f; x += 8.0f) {
+            for (float z = -120.0f; z <= 120.0f; z += 8.0f) {
+                const glm::vec2 target(x, z);
+                const glm::vec2 rest = water::rest_position_for(felt, target, time);
+                const glm::vec3 d = water::displace(felt, rest, time);
+                const float residual = glm::length(glm::vec2(rest.x + d.x, rest.y + d.z) - target);
+                // Where the solve would have started: the residual of taking
+                // the column itself as the rest position. A miss larger than
+                // that is Newton having made things worse, not stopped short.
+                const glm::vec3 at_start = water::displace(felt, target, time);
+                const float start_residual = glm::length(glm::vec2(at_start.x, at_start.z));
+                if (residual > start_residual) ++ran_away;
+                // Folded where the surface, at the rest position found, has
+                // pinched to a point or through itself.
+                const bool over_fold = water::horizontal_jacobian(felt, rest, time) <= 0.1f;
+                if (over_fold) {
+                    ++folded;
+                    if (residual > 1e-2f) ++folded_missed;
+                } else {
+                    ++unfolded;
+                    worst_unfolded = std::max(worst_unfolded, residual);
+                    if (residual > 1e-2f) ++unfolded_missed;
+                }
+            }
+        }
+    }
+    WARN("rest-position solve at 256 waves: " << unfolded << " unfolded columns, "
+         << unfolded_missed << " missed by over a centimetre (worst " << worst_unfolded
+         << " m); " << folded << " folded columns, " << folded_missed << " not landed; "
+         << ran_away << " columns where the solve ended further off than it started");
+    REQUIRE(ran_away == 0);
+    REQUIRE(worst_unfolded < water::shortest_wavelength(felt) * 0.5f);
+}
+
+TEST_CASE("A wind step does not jolt a body more than it moves the sea", "[fjwater][audit]") {
+    // Under the weather the sea is redrawn each time the wind crosses a step
+    // of 0.1 m/s, and the N strongest waves are picked again. A wave near the
+    // cutoff can enter or leave the set, so the surface a body feels can jump
+    // where the whole sea only shifted a little. The change the whole sea
+    // makes over the step is the yardstick: the N-wave surface's jump is held
+    // to a small multiple of it, and the ratio is reported for every count.
+    // The multiple, three, is a judgement and not a derivation — a jolt of the
+    // same order as the sea's own change is one a body would not notice, and
+    // with the weaker half of the set tapered the smallest count measures a
+    // little over two.
+    const float time = 4.0f;
+    for (std::uint32_t count : {22u, 64u, 128u, 256u}) {
+        const FjWaterData before = water::derive_effective(tuned_sea(count, true), {9.0f, 0.0f});
+        const FjWaterData after = water::derive_effective(tuned_sea(count, true), {9.1f, 0.0f});
+        REQUIRE(before.simulated->spectrum != after.simulated->spectrum);   // a real reshape
+
+        const std::vector<float> full_a = full_height(*before.simulated, time);
+        const std::vector<float> full_b = full_height(*after.simulated, time);
+        std::vector<float> full_delta(full_a.size());
+        for (std::size_t i = 0; i < full_a.size(); ++i) full_delta[i] = full_b[i] - full_a[i];
+
+        const std::uint32_t n = before.simulated->spectrum->resolution;
+        const float texel = 256.0f / static_cast<float>(n);
+        std::vector<float> felt_delta(full_a.size());
+        for (std::uint32_t z = 0; z < n; z += 4) {
+            for (std::uint32_t x = 0; x < n; x += 4) {
+                const glm::vec2 p{static_cast<float>(x) * texel, static_cast<float>(z) * texel};
+                felt_delta[z * n + x] = water::displace(after, p, time).y - water::displace(before, p, time).y;
+            }
+        }
+        // Both over the same sample of points.
+        std::vector<float> full_sampled, felt_sampled;
+        for (std::uint32_t z = 0; z < n; z += 4)
+            for (std::uint32_t x = 0; x < n; x += 4) {
+                full_sampled.push_back(full_delta[z * n + x]);
+                felt_sampled.push_back(felt_delta[z * n + x]);
+            }
+        const double sea_moved = rms(full_sampled);
+        const double body_felt = rms(felt_sampled);
+        WARN(count << " waves: the wind step moved the sea by " << sea_moved * 1000.0
+             << " mm RMS and the surface physics feels by " << body_felt * 1000.0
+             << " mm RMS (ratio " << body_felt / sea_moved << ")");
+        CHECK(body_felt < 3.0 * sea_moved + 1e-3);
+    }
 }
