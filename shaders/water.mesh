@@ -137,6 +137,14 @@ void main() {
         ivec2 level_cell = ivec2(round(rest / payload.cell_size));
         bvec2 odd = notEqual(level_cell & 1, ivec2(0));
 
+        // Whether this vertex lies on an edge shared with a coarser level at
+        // all, odd or even: it decides which mip of the simulated sea the
+        // vertex reads, below.
+        bool on_coarse_edge = ((payload.coarse_edges & 1u) != 0u && ix == 0u)
+                           || ((payload.coarse_edges & 2u) != 0u && ix == PATCH_QUADS)
+                           || ((payload.coarse_edges & 4u) != 0u && iz == 0u)
+                           || ((payload.coarse_edges & 8u) != 0u && iz == PATCH_QUADS);
+
         vec2 seam = rest;
         if ((payload.coarse_edges & 1u) != 0u && ix == 0u && odd.y) {
             seam.y -= payload.cell_size;
@@ -178,7 +186,17 @@ void main() {
             // A vertex standing for more ground than a texel covers reads the
             // sea averaged over that ground, or the far levels would sample
             // one wave in many and shimmer as the camera moves.
-            float lod = log2(max(payload.cell_size * texels / patch_size, 1.0));
+            //
+            // On an edge shared with a coarser level, the mip is the one that
+            // level reads, from its own cell size. The wave field's closed
+            // form gives the same answer at a rest position whichever level
+            // asks; a texture read at two mips does not, and the two levels
+            // would part along the whole edge. Sampling the coarse level's
+            // mip on the shared edge puts both sides on one surface, at the
+            // cost of that edge's finest detail — which the coarse level could
+            // not have shown in any case.
+            float cell = on_coarse_edge ? 2.0 * payload.cell_size : payload.cell_size;
+            float lod = log2(max(cell * texels / patch_size, 1.0));
 
             vec4 moved = textureLod(simulated_displacement, uv, lod);
             vec4 slopes = textureLod(simulated_derivatives, uv, lod);
