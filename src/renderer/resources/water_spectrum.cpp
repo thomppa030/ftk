@@ -1,5 +1,7 @@
 #include "renderer/resources/water_spectrum.hpp"
 
+#include "core/simd_trig.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <utility>
@@ -461,6 +463,136 @@ SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
         sum.xz += wave.k.x * wave.k.y * spread;
     }
     return sum;
+}
+
+PackedWaves pack_waves(const std::vector<SpectralWave>& waves) {
+    PackedWaves p;
+    p.count = waves.size();
+    const std::size_t padded = (waves.size() + 7) / 8 * 8;
+    for (auto* field : {&p.kx, &p.kz, &p.amplitude, &p.phase, &p.omega, &p.k_len}) {
+        field->assign(padded, 0.0f);
+    }
+    // A padding wave has amplitude zero and so adds nothing whatever its
+    // angle; its length is one so that nothing divides by zero on the way.
+    std::fill(p.k_len.begin(), p.k_len.end(), 1.0f);
+    for (std::size_t i = 0; i < waves.size(); ++i) {
+        p.kx[i] = waves[i].k.x;
+        p.kz[i] = waves[i].k.y;
+        p.amplitude[i] = waves[i].amplitude;
+        p.phase[i] = waves[i].phase;
+        p.omega[i] = waves[i].omega;
+        p.k_len[i] = waves[i].k_len;
+    }
+    return p;
+}
+
+namespace {
+
+// Eight waves' angles at a point and time, and their sines and cosines.
+struct Angles {
+    simd::f32x8 sin;
+    simd::f32x8 cos;
+};
+
+[[nodiscard]] Angles angles_at(const PackedWaves& w, std::size_t i, glm::vec2 world_xz,
+                               float time) {
+    const simd::f32x8 kx = _mm256_loadu_ps(&w.kx[i]);
+    const simd::f32x8 kz = _mm256_loadu_ps(&w.kz[i]);
+    // dot(k, xz) - omega t + phase, in the order the scalar sum takes it.
+    simd::f32x8 angle = _mm256_fmadd_ps(kz, _mm256_set1_ps(world_xz.y),
+                                        _mm256_mul_ps(kx, _mm256_set1_ps(world_xz.x)));
+    angle = _mm256_fnmadd_ps(_mm256_loadu_ps(&w.omega[i]), _mm256_set1_ps(time), angle);
+    angle = _mm256_add_ps(angle, _mm256_loadu_ps(&w.phase[i]));
+    Angles a;
+    simd::sincos(angle, a.sin, a.cos);
+    return a;
+}
+
+[[nodiscard]] float sum8(simd::f32x8 v) {
+    const __m128 lo = _mm256_castps256_ps128(v);
+    const __m128 hi = _mm256_extractf128_ps(v, 1);
+    __m128 s = _mm_add_ps(lo, hi);
+    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+    s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
+    return _mm_cvtss_f32(s);
+}
+
+} // namespace
+
+glm::vec3 spectral_displacement(const PackedWaves& w, float choppiness, glm::vec2 world_xz,
+                                float time) {
+    simd::f32x8 x = _mm256_setzero_ps(), y = _mm256_setzero_ps(), z = _mm256_setzero_ps();
+    const simd::f32x8 chop = _mm256_set1_ps(choppiness);
+    for (std::size_t i = 0; i < w.kx.size(); i += 8) {
+        const Angles a = angles_at(w, i, world_xz, time);
+        const simd::f32x8 amp = _mm256_loadu_ps(&w.amplitude[i]);
+        y = _mm256_fmadd_ps(amp, a.cos, y);
+        // -A sin c / |k|, along k.
+        const simd::f32x8 pinch = _mm256_div_ps(
+            _mm256_mul_ps(_mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), amp), a.sin), chop),
+            _mm256_loadu_ps(&w.k_len[i]));
+        x = _mm256_fmadd_ps(_mm256_loadu_ps(&w.kx[i]), pinch, x);
+        z = _mm256_fmadd_ps(_mm256_loadu_ps(&w.kz[i]), pinch, z);
+    }
+    return {sum8(x), sum8(y), sum8(z)};
+}
+
+SpectralMotion spectral_motion(const PackedWaves& w, float choppiness, glm::vec2 world_xz,
+                               float time) {
+    simd::f32x8 dx = _mm256_setzero_ps(), dy = _mm256_setzero_ps(), dz = _mm256_setzero_ps();
+    simd::f32x8 vx = _mm256_setzero_ps(), vy = _mm256_setzero_ps(), vz = _mm256_setzero_ps();
+    const simd::f32x8 chop = _mm256_set1_ps(choppiness);
+    for (std::size_t i = 0; i < w.kx.size(); i += 8) {
+        const Angles a = angles_at(w, i, world_xz, time);
+        const simd::f32x8 amp = _mm256_loadu_ps(&w.amplitude[i]);
+        const simd::f32x8 omega = _mm256_loadu_ps(&w.omega[i]);
+        const simd::f32x8 kx = _mm256_loadu_ps(&w.kx[i]);
+        const simd::f32x8 kz = _mm256_loadu_ps(&w.kz[i]);
+        const simd::f32x8 k_len = _mm256_loadu_ps(&w.k_len[i]);
+        dy = _mm256_fmadd_ps(amp, a.cos, dy);
+        vy = _mm256_fmadd_ps(_mm256_mul_ps(amp, a.sin), omega, vy);
+        const simd::f32x8 pinch = _mm256_div_ps(
+            _mm256_mul_ps(_mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), amp), a.sin), chop), k_len);
+        const simd::f32x8 pinch_rate = _mm256_mul_ps(
+            _mm256_div_ps(_mm256_mul_ps(_mm256_mul_ps(amp, a.cos), chop), k_len), omega);
+        dx = _mm256_fmadd_ps(kx, pinch, dx);
+        dz = _mm256_fmadd_ps(kz, pinch, dz);
+        vx = _mm256_fmadd_ps(kx, pinch_rate, vx);
+        vz = _mm256_fmadd_ps(kz, pinch_rate, vz);
+    }
+    SpectralMotion m;
+    m.displacement = {sum8(dx), sum8(dy), sum8(dz)};
+    m.velocity = {sum8(vx), sum8(vy), sum8(vz)};
+    return m;
+}
+
+SpectralDerivatives spectral_derivatives(const PackedWaves& w, float choppiness,
+                                         glm::vec2 world_xz, float time) {
+    simd::f32x8 dhx = _mm256_setzero_ps(), dhz = _mm256_setzero_ps();
+    simd::f32x8 xx = _mm256_setzero_ps(), zz = _mm256_setzero_ps(), xz = _mm256_setzero_ps();
+    const simd::f32x8 chop = _mm256_set1_ps(choppiness);
+    for (std::size_t i = 0; i < w.kx.size(); i += 8) {
+        const Angles a = angles_at(w, i, world_xz, time);
+        const simd::f32x8 amp = _mm256_loadu_ps(&w.amplitude[i]);
+        const simd::f32x8 kx = _mm256_loadu_ps(&w.kx[i]);
+        const simd::f32x8 kz = _mm256_loadu_ps(&w.kz[i]);
+        const simd::f32x8 a_sin = _mm256_mul_ps(amp, a.sin);
+        const simd::f32x8 spread = _mm256_div_ps(
+            _mm256_mul_ps(_mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), amp), a.cos), chop),
+            _mm256_loadu_ps(&w.k_len[i]));
+        dhx = _mm256_fnmadd_ps(kx, a_sin, dhx);
+        dhz = _mm256_fnmadd_ps(kz, a_sin, dhz);
+        xx = _mm256_fmadd_ps(_mm256_mul_ps(kx, kx), spread, xx);
+        zz = _mm256_fmadd_ps(_mm256_mul_ps(kz, kz), spread, zz);
+        xz = _mm256_fmadd_ps(_mm256_mul_ps(kx, kz), spread, xz);
+    }
+    SpectralDerivatives d;
+    d.dh_dx = sum8(dhx);
+    d.dh_dz = sum8(dhz);
+    d.xx = sum8(xx);
+    d.zz = sum8(zz);
+    d.xz = sum8(xz);
+    return d;
 }
 
 } // namespace fjell::water

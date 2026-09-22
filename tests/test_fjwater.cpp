@@ -1727,3 +1727,27 @@ TEST_CASE("The surface's velocity is the derivative of where it is", "[fjwater]"
     const glm::vec3 old_flow = (water::displace(water, p, 5.0f) - water::displace(water, p, 5.0f - dt)) / dt;
     REQUIRE(glm::length(water::surface_motion(water, p, 5.0f).velocity - old_flow) < 0.15f);
 }
+
+TEST_CASE("A derived sea's packed waves are its waves", "[fjwater]") {
+    // The evaluators read the packed copy; everything else reads the list.
+    // retune() is the one place that sets either, so a change of count must
+    // leave them the same waves.
+    FjWaterData authored = sea_physics_feels(20);
+    FjWaterData eff = water::derive_effective(authored, {0.0f, 0.0f});
+    auto in_step = [](const FjWaterData::SimulatedSea& s) {
+        REQUIRE(s.packed.count == s.waves.size());
+        for (std::size_t i = 0; i < s.waves.size(); ++i) {
+            REQUIRE(s.packed.kx[i] == s.waves[i].k.x);
+            REQUIRE(s.packed.amplitude[i] == s.waves[i].amplitude);
+            REQUIRE(s.packed.phase[i] == s.waves[i].phase);
+        }
+        for (std::size_t i = s.waves.size(); i < s.packed.kx.size(); ++i) {
+            REQUIRE(s.packed.amplitude[i] == 0.0f);
+        }
+    };
+    in_step(*eff.simulated);
+    std::get<FftContributor>(authored.contributors[1]).physics_waves = 37;
+    eff = water::derive_effective(authored, {0.0f, 0.0f}, &eff);
+    REQUIRE(eff.simulated->waves.size() == 37);
+    in_step(*eff.simulated);
+}

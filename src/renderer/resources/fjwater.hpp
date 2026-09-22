@@ -315,6 +315,19 @@ struct SpectralWave {
 
 namespace water {
 
+/// The same waves as a `std::vector<SpectralWave>`, laid out for summing eight
+/// at a time: each field of the wave in an array of its own, padded to a
+/// multiple of eight with waves of zero amplitude, which add nothing.
+///
+/// A wave is summed at every sample point of every floating body every tick,
+/// and the sum is the same arithmetic for every wave, which is what a CPU's
+/// vector unit is for — but it wants the eight amplitudes it adds next to one
+/// another, not a stride apart inside eight structs.
+struct PackedWaves {
+    std::vector<float> kx, kz, amplitude, phase, omega, k_len;
+    std::size_t count{0};   // real waves; the arrays run to the next eight
+};
+
 /// One sea drawn from a spectrum: the complex amplitude of every wavevector
 /// on the grid at time zero.
 struct SpectrumField {
@@ -384,6 +397,9 @@ struct FjWaterData {
         std::shared_ptr<const water::SpectrumField> spectrum;
         /// `drawn_from.physics_waves` of its strongest waves, strongest first.
         std::vector<SpectralWave> waves;
+        /// The same waves as the evaluators read them. Kept in step with
+        /// `waves` by whoever sets it: `water::retune()`.
+        water::PackedWaves packed;
         /// Scales the horizontal pinch, on both halves. The field's own and
         /// current, since it is applied as the sea is animated and costs no
         /// redraw to change.

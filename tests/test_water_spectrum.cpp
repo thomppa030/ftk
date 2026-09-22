@@ -1,3 +1,4 @@
+#include "core/simd_trig.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 
@@ -640,5 +641,76 @@ TEST_CASE("A spectral wave carries its own length", "[water_spectrum]") {
         const float k_len = glm::length(w.k);
         REQUIRE(k_len > 0.0f);
         REQUIRE(w.k_len == k_len);
+    }
+}
+
+TEST_CASE("Eight waves at a time sum to what one at a time does", "[water_spectrum]") {
+    // The packed evaluators and the scalar ones are two implementations of one
+    // sum and are held to each other here. They may differ by the vector
+    // sine's last bit, the order eight partial sums are added in, and the
+    // rounding of the angle itself — k.x - omega t is thousands of radians an
+    // hour in, and a float that size is only good to a few 1e-4 rad, so the
+    // two orders of computing it land a few 1e-4 apart; that is an error both
+    // already have against the exact angle, not one between them. A wave
+    // dropped, doubled or misaligned in the packing would miss by its whole
+    // amplitude.
+    FftContributor sea = physical_sea();
+    sea.resolution = 64;
+    sea.patch_size = 200.0f;
+    const auto field = water::generate_spectrum(sea);
+    for (std::uint32_t count : {1u, 7u, 8u, 9u, 100u, 257u}) {
+        const auto waves = water::strongest_waves(field, count).waves;
+        REQUIRE(waves.size() == count);
+        const water::PackedWaves packed = water::pack_waves(waves);
+        REQUIRE(packed.count == count);
+        REQUIRE(packed.kx.size() == (count + 7) / 8 * 8);
+        for (float time : {0.0f, 41.7f, 3600.0f}) {   // an hour in: large angles
+            // The angle's own rounding: a float ulp at the largest |omega t|
+            // present, times a generous constant for the sum of terms.
+            float largest_angle = 0.0f;
+            for (const auto& w : waves) largest_angle = std::max(largest_angle, std::abs(w.omega * time) + 200.0f * glm::length(w.k));
+            const float angle_slack = largest_angle * 1.2e-7f * 4.0f;
+            const float tol = (2e-6f + angle_slack) * static_cast<float>(count) + 1e-6f;
+            for (float x = -90.0f; x <= 90.0f; x += 45.0f) {
+                const glm::vec2 p(x, 0.3f * x + 7.0f);
+                INFO(count << " waves at x=" << x << " t=" << time);
+                const glm::vec3 a = water::spectral_displacement(waves, 1.7f, p, time);
+                const glm::vec3 b = water::spectral_displacement(packed, 1.7f, p, time);
+                REQUIRE(glm::length(a - b) < tol * 2.0f);
+                const auto ma = water::spectral_motion(waves, 1.7f, p, time);
+                const auto mb = water::spectral_motion(packed, 1.7f, p, time);
+                REQUIRE(glm::length(ma.velocity - mb.velocity) < tol * 4.0f);
+                const auto da = water::spectral_derivatives(waves, 1.7f, p, time);
+                const auto db = water::spectral_derivatives(packed, 1.7f, p, time);
+                REQUIRE(std::abs(da.xx - db.xx) + std::abs(da.zz - db.zz) + std::abs(da.xz - db.xz)
+                        + std::abs(da.dh_dx - db.dh_dx) + std::abs(da.dh_dz - db.dh_dz)
+                        < tol * 4.0f);
+            }
+        }
+    }
+}
+
+TEST_CASE("The vector sine is the library's, to a bit, at any angle", "[water_spectrum]") {
+    // Both halves of the pair the engine runs: our polynomial on every
+    // platform, against this platform's library. Large angles are the case
+    // that matters — a wave's angle is k.x - omega t and grows with distance
+    // and time — and where a careless reduction loses a bit per turn.
+    std::uint32_t state = 12345u;
+    auto next = [&] { state = state * 1664525u + 1013904223u; return state; };
+    for (float range : {3.2f, 100.0f, 20000.0f}) {
+        float worst = 0.0f;
+        for (int n = 0; n < 4000; ++n) {
+            alignas(32) float a[8], s[8], c[8];
+            for (float& v : a) v = (static_cast<float>(next() >> 8) / 16777216.0f * 2.0f - 1.0f) * range;
+            fjell::simd::f32x8 vs, vc;
+            fjell::simd::sincos(_mm256_load_ps(a), vs, vc);
+            _mm256_store_ps(s, vs);
+            _mm256_store_ps(c, vc);
+            for (int i = 0; i < 8; ++i) {
+                worst = std::max({worst, std::abs(s[i] - std::sin(a[i])), std::abs(c[i] - std::cos(a[i]))});
+            }
+        }
+        INFO("|angle| < " << range);
+        REQUIRE(worst <= 1.2e-7f);
     }
 }

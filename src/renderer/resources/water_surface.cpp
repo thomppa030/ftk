@@ -117,7 +117,7 @@ struct HorizontalJacobian {
     HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
     if (water.simulated.has_value()) {
         const SpectralDerivatives d = spectral_derivatives(
-            water.simulated->waves, water.simulated->choppiness, world_xz, time);
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
         j.xx += d.xx;
         j.zz += d.zz;
         j.xz += d.xz;
@@ -294,6 +294,7 @@ void retune(FjWaterData::SimulatedSea& sea, const FftContributor& now) {
         sea.waves = count > 0 && sea.spectrum != nullptr
             ? strongest_waves(*sea.spectrum, count).waves
             : std::vector<SpectralWave>{};
+        sea.packed = pack_waves(sea.waves);
     }
     sea.drawn_from.choppiness = now.choppiness;
     sea.drawn_from.physics_waves = now.physics_waves;
@@ -361,7 +362,7 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
         m.velocity.y -= t.amplitude * c * t.omega;
     });
     if (water.simulated.has_value()) {
-        const SpectralMotion s = spectral_motion(water.simulated->waves,
+        const SpectralMotion s = spectral_motion(water.simulated->packed,
                                                  water.simulated->choppiness, world_xz, time);
         m.displacement += s.displacement;
         m.velocity += s.velocity;
@@ -384,7 +385,7 @@ glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
         sum.y += t.amplitude * s;
     });
     if (water.simulated.has_value()) {
-        sum += spectral_displacement(water.simulated->waves,
+        sum += spectral_displacement(water.simulated->packed,
                                      water.simulated->choppiness, world_xz, time);
     }
     return sum;
@@ -418,7 +419,7 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
         // Tangents add across contributors where normals do not, so the
         // simulated waves go in before the cross product, as in the shader.
         const SpectralDerivatives d = spectral_derivatives(
-            water.simulated->waves, water.simulated->choppiness, world_xz, time);
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
         binormal += glm::vec3(d.xx, d.dh_dx, d.xz);
         tangent += glm::vec3(d.xz, d.dh_dz, d.zz);
     }

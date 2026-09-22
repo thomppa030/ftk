@@ -146,6 +146,9 @@ struct StrongestWaves {
 /// `height_share` stops a hair short of 1 even when everything else is.
 [[nodiscard]] StrongestWaves strongest_waves(const SpectrumField& field, std::uint32_t count);
 
+/// `waves` laid out for the vector unit. `PackedWaves` says why.
+[[nodiscard]] PackedWaves pack_waves(const std::vector<SpectralWave>& waves);
+
 /// Where `waves` have moved the surface at rest position `world_xz`: x and z
 /// the horizontal pinch toward crests, scaled by `choppiness`, y the height.
 /// The closed-form counterpart of transforming `evolve_spectrum()`, and equal
@@ -153,6 +156,8 @@ struct StrongestWaves {
 /// `strongest_waves()` will take.
 [[nodiscard]] glm::vec3 spectral_displacement(const std::vector<SpectralWave>& waves,
                                               float choppiness, glm::vec2 world_xz, float time);
+[[nodiscard]] glm::vec3 spectral_displacement(const PackedWaves& waves, float choppiness,
+                                              glm::vec2 world_xz, float time);
 
 /// `spectral_displacement()` and its exact time derivative from one pass over
 /// the waves.
@@ -162,6 +167,8 @@ struct SpectralMotion {
 };
 [[nodiscard]] SpectralMotion spectral_motion(const std::vector<SpectralWave>& waves,
                                              float choppiness, glm::vec2 world_xz, float time);
+[[nodiscard]] SpectralMotion spectral_motion(const PackedWaves& waves, float choppiness,
+                                             glm::vec2 world_xz, float time);
 
 /// How the surface `waves` make changes across the rest plane at `world_xz`:
 /// the height's slopes, and the entries the horizontal pinch adds to the
@@ -177,5 +184,7 @@ struct SpectralDerivatives {
 [[nodiscard]] SpectralDerivatives spectral_derivatives(const std::vector<SpectralWave>& waves,
                                                        float choppiness, glm::vec2 world_xz,
                                                        float time);
+[[nodiscard]] SpectralDerivatives spectral_derivatives(const PackedWaves& waves, float choppiness,
+                                                       glm::vec2 world_xz, float time);
 
 } // namespace fjell::water
