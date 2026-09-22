@@ -28,16 +28,20 @@ constexpr uint32_t TOTAL_TEXTURE_SLOTS = PBR_TEXTURE_SLOTS + CUSTOM_TEXTURE_SLOT
 /// code is generated into, and the built-ins it has in scope. Engine-provided
 /// and closed — a .fjsl names one of these or it does not parse.
 ///
-/// The five are two families. Spatial, terrain and water are lit surfaces:
+/// The six are three families. Spatial, terrain and water are lit surfaces:
 /// same lighting code, same G-buffer, a light() hook. Sky and ui emit a colour
-/// and are lit by nothing. What separates the members of a family is how their
-/// geometry arrives, which is why each needs a pipeline of its own.
+/// and are lit by nothing. Fog is a participating medium: no surface at all,
+/// a density and a colour at a world point, lit per light through its own
+/// light() with a phase angle where a surface has a normal. What separates
+/// the members of a family is how their geometry arrives, which is why each
+/// needs a pipeline of its own.
 enum class ShaderType : uint8_t {
     Spatial, ///< a mesh, drawn from the vertex or mesh shader path
     Sky,     ///< one fullscreen triangle, also baked to the lighting cubemap
     Ui,      ///< a screen-space or worldspace quad
     Terrain, ///< generated from a .fjterrain height texture in a mesh shader
     Water,   ///< generated from a .fjwater wave field in a mesh shader
+    Fog,     ///< a medium sampled per froxel by the volumetric fog compute pass
 };
 
 /// The spelling a .fjsl uses for `type`, for diagnostics and asset files.
@@ -191,9 +195,9 @@ struct ShaderMetadata {
     std::vector<FjslPort> outputs;
     /// Functions this file composes, in source order.
     std::vector<FjslUse> uses;
-    FjslBody fragment_body;    // contents of fragment() { ... }
+    FjslBody fragment_body;    // contents of fragment() { ... }; sky() for a sky, density() for fog
     FjslBody vertex_body;      // contents of vertex() { ... } (empty = standard)
-    FjslBody light_body;       // contents of light() { ... } (empty = default PBR)
+    FjslBody light_body;       // contents of light() { ... } (empty = the type's default: PBR, or the fog phase)
     FjslBody layers_body;      // terrain only: contents of layers() { ... } (empty = painted weights as-is)
     FjslBody main_body;        // shader_function only: contents of main() { ... }
     std::string user_globals;  // top-level helpers / constants the user authored

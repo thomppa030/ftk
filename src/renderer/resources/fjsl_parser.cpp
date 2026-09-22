@@ -23,7 +23,7 @@ struct ShaderTypeName {
 constexpr ShaderTypeName SHADER_TYPE_NAMES[] = {
     {"spatial", ShaderType::Spatial}, {"sky", ShaderType::Sky},
     {"ui", ShaderType::Ui},           {"terrain", ShaderType::Terrain},
-    {"water", ShaderType::Water},
+    {"water", ShaderType::Water},     {"fog", ShaderType::Fog},
 };
 } // namespace
 
@@ -55,12 +55,16 @@ constexpr HookRule FUNCTION_HOOKS[] = {
     {"light", "a shader_function has one entry point, main()"},
     {"sky", "a shader_function has one entry point, main()"},
     {"layers", "a shader_function has one entry point, main()"},
+    {"density", "a shader_function has one entry point, main()"},
 };
+
+constexpr std::string_view DENSITY_REFUSAL = "only a shader_type fog shader writes a medium";
 
 constexpr HookRule SPATIAL_HOOKS[] = {
     {"fragment", {}}, {"vertex", {}}, {"light", {}},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
+    {"density", DENSITY_REFUSAL},
 };
 constexpr HookRule SKY_HOOKS[] = {
     {"sky", {}},
@@ -68,6 +72,7 @@ constexpr HookRule SKY_HOOKS[] = {
     {"vertex", "the sky is drawn as one fullscreen triangle"},
     {"light", "the sky is not lit; it is the light"},
     {"layers", "only terrain blends painted layers"},
+    {"density", DENSITY_REFUSAL},
 };
 constexpr HookRule UI_HOOKS[] = {
     {"fragment", {}},
@@ -75,15 +80,28 @@ constexpr HookRule UI_HOOKS[] = {
     {"light", "a ui quad is not lit"},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
+    {"density", DENSITY_REFUSAL},
 };
 constexpr HookRule TERRAIN_HOOKS[] = {
     {"fragment", {}}, {"light", {}}, {"layers", {}},
     {"vertex", "terrain geometry is generated in a mesh shader from the height texture"},
     {"sky", "only a shader_type sky shader writes SKY"},
+    {"density", DENSITY_REFUSAL},
 };
 constexpr HookRule WATER_HOOKS[] = {
     {"fragment", {}}, {"light", {}},
     {"vertex", "the surface comes from the .fjwater wave field"},
+    {"sky", "only a shader_type sky shader writes SKY"},
+    {"layers", "only terrain blends painted layers"},
+    {"density", DENSITY_REFUSAL},
+};
+// A fog shader answers what the medium is at a world point and how it
+// scatters each light. It has no surface, so nothing for fragment() to
+// shade or vertex() to move.
+constexpr HookRule FOG_HOOKS[] = {
+    {"density", {}}, {"light", {}},
+    {"fragment", "a fog shader writes a medium from density(), not a surface from fragment()"},
+    {"vertex", "fog has no geometry; it is sampled per froxel"},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
 };
@@ -95,6 +113,7 @@ std::span<const HookRule> hook_rules(std::optional<ShaderType> type) {
         case ShaderType::Ui:      return UI_HOOKS;
         case ShaderType::Terrain: return TERRAIN_HOOKS;
         case ShaderType::Water:   return WATER_HOOKS;
+        case ShaderType::Fog:     return FOG_HOOKS;
         case ShaderType::Spatial: break;
     }
     return SPATIAL_HOOKS;
@@ -1110,15 +1129,16 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         meta.uses.push_back(std::move(use));
     });
 
-    // Sky shaders supply their user code via sky() rather than fragment();
-    // route it through the same fragment_body slot so the existing
-    // /*FJSL_USER_CODE*/ substitution path works unchanged.
+    // Sky and fog shaders supply their user code via sky() and density()
+    // rather than fragment(); both route through the same fragment_body slot
+    // so the /*FJSL_USER_CODE*/ substitution path serves every type.
     if (meta.is_function) {
         meta.main_body = extract_function_body(source, "main");
     } else {
-        meta.fragment_body = meta.shader_type == ShaderType::Sky
-            ? extract_function_body(source, "sky")
-            : extract_function_body(source, "fragment");
+        const char* body_hook = "fragment";
+        if (meta.shader_type == ShaderType::Sky) body_hook = "sky";
+        if (meta.shader_type == ShaderType::Fog) body_hook = "density";
+        meta.fragment_body = extract_function_body(source, body_hook);
         meta.vertex_body = extract_function_body(source, "vertex");
         meta.light_body = extract_function_body(source, "light");
         meta.layers_body = extract_function_body(source, "layers");
@@ -1153,6 +1173,15 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         diagnose(at, FjslSeverity::error,
                  kind + " has no " + std::string(rule.hook) + "() stage — "
                      + std::string(rule.refusal));
+    }
+
+    // An empty fragment() is standard PBR and an empty sky() is black, but a
+    // fog shader with no density() makes no fog at all, which reads as the
+    // pass being broken rather than the file being incomplete.
+    if (!meta.is_function && meta.shader_type == ShaderType::Fog
+        && find_function_declaration(source, "density") == std::string::npos) {
+        diagnose(0, FjslSeverity::warning,
+                 "a shader_type fog shader with no density() makes no fog");
     }
 
     if (meta.is_function) {
@@ -1545,13 +1574,15 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // Each shader type reaches its material row differently. Sky is a single
     // fullscreen pass with no draws[] SSBO, so the row index is pushed as
     // `push.sky_material_id`; terrain and water likewise push their row per
-    // node; a ui quad carries its row in the quad record; spatial shaders
-    // look up the material via per-draw data.
+    // node, and the fog compute pass pushes the fog node's; a ui quad carries
+    // its row in the quad record; spatial shaders look up the material via
+    // per-draw data.
     const std::string mat_expr = [&]() -> std::string {
         switch (meta.shader_type) {
             case ShaderType::Sky:     return "materials[push.sky_material_id]";
             case ShaderType::Terrain: return "materials[push.terrain_material_id]";
             case ShaderType::Water:   return "materials[push.water_material_id]";
+            case ShaderType::Fog:     return "materials[pc.fog_material_id]";
             case ShaderType::Ui:      return "materials[quads[frag_quad_index].material_id]";
             case ShaderType::Spatial: break;
         }
@@ -1697,10 +1728,23 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     DIFFUSE_LIGHT  += kD * ALBEDO / PI;
     SPECULAR_LIGHT += spec;
 )GLSL";
+    // Fog's light() is per light per froxel and scatters by a phase angle
+    // rather than shading by a normal. The default is the Henyey-Greenstein
+    // lobe the fog pass always used, clamped so the forward peak stays gentle
+    // and the sun does not smear a bright blob through the medium; ambient
+    // arrives from everywhere at once and scatters by the isotropic average.
+    static const char* DEFAULT_FOG_LIGHT_BODY = R"GLSL(
+    float phase = LIGHT_KIND == FOG_LIGHT_AMBIENT
+        ? ISOTROPIC_PHASE
+        : min(henyey_greenstein(0.7, COS_THETA), 0.1);
+    SCATTERED += LIGHT_COLOR * phase * SHADOW;
+)GLSL";
     // The default body is engine code, so it gets no #line — an error in it is
     // an engine bug and should point at the generated file.
     if (meta.light_body.empty()) {
-        replace("/*FJSL_LIGHT_USER_CODE*/", std::string(DEFAULT_LIGHT_BODY));
+        replace("/*FJSL_LIGHT_USER_CODE*/",
+                std::string(meta.shader_type == ShaderType::Fog ? DEFAULT_FOG_LIGHT_BODY
+                                                                : DEFAULT_LIGHT_BODY));
     } else {
         replace_body("/*FJSL_LIGHT_USER_CODE*/", meta.light_body);
     }

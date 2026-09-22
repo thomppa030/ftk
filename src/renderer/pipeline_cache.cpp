@@ -126,6 +126,7 @@ void PipelineCache::load_includes() {
     ui_template_ = load_template("fjell_ui_template.glsl");
     terrain_template_ = load_template("fjell_terrain_template.glsl");
     water_template_ = load_template("fjell_water_template.glsl");
+    fog_template_ = load_template("fjell_fog_template.glsl");
     if (template_source_.empty()) {
         throw std::runtime_error("Failed to open spatial template");
     }
@@ -287,9 +288,11 @@ void PipelineCache::compile_entry(Entry& entry) {
         // Pick the template by shader_type. Spatial uses the full PBR
         // template; sky the fullscreen sky template; ui the UI quad template;
         // terrain the layer-blending template drawn by the terrain mesh
-        // shader; water the wave template drawn by the water mesh shader.
+        // shader; water the wave template drawn by the water mesh shader; fog
+        // the froxel compute template the volumetric fog pass dispatches.
         const ShaderType shader_type = next.metadata.shader_type;
         const bool is_ui = shader_type == ShaderType::Ui;
+        const bool is_fog = shader_type == ShaderType::Fog;
         // Spatial is the only type drawn by the shared mesh/vertex pipelines;
         // the rest are drawn by a pass that builds its own from the fragment.
         const bool owns_own_pipeline = shader_type != ShaderType::Spatial;
@@ -299,6 +302,7 @@ void PipelineCache::compile_entry(Entry& entry) {
                 case ShaderType::Ui:      return ui_template_;
                 case ShaderType::Terrain: return terrain_template_;
                 case ShaderType::Water:   return water_template_;
+                case ShaderType::Fog:     return fog_template_;
                 case ShaderType::Spatial: break;
             }
             return template_source_;
@@ -407,9 +411,11 @@ void PipelineCache::compile_entry(Entry& entry) {
             }
         }
 
-        // Determine output name from fjsl filename
+        // Determine output name from fjsl filename. A fog shader generates
+        // a compute shader, and the extension says so to anyone compiling
+        // the generated file by hand.
         std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
-        next.generated_frag_path = generated_dir_ + "/" + stem + ".frag";
+        next.generated_frag_path = generated_dir_ + "/" + stem + (is_fog ? ".comp" : ".frag");
 
         // Write generated .frag
         {
@@ -431,11 +437,17 @@ void PipelineCache::compile_entry(Entry& entry) {
         };
         std::vector<ShaderJob> jobs;
 
-        // Fragment is always compiled. A ui shader is one generated source
-        // compiled in two shapes, screen-space and worldspace; a sky shader
-        // once more as the compute shader that fills the lighting cubemap.
+        // The main stage is always compiled: a fragment for every drawn type,
+        // the fog pass's compute shader for a fog shader. A ui shader is one
+        // generated source compiled in two shapes, screen-space and
+        // worldspace; a sky shader once more as the compute shader that fills
+        // the lighting cubemap.
         const bool is_sky = shader_type == ShaderType::Sky;
-        jobs.push_back({next.generated_frag_path, stem + ".frag", {}, {}});
+        if (is_fog) {
+            jobs.push_back({next.generated_frag_path, stem + ".comp", {}, "compute"});
+        } else {
+            jobs.push_back({next.generated_frag_path, stem + ".frag", {}, {}});
+        }
         if (is_ui) {
             jobs.push_back({next.generated_frag_path, stem + ".world.frag", {"FJELL_UI_WORLD"}, {}});
         }
@@ -482,8 +494,12 @@ void PipelineCache::compile_entry(Entry& entry) {
         }
 
         // Collect results
-        std::string frag_spv = futures[0].get(); // fragment is always index 0
+        std::string frag_spv = futures[0].get(); // the main stage is always index 0
         size_t idx = 1;
+        if (is_fog) {
+            next.fog_compute_spv = frag_spv;
+            frag_spv.clear();
+        }
         if (is_ui) {
             next.ui_frag_spv = frag_spv;
             next.ui_world_frag_spv = futures[idx++].get();
@@ -541,6 +557,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.ui_frag_spv = std::move(next.ui_frag_spv);
     entry.ui_world_frag_spv = std::move(next.ui_world_frag_spv);
     entry.sky_cubemap_spv = std::move(next.sky_cubemap_spv);
+    entry.fog_compute_spv = std::move(next.fog_compute_spv);
     entry.vert_spv = std::move(next.vert_spv);
     entry.mesh_spv = std::move(next.mesh_spv);
     entry.depth_vert_spv = std::move(next.depth_vert_spv);
@@ -1215,6 +1232,10 @@ const std::string& PipelineCache::ui_world_frag_spv(uint32_t id) const {
 
 const std::string& PipelineCache::sky_cubemap_spv(uint32_t id) const {
     return entries_[id].sky_cubemap_spv;
+}
+
+const std::string& PipelineCache::fog_compute_spv(uint32_t id) const {
+    return entries_[id].fog_compute_spv;
 }
 
 } // namespace fjell

@@ -213,6 +213,11 @@ void MaterialEditorContext::draw_params_panel() {
                 ImGui::TextWrapped("Sky shader: the preview sphere cannot draw it. Set it as "
                                    "the scene's sky and look at the scene.");
                 break;
+            case ShaderType::Fog:
+                ImGui::TextWrapped("Fog shader: the preview sphere cannot draw it. Assign the "
+                                   "material to the scene's Volumetric Fog node and look at "
+                                   "the scene.");
+                break;
         }
         ImGui::Separator();
 

@@ -1164,6 +1164,152 @@ TEST_CASE("The water template accepts every built-in it offers", "[fjsl][water][
     REQUIRE(status == 0);
 }
 
+TEST_CASE("Parse shader_type fog takes its body from density()", "[fjsl][fog]") {
+    auto meta = parse_fjsl(R"(
+        shader_type fog;
+        uniform float density : hint_range(0.0, 1.0, 0.001) = 0.003;
+        void density() {
+            DENSITY = density * exp(-WORLD_POS.y);
+            COLOR = vec3(0.8);
+        }
+        void light() {
+            SCATTERED += LIGHT_COLOR * SHADOW;
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.shader_type == ShaderType::Fog);
+    REQUIRE(meta.fragment_body.code.find("DENSITY = density") != std::string::npos);
+    REQUIRE(meta.light_body.code.find("SCATTERED +=") != std::string::npos);
+    REQUIRE(meta.uniforms.size() == 1);
+    REQUIRE(shader_type_from_name("fog") == ShaderType::Fog);
+    REQUIRE(shader_type_name(ShaderType::Fog) == "fog");
+}
+
+TEST_CASE("Fog rejects the surface hooks, other types reject density()", "[fjsl][fog]") {
+    for (const char* hook : {"fragment", "vertex", "sky", "layers"}) {
+        INFO("hook: " << hook);
+        auto meta = parse_fjsl("shader_type fog;\nvoid density() {}\nvoid "
+                               + std::string(hook) + "() {}\n");
+        REQUIRE(meta.has_errors());
+        // The refused body is stripped with the permitted ones, so nothing of
+        // it reaches the generated file's globals.
+        REQUIRE(meta.user_globals.find(hook) == std::string::npos);
+    }
+    for (const char* type : {"spatial", "sky", "ui", "terrain", "water"}) {
+        INFO("type: " << type);
+        auto meta = parse_fjsl("shader_type " + std::string(type)
+                               + ";\nvoid density() { DENSITY = 1.0; }\n");
+        REQUIRE(meta.has_errors());
+        bool named = false;
+        for (const auto& d : meta.diagnostics) {
+            named |= d.message.find("density()") != std::string::npos;
+        }
+        REQUIRE(named);
+    }
+    auto function = parse_fjsl("shader_function;\nout float x;\nvoid main() { x = 1.0; }\n"
+                               "void density() {}\n");
+    REQUIRE(function.has_errors());
+}
+
+TEST_CASE("A fog shader without density() is warned about", "[fjsl][fog]") {
+    auto meta = parse_fjsl("shader_type fog;\nvoid light() { SCATTERED += LIGHT_COLOR; }\n");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.fragment_body.empty());
+    bool warned = false;
+    for (const auto& d : meta.diagnostics) {
+        warned |= d.severity == FjslSeverity::warning
+               && d.message.find("density()") != std::string::npos;
+    }
+    REQUIRE(warned);
+}
+
+TEST_CASE("Fog reads its material row through the push block", "[fjsl][fog]") {
+    auto meta = parse_fjsl(R"(
+        shader_type fog;
+        uniform float density = 0.01;
+        uniform sampler2D detail;
+        void density() { DENSITY = density * texture(detail, WORLD_POS.xz).r; }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    const std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\nvoid f() {\n/*FJSL_USER_CODE*/\n}\n"
+                             "void l() {\n/*FJSL_LIGHT_USER_CODE*/\n}\n";
+    auto glsl = generate_fragment_shader(meta, tmpl);
+    REQUIRE(glsl.find("materials[pc.fog_material_id].param_offset") != std::string::npos);
+    REQUIRE(glsl.find("materials[pc.fog_material_id].texture_indices[4]") != std::string::npos);
+    // A fog shader that leaves light() out scatters by the engine's phase
+    // lobe, not by the surface default with its normals and Fresnel.
+    REQUIRE(glsl.find("henyey_greenstein(0.7, COS_THETA)") != std::string::npos);
+    REQUIRE(glsl.find("distribution_GGX") == std::string::npos);
+}
+
+// The fog template is compiled as a compute shader by PipelineCache; a
+// hand-written sample touches every fog built-in so the template stays
+// covered even when the shipped shader uses only some of them.
+TEST_CASE("Every fog .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][fog]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_fog_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    std::vector<std::pair<std::string, std::string>> sources;
+    sources.emplace_back("fog_builtins", R"(
+        shader_type fog;
+        uniform float density : hint_range(0.0, 1.0, 0.001) = 0.01;
+        uniform vec3 tint : hint_color = vec3(1.0);
+        uniform sampler2D mask;
+        void density() {
+            float h = WORLD_POS.y - ORIGIN.y + LOCAL_POS.y * 0.0;
+            float wisps = 1.0 + 0.5 * fbm_noise(WORLD_POS / 8.0 + vec3(WIND_DRIFT.x, 0.0, WIND_DRIFT.y), 2);
+            float stirred = 1.0 + STIR + MOTION.recency * MOTION_FALLOFF.sharpness * 0.0;
+            float mask_v = texture(mask, WORLD_POS.xz * 0.01).r;
+            DENSITY = density * exp(-h) * wisps * stirred * OCCUPANCY * mask_v;
+            COLOR = tint * mix(1.0, 0.5, CLOUD_COVERAGE) * mix(1.0, 0.8, PRECIPITATION);
+            SCATTERING = 1.0 + 0.0 * (VIEW_DIST + TIME + TIME_OF_DAY + WIND_SPEED
+                                      + dot(VIEW_DIR, SUN_DIR) + dot(WIND_DIR, CAMERA_POS)
+                                      + dot(MOTION.velocity, vec2(1.0)) + MOTION.height);
+        }
+        void light() {
+            if (LIGHT_KIND == FOG_LIGHT_AMBIENT) {
+                SCATTERED += LIGHT_COLOR * ISOTROPIC_PHASE;
+                return;
+            }
+            float phase = henyey_greenstein(0.5, COS_THETA);
+            float by_thickness = mix(1.0, 0.5, clamp(DENSITY * 10.0, 0.0, 1.0));
+            if (LIGHT_KIND == FOG_LIGHT_SUN) phase *= step(0.5, SHADOW);
+            SCATTERED += LIGHT_COLOR * COLOR * phase * SHADOW * by_thickness
+                       + 0.0 * (dot(LIGHT_DIR, VIEW_DIR) + WORLD_POS.x);
+        }
+    )");
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto text = read_text(entry.path());
+        if (parse_fjsl(text).shader_type == ShaderType::Fog) {
+            sources.emplace_back(entry.path().stem().string(), text);
+        }
+    }
+    REQUIRE(sources.size() > 1);  // the engine ships fog.fjsl
+
+    for (const auto& [name, text] : sources) {
+        INFO("shader: " << name);
+        auto meta = parse_fjsl(text);
+        REQUIRE_FALSE(meta.has_errors());
+        auto comp = out_dir / (name + ".fog.comp");
+        std::ofstream(comp) << generate_fragment_shader(meta, tmpl);
+
+        auto spv = out_dir / (name + ".fog.spv");
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=compute -I "
+                                    + quoted(shader_dir / "include") + " "
+                                    + quoted(comp) + " -o " + quoted(spv));
+        INFO(output);
+        REQUIRE(status == 0);
+    }
+}
+
 TEST_CASE("Terrain params read the pushed material row", "[fjsl][terrain]") {
     auto meta = parse_fjsl(R"(
         shader_type terrain;

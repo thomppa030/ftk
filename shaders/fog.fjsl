@@ -1,0 +1,33 @@
+shader_type fog;
+
+// The engine's default haze: a height fog that thins exponentially above
+// the fog node and thickens gently below it, one colour throughout, lit by a
+// forward-scattering lobe. Any Volumetric Fog node without a material draws
+// with this at its defaults, and a .fjmat naming this shader tunes it.
+
+uniform float density : hint_range(0.0, 0.2, 0.0005) = 0.003;
+uniform float height_falloff : hint_range(0.01, 5.0, 0.01) = 0.5;
+uniform vec3 color : hint_color = vec3(0.8, 0.85, 0.9);
+uniform float scattering : hint_range(0.0, 1.0, 0.01) = 0.5;
+uniform float anisotropy : hint_range(-0.99, 0.99, 0.01) = 0.7;
+
+void density() {
+    float h = WORLD_POS.y - ORIGIN.y;
+    // Denser near the ground: above the node the haze falls off with height,
+    // below it the air keeps thickening rather than sitting at one value.
+    DENSITY = h >= 0.0 ? density * exp(-height_falloff * h)
+                       : density * (1.0 - h * height_falloff * 0.5);
+    COLOR = color;
+    SCATTERING = scattering;
+}
+
+void light() {
+    // The forward peak is clamped at 0.1 against an isotropic baseline of
+    // about 0.08, so the sun brightens the fog toward it without smearing a
+    // blob across it. Ambient arrives from everywhere and scatters by the
+    // average.
+    float phase = LIGHT_KIND == FOG_LIGHT_AMBIENT
+        ? ISOTROPIC_PHASE
+        : min(henyey_greenstein(anisotropy, COS_THETA), 0.1);
+    SCATTERED += LIGHT_COLOR * phase * SHADOW;
+}

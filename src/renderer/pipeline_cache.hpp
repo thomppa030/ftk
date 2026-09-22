@@ -68,6 +68,10 @@ public:
     [[nodiscard]] const std::string& ui_world_frag_spv(uint32_t id) const;
     /// shader_type sky: the cubemap compute variant of the sky shader.
     [[nodiscard]] const std::string& sky_cubemap_spv(uint32_t id) const;
+    /// shader_type fog: the entry's one compiled stage, the compute shader the
+    /// volumetric fog pass dispatches. Empty for every other type, which
+    /// compile a fragment instead.
+    [[nodiscard]] const std::string& fog_compute_spv(uint32_t id) const;
     // Counts successful compiles of the entry. An owner that built its own
     // VkPipeline from the entry's SPV compares this against the value it
     // built at and rebuilds when it moved, which is how a hot-reload reaches
@@ -128,6 +132,9 @@ private:
         // shader_type sky only: the same source as a compute shader that
         // renders the lighting cubemap
         std::string sky_cubemap_spv;
+        // shader_type fog only: the generated source compiled as the compute
+        // shader the fog pass dispatches; frag_spv stays empty for it
+        std::string fog_compute_spv;
         // Custom vertex SPIR-V paths (empty = use standard shaders)
         std::string vert_spv;
         std::string mesh_spv;
@@ -178,6 +185,7 @@ private:
     std::string ui_template_;
     std::string terrain_template_;
     std::string water_template_;
+    std::string fog_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;
