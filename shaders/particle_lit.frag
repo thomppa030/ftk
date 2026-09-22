@@ -213,11 +213,7 @@ void main() {
     if (material_id > 0u) {
         GpuMaterial em_mat = materials[material_id];
         vec3 em_sample = texture(textures[nonuniformEXT(em_mat.texture_indices[3])], frag_uv).rgb;
-        vec3 mat_emission = material_emission(em_mat, em_sample);
-
-        if (dot(mat_emission, mat_emission) > 0.0) {
-            color = mat_emission;
-        }
+        color += material_emission(em_mat, em_sample);
     }
 
     out_color = vec4(color, alpha);
