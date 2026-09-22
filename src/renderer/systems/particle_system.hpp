@@ -29,22 +29,21 @@
 
 namespace fjell {
 
-// GPU-side emitter metadata (160 bytes, matches GLSL EmitterData)
+// One record per emitter slot, rewritten every dispatch. Matches the GLSL
+// EmitterData in particle_common.glsl field for field. std430 rounds the
+// array's stride up to the vec3s' 16-byte alignment, so the size has to be a
+// multiple of 16 on both sides or the GPU reads every record after the first
+// at the wrong offset; the trailing word keeps it there, and a change here
+// is checked against the compiled shader's ArrayStride, not just sizeof.
 struct GpuEmitterData {
-    glm::vec3 emitter_position; float dt;
-    glm::vec3 gravity;          uint32_t max_particles;
-    glm::vec4 color_start;
-    glm::vec4 color_end;
-    float size_start, size_end, lifetime_min, lifetime_max;
-    glm::vec3 velocity_min;     uint32_t emit_count;
-    glm::vec3 velocity_max;     uint32_t random_seed;
+    glm::vec3 emitter_position; float dt; // this emitter's step: zero while paused or frozen
+    glm::vec3 emitter_velocity; uint32_t max_particles;
+    uint32_t emit_count;
+    uint32_t random_seed;
     uint32_t base_offset;
     uint32_t counter_offset;
-    uint32_t dead_list_offset;
     uint32_t module_offset;       // offset into module buffer (in uint32_t units)
-    glm::vec3 emitter_velocity; float _pad0;
     uint32_t flags;               // bit 0 trail, 1 lit, 2 mesh, 3 has sub-emitter, 4-5 its trigger
-    uint32_t trail_head;          // ring buffer write index (from counter buffer)
     float    trail_width;         // base width for trail strips
     float    trail_width_over_life; // 0=taper to zero, 1=constant width
     // Sub-emitter fields
@@ -58,15 +57,9 @@ struct GpuEmitterData {
     uint32_t mesh_vertex_offset;
     uint32_t mesh_first_index;
     uint32_t mesh_index_count;
-    // Explicit tail padding: std430 rounds an array's per-element stride up
-    // to the alignment of its largest member (16, from the vec3/vec4
-    // fields above), so the GPU reads this struct at 192-byte intervals
-    // regardless of its own packed size. Without this, C++ writes at 188
-    // and the GPU reads at 192 — a silent 4-byte drift per emitter that
-    // corrupts every emitter past index 0.
-    uint32_t _pad1;
+    uint32_t _pad;
 };
-static_assert(sizeof(GpuEmitterData) == 192);
+static_assert(sizeof(GpuEmitterData) == 96);
 
 // Push constants for lit particle fragment shader (12 bytes)
 struct ParticleLitPush {

@@ -1469,21 +1469,11 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         max_emit_count = std::max(max_emit_count, emit_count);
 
         data.dt = eff_dt;
-        data.gravity = {}; // read from modules now
         data.max_particles = gpu.max_particles;
-        data.color_start = {}; // read from modules
-        data.color_end = {};
-        data.size_start = 0.0f;
-        data.size_end = 0.0f;
-        data.lifetime_min = sub.lifetime_min();
-        data.lifetime_max = sub.lifetime_max();
-        data.velocity_min = {};
         data.emit_count = emit_count;
-        data.velocity_max = {};
         data.random_seed = frame_seed_ ^ ((gpu.object_id * 31 + gpu.emitter_index) * 2654435761u);
         data.base_offset = gpu.base_offset;
         data.counter_offset = static_cast<uint32_t>(i) * 3;
-        data.dead_list_offset = gpu.base_offset;
 
         // Detect trail emitter from render modules
         bool is_trail = false;
@@ -1572,7 +1562,6 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
                 break;
             }
         }
-        data.trail_head = 0; // read from counter buffer by indirect shader
         data.trail_width = trail_width;
         data.trail_width_over_life = trail_wol;
 
