@@ -447,16 +447,23 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
         if (fall.node_id == 0 || fall.path != wanted || fall.event_id != event_id) {
             if (fall.node_id != 0) ctx.scene.queue_destroy(fall.node_id);
             fall = Precipitation{};
-            auto handle = resources_->load_vfx_asset(base_path::resolve_asset(wanted, ctx.project));
-            if (!handle) {
-                FJELL_CORE_ERROR("Weather precipitation: {}", handle.error());
+            // Its own copy of the effect: the emitter's playback state lives
+            // on it, and the resource pool's copy is shared with whoever
+            // else loads the asset.
+            std::shared_ptr<VfxEffect> effect;
+            try {
+                effect = std::make_shared<VfxEffect>(
+                    load_vfx_effect(base_path::resolve_asset(wanted, ctx.project)));
+                resolve_vfx_textures(*effect, *resources_, ctx.project);
+            } catch (const std::exception& e) {
+                FJELL_CORE_ERROR("Weather precipitation: {}", e.what());
                 return;
             }
             auto node = std::make_unique<Node3D>();
             node->name = "Weather Precipitation";
             auto& emitter = node->components.add<EmitterComponent>();
             emitter.vfx_path = wanted;
-            emitter.effect = std::shared_ptr<VfxEffect>(resources_->get(*handle), [](VfxEffect*) {});
+            emitter.effect = std::move(effect);
             emitter.looping = true;
             fall.node_id = ctx.scene.add_node(std::move(node));
             fall.path = wanted;
