@@ -57,8 +57,11 @@ ImageUsage image_usage_for(ResourceAccess a) {
         case ResourceAccess::sampled_vertex:
             return ImageUsage::shader_read;
         case ResourceAccess::sampled_compute:
-        case ResourceAccess::storage_read_compute:
             return ImageUsage::compute_read;
+        // A storage image is only ever read in GENERAL, whatever the access:
+        // imageLoad through a SHADER_READ_ONLY_OPTIMAL layout is invalid.
+        case ResourceAccess::storage_read_compute:
+            return ImageUsage::compute_storage_read;
         case ResourceAccess::storage_write_compute:
         case ResourceAccess::storage_read_write_compute:
             return ImageUsage::compute_write;
@@ -400,6 +403,7 @@ VkImageUsageFlags usage_flag_for(ImageUsage u) {
         case ImageUsage::shader_read:
         case ImageUsage::compute_read:
         case ImageUsage::raytracing_read:        return VK_IMAGE_USAGE_SAMPLED_BIT;
+        case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
         case ImageUsage::raytracing_write:       return VK_IMAGE_USAGE_STORAGE_BIT;
         case ImageUsage::transfer_src:           return VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -632,6 +636,7 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
                 return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             }
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
         case ImageUsage::raytracing_write:
             return VK_IMAGE_LAYOUT_GENERAL;
@@ -654,6 +659,7 @@ VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
         case ImageUsage::shader_read:
             return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         case ImageUsage::compute_read:
+        case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
             return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         case ImageUsage::raytracing_read:
@@ -704,6 +710,8 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
         case ImageUsage::compute_read:
         case ImageUsage::raytracing_read:
             return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        case ImageUsage::compute_storage_read:
+            return VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
         case ImageUsage::compute_write:
         case ImageUsage::raytracing_write:
             return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
