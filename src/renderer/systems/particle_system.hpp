@@ -219,7 +219,7 @@ private:
         VkPipeline emit{VK_NULL_HANDLE};
         VkPipeline sim{VK_NULL_HANDLE};
         VkPipeline indirect{VK_NULL_HANDLE};
-        VkPipeline mesh_instance{VK_NULL_HANDLE};   // alive-particle compaction for mesh emitters
+        VkPipeline mesh_instance{VK_NULL_HANDLE};   // alive-particle compaction (billboard + mesh)
         VkPipeline additive{VK_NULL_HANDLE};        // billboard, unlit
         VkPipeline alpha{VK_NULL_HANDLE};
         VkPipeline trail_additive{VK_NULL_HANDLE};  // ribbon strip, unlit
@@ -287,6 +287,7 @@ private:
     std::unique_ptr<GrowableBuffer> mega_counter_buffer_;
     std::unique_ptr<GrowableBuffer> mega_dead_list_buffer_;
     std::unique_ptr<GrowableBuffer> mega_indirect_buffer_;
+    std::unique_ptr<GrowableBuffer> mega_alive_buffer_;   // per-emitter dense alive indices
     std::array<std::unique_ptr<Buffer>, DISPATCH_REGIONS> emitter_data_buffers_; // HOST_VISIBLE, mapped
     std::array<std::unique_ptr<Buffer>, DISPATCH_REGIONS> module_buffers_;       // HOST_VISIBLE, per-emitter module data
     std::unique_ptr<Buffer> sub_event_buffer_;      // GPU-only, sub-emitter events (64 bytes each)

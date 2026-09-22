@@ -9,6 +9,12 @@ layout(std430, set = 1, binding = 0) readonly buffer ParticleBuffer {
     Particle particles[];
 };
 
+// The emitter's alive particles, gathered by particle_compact.comp into a
+// dense run starting at its base_offset; the draw covers exactly that run.
+layout(std430, set = 1, binding = 5) readonly buffer AliveList {
+    uint alive[];
+};
+
 layout(location = 0) out vec2 frag_uv;
 layout(location = 1) out vec4 frag_color;
 layout(location = 2) out flat uint frag_texture_index;
@@ -19,18 +25,10 @@ layout(location = 5) out flat uint frag_is_mesh;
 void main() {
     // base_offset comes from firstInstance in VkDrawIndirectCommand
     uint base_offset = gl_InstanceIndex;
-    uint particle_index = base_offset + gl_VertexIndex / 6;
+    uint particle_index = alive[base_offset + gl_VertexIndex / 6];
     uint corner = gl_VertexIndex % 6;
 
     Particle p = particles[particle_index];
-
-    // Dead particle — degenerate triangle
-    if (p.lifetime <= 0.0) {
-        gl_Position = vec4(0.0);
-        frag_color = vec4(0.0);
-        frag_uv = vec2(0.0);
-        return;
-    }
 
     // Two triangles forming a quad:
     // 0--1    triangle 0: 0,1,2

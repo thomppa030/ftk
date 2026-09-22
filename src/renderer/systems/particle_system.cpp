@@ -101,6 +101,11 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         INITIAL_EMITTERS * 4 * sizeof(uint32_t),
         std::max(MAX_EMITTERS * 4 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_indirect");
 
+    mega_alive_buffer_ = std::make_unique<GrowableBuffer>(
+        device, allocator_, upload, deleter,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_alive");
+
     // ── Compute descriptor set layout (8 bindings) ──
     // 0=particles, 1=counters, 2=dead_list, 3=emitter_data, 4=indirect, 5=modules
     // 6=sub_emitter_events, 7=sub_emitter_event_counters
@@ -151,10 +156,12 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     vk_check(vkCreateSampler(device_, &sampler_ci, nullptr, &depth_sampler_),
              "create particle depth sampler");
 
-    // ── Render descriptor set layout (particles + depth + emitter data + counters + instances) ──
+    // ── Render descriptor set layout ──
+    // 0 particles, 1 depth, 2 emitter data, 3 counters, 4 mesh instances, 5 alive list
 
-    VkDescriptorSetLayoutBinding render_bindings[5]{};
-    for (uint32_t b = 0; b < 5; ++b) {
+    constexpr uint32_t RENDER_BINDINGS = 6;
+    VkDescriptorSetLayoutBinding render_bindings[RENDER_BINDINGS]{};
+    for (uint32_t b = 0; b < RENDER_BINDINGS; ++b) {
         render_bindings[b].binding = b;
         render_bindings[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         render_bindings[b].descriptorCount = 1;
@@ -165,20 +172,20 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     // Partially bound + update-after-bind so depth_tex (binding 1) can have
     // a stale layout when the opaque pass doesn't access it.
-    VkDescriptorBindingFlags binding_flags[5] = {0, 0, 0, 0, 0};
+    VkDescriptorBindingFlags binding_flags[RENDER_BINDINGS] = {};
     binding_flags[1] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
                        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_ci{};
     binding_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    binding_flags_ci.bindingCount = 5;
+    binding_flags_ci.bindingCount = RENDER_BINDINGS;
     binding_flags_ci.pBindingFlags = binding_flags;
 
     VkDescriptorSetLayoutCreateInfo render_layout_ci{};
     render_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     render_layout_ci.pNext = &binding_flags_ci;
     render_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    render_layout_ci.bindingCount = 5;
+    render_layout_ci.bindingCount = RENDER_BINDINGS;
     render_layout_ci.pBindings = render_bindings;
     vk_check(vkCreateDescriptorSetLayout(device_, &render_layout_ci, nullptr, &render_set_layout_),
              "create particle render set layout");
@@ -258,8 +265,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr uint32_t POOL_GENERATIONS = 2 * MAX_FRAMES_IN_FLIGHT + 1;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    // Per region: 8 compute + 4 render (particles, emitters, counters, instances) + 8 mesh compute
-    pool_sizes[0].descriptorCount = (8 + 4 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
+    // Per region: 8 compute + 5 render (particles, emitters, counters, instances, alive) + 8 compaction
+    pool_sizes[0].descriptorCount = (8 + 5 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[1].descriptorCount = DISPATCH_REGIONS * POOL_GENERATIONS; // depth texture per render set
 
@@ -322,7 +329,7 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     VkShaderModule emit_mod = load("shaders/particle_emit.comp.spv");
     VkShaderModule sim_mod = load("shaders/particle_sim.comp.spv");
     VkShaderModule indirect_mod = load("shaders/particle_indirect.comp.spv");
-    VkShaderModule mesh_comp_mod = load("shaders/particle_mesh_instance.comp.spv");
+    VkShaderModule compact_mod = load("shaders/particle_compact.comp.spv");
     VkShaderModule vert_mod = load("shaders/particle.vert.spv");
     VkShaderModule trail_vert_mod = load("shaders/particle_trail.vert.spv");
     VkShaderModule mesh_vert_mod = load("shaders/particle_mesh.vert.spv");
@@ -362,7 +369,7 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     out.emit = make_compute(emit_mod, compute_layout_, "emit");
     out.sim = make_compute(sim_mod, compute_layout_, "simulate");
     out.indirect = make_compute(indirect_mod, compute_layout_, "indirect");
-    out.mesh_instance = make_compute(mesh_comp_mod, mesh_compute_layout_, "mesh instance");
+    out.mesh_instance = make_compute(compact_mod, mesh_compute_layout_, "compaction");
 
     // ── Graphics state shared by every draw pipeline ──
     VkPipelineVertexInputStateCreateInfo no_vertex_input{};
@@ -590,6 +597,7 @@ void ParticleSystem::destroy() {
     mega_counter_buffer_.reset();
     mega_dead_list_buffer_.reset();
     mega_indirect_buffer_.reset();
+    mega_alive_buffer_.reset();
     for (auto& b : emitter_data_buffers_) b.reset();
     for (auto& b : module_buffers_) b.reset();
     sub_event_buffer_.reset();
@@ -630,6 +638,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     mega_counter_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t));
     mega_dead_list_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
     mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
+    mega_alive_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
 
     // Retire old descriptor sets through the deferred deleter rather than
     // freeing them immediately — a frame still in flight when this runs
@@ -725,6 +734,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo alive_info{mega_alive_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
     VkDescriptorBufferInfo sub_counter_info{sub_event_counter_buffer_->handle(), 0, sub_event_counter_buffer_->size()};
 
@@ -758,13 +768,14 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         };
         vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
 
-        // Render set: particles, emitters, counters (depth is written per draw)
-        VkWriteDescriptorSet render_writes[3] = {
+        // Render set: particles, emitters, counters, alive list (depth is written per draw)
+        VkWriteDescriptorSet render_writes[4] = {
             storage_write(render_sets_[r], 0, &particle_info),
             storage_write(render_sets_[r], 2, &emitter_info),
             storage_write(render_sets_[r], 3, &counter_info),
+            storage_write(render_sets_[r], 5, &alive_info),
         };
-        vkUpdateDescriptorSets(device_, 3, render_writes, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 4, render_writes, 0, nullptr);
     }
 
     // ── Mesh particle instance buffer + compute set ──
@@ -797,14 +808,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         vk_check(vkAllocateDescriptorSets(device_, &alloc, mesh_compute_sets_.data()),
                  "allocate mesh compute descriptor sets");
 
-        // binding 0=particles, 1=indirect draws, 3=emitter_data, 6=instances, 7=instance_counts
+        // Compaction set: 0 particles, 1 mesh indirect, 2 billboard indirect,
+        // 3 emitter data, 4 alive list, 6 mesh instances, 7 alive counts
         VkDescriptorBufferInfo inst_info{mesh_instance_buffer_->handle(), 0, mesh_instance_buffer_->size()};
         VkDescriptorBufferInfo inst_count_info{mesh_instance_count_buffer_->handle(), 0, mesh_instance_count_buffer_->size()};
         VkDescriptorBufferInfo mesh_indirect_info{mesh_indirect_buffer_->handle(), 0, mesh_indirect_buffer_->size()};
         for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
             VkDescriptorBufferInfo emitter_info{emitter_data_buffers_[r]->handle(), 0,
                                                 emitter_data_buffers_[r]->size()};
-            VkWriteDescriptorSet mc_writes[5]{};
+            VkWriteDescriptorSet mc_writes[7]{};
             for (auto& w : mc_writes) {
                 w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 w.dstSet = mesh_compute_sets_[r];
@@ -812,11 +824,13 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
                 w.descriptorCount = 1;
             }
             mc_writes[0].dstBinding = 0; mc_writes[0].pBufferInfo = &particle_info;
-            mc_writes[1].dstBinding = 3; mc_writes[1].pBufferInfo = &emitter_info;
-            mc_writes[2].dstBinding = 6; mc_writes[2].pBufferInfo = &inst_info;
-            mc_writes[3].dstBinding = 7; mc_writes[3].pBufferInfo = &inst_count_info;
-            mc_writes[4].dstBinding = 1; mc_writes[4].pBufferInfo = &mesh_indirect_info;
-            vkUpdateDescriptorSets(device_, 5, mc_writes, 0, nullptr);
+            mc_writes[1].dstBinding = 1; mc_writes[1].pBufferInfo = &mesh_indirect_info;
+            mc_writes[2].dstBinding = 2; mc_writes[2].pBufferInfo = &indirect_info;
+            mc_writes[3].dstBinding = 3; mc_writes[3].pBufferInfo = &emitter_info;
+            mc_writes[4].dstBinding = 4; mc_writes[4].pBufferInfo = &alive_info;
+            mc_writes[5].dstBinding = 6; mc_writes[5].pBufferInfo = &inst_info;
+            mc_writes[6].dstBinding = 7; mc_writes[6].pBufferInfo = &inst_count_info;
+            vkUpdateDescriptorSets(device_, 7, mc_writes, 0, nullptr);
 
             // Instance buffer for the mesh vertex shader (binding 4)
             VkWriteDescriptorSet inst_write{};
@@ -1743,15 +1757,14 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);
     }
 
-    // ── Phase 5: Mesh instance compaction (mesh emitters) ──
-    // Compacts alive particles into a dense GpuMeshInstance range per
-    // emitter and builds the matching VkDrawIndexedIndirectCommand, so
-    // record_render's mesh draw only costs vertex-shader work for
-    // particles that are actually alive instead of the full max_particles
-    // budget every frame. Three sub-passes (reset/compact/finalize) because
-    // GLSL's barrier() only orders invocations within one workgroup, and
-    // max_particles routinely spans several (local_size_x = 256) — see
-    // particle_mesh_instance.comp's header comment.
+    // ── Phase 5: Compaction (billboard and mesh emitters) ──
+    // Gathers each emitter's alive particles into a dense range and writes
+    // its indirect command from the count, so a draw costs vertex-shader
+    // work for what is alive instead of the whole budget every frame.
+    // Three sub-passes (reset/compact/finalize) because GLSL's barrier()
+    // only orders invocations within one workgroup, and max_particles
+    // routinely spans several (local_size_x = 256) — see
+    // particle_compact.comp's header comment.
     if (pipelines_.mesh_instance != VK_NULL_HANDLE && mesh_compute_set != VK_NULL_HANDLE) {
         auto bind_mesh_compute_set = [&]() {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_compute_layout_,
@@ -1759,7 +1772,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         };
         uint32_t max_slots = 0;
         for (const auto& em : emitters_) {
-            if (em.is_mesh && em.max_particles > max_slots) max_slots = em.max_particles;
+            if (em.active && !em.is_trail) max_slots = std::max(max_slots, em.max_particles);
         }
         if (max_slots > 0) {
             FJELL_GPU_ZONE(ctx, "Particles: Mesh Compact");
@@ -1783,11 +1796,10 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
                                0, sizeof(push), &push);
             vkCmdDispatch(cmd, 1, emitter_count, 1);
 
-            // record_render's later vkCmdDrawIndexedIndirect needs to see
-            // both the finalized indirect command and the compacted
-            // instance buffer — compute_barrier() only covers compute-to-
-            // compute, so add the indirect-read + vertex-shader-read edge
-            // explicitly.
+            // The draws need to see the finalized commands, the alive list
+            // and the instance buffer — compute_barrier() only covers
+            // compute-to-compute, so add the indirect-read + vertex-shader-
+            // read edge explicitly.
             VkMemoryBarrier2 indirect_barrier{};
             indirect_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
             indirect_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -2000,7 +2012,7 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
                                    0, sizeof(push), &push);
             }
 
-            // Indirect indexed draw: particle_mesh_instance.comp compacted
+            // Indirect indexed draw: particle_compact.comp compacted
             // this emitter's alive particles into a dense GpuMeshInstance
             // range and wrote indexCount/instanceCount/firstIndex/
             // vertexOffset/firstInstance into mesh_indirect_buffer_ — the

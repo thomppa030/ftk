@@ -4,21 +4,38 @@
 
 layout(local_size_x = 256) in;
 
-// binding 0=particles, 1=indirect draws, 3=emitter_data, 6=instances, 7=instance_counts
-// (see mesh_compute_set_ layout in particle_system.cpp — 8 generic storage
-// bindings shared with the rest of the compute descriptor conventions)
+// Gathers each emitter's alive particles into a dense range, so a draw costs
+// what is alive rather than the emitter's whole budget. A billboard emitter
+// gets a list of particle indices and its VkDrawIndirectCommand; a mesh
+// emitter gets baked instance data (model matrix, colour, texture) and its
+// VkDrawIndexedIndirectCommand. Trails are left to particle_indirect.comp:
+// their strip needs the ring's order, which compaction would lose.
+//
+// Bindings follow the compute set's conventions: 0 particles, 3 emitters.
 layout(std430, set = 0, binding = 0) readonly buffer ParticleBuffer {
     Particle particles[];
 };
 
-layout(std430, set = 0, binding = 1) buffer IndirectDraw {
+layout(std430, set = 0, binding = 1) buffer MeshIndirect {
     // VkDrawIndexedIndirectCommand, 5 uints per emitter: indexCount,
     // instanceCount, firstIndex, vertexOffset, firstInstance.
-    uint indirect_cmds[];
+    uint mesh_cmds[];
+};
+
+layout(std430, set = 0, binding = 2) buffer BillboardIndirect {
+    // VkDrawIndirectCommand, 4 uints per emitter: vertexCount,
+    // instanceCount, firstVertex, firstInstance.
+    uint draw_cmds[];
 };
 
 layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
     EmitterData emitters[];
+};
+
+layout(std430, set = 0, binding = 4) writeonly buffer AliveList {
+    // One slot per particle slot; an emitter's alive indices start at its
+    // base_offset, the same place its particles do.
+    uint alive[];
 };
 
 layout(std430, set = 0, binding = 6) writeonly buffer InstanceBuffer {
@@ -27,8 +44,8 @@ layout(std430, set = 0, binding = 6) writeonly buffer InstanceBuffer {
     uint instance_data[];
 };
 
-layout(std430, set = 0, binding = 7) buffer InstanceCounts {
-    uint instance_counts[]; // one atomic live-count per mesh emitter
+layout(std430, set = 0, binding = 7) buffer AliveCounts {
+    uint alive_counts[]; // one atomic live-count per emitter
 };
 
 // Three passes share this shader, distinguished by sub_emit_pass (repurposed
@@ -36,9 +53,9 @@ layout(std430, set = 0, binding = 7) buffer InstanceCounts {
 //   0 = reset:   one invocation/emitter, zero the counter + seed static
 //                indirect-command fields.
 //   1 = compact: one invocation/particle-slot, scan alive particles and
-//                atomically append each to a dense instance range.
+//                atomically append each to a dense range.
 //   2 = finalize: one invocation/emitter, copy the final live count into
-//                the indirect command's instanceCount field.
+//                the indirect command.
 // Split this way — instead of one dispatch with an internal barrier() —
 // because barrier() only orders invocations within a single workgroup, and
 // max_particles can span multiple workgroups (local_size_x = 256).
@@ -55,35 +72,47 @@ void main() {
     if (eidx >= emitter_count) return;
 
     EmitterData em = emitters[eidx];
-
-    // Non-mesh emitters don't use this path — their indirect command is
-    // built by particle_indirect.comp instead.
-    if ((em.flags & 4u) == 0u) return;
+    if ((em.flags & 1u) != 0u) return; // trail
+    bool mesh = (em.flags & 4u) != 0u;
 
     if (sub_emit_pass == 0u) {
-        // Reset pass.
+        // Reset pass. A free slot has no particles and gets an empty
+        // command, so nothing stale is left where the next occupant looks.
         if (gl_GlobalInvocationID.x != 0u) return;
-        instance_counts[eidx] = 0u;
-        uint cmd_base = eidx * 5u;
-        indirect_cmds[cmd_base + 0] = em.mesh_index_count;
-        indirect_cmds[cmd_base + 1] = 0u; // instanceCount, filled in by the finalize pass
-        indirect_cmds[cmd_base + 2] = em.mesh_first_index;
-        indirect_cmds[cmd_base + 3] = em.mesh_vertex_offset;
-        indirect_cmds[cmd_base + 4] = em.base_offset;
+        alive_counts[eidx] = 0u;
+        if (mesh) {
+            uint cmd_base = eidx * 5u;
+            mesh_cmds[cmd_base + 0] = em.mesh_index_count;
+            mesh_cmds[cmd_base + 1] = 0u; // instanceCount, filled in by the finalize pass
+            mesh_cmds[cmd_base + 2] = em.mesh_first_index;
+            mesh_cmds[cmd_base + 3] = em.mesh_vertex_offset;
+            mesh_cmds[cmd_base + 4] = em.base_offset;
+        } else {
+            uint cmd_base = eidx * 4u;
+            draw_cmds[cmd_base + 0] = 0u; // vertexCount, filled in by the finalize pass
+            draw_cmds[cmd_base + 1] = 1u;
+            draw_cmds[cmd_base + 2] = 0u;
+            draw_cmds[cmd_base + 3] = em.base_offset;
+        }
         return;
     }
 
     if (sub_emit_pass == 2u) {
         // Finalize pass.
         if (gl_GlobalInvocationID.x != 0u) return;
-        indirect_cmds[eidx * 5u + 1] = instance_counts[eidx];
+        uint count = alive_counts[eidx];
+        if (mesh) {
+            mesh_cmds[eidx * 5u + 1] = count;
+        } else {
+            draw_cmds[eidx * 4u + 0] = count * 6u; // two triangles a quad
+        }
         return;
     }
 
     // Compact pass: scan this emitter's particle slots, append each alive
-    // one to a tight instance range starting at base_offset (mirrors the
-    // billboard particles' own slot convention, so both draw paths share
-    // gl_InstanceIndex = firstInstance + local_index semantics).
+    // one to a tight range starting at base_offset (the billboard vertex
+    // shader and the mesh instance buffer both index from firstInstance =
+    // base_offset, so both draw paths share gl_InstanceIndex + local_index).
     uint local_pi = gl_GlobalInvocationID.x;
     if (local_pi >= em.max_particles) return;
 
@@ -91,10 +120,15 @@ void main() {
     Particle p = particles[global_pi];
     if (p.lifetime <= 0.0) return;
 
-    uint slot = atomicAdd(instance_counts[eidx], 1u);
+    uint slot = atomicAdd(alive_counts[eidx], 1u);
 
-    // Bake the same model matrix particle_mesh.vert used to build
-    // per-vertex: position + Y-axis rotation + uniform scale.
+    if (!mesh) {
+        alive[em.base_offset + slot] = global_pi;
+        return;
+    }
+
+    // Bake the model matrix the mesh vertex shader applies: position +
+    // Y-axis rotation + uniform scale.
     float c = cos(p.rotation);
     float s = sin(p.rotation);
     float sz = p.size;
