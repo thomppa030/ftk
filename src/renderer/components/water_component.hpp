@@ -86,6 +86,12 @@ struct WaterComponent : NodeComponent {
     /// body of water: it keeps the sea it last drew and any being shaped.
     water::SeaDerivation derivation;
 
+    /// The trails of whatever has moved through this water lately, laid each
+    /// frame from the scene's motion sources and handed to `effective_water`
+    /// as its wakes. Its own per body of water: whether a source is in this
+    /// water is this water's question.
+    water::WakeTrails wakes;
+
     /// The surface shader: a `.fjmat` whose shader is `shader_type water`.
     /// Empty draws with the engine's water.fjsl at its defaults.
     MaterialHandle material_handle;

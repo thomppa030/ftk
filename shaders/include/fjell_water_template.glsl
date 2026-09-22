@@ -5,12 +5,13 @@
 // node's .fjwater wave field; this fragment stage shades it.
 //
 // One hook. fragment() sees the surface the waves made — WORLD_POS,
-// WORLD_NORMAL, and the three the wave field alone can answer: CREST, how
+// WORLD_NORMAL, and the four the wave field alone can answer: CREST, how
 // pinched the surface is here, which is where whitecaps belong, WAVE_HEIGHT,
-// how far this point was lifted above the flat sea, and WAVE_DIR, which way
-// the sea travels, which is what tells a leading face from a trailing one. It writes
-// ALBEDO, ALPHA and the rest exactly as a spatial shader does. light() works
-// as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
+// how far this point was lifted above the flat sea, WAVE_DIR, which way
+// the sea travels, which is what tells a leading face from a trailing one,
+// and WAKE, the foam on the crests of whatever has moved through it. It
+// writes ALBEDO, ALPHA and the rest exactly as a spatial shader does. light()
+// works as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
 // by its material, and saying otherwise is a parse error rather than code
 // that never runs.
 //
@@ -43,7 +44,15 @@ layout(set = 1, binding = 2) readonly buffer ParamsBuffer {
     float custom_params[];
 };
 
-// Binding 0 is the wave field, read by the mesh stage only.
+// Binding 0 is the wave field, read by the mesh stage only. The wakes are
+// read here as well: the ones too narrow for the mesh to draw tilt the normal
+// per pixel, and the foam on every wake's crests is what WAKE reports.
+#include "fjell_water_wake_record.glsl"
+layout(std430, set = 2, binding = 5) readonly buffer WakeBuffer {
+    FjellWakeSource sources[];
+} wakes;
+#define FJELL_WATER_WAKES wakes.sources
+#include "fjell_water_wake.glsl"
 
 // Mirrors WaterPushConstants in water_pass.hpp and the block in water.task
 // and water.mesh.
@@ -59,9 +68,9 @@ layout(push_constant) uniform PushConstants {
     uint  infinite;
     float simulated_patch_size;
     vec3  sdf_volume_min;
-    float _pad1;
+    uint  wake_first;
     vec3  sdf_volume_max;
-    float _pad2;
+    uint  wake_count;
 } push;
 
 layout(location = 0) in vec3 frag_color;
@@ -114,6 +123,25 @@ void main() {
     // ── Built-in inputs ──
     vec3 WORLD_POS = frag_world_pos;
     vec3 WORLD_NORMAL = normalize(frag_world_normal);
+
+    // The foam a wake has put here, 0..1: the strongest ring crest under
+    // this point as the share of its birth height it has left. It rides the
+    // V arms and the bow arcs and dies with the rings; what foam that is
+    // stays the material's reading of it.
+    //
+    // The rings of anything too narrow for the mesh to draw — a swimmer's —
+    // tilt the normal here instead, faded by how many metres a pixel covers
+    // so a ripple narrower than a few pixels does not shimmer.
+    float WAKE = 0.0;
+    if (push.wake_count > 0u) {
+        float footprint = length(fwidth(WORLD_POS.xz));
+        FjellWakeShade wake = fjell_water_wake_shade(push.wake_first, push.wake_count,
+                                                     WORLD_POS.xz, ubo.time, footprint);
+        WORLD_NORMAL = normalize(vec3(WORLD_NORMAL.x - wake.slope.x * WORLD_NORMAL.y,
+                                      WORLD_NORMAL.y,
+                                      WORLD_NORMAL.z - wake.slope.y * WORLD_NORMAL.y));
+        WAKE = wake.foam;
+    }
     vec2 UV = frag_world_pos.xz;             // metres, so tiling is authored in metres
     // 0..1 across a placed body of water. An infinite sea has no edges to
     // measure from, so there it is world metres and a shader keying off it

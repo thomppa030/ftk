@@ -23,8 +23,9 @@ void fragment() {
 
     // Whitecaps where the surface has pinched. CREST comes from the wave
     // field's own Jacobian, so foam follows the waves rather than being
-    // painted on at a fixed height.
-    float whitecap = smoothstep(0.35, 0.85, CREST) * foam_amount;
+    // painted on at a fixed height. WAKE is the crests of whatever has moved
+    // through the water, and foams the same way.
+    float whitecap = max(smoothstep(0.35, 0.85, CREST), smoothstep(0.2, 0.7, WAKE)) * foam_amount;
     ALBEDO = mix(ALBEDO, foam_color, whitecap);
 
     ROUGHNESS = mix(0.04, 0.5, whitecap);

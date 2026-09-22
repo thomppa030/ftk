@@ -156,9 +156,11 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
             // float on the sea the storm is blowing. One evaluation gives where
             // the surface is and how it is moving; every wave summed costs the
             // same sine and cosine either way.
+            // Every wake but the body's own: rocking in a wake it is making
+            // would be feeding its own output back to it.
             const glm::vec2 local_xz(point.x, point.z);
             const water::SurfaceMotion surface =
-                water::surface_motion(water->effective_water, local_xz, time);
+                water::surface_motion(water->effective_water, local_xz, time, body.id);
             const float wave_y = surface_y + surface.displacement.y;
             const float depth = submersion_depth(point.y, wave_y);
             if (depth <= 0.0f) continue;
@@ -200,6 +202,9 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
         const FjWaterData& field = water->effective_water;
         std::size_t waves = field.packed_trains ? field.packed_trains->count : 0;
         if (field.simulated) waves += field.simulated->packed.count;
+        for (const water::WakeSource& wake : field.wakes) {
+            if (wake.displaces) waves += wake.stamps.size() + 1;
+        }
         most_waves = std::max(most_waves, waves);
     }
     std::size_t points = 0;

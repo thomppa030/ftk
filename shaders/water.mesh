@@ -49,6 +49,15 @@ layout(set = 2, binding = 2) uniform sampler2D simulated_displacement;
 layout(set = 2, binding = 3) uniform sampler2D simulated_previous;
 layout(set = 2, binding = 4) uniform sampler2D simulated_derivatives;
 
+// What has moved through the water: every water node's records for this
+// frame, this node's at [push.wake_first, +wake_count). Read in place.
+#include "fjell_water_wake_record.glsl"
+layout(std430, set = 2, binding = 5) readonly buffer WakeBuffer {
+    FjellWakeSource sources[];
+} wakes;
+#define FJELL_WATER_WAKES wakes.sources
+#include "fjell_water_wake.glsl"
+
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;
     float world_size;
@@ -68,9 +77,10 @@ layout(push_constant) uniform PushConstants {
     // Unread by this stage; present so the block matches WaterPushConstants
     // and the fragment stage, which samples the scene SDF for contact foam.
     vec3  sdf_volume_min;
-    float _pad1;
+    // This node's wakes in the wake buffer.
+    uint  wake_first;
     vec3  sdf_volume_max;
-    float _pad2;
+    uint  wake_count;
 } push;
 
 struct TaskPayload {
@@ -208,6 +218,22 @@ void main() {
             jacobian.xx += slopes.z;
             jacobian.zz += slopes.w;
             jacobian.xz += moved.w;
+        }
+
+        // The wakes wide enough for this grid to draw, vertically only, so
+        // they touch the height and its slope and leave the fold measure
+        // alone. Faded out by the level's own cell size — on a shared edge by
+        // the coarser level's, for the reason the simulated sea's mip is.
+        if (push.wake_count > 0u) {
+            float wake_cell = on_coarse_edge ? 2.0 * payload.cell_size : payload.cell_size;
+            FjellWakeSurface wake = fjell_water_wake_surface(
+                push.wake_first, push.wake_count, rest, time, wake_cell);
+            FjellWakeSurface prev_wake = fjell_water_wake_surface(
+                push.wake_first, push.wake_count, rest, time - push.delta_time, wake_cell);
+            offset.y += wake.height;
+            prev_offset.y += prev_wake.height;
+            tangents.binormal.y += wake.slope.x;
+            tangents.tangent.y += wake.slope.y;
         }
 
         vec3 world_pos = vec3(rest.x + offset.x,

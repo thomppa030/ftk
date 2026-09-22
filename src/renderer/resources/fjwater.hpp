@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/resources/water_wake.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -427,6 +429,14 @@ struct FjWaterData {
     /// point evaluators require it; a field without it is not one the world
     /// runs on.
     std::optional<water::PackedTrains> packed_trains;
+
+    /// What is moving through this water and the trails it has left, as the
+    /// evaluators sum them. Derived every frame by the water's
+    /// `water::WakeTrails` from the scene's motion sources and never saved:
+    /// a wake is what happened here, not what the water is. The renderer
+    /// draws every one; physics feels only those wide enough to move the mesh,
+    /// and never a body's own.
+    std::vector<water::WakeSource> wakes;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

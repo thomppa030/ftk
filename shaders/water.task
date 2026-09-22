@@ -32,9 +32,9 @@ layout(push_constant) uniform PushConstants {
     // Unread by this stage; present so the block matches WaterPushConstants
     // and the fragment stage, which samples the scene SDF for contact foam.
     vec3  sdf_volume_min;
-    float _pad1;
+    uint  wake_first;
     vec3  sdf_volume_max;
-    float _pad2;
+    uint  wake_count;
 } push;
 
 // Set 2 is the water's own. Binding 1 is the clipmap's level table, read by

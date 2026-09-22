@@ -1,5 +1,6 @@
 #include "environment/environment_subsystem.hpp"
 
+#include "core/clock.hpp"
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
 #include "audio/audio_subsystem.hpp"
@@ -482,10 +483,28 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
     // A sea's answer to the wind is something an artist tunes by watching it,
     // and the weather editor scrubs a front past a scene precisely so they
     // can; stopping at the play boundary would leave that dial blind.
+    const float time = ctx.clock.game_elapsed();
     for (const auto& obj : ctx.scene.objects()) {
         auto* water = obj->components.get<WaterComponent>();
         if (water == nullptr) continue;
         water->effective_water = water->derivation.derive(water->water, wind_xz, ctx.workers);
+
+        // What has moved through it, on top of the sea the wind made. The
+        // trails are laid against that sea, since whether a wader's feet are
+        // in the water depends on where the waves have put it.
+        const auto* spatial = obj->as_spatial();
+        if (spatial == nullptr) continue;
+        const glm::vec3 centre{spatial->world_matrix_[3]};
+        water::WakePlacement placement;
+        placement.surface_y = centre.y;
+        placement.vertex_spacing = water->vertex_spacing();
+        if (water->extent == WaterComponent::Extent::bounded) {
+            const glm::vec2 half(water->size * 0.5f);
+            placement.square = std::make_pair(glm::vec2(centre.x, centre.z) - half,
+                                              glm::vec2(centre.x, centre.z) + half);
+        }
+        water->wakes.advance(state_.motion_sources, water->effective_water, placement, time);
+        water->effective_water.wakes = water->wakes.sources();
     }
 }
 

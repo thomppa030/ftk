@@ -55,7 +55,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     // per-node resource. Only the mesh stage reads it — the fragment stage
     // is handed what it needs through varyings rather than solving the field
     // a second time per pixel.
-    std::array<VkDescriptorSetLayoutBinding, 5> set_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 6> set_bindings{};
     set_bindings[0].binding = 0;
     set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     set_bindings[0].descriptorCount = 1;
@@ -76,6 +76,13 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         set_bindings[binding].descriptorCount = 1;
         set_bindings[binding].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
     }
+    // The wakes. The mesh stage moves the surface by the wide ones; the
+    // fragment stage shades the narrow ones per pixel and reads how churned
+    // the water is, which is the one thing here it solves for itself.
+    set_bindings[5].binding = 5;
+    set_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    set_bindings[5].descriptorCount = 1;
+    set_bindings[5].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -107,6 +114,15 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
 
     bound_clipmap_ = clipmap_.gpu();
     clipmap_buffer_->write(&bound_clipmap_, sizeof(bound_clipmap_));
+
+    for (auto& buffer : wake_buffers_) {
+        buffer = std::make_unique<Buffer>(
+            allocator_, WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                VMA_ALLOCATION_CREATE_MAPPED_BIT);
+        buffer->map();
+    }
 
     auto task_code = read_spirv(base_path::resolve("shaders/water.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/water.mesh.spv"));
@@ -145,6 +161,7 @@ void WaterPass::destroy() {
     destroy_material_pipelines();
     field_buffer_.reset();
     clipmap_buffer_.reset();
+    for (auto& buffer : wake_buffers_) buffer.reset();
     if (mesh_module_ != VK_NULL_HANDLE) {
         vkDestroyShaderModule(device_, mesh_module_, nullptr);
         mesh_module_ = VK_NULL_HANDLE;
@@ -226,6 +243,8 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         warned_second_sea_ = asked_otherwise != nullptr;
         simulation_->set_sea(running);
     }
+
+    upload_wakes(ctx);
 
     // Pipelines are built here rather than in record(): a first sighting of a
     // material or a hot-reloaded shader means vkCreateGraphicsPipelines,
@@ -499,6 +518,24 @@ void WaterPass::bind_water_field(const WaterComponent& comp) {
     bound_water_ = &comp;
 }
 
+void WaterPass::upload_wakes(const FrameContext& ctx) {
+    wake_ranges_.clear();
+    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
+    auto* records = static_cast<GpuWakeSource*>(wake_buffers_[slot]->mapped());
+    std::uint32_t used = 0;
+    for (const auto& node : ctx.scene->objects()) {
+        const auto* wc = node->components.get<WaterComponent>();
+        if (wc == nullptr) continue;
+        WakeRange range{used, 0};
+        for (const water::WakeSource& wake : wc->effective_water.wakes) {
+            if (used >= WAKE_RECORDS_PER_FRAME) break;
+            records[used++] = to_gpu_wake(wake);
+            ++range.count;
+        }
+        wake_ranges_[wc] = range;
+    }
+}
+
 VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
     auto sampled = [this](std::uint32_t binding, VkImageView view) {
         FrameCacheBinding b{};
@@ -517,14 +554,24 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
         b.buffer.range = range;
         return b;
     };
-    const FrameCacheBinding bindings[5]{
+    auto storage = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize range) {
+        FrameCacheBinding b{};
+        b.binding = binding;
+        b.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        b.buffer.buffer = buffer;
+        b.buffer.range = range;
+        return b;
+    };
+    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
+    const FrameCacheBinding bindings[6]{
         uniform(0, field_buffer_->handle(), sizeof(GpuWaterField)),
         uniform(1, clipmap_buffer_->handle(), sizeof(GpuWaterClipmap)),
         sampled(2, simulation_->displacement_view()),
         sampled(3, simulation_->previous_displacement_view()),
         sampled(4, simulation_->derivatives_view()),
+        storage(5, wake_buffers_[slot]->handle(), WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource)),
     };
-    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 5});
+    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 6});
 }
 
 void WaterPass::bind_clipmap() {
@@ -765,6 +812,10 @@ void WaterPass::record(const FrameContext& ctx) {
         push.simulated_patch_size = bound_field_.simulated_patch_size;
         push.sdf_volume_min = sdf_volume_min_;
         push.sdf_volume_max = sdf_volume_max_;
+        if (const auto range = wake_ranges_.find(wc); range != wake_ranges_.end()) {
+            push.wake_first = range->second.first;
+            push.wake_count = range->second.count;
+        }
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,

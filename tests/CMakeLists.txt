@@ -20,6 +20,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_gpu.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_spectrum.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_surface.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_wake.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
@@ -122,6 +123,7 @@ add_executable(fjell-tests
     test_buoyancy.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
+    test_water_wake.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp

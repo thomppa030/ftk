@@ -26,6 +26,7 @@ using vec2 = glm::vec2;
 using vec3 = glm::vec3;
 using vec4 = glm::vec4;
 using uvec2 = glm::uvec2;
+using uvec4 = glm::uvec4;
 using uint = unsigned int;
 
 using glm::clamp;
@@ -47,3 +48,9 @@ inline float abs(float v) { return std::abs(v); }
 inline float floor(float v) { return std::floor(v); }
 inline float pow(float a, float b) { return std::pow(a, b); }
 inline float mix(float a, float b, float t) { return a + (b - a) * t; }
+inline float exp(float v) { return std::exp(v); }
+inline float inversesqrt(float v) { return 1.0f / std::sqrt(v); }
+inline float smoothstep(float e0, float e1, float x) {
+    float t = std::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}

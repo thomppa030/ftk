@@ -6,8 +6,10 @@ moving and fading back to still.
 
 It exists so that more than one system can answer movement without each of them
 gathering the movers itself. Fog stirred by a runner reads it today; grass bent
-aside, a track through snow and ripples on a puddle are the sort of thing it is
-shaped for.
+aside and a track through snow are the sort of thing it is shaped for. Water
+reads the same sources but not the map: a wake has to agree between the GPU
+and buoyancy, so it is evaluated from the source list on both sides
+([Wakes](../Water/Wakes.md)).
 
 ## Being noticed
 

@@ -414,7 +414,8 @@ FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
     return out;
 }
 
-SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time) {
+SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time,
+                             std::uint32_t exclude_node) {
     SurfaceMotion m;
     const PackedTrains& t = trains_of(water);
     simd::f32x8 dx = _mm256_setzero_ps(), dy = _mm256_setzero_ps(), dz = _mm256_setzero_ps();
@@ -442,6 +443,12 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
                                                  water.simulated->choppiness, world_xz, time);
         m.displacement += s.displacement;
         m.velocity += s.velocity;
+    }
+    if (!water.wakes.empty()) {
+        // Vertical only, so it adds to the height and nothing else.
+        const WakeSurface w = wake_surface(water.wakes, world_xz, time, exclude_node);
+        m.displacement.y += w.height;
+        m.velocity.y += w.velocity;
     }
     return m;
 }
@@ -480,6 +487,11 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
             water.simulated->packed, water.simulated->choppiness, world_xz, time);
         binormal += glm::vec3(d.xx, d.dh_dx, d.xz);
         tangent += glm::vec3(d.xz, d.dh_dz, d.zz);
+    }
+    if (!water.wakes.empty()) {
+        const WakeSurface w = wake_surface(water.wakes, world_xz, time);
+        binormal.y += w.slope.x;
+        tangent.y += w.slope.y;
     }
 
     glm::vec3 n = glm::cross(tangent, binormal);

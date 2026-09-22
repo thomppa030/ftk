@@ -248,6 +248,9 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                     character == nullptr ? 1.8f
                     : (character->feet_at_origin ? character->capsule_height
                                                  : character->capsule_height * 0.5f);
+                const float default_bottom =
+                    character != nullptr && !character->feet_at_origin
+                        ? character->capsule_height * 0.5f : 0.0f;
 
                 MotionSource source;
                 source.node_id = obj->id;
@@ -268,6 +271,7 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                                     ? explicit_source->radius : default_radius;
                 source.height = explicit_source != nullptr && explicit_source->height > 0.0f
                                     ? explicit_source->height : default_height;
+                source.bottom = default_bottom;
                 source.strength = explicit_source != nullptr ? explicit_source->strength : 1.0f;
                 state.motion_sources.push_back(source);
             }

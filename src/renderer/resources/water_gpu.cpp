@@ -2,6 +2,8 @@
 
 #include "renderer/resources/water_surface.hpp"
 
+#include <algorithm>
+
 namespace fjell {
 
 GpuWaterField to_gpu_field(const FjWaterData& water) {
@@ -29,6 +31,22 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
         field.simulated_patch_size = fft->patch_size;
     }
     return field;
+}
+
+GpuWakeSource to_gpu_wake(const water::WakeSource& s) {
+    GpuWakeSource out;
+    out.position = glm::vec4(s.position, s.velocity);
+    out.bounds = glm::vec4(s.bounds_min, s.bounds_max);
+    out.ring = glm::vec4(s.k, s.ring_speed, s.width, s.decay);
+    out.body = glm::vec4(s.radius, s.time, 0.0f, 0.0f);
+    out.churn = glm::vec4(s.foam_scale, s.foam_decay, 0.0f, 0.0f);
+    const std::size_t count = std::min<std::size_t>(s.stamps.size(), water::MAX_WAKE_STAMPS);
+    out.counts = glm::uvec4(static_cast<std::uint32_t>(count), s.displaces ? 1u : 0u, 0u, 0u);
+    for (std::size_t i = 0; i < count; ++i) {
+        const water::WakeStamp& stamp = s.stamps[i];
+        out.stamps[i] = glm::vec4(stamp.position, stamp.time, stamp.amplitude);
+    }
+    return out;
 }
 
 } // namespace fjell

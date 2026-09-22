@@ -4,10 +4,12 @@
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -51,9 +53,12 @@ struct WaterPushConstants {
     /// Equal min and max mean there is no SDF this frame, which a reader must
     /// treat as "no geometry near" rather than dividing by the zero extent.
     glm::vec3 sdf_volume_min;
-    float _pad1;
+    /// This node's wakes: where its records start in the frame's wake buffer,
+    /// and how many. Every water node's wakes go in one buffer per frame, so
+    /// a draw is handed a range rather than the buffer rewritten under it.
+    uint32_t wake_first;
     glm::vec3 sdf_volume_max;
-    float _pad2;
+    uint32_t wake_count;
 };
 static_assert(sizeof(WaterPushConstants) == 80, "push block layout must match the shaders");
 
@@ -126,10 +131,14 @@ private:
     /// Upload the clipmap level table for this frame. Early-outs unless a
     /// level moved, which for the outer levels is most frames.
     void bind_clipmap();
-    /// The water's own set for this frame: the field, the clipmap and the
-    /// simulated sea's textures. Per frame because those textures swap every
-    /// frame, which a set written once could not follow.
+    /// The water's own set for this frame: the field, the clipmap, the
+    /// simulated sea's textures and the wakes. Per frame because those
+    /// textures swap every frame, which a set written once could not follow.
     [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx) const;
+
+    /// Pack every water node's wakes into this frame's wake buffer and note
+    /// where each node's begin.
+    void upload_wakes(const FrameContext& ctx);
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a
@@ -182,6 +191,19 @@ private:
     WaterClipmap clipmap_;
     std::unique_ptr<Buffer> clipmap_buffer_;
     GpuWaterClipmap bound_clipmap_{};
+
+    /// How many wake records a frame's buffer holds across every water node.
+    /// Past it a node's remaining wakes are not drawn that frame.
+    static constexpr uint32_t WAKE_RECORDS_PER_FRAME = 64;
+    /// The wakes the mesh and fragment stages read, one buffer per frame in
+    /// flight: they change every frame, and a frame still drawing must not
+    /// see the next one's. Host-visible and mapped; a few kilobytes.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> wake_buffers_;
+    struct WakeRange {
+        uint32_t first{0};
+        uint32_t count{0};
+    };
+    std::unordered_map<const WaterComponent*, WakeRange> wake_ranges_;
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
 
     PipelineCache* pipeline_cache_{nullptr};

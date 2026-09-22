@@ -149,6 +149,10 @@ A simulated contributor is not part of this pair. It is drawn once, on the CPU,
 and what physics feels of it is that draw's strongest waves in closed form; the
 GPU animates the whole of the same draw. See [Simulated Sea](Simulated-Sea.md).
 
+Wakes are a second pair of the same kind — `fjell_water_wake.glsl` and
+`water_wake.cpp`, pinned by `tests/test_water_wake.cpp` — summed on top of the
+field for whatever has moved through the water. See [Wakes](Wakes.md).
+
 The CPU side offers `height_at()` for the common case and
 `height_at_iterative()` when a body must sit on the water actually above it —
 Gerstner moves a vertex sideways, so the surface over a column started

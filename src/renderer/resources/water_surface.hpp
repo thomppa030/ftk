@@ -236,12 +236,16 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 /// velocity is the exact time derivative of the displacement, from the same
 /// sines and cosines, where a difference of two displacements a tick apart
 /// costs a second evaluation and gives the average over the tick instead.
+///
+/// The wakes in the field are summed too, all but the one `exclude_node`
+/// made: a body does not feel its own wake, which would be feeding its own
+/// output back to it, but rocks in everyone else's. 0 excludes nothing.
 struct SurfaceMotion {
     glm::vec3 displacement{0.0f};
     glm::vec3 velocity{0.0f};   // m/s, the water's own motion at this point
 };
 [[nodiscard]] SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz,
-                                           float time);
+                                           float time, std::uint32_t exclude_node = 0);
 
 /// Surface normal at the same rest position, from the analytic derivatives of
 /// displace(). Cheaper and smoother than finite differences and exact for the

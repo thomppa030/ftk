@@ -124,6 +124,10 @@ struct MotionSource {
     /// Scales the mark it leaves, for something that barely disturbs the air
     /// or shoulders through it.
     float strength{1.0f};
+    /// How far below `position` it reaches: zero for a node whose origin is
+    /// its feet, half its height for one whose origin is its middle. With
+    /// `height` this is the span a body of water asks whether it is in.
+    float bottom{0.0f};
 };
 
 /// One placed fog volume, resolved from a FogVolumeNode. The transform is the

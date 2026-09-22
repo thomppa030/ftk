@@ -75,6 +75,28 @@ static_assert(offsetof(GpuGerstnerContributor, steepness_headroom) == 524);
 static_assert(offsetof(GpuWaterField, gerstner_count) == 2112);
 static_assert(offsetof(GpuWaterField, simulated_patch_size) == 2116);
 
+/// One source and its trail as the shader reads it. Mirrors `FjellWakeSource`
+/// in shaders/include/fjell_water_wake.glsl. Nothing but vec4s, so std430 and
+/// this struct put every member at the same offset with no padding to guess
+/// at; the sizes are pinned here and the offsets read out of the compiled
+/// shader.
+struct GpuWakeSource {
+    glm::vec4 position{0.0f};   // xy world XZ when recorded, zw velocity
+    glm::vec4 bounds{0.0f};     // xy min, zw max, world XZ
+    glm::vec4 ring{0.0f};       // k, spreading speed, envelope width, decay time
+    glm::vec4 body{0.0f};       // radius, time recorded, 0, 0
+    glm::vec4 churn{0.0f};      // foam: amplitude scale, decay time, 0, 0
+    glm::uvec4 counts{0};       // stamps, displaces, 0, 0
+    glm::vec4 stamps[water::MAX_WAKE_STAMPS]{};   // xy world XZ, z time laid, w amplitude
+};
+static_assert(sizeof(GpuWakeSource) == (6 + water::MAX_WAKE_STAMPS) * 16,
+              "must match FjellWakeSource in GLSL");
+static_assert(offsetof(GpuWakeSource, counts) == 80);
+static_assert(offsetof(GpuWakeSource, stamps) == 96);
+
+/// Pack a wake source into the shader's shape.
+[[nodiscard]] GpuWakeSource to_gpu_wake(const water::WakeSource& source);
+
 /// Pack a field into the shader's shape: exactly the trains
 /// `water::for_each_summed_train()` walks, which is what the CPU evaluator
 /// sums, so both see the same sea.
