@@ -1573,6 +1573,13 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
 
         gpu.is_trail = is_trail;
         data.flags = (is_trail ? 1u : 0u) | (is_lit ? 2u : 0u) | (is_mesh ? 4u : 0u);
+        for (const auto& mod : sub.update_modules) {
+            if (mod->enabled && mod->type() == ModuleType::sub_emitter) {
+                auto* sem = static_cast<const SubEmitterModule*>(mod.get());
+                data.flags |= 8u | (static_cast<uint32_t>(sem->trigger) << 4);
+                break;
+            }
+        }
         data.trail_head = 0; // read from counter buffer by indirect shader
         data.trail_width = trail_width;
         data.trail_width_over_life = trail_wol;

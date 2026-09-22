@@ -124,23 +124,11 @@ void main() {
     // so a preview rendered between two frames leaves them where they are.
     float step = em.dt;
 
-    // Pre-scan for sub-emitter config
-    bool has_sub_emitter = false;
-    uint sub_trigger = 0u; // 0=death, 1=collision, 2=both
-    {
-        uint smo = em.module_offset;
-        for (int sg = 0; sg < 32; ++sg) {
-            uint smtype = module_data[smo];
-            uint smsize = module_data[smo + 1];
-            if (smtype == MOD_TERMINATOR || smsize == 0) break;
-            if (smtype == MOD_SUB_EMITTER) {
-                has_sub_emitter = true;
-                sub_trigger = module_data[smo + 2];
-                break;
-            }
-            smo += smsize;
-        }
-    }
+    // Whether this emitter feeds a child, and on what, comes in the flags:
+    // a walk of the module stack per particle just to find out would cost
+    // as much as the update walk itself.
+    bool has_sub_emitter = (em.flags & 8u) != 0u;
+    uint sub_trigger = (em.flags >> 4) & 3u; // 0=death, 1=collision, 2=both
 
     p.lifetime -= step;
     if (p.lifetime <= 0.0) {

@@ -43,7 +43,7 @@ struct GpuEmitterData {
     uint32_t dead_list_offset;
     uint32_t module_offset;       // offset into module buffer (in uint32_t units)
     glm::vec3 emitter_velocity; float _pad0;
-    uint32_t flags;               // bit 0: is_trail emitter
+    uint32_t flags;               // bit 0 trail, 1 lit, 2 mesh, 3 has sub-emitter, 4-5 its trigger
     uint32_t trail_head;          // ring buffer write index (from counter buffer)
     float    trail_width;         // base width for trail strips
     float    trail_width_over_life; // 0=taper to zero, 1=constant width
