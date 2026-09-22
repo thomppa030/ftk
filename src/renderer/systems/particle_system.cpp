@@ -776,10 +776,9 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     // ── Descriptor pool ──
 
-    constexpr uint32_t RENDER_SET_COUNT = MAX_FRAMES_IN_FLIGHT;
     // rebuild_mega_buffers() (buffer-capacity growth) retires the old
-    // compute_set_/mesh_compute_set_/render_sets_ through DeferredDeleter,
-    // then immediately allocates their replacements from this same pool —
+    // compute/mesh compute/render sets through DeferredDeleter, then
+    // immediately allocates their replacements from this same pool —
     // but DeferredDeleter::defer() doesn't run the free until that frame
     // slot's fence signals again, MAX_FRAMES_IN_FLIGHT frames later (see
     // deferred_deleter.hpp). So the pool holds every generation retired in
@@ -793,16 +792,16 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr uint32_t POOL_GENERATIONS = 2 * MAX_FRAMES_IN_FLIGHT + 1;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    // 8 compute + 3 per render frame + 8 mesh compute + 1 per render (instance SSBO)
-    pool_sizes[0].descriptorCount = (8 + RENDER_SET_COUNT * 4 + 8) * POOL_GENERATIONS;
+    // Per region: 8 compute + 4 render (particles, emitters, counters, instances) + 8 mesh compute
+    pool_sizes[0].descriptorCount = (8 + 4 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = RENDER_SET_COUNT * POOL_GENERATIONS; // depth texture per frame
+    pool_sizes[1].descriptorCount = DISPATCH_REGIONS * POOL_GENERATIONS; // depth texture per render set
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     desc_pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT |
                          VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    desc_pool_ci.maxSets = (2 + RENDER_SET_COUNT) * POOL_GENERATIONS; // 1 compute + 1 mesh compute + N render
+    desc_pool_ci.maxSets = 3 * DISPATCH_REGIONS * POOL_GENERATIONS; // compute + mesh compute + render, per region
     desc_pool_ci.poolSizeCount = 2;
     desc_pool_ci.pPoolSizes = pool_sizes;
     if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
@@ -1192,8 +1191,8 @@ void ParticleSystem::destroy() {
     mega_counter_buffer_.reset();
     mega_dead_list_buffer_.reset();
     mega_indirect_buffer_.reset();
-    emitter_data_buffer_.reset();
-    module_buffer_.reset();
+    for (auto& b : emitter_data_buffers_) b.reset();
+    for (auto& b : module_buffers_) b.reset();
     sub_event_buffer_.reset();
     sub_event_counter_buffer_.reset();
     emitters_.clear();
@@ -1256,62 +1255,48 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // the buffer replacements above go through retire() instead of a bare
     // reset), and freeing a set a submitted command buffer references is
     // undefined behavior per the Vulkan spec.
-    if (compute_set_ != VK_NULL_HANDLE) {
-        VkDescriptorSet doomed = compute_set_;
+    auto retire_set = [&](VkDescriptorSet& set) {
+        if (set == VK_NULL_HANDLE) return;
+        VkDescriptorSet doomed = set;
         VkDescriptorPool doomed_pool = pool_;
         VkDevice dev = device_;
         deleter_->defer([dev, doomed_pool, doomed]() mutable {
             vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
         });
-        compute_set_ = VK_NULL_HANDLE;
-    }
-    if (mesh_compute_set_ != VK_NULL_HANDLE) {
-        VkDescriptorSet doomed = mesh_compute_set_;
-        VkDescriptorPool doomed_pool = pool_;
-        VkDevice dev = device_;
-        deleter_->defer([dev, doomed_pool, doomed]() mutable {
-            vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
-        });
-        mesh_compute_set_ = VK_NULL_HANDLE;
-    }
-    for (auto& rs : render_sets_) {
-        if (rs != VK_NULL_HANDLE) {
-            VkDescriptorSet doomed = rs;
-            VkDescriptorPool doomed_pool = pool_;
-            VkDevice dev = device_;
-            deleter_->defer([dev, doomed_pool, doomed]() mutable {
-                vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
-            });
-            rs = VK_NULL_HANDLE;
-        }
-    }
+        set = VK_NULL_HANDLE;
+    };
+    for (auto& set : compute_sets_) retire_set(set);
+    for (auto& set : mesh_compute_sets_) retire_set(set);
+    for (auto& set : render_sets_) retire_set(set);
 
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
 
-    // These four buffers are fully recreated on every growth (no in-place
+    // These buffers are fully recreated on every growth (no in-place
     // resize like the sparse GrowableBuffers above) — the old instance is
     // retired through DeferredDeleter rather than destroyed immediately,
     // since a frame still in flight when this runs may still be reading
     // it. This is what lets sync_emitters skip vkDeviceWaitIdle/
     // vkQueueWaitIdle before calling rebuild_mega_buffers.
     VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
-
-    if (emitter_data_buffer_) deleter_->retire(std::move(emitter_data_buffer_));
-    emitter_data_buffer_ = std::make_unique<Buffer>(
-        allocator_, emitter_data_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    emitter_data_buffer_->map();
-
     // Module buffer: MODULE_BUDGET_BYTES per emitter.
     VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * MODULE_BUDGET_BYTES;
-    if (module_buffer_) deleter_->retire(std::move(module_buffer_));
-    module_buffer_ = std::make_unique<Buffer>(
-        allocator_, module_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    module_buffer_->map();
+
+    for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
+        if (emitter_data_buffers_[r]) deleter_->retire(std::move(emitter_data_buffers_[r]));
+        emitter_data_buffers_[r] = std::make_unique<Buffer>(
+            allocator_, emitter_data_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        emitter_data_buffers_[r]->map();
+
+        if (module_buffers_[r]) deleter_->retire(std::move(module_buffers_[r]));
+        module_buffers_[r] = std::make_unique<Buffer>(
+            allocator_, module_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        module_buffers_[r]->map();
+    }
 
     // Sub-emitter event buffer: 64 bytes per event, 256 events per emitter max
     constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
@@ -1336,19 +1321,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorSetAllocateInfo alloc{};
     alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc.descriptorPool = pool_;
-    alloc.descriptorSetCount = 1;
+    alloc.descriptorSetCount = DISPATCH_REGIONS;
 
-    alloc.pSetLayouts = &compute_set_layout_;
-    vk_check(vkAllocateDescriptorSets(device_, &alloc, &compute_set_),
-             "allocate particle compute descriptor set");
+    std::array<VkDescriptorSetLayout, DISPATCH_REGIONS> layouts{};
+    layouts.fill(compute_set_layout_);
+    alloc.pSetLayouts = layouts.data();
+    vk_check(vkAllocateDescriptorSets(device_, &alloc, compute_sets_.data()),
+             "allocate particle compute descriptor sets");
 
-    // Allocate per-frame render descriptor sets
-    VkDescriptorSetLayout render_layouts[MAX_FRAMES_IN_FLIGHT];
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        render_layouts[i] = render_set_layout_;
-    }
-    alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    alloc.pSetLayouts = render_layouts;
+    layouts.fill(render_set_layout_);
     vk_check(vkAllocateDescriptorSets(device_, &alloc, render_sets_.data()),
              "allocate particle render descriptor sets");
 
@@ -1362,73 +1343,46 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorBufferInfo particle_info{mega_particle_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo emitter_info{emitter_data_buffer_->handle(), 0, emitter_data_buffer_->size()};
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo module_info{module_buffer_->handle(), 0, module_buffer_->size()};
     VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
     VkDescriptorBufferInfo sub_counter_info{sub_event_counter_buffer_->handle(), 0, sub_event_counter_buffer_->size()};
 
-    // Compute set: 8 bindings
-    VkWriteDescriptorSet writes[8]{};
-    for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
+        VkDescriptorBufferInfo emitter_info{emitter_data_buffers_[r]->handle(), 0,
+                                            emitter_data_buffers_[r]->size()};
+        VkDescriptorBufferInfo module_info{module_buffers_[r]->handle(), 0, module_buffers_[r]->size()};
 
-    writes[0].dstSet = compute_set_; writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[0].descriptorCount = 1; writes[0].pBufferInfo = &particle_info;
+        auto storage_write = [](VkDescriptorSet set, uint32_t binding,
+                                const VkDescriptorBufferInfo* info) {
+            VkWriteDescriptorSet w{};
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstSet = set;
+            w.dstBinding = binding;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            w.descriptorCount = 1;
+            w.pBufferInfo = info;
+            return w;
+        };
 
-    writes[1].dstSet = compute_set_; writes[1].dstBinding = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[1].descriptorCount = 1; writes[1].pBufferInfo = &counter_info;
+        // Compute set: 8 bindings
+        VkWriteDescriptorSet writes[8] = {
+            storage_write(compute_sets_[r], 0, &particle_info),
+            storage_write(compute_sets_[r], 1, &counter_info),
+            storage_write(compute_sets_[r], 2, &dead_list_info),
+            storage_write(compute_sets_[r], 3, &emitter_info),
+            storage_write(compute_sets_[r], 4, &indirect_info),
+            storage_write(compute_sets_[r], 5, &module_info),
+            storage_write(compute_sets_[r], 6, &sub_event_info),
+            storage_write(compute_sets_[r], 7, &sub_counter_info),
+        };
+        vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
 
-    writes[2].dstSet = compute_set_; writes[2].dstBinding = 2;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[2].descriptorCount = 1; writes[2].pBufferInfo = &dead_list_info;
-
-    writes[3].dstSet = compute_set_; writes[3].dstBinding = 3;
-    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[3].descriptorCount = 1; writes[3].pBufferInfo = &emitter_info;
-
-    writes[4].dstSet = compute_set_; writes[4].dstBinding = 4;
-    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[4].descriptorCount = 1; writes[4].pBufferInfo = &indirect_info;
-
-    writes[5].dstSet = compute_set_; writes[5].dstBinding = 5;
-    writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[5].descriptorCount = 1; writes[5].pBufferInfo = &module_info;
-
-    writes[6].dstSet = compute_set_; writes[6].dstBinding = 6;
-    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[6].descriptorCount = 1; writes[6].pBufferInfo = &sub_event_info;
-
-    writes[7].dstSet = compute_set_; writes[7].dstBinding = 7;
-    writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[7].descriptorCount = 1; writes[7].pBufferInfo = &sub_counter_info;
-
-    vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
-
-    // Render sets: write particle SSBO (binding 0) to each frame's set
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkWriteDescriptorSet render_writes[3]{};
-        render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        render_writes[0].dstSet = render_sets_[i];
-        render_writes[0].dstBinding = 0;
-        render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        render_writes[0].descriptorCount = 1;
-        render_writes[0].pBufferInfo = &particle_info;
-
-        render_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        render_writes[1].dstSet = render_sets_[i];
-        render_writes[1].dstBinding = 2;
-        render_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        render_writes[1].descriptorCount = 1;
-        render_writes[1].pBufferInfo = &emitter_info;
-
-        render_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        render_writes[2].dstSet = render_sets_[i];
-        render_writes[2].dstBinding = 3;
-        render_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        render_writes[2].descriptorCount = 1;
-        render_writes[2].pBufferInfo = &counter_info;
+        // Render set: particles, emitters, counters (depth is written per draw)
+        VkWriteDescriptorSet render_writes[3] = {
+            storage_write(render_sets_[r], 0, &particle_info),
+            storage_write(render_sets_[r], 2, &emitter_info),
+            storage_write(render_sets_[r], 3, &counter_info),
+        };
         vkUpdateDescriptorSets(device_, 3, render_writes, 0, nullptr);
     }
 
@@ -1456,47 +1410,41 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         STORAGE_FLAGS | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_AUTO);
 
-    // Allocate mesh compute descriptor set
+    // Allocate mesh compute descriptor sets
     if (mesh_compute_set_layout_ != VK_NULL_HANDLE) {
-        alloc.descriptorSetCount = 1;
-        alloc.pSetLayouts = &mesh_compute_set_layout_;
-        vk_check(vkAllocateDescriptorSets(device_, &alloc, &mesh_compute_set_),
-                 "allocate mesh compute descriptor set");
+        layouts.fill(mesh_compute_set_layout_);
+        vk_check(vkAllocateDescriptorSets(device_, &alloc, mesh_compute_sets_.data()),
+                 "allocate mesh compute descriptor sets");
 
-        // Write mesh compute descriptors
         // binding 0=particles, 1=indirect draws, 3=emitter_data, 6=instances, 7=instance_counts
         VkDescriptorBufferInfo inst_info{mesh_instance_buffer_->handle(), 0, mesh_instance_buffer_->size()};
         VkDescriptorBufferInfo inst_count_info{mesh_instance_count_buffer_->handle(), 0, mesh_instance_count_buffer_->size()};
         VkDescriptorBufferInfo mesh_indirect_info{mesh_indirect_buffer_->handle(), 0, mesh_indirect_buffer_->size()};
-        VkWriteDescriptorSet mc_writes[5]{};
-        for (auto& w : mc_writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        mc_writes[0].dstSet = mesh_compute_set_; mc_writes[0].dstBinding = 0;
-        mc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        mc_writes[0].descriptorCount = 1; mc_writes[0].pBufferInfo = &particle_info;
-        mc_writes[1].dstSet = mesh_compute_set_; mc_writes[1].dstBinding = 3;
-        mc_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        mc_writes[1].descriptorCount = 1; mc_writes[1].pBufferInfo = &emitter_info;
-        mc_writes[2].dstSet = mesh_compute_set_; mc_writes[2].dstBinding = 6;
-        mc_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        mc_writes[2].descriptorCount = 1; mc_writes[2].pBufferInfo = &inst_info;
-        mc_writes[3].dstSet = mesh_compute_set_; mc_writes[3].dstBinding = 7;
-        mc_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        mc_writes[3].descriptorCount = 1; mc_writes[3].pBufferInfo = &inst_count_info;
-        mc_writes[4].dstSet = mesh_compute_set_; mc_writes[4].dstBinding = 1;
-        mc_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        mc_writes[4].descriptorCount = 1; mc_writes[4].pBufferInfo = &mesh_indirect_info;
-        vkUpdateDescriptorSets(device_, 5, mc_writes, 0, nullptr);
+        for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
+            VkDescriptorBufferInfo emitter_info{emitter_data_buffers_[r]->handle(), 0,
+                                                emitter_data_buffers_[r]->size()};
+            VkWriteDescriptorSet mc_writes[5]{};
+            for (auto& w : mc_writes) {
+                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                w.dstSet = mesh_compute_sets_[r];
+                w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                w.descriptorCount = 1;
+            }
+            mc_writes[0].dstBinding = 0; mc_writes[0].pBufferInfo = &particle_info;
+            mc_writes[1].dstBinding = 3; mc_writes[1].pBufferInfo = &emitter_info;
+            mc_writes[2].dstBinding = 6; mc_writes[2].pBufferInfo = &inst_info;
+            mc_writes[3].dstBinding = 7; mc_writes[3].pBufferInfo = &inst_count_info;
+            mc_writes[4].dstBinding = 1; mc_writes[4].pBufferInfo = &mesh_indirect_info;
+            vkUpdateDescriptorSets(device_, 5, mc_writes, 0, nullptr);
 
-        // Write instance buffer to render sets (binding 4)
-        VkDescriptorBufferInfo inst_render_info{mesh_instance_buffer_->handle(), 0, mesh_instance_buffer_->size()};
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            // Instance buffer for the mesh vertex shader (binding 4)
             VkWriteDescriptorSet inst_write{};
             inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            inst_write.dstSet = render_sets_[i];
+            inst_write.dstSet = render_sets_[r];
             inst_write.dstBinding = 4;
             inst_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             inst_write.descriptorCount = 1;
-            inst_write.pBufferInfo = &inst_render_info;
+            inst_write.pBufferInfo = &inst_info;
             vkUpdateDescriptorSets(device_, 1, &inst_write, 0, nullptr);
         }
     }
@@ -1614,7 +1562,7 @@ void ParticleSystem::record_compute(const FrameContext& ctx) {
         ? ctx.environment->weather.wind_direction *
               (ctx.environment->weather.wind_speed * ctx.environment->weather.wind_gust)
         : glm::vec3{0.0f};
-    dispatch_compute(ctx.cmd, ctx.delta_time, scene_ref, wind,
+    dispatch_compute(ctx.cmd, ctx.frame_index, ctx.delta_time, scene_ref, wind,
                      ctx.global_descriptor_set,
                      ctx.camera_position,
                      cached_view_projection_);
@@ -1642,7 +1590,7 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
     }
     if (!has_any) return;
 
-    VkDescriptorSet frame_set = render_sets_[ctx.frame_index];
+    VkDescriptorSet frame_set = render_sets_[region_];
     if (frame_set == VK_NULL_HANDLE) return;
 
     VkViewport vp{};
@@ -1924,13 +1872,40 @@ static float max_velocity_magnitude(const VfxEmitter& emitter) {
     return max_speed;
 }
 
-void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene, const glm::vec3& wind,
+uint32_t ParticleSystem::take_region(uint32_t frame_index) {
+    // The frame slot's fence has been waited on, so every region of the
+    // slot is free of GPU work when the slot's first dispatch is recorded;
+    // a preview rendered ahead of the frame waits for its own submission,
+    // so the ordinal only has to keep the dispatches recorded into one
+    // command buffer apart from each other.
+    if (frame_index != region_frame_) {
+        region_frame_ = frame_index;
+        region_ordinal_ = 0;
+    }
+    if (region_ordinal_ >= DISPATCHES_PER_FRAME && !region_overflow_warned_) {
+        region_overflow_warned_ = true;
+        FJELL_GFX_WARN("Particles: more than {} dispatches in one frame; "
+                       "a region is reused while its earlier dispatch may still run",
+                       DISPATCHES_PER_FRAME);
+    }
+    uint32_t region = frame_index * DISPATCHES_PER_FRAME + region_ordinal_ % DISPATCHES_PER_FRAME;
+    ++region_ordinal_;
+    return region;
+}
+
+void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index, float dt,
+                                      Scene& scene, const glm::vec3& wind,
                                       VkDescriptorSet global_set,
                                       const glm::vec3& camera_pos,
                                       const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     record_pending_inits(cmd);
+    region_ = take_region(frame_index);
+    Buffer& emitter_data_buffer = *emitter_data_buffers_[region_];
+    Buffer& module_buffer = *module_buffers_[region_];
+    VkDescriptorSet compute_set = compute_sets_[region_];
+    VkDescriptorSet mesh_compute_set = mesh_compute_sets_[region_];
     // One long frame would otherwise move every particle far enough in a
     // single step to pass through whatever it was about to hit. Past this
     // the simulation runs slow instead.
@@ -1951,7 +1926,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     emitter_data_cache_.resize(emitter_count);
     uint32_t max_emit_count = 0;
 
-    auto* module_ptr = static_cast<uint8_t*>(module_buffer_->mapped());
+    auto* module_ptr = static_cast<uint8_t*>(module_buffer.mapped());
     uint32_t module_word_offset = 0;
 
     for (size_t i = 0; i < emitters_.size(); ++i) {
@@ -2253,7 +2228,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // never bleed into the next emitter's window — see its definition
         // for why that check has to live there rather than out here.
         data.module_offset = module_word_offset;
-        uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer_->size());
+        uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer.size());
         uint32_t byte_offset = module_word_offset * 4;
         if (byte_offset + MODULE_BUDGET_BYTES > module_buf_capacity) {
             FJELL_GFX_ERROR("Module buffer overflow: offset {} + {} > capacity {}",
@@ -2286,7 +2261,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     }
 
     // Upload emitter data
-    std::memcpy(emitter_data_buffer_->mapped(), emitter_data_cache_.data(),
+    std::memcpy(emitter_data_buffer.mapped(), emitter_data_cache_.data(),
                 emitter_count * sizeof(GpuEmitterData));
 
     ParticleComputePush push{};
@@ -2313,7 +2288,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     // Bind both descriptor sets: set 0 = particle SSBOs, set 1 = global (SDF access)
     auto bind_compute_sets = [&]() {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                                0, 1, &compute_set_, 0, nullptr);
+                                0, 1, &compute_set, 0, nullptr);
         if (global_set != VK_NULL_HANDLE) {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
                                     1, 1, &global_set, 0, nullptr);
@@ -2375,10 +2350,10 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     // GLSL's barrier() only orders invocations within one workgroup, and
     // max_particles routinely spans several (local_size_x = 256) — see
     // particle_mesh_instance.comp's header comment.
-    if (mesh_instance_pipeline_ != VK_NULL_HANDLE && mesh_compute_set_ != VK_NULL_HANDLE) {
+    if (mesh_instance_pipeline_ != VK_NULL_HANDLE && mesh_compute_set != VK_NULL_HANDLE) {
         auto bind_mesh_compute_set = [&]() {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_compute_layout_,
-                                    0, 1, &mesh_compute_set_, 0, nullptr);
+                                    0, 1, &mesh_compute_set, 0, nullptr);
         };
         uint32_t max_slots = 0;
         for (const auto& em : emitters_) {
@@ -2448,8 +2423,9 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("particle_record_render");
     if (emitters_.empty()) return;
 
-    // Update this frame's depth texture descriptor (safe: fence waited before recording)
-    VkDescriptorSet frame_set = render_sets_[ctx.frame_index];
+    // Update this dispatch's depth texture descriptor: the region's set is
+    // in use by nothing else, see take_region.
+    VkDescriptorSet frame_set = render_sets_[region_];
 
     VkDescriptorImageInfo depth_info{};
     depth_info.sampler = depth_sampler_;
@@ -2645,7 +2621,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
     }
     if (!any_opaque) return;
 
-    VkDescriptorSet frame_set = render_sets_[ctx.frame_index];
+    VkDescriptorSet frame_set = render_sets_[region_];
     // No depth descriptor update needed — binding 1 is partially bound,
     // and the opaque shader never accesses depth_tex (frag_is_mesh guard).
 

@@ -124,8 +124,8 @@ public:
     void release_scene(uint64_t scene_id);
 
 private:
-    void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene, const glm::vec3& wind,
-                          VkDescriptorSet global_set,
+    void dispatch_compute(VkCommandBuffer cmd, uint32_t frame_index, float dt, Scene& scene,
+                          const glm::vec3& wind, VkDescriptorSet global_set,
                           const glm::vec3& camera_pos,
                           const glm::mat4& view_projection);
     void insert_barriers(VkCommandBuffer cmd);
@@ -243,16 +243,31 @@ private:
     VkPipeline render_lit_trail_additive_{VK_NULL_HANDLE};
     VkPipeline render_lit_trail_alpha_{VK_NULL_HANDLE};
 
-    // Descriptor pool + single sets
+    // Dispatch regions. The emitter records and module bytes are written by
+    // the CPU while the dispatch is recorded and read by the GPU when it
+    // runs, so each dispatch gets its own copy, with descriptor sets to
+    // match: earlier frames may still be executing theirs, and one frame
+    // records a dispatch per viewport it renders, plus any preview drawn
+    // in the window before it. A frame slot therefore owns several
+    // regions, taken in turn.
+    static constexpr uint32_t DISPATCHES_PER_FRAME = 4;
+    static constexpr uint32_t DISPATCH_REGIONS = MAX_FRAMES_IN_FLIGHT * DISPATCHES_PER_FRAME;
+    uint32_t region_{0};               // the region the current dispatch and its draws use
+    uint32_t region_frame_{UINT32_MAX}; // frame slot the ordinal counts within
+    uint32_t region_ordinal_{0};
+    bool region_overflow_warned_{false};
+    [[nodiscard]] uint32_t take_region(uint32_t frame_index);
+
+    // Descriptor pool + per-region sets
     VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet compute_set_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> render_sets_{};
+    std::array<VkDescriptorSet, DISPATCH_REGIONS> compute_sets_{};
+    std::array<VkDescriptorSet, DISPATCH_REGIONS> render_sets_{};
 
     // Mega buffers. The four GPU-only ones grow via sparse binding (see
     // renderer/gpu/growable_buffer.hpp) — their handle and device address
     // never move once committed, so growth never stalls the device and
-    // their descriptor bindings never need rewriting. emitter_data_/
-    // module_buffer_ are HOST_VISIBLE and CPU-written every frame, which
+    // their descriptor bindings never need rewriting. The emitter data and
+    // module buffers are HOST_VISIBLE and CPU-written every dispatch, which
     // GrowableBuffer can't back on this hardware (sparse buffers reject
     // host-visible memory outright — verified, not a missing feature to
     // add later) — they keep the older allocate/copy/retire growth path.
@@ -260,8 +275,8 @@ private:
     std::unique_ptr<GrowableBuffer> mega_counter_buffer_;
     std::unique_ptr<GrowableBuffer> mega_dead_list_buffer_;
     std::unique_ptr<GrowableBuffer> mega_indirect_buffer_;
-    std::unique_ptr<Buffer> emitter_data_buffer_;  // HOST_VISIBLE, mapped
-    std::unique_ptr<Buffer> module_buffer_;         // HOST_VISIBLE, per-emitter module data
+    std::array<std::unique_ptr<Buffer>, DISPATCH_REGIONS> emitter_data_buffers_; // HOST_VISIBLE, mapped
+    std::array<std::unique_ptr<Buffer>, DISPATCH_REGIONS> module_buffers_;       // HOST_VISIBLE, per-emitter module data
     std::unique_ptr<Buffer> sub_event_buffer_;      // GPU-only, sub-emitter events (64 bytes each)
     std::unique_ptr<Buffer> sub_event_counter_buffer_; // GPU-only, one uint32 per emitter
 
@@ -307,7 +322,7 @@ private:
     VkPipeline mesh_instance_pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout mesh_compute_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout mesh_compute_layout_{VK_NULL_HANDLE};
-    VkDescriptorSet mesh_compute_set_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSet, DISPATCH_REGIONS> mesh_compute_sets_{};
 
     // Mesh render pipelines (unlit + lit) × (additive + alpha) = 4
     VkPipeline render_mesh_additive_{VK_NULL_HANDLE};
