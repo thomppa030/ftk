@@ -145,8 +145,9 @@ shader includes `fjell_water_field.glsl` for the layout, declares the buffer,
 says where the field is with `#define FJELL_WATER_FIELD water.field`, and only
 then includes `fjell_water_waves.glsl`.
 
-A simulated contributor is not part of this pair: it exists on the GPU only, and
-physics does not see it.
+A simulated contributor is not part of this pair. It is drawn once, on the CPU,
+and what physics feels of it is that draw's strongest waves in closed form; the
+GPU animates the whole of the same draw. See [Simulated Sea](Simulated-Sea.md).
 
 The CPU side offers `height_at()` for the common case and
 `height_at_iterative()` when a body must sit on the water actually above it —

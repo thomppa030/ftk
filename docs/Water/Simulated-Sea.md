@@ -20,13 +20,23 @@ is never the same twice, and the wave that rolls through on cue.
 
 ## What it is not
 
-**It is drawn, not floated on.** Buoyancy, swimming and every script query that
-asks where the surface is sum the Gerstner contributors and are blind to the
-simulation. A boat rides the authored swell and ignores the simulated chop. That
-is a deliberate first step with a known cost — a cork *should* ride chop a ship
-ignores — so if the sea visibly heaves at a wavelength a floating body does not
-answer, this is that decision showing, not a bug. Keep the waves a hull should
-feel in a Gerstner contributor.
+**It is floated on as far as you tell it to.** The simulation lives on the GPU,
+which physics cannot read, so a floating body is given the sea's strongest waves
+in closed form instead — the same waves, on the same clock, summed where the
+Gerstner trains are summed, and the same numbers on every machine with no
+renderer involved. **Physics waves** on the contributor says how many. At 0, the
+default, a body rides the authored contributors alone and ignores the simulated
+sea entirely. A few dozen carry most of a sea's height and none of its chop,
+which is about what a hull answers anyway; the editor says what a count comes to
+("feels 93% of its height, waves down to 10 m"), and that share depends on the
+sea — a wider spread shares the energy over more waves, so the same count
+carries less.
+
+What a body does not feel is everything shorter than the shortest wave taken.
+That is about right for a hull that long or longer, which averages out chop
+shorter than itself, and visibly wrong for a buoy or a swimmer. Each wave is
+work per sample point per tick: measured in release, about 0.006 µs per wave
+per body, so 500 bodies at 256 waves cost a millisecond.
 
 **The world runs one.** A simulation is a patch of sea stepped every frame, so a
 field sums one simulated contributor and a scene runs the first one a water node
@@ -104,10 +114,36 @@ horizontal Jacobian — and takes the normal and the fold measure afterwards. Th
 are kept as parts because the parts add across contributors and the finished
 quantities do not.
 
-Drawing a spectrum takes milliseconds, and a sea under the weather is a slightly
-different one every frame. So the pass keeps the random part (it depends only on
-the seed), lets a change of wind under 0.1 m/s and half a degree pass, and shapes
-anything larger on the thread pool, swapping it in when it is done.
+**One draw feeds both halves.** `water::SeaDerivation`, one per water
+component, derives the field the world runs on each frame: the authored field as
+the wind has made it, with its simulated contributor drawn. The drawn sea rides
+in `effective_water.simulated` — the spectrum, shared, and its strongest waves
+taken from that same draw — so the renderer uploads the spectrum a boat is
+floating on, and a machine with no GPU derives the same field. Drawing takes
+milliseconds and a sea under the weather is a slightly different one every time
+the wind crosses a step (0.1 m/s, half a degree; the steps are taken from the
+wind alone, so every machine steps at the same moment), so the derivation keeps
+the last sea, shapes the next on the thread pool and hands out the last until it
+is done. Both halves change seas in the same frame. Choppiness and the physics
+wave count follow at once, with no redraw.
+
+**The point evaluators require a derived field.** `displace()`, `normal_at()`,
+`surface_motion()` and the rest read a field that came through `apply_wind()`
+(or `derive_effective()` / `SeaDerivation`, which call it), with its Gerstner
+trains prepared and its spectral waves packed; a field straight from a file is
+an assertion failure to evaluate. Every field the engine evaluates already comes
+that way; the component loader and the editor derive in still air where no
+weather does.
+
+**Summing is eight wide.** The spectral waves and the prepared Gerstner trains
+are laid out as struct-of-arrays, padded to eight, and summed with AVX2, which
+the whole build already requires. Sine and cosine are the engine's own
+(`core/simd_trig.hpp`): a three-part reduction over quarter turns and short
+series, within one float ulp of the standard library at any angle to twenty
+thousand radians. Our own rather than the library's because glibc and the MSVC
+runtime do not round alike, so a Linux and a Windows player would otherwise
+float on seas a bit apart. Buoyancy for 50 bodies at 256 waves went from 1.08 ms
+to 0.10 ms per tick through this.
 
 **Checking the transform.** Set `FJELL_VERIFY_WATER_FFT=1` and the pass simulates
 a fixed 64×64 sea at a fixed time, reads the surface back, and holds it to a plain
