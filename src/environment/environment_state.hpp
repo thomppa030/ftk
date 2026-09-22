@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/named_value.hpp"
 #include "environment/sun_path.hpp"
 #include "environment/weather_asset.hpp"
 #include "physics/physics_types.hpp"
@@ -24,16 +25,6 @@ namespace fjell {
 //
 // Colours are linear light, ready to multiply. Directions toward a body are
 // normalized and point from the surface to the sun or moon.
-
-/// A named value bound for a sky shader uniform: one float, or a colour in
-/// sRGB as the shader's hint_color expects it, up to four components.
-struct NamedValue {
-    std::string name;
-    uint32_t count{1};
-    std::array<float, 4> values{};
-
-    bool operator==(const NamedValue&) const = default;
-};
 
 /// A distant light source: the sun, or the moon.
 struct DirectionalBody {
@@ -70,14 +61,32 @@ struct ContactShadowSettings {
     int steps{12};
 };
 
+/// The shader a Volumetric Fog node draws with when it names no material:
+/// the engine's height fog, at its own defaults.
+inline constexpr std::string_view DEFAULT_FOG_SHADER = "shaders/fog.fjsl";
+
 /// The volumetric fog node's haze. `enabled` is false when the scene has none.
+///
+/// How the haze looks is the fog node's material, a `shader_type fog` .fjsl
+/// with its values in a .fjmat: what is here is which shader that is and the
+/// value every one of its uniforms has this frame, once the node's own
+/// overrides and the hour's and the weather's tracks have been folded over
+/// the material. The pass writes the list into its own row and never touches
+/// the material's, so a track cannot leak into the asset.
 struct FogSettings {
     bool enabled{false};
-    float density{0.003f};
-    float height{0.0f};          // world Y the height falloff starts from
-    float height_falloff{0.5f};
-    float scattering{0.5f};
-    float anisotropy{0.7f};
+    /// The node's world position: `ORIGIN` in the shader's density(), which is
+    /// where the default haze's height falloff starts.
+    glm::vec3 origin{0.0f};
+    /// The material's shader in the pipeline cache and its row in the material
+    /// buffer, or NO_MATERIAL for both when the node names no material and
+    /// the pass draws with DEFAULT_FOG_SHADER.
+    static constexpr uint32_t NO_MATERIAL = ~0u;
+    uint32_t pipeline_id{NO_MATERIAL};
+    uint32_t material_id{NO_MATERIAL};
+    /// Every scalar and vector uniform the fog shader declares, resolved for
+    /// this frame. Colours in sRGB, as `hint_color` is authored everywhere.
+    std::vector<NamedValue> uniforms;
     float max_distance{130.0f};
     float temporal_blend{0.9f};
     /// How far the height fog answers things moving through it, 0 for none.
@@ -85,7 +94,14 @@ struct FogSettings {
     /// Paints the air the density field has stirred, for looking at what the
     /// field holds rather than at what it does to the fog. 0 is off.
     float density_field_debug{0.0f};
-    glm::vec3 color{0.8f, 0.85f, 0.9f};
+
+    /// A resolved uniform's first component, for a reader that needs one
+    /// number of the fog's — the sun shafts march a scalar density. The
+    /// fallback answers a shader that declares no such uniform.
+    [[nodiscard]] float scalar(std::string_view name, float fallback) const {
+        const NamedValue* value = find_named(uniforms, name);
+        return value != nullptr && value->count >= 1 ? value->values[0] : fallback;
+    }
 };
 
 /// Something moving through the world that anything reacting to movement can
@@ -157,6 +173,16 @@ inline constexpr std::string_view DENSITY_PREFIX = "fog_density.";
 inline constexpr std::string_view COLOR_PREFIX = "fog_color.";
 
 } // namespace fog_group_track
+
+/// The fog tracks that predate the fog material keep their names and reach
+/// the material's uniforms: `fog_density` is the shader's `density` and
+/// `fog_color` its `color`, so a profile written against the old fog node
+/// still does what it did. A shader that declares neither name is simply not
+/// reached by them.
+namespace fog_track {
+inline constexpr std::string_view DENSITY_UNIFORM = "density";
+inline constexpr std::string_view COLOR_UNIFORM = "color";
+} // namespace fog_track
 
 struct SunShaftSettings {
     bool enabled{false};

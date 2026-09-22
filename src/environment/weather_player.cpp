@@ -204,8 +204,18 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         over(PRECIPITATION, w.precipitation);
         over(WIND_SPEED, w.wind_speed);
         over(LIGHTNING_RATE, w.lightning_rate);
-        over(FOG_DENSITY, state.fog.density);
-        over_color(FOG_COLOR, state.fog.color);
+        // The fog's look is its material; the two fog tracks reach the
+        // uniforms they always did, faded in by the event's presence.
+        if (auto v = t.value_of(FOG_DENSITY, x)) {
+            if (auto* u = find_named(state.fog.uniforms, fog_track::DENSITY_UNIFORM)) {
+                fold_track(*u, t.find(FOG_DENSITY)->mode, *v, wt);
+            }
+        }
+        if (auto c = t.color_of(FOG_COLOR, x)) {
+            if (auto* u = find_named(state.fog.uniforms, fog_track::COLOR_UNIFORM)) {
+                fold_track(*u, t.find(FOG_COLOR)->mode, *c, wt);
+            }
+        }
 
         // Grouped fog tracks scale the scene's fog volumes, on top of whatever
         // the hour's day profile already made of them: a storm at dawn is

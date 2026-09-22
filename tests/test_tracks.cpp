@@ -1,3 +1,4 @@
+#include "core/math/color_space.hpp"
 #include "environment/color_gradient.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "environment/environment_state.hpp"
@@ -110,12 +111,20 @@ TEST_CASE("A day profile folds into the environment and leaves the rest alone", 
     state.sun.intensity = 2.0f;
     state.sun.color = glm::vec3(1.0f, 0.9f, 0.8f);
     state.ambient_intensity = 0.4f;
+    state.fog.uniforms = {NamedValue{.name = "color", .count = 3,
+                                     .values = {0.9f, 0.9f, 0.9f}, .srgb = true}};
     profile.apply(12.0f, state);
 
     REQUIRE(state.sun.intensity == Approx(1.0f));
     REQUIRE(close(state.sun.color, glm::vec3(1.0f, 0.9f, 0.8f)));   // no track: unchanged
     REQUIRE(state.ambient_intensity == Approx(0.4f));
-    REQUIRE(close(state.fog.color, glm::vec3(0.2f, 0.3f, 0.4f)));
+    // The gradient is linear light; the fog's colour uniform holds sRGB, so
+    // the track lands converted and reads back as the colour it set.
+    const NamedValue* fog_color = find_named(state.fog.uniforms, "color");
+    REQUIRE(fog_color != nullptr);
+    REQUIRE(close(color_space::srgb_to_linear(glm::vec3(fog_color->values[0], fog_color->values[1],
+                                                        fog_color->values[2])),
+                  glm::vec3(0.2f, 0.3f, 0.4f)));
     REQUIRE(state.exposure_bias == Approx(-1.5f));
     REQUIRE(state.sky_uniforms.size() == 1);
     REQUIRE(state.sky_uniforms[0].name == "haze");
@@ -138,7 +147,7 @@ TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {
     global.curve.keyframes = {{0.5f, 2.0f, 0.0f, 0.0f}};
 
     EnvironmentState state;
-    state.fog.density = 0.01f;
+    state.fog.uniforms = {NamedValue{.name = "density", .count = 1, .values = {0.01f}}};
     state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "valley"});
     state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = "cave"});
     state.fog_volumes.push_back(FogVolume{.density = 0.05f, .group = ""});
@@ -147,7 +156,7 @@ TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {
     profile.apply(12.0f, state);
 
     // The ungrouped track is the global fog's alone; it does not reach volumes.
-    REQUIRE(state.fog.density == Approx(0.02f));
+    REQUIRE(state.fog.scalar("density", 0.0f) == Approx(0.02f));
     REQUIRE(state.fog_volumes[0].density == Approx(0.15f));   // tagged: scaled
     REQUIRE(state.fog_volumes[1].density == Approx(0.05f));   // another group
     REQUIRE(state.fog_volumes[2].density == Approx(0.05f));   // untagged

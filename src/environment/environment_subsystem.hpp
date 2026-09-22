@@ -21,6 +21,8 @@ class Scene;
 struct DayProfileAsset;
 struct WeatherAsset;
 struct WorldEnvironmentNode;
+struct VolumetricFogNode;
+class Project;
 
 /// Owns the resolved environment of the scene the engine ticks, the clock
 /// behind its time of day, and the weather playing over it. Runs every frame, in and out of play, so the
@@ -126,6 +128,11 @@ private:
 
     // Keep the node's day profile pointer following its path.
     static void bind_day_profile(WorldEnvironmentNode& env, ResourceManager* resources);
+    /// Keep the fog node's material following its path, and read the
+    /// material's uniform values back onto the node so the resolver can seed
+    /// the frame from plain data.
+    static void bind_fog_material(VolumetricFogNode& fog, ResourceManager* resources,
+                                  const Project* project);
     // Keep the node's weather pointer following its path; a new path plays.
     void bind_weather(WorldEnvironmentNode& env, ResourceManager* resources);
     void bind_climate(WorldEnvironmentNode& env, ResourceManager* resources);

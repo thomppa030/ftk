@@ -8,6 +8,7 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/pipeline_cache.hpp"
+#include "environment/environment_state.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/camera_node.hpp"
@@ -103,6 +104,67 @@ static void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext&
             } else {
                 env.sky_uniforms.push_back(std::move(value));
             }
+            if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+        }
+        ImGui::PopID();
+    }
+}
+
+// The fog material's uniforms as rows on the Volumetric Fog node: each shows
+// the node's own value when it has one and the material's otherwise, and an
+// edit stores the node's value in `params`. A day profile or weather track of
+// the same name folds over both while it is bound.
+static void draw_fog_overrides(VolumetricFogNode& fog, const InspectorContext& ictx) {
+    if (ictx.pipeline_cache == nullptr) return;
+    const uint32_t pid = fog.material != nullptr
+        ? fog.material->pipeline_id()
+        : ictx.pipeline_cache->register_shader(std::string(DEFAULT_FOG_SHADER));
+    if (pid >= ictx.pipeline_cache->shader_count()
+        || ictx.pipeline_cache->has_compile_error(pid)) return;
+    const auto& meta = ictx.pipeline_cache->metadata(pid);
+    if (meta.shader_type != ShaderType::Fog) return;
+
+    bool any = false;
+    for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
+    if (!any) return;
+
+    ImGui::TextDisabled("This Node");
+    ImGui::SetItemTooltip("Values of the material's uniforms for this node alone. "
+                          "The material keeps its own; other nodes sharing it are untouched.");
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        const uint32_t count = uniform_float_count(u.type);
+        NamedValue* override = find_named(fog.params, u.name);
+        const NamedValue* base = find_named(fog.material_values_, u.name);
+
+        std::array<float, 4> temp{};
+        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
+        if (base != nullptr) {
+            for (uint32_t i = 0; i < count && i < base->count; ++i) temp[i] = base->values[i];
+        }
+        if (override != nullptr) {
+            for (uint32_t i = 0; i < count && i < override->count; ++i) temp[i] = override->values[i];
+        }
+
+        ImGui::PushID(u.name.c_str());
+        ImGui::Text("%s", display_name(u.name).c_str());
+        if (override != nullptr) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset")) {
+                fog.params.erase(fog.params.begin() + (override - fog.params.data()));
+                if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+                ImGui::PopID();
+                continue;
+            }
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (draw_uniform_value(u, std::span{temp}.first(count))) {
+            NamedValue value;
+            value.name = u.name;
+            value.count = count;
+            value.values = temp;
+            value.srgb = u.hint == UniformHint::Color;
+            set_named(fog.params, std::move(value));
             if (ictx.scene != nullptr) ictx.scene->mark_dirty();
         }
         ImGui::PopID();
@@ -522,27 +584,29 @@ void PropertiesPanel::draw() {
 
             if (auto* vf = dynamic_cast<VolumetricFogNode*>(obj)) {
                 section_header("VOLUMETRIC FOG", ICON_LC_CLOUD);
+                // How the haze looks is its material; the node keeps where it
+                // is, how far it reaches and how it answers movement.
+                static const std::string fog_mat_exts[] = {".fjmat"};
+                if (asset_ref_field({.label = "Material",
+                                     .id = "##FogMatRef",
+                                     .extensions = fog_mat_exts,
+                                     .ctx = &ictx},
+                                    vf->material_path)) {
+                    scene_->mark_dirty();
+                }
+                if (vf->material != nullptr) {
+                    draw_material_inspector_for(vf->material);
+                } else {
+                    ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s (engine default)",
+                                        std::string(DEFAULT_FOG_SHADER).c_str());
+                }
+                draw_fog_overrides(*vf, ictx);
                 if (auto t = PropertyTable("##fog")) {
-                    prop_row("Density", [&] {
-                        ImGui::SliderFloat("##FogDensity", &vf->density, 0.001f, 0.2f, "%.4f");
-                    });
-                    prop_row("Height Falloff", [&] {
-                        ImGui::SliderFloat("##FogFalloff", &vf->height_falloff, 0.01f, 5.0f);
-                    });
-                    prop_row("Scattering", [&] {
-                        ImGui::SliderFloat("##FogScatter", &vf->scattering, 0.0f, 1.0f);
-                    });
-                    prop_row("Anisotropy", [&] {
-                        ImGui::SliderFloat("##FogAniso", &vf->anisotropy, -0.99f, 0.99f);
-                    });
                     prop_row("Max Distance", [&] {
                         ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
                     });
                     prop_row("Temporal", [&] {
                         ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
-                    });
-                    prop_row("Color", [&] {
-                        color_edit_linear("##FogColor", vf->fog_color);
                     });
                 }
                 ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);

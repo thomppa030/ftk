@@ -5,9 +5,11 @@
 #include "environment/weather_player.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/components/motion_source_component.hpp"
+#include "renderer/resources/material.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace fjell {
@@ -64,6 +66,13 @@ const WorldEnvironmentNode* find_world_environment(const Scene& scene) {
     return nullptr;
 }
 
+VolumetricFogNode* find_volumetric_fog(Scene& scene) {
+    for (const auto& obj : scene.objects()) {
+        if (auto* fog = dynamic_cast<VolumetricFogNode*>(obj.get())) return fog;
+    }
+    return nullptr;
+}
+
 namespace {
 
 // The leader keeps the role until the other body outshines it by this much,
@@ -107,8 +116,7 @@ void blend_profiled(EnvironmentState& from, const EnvironmentState& to, float t)
     from.ambient_intensity = glm::mix(from.ambient_intensity, to.ambient_intensity, t);
     from.sky.top_color = glm::mix(from.sky.top_color, to.sky.top_color, t);
     from.sky.bottom_color = glm::mix(from.sky.bottom_color, to.sky.bottom_color, t);
-    from.fog.color = glm::mix(from.fog.color, to.fog.color, t);
-    from.fog.density = glm::mix(from.fog.density, to.fog.density, t);
+    mix_named_values(from.fog.uniforms, to.fog.uniforms, t);
     from.exposure_bias = glm::mix(from.exposure_bias, to.exposure_bias, t);
     from.star_intensity = glm::mix(from.star_intensity, to.star_intensity, t);
     if (t >= 0.5f) from.sky_uniforms = to.sky_uniforms;
@@ -165,16 +173,27 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
             if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
                 auto& f = state.fog;
                 f.enabled = true;
-                f.density = fog->density;
-                f.height = glm::vec3(fog->world_matrix_[3]).y;
-                f.height_falloff = fog->height_falloff;
-                f.scattering = fog->scattering;
-                f.anisotropy = fog->anisotropy;
+                f.origin = glm::vec3(fog->world_matrix_[3]);
                 f.max_distance = fog->max_distance;
                 f.temporal_blend = fog->temporal_blend;
                 f.motion_response = fog->motion_response;
                 f.density_field_debug = fog->density_field_debug;
-                f.color = fog->fog_color;
+                // The material's values first, then the node's own over
+                // them; the hour's and the weather's tracks fold over both
+                // further down. A node override for a uniform the shader
+                // does not declare is dropped here rather than carried to
+                // the pass, which would have nowhere to write it.
+                if (fog->material != nullptr) {
+                    f.pipeline_id = fog->material->pipeline_id();
+                    f.material_id = fog->material->material_id();
+                }
+                f.uniforms = fog->material_values_;
+                for (const auto& override : fog->params) {
+                    if (auto* value = find_named(f.uniforms, override.name)) {
+                        const uint32_t count = std::min(value->count, override.count);
+                        for (uint32_t i = 0; i < count; ++i) value->values[i] = override.values[i];
+                    }
+                }
 
                 auto& s = state.sun_shafts;
                 s.enabled = fog->shafts_enabled;

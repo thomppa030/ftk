@@ -320,7 +320,9 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
     anisotropy_ = shafts.anisotropy;
     directionality_ = shafts.directionality;
     threshold_ = shafts.threshold;
-    fog_density_ = ctx.environment->fog.density;
+    // The march reads one scalar density: the fog material's `density`
+    // uniform where its shader declares one, else nothing to march through.
+    fog_density_ = ctx.environment->fog.scalar(fog_track::DENSITY_UNIFORM, 0.0F);
 }
 
 PassSetup SunShaftsPass::setup() const {

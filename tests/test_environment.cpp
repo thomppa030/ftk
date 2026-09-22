@@ -84,8 +84,14 @@ TEST_CASE("Environment and fog nodes fill their settings", "[environment]") {
     scene.add_node(std::move(world));
 
     auto fog = std::make_unique<VolumetricFogNode>();
-    fog->density = 0.02f;
-    fog->fog_color = glm::vec3(0.5f, 0.6f, 0.7f);
+    // The material's values as the subsystem read them back, with the node's
+    // own density over them: the resolver seeds the frame from these two.
+    fog->material_values_ = {
+        NamedValue{.name = "density", .count = 1, .values = {0.01f}},
+        NamedValue{.name = "color", .count = 3, .values = {0.5f, 0.6f, 0.7f}, .srgb = true},
+    };
+    fog->params = {NamedValue{.name = "density", .count = 1, .values = {0.02f}},
+                   NamedValue{.name = "not_declared", .count = 1, .values = {9.0f}}};
     fog->transform.position = glm::vec3(0.0f, 12.0f, 0.0f);
     fog->shafts_enabled = true;
     fog->shaft_step_count = 9;
@@ -103,9 +109,14 @@ TEST_CASE("Environment and fog nodes fill their settings", "[environment]") {
     REQUIRE(env.contact_shadows.steps == 7);
 
     REQUIRE(env.fog.enabled);
-    REQUIRE(env.fog.density == Approx(0.02f));
-    REQUIRE(close(env.fog.color, glm::vec3(0.5f, 0.6f, 0.7f)));
-    REQUIRE(env.fog.height == Approx(12.0f));
+    REQUIRE(env.fog.scalar("density", 0.0f) == Approx(0.02f));
+    const NamedValue* color = find_named(env.fog.uniforms, "color");
+    REQUIRE(color != nullptr);
+    REQUIRE(close(glm::vec3(color->values[0], color->values[1], color->values[2]),
+                  glm::vec3(0.5f, 0.6f, 0.7f)));
+    REQUIRE(find_named(env.fog.uniforms, "not_declared") == nullptr);
+    REQUIRE(env.fog.origin.y == Approx(12.0f));
+    REQUIRE(env.fog.pipeline_id == FogSettings::NO_MATERIAL);
     REQUIRE(env.sun_shafts.enabled);
     REQUIRE(env.sun_shafts.step_count == 9);
 }

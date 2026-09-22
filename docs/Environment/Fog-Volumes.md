@@ -177,7 +177,9 @@ rather than per froxel wants a mirror of that function, and the
 halves honest.
 
 Volumes are gathered by `EnvironmentResolver` into `EnvironmentState::fog_volumes`,
-uploaded to one SSBO, and summed per froxel in `shaders/fog_inject.comp`.
+uploaded to one SSBO, and summed per froxel in the fog template
+(`shaders/include/fjell_fog_template.glsl`), after the fog node's own
+`shader_type fog` material has decided the haze.
 Everything downstream — shadows, light scattering, the phase function, temporal
 reprojection — is inherited, because a volume only changes what density a
 froxel sees. The cap is 64 volumes in a scene.

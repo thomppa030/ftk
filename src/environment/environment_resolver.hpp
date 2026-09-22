@@ -6,12 +6,17 @@ namespace fjell {
 
 class Scene;
 struct WorldEnvironmentNode;
+struct VolumetricFogNode;
 struct WeatherSkyOverride;
 
 /// The scene's world environment node, or null when it has none. The first
 /// one found is the scene's; a second is ignored, as the renderer ignores it.
 [[nodiscard]] WorldEnvironmentNode* find_world_environment(Scene& scene);
 [[nodiscard]] const WorldEnvironmentNode* find_world_environment(const Scene& scene);
+
+/// The scene's Volumetric Fog node, the first one when there are several,
+/// which is the one the resolver reads. Null when the scene has none.
+[[nodiscard]] VolumetricFogNode* find_volumetric_fog(Scene& scene);
 
 /// Whether the moon should cast the shadows given how bright each body is
 /// above the horizon. `moon_led` is the previous frame's answer: the leader

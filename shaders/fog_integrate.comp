@@ -9,28 +9,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform sampler3D scatter_volume;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D integrated_volume;
 
-layout(push_constant) uniform PushConstants {
-    uvec4 volume_dims;
-    float near_plane;
-    float far_plane;
-    float density;
-    float height;
-    float height_falloff;
-    float scattering;
-    float anisotropy;
-    float temporal_blend;
-    uint viewport_width;
-    uint viewport_height;
-    float fog_color_r;
-    float fog_color_g;
-    float fog_color_b;
-    float jitter_x;
-    float jitter_y;
-    float jitter_z;
-    uint volume_count;
-    float motion_response;
-    float density_field_debug;
-} pc;
+#include "fjell_fog_push.glsl"
 
 float slice_to_depth(float t) {
     return pc.near_plane * pow(pc.far_plane / pc.near_plane, t);

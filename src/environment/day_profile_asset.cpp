@@ -45,8 +45,18 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     tracks.apply(AMBIENT_INTENSITY, hour, state.ambient_intensity);
     tracks.apply(SKY_TOP, hour, state.sky.top_color);
     tracks.apply(SKY_BOTTOM, hour, state.sky.bottom_color);
-    tracks.apply(FOG_COLOR, hour, state.fog.color);
-    tracks.apply(FOG_DENSITY, hour, state.fog.density);
+    // The fog's look is its material now; the two fog tracks fold into the
+    // material's own uniforms by the names they always reached.
+    if (const auto v = tracks.value_of(FOG_DENSITY, hour)) {
+        if (auto* u = find_named(state.fog.uniforms, fog_track::DENSITY_UNIFORM)) {
+            fold_track(*u, tracks.find(FOG_DENSITY)->mode, *v);
+        }
+    }
+    if (const auto c = tracks.color_of(FOG_COLOR, hour)) {
+        if (auto* u = find_named(state.fog.uniforms, fog_track::COLOR_UNIFORM)) {
+            fold_track(*u, tracks.find(FOG_COLOR)->mode, *c);
+        }
+    }
     tracks.apply(EXPOSURE_BIAS, hour, state.exposure_bias);
     tracks.apply(STAR_INTENSITY, hour, state.star_intensity);
 

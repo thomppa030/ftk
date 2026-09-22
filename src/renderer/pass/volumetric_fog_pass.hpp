@@ -7,16 +7,26 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
+#include "core/named_value.hpp"
 #include "renderer/renderer_constants.hpp"
 
 namespace fjell {
+
+class BindlessTextures;
+class PipelineCache;
 
 // ── Froxel-based volumetric fog pipeline ────────────────────────────────────
 //
 // Fog runs four compute dispatches authored as four independent DAG nodes:
 //
 //   fog_inject     — write density + light scattering into scatter[cur].
+//                    The shader is the fog node's material, a `shader_type
+//                    fog` .fjsl compiled through PipelineCache into the fog
+//                    template; the engine's fog.fjsl when the node has none.
 //   fog_temporal   — blend scatter[cur] with scatter[prev] (the last
 //                    frame's result). Reads scatter[prev], reads+writes
 //                    scatter[cur].
@@ -94,6 +104,7 @@ public:
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     void resize(uint32_t width, uint32_t height);
@@ -117,6 +128,8 @@ public:
     [[nodiscard]] VkPipelineLayout temporal_pipeline_layout() const { return temporal_pipeline_layout_; }
     [[nodiscard]] VkPipelineLayout integrate_pipeline_layout() const { return integrate_pipeline_layout_; }
     [[nodiscard]] VkPipelineLayout composite_pipeline_layout() const { return composite_pipeline_layout_; }
+    /// The compute pipeline built from this frame's fog shader, or null when
+    /// neither the node's material nor the engine's default has compiled.
     [[nodiscard]] VkPipeline inject_pipeline() const { return inject_pipeline_; }
     [[nodiscard]] VkPipeline temporal_pipeline() const { return temporal_pipeline_; }
     [[nodiscard]] VkPipeline integrate_pipeline() const { return integrate_pipeline_; }
@@ -124,24 +137,22 @@ public:
     [[nodiscard]] Images& images() { return default_images_; }
 
     // Scene-driven fog parameters + push-constant helper read by each node.
+    // Mirrors shaders/include/fjell_fog_push.glsl field for field; the four
+    // fog shaders all declare the block from that one include.
     struct PushConstants {
         glm::uvec4 volume_dims;   // xyz = froxel grid, w = frame_index
         float near_plane;
         float far_plane;
-        float density;
-        float height;
-        float height_falloff;
-        float scattering;
-        float anisotropy;
         float temporal_blend;
         uint32_t viewport_width;
         uint32_t viewport_height;
-        float fog_color_r;
-        float fog_color_g;
-        float fog_color_b;
         float jitter_x;
         float jitter_y;
         float jitter_z;
+        // The fog node's world position: ORIGIN in the shader's density().
+        float origin_x;
+        float origin_y;
+        float origin_z;
         // How many entries of fog_volume_ssbo the inject pass should read.
         // The other three fog shaders share this block and ignore it.
         uint32_t volume_count;
@@ -150,6 +161,9 @@ public:
         float motion_response;
         // Paints the stirred air so the density field can be seen. 0 is off.
         float density_field_debug;
+        // The fog's row in the material buffer: the pass's own copy of the
+        // node's material, holding this frame's resolved uniform values.
+        uint32_t fog_material_id;
     };
     [[nodiscard]] PushConstants make_push(const Images& imgs,
                                            uint32_t width, uint32_t height) const;
@@ -159,19 +173,58 @@ private:
                                             uint32_t w, uint32_t h, uint32_t d);
     static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
 
+    /// Build, or fetch, the compute pipeline for a fog shader entry, keeping
+    /// it current with the entry's compile generation so a hot reload reaches
+    /// it. Null when the entry is not a fog shader or has never compiled.
+    VkPipeline ensure_material_pipeline(uint32_t pipeline_id);
+    /// Register the engine's fog.fjsl and seed a material row with its
+    /// defaults, for a node with no material or one that cannot draw.
+    void ensure_fallback_material();
+    /// Keep the pass's own material row a copy of the fog's source row, and
+    /// its params slice the frame's resolved uniform values. The source row
+    /// is the material's and is never written: a track folded in here must
+    /// not reach the asset the inspector shows and the scene saves.
+    void apply_material(uint32_t pipeline_id, uint32_t source_material_id,
+                        const std::vector<NamedValue>& uniforms);
+    void destroy_material_pipelines();
+
     // Scene-driven fog parameters (set by prepare_frame)
     bool enabled_{false};
-    float density_{0.003f};
-    float height_{0.0f};
-    float height_falloff_{0.5f};
-    float scattering_{0.5f};
-    float anisotropy_{0.7f};
+    glm::vec3 origin_{0.0f};
     float max_distance_{130.0f};
     float temporal_blend_{0.9f};
     float motion_response_{0.0f};
     float density_field_debug_{0.0f};
-    glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
     uint32_t volume_count_{0};
+
+    PipelineCache* pipeline_cache_{nullptr};
+    BindlessTextures* bindless_{nullptr};
+    DeferredDeleter* deferred_deleter_{nullptr};
+
+    struct MaterialPipeline {
+        VkPipeline pipeline{VK_NULL_HANDLE};
+        uint32_t generation{0};
+    };
+    std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
+    // Entries already complained about, so a wrong-typed material is one
+    // line in the log rather than one per frame.
+    std::unordered_set<uint32_t> reported_entries_;
+
+    bool fallback_ready_{false};
+    uint32_t fallback_pipeline_id_{0};
+    uint32_t fallback_material_id_{~0u};
+
+    // The pass's own row and params slice. Taken once and kept: nothing hands
+    // a row back, so a fresh one per rebuild would leak. The slice is only
+    // retaken when a shader wants more room than the last one had.
+    uint32_t instance_material_id_{~0u};
+    uint32_t instance_param_offset_{0};
+    uint32_t instance_param_count_{0};
+    uint32_t instance_source_material_{~0u};
+    uint32_t instance_pipeline_id_{~0u};
+    uint32_t instance_generation_{0};
+    std::vector<NamedValue> applied_uniforms_;
+    bool uniforms_applied_{false};
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

@@ -16,10 +16,13 @@
 
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "core/profiler.hpp"
+#include "renderer/bindless.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -29,11 +32,13 @@
 #include "renderer/resources/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <span>
 #include <stdexcept>
 
@@ -53,10 +58,13 @@ float halton(int index, int base) {
     return result;
 }
 
+// `spv_path` is absolute: the engine's own fog steps resolve theirs through
+// base_path first, and a fog shader's comes from PipelineCache already
+// resolved.
 VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
-                                    const std::string& shader_path,
+                                    const std::string& spv_path,
                                     VkPipelineCache pipeline_cache) {
-    auto code = read_spirv(base_path::resolve(shader_path));
+    auto code = read_spirv(spv_path);
     auto* module = create_shader_module(device, code);
 
     VkPipelineShaderStageCreateInfo stage{};
@@ -202,6 +210,7 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
+    deferred_deleter_ = resources.deferred_deleter;
     auto global_set_layout = resources.global_set_layout;
 
     VkSamplerCreateInfo sampler_ci{};
@@ -216,7 +225,9 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create fog sampler");
     }
 
-    // Inject set layout: binding 0 = storage image (scatter write)
+    // Inject set layout: binding 0 = storage image (scatter write). Set 1 is
+    // the material set the fog shader reads its uniforms from; the pipeline
+    // itself is built per fog shader in prepare_frame, not here.
     {
         VkDescriptorSetLayoutBinding binding{};
         binding.binding = 0;
@@ -230,12 +241,10 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
         ci.pBindings = &binding;
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &inject_set_layout_);
 
-        std::array layouts{global_set_layout, inject_set_layout_};
+        std::array layouts{global_set_layout, resources.material_set_layout, inject_set_layout_};
         inject_pipeline_layout_ = create_pipeline_layout(
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(PushConstants));
-        inject_pipeline_ = create_compute_pipeline(
-            device_, inject_pipeline_layout_, "shaders/fog_inject.comp.spv", vk_pipeline_cache_);
     }
 
     // Temporal set layout: binding 0 = storage image (current rw),
@@ -262,7 +271,7 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(PushConstants));
         temporal_pipeline_ = create_compute_pipeline(
-            device_, temporal_pipeline_layout_, "shaders/fog_temporal.comp.spv", vk_pipeline_cache_);
+            device_, temporal_pipeline_layout_, base_path::resolve("shaders/fog_temporal.comp.spv"), vk_pipeline_cache_);
     }
 
     // Integrate set layout: binding 0 = sampler3D (scatter),
@@ -287,7 +296,7 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
         integrate_pipeline_layout_ = create_pipeline_layout(
             device_, &integrate_set_layout_, 1, sizeof(PushConstants));
         integrate_pipeline_ = create_compute_pipeline(
-            device_, integrate_pipeline_layout_, "shaders/fog_integrate.comp.spv", vk_pipeline_cache_);
+            device_, integrate_pipeline_layout_, base_path::resolve("shaders/fog_integrate.comp.spv"), vk_pipeline_cache_);
     }
 
     // Composite set layout: binding 0 = sampler3D, binding 1 = sampler2D
@@ -318,7 +327,7 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(PushConstants));
         composite_pipeline_ = create_compute_pipeline(
-            device_, composite_pipeline_layout_, "shaders/fog_composite.comp.spv", vk_pipeline_cache_);
+            device_, composite_pipeline_layout_, base_path::resolve("shaders/fog_composite.comp.spv"), vk_pipeline_cache_);
     }
 
     default_images_.create(device_, allocator_, 1, 1);
@@ -338,6 +347,8 @@ void FogCore::destroy() {
         if (sl != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, sl, nullptr); sl = VK_NULL_HANDLE; }
     };
 
+    destroy_material_pipelines();
+    inject_pipeline_ = VK_NULL_HANDLE;
     destroy_pass(inject_pipeline_, inject_pipeline_layout_, inject_set_layout_);
     destroy_pass(temporal_pipeline_, temporal_pipeline_layout_, temporal_set_layout_);
     destroy_pass(integrate_pipeline_, integrate_pipeline_layout_, integrate_set_layout_);
@@ -355,17 +366,18 @@ void FogCore::resize(uint32_t width, uint32_t height) {
     default_images_.resize(device_, allocator_, width, height);
 }
 
+void FogCore::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
+    pipeline_cache_ = gpu.pipeline_cache();
+    bindless_ = &gpu.bindless_textures();
+}
+
 void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     enabled_ = false;
     if (ctx.environment == nullptr) { return; }
 
     const auto& fog = ctx.environment->fog;
-    enabled_ = fog.enabled;
-    density_ = fog.density;
-    height_ = fog.height;
-    height_falloff_ = fog.height_falloff;
-    scattering_ = fog.scattering;
-    anisotropy_ = fog.anisotropy;
+    if (!fog.enabled) { return; }
+    origin_ = fog.origin;
     max_distance_ = fog.max_distance;
     temporal_blend_ = fog.temporal_blend;
     motion_response_ = fog.motion_response;
@@ -375,9 +387,195 @@ void FogCore::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     for (const auto& volume : ctx.environment->fog_volumes) {
         density_field_debug_ = std::max(density_field_debug_, volume.density_field_debug);
     }
-    fog_color_ = fog.color;
     volume_count_ = std::min(static_cast<uint32_t>(ctx.environment->fog_volumes.size()),
                              MAX_FOG_VOLUMES);
+
+    // The pipeline is the fog material's shader; a node with none, or one
+    // whose shader cannot draw fog, gets the engine's own so the scene keeps
+    // its haze rather than losing it. Built here rather than in record():
+    // a first sighting or a hot reload means vkCreateComputePipelines, which
+    // does not belong inside command recording.
+    if (pipeline_cache_ == nullptr || bindless_ == nullptr) { return; }
+    ensure_fallback_material();
+    uint32_t pipeline_id = fog.pipeline_id;
+    uint32_t source_row = fog.material_id;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    if (pipeline_id != FogSettings::NO_MATERIAL) {
+        pipeline = ensure_material_pipeline(pipeline_id);
+    }
+    if (pipeline == VK_NULL_HANDLE && fallback_ready_) {
+        pipeline_id = fallback_pipeline_id_;
+        source_row = fallback_material_id_;
+        pipeline = ensure_material_pipeline(pipeline_id);
+    }
+    inject_pipeline_ = pipeline;
+    if (pipeline == VK_NULL_HANDLE) { return; }
+
+    apply_material(pipeline_id, source_row, fog.uniforms);
+    enabled_ = true;
+}
+
+void FogCore::ensure_fallback_material() {
+    if (fallback_ready_ || pipeline_cache_ == nullptr || bindless_ == nullptr) { return; }
+
+    const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_FOG_SHADER));
+    fallback_pipeline_id_ = pid;
+    if (pipeline_cache_->has_compile_error(pid) || pipeline_cache_->generation(pid) == 0) {
+        // Said once: this runs every frame until a hot reload of the file
+        // compiles, and the cache has already logged the compiler's output.
+        if (reported_entries_.insert(pid).second) {
+            FJELL_GFX_ERROR("Fog: '{}' failed to compile; the scene draws no haze until it does",
+                            DEFAULT_FOG_SHADER);
+        }
+        return;
+    }
+    reported_entries_.erase(pid);
+    const auto& meta = pipeline_cache_->metadata(pid);
+
+    // A material row seeded with the shader's own defaults, as the terrain
+    // and water passes keep for a node with no material.
+    GpuMaterial gpu{};
+    if (meta.custom_param_count > 0) {
+        gpu.param_offset = bindless_->allocate_params(meta.custom_param_count);
+        gpu.param_count = meta.custom_param_count;
+        std::vector<float> seed(meta.custom_param_count, 0.0F);
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) { continue; }
+            const uint32_t count = uniform_float_count(u.type);
+            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+                seed[u.slot + i] = u.default_value[i];
+            }
+            encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
+        }
+        bindless_->write_params(gpu.param_offset, seed.data(), meta.custom_param_count);
+    }
+    fallback_material_id_ = bindless_->add_material(gpu);
+    fallback_ready_ = ensure_material_pipeline(pid) != VK_NULL_HANDLE;
+}
+
+VkPipeline FogCore::ensure_material_pipeline(uint32_t pipeline_id) {
+    if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
+        return VK_NULL_HANDLE;
+    }
+    const uint32_t generation = pipeline_cache_->generation(pipeline_id);
+    auto it = material_pipelines_.find(pipeline_id);
+    if (it != material_pipelines_.end() && it->second.generation == generation) {
+        return it->second.pipeline;
+    }
+
+    const auto& meta = pipeline_cache_->metadata(pipeline_id);
+    if (meta.shader_type != ShaderType::Fog) {
+        if (reported_entries_.insert(pipeline_id).second) {
+            FJELL_GFX_ERROR("Fog: '{}' is shader_type '{}', a fog node needs shader_type fog",
+                            pipeline_cache_->shader_path(pipeline_id),
+                            shader_type_name(meta.shader_type));
+        }
+        return VK_NULL_HANDLE;
+    }
+    if (pipeline_cache_->has_compile_error(pipeline_id) || generation == 0) {
+        // A failed recompile keeps the pipeline built from the last good one.
+        return it != material_pipelines_.end() ? it->second.pipeline : VK_NULL_HANDLE;
+    }
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    try {
+        pipeline = create_compute_pipeline(device_, inject_pipeline_layout_,
+                                           pipeline_cache_->fog_compute_spv(pipeline_id),
+                                           vk_pipeline_cache_);
+    } catch (const std::exception& e) {
+        FJELL_GFX_ERROR("Fog: '{}': {}", pipeline_cache_->shader_path(pipeline_id), e.what());
+        return it != material_pipelines_.end() ? it->second.pipeline : VK_NULL_HANDLE;
+    }
+
+    // The old pipeline may still be referenced by a frame in flight, so it
+    // dies with that frame rather than now.
+    if (it != material_pipelines_.end() && it->second.pipeline != VK_NULL_HANDLE) {
+        VkPipeline doomed = it->second.pipeline;
+        if (deferred_deleter_ != nullptr) {
+            deferred_deleter_->defer(
+                [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
+        } else {
+            vkDeviceWaitIdle(device_);
+            vkDestroyPipeline(device_, doomed, nullptr);
+        }
+    }
+    material_pipelines_[pipeline_id] = {pipeline, generation};
+    FJELL_GFX_DEBUG("Fog: built pipeline for '{}'", pipeline_cache_->shader_path(pipeline_id));
+    return pipeline;
+}
+
+void FogCore::apply_material(uint32_t pipeline_id, uint32_t source_material_id,
+                             const std::vector<NamedValue>& uniforms) {
+    const auto& meta = pipeline_cache_->metadata(pipeline_id);
+    const uint32_t generation = pipeline_cache_->generation(pipeline_id);
+    const GpuMaterial& source = bindless_->material_at(source_material_id);
+
+    // The row follows its source: a new material, a recompiled shader, or
+    // textures rebound on the source row all reach the copy. Only the params
+    // slice is the pass's own.
+    GpuMaterial row = source;
+    if (meta.custom_param_count > instance_param_count_) {
+        instance_param_offset_ = bindless_->allocate_params(meta.custom_param_count);
+        instance_param_count_ = meta.custom_param_count;
+    }
+    row.param_offset = instance_param_offset_;
+    row.param_count = meta.custom_param_count;
+
+    const bool rebuilt = instance_material_id_ == ~0u
+                      || instance_source_material_ != source_material_id
+                      || instance_pipeline_id_ != pipeline_id
+                      || instance_generation_ != generation;
+    if (rebuilt) {
+        if (instance_material_id_ == ~0u) {
+            instance_material_id_ = bindless_->add_material(row);
+        } else {
+            bindless_->update_material(instance_material_id_, row);
+        }
+        instance_source_material_ = source_material_id;
+        instance_pipeline_id_ = pipeline_id;
+        instance_generation_ = generation;
+        uniforms_applied_ = false;
+    } else {
+        const GpuMaterial& current = bindless_->material_at(instance_material_id_);
+        if (std::memcmp(&current, &row, sizeof(GpuMaterial)) != 0) {
+            bindless_->update_material(instance_material_id_, row);
+        }
+    }
+
+    if (uniforms_applied_ && applied_uniforms_ == uniforms) { return; }
+    if (meta.custom_param_count > 0) {
+        // The shader's defaults first, so a uniform the resolved list does
+        // not name still reads what the .fjsl declares, then every resolved
+        // value over its own uniform. A value shorter than the uniform keeps
+        // the default in the components it leaves out.
+        std::vector<float> values(meta.custom_param_count, 0.0F);
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) { continue; }
+            const uint32_t count = uniform_float_count(u.type);
+            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+                values[u.slot + i] = u.default_value[i];
+            }
+            if (const NamedValue* resolved = find_named(uniforms, u.name)) {
+                for (uint32_t i = 0; i < count && i < resolved->count; ++i) {
+                    values[u.slot + i] = resolved->values[i];
+                }
+            }
+            encode_uniform_for_gpu(u, std::span{values}.subspan(u.slot, count));
+        }
+        bindless_->write_params(instance_param_offset_, values.data(), meta.custom_param_count);
+    }
+    applied_uniforms_ = uniforms;
+    uniforms_applied_ = true;
+}
+
+void FogCore::destroy_material_pipelines() {
+    for (auto& [id, mp] : material_pipelines_) {
+        if (mp.pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device_, mp.pipeline, nullptr);
+        }
+    }
+    material_pipelines_.clear();
+    fallback_ready_ = false;
 }
 
 FogCore::PushConstants FogCore::make_push(const Images& imgs,
@@ -391,23 +589,19 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     push.volume_dims = glm::uvec4(vol_w, vol_h, vol_d, imgs.frame_counter);
     push.near_plane = 0.1F;
     push.far_plane = max_distance_;
-    push.density = density_;
-    push.height = height_;
-    push.height_falloff = height_falloff_;
-    push.scattering = scattering_;
-    push.anisotropy = anisotropy_;
     push.temporal_blend = temporal_blend_;
     push.motion_response = motion_response_;
     push.density_field_debug = density_field_debug_;
     push.viewport_width = width;
     push.viewport_height = height;
-    push.fog_color_r = fog_color_.r;
-    push.fog_color_g = fog_color_.g;
-    push.fog_color_b = fog_color_.b;
+    push.origin_x = origin_.x;
+    push.origin_y = origin_.y;
+    push.origin_z = origin_.z;
     push.jitter_x = halton(frame_idx, 3) - 0.5F;
     push.jitter_y = halton(frame_idx, 5) - 0.5F;
     push.jitter_z = halton(frame_idx, 2) - 0.5F;
     push.volume_count = volume_count_;
+    push.fog_material_id = instance_material_id_;
     return push;
 }
 
@@ -458,11 +652,10 @@ void FogInjectPass::record(const FrameContext& ctx) {
 
     PushConstants push = make_push(*imgs, extent.width, extent.height);
 
+    std::array sets{global_set, ctx.bindless_set, set};
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline());
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline_layout(),
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline_layout(),
-                            1, 1, &set, 0, nullptr);
+                            0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
     vkCmdPushConstants(cmd, inject_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, groups_x, groups_y, vol_d);

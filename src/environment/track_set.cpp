@@ -1,5 +1,7 @@
 #include "environment/track_set.hpp"
 
+#include "core/math/color_space.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -113,6 +115,34 @@ void TrackSet::apply(std::string_view name, float x, glm::vec3& target) const {
     if (!value) return;
     const Track* track = find(name);
     target = track->mode == TrackMode::Multiply ? target * *value : *value;
+}
+
+namespace {
+
+// One component of a named value, folded in the space it is scaled in and
+// written back in the space it is held in.
+void fold_component(float& held, bool in_linear, TrackMode mode, float value, float weight) {
+    float current = in_linear ? color_space::srgb_to_linear(held) : held;
+    if (mode == TrackMode::Multiply) {
+        current *= 1.0f + (value - 1.0f) * weight;
+    } else {
+        current += (value - current) * weight;
+    }
+    held = in_linear ? color_space::linear_to_srgb(current) : current;
+}
+
+} // namespace
+
+void fold_track(NamedValue& target, TrackMode mode, float value, float weight) {
+    if (target.count < 1 || target.srgb) return;
+    fold_component(target.values[0], false, mode, value, weight);
+}
+
+void fold_track(NamedValue& target, TrackMode mode, const glm::vec3& value, float weight) {
+    if (target.count < 3) return;
+    for (uint32_t i = 0; i < 3; ++i) {
+        fold_component(target.values[i], target.srgb, mode, value[i], weight);
+    }
 }
 
 void TrackSet::to_json(nlohmann::json& j) const {

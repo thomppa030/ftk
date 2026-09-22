@@ -1,4 +1,5 @@
 #include "core/engine.hpp"
+#include "scene/light_node.hpp"
 #include "core/asset_references.hpp"
 #include "core/base_path.hpp"
 #include "ui/asset_picker.hpp"
@@ -1044,6 +1045,9 @@ void Engine::save_material_assets() {
         }
         if (const auto* water = obj->components.get<WaterComponent>()) {
             save_material(water->material, water->material_path);
+        }
+        if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
+            save_material(fog->material, fog->material_path);
         }
     }
 }

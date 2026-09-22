@@ -18,10 +18,13 @@
 #include "core/base_path.hpp"
 #include "core/math/color_space.hpp"
 #include "core/project.hpp"
+#include "environment/environment_state.hpp"
 #include "core/log.hpp"
 #include "environment/weather_asset.hpp"
 
 #include <nlohmann/json.hpp>
+
+#include <algorithm>
 
 namespace fjell {
 
@@ -141,15 +144,10 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
     } else if (auto* vf = dynamic_cast<const VolumetricFogNode*>(&node)) {
         j["node_type"] = "volumetric_fog";
         j["fog"] = {
-            {"density", vf->density},
-            {"height_falloff", vf->height_falloff},
-            {"scattering", vf->scattering},
-            {"anisotropy", vf->anisotropy},
             {"max_distance", vf->max_distance},
             {"temporal_blend", vf->temporal_blend},
             {"motion_response", vf->motion_response},
             {"density_field_debug", vf->density_field_debug},
-            {"color", color_to_json(vf->fog_color)},
             {"shafts_enabled", vf->shafts_enabled},
             {"shaft_intensity", vf->shaft_intensity},
             {"shaft_density_mult", vf->shaft_density_mult},
@@ -159,6 +157,19 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"shaft_directionality", vf->shaft_directionality},
             {"shaft_threshold", vf->shaft_threshold}
         };
+        // The look is the material; the node's own values for its uniforms
+        // are written as the picker shows them, colours in sRGB.
+        if (!vf->material_path.empty()) {
+            j["fog"]["material"] = base_path::asset_reference(vf->material_path, project);
+        }
+        if (!vf->params.empty()) {
+            auto& jp = j["fog"]["params"] = nlohmann::json::object();
+            for (const auto& p : vf->params) {
+                auto values = nlohmann::json::array();
+                for (uint32_t i = 0; i < p.count; ++i) values.push_back(p.values[i]);
+                jp[p.name] = values;
+            }
+        }
     } else if (auto* fv = dynamic_cast<const FogVolumeNode*>(&node)) {
         j["node_type"] = "fog_volume";
         j["fog_volume"] = {
@@ -407,18 +418,39 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             auto vf = std::make_unique<VolumetricFogNode>();
             if (j.contains("fog")) {
                 auto& jf = j["fog"];
-                vf->density = jf.value("density", 0.003f);
-                vf->height_falloff = jf.value("height_falloff", 0.5f);
-                vf->scattering = jf.value("scattering", 0.5f);
-                vf->anisotropy = jf.value("anisotropy", 0.7f);
+                vf->material_path = jf.value("material", std::string{});
+                if (jf.contains("params") && jf["params"].is_object()) {
+                    for (const auto& [param_name, values] : jf["params"].items()) {
+                        if (!values.is_array() || values.empty()) continue;
+                        NamedValue p;
+                        p.name = param_name;
+                        p.count = static_cast<uint32_t>(std::min<size_t>(values.size(), 4));
+                        for (uint32_t i = 0; i < p.count; ++i) p.values[i] = values[i].get<float>();
+                        vf->params.push_back(std::move(p));
+                    }
+                }
+                // A scene from before the fog had a material carries its
+                // look as fields. They become the node's own values for the
+                // default shader's uniforms of the same names, so the haze
+                // draws as it did; the next save writes them as params. The
+                // colour was saved in sRGB, which is how a param holds one.
+                for (const char* key : {"density", "height_falloff", "scattering", "anisotropy"}) {
+                    if (!jf.contains(key) || find_named(vf->params, key) != nullptr) continue;
+                    vf->params.push_back(NamedValue{.name = key, .count = 1,
+                                                    .values = {jf.value(key, 0.0f)}});
+                }
+                if (jf.contains("color") && jf["color"].is_array()
+                    && find_named(vf->params, fog_track::COLOR_UNIFORM) == nullptr) {
+                    const auto& c = jf["color"];
+                    vf->params.push_back(NamedValue{
+                        .name = std::string(fog_track::COLOR_UNIFORM), .count = 3,
+                        .values = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()},
+                        .srgb = true});
+                }
                 vf->max_distance = jf.value("max_distance", 130.0f);
                 vf->temporal_blend = jf.value("temporal_blend", 0.9f);
                 vf->motion_response = jf.value("motion_response", 0.0f);
                 vf->density_field_debug = jf.value("density_field_debug", 0.0f);
-                if (jf.contains("color")) {
-                    auto& c = jf["color"];
-                    vf->fog_color = color_from_json(c);
-                }
                 vf->shafts_enabled = jf.value("shafts_enabled", true);
                 vf->shaft_intensity = jf.value("shaft_intensity", 1.0f);
                 vf->shaft_density_mult = jf.value("shaft_density_mult", 1.0f);

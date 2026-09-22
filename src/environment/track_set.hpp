@@ -3,6 +3,8 @@
 #include "environment/color_gradient.hpp"
 #include "renderer/systems/vfx_curve.hpp"
 
+#include "core/named_value.hpp"
+
 #include <glm/glm.hpp>
 #include <nlohmann/json_fwd.hpp>
 
@@ -72,5 +74,18 @@ struct TrackSet {
 /// A Curve read periodically: outside its first and last key the gap wraps
 /// around the domain instead of holding the end values.
 [[nodiscard]] float evaluate_periodic(const Curve& curve, float t);
+
+/// Fold a track's value into a named uniform value by the track's mode,
+/// faded in by `weight` (1 applies it whole, as a day profile does; a weather
+/// event passes how present it is). A multiply scales what is there and an
+/// override moves toward the value. An sRGB colour is scaled and moved in
+/// linear light, which is what scaling a node's own colour field did before
+/// the value lived in a material.
+///
+/// A float folds into the first component; a colour into the first three of
+/// a value that has them. A colour track meeting a float, or the other way
+/// round, is a mismatch and leaves the value alone.
+void fold_track(NamedValue& target, TrackMode mode, float value, float weight = 1.0f);
+void fold_track(NamedValue& target, TrackMode mode, const glm::vec3& value, float weight = 1.0f);
 
 } // namespace fjell

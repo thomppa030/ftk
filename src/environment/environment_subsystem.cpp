@@ -14,6 +14,9 @@
 #include "scene/light_node.hpp"
 #include "environment/climate_asset.hpp"
 #include "environment/day_profile_asset.hpp"
+#include "renderer/bindless.hpp"
+#include "renderer/pipeline_cache.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "environment/environment_resolver.hpp"
@@ -21,6 +24,7 @@
 #include "scene/scene.hpp"
 
 #include <algorithm>
+#include <span>
 
 namespace fjell {
 
@@ -37,6 +41,9 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         bind_day_profile(*env, ctx.resources);
         bind_climate(*env, ctx.resources);
         bind_weather(*env, ctx.resources);
+    }
+    if (auto* fog = find_volumetric_fog(ctx.scene)) {
+        bind_fog_material(*fog, ctx.resources, ctx.project);
     }
     if (env != nullptr && env->time_of_day_enabled) {
         const bool advancing = playing() || env->advance_in_editor;
@@ -105,6 +112,84 @@ void EnvironmentSubsystem::bind_day_profile(WorldEnvironmentNode& env, ResourceM
     }
     env.day_profile_handle = *handle;
     env.day_profile_asset = resources->get(*handle);
+}
+
+namespace {
+
+// Every scalar and vector uniform of the fog shader the node draws with, at
+// the material's own value: read back from the material's row so a .fjmat
+// edited in the inspector or reloaded from disk is what the resolver seeds
+// from. A node with no material reads the default shader's declared values.
+void read_fog_material_values(VolumetricFogNode& fog, ResourceManager* resources) {
+    fog.material_values_.clear();
+    if (resources == nullptr) return;
+    PipelineCache* cache = resources->pipeline_cache();
+    if (cache == nullptr) return;
+
+    const Material* material = fog.material;
+    const uint32_t pid = material != nullptr
+        ? material->pipeline_id()
+        : cache->register_shader(std::string(DEFAULT_FOG_SHADER));
+    if (pid >= cache->shader_count()) return;
+    const auto& meta = cache->metadata(pid);
+    if (meta.shader_type != ShaderType::Fog) return;
+
+    const BindlessTextures& bindless = resources->bindless();
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        NamedValue value;
+        value.name = u.name;
+        value.count = uniform_float_count(u.type);
+        value.srgb = u.hint == UniformHint::Color;
+        if (material != nullptr) {
+            for (uint32_t i = 0; i < value.count; ++i) {
+                value.values[i] = bindless.read_param(material->custom_param_offset() + u.slot + i);
+            }
+            decode_uniform_from_gpu(u, std::span{value.values}.first(value.count));
+        } else {
+            for (uint32_t i = 0; i < value.count && i < u.default_value.size(); ++i) {
+                value.values[i] = u.default_value[i];
+            }
+        }
+        fog.material_values_.push_back(std::move(value));
+    }
+}
+
+} // namespace
+
+void EnvironmentSubsystem::bind_fog_material(VolumetricFogNode& fog, ResourceManager* resources,
+                                             const Project* project) {
+    if (fog.material_path != fog.material_bound_) {
+        fog.material_bound_ = fog.material_path;
+        fog.material_handle = {};
+        fog.material = nullptr;
+        if (!fog.material_path.empty() && resources != nullptr) {
+            auto handle = resources->load_material_asset(
+                base_path::resolve_asset(fog.material_path, project), project);
+            if (!handle) {
+                FJELL_CORE_ERROR("Volumetric fog: {}", handle.error());
+            } else {
+                Material* material = resources->get(*handle);
+                if (material != nullptr && material->shader_type() != ShaderType::Fog) {
+                    // Bound to nothing rather than to the wrong kind of
+                    // shader, so the node draws the engine's haze and says
+                    // why once instead of failing to build a pipeline every
+                    // frame.
+                    FJELL_CORE_ERROR("Volumetric fog: '{}' is shader_type '{}', a fog node "
+                                     "needs shader_type fog; drawing the default haze",
+                                     fog.material_path, shader_type_name(material->shader_type()));
+                } else {
+                    fog.material_handle = *handle;
+                    fog.material = material;
+                }
+            }
+        }
+    } else if (resources != nullptr && fog.material_handle.valid()) {
+        // Same path: keep following the pool's object, which a reload of the
+        // asset replaces in place.
+        fog.material = resources->get(fog.material_handle);
+    }
+    read_fog_material_values(fog, resources);
 }
 
 void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManager* resources) {

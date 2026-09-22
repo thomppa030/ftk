@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/named_value.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
@@ -14,6 +15,7 @@ namespace fjell {
 struct DayProfileAsset;
 struct ClimateAsset;
 struct WeatherAsset;
+class Material;
 
 // The same guard weather_asset.hpp uses, so the enum has one definition
 // whichever header a translation unit reaches first.
@@ -221,14 +223,33 @@ struct FogVolumeNode : VolumeNode {
 
 // ── Environment nodes ────────────────────────────────────────────────────
 
+// The scene's haze. How it looks is its material — a `shader_type fog` .fjsl
+// with its values in a .fjmat — and the node keeps what is physically true of
+// it: where it sits, how far it reaches, how it answers movement. A node with
+// no material draws with the engine's fog.fjsl at its defaults.
 struct VolumetricFogNode : Node3D {
-    float density{0.003f};
-    float height_falloff{0.5f};
-    float scattering{0.5f};
-    float anisotropy{0.7f};        // HG phase g: positive = godrays
+    /// The `.fjmat` the haze draws with, as an asset reference. Empty draws
+    /// the engine's default height fog.
+    std::string material_path;
+    MaterialHandle material_handle{};
+    Material* material{nullptr};
+    /// The reference the handle was loaded from, so a change of path is
+    /// noticed and rebound. Runtime state, not saved.
+    std::string material_bound_;
+    /// The node's own values for the material's uniforms, by name, over
+    /// what the .fjmat holds: one haze a little thicker than the material it
+    /// shares with the rest of the project. A uniform without an entry keeps
+    /// the material's value; a day profile or weather track of the same name
+    /// folds over both.
+    std::vector<NamedValue> params;
+    /// Every uniform the material's shader declares, at the material's own
+    /// value, read back from the material row each tick so the resolver can
+    /// seed the frame's values from plain data without reaching into the
+    /// renderer. Runtime state, not saved.
+    std::vector<NamedValue> material_values_;
+
     float max_distance{130.0f};
     float temporal_blend{0.9f};
-    glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
 
     /// How far the height fog answers things moving through it, 0 for not at
     /// all. Having no wisps of its own to displace, it answers by giving way:
@@ -273,13 +294,14 @@ struct VolumetricFogNode : Node3D {
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<VolumetricFogNode>();
         clone_3d_into(*copy);
-        copy->density = density;
-        copy->height_falloff = height_falloff;
-        copy->scattering = scattering;
-        copy->anisotropy = anisotropy;
+        copy->material_path = material_path;
+        copy->material_handle = material_handle;
+        copy->material = material;
+        copy->material_bound_ = material_bound_;
+        copy->params = params;
+        copy->material_values_ = material_values_;
         copy->max_distance = max_distance;
         copy->temporal_blend = temporal_blend;
-        copy->fog_color = fog_color;
         copy->motion_response = motion_response;
         copy->density_field_debug = density_field_debug;
         copy->shafts_enabled = shafts_enabled;
