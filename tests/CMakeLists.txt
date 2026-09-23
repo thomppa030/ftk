@@ -65,6 +65,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
@@ -168,6 +170,7 @@ add_executable(fjell-tests
     test_text_field.cpp
     test_component_storage.cpp
     test_curve_editor.cpp
+    test_choices.cpp
     test_fields.cpp
     test_kit.cpp
 )

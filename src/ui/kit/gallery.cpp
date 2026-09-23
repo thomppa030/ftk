@@ -2,6 +2,8 @@
 
 #include "ui/inspector_widgets.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/color_field.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
@@ -195,11 +197,41 @@ void KitGallery::fields() {
         if (auto t = PropertyTable("##gallery_toggles")) {
             row("Cast shadows", [&] { edit |= checkbox("##shadows", shadows_); });
         }
+        edit |= choices();
         if (edit.committed) ++commits_;
         char count[48];
         std::snprintf(count, sizeof(count), "Edits committed: %d", commits_);
         hint(count);
     }
+}
+
+Edit KitGallery::choices() {
+    static constexpr Choice<Shape> SHAPES[] = {
+        {Shape::Box, "Box"}, {Shape::Sphere, "Sphere"},
+        {Shape::Capsule, "Capsule"}, {Shape::Mesh, "Mesh"},
+    };
+    static constexpr Choice<Blend> BLENDS[] = {
+        {Blend::Opaque, "Opaque"}, {Blend::Alpha, "Alpha"},
+        {Blend::Additive, "Additive"}, {Blend::Multiply, "Multiply"},
+    };
+    static constexpr Choice<Body> BODIES[] = {
+        {Body::Static, "Static"}, {Body::Dynamic, "Dynamic"}, {Body::Kinematic, "Kinematic"},
+    };
+
+    Edit edit;
+    subheading("Choices");
+    if (auto t = PropertyTable("##gallery_choices")) {
+        row("Shape", [&] { edit |= choice("##shape", shape_, SHAPES); });
+        row("Blend mode", [&] { edit |= choice("##blend", blend_, BLENDS); });
+        row("Body type", [&] { edit |= choice("##body", body_, BODIES); });
+    }
+    subheading("Colours");
+    if (auto t = PropertyTable("##gallery_colours")) {
+        row("Light colour", [&] { edit |= color("##light", light_colour_, ColorSpace::Linear); });
+        row("Intensity", [&] { edit |= drag("##intensity", intensity_, {.speed = 0.05f, .min = 0.0f, .max = 100.0f}); });
+        row("Tint", [&] { edit |= color("##tint", tint_, ColorSpace::Srgb); });
+    }
+    return edit;
 }
 
 void KitGallery::draw(bool* open) {

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "ui/kit/edit.hpp"
+
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 #include <string>
 
@@ -18,6 +21,12 @@ private:
     void buttons();
     void rows();
     void fields();
+    Edit choices();
+
+    // Sample enums for the choice fields.
+    enum class Shape { Box, Sphere, Capsule, Mesh };
+    enum class Blend { Opaque, Alpha, Additive, Multiply };
+    enum class Body { Static, Dynamic, Kinematic };
 
     // Values for the sample controls to edit.
     std::string name_{"Crate"};
@@ -37,6 +46,11 @@ private:
     glm::vec3 rotation_{0.0f, 35.0f, 0.0f};
     glm::vec3 scale_{1.0f};
     glm::vec2 tiling_{1.0f, 1.0f};
+    Shape shape_{Shape::Capsule};
+    Blend blend_{Blend::Additive};
+    Body body_{Body::Dynamic};
+    glm::vec3 light_colour_{0.88f, 0.62f, 0.27f};  // linear
+    glm::vec4 tint_{0.61f, 0.78f, 0.91f, 1.0f};
     // How many edits the sample fields have committed, to see that a drag
     // is one commit.
     int commits_{0};
