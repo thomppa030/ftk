@@ -102,4 +102,20 @@ public:
 
 TreeRowResult tree_row(const TreeRowSpec& spec);
 
+/// Where, over the last row drawn, a dragged row would land: in front of it
+/// (its top quarter), after it (its bottom quarter), or into it.
+enum class DropPlace { Before, Into, After };
+[[nodiscard]] DropPlace drop_place();
+
+/// Shows where a drop over the last row lands: an amber insert line at its
+/// top or bottom, with a ring whose indent is `depth`, the depth the dropped
+/// rows will have; or, into the row, the row outlined. A drop that can't
+/// happen draws nothing (drag_preview says why).
+void draw_drop(DropPlace place, int depth);
+
+/// What is being dragged, under the cursor: the row's icon and name, or a
+/// count for several. `refusal` says why the target can't take them.
+void drag_preview(const char* icon, std::optional<theme::Category> category, std::string_view text,
+                  std::string_view refusal = {});
+
 } // namespace fjell::ui
