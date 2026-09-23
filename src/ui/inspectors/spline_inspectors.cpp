@@ -54,12 +54,6 @@ const char* mode_name(SplineInterp mode) {
     return "";
 }
 
-// A button for an action, led by its icon.
-bool action(const char* icon, const char* label, ui::ButtonKind kind = ui::ButtonKind::Secondary) {
-    const std::string text = std::string(icon) + "  " + label;
-    return ui::button(text.c_str(), kind);
-}
-
 // One line standing for a card that is not open: `first` in the text
 // colour, then `rest` in the secondary colour.
 void summary(const char* first, const char* rest) {
@@ -324,13 +318,13 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
                 [&] { (void)ui::checkbox("##ground", s.on_ground); });
         ui::row("Seed", "The same seed scatters the same way.", [&] { (void)ui::drag_int("##seed", s.seed, 1.0f); });
         ui::row("", [&] {
-            if (action(ui::icon::vfx, "Scatter")) {
+            if (ui::action(ui::icon::vfx, "Scatter")) {
                 scatter(inst, s, false);
                 edit = {true, true};
             }
             ImGui::SetItemTooltip("Replace every instance with a new scatter");
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (action(ui::icon::add, "Scatter more")) {
+            if (ui::action(ui::icon::add, "Scatter more")) {
                 scatter(inst, s, true);
                 edit = {true, true};
             }
@@ -390,7 +384,7 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
         }
         if (!inst.instances.empty()) {
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (action(ui::icon::remove, "Clear instances", ui::ButtonKind::GhostDanger)) {
+            if (ui::action(ui::icon::remove, "Clear instances", ui::ButtonKind::GhostDanger)) {
                 inst.instances.clear();
                 inst.dirty = true;
                 open_instance = -1;

@@ -64,12 +64,6 @@ constexpr ui::Choice<WaterComponent::Extent> EXTENTS[] = {
     {WaterComponent::Extent::infinite, "Infinite"},
 };
 
-// A button for an action, led by its icon.
-bool action(const char* icon, const char* label, ui::ButtonKind kind = ui::ButtonKind::Secondary) {
-    const std::string text = std::string(icon) + "  " + label;
-    return ui::button(text.c_str(), kind);
-}
-
 // Writes a fresh .fjmat on the default terrain shader beside the .fjterrain
 // and registers it with the project, returning its project-relative path.
 std::optional<std::string> create_terrain_material(const TerrainComponent& terrain, Project& project) {
@@ -171,7 +165,7 @@ void terrain_layers(TerrainAsset& asset, const InspectorContext& ctx) {
     }
     if (asset.layer_count() > 0) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        if (action(ui::icon::remove, "Remove last layer", ui::ButtonKind::GhostDanger)) {
+        if (ui::action(ui::icon::remove, "Remove last layer", ui::ButtonKind::GhostDanger)) {
             asset.set_layer_count(asset.layer_count() - 1);
         }
         ImGui::SetItemTooltip("Layers are channels of the painted weights, so they come off the end");
@@ -286,7 +280,7 @@ ui::Edit draw_terrain(Node3D& /*node*/, void* component, const InspectorContext&
                 const bool can = !terrain.terrain_path.empty() && ctx.project_mgr != nullptr
                               && ctx.project_mgr->active() != nullptr;
                 ImGui::BeginDisabled(!can);
-                if (action(ui::icon::add, "Create material")) {
+                if (ui::action(ui::icon::add, "Create material")) {
                     if (auto created = create_terrain_material(terrain, *ctx.project_mgr->active())) {
                         terrain.material_path = *created;
                         load_terrain_material(terrain, ctx.resource_manager, project);

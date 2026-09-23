@@ -6,6 +6,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <string>
 
 namespace fjell::ui {
 
@@ -99,6 +100,11 @@ Look toggle_look(bool on) {
 
 bool button(const char* label, ButtonKind kind, ImVec2 size) {
     return draw(label, look_of(kind), size);
+}
+
+bool action(const char* icon, const char* label, ButtonKind kind) {
+    const std::string text = std::string(icon) + "  " + label;
+    return draw(text.c_str(), look_of(kind), {0.0f, 0.0f});
 }
 
 bool icon_button(const char* id, const char* icon, const char* tooltip, ButtonKind kind) {

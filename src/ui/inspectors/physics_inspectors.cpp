@@ -87,12 +87,6 @@ void fit_to_bounds(CharacterComponent& cc, const AABB& bounds) {
     cc.shape_offset = {center.x, bounds.min.y, center.z};
 }
 
-// A button for an action, led by its icon.
-bool action(const char* icon, const char* label, ui::ButtonKind kind = ui::ButtonKind::Secondary) {
-    const std::string text = std::string(icon) + "  " + label;
-    return ui::button(text.c_str(), kind);
-}
-
 ui::Edit surface_row(ColliderComponent& col, const InspectorContext& ctx) {
     ui::Edit edit;
     static const std::string surface_exts[] = {".fjsurface"};
@@ -220,7 +214,7 @@ ui::Edit draw_character(Node3D& node, void* component, const InspectorContext& /
         });
         ui::row("", [&] {
             ImGui::BeginDisabled(!has_bounds);
-            if (action(ui::icon::use_selected, "Fit to mesh")) {
+            if (ui::action(ui::icon::use_selected, "Fit to mesh")) {
                 fit_to_bounds(cc, bounds);
                 edit = {true, true};
             }
@@ -335,7 +329,7 @@ ui::Edit draw_buoyancy(Node3D& node, void* component, const InspectorContext& /*
     // Back to floating on the collider's shape, beside the list's Add.
     if (!b.points.empty()) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        if (action(ui::icon::remove, "Clear points", ui::ButtonKind::GhostDanger)) {
+        if (ui::action(ui::icon::remove, "Clear points", ui::ButtonKind::GhostDanger)) {
             b.points.clear();
             edit = {true, true};
         }

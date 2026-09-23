@@ -178,8 +178,7 @@ ui::Edit draw_tilemap(Node3D& /*node*/, void* component, const InspectorContext&
                     edit |= e;
                 });
         ui::row("", [&] {
-            const std::string fill = std::string(ui::icon::add) + "  Fill with the first tile";
-            if (ui::button(fill.c_str())) {
+            if (ui::action(ui::icon::add, "Fill with the first tile")) {
                 tm.tiles.assign(static_cast<size_t>(tm.map_size.x) * tm.map_size.y, 0);
                 reshaped = true;
                 edit = {true, true};
