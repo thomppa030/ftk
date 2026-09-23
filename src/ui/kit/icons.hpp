@@ -61,6 +61,12 @@ inline constexpr const char* preset       = ICON_LC_BOXES;
 inline constexpr const char* input        = ICON_LC_GAMEPAD_2;
 inline constexpr const char* file         = ICON_LC_FILE;
 
+// Game UI nodes, in the UI editor's element tree
+inline constexpr const char* ui_element = ICON_LC_SQUARE;
+inline constexpr const char* ui_text    = ICON_LC_TYPE;
+inline constexpr const char* ui_widget  = ICON_LC_LAYOUT_PANEL_TOP;
+inline constexpr const char* ui_repeat  = ICON_LC_COPY;  // a copy made by foreach
+
 // Terrain brush tools
 inline constexpr const char* raise   = ICON_LC_ARROW_UP_FROM_LINE;
 inline constexpr const char* lower   = ICON_LC_ARROW_DOWN_TO_LINE;
