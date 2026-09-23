@@ -14,6 +14,13 @@ namespace fjell::ui {
 namespace {
 
 constexpr float EMPTY_ICON_SIZE = 28.0f;
+// A callout's severity edge, the room inside it, its corners, and how much of
+// the severity's colour tints it.
+constexpr float CALLOUT_EDGE = 3.0f;
+constexpr float CALLOUT_PAD_X = 10.0f;
+constexpr float CALLOUT_PAD_Y = 8.0f;
+constexpr float CALLOUT_ROUNDING = 4.0f;
+constexpr float CALLOUT_TINT = 0.10f;
 // The explanation wraps at about thirty characters' width, so it reads as
 // a short paragraph under the title rather than one long line.
 constexpr float EMPTY_TEXT_WIDTH = 220.0f;
@@ -45,15 +52,23 @@ void gap_below(float gap) {
                                ImGui::GetItemRectMax().y + gap});
 }
 
+const char* glyph_of(Severity severity) {
+    return severity == Severity::Success ? icon::success
+         : severity == Severity::Warning ? icon::warning
+                                         : icon::error;
+}
+
+ImVec4 colour_of(Severity severity) {
+    return severity == Severity::Success ? theme::success()
+         : severity == Severity::Warning ? theme::warning()
+                                         : theme::error();
+}
+
 } // namespace
 
 void status(Severity severity, const char* text) {
-    const char* glyph = severity == Severity::Success ? icon::success
-                      : severity == Severity::Warning ? icon::warning
-                                                      : icon::error;
-    const ImVec4 colour = severity == Severity::Success ? theme::success()
-                        : severity == Severity::Warning ? theme::warning()
-                                                        : theme::error();
+    const char* glyph = glyph_of(severity);
+    const ImVec4 colour = colour_of(severity);
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
     ImGui::PushStyleColor(ImGuiCol_Text, colour);
     ImGui::TextUnformatted(glyph);
@@ -63,6 +78,64 @@ void status(Severity severity, const char* text) {
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::PopFont();
+}
+
+bool callout(Severity severity, const char* title, const char* text, const char* action_icon,
+             const char* action) {
+    const ImVec4 colour = colour_of(severity);
+    const char* glyph = glyph_of(severity);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float right = origin.x + width - CALLOUT_PAD_X;
+
+    // The contents go on top and the box under them, drawn once their
+    // height is known.
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImDrawListSplitter layers;
+    layers.Split(dl, 2);
+    layers.SetCurrentChannel(dl, 1);
+
+    const float icon_x = origin.x + CALLOUT_EDGE + CALLOUT_PAD_X;
+    ImGui::SetCursorScreenPos({icon_x, origin.y + CALLOUT_PAD_Y});
+    ImGui::PushStyleColor(ImGuiCol_Text, colour);
+    ImGui::TextUnformatted(glyph);
+    ImGui::PopStyleColor();
+    const float text_x = icon_x + ImGui::CalcTextSize(glyph).x + theme::GAP_M;
+    ImGui::SetCursorScreenPos({text_x, origin.y + CALLOUT_PAD_Y});
+
+    bool clicked = false;
+    ImGui::BeginGroup();
+    const float wrap = right - ImGui::GetWindowPos().x + ImGui::GetScrollX();
+    ImGui::PushTextWrapPos(wrap);
+    ImGui::PushFont(theme::bold_font(), 0.0f);
+    ImGui::TextUnformatted(title);
+    ImGui::PopFont();
+    if (text != nullptr && *text != '\0') {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::TextUnformatted(text);
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopTextWrapPos();
+    if (action != nullptr) {
+        ImGui::Dummy({0.0f, theme::GAP_XS});
+        clicked = action_icon != nullptr ? ui::action(action_icon, action) : button(action);
+    }
+    ImGui::EndGroup();
+    const float bottom = ImGui::GetItemRectMax().y + CALLOUT_PAD_Y;
+
+    layers.SetCurrentChannel(dl, 0);
+    const ImVec2 max{origin.x + width, bottom};
+    ImVec4 tint = colour;
+    tint.w *= CALLOUT_TINT;
+    dl->AddRectFilled(origin, max, ImGui::GetColorU32(tint), CALLOUT_ROUNDING);
+    dl->AddRectFilled(origin, {origin.x + CALLOUT_EDGE, bottom}, ImGui::GetColorU32(colour),
+                      CALLOUT_ROUNDING, ImDrawFlags_RoundCornersLeft);
+    layers.Merge(dl);
+
+    // The box as one item, so the layout continues under it.
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::Dummy({width, bottom - origin.y});
+    return clicked;
 }
 
 bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {

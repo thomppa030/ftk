@@ -12,6 +12,16 @@ enum class Severity { Success, Warning, Error };
 /// working until it is fixed is a callout, not a status line.
 void status(Severity severity, const char* text);
 
+/// A problem that stops something working until it is fixed (a shader that
+/// failed to compile, a font that failed to bake): a box tinted in the
+/// severity's colour with that colour on its left edge, the icon and
+/// `title`, then `text` saying what went wrong and what it means now. With
+/// an `action`, the button that fixes it, led by `action_icon`; returns true
+/// when it is clicked. Everything else is a status line, so a callout always
+/// means "this is broken".
+bool callout(Severity severity, const char* title, const char* text,
+             const char* action_icon = nullptr, const char* action = nullptr);
+
 /// A panel with nothing to show: the icon, what the state is ("Nothing
 /// selected") and one line of what to do about it, centred in the space
 /// left in the window. With an `action`, a button for the one obvious thing

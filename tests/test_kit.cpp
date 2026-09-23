@@ -244,6 +244,37 @@ TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
     CHECK(tooltip->WasActive);
 }
 
+TEST_CASE("A callout wraps its text, reports its action, and the layout goes on below it", "[ui][kit]") {
+    ImGuiHarness h;
+    int clicks = 0;
+    h.set_ui([&] {
+        ImGui::BeginChild("##narrow", {220.0f, 400.0f});
+        if (ui::callout(ui::Severity::Error, "sea.fjsl failed to compile",
+                        "Line 42: 'foam_bias' : undeclared identifier. It draws with the last "
+                        "version that compiled.",
+                        "+", "Open sea.fjsl")) {
+            ++clicks;
+        }
+        h.mark("box");
+        ImGui::Button("after");
+        h.mark("after");
+        ImGui::EndChild();
+    });
+    h.step(3);
+    // The explanation wraps inside the 220 px window onto several lines:
+    // the box is taller than a title, three lines and the button.
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    CHECK(h.rect_max("box").y - h.rect_min("box").y > line * 4.0f + ImGui::GetFrameHeight());
+    CHECK(h.rect_min("after").y >= h.rect_max("box").y);
+    // The action is the last thing in the box, under the text: press and
+    // let go on it.
+    const ImVec2 min = h.rect_min("box");
+    const ImVec2 max = h.rect_max("box");
+    const ImVec2 action{min.x + 60.0f, max.y - 8.0f - ImGui::GetFrameHeight() * 0.5f};
+    h.drag(action, action);
+    CHECK(clicks == 1);
+}
+
 TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
     ImGuiHarness h;
     int fits = 0;
