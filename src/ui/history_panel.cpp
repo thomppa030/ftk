@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <cstring>
+#include <string>
 
 namespace fjell {
 
@@ -52,6 +53,17 @@ void draw_colored_text(const std::string& text) {
         }
         p = (stop < end) ? stop + 1 : stop;
     }
+}
+
+// The description without its colour markers, for an entry drawn in one
+// colour (an undone step).
+std::string plain_text(const std::string& text) {
+    std::string plain;
+    plain.reserve(text.size());
+    for (char c : text) {
+        if (c < '\x01' || c > '\x04') plain += c;
+    }
+    return plain;
 }
 
 } // namespace
@@ -108,7 +120,7 @@ void HistoryPanel::draw(const char* title) {
                 ImGui::SetCursorPosX(ImGui::GetTreeNodeToLabelSpacing());
                 draw_colored_text(desc);
             } else {
-                if (ImGui::Selectable(desc.c_str(), is_current)) {
+                if (ImGui::Selectable(plain_text(desc).c_str(), is_current)) {
                     history_->jump_to(i);
                 }
             }
