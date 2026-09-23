@@ -31,6 +31,25 @@ foreach(tool_cmake_list IN LISTS FJELL_TOOL_CMAKE_LISTS)
 endforeach()
 fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
 
+# Editor UI takes colours and widgets from the theme and the kit. Checked at
+# configure and again by fjell-editor-ui-check whenever a source changes, so
+# a build reports a hand-styled line without a reconfigure.
+include(cmake/EditorUiCheck.cmake)
+fjell_check_editor_ui(src)
+file(GLOB_RECURSE FJELL_EDITOR_UI_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp" "${CMAKE_SOURCE_DIR}/src/*.h")
+set(FJELL_EDITOR_UI_STAMP "${CMAKE_BINARY_DIR}/editor_ui_check.stamp")
+add_custom_command(
+    OUTPUT "${FJELL_EDITOR_UI_STAMP}"
+    COMMAND "${CMAKE_COMMAND}" -DFJELL_EDITOR_UI_ROOTS=src -P "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_EDITOR_UI_STAMP}"
+    DEPENDS ${FJELL_EDITOR_UI_SOURCES}
+            "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
+            "${CMAKE_SOURCE_DIR}/cmake/editor_ui_allowlist.txt"
+    COMMENT "Checking editor UI against the theme and kit"
+    VERBATIM)
+add_custom_target(fjell-editor-ui-check DEPENDS "${FJELL_EDITOR_UI_STAMP}")
+
 include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 include(cmake/GenerateShaderConstants.cmake)

@@ -393,6 +393,9 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${miniaudio_SOURCE_DIR}
 )
 
+# Fails the build on hand-styled editor UI before anything compiles.
+add_dependencies(fjell fjell-editor-ui-check)
+
 target_link_libraries(fjell PRIVATE
     fjell-platform
     fastgltf::fastgltf
