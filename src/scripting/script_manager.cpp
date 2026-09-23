@@ -3,6 +3,7 @@
 #include "scripting/script_globals.hpp"
 #include "core/asset_type_registry.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "scripting/field_inspector.hpp"
 #include "ui/kit/text_field.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"
@@ -926,9 +927,7 @@ void ScriptManager::deserialize_all(Scene& scene) {
 
 // ── Inspector ───────────────────────────────────────────────────────────
 
-// Draws a script instance's reflected fields. Returns true when a field
-// changed, so the caller can mark the scene unsaved.
-static bool draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
+bool draw_reflected_fields(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
     auto* base = static_cast<uint8_t*>(base_ptr);
     bool changed = false;
     std::string current_category;
@@ -1111,7 +1110,7 @@ bool ScriptManager::draw_inspector(Node3D& obj) {
         }
 
         if (open && comp.instance && ctype && ctype->loaded) {
-            changed |= draw_fields_inspector(ctype->fields, comp.instance.get());
+            changed |= draw_reflected_fields(ctype->fields, comp.instance.get());
         } else if (open && (!ctype || !ctype->loaded)) {
             ImGui::TextDisabled("Script not loaded");
         }
