@@ -51,6 +51,11 @@ public:
     [[nodiscard]] virtual std::string asset_path() const { return {}; }
     virtual bool save() { return false; }
 
+    /// True while the context holds edits that save() would write. The tab
+    /// bar marks the context's tab with it and the window title follows the
+    /// active context. A context that doesn't track its edits yet says false.
+    [[nodiscard]] virtual bool has_unsaved_changes() const { return false; }
+
     // Fullscreen play presentation. Only the scene context hosts play.
     virtual void draw_play_overlay() {}
 

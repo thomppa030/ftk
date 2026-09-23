@@ -1681,7 +1681,7 @@ void Engine::draw_ui() {
     {
         std::string title = "Fjell";
         if (project_mgr_.active()) title += " - " + project_mgr_.active()->config().name;
-        if (scene_.is_dirty()) title += " *";
+        if (active_context().has_unsaved_changes()) title += " *";
         window_.set_title(title);
     }
 
@@ -2361,6 +2361,12 @@ void Engine::draw_context_tabs() {
             bool open = true;
             ImGuiTabItemFlags flags = (has_pending && i == active_context_idx_)
                 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            // ImGui draws a dot in place of the close button (the close
+            // button still shows on hover) while the context has edits
+            // that aren't saved.
+            if (contexts_[static_cast<size_t>(i)]->has_unsaved_changes()) {
+                flags |= ImGuiTabItemFlags_UnsavedDocument;
+            }
             if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
                                      closeable ? &open : nullptr, flags)) {
                 // Tab clicked by user — switch if different from active

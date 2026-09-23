@@ -24,6 +24,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/components/spline_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
+#include "scene/scene.hpp"
 #include "scene/spline_editable.hpp"
 #include "scripting/debug_draw_queue.hpp"
 #include "scripting/screen_debug_queue.hpp"
@@ -1196,6 +1197,10 @@ void SceneEditorContext::draw_play_toolbar() {
     }
 
     ImGui::End();
+}
+
+bool SceneEditorContext::has_unsaved_changes() const {
+    return deps_.scene->is_dirty();
 }
 
 std::vector<std::string> SceneEditorContext::docked_window_names() const {

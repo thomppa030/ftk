@@ -45,6 +45,7 @@ public:
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return event_path_; }
     bool save() override;
+    [[nodiscard]] bool has_unsaved_changes() const override { return dirty_; }
 
     void init() override;
     void shutdown() override;

@@ -38,6 +38,7 @@ public:
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
     bool save() override;
+    [[nodiscard]] bool has_unsaved_changes() const override { return dirty_; }
 
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext&) override {}

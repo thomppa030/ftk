@@ -82,6 +82,7 @@ public:
 
     // Scene to render
     [[nodiscard]] Scene* render_scene() override { return deps_.scene; }
+    [[nodiscard]] bool has_unsaved_changes() const override;
 
     void draw_play_overlay() override;
 
