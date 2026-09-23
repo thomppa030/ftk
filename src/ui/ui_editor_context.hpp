@@ -121,8 +121,6 @@ private:
     void draw_node_tree(UiNode* node);
 
     // Preview drawing helpers
-    void draw_node_preview(UiNode* node, ImDrawList* draw_list,
-                           ImVec2 origin, float scale);
     void draw_layout_overlay(UiNode* node, ImDrawList* draw_list,
                              ImVec2 origin, float scale);
     void process_play_input(UiNode* root, ImVec2 origin, float scale);

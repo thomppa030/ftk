@@ -3,7 +3,6 @@
 #include "ui/editor_context.hpp"
 #include "ui/hierarchy_panel.hpp"
 #include "ui/net_panel.hpp"
-#include "ui/node_editor_panel.hpp"
 #include "ui/properties_panel.hpp"
 #include "ui/brush.hpp"
 #include "ui/terrain_sculpt.hpp"
@@ -168,7 +167,6 @@ private:
     // Context-owned panels
     HierarchyPanel hierarchy_panel_;
     PropertiesPanel properties_panel_;
-    NodeEditorPanel node_editor_panel_;
     ViewportManager viewport_manager_;
     NetPanel net_panel_;
     /// The one viewport brush, shared by every brush tool so radius and

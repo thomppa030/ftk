@@ -251,7 +251,6 @@ void SceneEditorContext::init() {
                            deps_.resource_manager, deps_.project_mgr,
                            deps_.content_browser, deps_.file_browser,
                            deps_.icon_cache, &sculpt_tool_);
-    node_editor_panel_.init(deps_.scene, &selected_id_);
 
     // Undo commands mutate a scene that stop() throws away, and a selection
     // made in the editor rarely means anything once the game rearranges it.
@@ -305,7 +304,6 @@ void SceneEditorContext::shutdown() {
     camera_preview_target_.reset();
     camera_preview_node_id_ = 0;
 
-    node_editor_panel_.shutdown();
     viewport_manager_.release_textures();
     connections_.clear();
 }
@@ -416,9 +414,6 @@ void SceneEditorContext::draw(float dt) {
 
     hierarchy_panel_.draw();
     properties_panel_.draw();
-    if (node_editor_panel_.visible()) {
-        node_editor_panel_.draw();
-    }
 
     if (focus_viewport_frames_ > 0) {
         if (--focus_viewport_frames_ == 0) {
