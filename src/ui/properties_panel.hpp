@@ -3,6 +3,7 @@
 #include "scene/transform.hpp"
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,7 @@ public:
 private:
     void draw_weather_controls(struct WorldEnvironmentNode& env, const struct InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);
+    void commit_name();
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
@@ -64,6 +66,13 @@ private:
     FileBrowser* file_browser_{nullptr};
     IconCache* icons_{nullptr};
     TerrainSculptTool* sculpt_{nullptr};
+
+    // The name field's text while it is being typed into, and the node it
+    // belongs to. The node is remembered because the click that ends the
+    // edit can also change the selection before the edit is committed.
+    std::array<char, 128> name_buf_{};
+    uint32_t name_node_id_{0};
+    bool name_editing_{false};
 
     // Drag coalescing
     Transform drag_start_transform_;

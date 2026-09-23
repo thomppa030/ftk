@@ -41,6 +41,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace fjell {
 
@@ -311,28 +312,44 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
     sculpt_ = sculpt;
 }
 
+void PropertiesPanel::commit_name() {
+    auto* node = scene_->find(name_node_id_);
+    std::string new_name(name_buf_.data());
+    if (node == nullptr || new_name.empty() || new_name == node->name) return;
+    if (history_) {
+        history_->execute(std::make_unique<RenameCommand>(
+            *scene_, node->id, node->name, new_name));
+    } else {
+        node->name = new_name;
+        scene_->mark_dirty();
+    }
+}
+
 void PropertiesPanel::draw() {
     if (auto p = Panel(ICON_LC_SLIDERS_HORIZONTAL, "Properties")) {
         auto* base = scene_->find(*selected_id_);
         auto* obj = base ? base->as_spatial() : nullptr;
         if (base) {
 
-            // Editable name
-            char name_buf[128];
-            std::strncpy(name_buf, base->name.c_str(), sizeof(name_buf) - 1);
-            name_buf[sizeof(name_buf) - 1] = '\0';
-            std::string old_name = base->name;
+            // Editable name. It commits on Enter or when the field loses
+            // focus, as one undoable rename; while it is being typed into,
+            // the buffer belongs to the field and is not refilled. The flag
+            // is cleared every frame, so a field that stops being drawn
+            // mid-edit (node deselected or deleted) refills when it returns.
+            bool was_editing = std::exchange(name_editing_, false);
+            if (!was_editing) {
+                std::strncpy(name_buf_.data(), base->name.c_str(), name_buf_.size() - 1);
+                name_buf_.back() = '\0';
+                name_node_id_ = base->id;
+            }
             if (auto t = PropertyTable("##name")) {
                 prop_row("Name", [&] {
-                    if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
-                        base->name = name_buf;
-                        scene_->mark_dirty();
+                    ImGui::InputText("##Name", name_buf_.data(), name_buf_.size());
+                    name_editing_ = ImGui::IsItemActive();
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        commit_name();
                     }
                 });
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit() && history_ && base->name != old_name) {
-                history_->execute(std::make_unique<RenameCommand>(
-                    *scene_, base->id, old_name, base->name));
             }
 
             if (obj) {
