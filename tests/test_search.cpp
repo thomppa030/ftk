@@ -2,6 +2,7 @@
 #include "ui/kit/search.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <imgui_internal.h>
 
 #include <string>
 
@@ -71,4 +72,21 @@ TEST_CASE("Ctrl F puts the cursor in the focused window's search field", "[ui][k
     h.step(1);
     h.type("x");
     CHECK(query == "x");
+}
+
+TEST_CASE("Ctrl F reaches the search field without a navigation ring around it", "[ui][kit]") {
+    ImGuiHarness h;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    std::string query;
+    h.set_ui([&] {
+        ImGui::SetNextItemWidth(200.0f);
+        (void)ui::search_field("##search", query);
+    });
+    h.step(2);
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Ctrl, true);
+    h.press(ImGuiKey_F);
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Ctrl, false);
+    h.step(2);
+    REQUIRE(ImGui::GetCurrentContext()->ActiveId != 0);
+    CHECK_FALSE(ImGui::GetCurrentContext()->NavCursorVisible);
 }
