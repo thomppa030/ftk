@@ -1,7 +1,10 @@
 #pragma once
 
 #include "core/command.hpp"
+#include "scene/node_serializer.hpp"
 #include "scene/scene.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -434,6 +437,49 @@ private:
     ComponentTypeId type_;
     ComponentStorage before_;
     ComponentStorage after_;
+    std::string description_;
+    // The edit is already on the node when the command is first executed.
+    bool applied_{true};
+};
+
+/// One finished edit of a typed node's own settings (a light's colour, the
+/// fog's reach), undone by applying them as they were. The settings travel
+/// as the scene file writes them, which is all of them: a node type holds
+/// nothing of its own that the file doesn't.
+class NodeEditCommand : public Command {
+public:
+    /// `before` and `after` are serialize_node_type() of the node at the
+    /// start and the end of the edit. The node already has `after` when the
+    /// command is executed the first time.
+    NodeEditCommand(Scene& scene, uint32_t node_id, nlohmann::json before, nlohmann::json after,
+                    std::string description)
+        // Parentheses: braces around a json make it an array holding it.
+        : scene_{scene}, node_id_{node_id}
+        , before_(std::move(before)), after_(std::move(after))
+        , description_{std::move(description)} {}
+
+    void execute() override {
+        if (applied_) {
+            applied_ = false;
+            return;
+        }
+        apply(after_);
+    }
+    void undo() override { apply(before_); }
+    [[nodiscard]] std::string description() const override { return description_; }
+
+private:
+    void apply(const nlohmann::json& settings) {
+        if (Node* node = scene_.find(node_id_)) {
+            apply_node_type(*node, settings);
+            scene_.mark_dirty();
+        }
+    }
+
+    Scene& scene_;
+    uint32_t node_id_;
+    nlohmann::json before_;
+    nlohmann::json after_;
     std::string description_;
     // The edit is already on the node when the command is first executed.
     bool applied_{true};

@@ -1,7 +1,10 @@
 #pragma once
 
 #include "scene/transform.hpp"
-#include "ui/component_edit_tracker.hpp"
+#include "scene/component_storage.hpp"
+#include "ui/edit_tracker.hpp"
+
+#include <nlohmann/json.hpp>
 #include "ui/kit/text_field.hpp"
 
 #include <cstdint>
@@ -63,15 +66,17 @@ private:
     void draw_components(Node3D& node, const InspectorContext& ictx);
     void draw_scripts(Node3D& node);
 
-    // A node type's own section (properties_node_sections.cpp).
-    void draw_camera(CameraNode& camera);
-    void draw_directional_light(DirectionalLightNode& light);
-    void draw_point_light(PointLightNode& light);
-    void draw_spot_light(SpotLightNode& light);
-    void draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx);
-    void draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx);
-    void draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx);
-    void draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx);
+    // A node type's own section (properties_node_sections.cpp). Each
+    // returns whether a setting changed; the caller turns that into dirty
+    // and undo.
+    bool draw_camera(CameraNode& camera);
+    bool draw_directional_light(DirectionalLightNode& light);
+    bool draw_point_light(PointLightNode& light);
+    bool draw_spot_light(SpotLightNode& light);
+    bool draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx);
+    bool draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx);
+    bool draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx);
+    bool draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);
     void commit_name();
 
@@ -98,8 +103,10 @@ private:
     ui::TextField name_field_;
     uint32_t name_node_id_{0};
 
-    // Undo steps for edits made in the component blocks.
-    ComponentEditTracker component_edits_;
+    // Undo steps for edits made in the component blocks and in the node's
+    // own section.
+    EditTracker<ComponentStorage> component_edits_;
+    EditTracker<nlohmann::json> node_edits_;
 
     // The transform as it was before the edit under way, for its undo step.
     Transform drag_start_transform_;

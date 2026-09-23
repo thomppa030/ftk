@@ -47,6 +47,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/fog_track.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/color_gradient.cpp
@@ -64,7 +65,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/component_edit_tracker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
@@ -173,6 +173,7 @@ add_executable(fjell-tests
     imgui_harness.cpp
     test_text_field.cpp
     test_component_edit_command.cpp
+    test_node_edit_command.cpp
     test_component_storage.cpp
     test_curve_editor.cpp
     test_choices.cpp

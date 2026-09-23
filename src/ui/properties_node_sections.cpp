@@ -21,6 +21,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/component_meta.hpp"
 #include "scene/light_node.hpp"
+#include "scene/node_serializer.hpp"
 #include "scene/scene.hpp"
 #include "core/string_utils.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -60,19 +61,21 @@ glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
 // The sky shader's uniforms as rows on the World Environment node: each shows
 // the node's override when it has one and the .fjsl default otherwise, and an
 // edit stores an override on the node. A day profile track of the same name
-// takes over from the override while the profile is bound.
-void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) {
-    if (ictx.pipeline_cache == nullptr) return;
+// takes over from the override while the profile is bound. Returns whether
+// an override changed.
+bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+    bool changed = false;
+    if (ictx.pipeline_cache == nullptr) return false;
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
     const uint32_t pid = ictx.pipeline_cache->register_shader(
         canonical_sky_shader_path(env.sky_shader, project));
-    if (ictx.pipeline_cache->has_compile_error(pid)) return;
+    if (ictx.pipeline_cache->has_compile_error(pid)) return false;
     const auto& meta = ictx.pipeline_cache->metadata(pid);
-    if (meta.shader_type != ShaderType::Sky) return;
+    if (meta.shader_type != ShaderType::Sky) return false;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
-    if (!any) return;
+    if (!any) return false;
 
     ImGui::TextDisabled("Sky Uniforms");
     for (const auto& u : meta.uniforms) {
@@ -94,7 +97,7 @@ void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
             ImGui::SameLine();
             if (ImGui::SmallButton("Reset")) {
                 env.sky_uniforms.erase(override_it);
-                if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+                changed = true;
                 ImGui::PopID();
                 continue;
             }
@@ -110,32 +113,35 @@ void draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
             } else {
                 env.sky_uniforms.push_back(std::move(value));
             }
-            if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+            changed = true;
         }
         ImGui::PopID();
     }
+    return changed;
 }
 
 // The fog material's uniforms as rows on a Volumetric Fog or Fog Volume node:
 // each shows the node's own value when it has one and the material's
 // otherwise, and an edit stores the node's value in `params`. A day profile or
-// weather track of the same name folds over both while it is bound.
-void draw_fog_overrides(const Material* material, std::string_view default_shader,
+// weather track of the same name folds over both while it is bound. Returns
+// whether the node's values changed.
+bool draw_fog_overrides(const Material* material, std::string_view default_shader,
                                std::vector<NamedValue>& params,
                                const std::vector<NamedValue>& material_values,
                                const InspectorContext& ictx) {
-    if (ictx.pipeline_cache == nullptr) return;
+    bool changed = false;
+    if (ictx.pipeline_cache == nullptr) return false;
     const uint32_t pid = material != nullptr
         ? material->pipeline_id()
         : ictx.pipeline_cache->register_shader(std::string(default_shader));
     if (pid >= ictx.pipeline_cache->shader_count()
-        || ictx.pipeline_cache->has_compile_error(pid)) return;
+        || ictx.pipeline_cache->has_compile_error(pid)) return false;
     const auto& meta = ictx.pipeline_cache->metadata(pid);
-    if (meta.shader_type != ShaderType::Fog) return;
+    if (meta.shader_type != ShaderType::Fog) return false;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
-    if (!any) return;
+    if (!any) return false;
 
     ImGui::TextDisabled("This Node");
     ImGui::SetItemTooltip("Values of the material's uniforms for this node alone. "
@@ -161,7 +167,7 @@ void draw_fog_overrides(const Material* material, std::string_view default_shade
             ImGui::SameLine();
             if (ImGui::SmallButton("Reset")) {
                 params.erase(params.begin() + (override - params.data()));
-                if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+                changed = true;
                 ImGui::PopID();
                 continue;
             }
@@ -174,10 +180,11 @@ void draw_fog_overrides(const Material* material, std::string_view default_shade
             value.values = temp;
             value.srgb = u.hint == UniformHint::Color;
             set_named(params, std::move(value));
-            if (ictx.scene != nullptr) ictx.scene->mark_dirty();
+            changed = true;
         }
         ImGui::PopID();
     }
+    return changed;
 }
 
 constexpr ui::Choice<CameraProjection> PROJECTIONS[] = {
@@ -290,16 +297,54 @@ void PropertiesPanel::draw_transform(Node3D& node) {
 }
 
 void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& ictx) {
-    if (auto* camera = dynamic_cast<CameraNode*>(&node)) draw_camera(*camera);
-    if (auto* light = dynamic_cast<DirectionalLightNode*>(&node)) draw_directional_light(*light);
-    if (auto* light = dynamic_cast<PointLightNode*>(&node)) draw_point_light(*light);
-    if (auto* light = dynamic_cast<SpotLightNode*>(&node)) draw_spot_light(*light);
-    if (auto* fog = dynamic_cast<VolumetricFogNode*>(&node)) draw_volumetric_fog(*fog, ictx);
-    if (auto* volume = dynamic_cast<FogVolumeNode*>(&node)) draw_fog_volume(*volume, ictx);
-    if (auto* env = dynamic_cast<WorldEnvironmentNode*>(&node)) draw_world_environment(*env, ictx);
+    // The section in one group, so the tracker knows whether a field in it
+    // is being edited or under the mouse.
+    ImGui::BeginGroup();
+    bool changed = false;
+    const char* title = nullptr;
+    if (auto* camera = dynamic_cast<CameraNode*>(&node)) {
+        title = "Camera";
+        changed = draw_camera(*camera);
+    } else if (auto* sun = dynamic_cast<DirectionalLightNode*>(&node)) {
+        title = "Directional light";
+        changed = draw_directional_light(*sun);
+    } else if (auto* point = dynamic_cast<PointLightNode*>(&node)) {
+        title = "Point light";
+        changed = draw_point_light(*point);
+    } else if (auto* spot = dynamic_cast<SpotLightNode*>(&node)) {
+        title = "Spot light";
+        changed = draw_spot_light(*spot);
+    } else if (auto* fog = dynamic_cast<VolumetricFogNode*>(&node)) {
+        title = "Volumetric fog";
+        changed = draw_volumetric_fog(*fog, ictx);
+    } else if (auto* volume = dynamic_cast<FogVolumeNode*>(&node)) {
+        title = "Fog volume";
+        changed = draw_fog_volume(*volume, ictx);
+    } else if (auto* env = dynamic_cast<WorldEnvironmentNode*>(&node)) {
+        title = "World environment";
+        changed = draw_world_environment(*env, ictx);
+    }
+    ImGui::EndGroup();
+    if (title == nullptr) return;
+
+    // Fields here are a mix of the kit's, which say when an edit is done,
+    // and older ones which only say they changed, so an edit counts as done
+    // once nothing in the section is held and no picker or list is open.
+    const bool active = ImGui::IsItemActive();
+    const bool hovered = ImGui::IsItemHovered();
+    const bool committed = !active && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    node_edits_.track(
+        *scene_, history_, node.id, 0, {changed, committed, active, hovered},
+        [&] { return serialize_node_type(node); },
+        [&](nlohmann::json before, nlohmann::json after) {
+            return std::make_unique<NodeEditCommand>(*scene_, node.id, std::move(before),
+                                                     std::move(after),
+                                                     std::string("Edit ") + title);
+        });
 }
 
-void PropertiesPanel::draw_camera(CameraNode& camera) {
+bool PropertiesPanel::draw_camera(CameraNode& camera) {
+    bool changed = false;
     ui::section("Camera", ui::icon::camera);
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##camera")) {
@@ -329,10 +374,11 @@ void PropertiesPanel::draw_camera(CameraNode& camera) {
                                                          .unit = ui::Unit::Metres, .format = "%.0f"});
         });
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
+bool PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
+    bool changed = false;
     ui::section("Directional light", ui::icon::directional_light);
     const auto* world = find_world_environment(*scene_);
     const bool sun_driven = world != nullptr && world->time_of_day_enabled;
@@ -356,10 +402,11 @@ void PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
                              {.speed = 0.05f, .min = 0.0f, .max = 2.0f});
         });
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_point_light(PointLightNode& light) {
+bool PropertiesPanel::draw_point_light(PointLightNode& light) {
+    bool changed = false;
     ui::section("Point light", ui::icon::point_light);
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##point")) {
@@ -383,10 +430,11 @@ void PropertiesPanel::draw_point_light(PointLightNode& light) {
             });
         }
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_spot_light(SpotLightNode& light) {
+bool PropertiesPanel::draw_spot_light(SpotLightNode& light) {
+    bool changed = false;
     ui::section("Spot light", ui::icon::spot_light);
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##spot")) {
@@ -421,10 +469,11 @@ void PropertiesPanel::draw_spot_light(SpotLightNode& light) {
             });
         }
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx) {
+bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx) {
+    bool changed = false;
     ui::section("Volumetric fog", ui::icon::volumetric_fog);
     // How the haze looks is its material; the node keeps where it is, how
     // far it reaches and how it answers movement.
@@ -435,7 +484,7 @@ void PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
                          .ctx = &ictx,
                          .shader_types = only_shader_type(ShaderType::Fog)},
                         fog.material_path)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     if (fog.material != nullptr) {
         draw_material_inspector_for(fog.material);
@@ -443,7 +492,7 @@ void PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_SHADER);
         ui::hint(text.c_str());
     }
-    draw_fog_overrides(fog.material, DEFAULT_FOG_SHADER, fog.params, fog.material_values_, ictx);
+    changed |= draw_fog_overrides(fog.material, DEFAULT_FOG_SHADER, fog.params, fog.material_values_, ictx);
 
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##fog")) {
@@ -495,10 +544,11 @@ void PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
             ui::hint("Red is air pushed aside, blue piled up");
         }
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx) {
+bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx) {
+    bool changed = false;
     ui::section("Fog volume", ui::icon::fog_volume);
     // What the bank looks like is its material; the node keeps the shape,
     // how the bank drifts and how it answers movement.
@@ -509,7 +559,7 @@ void PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
                          .ctx = &ictx,
                          .shader_types = only_shader_type(ShaderType::Fog)},
                         volume.material_path)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);
@@ -517,7 +567,7 @@ void PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_VOLUME_SHADER);
         ui::hint(text.c_str());
     }
-    draw_fog_overrides(volume.material, DEFAULT_FOG_VOLUME_SHADER, volume.params,
+    changed |= draw_fog_overrides(volume.material, DEFAULT_FOG_VOLUME_SHADER, volume.params,
                        volume.material_values_, ictx);
 
     ui::Edit edit;
@@ -571,15 +621,16 @@ void PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
             ui::hint("Red is air pushed aside, blue piled up");
         }
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
-void PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+    bool changed = false;
     ui::section("World environment", ui::icon::world_environment);
     static const std::string hdri_exts[] = {".hdr", ".exr"};
     if (asset_ref_field({.label = "HDRI", .id = "##EnvHDRI", .extensions = hdri_exts, .ctx = &ictx},
                         env.hdri_path)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     static const std::string sky_shader_exts[] = {".fjsl"};
     if (asset_ref_field({.label = "Sky Shader",
@@ -588,28 +639,28 @@ void PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const In
                          .ctx = &ictx,
                          .shader_types = only_shader_type(ShaderType::Sky)},
                         env.sky_shader)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     if (!env.sky_shader.empty()) {
-        draw_sky_uniforms(env, ictx);
+        changed |= draw_sky_uniforms(env, ictx);
     }
     static const std::string day_profile_exts[] = {".fjday"};
     if (asset_ref_field({.label = "Day Profile", .id = "##EnvDayProfile", .extensions = day_profile_exts,
                          .ctx = &ictx},
                         env.day_profile)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     static const std::string weather_exts[] = {".fjweather"};
     if (asset_ref_field({.label = "Weather", .id = "##EnvWeather", .extensions = weather_exts, .ctx = &ictx},
                         env.weather)) {
-        scene_->mark_dirty();
+        changed = true;
     }
     static const std::string climate_exts[] = {".fjclimate"};
     if (asset_ref_field({.label = "Climate", .id = "##EnvClimate", .extensions = climate_exts, .ctx = &ictx},
                         env.climate)) {
-        scene_->mark_dirty();
+        changed = true;
     }
-    draw_weather_controls(env, ictx);
+    changed |= draw_weather_controls(env, ictx);
 
     ui::Edit edit;
     const bool gradient = env.hdri_path.empty();
@@ -711,13 +762,14 @@ void PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const In
             });
         }
     }
-    if (edit.changed) scene_->mark_dirty();
+    return changed || edit.changed;
 }
 
 // Below the Weather reference: a pick list of the project's events, and
 // what is playing right now with Stop and Replay. Setting the field starts
 // the event; the pick list is the same assignment without a file dialog.
-void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+bool PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx) {
+    bool changed = false;
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
     const double now = ImGui::GetTime();
     if (weather_files_scanned_at_ <= 0.0 || now - weather_files_scanned_at_ > 2.0) {
@@ -731,7 +783,7 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
             const std::string name = std::filesystem::path(file).stem().string();
             if (ImGui::Selectable(name.c_str(), file == env.weather)) {
                 env.weather = file;
-                if (scene_ != nullptr) scene_->mark_dirty();
+                changed = true;
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", file.c_str());
         }
@@ -752,7 +804,7 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
                         if (ImGui::Selectable(weather_phase_name(phase),
                                               phase == env.weather_start_phase)) {
                             env.weather_start_phase = phase;
-                            if (scene_ != nullptr) scene_->mark_dirty();
+                            changed = true;
                             // Show it at once rather than on the next scene load.
                             if (environment_ != nullptr && ictx.resource_manager != nullptr) {
                                 if (auto handle = ictx.resource_manager->load_weather_asset(env.weather)) {
@@ -772,7 +824,7 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
         }
     }
 
-    if (environment_ == nullptr || ictx.resource_manager == nullptr) return;
+    if (environment_ == nullptr || ictx.resource_manager == nullptr) return changed;
     const auto& weather = environment_->state().weather;
     if (weather.event_id != 0) {
         const auto* event = ictx.resource_manager->get(WeatherAssetHandle{weather.event_id});
@@ -826,6 +878,7 @@ void PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
             ImGui::EndPopup();
         }
     }
+    return changed;
 }
 
 } // namespace fjell

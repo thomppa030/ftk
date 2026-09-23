@@ -148,8 +148,18 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
             const bool committed = kit
                 ? edit.committed
                 : !active && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
-            component_edits_.track(*scene_, history_, node, id, meta->display_name,
-                                   {edit.changed, committed, active, hovered});
+            component_edits_.track(
+                *scene_, history_, node.id, id, {edit.changed, committed, active, hovered},
+                [&] {
+                    ComponentStorage copy;
+                    node.components.clone_one(id, node.components, copy);
+                    return copy;
+                },
+                [&](ComponentStorage before, ComponentStorage after) {
+                    return std::make_unique<ComponentEditCommand>(
+                        *scene_, node.id, id, std::move(before), std::move(after),
+                        "Edit " + meta->display_name);
+                });
 
             // A component that paints itself with a material shows
             // that material's own parameters here, so a surface is

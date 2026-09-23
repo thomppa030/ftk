@@ -18,6 +18,18 @@ class Project;
 [[nodiscard]] nlohmann::json serialize_node(const Node& node,
                                             const Project* project = nullptr);
 
+/// The settings of a node's own type (a light's colour, the fog's reach): the
+/// node_type key and the keys those settings live under, without name,
+/// transform, components or scripts. Asset paths are written as the node
+/// holds them; serialize_node turns them into ids. An empty object for a node
+/// with no type of its own.
+[[nodiscard]] nlohmann::json serialize_node_type(const Node& node);
+
+/// Sets a typed node's own settings from JSON written by serialize_node_type
+/// or serialize_node, replacing what it held. Returns false for a node with no
+/// type of its own.
+bool apply_node_type(Node& node, const nlohmann::json& j);
+
 /// Deserialize a single scene node from JSON.
 /// Returns nullptr on failure (missing model, parse error, etc.).
 /// Resource-dependent fields (models, textures, skeletons) are resolved

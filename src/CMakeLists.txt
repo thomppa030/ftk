@@ -253,6 +253,7 @@ add_executable(fjell
     scene/scene.cpp
     scene/scene_io.cpp
     scene/node_serializer.cpp
+    scene/node_type_serializer.cpp
     scene/spline_editable.cpp
     scene/preset.cpp
     scene/camera_subsystem.cpp
@@ -323,7 +324,6 @@ add_executable(fjell
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
-    ui/component_edit_tracker.cpp
     ui/inspectors/inspector_registry.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp

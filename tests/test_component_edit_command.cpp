@@ -1,7 +1,7 @@
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "scene/scene.hpp"
-#include "ui/component_edit_tracker.hpp"
+#include "ui/edit_tracker.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -76,14 +76,21 @@ namespace {
 struct Fixture {
     Scene scene;
     CommandHistory history;
-    ComponentEditTracker tracker;
+    EditTracker<ComponentStorage> tracker;
     uint32_t id{scene.add_empty({}, "crate")};
     Node& node{*scene.find(id)};
     Health& health{node.components.add<Health>()};
 
     Health& live() { return *node.components.get<Health>(); }
-    void frame(ComponentEditTracker::Frame f) {
-        tracker.track(scene, &history, node, component_type_id<Health>(), "Health", f);
+    void frame(EditFrame f) {
+        const ComponentTypeId type = component_type_id<Health>();
+        tracker.track(
+            scene, &history, id, type, f,
+            [&] { return snapshot<Health>(node); },
+            [&](ComponentStorage before, ComponentStorage after) {
+                return std::make_unique<ComponentEditCommand>(scene, id, type, std::move(before),
+                                                              std::move(after), "Edit Health");
+            });
     }
     // A drag from the current value to `to` over three frames, let go on
     // the fourth.
