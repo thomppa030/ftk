@@ -1,11 +1,13 @@
 #include "ui/kit/choice.hpp"
 
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <string>
 
 namespace fjell::ui::detail {
 
@@ -32,6 +34,7 @@ Edit combo(const char* id, int& index, std::span<const char* const> names) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImGuiStyle& style = ImGui::GetStyle();
     const bool known = index >= 0 && static_cast<std::size_t>(index) < names.size();
+    const std::string before = known ? names[static_cast<std::size_t>(index)] : "";
 
     Edit edit;
     if (ImGui::BeginCombo(id, "", ImGuiComboFlags_NoArrowButton)) {
@@ -44,6 +47,9 @@ Edit combo(const char* id, int& index, std::span<const char* const> names) {
             if (selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+    if (edit.committed) {
+        detail::track_field(ImGui::GetID(id), before, names[static_cast<std::size_t>(index)], false, edit);
     }
 
     const float chevron = ImGui::GetFrameHeight();
@@ -69,6 +75,8 @@ Edit segmented(const char* id, int& index, std::span<const char* const> names) {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float segment = segment_width(width, names.size());
+    const bool known = index >= 0 && static_cast<std::size_t>(index) < names.size();
+    const std::string before = known ? names[static_cast<std::size_t>(index)] : "";
 
     ImGui::PushID(id);
     dl->AddRectFilled(origin, {origin.x + width, origin.y + height},
@@ -109,6 +117,9 @@ Edit segmented(const char* id, int& index, std::span<const char* const> names) {
     // and a caller's tooltip or test can aim at it.
     ImGui::SetCursorScreenPos(origin);
     ImGui::Dummy({width, height});
+    if (edit.committed) {
+        detail::track_field(ImGui::GetID(id), before, names[static_cast<std::size_t>(index)], false, edit);
+    }
     return edit;
 }
 

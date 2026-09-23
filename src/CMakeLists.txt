@@ -338,6 +338,7 @@ add_executable(fjell
     ui/kit/choice.cpp
     ui/kit/color_field.cpp
     ui/kit/component_block.cpp
+    ui/kit/edit_record.cpp
     ui/kit/feedback.cpp
     ui/kit/field.cpp
     ui/kit/gallery.cpp

@@ -35,9 +35,10 @@ public:
     /// the end of the edit. The script already has `after` when the command
     /// is executed the first time.
     ScriptEditCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name,
-                      nlohmann::json before, nlohmann::json after)
+                      nlohmann::json before, nlohmann::json after, std::string description)
         : scene_{scene}, scripts_{scripts}, node_id_{node_id}, type_name_{std::move(type_name)}
-        , before_(std::move(before)), after_(std::move(after)) {}
+        , before_(std::move(before)), after_(std::move(after))
+        , description_{std::move(description)} {}
 
     void execute() override {
         if (applied_) {
@@ -47,7 +48,7 @@ public:
         apply(after_);
     }
     void undo() override { apply(before_); }
-    [[nodiscard]] std::string description() const override { return "Edit " + type_name_; }
+    [[nodiscard]] std::string description() const override { return description_; }
 
 private:
     void apply(const nlohmann::json& fields) {
@@ -64,6 +65,7 @@ private:
     std::string type_name_;
     nlohmann::json before_;
     nlohmann::json after_;
+    std::string description_;
     // The edit is already on the node when the command is first executed.
     bool applied_{true};
 };

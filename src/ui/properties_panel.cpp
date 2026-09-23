@@ -16,6 +16,7 @@
 #include "ui/inspectors/script_fields.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/inset_group.hpp"
@@ -132,9 +133,12 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
         if (ui::component_block(meta->display_name.c_str(), category, remove)) {
             // The fields in one group, so the block knows whether
             // one of them is being edited or under the mouse.
+            const std::string scope = std::to_string(node.id) + "/" + meta->json_key;
+            ui::edit_scope(scope);
             ImGui::BeginGroup();
             const ui::Edit edit = inspector ? inspector->draw(node, ptr, ictx) : ui::Edit{};
             ImGui::EndGroup();
+            ui::edit_scope({});
             const bool active = ImGui::IsItemActive();
             const bool hovered = ImGui::IsItemHovered();
             component_edits_.track(
@@ -143,7 +147,7 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
                 [&](ComponentState before, ComponentState after) {
                     return std::make_unique<ComponentEditCommand>(
                         *scene_, node.id, id, std::move(before), std::move(after),
-                        "Edit " + meta->display_name);
+                        edit_description(node.name + " \xc2\xb7 " + meta->display_name, scope));
                 });
 
             // A component that paints itself with a material shows
@@ -199,6 +203,13 @@ constexpr const char* ADD_PICKER = "##add";
 constexpr std::size_t RECENT_COUNT = 4;
 
 } // namespace
+
+std::string PropertiesPanel::edit_description(const std::string& subject, const std::string& scope) {
+    if (auto record = ui::take_edit_record(scope)) {
+        return describe_change(subject + ": " + record->label, record->before, record->after);
+    }
+    return "Edit " + subject;
+}
 
 void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
     ImGui::Dummy({0.0f, theme::GAP_M});
@@ -338,9 +349,12 @@ void PropertiesPanel::draw_script(Node3D& node, ScriptEntry& entry, const Inspec
 
     // The fields in one group, so the block knows whether one of them is
     // being edited or under the mouse.
+    const std::string scope = std::to_string(node.id) + "/script/" + entry.type_name;
+    ui::edit_scope(scope);
     ImGui::BeginGroup();
     const ui::Edit edit = draw_script_fields(type->fields, entry.instance.get(), ictx, scene_);
     ImGui::EndGroup();
+    ui::edit_scope({});
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
     script_edits_.track(
@@ -348,8 +362,9 @@ void PropertiesPanel::draw_script(Node3D& node, ScriptEntry& entry, const Inspec
         {edit.changed, edit.committed, active, hovered},
         [&] { return scripts_->fields_of(entry); },
         [&](nlohmann::json before, nlohmann::json after) {
-            return std::make_unique<ScriptEditCommand>(*scene_, *scripts_, node.id, entry.type_name,
-                                                       std::move(before), std::move(after));
+            return std::make_unique<ScriptEditCommand>(
+                *scene_, *scripts_, node.id, entry.type_name, std::move(before), std::move(after),
+                edit_description(node.name + " \xc2\xb7 " + entry.type_name, scope));
         });
 }
 

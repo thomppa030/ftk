@@ -72,6 +72,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/edit_record.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
@@ -182,6 +183,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_curve_editor.cpp
     test_choices.cpp
+    test_edit_record.cpp
     test_grouped_picker.cpp
     test_fields.cpp
     test_kit.cpp

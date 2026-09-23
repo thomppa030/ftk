@@ -1,6 +1,7 @@
 #include "ui/asset_ref_widget.hpp"
 #include "ui/kit/asset_kind.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
@@ -119,6 +120,13 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
         return base_path::asset_reference(picked, project);
     };
     const std::string shown_path = base_path::asset_display_path(path, project);
+    // What the slot is called in an undo step: the asset's file name.
+    auto name_of = [&](const std::string& reference) -> std::string {
+        if (reference.empty()) return "None";
+        const std::string shown = base_path::asset_display_path(reference, project);
+        return std::filesystem::path(shown.empty() ? reference : shown).filename().string();
+    };
+    const std::string name_before = name_of(path);
 
     // Anything picked by other means than the list: the list only offers
     // what fits, a drop could bring in anything.
@@ -274,6 +282,9 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     }
 
     ImGui::PopID();
+    if (changed) {
+        ui::detail::track_field(ImGui::GetID(config.id), name_before, name_of(path), false, {true, true});
+    }
     return changed;
 }
 

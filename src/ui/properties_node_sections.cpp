@@ -28,6 +28,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
@@ -319,6 +320,8 @@ void PropertiesPanel::draw_transform(Node3D& node) {
 void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& ictx) {
     // The section in one group, so the tracker knows whether a field in it
     // is being edited or under the mouse.
+    const std::string scope = std::to_string(node.id) + "/node";
+    ui::edit_scope(scope);
     ImGui::BeginGroup();
     bool changed = false;
     const char* title = nullptr;
@@ -345,6 +348,7 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
         changed = draw_world_environment(*env, ictx);
     }
     ImGui::EndGroup();
+    ui::edit_scope({});
     if (title == nullptr) return;
 
     // Fields here are a mix of the kit's, which say when an edit is done,
@@ -358,8 +362,7 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
         [&] { return serialize_node_type(node); },
         [&](nlohmann::json before, nlohmann::json after) {
             return std::make_unique<NodeEditCommand>(*scene_, node.id, std::move(before),
-                                                     std::move(after),
-                                                     std::string("Edit ") + title);
+                                                     std::move(after), edit_description(node.name, scope));
         });
 }
 

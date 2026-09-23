@@ -1,5 +1,6 @@
 #include "ui/kit/row.hpp"
 
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
@@ -45,9 +46,11 @@ PropertyTable::~PropertyTable() {
     if (open_) {
         ImGui::EndTable();
     }
+    detail::set_edit_label(nullptr);
 }
 
 void detail::begin_row(const char* label, const char* help) {
+    set_edit_label(label);
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();

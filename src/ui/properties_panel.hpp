@@ -65,6 +65,10 @@ private:
     void draw_components(Node3D& node, const InspectorContext& ictx);
     void draw_scripts(Node3D& node, const InspectorContext& ictx);
     void draw_script(Node3D& node, ScriptEntry& entry, const InspectorContext& ictx);
+    // The undo step's text for a block's finished edit: the one field that
+    // changed with its old and new value, or the block when the edit
+    // changed several ("Edit Crate · Buoyancy").
+    [[nodiscard]] static std::string edit_description(const std::string& subject, const std::string& scope);
     // The one Add component button and its picker of components and scripts.
     void draw_add(Node3D& node, const InspectorContext& ictx);
     [[nodiscard]] std::vector<grouped_picker::Group> addable_groups(const Node3D& node) const;

@@ -56,12 +56,12 @@ public:
         };
 
         if (moved && !scaled) {
-            return "Move " + name_ + " \x01" + fmt_vec3(old_transform_.position)
-                   + "\x02 -> \x03" + fmt_vec3(new_transform_.position) + "\x04";
+            return describe_change("Move " + name_, fmt_vec3(old_transform_.position),
+                                   fmt_vec3(new_transform_.position));
         }
         if (scaled && !moved) {
-            return "Scale " + name_ + " \x01" + fmt_vec3(old_transform_.scale)
-                   + "\x02 -> \x03" + fmt_vec3(new_transform_.scale) + "\x04";
+            return describe_change("Scale " + name_, fmt_vec3(old_transform_.scale),
+                                   fmt_vec3(new_transform_.scale));
         }
         if (rotated) return "Rotate " + name_;
         return "Transform " + name_;

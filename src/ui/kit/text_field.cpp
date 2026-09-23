@@ -1,5 +1,7 @@
 #include "ui/kit/text_field.hpp"
 
+#include "ui/kit/edit_record.hpp"
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -21,6 +23,8 @@ Edit text_field(const char* id, std::string& value) {
     if (!edit.committed) {
         value = original;
     }
+    detail::track_field(ImGui::GetItemID(), "\"" + original + "\"", "\"" + value + "\"",
+                        ImGui::IsItemActivated(), edit);
     return edit;
 }
 
