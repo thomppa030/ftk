@@ -48,17 +48,34 @@ void dashed_rect(ImDrawList* dl, ImVec2 min, ImVec2 max, ImU32 colour) {
 
 } // namespace
 
-ListEditor::ListEditor(const char* id) {
+ListEditor::ListEditor(const char* id, std::size_t count, ListOptions options)
+    : options_{options} {
     ImGui::PushID(id);
     list_id_ = ImGui::GetID("##list");
+    // A long list scrolls in a box of its own, so the rest of the panel
+    // stays within reach.
+    if (options_.max_cards > 0 && count > static_cast<std::size_t>(options_.max_cards)) {
+        const float card = ImGui::GetFrameHeight() + PAD * 2.0f + theme::GAP_S;
+        ImGui::BeginChild("##cards", {0.0f, card * static_cast<float>(options_.max_cards)});
+        scrolling_ = true;
+    }
 }
 
 ListEditor::~ListEditor() {
+    end_scroll();
     ImGui::PopID();
 }
 
-void ListEditor::begin_item(std::size_t index) {
+void ListEditor::end_scroll() {
+    if (!scrolling_) return;
+    ImGui::EndChild();
+    scrolling_ = false;
+}
+
+bool ListEditor::begin_item(std::size_t index, bool selected) {
     index_ = index;
+    selected_ = selected;
+    clicked_ = false;
     ImGui::PushID(static_cast<int>(index));
     card_id_ = ImGui::GetID("##card");
     card_min_ = ImGui::GetCursorScreenPos();
@@ -67,36 +84,56 @@ void ListEditor::begin_item(std::size_t index) {
     // The background goes behind the fields, whose height is only known
     // once they are drawn: it is drawn at the height the card had last frame.
     ImGuiStorage* storage = ImGui::GetStateStorage();
-    const float height = storage->GetFloat(card_id_, ImGui::GetFrameHeight() + PAD * 2.0f);
+    const float row_h = ImGui::GetFrameHeight();
+    const float height = storage->GetFloat(card_id_, row_h + PAD * 2.0f);
+    const ImVec2 card_max{card_min_.x + card_width_, card_min_.y + height};
+
+    // A card out of sight is passed over at the height it had.
+    if (!ImGui::IsRectVisible(card_min_, card_max)) {
+        ImGui::SetCursorScreenPos(
+            {card_min_.x, card_max.y + theme::GAP_S - ImGui::GetStyle().ItemSpacing.y});
+        ImGui::Dummy({card_width_, 0.0f});
+        ImGui::PopID();
+        return false;
+    }
+
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(card_min_, {card_min_.x + card_width_, card_min_.y + height},
-                      ImGui::GetColorU32(theme::surface_sunken()), ImGui::GetStyle().FrameRounding);
+    dl->AddRectFilled(card_min_, card_max,
+                      ImGui::GetColorU32(selected ? theme::selection() : theme::surface_sunken()),
+                      ImGui::GetStyle().FrameRounding);
+
+    // The card itself takes a click anywhere its fields don't: that selects
+    // it. Everything drawn on it afterwards comes first.
+    ImGui::SetNextItemAllowOverlap();
+    clicked_ = ImGui::InvisibleButton("##select", {card_width_, height});
 
     // The grip: dragging it carries the item to another place in the list.
-    const float row_h = ImGui::GetFrameHeight();
     ImGui::SetCursorScreenPos({card_min_.x + PAD_LEFT, card_min_.y + PAD});
-    ImGui::InvisibleButton("##grip", {GRIP_W, row_h});
-    const bool grip_hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
-    if (grip_hot) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip)) {
-        const Dragged dragged{list_id_, index};
-        ImGui::SetDragDropPayload(PAYLOAD, &dragged, sizeof(dragged));
-        ImGui::EndDragDropSource();
+    if (options_.reorder) {
+        ImGui::InvisibleButton("##grip", {GRIP_W, row_h});
+        const bool grip_hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        if (grip_hot) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip)) {
+            const Dragged dragged{list_id_, index};
+            ImGui::SetDragDropPayload(PAYLOAD, &dragged, sizeof(dragged));
+            ImGui::EndDragDropSource();
+        }
+        const float text_y = card_min_.y + PAD + ImGui::GetStyle().FramePadding.y;
+        const float grip_icon_w = ImGui::CalcTextSize(icon::reorder).x;
+        dl->AddText({card_min_.x + PAD_LEFT + (GRIP_W - grip_icon_w) * 0.5f, text_y},
+                    ImGui::GetColorU32(grip_hot ? theme::text_secondary() : theme::text_disabled()),
+                    icon::reorder);
     }
-    const float text_y = card_min_.y + PAD + ImGui::GetStyle().FramePadding.y;
-    const float grip_icon_w = ImGui::CalcTextSize(icon::reorder).x;
-    dl->AddText({card_min_.x + PAD_LEFT + (GRIP_W - grip_icon_w) * 0.5f, text_y},
-                ImGui::GetColorU32(grip_hot ? theme::text_secondary() : theme::text_disabled()),
-                icon::reorder);
 
-    // The item's number, counted from one, right-aligned.
+    // The item's number, counted from one, right-aligned; in the accent
+    // on a selected card.
     char number[16];
     std::snprintf(number, sizeof(number), "%zu", index + 1);
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
     const ImVec2 number_size = ImGui::CalcTextSize(number);
     const float number_right = card_min_.x + PAD_LEFT + GRIP_W + theme::GAP_S + INDEX_W;
     dl->AddText({number_right - number_size.x, card_min_.y + PAD + (row_h - number_size.y) * 0.5f},
-                ImGui::GetColorU32(theme::text_disabled()), number);
+                ImGui::GetColorU32(selected ? theme::accent() : theme::text_disabled()), number);
     ImGui::PopFont();
 
     // The item's own fields, between the number and the trash icon, on the
@@ -118,6 +155,7 @@ void ListEditor::begin_item(std::size_t index) {
     window->WorkRect.Max.x = right;
     window->ContentRegionRect.Max.x = right;
     ImGui::PushClipRect({content_x, card_min_.y}, {right, FLT_MAX}, true);
+    return true;
 }
 
 bool ListEditor::end_item() {
@@ -141,7 +179,7 @@ bool ListEditor::end_item() {
     // The whole card takes a dragged item of this list, landing it before
     // or after this one by which half the pointer is over.
     const ImRect card{card_min_, {card_min_.x + card_width_, card_min_.y + height}};
-    if (ImGui::BeginDragDropTargetCustom(card, card_id_)) {
+    if (options_.reorder && ImGui::BeginDragDropTargetCustom(card, card_id_)) {
         const ImGuiPayload* payload = ImGui::GetDragDropPayload();
         if (payload != nullptr && payload->IsDataType(PAYLOAD)) {
             const auto* dragged = static_cast<const Dragged*>(payload->Data);
@@ -170,6 +208,7 @@ bool ListEditor::end_item() {
 }
 
 void ListEditor::empty(const char* text) {
+    end_scroll();
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
@@ -192,6 +231,7 @@ void ListEditor::empty(const char* text) {
 }
 
 bool ListEditor::add_button(const char* label) {
+    end_scroll();
     const std::string text = std::string(icon::add) + "  " + label;
     return button(text.c_str(), ButtonKind::Ghost);
 }
