@@ -4,7 +4,6 @@
 # the check fails while a listed file has nothing left to allow, so the list
 # only shrinks. The one time files are added is the commit that teaches the
 # check a new pattern, and then only the files already using it.
-src/animation/animator_component_meta.cpp
 src/core/engine.cpp
 src/hub/hub_ui.cpp
 src/import/import_dialog.cpp

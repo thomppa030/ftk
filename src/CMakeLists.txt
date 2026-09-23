@@ -323,6 +323,7 @@ add_executable(fjell
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
+    ui/inspectors/animation_inspectors.cpp
     ui/inspectors/asset_rows.cpp
     ui/inspectors/collision_filter_inspector.cpp
     ui/inspectors/environment_inspectors.cpp

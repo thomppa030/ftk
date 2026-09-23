@@ -2,10 +2,7 @@
 #include "core/base_path.hpp"
 #include "renderer/components/sprite_anim_component.hpp"
 #include "scene/node.hpp"
-#include "ui/asset_ref_widget.hpp"
-#include "ui/kit/text_field.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 #include <string>
@@ -17,34 +14,6 @@ static const bool registered = [] {
         .display_name = "Sprite Animation",
         .json_key = "sprite_anim",
         .color = {0.40f, 0.75f, 0.60f, 1.0f},
-
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* sa = static_cast<SpriteAnimComponent*>(ptr);
-            bool changed = false;
-            static const std::string animset_exts[] = {".fjanimset"};
-            static const std::string clip_exts[] = {".fjanim"};
-            if (asset_ref_field({.label = "Animset", .id = "##SpriteAnimset", .extensions = animset_exts, .ctx = &ctx}, sa->animset_path)) { sa->loaded = false; changed = true; }
-            ImGui::Separator();
-            ImGui::Text("Legacy Animations");
-            for (auto& [name, path] : sa->animations) {
-                std::string label = "##SpriteAnim_" + name;
-                if (asset_ref_field({.label = name.c_str(), .id = label.c_str(), .extensions = clip_exts, .ctx = &ctx}, path)) { sa->loaded = false; changed = true; }
-            }
-            static char new_anim_name[64] = "";
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
-            ImGui::InputText("##NewAnimName", new_anim_name, sizeof(new_anim_name));
-            ImGui::SameLine();
-            if (ImGui::Button("Add Animation") && new_anim_name[0] != '\0') {
-                sa->animations[new_anim_name] = "";
-                sa->loaded = false; changed = true;
-                new_anim_name[0] = '\0';
-            }
-            ImGui::Text("Default"); ImGui::SameLine(); ImGui::SetNextItemWidth(-1);
-            if (ui::text_field("##SpriteAnimDefault", sa->default_animation).committed) changed = true;
-            ImGui::Text("Playback Speed"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##SpriteAnimSpeed", &sa->playback_speed, 0.01f, 0.0f, 10.0f)) changed = true;
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<SpriteAnimComponent>();

@@ -20,6 +20,7 @@
 #include "renderer/components/tilemap_component.hpp"
 #include "renderer/components/water_component.hpp"
 #include "scene/component_registry.hpp"
+#include "ui/inspectors/animation_inspectors.hpp"
 #include "ui/inspectors/environment_inspectors.hpp"
 #include "ui/inspectors/physics_inspectors.hpp"
 #include "ui/inspectors/rendering_inspectors.hpp"
@@ -59,8 +60,8 @@ InspectorRegistry build() {
     r.add<CharacterComponent>({.category = C::Physics, .draw = draw_character});
     r.add<BuoyancyComponent>({.category = C::Physics, .draw = draw_buoyancy});
 
-    r.add<AnimatorComponent>({.category = C::Animation});
-    r.add<SpriteAnimComponent>({.category = C::Animation});
+    r.add<AnimatorComponent>({.category = C::Animation, .draw = draw_animator});
+    r.add<SpriteAnimComponent>({.category = C::Animation, .draw = draw_sprite_animation});
 
     r.add<AudioSourceComponent>({.category = C::Audio});
     r.add<EmitterComponent>({.category = C::Vfx});
