@@ -1,31 +1,19 @@
 #pragma once
 
-// Lucide icon font glyph macros. Merged into the Inter atlas at load time
-// in theme::load_font(), so these can be used inline with any text widget:
-//
-//   ImGui::Button(ICON_LC_PLAY " Play");
-//   section_header(ICON_LC_BOX "  Transform");
+// Lucide icon font glyph macros, merged into the Inter atlas at load time in
+// theme::load_font(). Code names icons by meaning through ui::icon
+// (ui/kit/icons.hpp); only the theme and the kit spell these macros, and the
+// editor UI check refuses them anywhere else.
 //
 // Codepoints live in the Private Use Area (U+E042..U+E685). Regenerated
 // from engine_assets/fonts/lucide.ttf (Lucide v1.17.0). To add a glyph:
 // look up its name in lucide-font/codepoints.json, encode the codepoint
 // as UTF-8, add it here.
 //
-// TODO(icons): the engine still has two icon systems side by side —
-// these Lucide font glyphs and the PNG-backed IconCache (used by the
-// hierarchy node visuals + content browser file thumbnails). The visual
-// mismatch is most obvious in the Hierarchy panel where Lucide glyphs in
-// the toolbar sit next to PNG node icons in the tree.
-//
-// Cleanup plan: replace IconCache's icon-by-name lookups for tree/menu
-// glyphs with Lucide equivalents (keep IconCache for actual thumbnails:
-// material previews, file thumbnails, texture previews — where a TTF
-// font can't help). Specifically:
-//   - hierarchy_panel.cpp node_visuals() — dispatch to ICON_LC_* glyphs
-//   - properties_panel.cpp panel header icon (already removed in v1)
-//   - content_browser file type icons — partial Lucide override possible
-// Until then, prefer Lucide for any *new* icon usage and leave the PNG
-// path alone for thumbnails.
+// TODO(icons): the content browser still draws file-type icons from the
+// PNG-backed IconCache next to these glyphs. Keep IconCache for real
+// pictures (material previews, file and texture thumbnails), where a font
+// can't help, and give file types their ui::icon glyph.
 
 namespace fjell::theme {
 

@@ -23,6 +23,7 @@ inline constexpr const char* play         = ICON_LC_PLAY;
 
 // What a section or panel is about
 inline constexpr const char* properties        = ICON_LC_SLIDERS_HORIZONTAL;
+inline constexpr const char* hierarchy         = ICON_LC_LIST_TREE;
 inline constexpr const char* transform         = ICON_LC_MOVE_3D;
 inline constexpr const char* components        = ICON_LC_PACKAGE;
 inline constexpr const char* scripts           = ICON_LC_FILE_CODE;
