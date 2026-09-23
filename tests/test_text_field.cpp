@@ -106,7 +106,71 @@ TEST_CASE("TextField keeps typed text when the value changes underneath it", "[u
     f.h.type("Crate2");
     f.name = "Renamed elsewhere";
     f.h.step();
-    CHECK(f.field.text() == "Crate2");
+    CHECK(f.commits == 0);
     f.h.press(ImGuiKey_Enter);
+    CHECK(f.commits == 1);
     CHECK(f.name == "Crate2");
+}
+
+namespace {
+
+// The stateless form over a value the caller owns, the way a component
+// inspector draws a field straight onto a component.
+struct PlainField {
+    ImGuiHarness h;
+    std::string value{"idle"};
+    int commits{0};
+
+    PlainField() {
+        h.set_ui([this] {
+            if (fjell::ui::text_field("##Default", value).committed) ++commits;
+            h.mark("field");
+            ImGui::Button("Elsewhere");
+            h.mark("elsewhere");
+        });
+        h.step(2);
+    }
+
+    void clear() {
+        auto& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        h.press(ImGuiKey_A);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        h.step();
+        h.press(ImGuiKey_Delete);
+    }
+};
+
+} // namespace
+
+TEST_CASE("text_field leaves the value alone while typing and writes it on Enter", "[ui][text_field]") {
+    PlainField f;
+    f.h.click("field");
+    f.clear();
+    f.h.type("walk");
+    CHECK(f.value == "idle");
+    f.h.press(ImGuiKey_Enter);
+    CHECK(f.commits == 1);
+    CHECK(f.value == "walk");
+}
+
+TEST_CASE("text_field writes the value when it loses focus", "[ui][text_field]") {
+    PlainField f;
+    f.h.click("field");
+    f.clear();
+    f.h.type("run");
+    f.h.click("elsewhere");
+    CHECK(f.commits == 1);
+    CHECK(f.value == "run");
+}
+
+TEST_CASE("text_field keeps the value on Escape", "[ui][text_field]") {
+    PlainField f;
+    f.h.click("field");
+    f.clear();
+    f.h.type("oops");
+    f.h.press(ImGuiKey_Escape);
+    f.h.step();
+    CHECK(f.commits == 0);
+    CHECK(f.value == "idle");
 }
