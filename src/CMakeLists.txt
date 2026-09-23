@@ -243,7 +243,6 @@ add_executable(fjell
     physics/physics_types.cpp
     physics/surface_asset.cpp
     physics/collision_channel.cpp
-    physics/collision_filter_ui.cpp
     physics/collision_build.cpp
     physics/buoyancy.cpp
     physics/buoyancy_component_meta.cpp
@@ -324,7 +323,9 @@ add_executable(fjell
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
+    ui/inspectors/collision_filter_inspector.cpp
     ui/inspectors/inspector_registry.cpp
+    ui/inspectors/physics_inspectors.cpp
     ui/kit/asset_kind.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp

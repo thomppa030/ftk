@@ -44,7 +44,9 @@ struct ComponentMeta {
     std::string json_key;
     ImVec4 color;
 
-    std::function<bool(Node3D& node, void* component, const InspectorContext& ctx)> draw;
+    // Drawn by the editor's inspector registry (ui/inspectors) for components
+    // moved there; empty for those.
+    std::function<bool(Node3D& node, void* component, const InspectorContext& ctx)> draw{};
     std::function<void(Node3D& node, const InspectorContext& ctx)> init;
     // Both sides take the project: deserialize resolves asset references
     // through it, serialize writes them as ids through it.

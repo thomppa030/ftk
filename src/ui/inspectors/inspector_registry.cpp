@@ -20,6 +20,7 @@
 #include "renderer/components/tilemap_component.hpp"
 #include "renderer/components/water_component.hpp"
 #include "scene/component_registry.hpp"
+#include "ui/inspectors/physics_inspectors.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 
 namespace fjell {
@@ -50,10 +51,10 @@ InspectorRegistry build() {
     r.add<WaterComponent>({.category = C::Environment});
     r.add<MotionSourceComponent>({.category = C::Environment});
 
-    r.add<RigidbodyComponent>({.category = C::Physics});
-    r.add<ColliderComponent>({.category = C::Physics});
-    r.add<CharacterComponent>({.category = C::Physics});
-    r.add<BuoyancyComponent>({.category = C::Physics});
+    r.add<RigidbodyComponent>({.category = C::Physics, .draw = draw_rigidbody});
+    r.add<ColliderComponent>({.category = C::Physics, .draw = draw_collider});
+    r.add<CharacterComponent>({.category = C::Physics, .draw = draw_character});
+    r.add<BuoyancyComponent>({.category = C::Physics, .draw = draw_buoyancy});
 
     r.add<AnimatorComponent>({.category = C::Animation});
     r.add<SpriteAnimComponent>({.category = C::Animation});

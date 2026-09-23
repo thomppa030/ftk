@@ -1,24 +1,16 @@
 #include "scene/component_registry.hpp"
-#include "core/asset_type_registry.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
-#include "core/project_manager.hpp"
 #include "physics/physics_types.hpp"
-#include "physics/collision_filter_ui.hpp"
+#include "physics/collider_surface.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scene/node.hpp"
-#include "ui/asset_ref_widget.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
 
-namespace {
-
-// Resolve the component's surface path to the handle physics reports, or
-// clear it. Shared by the inspector and scene load.
 void load_collider_surface(ColliderComponent& col, ResourceManager* resources,
                            const Project* project) {
     col.surface = 0;
@@ -28,78 +20,11 @@ void load_collider_surface(ColliderComponent& col, ResourceManager* resources,
     else FJELL_CORE_ERROR("collider surface: {}", handle.error());
 }
 
-void draw_surface_field(ColliderComponent& col, const InspectorContext& ctx, bool& changed) {
-    static const std::string surface_exts[] = {".fjsurface"};
-    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
-    if (asset_ref_field({.label = "Surface", .id = "##ColliderSurface", .extensions = surface_exts,
-                         .ctx = &ctx, .asset_type = surface_type},
-                        col.surface_path)) {
-        load_collider_surface(col, ctx.resource_manager,
-                              ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr);
-        changed = true;
-    }
-}
-
-} // namespace
-
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<ColliderComponent>({
         .display_name = "Collider",
         .json_key = "collider",
         .color = {0.85f, 0.45f, 0.25f, 1.0f},
-
-        .draw = [](Node3D& node, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* col = static_cast<ColliderComponent*>(ptr);
-            bool changed = false;
-
-            bool has_mesh = node.components.has<MeshComponent>();
-            ImGui::BeginDisabled(!has_mesh);
-            if (ImGui::Checkbox("Inherit From Mesh", &col->inherit_from_mesh)) changed = true;
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip(has_mesh
-                    ? "Use the collision authored on the mesh asset"
-                    : "Needs a Mesh component");
-            }
-            if (col->inherit_from_mesh && has_mesh) {
-                ImGui::TextDisabled("Collision comes from the mesh asset.");
-                if (ImGui::Checkbox("Is Trigger", &col->is_trigger)) changed = true;
-                draw_surface_field(*col, ctx, changed);
-                if (draw_collision_filter(col->filter)) changed = true;
-                return changed;
-            }
-
-            static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
-            int sh = static_cast<int>(col->shape);
-            ImGui::Text("Shape"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##Shape", &sh, shape_labels, 4)) { col->shape = static_cast<ColliderShape>(sh); changed = true; }
-            switch (col->shape) {
-                case ColliderShape::Box:
-                    ImGui::Text("Half Extents"); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat3("##HalfExtents", &col->half_extents.x, 0.05f, 0.01f, 100.0f)) changed = true;
-                    break;
-                case ColliderShape::Sphere:
-                    ImGui::Text("Radius"); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##Radius", &col->radius, 0.05f, 0.01f, 100.0f)) changed = true;
-                    break;
-                case ColliderShape::Capsule:
-                    ImGui::Text("Radius"); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##RadiusCap", &col->radius, 0.05f, 0.01f, 100.0f)) changed = true;
-                    ImGui::Text("Height"); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##Height", &col->height, 0.05f, 0.01f, 100.0f)) changed = true;
-                    break;
-                case ColliderShape::Mesh:
-                    ImGui::TextDisabled("Uses model collision mesh");
-                    break;
-            }
-            ImGui::Text("Offset"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Offset", &col->offset.x, 0.05f)) changed = true;
-            if (ImGui::Checkbox("Is Trigger", &col->is_trigger)) changed = true;
-            draw_surface_field(*col, ctx, changed);
-
-            if (draw_collision_filter(col->filter)) changed = true;
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             auto& col = node.components.add<ColliderComponent>();

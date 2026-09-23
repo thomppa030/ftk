@@ -70,4 +70,8 @@ Edit vec3(const char* id, glm::vec3& value, const DragSpec& spec = {});
 /// A box that is ticked or not. Changing it is its own commit.
 Edit checkbox(const char* id, bool& value);
 
+/// A value shown but not edited (a velocity, a computed size, a path), in
+/// the secondary colour on the field's line.
+void readout(const char* text);
+
 } // namespace fjell::ui

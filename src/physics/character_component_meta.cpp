@@ -1,101 +1,16 @@
 #include "scene/component_registry.hpp"
 #include "physics/physics_types.hpp"
-#include "physics/collision_filter_ui.hpp"
-#include "renderer/components/mesh_component.hpp"
-#include "renderer/components/skeletal_mesh_component.hpp"
-#include "renderer/frustum.hpp"
-#include "renderer/resources/model.hpp"
-#include "renderer/resources/skeletal_model.hpp"
 #include "scene/node.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
-
-// The local bounds of whatever the node renders, if anything.
-static bool mesh_bounds(const Node3D& node, AABB& out) {
-    if (const auto* skeletal = node.components.get<SkeletalMeshComponent>();
-        skeletal != nullptr && skeletal->skeletal_model != nullptr) {
-        out = skeletal->skeletal_model->local_aabb();
-        return out.min.x <= out.max.x;
-    }
-    if (const auto* mesh = node.components.get<MeshComponent>();
-        mesh != nullptr && mesh->model != nullptr) {
-        out = mesh->model->local_aabb();
-        return out.min.x <= out.max.x;
-    }
-    return false;
-}
-
-// Sizes the capsule to the mesh: as tall as the bounds, as wide as their
-// wider horizontal side, and standing on the bounds' floor rather than on
-// the origin when the mesh does not start there.
-static void fit_to_bounds(CharacterComponent& cc, const AABB& bounds) {
-    glm::vec3 size = bounds.max - bounds.min;
-    float radius = std::max(size.x, size.z) * 0.5f;
-    // A capsule is at least two radii tall, so a wide, short mesh gets a
-    // radius that still fits its height.
-    radius = std::min(radius, size.y * 0.5f);
-    cc.capsule_radius = std::max(radius, 0.01f);
-    cc.capsule_height = std::max(size.y - 2.0f * cc.capsule_radius, 0.0f);
-    cc.feet_at_origin = true;
-    glm::vec3 center = (bounds.min + bounds.max) * 0.5f;
-    cc.shape_offset = {center.x, bounds.min.y, center.z};
-}
 
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<CharacterComponent>({
         .display_name = "Character Controller",
         .json_key = "character",
         .color = {0.2f, 0.8f, 0.8f, 1.0f},
-
-        .draw = [](Node3D& node, void* ptr, const InspectorContext& /*ctx*/) -> bool {
-            auto* cc = static_cast<CharacterComponent*>(ptr);
-            bool changed = false;
-            AABB bounds;
-            bool has_bounds = mesh_bounds(node, bounds);
-            ImGui::BeginDisabled(!has_bounds);
-            if (ImGui::Button("Fit To Mesh", {-1, 0})) {
-                fit_to_bounds(*cc, bounds);
-                changed = true;
-            }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip(has_bounds
-                    ? "Size and place the capsule from the mesh bounds"
-                    : "Needs a mesh or skeletal mesh on this node");
-            }
-            ImGui::Text("Capsule Radius"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharRadius", &cc->capsule_radius, 0.01f, 0.01f, 10.0f)) changed = true;
-            ImGui::Text("Capsule Height"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharHeight", &cc->capsule_height, 0.01f, 0.01f, 20.0f)) changed = true;
-            ImGui::Text("Max Slope Angle"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharSlope", &cc->max_slope_angle, 0.5f, 0.0f, 89.0f)) changed = true;
-            ImGui::Text("Mass"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharMass", &cc->mass, 0.5f, 1.0f, 500.0f)) changed = true;
-            if (ImGui::DragFloat("Wind Push", &cc->wind_push, 0.05f, 0.0f, 20.0f, "%.2f")) changed = true;
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("How hard the weather's wind leans on the character. 0 ignores it.");
-            }
-            if (ImGui::Checkbox("Feet At Origin", &cc->feet_at_origin)) changed = true;
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Stand the capsule on the node origin, where a character mesh has its feet");
-            }
-            ImGui::Text("Shape Offset"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##CharOffset", &cc->shape_offset.x, 0.01f)) changed = true;
-            ImGui::Text("Step Up"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharStepUp", &cc->step_up, 0.01f, 0.0f, 5.0f)) changed = true;
-            ImGui::Text("Step Down"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##CharStepDown", &cc->step_down, 0.01f, 0.0f, 5.0f)) changed = true;
-            if (draw_collision_filter(cc->filter)) changed = true;
-            ImGui::SeparatorText("State");
-            static const char* ground_labels[] = {"On Ground", "On Steep Ground", "Not Supported", "In Air"};
-            ImGui::TextDisabled("Ground: %s", ground_labels[static_cast<int>(cc->ground_state)]);
-            ImGui::TextDisabled("Velocity: %.2f %.2f %.2f", cc->velocity.x, cc->velocity.y, cc->velocity.z);
-            if (!cc->simulate) ImGui::TextDisabled("Not simulated: driven from outside physics");
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<CharacterComponent>();

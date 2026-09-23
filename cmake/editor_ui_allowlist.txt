@@ -8,7 +8,6 @@ src/animation/animator_component_meta.cpp
 src/core/engine.cpp
 src/hub/hub_ui.cpp
 src/import/import_dialog.cpp
-src/physics/buoyancy_component_meta.cpp
 src/renderer/components/terrain_component_meta.cpp
 src/renderer/components/water_component_meta.cpp
 src/ui/animation_editor_context.cpp

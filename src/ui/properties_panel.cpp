@@ -132,7 +132,7 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
             ui::Edit edit;
             if (kit) {
                 edit = inspector->draw(node, ptr, ictx);
-            } else {
+            } else if (meta->draw) {
                 edit.changed = meta->draw(node, ptr, ictx);
             }
             ImGui::EndGroup();
