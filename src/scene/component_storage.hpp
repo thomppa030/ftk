@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -37,7 +38,53 @@ void clone_component(const ComponentStorage& from, const T& src, ComponentStorag
 // Holds any mix of component types, queryable by compile-time type ID.
 // Optimized for small counts (1-4 components per node) via linear scan.
 class ComponentStorage {
+    struct Entry {
+        ComponentTypeId type_id;
+        void* ptr;
+        void (*deleter)(void*);
+        void (*cloner)(const ComponentStorage& from, const void* src, ComponentStorage& to);
+        uint32_t size; // for serialization if needed
+    };
+
 public:
+    /// A component taken out of a storage by extract(), still alive and
+    /// unchanged, until it is put back with restore(). This is how removing
+    /// a component is undone: the same object returns, with every field and
+    /// any runtime state it held, instead of a copy rebuilt from JSON.
+    /// Destroying one that was never restored destroys the component.
+    class Detached {
+    public:
+        Detached() = default;
+        ~Detached() { reset(); }
+        Detached(const Detached&) = delete;
+        Detached& operator=(const Detached&) = delete;
+        Detached(Detached&& other) noexcept
+            : entry_{other.entry_}, index_{other.index_} { other.entry_.ptr = nullptr; }
+        Detached& operator=(Detached&& other) noexcept {
+            if (this != &other) {
+                reset();
+                entry_ = other.entry_;
+                index_ = other.index_;
+                other.entry_.ptr = nullptr;
+            }
+            return *this;
+        }
+
+        /// False when extract() found no component of the type, or once
+        /// the component has been restored.
+        [[nodiscard]] explicit operator bool() const { return entry_.ptr != nullptr; }
+        [[nodiscard]] ComponentTypeId type_id() const { return entry_.type_id; }
+
+    private:
+        friend class ComponentStorage;
+        void reset() {
+            if (entry_.ptr != nullptr) entry_.deleter(entry_.ptr);
+            entry_.ptr = nullptr;
+        }
+        Entry entry_{0, nullptr, nullptr, nullptr, 0};
+        size_t index_{0};
+    };
+
     ComponentStorage() = default;
     ~ComponentStorage() { clear(); }
 
@@ -146,6 +193,33 @@ public:
         return false;
     }
 
+    /// Takes the component of type `id` out without destroying it. The
+    /// others keep their order, and restore() puts it back where it was, so
+    /// an undone removal doesn't reorder the inspector. Empty when the
+    /// storage has no component of that type.
+    [[nodiscard]] Detached extract(ComponentTypeId id) {
+        Detached out;
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            if (entries_[i].type_id == id) {
+                out.entry_ = entries_[i];
+                out.index_ = i;
+                entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
+                break;
+            }
+        }
+        return out;
+    }
+
+    /// Puts an extracted component back at its old position. Does nothing
+    /// for an empty Detached, or when a component of the same type has been
+    /// added since, which then keeps its place and `detached` its component.
+    void restore(Detached&& detached) {
+        if (!detached || get_by_id(detached.entry_.type_id) != nullptr) return;
+        const size_t at = detached.index_ < entries_.size() ? detached.index_ : entries_.size();
+        entries_.insert(entries_.begin() + static_cast<std::ptrdiff_t>(at), detached.entry_);
+        detached.entry_.ptr = nullptr;
+    }
+
     // Iterate all components (for serialization, cloning, inspector)
     template <typename Fn>
     void for_each(const Fn& fn) {
@@ -172,14 +246,6 @@ public:
     }
 
 private:
-    struct Entry {
-        ComponentTypeId type_id;
-        void* ptr;
-        void (*deleter)(void*);
-        void (*cloner)(const ComponentStorage& from, const void* src, ComponentStorage& to);
-        uint32_t size; // for serialization if needed
-    };
-
     std::vector<Entry> entries_;
 };
 

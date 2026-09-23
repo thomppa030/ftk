@@ -470,8 +470,14 @@ void PropertiesPanel::draw() {
             });
 
             if (remove_id != ~0u) {
-                obj->components.remove_by_id(remove_id);
-                scene_->mark_dirty();
+                if (history_) {
+                    const auto* meta = registry.find(remove_id);
+                    history_->execute(std::make_unique<RemoveComponentCommand>(
+                        *scene_, obj->id, remove_id, meta ? meta->display_name : "component"));
+                } else {
+                    obj->components.remove_by_id(remove_id);
+                    scene_->mark_dirty();
+                }
             }
 
             // ── Node subclass inspectors ─────────────────────────────

@@ -353,4 +353,39 @@ private:
     std::vector<std::string> source_names_;
 };
 
+// ── Remove Component ────────────────────────────────────────────────────
+// Keeps the removed component alive instead of destroying it, so undo puts
+// the same object back, in its old place among the node's components.
+
+class RemoveComponentCommand : public Command {
+public:
+    RemoveComponentCommand(Scene& scene, uint32_t node_id, ComponentTypeId type,
+                           std::string display_name)
+        : scene_{scene}, node_id_{node_id}, type_{type}
+        , display_name_{std::move(display_name)} {}
+
+    void execute() override {
+        if (auto* node = scene_.find(node_id_)) {
+            removed_ = node->components.extract(type_);
+            scene_.mark_dirty();
+        }
+    }
+    void undo() override {
+        if (auto* node = scene_.find(node_id_)) {
+            node->components.restore(std::move(removed_));
+            scene_.mark_dirty();
+        }
+    }
+    [[nodiscard]] std::string description() const override {
+        return "Remove " + display_name_;
+    }
+
+private:
+    Scene& scene_;
+    uint32_t node_id_;
+    ComponentTypeId type_;
+    std::string display_name_;
+    ComponentStorage::Detached removed_;
+};
+
 } // namespace fjell

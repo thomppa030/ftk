@@ -161,6 +161,7 @@ add_executable(fjell-tests
     test_folder_colors.cpp
     imgui_harness.cpp
     test_text_field.cpp
+    test_component_storage.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
