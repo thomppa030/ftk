@@ -19,6 +19,7 @@ inline constexpr const char* duplicate    = ICON_LC_COPY;
 inline constexpr const char* more         = ICON_LC_MORE_HORIZONTAL;
 inline constexpr const char* search       = ICON_LC_SEARCH;
 inline constexpr const char* reorder      = ICON_LC_GRIP_VERTICAL;
+inline constexpr const char* play         = ICON_LC_PLAY;
 
 // What a section or panel is about
 inline constexpr const char* properties        = ICON_LC_SLIDERS_HORIZONTAL;
