@@ -1,7 +1,6 @@
 #include "ui/kit/gallery.hpp"
 
 #include "ui/asset_ref_widget.hpp"
-#include "ui/inspector_widgets.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
