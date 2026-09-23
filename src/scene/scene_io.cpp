@@ -191,6 +191,10 @@ Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
         scene.set_next_id(max_id + 1);
     }
 
+    // Adding the nodes above marked the scene as changed, but a scene just
+    // built from its JSON is exactly that JSON. Callers that restore an
+    // unsaved state (leaving play mode) mark it again themselves.
+    scene.dirty_ = false;
     return scene;
 }
 
