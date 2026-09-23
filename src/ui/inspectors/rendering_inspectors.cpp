@@ -13,6 +13,7 @@
 #include "scene/component_meta.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/inspectors/asset_rows.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/color_field.hpp"
 #include "ui/kit/field.hpp"
@@ -27,50 +28,6 @@
 namespace fjell {
 
 namespace {
-
-// The material name a mesh holds when it has none of its own.
-constexpr const char* DEFAULT_MATERIAL = "default";
-
-const Project* project_of(const InspectorContext& ctx) {
-    return ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr;
-}
-
-// Loads `name` (a .fjmat reference, or the default) into a material handle
-// and pointer, the way a mesh and a skeletal mesh both hold theirs.
-template <typename Handle, typename Pointer>
-void load_material(const std::string& name, Handle& handle, Pointer& material,
-                   const InspectorContext& ctx) {
-    if (ctx.resource_manager == nullptr) return;
-    if (name != DEFAULT_MATERIAL) {
-        if (auto result = ctx.resource_manager->load_material_asset(
-                base_path::resolve_asset(name, project_of(ctx)), project_of(ctx))) {
-            handle = *result;
-            material = ctx.resource_manager->get(handle);
-        }
-        return;
-    }
-    handle = ctx.resource_manager->create_material(DEFAULT_MATERIAL,
-                                                   ctx.resource_manager->default_white_handle());
-    material = ctx.resource_manager->get(handle);
-}
-
-// The Material row of a mesh: the default material shows as an empty slot,
-// and clearing the slot goes back to it.
-bool material_row(const char* id, std::string& name, const InspectorContext& ctx) {
-    static const std::string material_exts[] = {".fjmat"};
-    const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-    bool changed = false;
-    ui::row("Material", [&] {
-        std::string shown = name == DEFAULT_MATERIAL ? std::string{} : name;
-        if (asset_slot({.label = "Material", .id = id, .extensions = material_exts, .ctx = &ctx,
-                        .asset_type = mat_type, .shader_types = only_shader_type(ShaderType::Spatial)},
-                       shown)) {
-            name = shown.empty() ? std::string(DEFAULT_MATERIAL) : shown;
-            changed = true;
-        }
-    });
-    return changed;
-}
 
 // Lighting for a 2D surface: whether it is lit, and the surface it is lit as.
 template <typename Surface>

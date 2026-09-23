@@ -78,4 +78,18 @@ struct SplineMeshComponent : NodeComponent {
     int editor_selected_point{-1};
 };
 
+class Project;
+class ResourceManager;
+
+/// Loads `source` as the mesh laid along the spline. An empty source becomes
+/// the default cube, written back, so clearing the slot leaves a visible,
+/// editable shape rather than nothing drawn.
+void load_spline_mesh_model(SplineMeshComponent& sm, std::string& source,
+                            ResourceManager& resources, const Project* project);
+
+/// Loads the component's material_name, or the default material when it is
+/// empty or "default".
+void load_spline_mesh_material(SplineMeshComponent& sm, ResourceManager& resources,
+                               const Project* project);
+
 } // namespace fjell

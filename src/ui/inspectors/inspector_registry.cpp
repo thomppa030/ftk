@@ -22,6 +22,7 @@
 #include "scene/component_registry.hpp"
 #include "ui/inspectors/physics_inspectors.hpp"
 #include "ui/inspectors/rendering_inspectors.hpp"
+#include "ui/inspectors/spline_inspectors.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 
 namespace fjell {
@@ -43,10 +44,10 @@ InspectorRegistry build() {
 
     r.add<MeshComponent>({.category = C::Rendering, .draw = draw_mesh});
     r.add<SkeletalMeshComponent>({.category = C::Rendering, .draw = draw_skeletal_mesh});
-    r.add<InstancedMeshComponent>({.category = C::Rendering});
+    r.add<InstancedMeshComponent>({.category = C::Rendering, .draw = draw_instanced_mesh});
     r.add<SpriteComponent>({.category = C::Rendering, .draw = draw_sprite});
     r.add<TilemapComponent>({.category = C::Rendering, .draw = draw_tilemap});
-    r.add<SplineMeshComponent>({.category = C::Rendering});
+    r.add<SplineMeshComponent>({.category = C::Rendering, .draw = draw_spline_mesh});
 
     r.add<TerrainComponent>({.category = C::Environment});
     r.add<WaterComponent>({.category = C::Environment});
@@ -65,7 +66,7 @@ InspectorRegistry build() {
     r.add<UiWidgetComponent>({.category = C::Ui});
     r.add<InputComponent>({.category = C::Logic});
 
-    r.add<SplineComponent>({.category = C::Structure});
+    r.add<SplineComponent>({.category = C::Structure, .draw = draw_spline});
     r.add<ArrowComponent>({.category = C::Structure});
 
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
