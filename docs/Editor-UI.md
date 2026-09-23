@@ -79,6 +79,7 @@ Dual-pane view: a directory tree on the left, a file grid with icons on the righ
 - **Delete** to delete (with confirmation dialog)
 - **Backspace** to navigate up one directory
 - Drag-and-drop files between folders
+- Right-click a folder (in the grid under **Color**, or in the tree) to give it a colour from the swatches or the picker. Colours are yours alone: they live in the project's `.fjell/folder_colors.json`, which the project's `.gitignore` leaves out. A colour follows its folder through renames and moves, and is not inherited by subfolders
 - Double-click behavior depends on file type: scripts open in your system's default editor, models get added to the scene, scenes get loaded, folders get navigated into
 
 ### Stats

@@ -50,6 +50,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -142,6 +143,7 @@ add_executable(fjell-tests
     test_climate.cpp
     test_environment_scenario.cpp
     test_input_source.cpp
+    test_folder_colors.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

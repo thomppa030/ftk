@@ -301,6 +301,7 @@ add_executable(fjell
     core/project_manager.cpp
     core/command_history.cpp
     ui/content_browser.cpp
+    ui/folder_colors.cpp
     ui/hierarchy_panel.cpp
     ui/history_panel.cpp
     ui/icon_cache.cpp

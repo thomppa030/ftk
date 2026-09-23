@@ -40,6 +40,7 @@ void ContentBrowser::init(IconCache* icons, AssetThumbnailRenderer* asset_thumbn
 
 void ContentBrowser::set_root(const std::filesystem::path& root) {
     root_ = root;
+    folder_colors_.load(root);
     // Project open/close broadcasts from the menu bar, which draws earlier in the
     // same frame, so this defers like any other directory switch.
     navigate_to(root);
@@ -432,6 +433,10 @@ void ContentBrowser::draw() {
                 }
                 ec.clear();
                 std::filesystem::remove_all(e.path, ec);
+                if (!ec) {
+                    folder_colors_.removed(e.path);
+                    save_folder_colors();
+                }
             } else {
                 auto rel = std::filesystem::relative(e.path, root_, ec);
                 if (!ec) removed.push_back(rel.string());
@@ -534,10 +539,8 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) 
 
     ImGui::PushID(dir.c_str());
 
-    // Draw folder icon inline
-    auto folder_desc = icons_ ? icons_->icon("folder") : VK_NULL_HANDLE;
-    if (folder_desc) {
-        ImGui::Image(folder_desc, {14, 14});
+    if (icons_) {
+        draw_folder_icon(dir, 14.0f);
         ImGui::SameLine(0, 4);
     }
 
@@ -545,6 +548,14 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) 
 
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         navigate_to(dir);
+    }
+
+    // The project root is not a folder the user made, so it keeps its look.
+    if (dir != root_ && ImGui::BeginPopupContextItem("##FolderColor")) {
+        ImGui::TextDisabled("Folder Color");
+        ImGui::Separator();
+        draw_folder_color_menu(dir);
+        ImGui::EndPopup();
     }
 
     if (has_subdirs && open) {
@@ -625,37 +636,41 @@ void ContentBrowser::draw_file_grid() {
 
         ImGui::BeginGroup();
 
-        VkDescriptorSet icon_desc = VK_NULL_HANDLE;
-        bool is_thumbnail = false;
-        if (entry.type == FileType::texture && icons_) {
-            std::string thumb_path = entry.path.string();
-            icon_desc = icons_->thumbnail_cached(thumb_path);
-            if (!icon_desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
-                icon_desc = icons_->thumbnail(thumb_path);
-                ++thumbs_loaded_this_frame;
-            }
-        } else if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
-            auto asset_path = entry.path.string();
-            icon_desc = asset_thumbnails_->descriptor(asset_path);
-            if (!icon_desc) asset_thumbnails_->request(asset_path);
-            is_thumbnail = icon_desc != VK_NULL_HANDLE;
-        }
-        if (!icon_desc && icons_) {
-            icon_desc = icons_->icon(icon_name(entry.type));
-        }
-        if (icon_desc) {
-            // The type tints colour the generic icon; a rendered thumbnail
-            // is shown as it is.
-            ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
-            if (!is_thumbnail && entry.type == FileType::preset) {
-                icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
-            } else if (!is_thumbnail && entry.type == FileType::widget) {
-                icon_tint = {0.6f, 0.45f, 0.85f, 1.0f};
-            }
-            ImGui::Image(icon_desc, {cell_size, cell_size},
-                         ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
+        if (entry.type == FileType::folder) {
+            draw_folder_icon(entry.path, cell_size);
         } else {
-            ImGui::Dummy({cell_size, cell_size});
+            VkDescriptorSet icon_desc = VK_NULL_HANDLE;
+            bool is_thumbnail = false;
+            if (entry.type == FileType::texture && icons_) {
+                std::string thumb_path = entry.path.string();
+                icon_desc = icons_->thumbnail_cached(thumb_path);
+                if (!icon_desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
+                    icon_desc = icons_->thumbnail(thumb_path);
+                    ++thumbs_loaded_this_frame;
+                }
+            } else if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
+                auto asset_path = entry.path.string();
+                icon_desc = asset_thumbnails_->descriptor(asset_path);
+                if (!icon_desc) asset_thumbnails_->request(asset_path);
+                is_thumbnail = icon_desc != VK_NULL_HANDLE;
+            }
+            if (!icon_desc && icons_) {
+                icon_desc = icons_->icon(icon_name(entry.type));
+            }
+            if (icon_desc) {
+                // The type tints colour the generic icon; a rendered thumbnail
+                // is shown as it is.
+                ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
+                if (!is_thumbnail && entry.type == FileType::preset) {
+                    icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
+                } else if (!is_thumbnail && entry.type == FileType::widget) {
+                    icon_tint = {0.6f, 0.45f, 0.85f, 1.0f};
+                }
+                ImGui::Image(icon_desc, {cell_size, cell_size},
+                             ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
+            } else {
+                ImGui::Dummy({cell_size, cell_size});
+            }
         }
 
         // File name or rename input
@@ -673,6 +688,10 @@ void ContentBrowser::draw_file_grid() {
                 std::error_code ec;
                 std::filesystem::rename(entry.path, new_path, ec);
                 if (!ec) {
+                    if (entry.is_directory) {
+                        folder_colors_.moved(entry.path, new_path);
+                        save_folder_colors();
+                    }
                     // A sidecar holds the file's identity, so it has to follow.
                     std::error_code sc;
                     auto from_side = asset_identity::sidecar_path(entry.path);
@@ -792,6 +811,10 @@ void ContentBrowser::draw_file_grid() {
                     std::filesystem::rename(src.path, dest, ec);
                     if (!ec) {
                         FJELL_CORE_INFO("Moved: {} -> {}", src.name, dest.string());
+                        if (src.is_directory) {
+                            folder_colors_.moved(src.path, dest);
+                            save_folder_colors();
+                        }
                         if (src.type == FileType::texture && pool_) {
                             auto dest_str = dest.string();
                             (void)pool_->submit([dest_str]() {
@@ -888,6 +911,10 @@ void ContentBrowser::draw_context_menu() {
                     if (ImGui::MenuItem("Open")) {
                         navigate_to(entry.path);
                         ImGui::CloseCurrentPopup();
+                    }
+                    if (ImGui::BeginMenu("Color")) {
+                        draw_folder_color_menu(entry.path);
+                        ImGui::EndMenu();
                     }
                     break;
 
@@ -1123,6 +1150,108 @@ void ContentBrowser::draw_common_context_items(int index) {
     if (ImGui::MenuItem("Copy Path")) {
         auto rel = std::filesystem::relative(entry.path, root_);
         ImGui::SetClipboardText(rel.string().c_str());
+    }
+}
+
+// ── Folder colours ───────────────────────────────────────────────────────
+
+namespace {
+
+struct FolderSwatch {
+    const char* name;
+    ImVec4 color;
+};
+
+// Muted enough to sit beside the amber accent the uncoloured folder uses.
+const FolderSwatch FOLDER_SWATCHES[] = {
+    {"Red",    theme::srgb(0.851f, 0.412f, 0.373f)}, // #D9695F
+    {"Orange", theme::srgb(0.878f, 0.541f, 0.310f)}, // #E08A4F
+    {"Yellow", theme::srgb(0.851f, 0.761f, 0.357f)}, // #D9C25B
+    {"Green",  theme::srgb(0.494f, 0.749f, 0.557f)}, // #7EBF8E
+    {"Teal",   theme::srgb(0.373f, 0.722f, 0.690f)}, // #5FB8B0
+    {"Blue",   theme::srgb(0.369f, 0.608f, 0.851f)}, // #5E9BD9
+    {"Purple", theme::srgb(0.604f, 0.498f, 0.820f)}, // #9A7FD1
+    {"Pink",   theme::srgb(0.831f, 0.498f, 0.682f)}, // #D47FAE
+    {"Grey",   theme::srgb(0.604f, 0.612f, 0.639f)}, // #9A9CA3
+};
+
+} // namespace
+
+void ContentBrowser::draw_folder_icon(const std::filesystem::path& folder, float size) {
+    VkDescriptorSet desc = VK_NULL_HANDLE;
+    ImVec4 tint = {1.0f, 1.0f, 1.0f, 1.0f};
+    if (icons_) {
+        // The plain icon is drawn in amber, which a tint could only darken;
+        // a coloured folder draws the white one instead.
+        if (auto color = folder_colors_.find(folder)) {
+            desc = icons_->icon("folder_tint");
+            tint = theme::srgb(color->r, color->g, color->b);
+        }
+        if (!desc) {
+            desc = icons_->icon("folder");
+            tint = {1.0f, 1.0f, 1.0f, 1.0f};
+        }
+    }
+    if (desc) {
+        ImGui::Image(desc, {size, size}, ImVec2(0, 0), ImVec2(1, 1), tint, ImVec4(0, 0, 0, 0));
+    } else {
+        ImGui::Dummy({size, size});
+    }
+}
+
+void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder) {
+    auto current = folder_colors_.find(folder);
+
+    constexpr float SWATCH = 20.0f;
+    for (size_t i = 0; i < std::size(FOLDER_SWATCHES); ++i) {
+        const auto& swatch = FOLDER_SWATCHES[i];
+        glm::vec3 color{swatch.color.x, swatch.color.y, swatch.color.z};
+        if (i > 0) ImGui::SameLine(0, 4);
+
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::ColorButton(swatch.name, swatch.color,
+                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
+                               {SWATCH, SWATCH})) {
+            folder_colors_.set(folder, color);
+            save_folder_colors();
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", swatch.name);
+        // Hex is what the file holds, so two colours that save the same are
+        // the same colour.
+        if (current && FolderColors::to_hex(*current) == FolderColors::to_hex(color)) {
+            ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                                ImGui::GetColorU32(ImGuiCol_Text), 3.0f, 0, 2.0f);
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::Spacing();
+    // An uncoloured folder starts the picker at the amber it is drawn in.
+    ImVec4 start = current ? theme::srgb(current->r, current->g, current->b) : theme::accent();
+    float rgb[3] = {start.x, start.y, start.z};
+    // As wide as the row of swatches above it.
+    constexpr auto SWATCH_COUNT = static_cast<float>(std::size(FOLDER_SWATCHES));
+    ImGui::SetNextItemWidth(SWATCH * SWATCH_COUNT + 4.0f * (SWATCH_COUNT - 1.0f));
+    if (ImGui::ColorPicker3("##custom", rgb,
+                            ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |
+                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_DisplayHex)) {
+        folder_colors_.set(folder, {rgb[0], rgb[1], rgb[2]});
+    }
+    // The folder follows the picker live; the file is written once the drag
+    // or the typed value is finished.
+    if (ImGui::IsItemDeactivatedAfterEdit()) save_folder_colors();
+
+    ImGui::Separator();
+    if (ImGui::MenuItem("Clear Color", nullptr, false, current.has_value())) {
+        folder_colors_.clear(folder);
+        save_folder_colors();
+    }
+}
+
+void ContentBrowser::save_folder_colors() {
+    if (auto result = folder_colors_.save(); !result) {
+        FJELL_CORE_ERROR("Failed to save folder colours: {}", result.error());
     }
 }
 

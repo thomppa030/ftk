@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "ui/folder_colors.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -71,6 +72,13 @@ private:
     void draw_context_menu();
     void draw_create_new_submenu();
     void draw_common_context_items(int index);
+    // Draws the folder icon in the folder's colour, or the plain one when it
+    // has none.
+    void draw_folder_icon(const std::filesystem::path& folder, float size);
+    // Swatches, a picker and Clear for one folder's colour; the caller owns
+    // the popup or menu it sits in.
+    void draw_folder_color_menu(const std::filesystem::path& folder);
+    void save_folder_colors();
     // Writes `<font>.fjfont` beside a .ttf/.otf with the default recipe and
     // selects it; a recipe that already exists is left alone.
     void create_font_recipe(const std::filesystem::path& font_file);
@@ -91,6 +99,7 @@ private:
     std::filesystem::path root_;
     std::filesystem::path current_dir_;
     std::vector<Entry> entries_;
+    FolderColors folder_colors_;
     bool visible_{false};
     float anim_t_{0.0f}; // 0 = closed, 1 = fully open
 
