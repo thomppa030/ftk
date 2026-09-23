@@ -66,9 +66,16 @@ bool draw(const char* label, const Look& look, ImVec2 size) {
 
 bool draw_icon(const char* id, const char* icon, const char* tooltip, const Look& look) {
     const float side = ImGui::GetFrameHeight();
+    // The frame padding leaves less room than the icon is wide, and ImGui
+    // stops centring text that doesn't fit: pad the sides only as much as
+    // centres the icon in the square.
+    const ImVec2 padding = ImGui::GetStyle().FramePadding;
+    const float side_padding = (side - ImGui::CalcTextSize(icon).x) * 0.5f;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {side_padding > 0.0f ? side_padding : 0.0f, padding.y});
     ImGui::PushID(id);
     const bool clicked = draw(icon, look, {side, side});
     ImGui::PopID();
+    ImGui::PopStyleVar();
     if (tooltip != nullptr) {
         ImGui::SetItemTooltip("%s", tooltip);
     }
