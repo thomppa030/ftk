@@ -149,6 +149,25 @@ TEST_CASE("A choice is segmented only for three short options that fit", "[ui][k
     CHECK_FALSE(too_many);
 }
 
+TEST_CASE("A choice over plain names picks by index, as a script's enum does", "[ui][kit]") {
+    ImGuiHarness h;
+    const std::array<const char* const, 2> modes{"Walk", "Run"};
+    int index = 0;
+    Tally tally;
+    h.set_ui([&] {
+        ImGui::SetNextItemWidth(300.0f);
+        tally.add(ui::choice("##mode", index, modes));
+        h.mark("control");
+    });
+    h.step(2);
+    const ImVec2 min = h.rect_min("control");
+    const ImVec2 max = h.rect_max("control");
+    // Two short names fit, so both show side by side: the right half is "Run".
+    click_at(h, {min.x + (max.x - min.x) * 0.75f, (min.y + max.y) * 0.5f});
+    CHECK(index == 1);
+    CHECK(tally.committed == 1);
+}
+
 TEST_CASE("A typed hex code sets a linear colour through sRGB", "[ui][kit]") {
     ImGuiHarness h;
     glm::vec3 light{1.0f, 1.0f, 1.0f};
