@@ -2,6 +2,7 @@
 #include "ui/kit/tree.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <imgui_internal.h>
 
 #include <optional>
 #include <string>
@@ -129,4 +130,24 @@ TEST_CASE("A drop over a row lands in front of it, into it, or after it, by heig
     CHECK(hover(0.1f) == ui::DropPlace::Before);
     CHECK(hover(0.5f) == ui::DropPlace::Into);
     CHECK(hover(0.9f) == ui::DropPlace::After);
+}
+
+TEST_CASE("A rename started from the keyboard draws no navigation ring", "[ui][kit]") {
+    // The editor navigates with the keyboard, which is what turns the ring on.
+    ImGuiHarness h;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    ui::RenameBox rename;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            (void)ui::tree_row({.id = "1", .name = "Crate", .rename = &rename, .key = 1});
+            h.mark("row");
+        }
+    });
+    h.step(2);
+    h.click("row");
+    h.press(ImGuiKey_F2);
+    rename.start(1, "Crate");
+    h.step(3);
+    REQUIRE(ImGui::GetCurrentContext()->ActiveId != 0);
+    CHECK_FALSE(ImGui::GetCurrentContext()->NavCursorVisible);
 }

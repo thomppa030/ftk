@@ -42,6 +42,9 @@ std::optional<std::string> RenameBox::draw(float width) {
         ImGui::SetKeyboardFocusHere();
         focus_ = false;
     }
+    // The key that started the edit (F2) turns on ImGui's keyboard-navigation
+    // ring, which would draw around the field; the field is focus enough.
+    ImGui::SetNavCursorVisible(false);
     ImGui::SetNextItemWidth(width);
     // Esc puts the text back as it was when the field was entered, so the
     // edit ends with the old name and changes nothing.

@@ -74,6 +74,7 @@ bool search_field(const char* id, std::string& query, const char* hint) {
         ImGui::SetKeyboardFocusHere();
     }
 
+
     // The text starts after the icon; the clear button sits over the end.
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                         {style.FramePadding.x + icon_w + theme::GAP_S + theme::GAP_XS, style.FramePadding.y});
@@ -81,6 +82,9 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     ImGui::SetNextItemAllowOverlap();
     bool changed = ImGui::InputTextWithHint("##query", hint, &query, ImGuiInputTextFlags_EscapeClearsAll);
     ImGui::PopStyleVar();
+    // Reaching the field from the keyboard turns on ImGui's navigation ring,
+    // which would draw around it; the field being typed into is focus enough.
+    if (ImGui::IsItemActive()) ImGui::SetNavCursorVisible(false);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float text_y = origin.y + style.FramePadding.y;
