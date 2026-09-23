@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
+#include "core/asset_identity.hpp"
 #include "core/log.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -75,11 +76,20 @@ nlohmann::json Scene::to_json(const Project* project) const {
 }
 
 Result<> Scene::save(const std::string& path, const Project* project) {
+    // The scene does not model its asset id, so it is carried over from the
+    // file being replaced. Dropped, the asset database writes it back on its
+    // next scan, and that rewrite leaves the file newer than everything
+    // cached from it: the thumbnail taken on this save among them.
+    nlohmann::json j = to_json(project);
+    if (auto id = asset_identity::read(path); id.valid()) {
+        j[asset_identity::UUID_KEY] = id.to_string();
+    }
+
     std::ofstream file(path);
     if (!file.is_open()) {
         return make_error("Failed to save scene: " + path);
     }
-    file << to_json(project).dump(2);
+    file << j.dump(2);
     dirty_ = false;
     FJELL_CORE_INFO("Scene saved: {}", path);
     return {};
