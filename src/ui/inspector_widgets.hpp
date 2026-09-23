@@ -75,8 +75,8 @@ inline void section_header(const char* label, const char* icon = nullptr) {
     ImGui::Spacing();
 }
 
-/// RAII for a 2-column property table. Label column auto-fits; input
-/// column stretches to fill. Use inside ImGui::Begin(). Inputs declared
+/// RAII for a 2-column property table. The label column is fitted to the
+/// panel (theme::label_column); the input column stretches to fill. Use inside ImGui::Begin(). Inputs declared
 /// via prop_row() get full column width via SetNextItemWidth.
 ///
 ///     if (auto t = PropertyTable("##xform")) {
@@ -86,12 +86,13 @@ inline void section_header(const char* label, const char* icon = nullptr) {
 class PropertyTable {
 public:
     explicit PropertyTable(const char* id) {
+        const float label_width = theme::label_column(ImGui::GetContentRegionAvail().x);
         ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
                               | ImGuiTableFlags_NoSavedSettings
                               | ImGuiTableFlags_PadOuterX;
         open_ = ImGui::BeginTable(id, 2, flags);
         if (open_) {
-            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, label_width);
             ImGui::TableSetupColumn("##input", ImGuiTableColumnFlags_WidthStretch);
         }
     }
