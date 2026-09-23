@@ -536,23 +536,23 @@ void PropertiesPanel::draw() {
                 if (auto t = PropertyTable("##dirlight")) {
                     prop_row("Direction", [&] {
                         ImGui::BeginDisabled(sun_driven);
-                        ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
+                        if (ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f)) scene_->mark_dirty();
                         ImGui::EndDisabled();
                         if (sun_driven && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
                             ImGui::SetTooltip("Driven by the World Environment's time of day");
                         }
                     });
                     prop_row("Color", [&] {
-                        color_edit_linear("##LightColor", dl->color);
+                        if (color_edit_linear("##LightColor", dl->color)) scene_->mark_dirty();
                     });
                     prop_row("Intensity", [&] {
-                        ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f);
+                        if (ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f)) scene_->mark_dirty();
                     });
                     prop_row("Ambient", [&] {
-                        color_edit_linear("##AmbientColor", dl->ambient_color);
+                        if (color_edit_linear("##AmbientColor", dl->ambient_color)) scene_->mark_dirty();
                     });
                     prop_row("Ambient Int.", [&] {
-                        ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f);
+                        if (ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f)) scene_->mark_dirty();
                     });
                 }
             }
@@ -560,23 +560,23 @@ void PropertiesPanel::draw() {
                 section_header("POINT LIGHT", ICON_LC_LIGHTBULB);
                 if (auto t = PropertyTable("##ptlight")) {
                     prop_row("Color", [&] {
-                        color_edit_linear("##PLColor", pl->color);
+                        if (color_edit_linear("##PLColor", pl->color)) scene_->mark_dirty();
                     });
                     prop_row("Intensity", [&] {
-                        ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f);
+                        if (ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f)) scene_->mark_dirty();
                     });
                     prop_row("Radius", [&] {
-                        ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
+                        if (ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f)) scene_->mark_dirty();
                     });
                     prop_row("Vol. Scatter", [&] {
-                        ImGui::DragFloat("##PLVolScatter", &pl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
+                        if (ImGui::DragFloat("##PLVolScatter", &pl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f)) scene_->mark_dirty();
                     });
                 }
-                ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows);
+                if (ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows)) scene_->mark_dirty();
                 if (pl->cast_shadows) {
                     if (auto t = PropertyTable("##ptlight_shadow")) {
                         prop_row("Shadow Bias", [&] {
-                            ImGui::DragFloat("##PLShadowBias", &pl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                            if (ImGui::DragFloat("##PLShadowBias", &pl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f")) scene_->mark_dirty();
                         });
                     }
                 }
@@ -585,32 +585,32 @@ void PropertiesPanel::draw() {
                 section_header("SPOT LIGHT", ICON_LC_FLASHLIGHT);
                 if (auto t = PropertyTable("##spot")) {
                     prop_row("Direction", [&] {
-                        ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f);
+                        if (ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f)) scene_->mark_dirty();
                     });
                     prop_row("Color", [&] {
-                        color_edit_linear("##SLColor", sl->color);
+                        if (color_edit_linear("##SLColor", sl->color)) scene_->mark_dirty();
                     });
                     prop_row("Intensity", [&] {
-                        ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f);
+                        if (ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f)) scene_->mark_dirty();
                     });
                     prop_row("Radius", [&] {
-                        ImGui::DragFloat("##SLRadius", &sl->radius, 0.5f, 0.1f, 500.0f);
+                        if (ImGui::DragFloat("##SLRadius", &sl->radius, 0.5f, 0.1f, 500.0f)) scene_->mark_dirty();
                     });
                     prop_row("Inner Angle", [&] {
-                        ImGui::DragFloat("##SLInner", &sl->inner_angle, 0.5f, 0.0f, 90.0f);
+                        if (ImGui::DragFloat("##SLInner", &sl->inner_angle, 0.5f, 0.0f, 90.0f)) scene_->mark_dirty();
                     });
                     prop_row("Outer Angle", [&] {
-                        ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
+                        if (ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f)) scene_->mark_dirty();
                     });
                     prop_row("Vol. Scatter", [&] {
-                        ImGui::DragFloat("##SLVolScatter", &sl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
+                        if (ImGui::DragFloat("##SLVolScatter", &sl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f)) scene_->mark_dirty();
                     });
                 }
-                ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows);
+                if (ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows)) scene_->mark_dirty();
                 if (sl->cast_shadows) {
                     if (auto t = PropertyTable("##spot_shadow")) {
                         prop_row("Shadow Bias", [&] {
-                            ImGui::DragFloat("##SLShadowBias", &sl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                            if (ImGui::DragFloat("##SLShadowBias", &sl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f")) scene_->mark_dirty();
                         });
                     }
                 }
@@ -639,35 +639,35 @@ void PropertiesPanel::draw() {
                                    vf->material_values_, ictx);
                 if (auto t = PropertyTable("##fog")) {
                     prop_row("Max Distance", [&] {
-                        ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
+                        if (ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f)) scene_->mark_dirty();
                     });
                     prop_row("Temporal", [&] {
-                        ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
+                        if (ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f)) scene_->mark_dirty();
                     });
                 }
-                ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);
+                if (ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled)) scene_->mark_dirty();
                 if (vf->shafts_enabled) {
                     if (auto t = PropertyTable("##fog_shafts")) {
                         prop_row("Intensity", [&] {
-                            ImGui::SliderFloat("##ShaftIntensity", &vf->shaft_intensity, 0.0f, 10.0f);
+                            if (ImGui::SliderFloat("##ShaftIntensity", &vf->shaft_intensity, 0.0f, 10.0f)) scene_->mark_dirty();
                         });
                         prop_row("Density Mult", [&] {
-                            ImGui::SliderFloat("##ShaftDensity", &vf->shaft_density_mult, 0.0f, 5.0f);
+                            if (ImGui::SliderFloat("##ShaftDensity", &vf->shaft_density_mult, 0.0f, 5.0f)) scene_->mark_dirty();
                         });
                         prop_row("Max Reach", [&] {
-                            ImGui::SliderFloat("##ShaftReach", &vf->shaft_max_reach, 10.0f, 1000.0f);
+                            if (ImGui::SliderFloat("##ShaftReach", &vf->shaft_max_reach, 10.0f, 1000.0f)) scene_->mark_dirty();
                         });
                         prop_row("Steps", [&] {
-                            ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128);
+                            if (ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128)) scene_->mark_dirty();
                         });
                         prop_row("Anisotropy", [&] {
-                            ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f);
+                            if (ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f)) scene_->mark_dirty();
                         });
                         prop_row("Directionality", [&] {
-                            ImGui::SliderFloat("##ShaftDirectionality", &vf->shaft_directionality, 0.0f, 1.0f);
+                            if (ImGui::SliderFloat("##ShaftDirectionality", &vf->shaft_directionality, 0.0f, 1.0f)) scene_->mark_dirty();
                         });
                         prop_row("Threshold", [&] {
-                            ImGui::SliderFloat("##ShaftThreshold", &vf->shaft_threshold, 0.0f, 0.95f);
+                            if (ImGui::SliderFloat("##ShaftThreshold", &vf->shaft_threshold, 0.0f, 0.95f)) scene_->mark_dirty();
                         });
                     }
                 }
@@ -815,52 +815,62 @@ void PropertiesPanel::draw() {
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
                 section_header("WORLD ENVIRONMENT", ICON_LC_GLOBE);
                 static const std::string hdri_exts[] = {".hdr", ".exr"};
-                asset_ref_field({.label = "HDRI",
-                                 .id = "##EnvHDRI",
-                                 .extensions = hdri_exts,
-                                 .ctx = &ictx},
-                                env->hdri_path);
+                if (asset_ref_field({.label = "HDRI",
+                                     .id = "##EnvHDRI",
+                                     .extensions = hdri_exts,
+                                     .ctx = &ictx},
+                                    env->hdri_path)) {
+                    scene_->mark_dirty();
+                }
 
                 static const std::string sky_shader_exts[] = {".fjsl"};
-                asset_ref_field({.label = "Sky Shader",
-                                 .id = "##EnvSkyShader",
-                                 .extensions = sky_shader_exts,
-                                 .ctx = &ictx,
-                                 .shader_types = only_shader_type(ShaderType::Sky)},
-                                env->sky_shader);
+                if (asset_ref_field({.label = "Sky Shader",
+                                     .id = "##EnvSkyShader",
+                                     .extensions = sky_shader_exts,
+                                     .ctx = &ictx,
+                                     .shader_types = only_shader_type(ShaderType::Sky)},
+                                    env->sky_shader)) {
+                    scene_->mark_dirty();
+                }
                 if (!env->sky_shader.empty()) {
                     draw_sky_uniforms(*env, ictx);
                 }
 
                 static const std::string day_profile_exts[] = {".fjday"};
-                asset_ref_field({.label = "Day Profile",
-                                 .id = "##EnvDayProfile",
-                                 .extensions = day_profile_exts,
-                                 .ctx = &ictx},
-                                env->day_profile);
+                if (asset_ref_field({.label = "Day Profile",
+                                     .id = "##EnvDayProfile",
+                                     .extensions = day_profile_exts,
+                                     .ctx = &ictx},
+                                    env->day_profile)) {
+                    scene_->mark_dirty();
+                }
 
                 static const std::string weather_exts[] = {".fjweather"};
-                asset_ref_field({.label = "Weather",
-                                 .id = "##EnvWeather",
-                                 .extensions = weather_exts,
-                                 .ctx = &ictx},
-                                env->weather);
+                if (asset_ref_field({.label = "Weather",
+                                     .id = "##EnvWeather",
+                                     .extensions = weather_exts,
+                                     .ctx = &ictx},
+                                    env->weather)) {
+                    scene_->mark_dirty();
+                }
                 static const std::string climate_exts[] = {".fjclimate"};
-                asset_ref_field({.label = "Climate",
-                                 .id = "##EnvClimate",
-                                 .extensions = climate_exts,
-                                 .ctx = &ictx},
-                                env->climate);
+                if (asset_ref_field({.label = "Climate",
+                                     .id = "##EnvClimate",
+                                     .extensions = climate_exts,
+                                     .ctx = &ictx},
+                                    env->climate)) {
+                    scene_->mark_dirty();
+                }
                 draw_weather_controls(*env, ictx);
 
                 const bool gradient_mode = env->hdri_path.empty();
                 ImGui::BeginDisabled(!gradient_mode);
                 if (auto t = PropertyTable("##env_sky")) {
                     prop_row("Sky Top", [&] {
-                        color_edit_linear("##SkyTop", env->sky_top_color);
+                        if (color_edit_linear("##SkyTop", env->sky_top_color)) scene_->mark_dirty();
                     });
                     prop_row("Sky Bottom", [&] {
-                        color_edit_linear("##SkyBottom", env->sky_bottom_color);
+                        if (color_edit_linear("##SkyBottom", env->sky_bottom_color)) scene_->mark_dirty();
                     });
                 }
                 ImGui::EndDisabled();
@@ -870,33 +880,33 @@ void PropertiesPanel::draw() {
 
                 if (auto t = PropertyTable("##env_ibl")) {
                     prop_row("IBL Intensity", [&] {
-                        ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
+                        if (ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f)) scene_->mark_dirty();
                     });
                 }
 
-                ImGui::Checkbox("Contact Shadows##EnvContact", &env->contact_shadows_enabled);
+                if (ImGui::Checkbox("Contact Shadows##EnvContact", &env->contact_shadows_enabled)) scene_->mark_dirty();
                 if (env->contact_shadows_enabled) {
                     if (auto t = PropertyTable("##env_contact")) {
                         prop_row("Distance", [&] {
-                            ImGui::SliderFloat("##ContactDist", &env->contact_shadow_distance, 0.05f, 2.0f);
+                            if (ImGui::SliderFloat("##ContactDist", &env->contact_shadow_distance, 0.05f, 2.0f)) scene_->mark_dirty();
                         });
                         prop_row("Thickness", [&] {
-                            ImGui::SliderFloat("##ContactThick", &env->contact_shadow_thickness, 0.01f, 0.5f);
+                            if (ImGui::SliderFloat("##ContactThick", &env->contact_shadow_thickness, 0.01f, 0.5f)) scene_->mark_dirty();
                         });
                         prop_row("Steps", [&] {
-                            ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
+                            if (ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64)) scene_->mark_dirty();
                         });
                     }
                 }
 
-                ImGui::Checkbox("Time of Day##EnvTod", &env->time_of_day_enabled);
+                if (ImGui::Checkbox("Time of Day##EnvTod", &env->time_of_day_enabled)) scene_->mark_dirty();
                 if (env->time_of_day_enabled) {
                     if (auto t = PropertyTable("##env_tod")) {
                         prop_row("Hour", [&] {
                             const int minutes = static_cast<int>(env->time_of_day * 60.0f + 0.5f) % (24 * 60);
                             char label[8];
                             std::snprintf(label, sizeof(label), "%02d:%02d", minutes / 60, minutes % 60);
-                            ImGui::SliderFloat("##TodHour", &env->time_of_day, 0.0f, 24.0f, label);
+                            if (ImGui::SliderFloat("##TodHour", &env->time_of_day, 0.0f, 24.0f, label)) scene_->mark_dirty();
                         });
                         prop_row("Day Length (min)", [&] {
                             float minutes = env->day_length / 60.0f;
@@ -905,16 +915,16 @@ void PropertiesPanel::draw() {
                             }
                         });
                         prop_row("Run in Editor", [&] {
-                            ImGui::Checkbox("##TodAdvance", &env->advance_in_editor);
+                            if (ImGui::Checkbox("##TodAdvance", &env->advance_in_editor)) scene_->mark_dirty();
                         });
                         prop_row("Path Tilt", [&] {
-                            ImGui::SliderFloat("##TodTilt", &env->sun_path_tilt, 0.0f, 90.0f, "%.0f°");
+                            if (ImGui::SliderFloat("##TodTilt", &env->sun_path_tilt, 0.0f, 90.0f, "%.0f°")) scene_->mark_dirty();
                         });
                         prop_row("North", [&] {
-                            ImGui::SliderFloat("##TodNorth", &env->north_yaw, -180.0f, 180.0f, "%.0f°");
+                            if (ImGui::SliderFloat("##TodNorth", &env->north_yaw, -180.0f, 180.0f, "%.0f°")) scene_->mark_dirty();
                         });
                         prop_row("Noon Hour", [&] {
-                            ImGui::SliderFloat("##TodNoon", &env->noon_hour, 0.0f, 24.0f, "%.1f");
+                            if (ImGui::SliderFloat("##TodNoon", &env->noon_hour, 0.0f, 24.0f, "%.1f")) scene_->mark_dirty();
                         });
                     }
                     ImGui::TextDisabled("Moon");
@@ -932,7 +942,7 @@ void PropertiesPanel::draw() {
                                              : phase < 0.69F ? "waning gibbous"
                                              : phase < 0.81F ? "last quarter (half)"
                                                              : "waning crescent";
-                            ImGui::SliderFloat("##MoonPhase", &env->moon_phase, 0.0f, 1.0f, name);
+                            if (ImGui::SliderFloat("##MoonPhase", &env->moon_phase, 0.0f, 1.0f, name)) scene_->mark_dirty();
                             if (ImGui::IsItemHovered()) {
                                 ImGui::SetTooltip(
                                     "Where the moon rides the sun's path, and so how much of it is\n"
@@ -940,34 +950,34 @@ void PropertiesPanel::draw() {
                             }
                         });
                         prop_row("Color", [&] {
-                            color_edit_linear("##MoonColor", env->moon_color);
+                            if (color_edit_linear("##MoonColor", env->moon_color)) scene_->mark_dirty();
                         });
                         prop_row("Intensity", [&] {
-                            ImGui::DragFloat("##MoonIntensity", &env->moon_intensity, 0.005f, 0.0f, 2.0f, "%.3f");
+                            if (ImGui::DragFloat("##MoonIntensity", &env->moon_intensity, 0.005f, 0.0f, 2.0f, "%.3f")) scene_->mark_dirty();
                         });
                     }
                 }
 
-                ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled);
+                if (ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled)) scene_->mark_dirty();
                 if (env->atmosphere_enabled) {
                     if (auto t = PropertyTable("##env_atmos")) {
                         prop_row("Sun Intensity", [&] {
-                            ImGui::SliderFloat("##AtmosSunI", &env->atmosphere_sun_intensity, 1.0f, 50.0f);
+                            if (ImGui::SliderFloat("##AtmosSunI", &env->atmosphere_sun_intensity, 1.0f, 50.0f)) scene_->mark_dirty();
                         });
                         prop_row("Rayleigh H (m)", [&] {
-                            ImGui::SliderFloat("##AtmosRayleighScale", &env->atmosphere_rayleigh_scale, 1000.0f, 20000.0f);
+                            if (ImGui::SliderFloat("##AtmosRayleighScale", &env->atmosphere_rayleigh_scale, 1000.0f, 20000.0f)) scene_->mark_dirty();
                         });
                         prop_row("Mie H (m)", [&] {
-                            ImGui::SliderFloat("##AtmosMieScale", &env->atmosphere_mie_scale, 100.0f, 5000.0f);
+                            if (ImGui::SliderFloat("##AtmosMieScale", &env->atmosphere_mie_scale, 100.0f, 5000.0f)) scene_->mark_dirty();
                         });
                         prop_row("Mie Aniso.", [&] {
-                            ImGui::SliderFloat("##AtmosMieG", &env->atmosphere_mie_g, 0.0f, 0.99f);
+                            if (ImGui::SliderFloat("##AtmosMieG", &env->atmosphere_mie_g, 0.0f, 0.99f)) scene_->mark_dirty();
                         });
                         prop_row("Mie Coeff.", [&] {
-                            ImGui::SliderFloat("##AtmosMieCoeff", &env->atmosphere_mie_coeff, 1e-6f, 100e-6f, "%.1e");
+                            if (ImGui::SliderFloat("##AtmosMieCoeff", &env->atmosphere_mie_coeff, 1e-6f, 100e-6f, "%.1e")) scene_->mark_dirty();
                         });
                         prop_row("HDRI Floor", [&] {
-                            ImGui::SliderFloat("##AtmosHdriFloor", &env->atmosphere_hdri_floor, 0.0f, 1.0f);
+                            if (ImGui::SliderFloat("##AtmosHdriFloor", &env->atmosphere_hdri_floor, 0.0f, 1.0f)) scene_->mark_dirty();
                         });
                     }
                 }
