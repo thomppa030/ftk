@@ -1,11 +1,13 @@
 #pragma once
 
 #include "ui/kit/edit.hpp"
+#include "ui/kit/tree.hpp"
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -26,6 +28,7 @@ private:
     void blocks();
     void feedback();
     void lists();
+    void tree_sample();
 
     // Sample enums for the choice fields.
     enum class Shape { Box, Sphere, Capsule, Mesh };
@@ -35,6 +38,10 @@ private:
     // Values for the sample controls to edit.
     std::string name_{"Crate"};
     std::string query_{"cra"};
+    std::vector<std::string> tree_names_{"Harbour", "Sun", "Main Camera", "Docks", "Crate",
+                                         "Barrel", "Crane", "Hook", "Fog Bank"};
+    std::size_t tree_selected_{4};
+    RenameBox tree_rename_;
     float intensity_{3.2f};
     bool shadows_{true};
     bool snap_{true};
