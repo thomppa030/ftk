@@ -1735,6 +1735,7 @@ void Engine::draw_ui() {
     menu_bar_.set_building(project_mgr_.is_building());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
+    menu_bar_.set_kit_gallery_flag(&show_kit_gallery_);
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
     menu_bar_.draw();
 
@@ -1749,6 +1750,7 @@ void Engine::draw_ui() {
     content_browser_.draw();
 
     vulkan_context_->draw_sdf_debug_window();
+    if (show_kit_gallery_) kit_gallery_.draw(&show_kit_gallery_);
 
     draw_status_bar();
 }

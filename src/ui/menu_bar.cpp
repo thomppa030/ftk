@@ -101,6 +101,9 @@ void MenuBar::draw_view_menu() {
             vk_->set_show_sdf_debug(sdf);
         }
     }
+    if (show_kit_gallery_ != nullptr) {
+        ImGui::Checkbox("Kit Gallery", show_kit_gallery_);
+    }
     ImGui::Separator();
     if (ImGui::MenuItem("Capture Screenshot...", "F9")) {
         on_open_capture.broadcast();

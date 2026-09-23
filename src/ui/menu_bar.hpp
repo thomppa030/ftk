@@ -27,6 +27,8 @@ public:
     void set_building(bool b) { building_ = b; }
     void set_scene_path(const std::string& p) { scene_path_ = &p; }
     void set_vulkan_context(VulkanContext* vk) { vk_ = vk; }
+    /// The flag View > Kit Gallery toggles; the engine draws the window.
+    void set_kit_gallery_flag(bool* show) { show_kit_gallery_ = show; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
     void set_gpu(GpuCore* gpu);
 
@@ -63,6 +65,7 @@ private:
     // Per-frame (set externally)
     Project* project_{nullptr};
     VulkanContext* vk_{nullptr};
+    bool* show_kit_gallery_{nullptr};
     ViewportManager* viewports_{nullptr};
     const std::string* scene_path_{nullptr};
     bool building_{false};

@@ -24,6 +24,7 @@
 #include "ui/context_registry.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/kit/gallery.hpp"
 #include "ui/menu_bar.hpp"
 
 #ifndef NDEBUG
@@ -272,6 +273,8 @@ private:
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;
+    ui::KitGallery kit_gallery_;
+    bool show_kit_gallery_{false};
 
     // Editor screenshot capture
     CaptureService capture_service_;

@@ -1,0 +1,180 @@
+#include "ui/kit/gallery.hpp"
+
+#include "ui/inspector_widgets.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/text_field.hpp"
+#include "ui/panel_widget.hpp"
+#include "ui/theme.hpp"
+
+#include <imgui.h>
+
+#include <cstdio>
+#include <string>
+
+namespace fjell::ui {
+
+namespace {
+
+// One colour token: a swatch, its name and its value.
+void swatch(const char* name, const ImVec4& colour) {
+    const float side = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    auto* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, {p.x + side * 1.5f, p.y + side},
+                      ImGui::ColorConvertFloat4ToU32(colour), 3.0f);
+    dl->AddRect(p, {p.x + side * 1.5f, p.y + side},
+                ImGui::ColorConvertFloat4ToU32(theme::border()), 3.0f);
+    ImGui::Dummy({side * 1.5f, side});
+    ImGui::SameLine(0.0f, theme::GAP_M);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(name);
+    ImGui::SameLine(0.0f, theme::GAP_M);
+    char value[24];
+    std::snprintf(value, sizeof(value), "#%02X%02X%02X",
+                  static_cast<int>(colour.x * 255.0f + 0.5f),
+                  static_cast<int>(colour.y * 255.0f + 0.5f),
+                  static_cast<int>(colour.z * 255.0f + 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+    ImGui::TextUnformatted(value);
+    if (colour.w < 1.0f) {
+        ImGui::SameLine();
+        ImGui::Text("@ %d %%", static_cast<int>(colour.w * 100.0f + 0.5f));
+    }
+    ImGui::PopStyleColor();
+}
+
+void tokens() {
+    if (section_foldable("Tokens", icon::more)) {
+        subheading("Surfaces");
+        swatch("surface_sunken", theme::surface_sunken());
+        swatch("surface_base", theme::surface_base());
+        swatch("surface_raised", theme::surface_raised());
+        swatch("surface_hover", theme::surface_hover());
+        swatch("surface_active", theme::surface_active());
+        swatch("surface_highest", theme::surface_highest());
+        swatch("border", theme::border());
+
+        subheading("Text");
+        swatch("text", theme::text());
+        swatch("text_secondary", theme::text_secondary());
+        swatch("text_disabled", theme::text_disabled());
+
+        subheading("Accent and state");
+        swatch("accent", theme::accent());
+        swatch("accent_bright", theme::accent_bright());
+        swatch("accent_hov", theme::accent_hov());
+        swatch("selection", theme::selection());
+        swatch("selection_secondary", theme::selection_secondary());
+        swatch("toggle_on", theme::toggle_on());
+
+        subheading("Status");
+        swatch("success", theme::success());
+        swatch("warning", theme::warning());
+        swatch("error", theme::error());
+        swatch("danger", theme::danger());
+        swatch("danger_hov", theme::danger_hov());
+
+        subheading("Categories");
+        const std::pair<const char*, theme::Category> categories[] = {
+            {"Rendering", theme::Category::Rendering}, {"Light", theme::Category::Light},
+            {"Camera", theme::Category::Camera}, {"Environment", theme::Category::Environment},
+            {"Physics", theme::Category::Physics}, {"Animation", theme::Category::Animation},
+            {"Audio", theme::Category::Audio}, {"VFX", theme::Category::Vfx},
+            {"UI", theme::Category::Ui}, {"Logic", theme::Category::Logic},
+            {"Structure", theme::Category::Structure},
+        };
+        for (const auto& [name, c] : categories) swatch(name, theme::category(c));
+
+        subheading("Axes and canvas");
+        swatch("axis_x", theme::axis_x());
+        swatch("axis_y", theme::axis_y());
+        swatch("axis_z", theme::axis_z());
+        swatch("grid_minor", theme::grid_minor());
+        swatch("grid_major", theme::grid_major());
+        swatch("grid_zero", theme::grid_zero());
+    }
+}
+
+void headings() {
+    if (section_foldable("Headings", icon::more)) {
+        section("Section", icon::search);
+        ImGui::TextUnformatted("A part of the panel, with a rule and its own icon.");
+        subheading("Sub-heading");
+        ImGui::TextUnformatted("A named group inside a section or component.");
+        if (subheading_foldable("Foldable sub-heading")) {
+            ImGui::TextUnformatted("Folds with the chevron on the left.");
+        }
+    }
+}
+
+} // namespace
+
+void KitGallery::buttons() {
+    if (section_foldable("Buttons", icon::more)) {
+        const std::pair<const char*, ButtonKind> kinds[] = {
+            {"Secondary", ButtonKind::Secondary}, {"Primary", ButtonKind::Primary},
+            {"Ghost", ButtonKind::Ghost}, {"Danger", ButtonKind::Danger},
+            {"Ghost danger", ButtonKind::GhostDanger},
+        };
+        for (bool disabled : {false, true}) {
+            subheading(disabled ? "Disabled" : "Kinds");
+            ImGui::BeginDisabled(disabled);
+            bool first = true;
+            for (const auto& [name, kind] : kinds) {
+                if (!first) ImGui::SameLine();
+                first = false;
+                button(name, kind);
+            }
+            ImGui::EndDisabled();
+        }
+
+        subheading("Icon buttons");
+        icon_button("add", icon::add, "Add");
+        ImGui::SameLine();
+        icon_button("browse", icon::browse, "Browse");
+        ImGui::SameLine();
+        icon_button("use_selected", icon::use_selected, "Use selected");
+        ImGui::SameLine();
+        icon_button("clear", icon::clear, "Clear");
+        ImGui::SameLine();
+        icon_button("remove", icon::remove, "Remove (undoable)", ButtonKind::GhostDanger);
+
+        subheading("Toggles");
+        if (toggle_button("snap", ICON_LC_MAGNET, snap_, "Snap to grid")) snap_ = !snap_;
+        ImGui::SameLine();
+        if (toggle_button("grid", ICON_LC_GRID_3X3, grid_, "Show grid")) grid_ = !grid_;
+        ImGui::SameLine();
+        if (toggle("Paint", paint_, "A text toggle")) paint_ = !paint_;
+    }
+}
+
+void KitGallery::rows() {
+    if (section_foldable("Rows", icon::more)) {
+        char width[64];
+        std::snprintf(width, sizeof(width), "Label column at this width: %.0f px",
+                      theme::label_column(ImGui::GetContentRegionAvail().x));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::TextUnformatted(width);
+        ImGui::PopStyleColor();
+
+        if (auto t = PropertyTable("##gallery_rows")) {
+            prop_row("Name", [&] { text_field("##name", name_); });
+            prop_row("Intensity", [&] { ImGui::DragFloat("##intensity", &intensity_, 0.05f); });
+            prop_row("Cast Shadows", [&] { ImGui::Checkbox("##shadows", &shadows_); });
+        }
+    }
+}
+
+void KitGallery::draw(bool* open) {
+    ImGui::SetNextWindowSize({420.0f, 640.0f}, ImGuiCond_FirstUseEver);
+    if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", open)) {
+        tokens();
+        headings();
+        buttons();
+        rows();
+    }
+}
+
+} // namespace fjell::ui
