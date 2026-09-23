@@ -41,13 +41,36 @@ void ImGuiHarness::mark(const std::string& name) {
     marks_[name] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
 }
 
-void ImGuiHarness::click(const std::string& name) {
+const ImGuiHarness::Rect& ImGuiHarness::marked(const std::string& name) const {
     auto it = marks_.find(name);
     if (it == marks_.end()) {
-        throw std::runtime_error("ImGuiHarness::click: nothing marked '" + name + "'");
+        throw std::runtime_error("ImGuiHarness: nothing marked '" + name + "'");
     }
-    const ImVec2 centre{(it->second.min.x + it->second.max.x) * 0.5f,
-                        (it->second.min.y + it->second.max.y) * 0.5f};
+    return it->second;
+}
+
+ImVec2 ImGuiHarness::rect_min(const std::string& name) const { return marked(name).min; }
+ImVec2 ImGuiHarness::rect_max(const std::string& name) const { return marked(name).max; }
+
+void ImGuiHarness::drag(ImVec2 from, ImVec2 to) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(from.x, from.y);
+    step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    step();
+    constexpr int STEPS = 4;
+    for (int i = 1; i <= STEPS; ++i) {
+        const float t = static_cast<float>(i) / STEPS;
+        io.AddMousePosEvent(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+        step();
+    }
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    step();
+}
+
+void ImGuiHarness::click(const std::string& name) {
+    const Rect& r = marked(name);
+    const ImVec2 centre{(r.min.x + r.max.x) * 0.5f, (r.min.y + r.max.y) * 0.5f};
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(centre.x, centre.y);
     step();

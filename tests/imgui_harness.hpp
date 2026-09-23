@@ -46,6 +46,14 @@ public:
     /// button, and runs the frames that takes.
     void click(const std::string& name);
 
+    /// A marked item's rectangle, for aiming at a point inside it.
+    [[nodiscard]] ImVec2 rect_min(const std::string& name) const;
+    [[nodiscard]] ImVec2 rect_max(const std::string& name) const;
+
+    /// Presses the left button at `from`, moves to `to` over a few frames
+    /// and releases there.
+    void drag(ImVec2 from, ImVec2 to);
+
     /// Types UTF-8 text into whatever has keyboard focus.
     void type(std::string_view text);
 
@@ -56,6 +64,7 @@ private:
     ImGuiContext* context_{nullptr};
     std::function<void()> ui_;
     struct Rect { ImVec2 min; ImVec2 max; };
+    [[nodiscard]] const Rect& marked(const std::string& name) const;
     std::map<std::string, Rect> marks_;
 };
 
