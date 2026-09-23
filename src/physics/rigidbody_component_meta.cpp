@@ -10,7 +10,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<RigidbodyComponent>({
         .display_name = "Rigidbody",
         .json_key = "rigidbody",
-        .color = {0.85f, 0.45f, 0.25f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<RigidbodyComponent>();

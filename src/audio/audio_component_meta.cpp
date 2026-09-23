@@ -11,7 +11,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<AudioSourceComponent>({
         .display_name = "Audio Source",
         .json_key = "audio",
-        .color = {0.55f, 0.70f, 0.85f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<AudioSourceComponent>();

@@ -11,7 +11,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<TilemapComponent>({
         .display_name = "Tilemap",
         .json_key = "tilemap",
-        .color = {0.30f, 0.65f, 0.85f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             auto& tm = node.components.add<TilemapComponent>();

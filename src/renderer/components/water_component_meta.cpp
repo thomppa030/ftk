@@ -89,7 +89,6 @@ const bool registered = [] {
     ComponentRegistry::instance().register_component<WaterComponent>({
         .display_name = "Water",
         .json_key = "water",
-        .color = {0.30f, 0.55f, 0.75f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<WaterComponent>();

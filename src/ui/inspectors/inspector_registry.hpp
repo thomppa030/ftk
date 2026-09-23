@@ -20,8 +20,7 @@ struct ComponentInspector {
     /// The component's domain: the colour of its bar, and its group when
     /// adding a component.
     theme::Category category{theme::Category::Structure};
-    /// Draws the component's fields into its block. Null for a component
-    /// that still draws through its ComponentMeta.
+    /// Draws the component's fields into its block.
     ui::Edit (*draw)(Node3D& node, void* component, const InspectorContext& ctx){nullptr};
 };
 

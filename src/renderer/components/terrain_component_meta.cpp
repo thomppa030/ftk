@@ -30,7 +30,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<TerrainComponent>({
         .display_name = "Terrain",
         .json_key = "terrain",
-        .color = {0.35f, 0.65f, 0.35f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<TerrainComponent>();

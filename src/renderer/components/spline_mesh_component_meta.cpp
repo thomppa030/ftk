@@ -58,7 +58,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<SplineMeshComponent>({
         .display_name = "Spline Mesh",
         .json_key = "spline_mesh",
-        .color = {0.35f, 0.85f, 0.70f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& ctx) {
             auto& sm = node.components.add<SplineMeshComponent>();

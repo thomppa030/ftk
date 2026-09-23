@@ -12,7 +12,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<BuoyancyComponent>({
         .display_name = "Buoyancy",
         .json_key = "buoyancy",
-        .color = {0.25f, 0.6f, 0.85f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<BuoyancyComponent>();

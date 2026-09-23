@@ -11,7 +11,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<SpriteComponent>({
         .display_name = "Sprite",
         .json_key = "sprite",
-        .color = {0.40f, 0.75f, 0.40f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<SpriteComponent>();

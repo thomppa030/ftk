@@ -1,6 +1,5 @@
 #pragma once
 
-#include <imgui.h>
 #include <nlohmann/json_fwd.hpp>
 
 #include <cstdint>
@@ -42,11 +41,9 @@ struct InspectorContext {
 struct ComponentMeta {
     std::string display_name;
     std::string json_key;
-    ImVec4 color;
 
-    // Drawn by the editor's inspector registry (ui/inspectors) for components
-    // moved there; empty for those.
-    std::function<bool(Node3D& node, void* component, const InspectorContext& ctx)> draw{};
+    // How the component looks in the editor, and its category, are the
+    // editor's: ui/inspectors/inspector_registry.cpp.
     std::function<void(Node3D& node, const InspectorContext& ctx)> init;
     // Both sides take the project: deserialize resolves asset references
     // through it, serialize writes them as ids through it.

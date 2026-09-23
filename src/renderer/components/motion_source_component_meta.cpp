@@ -10,7 +10,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<MotionSourceComponent>({
         .display_name = "Motion Source",
         .json_key = "motion_source",
-        .color = {0.45f, 0.70f, 0.80f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<MotionSourceComponent>();

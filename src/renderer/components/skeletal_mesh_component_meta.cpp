@@ -16,7 +16,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<SkeletalMeshComponent>({
         .display_name = "Skeletal Mesh",
         .json_key = "skeletal_mesh",
-        .color = {0.5f, 0.3f, 0.8f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& ctx) {
             auto& smc = node.components.add<SkeletalMeshComponent>();

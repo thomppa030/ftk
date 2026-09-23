@@ -10,7 +10,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<ArrowComponent>({
         .display_name = "Arrow",
         .json_key = "arrow",
-        .color = {0.9f, 0.75f, 0.3f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<ArrowComponent>();

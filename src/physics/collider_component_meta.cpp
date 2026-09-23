@@ -24,7 +24,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<ColliderComponent>({
         .display_name = "Collider",
         .json_key = "collider",
-        .color = {0.85f, 0.45f, 0.25f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             auto& col = node.components.add<ColliderComponent>();

@@ -73,8 +73,9 @@ InspectorRegistry build() {
     r.add<ArrowComponent>({.category = C::Structure, .draw = draw_arrow});
 
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
-        if (r.find(id) == nullptr) {
-            FJELL_CORE_ERROR("Component '{}' has no entry in ui/inspectors/inspector_registry.cpp",
+        const auto* inspector = r.find(id);
+        if (inspector == nullptr || inspector->draw == nullptr) {
+            FJELL_CORE_ERROR("Component '{}' has no inspector in ui/inspectors/inspector_registry.cpp",
                              meta.display_name);
         }
     });

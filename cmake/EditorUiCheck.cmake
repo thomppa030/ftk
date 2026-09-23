@@ -8,6 +8,11 @@
 # file that no longer has a hit fails too, so a migrated file comes off the
 # list and cannot slide back.
 #
+# A component's meta (*_meta.cpp, scene/component_meta.hpp) is runtime and
+# includes neither ImGui nor the editor's UI: how a component looks in the
+# editor lives in src/ui/inspectors. The game UI (ui/game_ui/) is runtime
+# and may be included.
+#
 # Runs at configure and, through the fjell-editor-ui-check target, whenever a
 # scanned file changes, so a plain build reports a new offender.
 
@@ -61,6 +66,7 @@ function(fjell_check_editor_ui)
 
     set(offenders "")
     set(offending_files "")
+    set(editor_in_runtime "")
     foreach(root IN LISTS ARGN)
         file(GLOB_RECURSE sources ${glob_flags}
             "${CMAKE_SOURCE_DIR}/${root}/*.cpp" "${CMAKE_SOURCE_DIR}/${root}/*.hpp"
@@ -72,6 +78,15 @@ function(fjell_check_editor_ui)
             if(rel STREQUAL "src/ui/theme.hpp" OR rel STREQUAL "src/ui/icons_lc.hpp"
                OR rel MATCHES "^src/ui/kit/")
                 continue()
+            endif()
+            if(rel MATCHES "_meta\\.cpp$" OR rel STREQUAL "src/scene/component_meta.hpp")
+                file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"](imgui|ui/)")
+                foreach(inc IN LISTS includes)
+                    if(NOT inc MATCHES "ui/game_ui/")
+                        string(STRIP "${inc}" inc)
+                        list(APPEND editor_in_runtime "  ${rel}: ${inc}")
+                    endif()
+                endforeach()
             endif()
             file(STRINGS "${source}" hits REGEX "${pattern}")
             set(file_hit FALSE)
@@ -118,6 +133,13 @@ function(fjell_check_editor_ui)
             "Use a colour token from src/ui/theme.hpp, an icon from ui::icon, or a piece of "
             "the kit in src/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
+    endif()
+    if(editor_in_runtime)
+        list(JOIN editor_in_runtime "\n" editor_in_runtime)
+        string(APPEND report
+            "Editor UI included by a component meta, which the runtime builds without the "
+            "editor:\n${editor_in_runtime}\n"
+            "Draw the component in src/ui/inspectors and list it in inspector_registry.cpp.\n")
     endif()
     if(stale)
         list(JOIN stale "\n" stale)

@@ -22,7 +22,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<InstancedMeshComponent>({
         .display_name = "Instanced Mesh",
         .json_key = "instanced_mesh",
-        .color = {0.86f, 0.68f, 0.32f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<InstancedMeshComponent>();

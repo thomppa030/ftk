@@ -102,7 +102,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<EmitterComponent>({
         .display_name = "Particle Emitter",
         .json_key = "emitter",
-        .color = {0.78f, 0.55f, 0.85f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<EmitterComponent>();

@@ -133,26 +133,12 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
             // The fields in one group, so the block knows whether
             // one of them is being edited or under the mouse.
             ImGui::BeginGroup();
-            const bool kit = inspector && inspector->draw;
-            ui::Edit edit;
-            if (kit) {
-                edit = inspector->draw(node, ptr, ictx);
-            } else if (meta->draw) {
-                edit.changed = meta->draw(node, ptr, ictx);
-            }
+            const ui::Edit edit = inspector ? inspector->draw(node, ptr, ictx) : ui::Edit{};
             ImGui::EndGroup();
             const bool active = ImGui::IsItemActive();
             const bool hovered = ImGui::IsItemHovered();
-
-            // A kit inspector says when its edit is finished. One
-            // drawn by its ComponentMeta only says it changed, so
-            // the edit is taken as finished once nothing in the
-            // block is held and no picker or list is open over it.
-            const bool committed = kit
-                ? edit.committed
-                : !active && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
             component_edits_.track(
-                *scene_, history_, node.id, id, {edit.changed, committed, active, hovered},
+                *scene_, history_, node.id, id, {edit.changed, edit.committed, active, hovered},
                 [&] { return ComponentState::of(node, id); },
                 [&](ComponentState before, ComponentState after) {
                     return std::make_unique<ComponentEditCommand>(

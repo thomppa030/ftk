@@ -11,7 +11,6 @@ static const bool registered = [] {
     ComponentRegistry::instance().register_component<InputComponent>({
         .display_name = "Input",
         .json_key = "input",
-        .color = {0.4f, 0.9f, 0.5f, 1.0f},
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<InputComponent>().actions_dir = "assets/input/actions";
