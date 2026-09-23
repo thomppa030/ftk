@@ -32,9 +32,18 @@ public:
                        const std::string& name = "Empty");
     uint32_t add_folder(const std::string& name = "Folder");
     uint32_t add_node(std::unique_ptr<Node> node);
+    // The order of objects() is the order of siblings in the hierarchy and
+    // in the scene file, so the editor's removals keep it: the rest close up
+    // behind the removed node. Destroys during play swap the last node into
+    // the gap instead, being many and fast; the edited scene comes back from
+    // its snapshot afterwards.
     void remove(uint32_t id);
     [[nodiscard]] std::unique_ptr<Node> extract(uint32_t id);
-    void restore(std::unique_ptr<Node> node);
+    /// Puts an extracted node back at `index` in objects(), where
+    /// index_of() said it was; at the end by default.
+    void restore(std::unique_ptr<Node> node, std::size_t index = SIZE_MAX);
+    /// Where the node is in objects(), or -1.
+    [[nodiscard]] int index_of(uint32_t id);
     void clear();
 
     void compute_world_matrices(class ThreadPool* pool = nullptr);

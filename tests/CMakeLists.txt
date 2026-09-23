@@ -188,6 +188,7 @@ add_executable(fjell-tests
     test_choices.cpp
     test_command_group.cpp
     test_edit_record.cpp
+    test_scene_order.cpp
     test_search.cpp
     test_tree.cpp
     test_shader_diagnostic.cpp

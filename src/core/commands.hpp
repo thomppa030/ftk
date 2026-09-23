@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -125,7 +126,7 @@ public:
             first_ = false;
             return; // object already exists on first execute
         }
-        scene_.restore(std::move(snapshot_));
+        scene_.restore(std::move(snapshot_), index_);
         // Re-snapshot for next redo cycle
         if (auto* obj = scene_.find(id_)) {
             snapshot_ = obj->clone();
@@ -133,6 +134,7 @@ public:
         *selected_id_ = id_;
     }
     void undo() override {
+        index_ = static_cast<std::size_t>(scene_.index_of(id_));
         snapshot_ = scene_.extract(id_);
         if (*selected_id_ == id_) *selected_id_ = 0;
     }
@@ -146,6 +148,8 @@ private:
     uint32_t* selected_id_;
     std::unique_ptr<Node> snapshot_;
     std::string name_;
+    // Where the node was among the scene's objects, to come back there.
+    std::size_t index_{SIZE_MAX};
     bool first_{true};
 };
 
@@ -170,11 +174,13 @@ public:
 
     void execute() override {
         if (pre_remove_) pre_remove_();
+        index_ = static_cast<std::size_t>(scene_.index_of(id_));
         snapshot_ = scene_.extract(id_);
         if (*selected_id_ == id_) *selected_id_ = 0;
     }
     void undo() override {
-        scene_.restore(std::move(snapshot_));
+        // Back where it was among its siblings.
+        scene_.restore(std::move(snapshot_), index_);
         // Re-snapshot for next execute cycle
         if (auto* obj = scene_.find(id_)) {
             snapshot_ = obj->clone();
@@ -199,6 +205,8 @@ private:
     std::unique_ptr<Node> snapshot_;
     std::string name_;
     std::vector<std::pair<uint32_t, int32_t>> orphaned_children_;
+    // Where the node was among the scene's objects, to come back there.
+    std::size_t index_{SIZE_MAX};
 };
 
 // ── Reparent ─────────────────────────────────────────────────────────────

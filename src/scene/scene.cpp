@@ -119,58 +119,40 @@ std::vector<uint32_t> Scene::flush_spawned() {
 }
 
 void Scene::remove(uint32_t id) {
-    for (auto& obj : objects_) {
-        if (obj->parent_id == static_cast<int32_t>(id)) {
-            obj->parent_id = -1;
-        }
-    }
-    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
-    auto map_it = id_to_index_.find(id);
-    if (map_it == id_to_index_.end()) return;
-
-    int idx = map_it->second;
-    id_generation_[id]++;
-    // Swap-and-pop: O(1) removal instead of O(n) shift
-    if (idx < static_cast<int>(objects_.size()) - 1) {
-        uint32_t back_id = objects_.back()->id;
-        std::swap(objects_[idx], objects_.back());
-        id_to_index_[back_id] = idx;
-    }
-    objects_.pop_back();
-    id_to_index_.erase(map_it);
-    dirty_ = true;
+    (void)extract(id);
 }
 
 std::unique_ptr<Node> Scene::extract(uint32_t id) {
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
+    auto map_it = id_to_index_.find(id);
+    if (map_it == id_to_index_.end()) return nullptr;
     for (auto& obj : objects_) {
         if (obj->parent_id == static_cast<int32_t>(id)) {
             obj->parent_id = -1;
         }
     }
-    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
-    auto map_it = id_to_index_.find(id);
     id_generation_[id]++;
-
-    int idx = map_it->second;
-    auto result = std::move(objects_[idx]);
-    // Swap-and-pop
-    if (idx < static_cast<int>(objects_.size()) - 1) {
-        objects_[idx] = std::move(objects_.back());
-        id_to_index_[objects_[idx]->id] = idx;
-    }
-    objects_.pop_back();
-    id_to_index_.erase(map_it);
+    const int idx = map_it->second;
+    auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
+    objects_.erase(objects_.begin() + idx);
+    rebuild_id_index();
     dirty_ = true;
     return result;
 }
 
-void Scene::restore(std::unique_ptr<Node> node) {
+void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     // Keep existing generation — node is coming back
-    uint32_t id = node->id;
-    id_to_index_[id] = static_cast<int>(objects_.size());
-    objects_.push_back(std::move(node));
+    index = std::min(index, objects_.size());
+    objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
+    rebuild_id_index();
     dirty_ = true;
+}
+
+int Scene::index_of(uint32_t id) {
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
+    auto it = id_to_index_.find(id);
+    return it != id_to_index_.end() ? it->second : -1;
 }
 
 void Scene::insert_point_light(int index, const PointLight& light) {
