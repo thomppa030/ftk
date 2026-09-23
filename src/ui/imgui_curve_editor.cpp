@@ -69,10 +69,15 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
         prev = pt;
     }
 
-    // State for dragging
-    static int s_dragging_key = -1;
-    static bool s_dragging_tangent_in = false;
-    static bool s_dragging_tangent_out = false;
+    // What this editor is dragging, kept in ImGui's storage under this
+    // editor's own ID so two editors on screen don't share one drag.
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    const ImGuiID key_slot = ImGui::GetID("##drag_key");
+    const ImGuiID handle_slot = ImGui::GetID("##drag_handle");
+    int dragging_key = storage->GetInt(key_slot, -1);
+    const int handle = storage->GetInt(handle_slot, 0);   // 0 key, 1 tangent in, 2 tangent out
+    bool dragging_tangent_in = handle == 1;
+    bool dragging_tangent_out = handle == 2;
 
     ImVec2 mouse = ImGui::GetIO().MousePos;
     constexpr float kGrabRadius = 6.0f;
@@ -92,7 +97,7 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
             dl->AddCircleFilled(ti_end, 4.0f, IM_COL32(100, 180, 100, 220));
 
             // Drag tangent in
-            if (active && s_dragging_key == ki && s_dragging_tangent_in) {
+            if (active && dragging_key == ki && dragging_tangent_in) {
                 float dy = -(mouse.y - kp.y) / tan_len;
                 key.tangent_in = dy;
                 changed = true;
@@ -101,9 +106,9 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
                 float dx = mouse.x - ti_end.x;
                 float dy = mouse.y - ti_end.y;
                 if (dx * dx + dy * dy < kGrabRadius * kGrabRadius * 4.0f) {
-                    s_dragging_key = ki;
-                    s_dragging_tangent_in = true;
-                    s_dragging_tangent_out = false;
+                    dragging_key = ki;
+                    dragging_tangent_in = true;
+                    dragging_tangent_out = false;
                 }
             }
         }
@@ -115,7 +120,7 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
             dl->AddCircleFilled(to_end, 4.0f, IM_COL32(100, 140, 220, 220));
 
             // Drag tangent out
-            if (active && s_dragging_key == ki && s_dragging_tangent_out) {
+            if (active && dragging_key == ki && dragging_tangent_out) {
                 float dy = -(mouse.y - kp.y) / tan_len;
                 key.tangent_out = dy;
                 changed = true;
@@ -124,9 +129,9 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
                 float dx = mouse.x - to_end.x;
                 float dy = mouse.y - to_end.y;
                 if (dx * dx + dy * dy < kGrabRadius * kGrabRadius * 4.0f) {
-                    s_dragging_key = ki;
-                    s_dragging_tangent_out = true;
-                    s_dragging_tangent_in = false;
+                    dragging_key = ki;
+                    dragging_tangent_out = true;
+                    dragging_tangent_in = false;
                 }
             }
         }
@@ -136,7 +141,7 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
         dl->AddCircle(kp, kGrabRadius, IM_COL32(255, 220, 100, 255), 0, 1.5f);
 
         // Drag keyframe
-        if (active && s_dragging_key == ki && !s_dragging_tangent_in && !s_dragging_tangent_out) {
+        if (active && dragging_key == ki && !dragging_tangent_in && !dragging_tangent_out) {
             ImVec2 cv = from_screen(mouse, canvas_pos, canvas_sz, v_min, v_max);
             // First and last keyframe: lock time to 0 and 1
             if (ki == 0) {
@@ -153,23 +158,25 @@ bool CurveEditor(const char* label, Curve& curve, ImVec2 size,
         }
 
         // Start drag on click
-        if (hovered && ImGui::IsMouseClicked(0) && s_dragging_key < 0) {
+        if (hovered && ImGui::IsMouseClicked(0) && dragging_key < 0) {
             float dx = mouse.x - kp.x;
             float dy = mouse.y - kp.y;
             if (dx * dx + dy * dy < kGrabRadius * kGrabRadius) {
-                s_dragging_key = ki;
-                s_dragging_tangent_in = false;
-                s_dragging_tangent_out = false;
+                dragging_key = ki;
+                dragging_tangent_in = false;
+                dragging_tangent_out = false;
             }
         }
     }
 
     // Release drag
     if (!active || ImGui::IsMouseReleased(0)) {
-        s_dragging_key = -1;
-        s_dragging_tangent_in = false;
-        s_dragging_tangent_out = false;
+        dragging_key = -1;
+        dragging_tangent_in = false;
+        dragging_tangent_out = false;
     }
+    storage->SetInt(key_slot, dragging_key);
+    storage->SetInt(handle_slot, dragging_tangent_in ? 1 : dragging_tangent_out ? 2 : 0);
 
     // Right-click: add or delete keyframe
     if (hovered && ImGui::IsMouseClicked(1)) {

@@ -65,6 +65,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -162,6 +163,7 @@ add_executable(fjell-tests
     imgui_harness.cpp
     test_text_field.cpp
     test_component_storage.cpp
+    test_curve_editor.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
