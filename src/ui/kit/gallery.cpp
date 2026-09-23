@@ -2,7 +2,9 @@
 
 #include "ui/inspector_widgets.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/panel_widget.hpp"
@@ -160,10 +162,43 @@ void KitGallery::rows() {
         ImGui::PopStyleColor();
 
         if (auto t = PropertyTable("##gallery_rows")) {
-            prop_row("Name", [&] { text_field("##name", name_); });
-            prop_row("Intensity", [&] { ImGui::DragFloat("##intensity", &intensity_, 0.05f); });
-            prop_row("Cast Shadows", [&] { ImGui::Checkbox("##shadows", &shadows_); });
+            row("Name", [&] { text_field("##name", name_); });
+            row("Intensity", "Brightness of the light, as a multiple of the colour.",
+                [&] { drag("##intensity", intensity_, {.speed = 0.05f, .min = 0.0f, .max = 100.0f}); });
+            hint("Above 1 blooms");
+            row("Cast shadows", [&] { checkbox("##shadows", shadows_); });
         }
+    }
+}
+
+void KitGallery::fields() {
+    if (section_foldable("Fields", icon::more)) {
+        Edit edit;
+        subheading("Units");
+        if (auto t = PropertyTable("##gallery_units")) {
+            row("Mass", [&] { edit |= drag("##mass", mass_, {.speed = 0.1f, .min = 0.01f, .max = 1000.0f, .unit = Unit::Kilograms, .format = "%.1f"}); });
+            row("Field of view", [&] { edit |= drag("##fov", fov_, {.speed = 0.5f, .min = 1.0f, .max = 179.0f, .unit = Unit::Degrees, .format = "%.1f"}); });
+            row("Rayleigh height", [&] { edit |= drag("##rayleigh", rayleigh_, {.speed = 10.0f, .unit = Unit::Metres, .format = "%.0f"}); });
+            row("Wind area", [&] { edit |= drag("##wind", wind_area_, {.speed = 0.05f, .min = 0.0f, .max = 100.0f, .unit = Unit::SquareMetres}); });
+            row("Day length", [&] { edit |= drag("##day", day_length_, {.speed = 0.1f, .min = 0.1f, .max = 1440.0f, .unit = Unit::Minutes, .format = "%.1f"}); });
+            row("Slope limit", [&] { edit |= slider("##slope", slope_, 0.0f, 90.0f, Unit::Degrees, "%.1f"); });
+            row("Count", [&] { edit |= drag_int("##count", count_, 0.5f, 0, 1024); });
+        }
+        subheading("Vectors");
+        if (auto t = PropertyTable("##gallery_vectors")) {
+            row("Position", [&] { edit |= vec3("##position", position_); });
+            row("Rotation", [&] { edit |= vec3("##rotation", rotation_, {.speed = 1.0f, .unit = Unit::Degrees, .format = "%.1f"}); });
+            row("Scale", [&] { edit |= vec3("##scale", scale_, {.speed = 0.05f, .min = 0.01f, .max = 100.0f}); });
+            row("Tiling", [&] { edit |= vec2("##tiling", tiling_, {.speed = 0.05f, .unit = Unit::Times}); });
+        }
+        subheading("Toggles");
+        if (auto t = PropertyTable("##gallery_toggles")) {
+            row("Cast shadows", [&] { edit |= checkbox("##shadows", shadows_); });
+        }
+        if (edit.committed) ++commits_;
+        char count[48];
+        std::snprintf(count, sizeof(count), "Edits committed: %d", commits_);
+        hint(count);
     }
 }
 
@@ -174,6 +209,7 @@ void KitGallery::draw(bool* open) {
         headings();
         buttons();
         rows();
+        fields();
     }
 }
 

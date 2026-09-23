@@ -118,6 +118,9 @@ inline constexpr float GAP_L = 16.0f;
 /// Height of the category bar over a component block.
 inline constexpr float CATEGORY_BAR = 3.0f;
 
+/// Text size of hints and status lines, a step under the body text.
+inline constexpr float SMALL_TEXT = 13.0f;
+
 /// Width at which tooltips wrap.
 inline constexpr float TOOLTIP_WRAP = 320.0f;
 
