@@ -1,11 +1,13 @@
 #include "ui/kit/field.hpp"
 
+#include "ui/kit/edit_record.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
 #include <cmath>
+#include <string>
 
 namespace fjell::ui {
 
@@ -83,6 +85,22 @@ void draw_text(const char* number, Unit unit, const Axis* axis, bool signed_rang
     dl->PopClipRect();
 }
 
+// The field's value as its edit record reads it: the number and its unit.
+std::string value_text(const char* format, float value, Unit unit) {
+    char number[64];
+    ImFormatString(number, sizeof(number), format, value);
+    return detail::with_unit(number, unit_symbol(unit));
+}
+
+std::string value_text(int value, Unit unit) {
+    return value_text("%.0f", static_cast<float>(value), unit);
+}
+
+// Records a single field's finished edit.
+void track(const std::string& before, const std::string& after, const Edit& edit) {
+    detail::track_field(ImGui::GetItemID(), before, after, ImGui::IsItemActivated(), edit);
+}
+
 Edit finish(bool changed, bool hidden, const char* number, Unit unit, const Axis* axis,
             bool signed_range) {
     if (hidden) {
@@ -93,11 +111,26 @@ Edit finish(bool changed, bool hidden, const char* number, Unit unit, const Axis
 }
 
 Edit drag_one(const char* id, float& value, const DragSpec& spec, const Axis* axis) {
+    const std::string before = value_text(spec.format, value, spec.unit);
     const bool hidden = hide_text(id);
     const bool changed = ImGui::DragFloat(id, &value, spec.speed, spec.min, spec.max, spec.format);
     char number[64];
     ImFormatString(number, sizeof(number), spec.format, value);
-    return finish(changed, hidden, number, spec.unit, axis, can_be_negative(spec.min, spec.max));
+    const Edit edit = finish(changed, hidden, number, spec.unit, axis, can_be_negative(spec.min, spec.max));
+    track(before, value_text(spec.format, value, spec.unit), edit);
+    return edit;
+}
+
+// Several numbers as one value, "(1.00, 0.00, 2.00) m".
+template <typename T, typename Format>
+std::string vector_text(const T* values, int count, Unit unit, Format&& format) {
+    std::string text = "(";
+    for (int i = 0; i < count; ++i) {
+        if (i > 0) text += ", ";
+        text += format(values[i]);
+    }
+    text += ")";
+    return detail::with_unit(text.c_str(), unit_symbol(unit));
 }
 
 Edit vec_n(const char* id, float* values, int count, const DragSpec& spec) {
@@ -106,7 +139,11 @@ Edit vec_n(const char* id, float* values, int count, const DragSpec& spec) {
         {"X", theme::axis_x()}, {"Y", theme::axis_y()}, {"Z", theme::axis_z()},
         {"W", theme::text_secondary()},
     };
+    auto number = [&](float v) { return value_text(spec.format, v, Unit::None); };
+    const std::string before = vector_text(values, count, spec.unit, number);
+    const ImGuiID field_id = ImGui::GetID(id);
     Edit edit;
+    bool started = false;
     ImGui::BeginGroup();
     ImGui::PushID(id);
     ImGui::PushMultiItemsWidths(count, ImGui::CalcItemWidth());
@@ -114,11 +151,14 @@ Edit vec_n(const char* id, float* values, int count, const DragSpec& spec) {
         if (i > 0) ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         ImGui::PushID(i);
         edit |= drag_one("##v", values[i], spec, &axes[i]);
+        started = started || ImGui::IsItemActivated();
         ImGui::PopID();
         ImGui::PopItemWidth();
     }
     ImGui::PopID();
     ImGui::EndGroup();
+    // The record names the whole vector, over the one number it replaces.
+    detail::track_field(field_id, before, vector_text(values, count, spec.unit, number), started, edit);
     return edit;
 }
 
@@ -147,12 +187,15 @@ Edit drag(const char* id, float& value, const DragSpec& spec) {
 
 static Edit drag_int_axis(const char* id, int& value, float speed, int min, int max, Unit unit,
                    const Axis* axis) {
+    const std::string before = value_text(value, unit);
     const bool hidden = hide_text(id);
     const bool changed = ImGui::DragInt(id, &value, speed, min, max);
     char number[32];
     ImFormatString(number, sizeof(number), "%d", value);
-    return finish(changed, hidden, number, unit, axis,
-                  can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+    const Edit edit = finish(changed, hidden, number, unit, axis,
+                             can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+    track(before, value_text(value, unit), edit);
+    return edit;
 }
 
 Edit drag_int(const char* id, int& value, float speed, int min, int max, Unit unit) {
@@ -161,21 +204,27 @@ Edit drag_int(const char* id, int& value, float speed, int min, int max, Unit un
 
 Edit slider(const char* id, float& value, float min, float max, Unit unit, const char* format,
             bool logarithmic) {
+    const std::string before = value_text(format, value, unit);
     const bool hidden = hide_text(id);
     const bool changed = ImGui::SliderFloat(id, &value, min, max, format,
                                             logarithmic ? ImGuiSliderFlags_Logarithmic : 0);
     char number[64];
     ImFormatString(number, sizeof(number), format, value);
-    return finish(changed, hidden, number, unit, nullptr, can_be_negative(min, max));
+    const Edit edit = finish(changed, hidden, number, unit, nullptr, can_be_negative(min, max));
+    track(before, value_text(format, value, unit), edit);
+    return edit;
 }
 
 Edit slider_int(const char* id, int& value, int min, int max, Unit unit) {
+    const std::string before = value_text(value, unit);
     const bool hidden = hide_text(id);
     const bool changed = ImGui::SliderInt(id, &value, min, max);
     char number[32];
     ImFormatString(number, sizeof(number), "%d", value);
-    return finish(changed, hidden, number, unit, nullptr,
-                  can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+    const Edit edit = finish(changed, hidden, number, unit, nullptr,
+                             can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+    track(before, value_text(value, unit), edit);
+    return edit;
 }
 
 Edit slider_labelled(const char* id, float& value, float min, float max, const char* text) {
@@ -186,7 +235,11 @@ Edit slider_labelled(const char* id, float& value, float min, float max, const c
 
 Edit ivec2(const char* id, glm::ivec2& value, float speed, int min, int max, Unit unit) {
     const Axis axes[] = {{"X", theme::axis_x()}, {"Y", theme::axis_y()}};
+    auto number = [](int v) { return value_text(v, Unit::None); };
+    const std::string before = vector_text(&value.x, 2, unit, number);
+    const ImGuiID field_id = ImGui::GetID(id);
     Edit edit;
+    bool started = false;
     ImGui::BeginGroup();
     ImGui::PushID(id);
     ImGui::PushMultiItemsWidths(2, ImGui::CalcItemWidth());
@@ -194,11 +247,13 @@ Edit ivec2(const char* id, glm::ivec2& value, float speed, int min, int max, Uni
         if (i > 0) ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         ImGui::PushID(i);
         edit |= drag_int_axis("##v", value[i], speed, min, max, unit, &axes[i]);
+        started = started || ImGui::IsItemActivated();
         ImGui::PopID();
         ImGui::PopItemWidth();
     }
     ImGui::PopID();
     ImGui::EndGroup();
+    detail::track_field(field_id, before, vector_text(&value.x, 2, unit, number), started, edit);
     return edit;
 }
 
@@ -222,8 +277,11 @@ void readout(const char* text) {
 }
 
 Edit checkbox(const char* id, bool& value) {
+    const char* before = value ? "On" : "Off";
     const bool changed = ImGui::Checkbox(id, &value);
-    return {changed, changed};
+    const Edit edit{changed, changed};
+    track(before, value ? "On" : "Off", edit);
+    return edit;
 }
 
 } // namespace fjell::ui

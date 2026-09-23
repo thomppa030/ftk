@@ -1,6 +1,7 @@
 #include "ui/kit/color_field.hpp"
 
 #include "core/math/color_space.hpp"
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/theme.hpp"
 
@@ -57,6 +58,9 @@ Edit srgb_field(const char* id, float* rgba, bool alpha) {
     const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
     const float width = ImGui::CalcItemWidth();
 
+    const std::string before = to_hex(rgba, alpha);
+    const ImGuiID field_id = ImGui::GetID(id);
+    bool started = false;
     ImGui::PushID(id);
     ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoTooltip;
     if (!alpha) flags |= ImGuiColorEditFlags_NoAlpha;
@@ -86,9 +90,12 @@ Edit srgb_field(const char* id, float* rgba, bool alpha) {
         else picker |= ImGuiColorEditFlags_AlphaBar;
         edit.changed = ImGui::ColorPicker4("##pick", rgba, picker) || edit.changed;
         edit.committed = ImGui::IsItemDeactivatedAfterEdit() || edit.committed;
+        started = ImGui::IsItemActivated();
         ImGui::EndPopup();
     }
     ImGui::PopID();
+    // Recorded as the colour's code, over the hex field's own record.
+    detail::track_field(field_id, before, to_hex(rgba, alpha), started, edit);
     return edit;
 }
 

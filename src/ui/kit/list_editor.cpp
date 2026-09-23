@@ -1,6 +1,7 @@
 #include "ui/kit/list_editor.hpp"
 
 #include "ui/kit/button.hpp"
+#include "ui/kit/edit_record.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
@@ -73,6 +74,8 @@ void ListEditor::end_scroll() {
 }
 
 bool ListEditor::begin_item(std::size_t index, bool selected) {
+    // A card's fields are not the row the list sits under.
+    detail::set_edit_label(nullptr);
     index_ = index;
     selected_ = selected;
     clicked_ = false;
