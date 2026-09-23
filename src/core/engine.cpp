@@ -1375,6 +1375,11 @@ void Engine::load_scene(const std::string& path) {
     if (result) {
         vulkan_context_->release_scene_particles(scene_);
         scene_ = std::move(*result);
+        // The loaded nodes carry their scripts as saved data; the live
+        // instances the inspector and play mode work on are made here.
+        if (script_subsystem_->manager().is_loaded()) {
+            script_subsystem_->manager().deserialize_all(scene_);
+        }
     } else {
         FJELL_CORE_ERROR("{}", result.error());
         scene_.clear();
