@@ -148,12 +148,8 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
                 : !active && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
             component_edits_.track(
                 *scene_, history_, node.id, id, {edit.changed, committed, active, hovered},
-                [&] {
-                    ComponentStorage copy;
-                    node.components.clone_one(id, node.components, copy);
-                    return copy;
-                },
-                [&](ComponentStorage before, ComponentStorage after) {
+                [&] { return ComponentState::of(node, id); },
+                [&](ComponentState before, ComponentState after) {
                     return std::make_unique<ComponentEditCommand>(
                         *scene_, node.id, id, std::move(before), std::move(after),
                         "Edit " + meta->display_name);

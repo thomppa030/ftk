@@ -391,6 +391,23 @@ private:
     ComponentStorage::Detached removed_;
 };
 
+/// A component as it was at one moment, for undoing an edit of it: a copy
+/// made by its clone rule, and the node's source. The source travels with it
+/// because a mesh component's model is loaded from the node's source, so
+/// changing the model changes the source.
+struct ComponentState {
+    ComponentStorage component;
+    std::string source;
+
+    /// The state of `node`'s component of `type` now.
+    [[nodiscard]] static ComponentState of(const Node& node, ComponentTypeId type) {
+        ComponentState state;
+        node.components.clone_one(type, node.components, state.component);
+        state.source = node.source;
+        return state;
+    }
+};
+
 /// One finished edit of a component's fields, undone by putting back a copy
 /// of the component as it was. The copies are made by each type's clone
 /// rule, the same one Duplicate uses, so the component that comes back is
@@ -398,11 +415,11 @@ private:
 /// doing at runtime (a playing sound, an animation's time) starts over.
 class ComponentEditCommand : public Command {
 public:
-    /// `before` and `after` each hold one component of `type`: the state
-    /// the edit started from and the state it ended in. The node already
-    /// has `after` when the command is executed the first time.
+    /// `before` and `after` hold the component of `type` as the edit found
+    /// and left it. The node already has `after` when the command is
+    /// executed the first time.
     ComponentEditCommand(Scene& scene, uint32_t node_id, ComponentTypeId type,
-                         ComponentStorage before, ComponentStorage after,
+                         ComponentState before, ComponentState after,
                          std::string description)
         : scene_{scene}, node_id_{node_id}, type_{type}
         , before_{std::move(before)}, after_{std::move(after)}
@@ -421,22 +438,23 @@ public:
 private:
     // Swaps the node's component for a fresh copy of `state`, in the same
     // place among its siblings so the inspector doesn't reorder.
-    void apply(const ComponentStorage& state) {
+    void apply(const ComponentState& state) {
         Node* node = scene_.find(node_id_);
         if (node == nullptr) return;
         ComponentStorage fresh;
-        state.clone_one(type_, node->components, fresh);
+        state.component.clone_one(type_, node->components, fresh);
         const size_t at = node->components.index_of(type_);
         ComponentStorage::Detached old = node->components.extract(type_);
         node->components.restore(fresh.extract(type_), at);
+        node->source = state.source;
         scene_.mark_dirty();
     }
 
     Scene& scene_;
     uint32_t node_id_;
     ComponentTypeId type_;
-    ComponentStorage before_;
-    ComponentStorage after_;
+    ComponentState before_;
+    ComponentState after_;
     std::string description_;
     // The edit is already on the node when the command is first executed.
     bool applied_{true};

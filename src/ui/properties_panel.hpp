@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene/transform.hpp"
-#include "scene/component_storage.hpp"
+#include "core/commands.hpp"
 #include "ui/edit_tracker.hpp"
 
 #include <nlohmann/json.hpp>
@@ -102,7 +102,7 @@ private:
 
     // Undo steps for edits made in the component blocks and in the node's
     // own section.
-    EditTracker<ComponentStorage> component_edits_;
+    EditTracker<ComponentState> component_edits_;
     EditTracker<nlohmann::json> node_edits_;
 
     // The transform as it was before the edit under way, for its undo step.

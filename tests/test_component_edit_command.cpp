@@ -19,12 +19,10 @@ struct Tag {
     int id{0};
 };
 
-// A copy of a node's component of type T, as the Properties panel keeps one.
+// A node's component of type T as it is now, as the Properties panel keeps one.
 template <typename T>
-ComponentStorage snapshot(Node& node) {
-    ComponentStorage copy;
-    node.components.clone_one(component_type_id<T>(), node.components, copy);
-    return copy;
+ComponentState snapshot(Node& node) {
+    return ComponentState::of(node, component_type_id<T>());
 }
 
 } // namespace
@@ -37,9 +35,9 @@ TEST_CASE("An edited component is put back as it was, in its place", "[component
     node.components.add<Health>();
     node.components.add<Tag>();
 
-    ComponentStorage before = snapshot<Health>(node);
+    ComponentState before = snapshot<Health>(node);
     node.components.get<Health>()->hp = 40;
-    ComponentStorage after = snapshot<Health>(node);
+    ComponentState after = snapshot<Health>(node);
 
     ComponentEditCommand edit{scene, id, component_type_id<Health>(), std::move(before),
                               std::move(after), "Edit Health"};
@@ -61,6 +59,26 @@ TEST_CASE("An edited component is put back as it was, in its place", "[component
     CHECK(node.components.count() == 3);
 }
 
+TEST_CASE("Undoing a component edit puts the node's source back with it", "[components][undo]") {
+    Scene scene;
+    const uint32_t id = scene.add_empty({}, "crate");
+    Node& node = *scene.find(id);
+    node.source = "models/crate.fjmesh";
+    node.components.add<Health>();
+
+    ComponentState before = snapshot<Health>(node);
+    // A mesh's model is changed through the node's source.
+    node.source = "models/barrel.fjmesh";
+    ComponentState after = snapshot<Health>(node);
+    ComponentEditCommand edit{scene, id, component_type_id<Health>(), std::move(before),
+                              std::move(after), "Edit Mesh"};
+    edit.execute();
+    edit.undo();
+    CHECK(node.source == "models/crate.fjmesh");
+    edit.execute();
+    CHECK(node.source == "models/barrel.fjmesh");
+}
+
 TEST_CASE("Marking the scene dirty moves its revision", "[components][undo]") {
     Scene scene;
     const uint64_t start = scene.revision();
@@ -76,7 +94,7 @@ namespace {
 struct Fixture {
     Scene scene;
     CommandHistory history;
-    EditTracker<ComponentStorage> tracker;
+    EditTracker<ComponentState> tracker;
     uint32_t id{scene.add_empty({}, "crate")};
     Node& node{*scene.find(id)};
     Health& health{node.components.add<Health>()};
@@ -87,7 +105,7 @@ struct Fixture {
         tracker.track(
             scene, &history, id, type, f,
             [&] { return snapshot<Health>(node); },
-            [&](ComponentStorage before, ComponentStorage after) {
+            [&](ComponentState before, ComponentState after) {
                 return std::make_unique<ComponentEditCommand>(scene, id, type, std::move(before),
                                                               std::move(after), "Edit Health");
             });
