@@ -5,6 +5,8 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+
 namespace fjell::ui {
 
 namespace {
@@ -105,6 +107,26 @@ bool icon_button(const char* id, const char* icon, const char* tooltip, ButtonKi
 
 bool toggle_button(const char* id, const char* icon, bool on, const char* tooltip) {
     return draw_icon(id, icon, tooltip, toggle_look(on));
+}
+
+bool tool_button(const char* id, const char* icon, bool on, const char* tooltip) {
+    ImGui::PushID(id);
+    ImGui::PushFont(nullptr, theme::TOOL_ICON);
+    // The icon centred in the square: the frame padding would leave it less
+    // room than it is wide, and ImGui stops centring text that doesn't fit.
+    const float side = theme::TOOL_BUTTON;
+    const ImVec2 size = ImGui::CalcTextSize(icon);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        {std::max((side - size.x) * 0.5f, 0.0f), std::max((side - size.y) * 0.5f, 0.0f)});
+    Look look = toggle_look(on);
+    const bool clicked = draw(icon, look, {side, side});
+    ImGui::PopStyleVar();
+    ImGui::PopFont();
+    ImGui::PopID();
+    if (tooltip != nullptr) {
+        ImGui::SetItemTooltip("%s", tooltip);
+    }
+    return clicked;
 }
 
 bool toggle(const char* label, bool on, const char* tooltip) {

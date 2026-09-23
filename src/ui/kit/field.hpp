@@ -52,9 +52,11 @@ Edit drag(const char* id, float& value, const DragSpec& spec = {});
 Edit drag_int(const char* id, int& value, float speed = 0.2f, int min = 0, int max = 0,
               Unit unit = Unit::None);
 
-/// A number between two meaningful ends, with the grab in the accent.
+/// A number between two meaningful ends, with the grab in the accent. A
+/// `logarithmic` slider gives each doubling the same travel, for a range
+/// like a brush radius from half a metre to two hundred.
 Edit slider(const char* id, float& value, float min, float max,
-            Unit unit = Unit::None, const char* format = "%.2f");
+            Unit unit = Unit::None, const char* format = "%.2f", bool logarithmic = false);
 
 /// A whole number between two meaningful ends.
 Edit slider_int(const char* id, int& value, int min, int max, Unit unit = Unit::None);

@@ -157,9 +157,11 @@ Edit drag_int(const char* id, int& value, float speed, int min, int max, Unit un
     return drag_int_axis(id, value, speed, min, max, unit, nullptr);
 }
 
-Edit slider(const char* id, float& value, float min, float max, Unit unit, const char* format) {
+Edit slider(const char* id, float& value, float min, float max, Unit unit, const char* format,
+            bool logarithmic) {
     const bool hidden = hide_text(id);
-    const bool changed = ImGui::SliderFloat(id, &value, min, max, format);
+    const bool changed = ImGui::SliderFloat(id, &value, min, max, format,
+                                            logarithmic ? ImGuiSliderFlags_Logarithmic : 0);
     char number[64];
     ImFormatString(number, sizeof(number), format, value);
     return finish(changed, hidden, number, unit, nullptr, can_be_negative(min, max));

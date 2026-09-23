@@ -119,6 +119,11 @@ inline constexpr float GAP_S = 4.0f;
 inline constexpr float GAP_M = 8.0f;
 inline constexpr float GAP_L = 16.0f;
 
+/// A tool button, the brush's: bigger than an icon button, picked by shape
+/// from a row returned to often.
+inline constexpr float TOOL_BUTTON = 32.0f;
+inline constexpr float TOOL_ICON = 20.0f;
+
 /// Height of the category bar over a component block.
 inline constexpr float CATEGORY_BAR = 3.0f;
 

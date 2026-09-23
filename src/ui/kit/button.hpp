@@ -29,6 +29,11 @@ bool icon_button(const char* id, const char* icon, const char* tooltip,
 /// toggle colour while `on`. Returns true when clicked; the caller flips it.
 bool toggle_button(const char* id, const char* icon, bool on, const char* tooltip);
 
+/// A tool in a tool row, such as the terrain brush's: a toggle at the tool
+/// size (theme::TOOL_BUTTON) with a bigger icon. `tooltip` names the tool and
+/// says what it does.
+bool tool_button(const char* id, const char* icon, bool on, const char* tooltip);
+
 /// The same toggle with a text label, sized to fit it.
 bool toggle(const char* label, bool on, const char* tooltip);
 

@@ -3,6 +3,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/section.hpp"
 
@@ -239,4 +240,18 @@ TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][ki
     h.click("create");
     CHECK(fits == 1);
     CHECK(creates == 0);
+}
+
+TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][kit]") {
+    ImGuiHarness h;
+    bool on = false;
+    h.set_ui([&] {
+        if (ui::tool_button("raise", "R", on, "Raise")) on = !on;
+        h.mark("tool");
+    });
+    h.step(2);
+    CHECK(h.rect_max("tool").x - h.rect_min("tool").x == fjell::theme::TOOL_BUTTON);
+    CHECK(h.rect_max("tool").y - h.rect_min("tool").y == fjell::theme::TOOL_BUTTON);
+    h.click("tool");
+    CHECK(on);
 }
