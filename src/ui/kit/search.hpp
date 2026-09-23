@@ -19,7 +19,8 @@
 namespace fjell::ui {
 
 /// The search field: the search icon inside on the left, `hint` while it is
-/// empty, and a clear button on the right while it isn't. Ctrl F focuses the
+/// empty with its shortcut ("Ctrl F") on the right, and a clear button there
+/// while it isn't. Ctrl F focuses the
 /// field of the window that has focus; Esc clears it. Filters as you type,
 /// unlike a value field. Returns true when the query changed.
 bool search_field(const char* id, std::string& query, const char* hint = "Search");

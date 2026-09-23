@@ -10,6 +10,12 @@
 
 namespace fjell::ui {
 
+namespace {
+
+constexpr const char* SHORTCUT = "Ctrl F";
+
+} // namespace
+
 namespace detail {
 
 std::size_t find_match(std::string_view text, std::string_view query) {
@@ -80,6 +86,16 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     const float text_y = origin.y + style.FramePadding.y;
     dl->AddText({origin.x + style.FramePadding.x, text_y}, ImGui::GetColorU32(theme::text_secondary()),
                 icon::search);
+
+    // While empty and not being typed into, the field names its shortcut
+    // where the clear button will be, as a menu names an entry's.
+    if (query.empty() && !ImGui::IsItemActive()) {
+        ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
+        const ImVec2 key = ImGui::CalcTextSize(SHORTCUT);
+        dl->AddText({origin.x + width - style.FramePadding.x - key.x, origin.y + (height - key.y) * 0.5f},
+                    ImGui::GetColorU32(theme::text_disabled()), SHORTCUT);
+        ImGui::PopFont();
+    }
 
     if (!query.empty()) {
         ImGui::SetCursorScreenPos({origin.x + width - height, origin.y});
