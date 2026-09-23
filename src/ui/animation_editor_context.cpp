@@ -6,6 +6,8 @@
 #include "animation/animator_component.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/inspectors/script_fields.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/tree.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -643,31 +645,25 @@ void AnimationEditorContext::draw_bone_tree() {
                 }
             }
 
-            // Recursive tree draw
-            std::function<void(int)> draw_joint = [&](int idx) {
-                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-                                           ImGuiTreeNodeFlags_SpanAvailWidth;
-                if (children[idx].empty()) {
-                    flags |= ImGuiTreeNodeFlags_Leaf;
-                }
-                if (idx == selected_bone_) {
-                    flags |= ImGuiTreeNodeFlags_Selected;
-                }
-
-                bool open = ImGui::TreeNodeEx(joints[idx].name.c_str(), flags);
-                if (ImGui::IsItemClicked()) {
-                    selected_bone_ = idx;
-                }
-                if (open) {
-                    for (int child : children[idx]) {
-                        draw_joint(child);
-                    }
-                    ImGui::TreePop();
+            std::function<void(int, int)> draw_joint = [&](int idx, int depth) {
+                const std::string id = std::to_string(idx);
+                const auto row = ui::tree_row({
+                    .id = id.c_str(),
+                    .name = joints[idx].name,
+                    .depth = depth,
+                    .has_children = !children[idx].empty(),
+                    .icon = ui::icon::skeleton,
+                    .category = theme::Category::Animation,
+                    .selection = idx == selected_bone_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+                });
+                if (row.clicked) selected_bone_ = idx;
+                if (row.open) {
+                    for (int child : children[idx]) draw_joint(child, depth + 1);
                 }
             };
 
-            for (int root : roots) {
-                draw_joint(root);
+            if (auto tree = ui::Tree("##bones")) {
+                for (int root : roots) draw_joint(root, 0);
             }
         }
     }

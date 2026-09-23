@@ -118,7 +118,7 @@ private:
     std::unordered_map<ImGuiID, std::string> active_text_edits_;
 
     // Element tree helpers
-    void draw_node_tree(UiNode* node);
+    void draw_node_tree(UiNode* node, int depth);
 
     // Preview drawing helpers
     void draw_layout_overlay(UiNode* node, ImDrawList* draw_list,

@@ -7,6 +7,8 @@
 #include "ui/game_ui/ui_style_properties.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/tree.hpp"
 #include "ui/material_params_widget.hpp"
 #include "scripting/script_manager.hpp"
 #include "renderer/bindless.hpp"
@@ -31,8 +33,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iterator>
+#include <optional>
 #include <fstream>
 
 namespace fjell {
@@ -630,53 +634,37 @@ void UiEditorContext::draw_element_tree() {
             return;
         }
 
-        auto* root = preview_ui_->root();
-        if (root) {
-            draw_node_tree(root);
+        if (auto* root = preview_ui_->root()) {
+            if (auto tree = ui::Tree("##elements")) draw_node_tree(root, 0);
         }
     }
     ImGui::End();
 }
 
-void UiEditorContext::draw_node_tree(UiNode* node) {
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-                               ImGuiTreeNodeFlags_SpanAvailWidth |
-                               ImGuiTreeNodeFlags_DefaultOpen;
-
-    if (node->children.empty() && node->type != UiNodeType::text) {
-        flags |= ImGuiTreeNodeFlags_Leaf;
-    }
-    if (node == selected_node_) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-
-    // Skip foreach template nodes (hidden, only clones are visible)
+void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
+    // Foreach templates are hidden; only their copies are shown.
     if (node->is_foreach_template) return;
 
-    // Build display label: <tag> .class #id "text..."
+    // What kind of node it is: <tag> .class #id, a widget, a foreach copy,
+    // or text.
     std::string label;
+    const char* icon = ui::icon::ui_element;
+    std::optional<theme::Category> category;
     if (node->type == UiNodeType::text) {
-        // Text nodes: show truncated content
-        auto text = node->text_content;
-        if (text.size() > 30) {
-            text = text.substr(0, 27) + "...";
-        }
-        label = "\"" + text + "\"";
-        flags |= ImGuiTreeNodeFlags_Leaf;
+        label = "\"" + node->text_content + "\"";
+        icon = ui::icon::ui_text;
     } else if (node->is_widget) {
-        // Widget nodes: show original tag name with widget marker
         label = "<" + node->widget_tag + "/>";
-        if (!node->id.empty()) {
-            label += " #" + node->id;
-        }
+        if (!node->id.empty()) label += " #" + node->id;
+        icon = ui::icon::ui_widget;
+        category = theme::Category::Ui;
     } else if (node->foreach_item_index >= 0) {
-        // Foreach clones: show index
         label = "<" + node->tag + "> [" + std::to_string(node->foreach_item_index) + "]";
+        icon = ui::icon::ui_repeat;
+        category = theme::Category::Ui;
     } else {
         label = "<" + (node->tag.empty() ? "root" : node->tag) + ">";
-        if (!node->id.empty()) {
-            label += " #" + node->id;
-        }
+        if (!node->id.empty()) label += " #" + node->id;
         for (const auto& cls : node->classes) {
             // Skip auto-generated scope classes
             if (cls.starts_with("__w_")) continue;
@@ -684,34 +672,21 @@ void UiEditorContext::draw_node_tree(UiNode* node) {
         }
     }
 
-    // Color widget nodes purple, foreach items teal
-    bool color_pushed = false;
-    if (node->is_widget) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.6f, 0.45f, 0.8f, 1.0f});
-        color_pushed = true;
-    } else if (node->foreach_item_index >= 0) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.3f, 0.75f, 0.7f, 1.0f});
-        color_pushed = true;
-    } else if (node->hidden_by_if || node->style.display == UiDisplay::none) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        color_pushed = true;
-    }
-
-    bool open = ImGui::TreeNodeEx(node, flags, "%s", label.c_str());
-
-    if (color_pushed) {
-        ImGui::PopStyleColor();
-    }
-
-    if (ImGui::IsItemClicked()) {
-        selected_node_ = node;
-    }
-
-    if (open) {
-        for (auto& child : node->children) {
-            draw_node_tree(child.get());
-        }
-        ImGui::TreePop();
+    const std::string id = std::to_string(reinterpret_cast<std::uintptr_t>(node));
+    const auto row = ui::tree_row({
+        .id = id.c_str(),
+        .name = label,
+        .depth = depth,
+        .has_children = node->type != UiNodeType::text && !node->children.empty(),
+        .icon = icon,
+        .category = category,
+        .selection = node == selected_node_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+        // Not drawn right now: an if="" that is false, or display: none.
+        .dimmed = node->hidden_by_if || node->style.display == UiDisplay::none,
+    });
+    if (row.clicked) selected_node_ = node;
+    if (row.open) {
+        for (auto& child : node->children) draw_node_tree(child.get(), depth + 1);
     }
 }
 
