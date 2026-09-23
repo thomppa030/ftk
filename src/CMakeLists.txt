@@ -322,6 +322,7 @@ add_executable(fjell
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
+    ui/component_edit_tracker.cpp
     ui/inspectors/inspector_registry.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp

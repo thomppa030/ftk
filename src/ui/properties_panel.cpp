@@ -458,12 +458,29 @@ void PropertiesPanel::draw() {
                 bool remove = false;
                 const auto category = inspector ? inspector->category : theme::Category::Structure;
                 if (ui::component_block(meta->display_name.c_str(), category, remove)) {
-                    const bool changed = inspector && inspector->draw
-                        ? inspector->draw(*obj, ptr, ictx).changed
-                        : meta->draw(*obj, ptr, ictx);
-                    if (changed) {
-                        scene_->mark_dirty();
+                    // The fields in one group, so the block knows whether
+                    // one of them is being edited or under the mouse.
+                    ImGui::BeginGroup();
+                    const bool kit = inspector && inspector->draw;
+                    ui::Edit edit;
+                    if (kit) {
+                        edit = inspector->draw(*obj, ptr, ictx);
+                    } else {
+                        edit.changed = meta->draw(*obj, ptr, ictx);
                     }
+                    ImGui::EndGroup();
+                    const bool active = ImGui::IsItemActive();
+                    const bool hovered = ImGui::IsItemHovered();
+
+                    // A kit inspector says when its edit is finished. One
+                    // drawn by its ComponentMeta only says it changed, so
+                    // the edit is taken as finished once nothing in the
+                    // block is held and no picker or list is open over it.
+                    const bool committed = kit
+                        ? edit.committed
+                        : !active && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+                    component_edits_.track(*scene_, history_, *obj, id, meta->display_name,
+                                           {edit.changed, committed, active, hovered});
 
                     // A component that paints itself with a material shows
                     // that material's own parameters here, so a surface is

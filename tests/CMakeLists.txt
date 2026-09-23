@@ -63,6 +63,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/component_edit_tracker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
@@ -169,6 +171,7 @@ add_executable(fjell-tests
     test_folder_colors.cpp
     imgui_harness.cpp
     test_text_field.cpp
+    test_component_edit_command.cpp
     test_component_storage.cpp
     test_curve_editor.cpp
     test_choices.cpp

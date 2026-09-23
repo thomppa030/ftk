@@ -210,6 +210,28 @@ public:
         return out;
     }
 
+    /// Position of the component of type `id` among the others, or count()
+    /// when there is none.
+    [[nodiscard]] size_t index_of(ComponentTypeId id) const {
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            if (entries_[i].type_id == id) return i;
+        }
+        return entries_.size();
+    }
+
+    /// Adds a copy of this storage's component of type `id` to `to`, made by
+    /// its clone rule. `siblings` is the storage the rule may consult for the
+    /// component's siblings: this one for a live node, the live node's for a
+    /// copy kept aside. Does nothing when there is no such component.
+    void clone_one(ComponentTypeId id, const ComponentStorage& siblings, ComponentStorage& to) const {
+        for (const auto& e : entries_) {
+            if (e.type_id == id) {
+                e.cloner(siblings, e.ptr, to);
+                return;
+            }
+        }
+    }
+
     /// Puts an extracted component back at its old position. Does nothing
     /// for an empty Detached, or when a component of the same type has been
     /// added since, which then keeps its place and `detached` its component.
@@ -218,6 +240,13 @@ public:
         const size_t at = detached.index_ < entries_.size() ? detached.index_ : entries_.size();
         entries_.insert(entries_.begin() + static_cast<std::ptrdiff_t>(at), detached.entry_);
         detached.entry_.ptr = nullptr;
+    }
+
+    /// Puts an extracted component in at position `at`, which may come from
+    /// another storage. The same rules as restore() otherwise.
+    void restore(Detached&& detached, size_t at) {
+        detached.index_ = at;
+        restore(std::move(detached));
     }
 
     // Iterate all components (for serialization, cloning, inspector)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene/transform.hpp"
+#include "ui/component_edit_tracker.hpp"
 #include "ui/kit/text_field.hpp"
 
 #include <cstdint>
@@ -49,6 +50,7 @@ private:
     void draw_material_inspector_for(Material* mat);
     void commit_name();
 
+
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
     EnvironmentSubsystem* environment_{nullptr};
@@ -70,6 +72,9 @@ private:
     // The node name field and the node its current edit belongs to.
     ui::TextField name_field_;
     uint32_t name_node_id_{0};
+
+    // Undo steps for edits made in the component blocks.
+    ComponentEditTracker component_edits_;
 
     // Drag coalescing
     Transform drag_start_transform_;

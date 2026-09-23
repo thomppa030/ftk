@@ -78,8 +78,15 @@ public:
                                          ResourceManager& resources,
                                          const Project* project = nullptr);
 
-    void mark_dirty() { dirty_ = true; }
+    void mark_dirty() {
+        dirty_ = true;
+        ++revision_;
+    }
     [[nodiscard]] bool is_dirty() const { return dirty_; }
+
+    /// Counts every mark_dirty(), saved or not. Something holding a copy of
+    /// scene state compares it to know whether the copy is still current.
+    [[nodiscard]] uint64_t revision() const { return revision_; }
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
     [[nodiscard]] auto& objects() { return objects_; }
@@ -151,6 +158,7 @@ private:
     uint32_t next_id_{1};
     uint64_t scene_id_{next_scene_id()};
     bool dirty_{false};
+    uint64_t revision_{0};
     bool index_dirty_{true};
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
     std::unordered_map<uint32_t, uint32_t> id_generation_;

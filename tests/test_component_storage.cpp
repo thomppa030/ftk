@@ -103,3 +103,55 @@ TEST_CASE("restore leaves a component of the same type added since in place", "[
     }
     CHECK(g_alive == 0);
 }
+
+TEST_CASE("index_of gives a component's position, count() for none", "[components]") {
+    ComponentStorage s;
+    s.add<A>(1);
+    s.add<B>(2);
+    CHECK(s.index_of(component_type_id<A>()) == 0);
+    CHECK(s.index_of(component_type_id<B>()) == 1);
+    CHECK(s.index_of(component_type_id<C>()) == s.count());
+}
+
+TEST_CASE("clone_one copies one component into another storage", "[components]") {
+    g_alive = 0;
+    {
+        ComponentStorage s;
+        s.add<A>(1);
+        s.add<B>(2);
+        ComponentStorage copy;
+        s.clone_one(component_type_id<B>(), s, copy);
+        REQUIRE(copy.count() == 1);
+        REQUIRE(copy.get<B>() != nullptr);
+        CHECK(copy.get<B>() != s.get<B>());
+        CHECK(copy.get<B>()->value == 2);
+
+        s.clone_one(component_type_id<C>(), s, copy);
+        CHECK(copy.count() == 1);
+    }
+    CHECK(g_alive == 0);
+}
+
+TEST_CASE("restore at a position takes a component from another storage", "[components]") {
+    g_alive = 0;
+    {
+        ComponentStorage s;
+        s.add<A>(1);
+        s.add<B>(2);
+        s.add<C>(3);
+        ComponentStorage other;
+        other.add<B>(20);
+
+        // Swap B for other's B, keeping its place between A and C.
+        const size_t at = s.index_of(component_type_id<B>());
+        { auto old = s.extract(component_type_id<B>()); }
+        s.restore(other.extract(component_type_id<B>()), at);
+
+        CHECK(order(s) == std::vector{component_type_id<A>(), component_type_id<B>(),
+                                      component_type_id<C>()});
+        CHECK(s.get<B>()->value == 20);
+        CHECK(other.empty());
+        CHECK(g_alive == 3);
+    }
+    CHECK(g_alive == 0);
+}
