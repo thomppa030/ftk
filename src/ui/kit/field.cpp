@@ -143,13 +143,18 @@ Edit drag(const char* id, float& value, const DragSpec& spec) {
     return drag_one(id, value, spec, nullptr);
 }
 
-Edit drag_int(const char* id, int& value, float speed, int min, int max, Unit unit) {
+static Edit drag_int_axis(const char* id, int& value, float speed, int min, int max, Unit unit,
+                   const Axis* axis) {
     const bool hidden = hide_text(id);
     const bool changed = ImGui::DragInt(id, &value, speed, min, max);
     char number[32];
     ImFormatString(number, sizeof(number), "%d", value);
-    return finish(changed, hidden, number, unit, nullptr,
+    return finish(changed, hidden, number, unit, axis,
                   can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+}
+
+Edit drag_int(const char* id, int& value, float speed, int min, int max, Unit unit) {
+    return drag_int_axis(id, value, speed, min, max, unit, nullptr);
 }
 
 Edit slider(const char* id, float& value, float min, float max, Unit unit, const char* format) {
@@ -173,6 +178,24 @@ Edit slider_labelled(const char* id, float& value, float min, float max, const c
     const bool hidden = hide_text(id);
     const bool changed = ImGui::SliderFloat(id, &value, min, max);
     return finish(changed, hidden, text, Unit::None, nullptr, false);
+}
+
+Edit ivec2(const char* id, glm::ivec2& value, float speed, int min, int max, Unit unit) {
+    const Axis axes[] = {{"X", theme::axis_x()}, {"Y", theme::axis_y()}};
+    Edit edit;
+    ImGui::BeginGroup();
+    ImGui::PushID(id);
+    ImGui::PushMultiItemsWidths(2, ImGui::CalcItemWidth());
+    for (int i = 0; i < 2; ++i) {
+        if (i > 0) ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::PushID(i);
+        edit |= drag_int_axis("##v", value[i], speed, min, max, unit, &axes[i]);
+        ImGui::PopID();
+        ImGui::PopItemWidth();
+    }
+    ImGui::PopID();
+    ImGui::EndGroup();
+    return edit;
 }
 
 Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec) {

@@ -3,6 +3,7 @@
 #include "ui/kit/edit.hpp"
 
 #include <glm/vec2.hpp>
+#include <glm/ext/vector_int2.hpp>
 #include <glm/vec3.hpp>
 
 // Value fields for the value column of a property row (ui::row). Each fills
@@ -66,6 +67,11 @@ Edit slider_labelled(const char* id, float& value, float min, float max, const c
 /// the viewport gizmo's colours. All of them share `spec`.
 Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec = {});
 Edit vec3(const char* id, glm::vec3& value, const DragSpec& spec = {});
+
+/// Two whole numbers side by side with their axis letters: a size in tiles
+/// or pixels. `min` equal to `max` leaves the range open.
+Edit ivec2(const char* id, glm::ivec2& value, float speed = 0.2f, int min = 0, int max = 0,
+           Unit unit = Unit::None);
 
 /// A box that is ticked or not. Changing it is its own commit.
 Edit checkbox(const char* id, bool& value);
