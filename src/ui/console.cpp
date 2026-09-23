@@ -1,12 +1,12 @@
 #include "ui/console.hpp"
 #include "ui/icons_lc.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <spdlog/pattern_formatter.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstring>
 
 namespace fjell {
@@ -53,7 +53,7 @@ void ConsoleSink::draw(const char* title) {
         ImGui::Combo("##filter", &level_filter_, filters, 4);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##search", "Search...", search_text_, sizeof(search_text_));
+        ui::search_field("##search", search_text_);
 
         ImGui::Separator();
 
@@ -66,24 +66,12 @@ void ConsoleSink::draw(const char* title) {
         if (level_filter_ == 2) min_level = spdlog::level::warn;
         if (level_filter_ == 3) min_level = spdlog::level::err;
 
-        // Prepare lowercase search term
-        bool has_search = search_text_[0] != '\0';
-        std::string search_lower;
-        if (has_search) {
-            search_lower = search_text_;
-            for (auto& c : search_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-
         // Build visible index list for shift-click range selection
         std::vector<int> visible;
         visible.reserve(entries_.size());
         for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
             if (entries_[i].level < min_level) continue;
-            if (has_search) {
-                std::string msg_lower = entries_[i].message;
-                for (auto& c : msg_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (msg_lower.find(search_lower) == std::string::npos) continue;
-            }
+            if (!ui::matches(entries_[i].message, search_text_)) continue;
             visible.push_back(i);
         }
 

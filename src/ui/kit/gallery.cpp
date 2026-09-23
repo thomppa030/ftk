@@ -12,6 +12,7 @@
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/row.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/panel_widget.hpp"
@@ -19,7 +20,9 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 namespace fjell::ui {
@@ -316,6 +319,28 @@ void KitGallery::lists() {
                             "No events. Add one to call a script at a frame",
                             [](float& t, std::size_t) { return drag("##t", t, {.unit = Unit::Seconds}); });
         if (edit.committed) ++commits_;
+
+        subheading("Search");
+        search_field("##gallery_search", query_);
+        // A parent stays, dimmed, while something under it matches.
+        struct Row {
+            const char* name;
+            const char* parent;
+        };
+        const Row scene[] = {{"Props", nullptr}, {"Crate_01", "Props"}, {"Crate_02", "Props"},
+                             {"Barrel", "Props"}, {"Lights", nullptr}, {"Sun", "Lights"}};
+        auto child_matches = [&](const char* parent) {
+            return std::ranges::any_of(scene, [&](const Row& r) {
+                return r.parent != nullptr && std::strcmp(r.parent, parent) == 0 && matches(r.name, query_);
+            });
+        };
+        for (const Row& row : scene) {
+            const bool own = matches(row.name, query_);
+            if (!own && (row.parent != nullptr || !child_matches(row.name))) continue;
+            if (row.parent != nullptr) ImGui::Indent();
+            highlighted_text(row.name, query_, !own);
+            if (row.parent != nullptr) ImGui::Unindent();
+        }
     }
 }
 
