@@ -11,10 +11,10 @@
 #include "scene/scene.hpp"
 #include "scripting/script_commands.hpp"
 #include "scripting/script_manager.hpp"
-#include "ui/icons_lc.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/grouped_picker.hpp"
 #include "ui/inspectors/inspector_registry.hpp"
 #include "ui/inspectors/script_fields.hpp"
+#include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
@@ -88,6 +88,7 @@ void PropertiesPanel::draw() {
         draw_node_sections(*node, ictx);
         draw_components(*node, ictx);
         draw_scripts(*node, ictx);
+        draw_add(*node, ictx);
     }
 }
 
@@ -182,21 +183,6 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
             scene_->mark_dirty();
         }
     }
-
-
-    // Add Component popup — lists types not already present
-    if (ImGui::Button(ICON_LC_PLUS "  Add Component", {-1, 0})) {
-        ImGui::OpenPopup("##AddBuiltinComponent");
-    }
-    if (ImGui::BeginPopup("##AddBuiltinComponent")) {
-        registry.for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
-            if (!node.components.get_by_id(id) && ImGui::MenuItem(meta.display_name.c_str())) {
-                meta.init(node, ictx);
-                scene_->mark_dirty();
-            }
-        });
-        ImGui::EndPopup();
-    }
 }
 
 void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
@@ -219,23 +205,128 @@ void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
             scene_->mark_dirty();
         }
     }
+}
 
-    // Add script button
-    if (scripts_->is_loaded() && !scripts_->script_types().empty()) {
-        if (ImGui::Button(ICON_LC_PLUS "  Add Script", {-1, 0})) {
-            ImGui::OpenPopup("##AddScript");
+namespace {
+
+constexpr const char* ADD_PICKER = "##add";
+constexpr std::size_t RECENT_COUNT = 4;
+
+} // namespace
+
+void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
+    ImGui::Dummy({0.0f, theme::GAP_M});
+    if (ui::action(ui::icon::add, "Add component", ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
+        grouped_picker::open(ADD_PICKER);
+    }
+    // Gathered only while the picker is up; drawn every frame so it hangs
+    // under the button.
+    std::vector<grouped_picker::Group> groups;
+    if (grouped_picker::is_open(ADD_PICKER)) groups = addable_groups(node);
+    std::string picked;
+    if (grouped_picker::draw(ADD_PICKER, groups,
+                             {.search_hint = "Search components and scripts",
+                              .empty_message = "Nothing matches"},
+                             picked)) {
+        add_to_node(node, picked, ictx);
+    }
+}
+
+std::vector<grouped_picker::Group> PropertiesPanel::addable_groups(const Node3D& node) const {
+    using grouped_picker::Group;
+    using grouped_picker::Item;
+    const std::string owner = node.name.empty() ? std::string("This node") : node.name;
+
+    // Everything that can be added, by value, with the category it goes under.
+    std::vector<std::pair<Item, theme::Category>> all;
+    const auto& inspectors = component_inspectors();
+    ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
+        const auto* inspector = inspectors.find(id);
+        Item item{.value = "component:" + meta.json_key, .label = meta.display_name};
+        if (node.components.get_by_id(id) != nullptr) {
+            item.enabled = false;
+            item.detail = "added";
+            item.disabled_reason = owner + " already has a " + meta.display_name;
         }
-        if (ImGui::BeginPopup("##AddScript")) {
-            for (const auto& type : scripts_->script_types()) {
-                if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                    if (auto r = scripts_->add_script(node, type.name); !r) {
-                        FJELL_CORE_ERROR("{}", r.error());
-                    }
-                }
+        all.emplace_back(std::move(item), inspector ? inspector->category : theme::Category::Structure);
+    });
+    if (scripts_ != nullptr && scripts_->is_loaded()) {
+        for (const auto& type : scripts_->script_types()) {
+            if (!type.loaded) continue;
+            Item item{.value = "script:" + type.name, .label = type.name + " (script)"};
+            const bool present = std::ranges::any_of(
+                node.scripts, [&](const ScriptEntry& e) { return e.type_name == type.name; });
+            if (present) {
+                item.enabled = false;
+                item.detail = "added";
+                item.disabled_reason = owner + " already has " + type.name;
             }
-            ImGui::EndPopup();
+            all.emplace_back(std::move(item), theme::Category::Logic);
         }
     }
+    std::ranges::sort(all, [](const auto& a, const auto& b) { return a.first.label < b.first.label; });
+
+    std::vector<Group> groups;
+    // What was added last comes first, each with its category's dot.
+    Group recent{.label = "Recently added"};
+    for (const auto& value : recent_) {
+        auto it = std::ranges::find_if(all, [&](const auto& e) { return e.first.value == value; });
+        if (it == all.end()) continue;
+        Item item = it->first;
+        item.category = it->second;
+        recent.items.push_back(std::move(item));
+    }
+    if (!recent.items.empty()) groups.push_back(std::move(recent));
+
+    for (int c = 0; c <= static_cast<int>(theme::Category::Structure); ++c) {
+        const auto category = static_cast<theme::Category>(c);
+        Group group{.label = theme::category_name(category), .category = category};
+        for (const auto& [item, item_category] : all) {
+            if (item_category == category) group.items.push_back(item);
+        }
+        if (!group.items.empty()) groups.push_back(std::move(group));
+    }
+    return groups;
+}
+
+void PropertiesPanel::add_to_node(Node3D& node, const std::string& value, const InspectorContext& ictx) {
+    constexpr std::string_view COMPONENT = "component:";
+    constexpr std::string_view SCRIPT = "script:";
+    if (value.starts_with(COMPONENT)) {
+        const std::string key = value.substr(COMPONENT.size());
+        auto& registry = ComponentRegistry::instance();
+        const ComponentMeta* found = nullptr;
+        ComponentTypeId found_id = 0;
+        registry.for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
+            if (meta.json_key == key) {
+                found = &meta;
+                found_id = id;
+            }
+        });
+        if (found == nullptr) return;
+        auto add = [init = found->init, ctx = ictx](Node3D& n) { init(n, ctx); };
+        if (history_) {
+            history_->execute(std::make_unique<AddComponentCommand>(*scene_, node.id, found_id, add,
+                                                                    found->display_name));
+        } else {
+            add(node);
+            scene_->mark_dirty();
+        }
+    } else if (value.starts_with(SCRIPT)) {
+        const std::string type_name = value.substr(SCRIPT.size());
+        if (history_) {
+            history_->execute(std::make_unique<AddScriptCommand>(*scene_, *scripts_, node.id, type_name));
+        } else if (auto r = scripts_->add_script(node, type_name); !r) {
+            FJELL_CORE_ERROR("{}", r.error());
+        } else {
+            scene_->mark_dirty();
+        }
+    } else {
+        return;
+    }
+    std::erase(recent_, value);
+    recent_.insert(recent_.begin(), value);
+    if (recent_.size() > RECENT_COUNT) recent_.resize(RECENT_COUNT);
 }
 
 void PropertiesPanel::draw_script(Node3D& node, ScriptEntry& entry, const InspectorContext& ictx) {

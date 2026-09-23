@@ -391,6 +391,56 @@ private:
     ComponentStorage::Detached removed_;
 };
 
+/// Adds a component to a node through its meta's init, which may also load
+/// what the component draws and set the node's source. Undo takes the
+/// component off and puts the source back; redo returns that same
+/// component rather than making a new one.
+class AddComponentCommand : public Command {
+public:
+    AddComponentCommand(Scene& scene, uint32_t node_id, ComponentTypeId type,
+                        std::function<void(Node3D&)> add, std::string display_name)
+        : scene_{scene}, node_id_{node_id}, type_{type}
+        , add_{std::move(add)}, display_name_{std::move(display_name)} {}
+
+    void execute() override {
+        Node* node = scene_.find(node_id_);
+        if (node == nullptr) return;
+        if (!added_) {
+            Node3D* spatial = node->as_spatial();
+            if (spatial == nullptr) return;
+            source_before_ = node->source;
+            add_(*spatial);
+            source_after_ = node->source;
+            added_ = true;
+        } else {
+            node->components.restore(std::move(removed_));
+            node->source = source_after_;
+        }
+        scene_.mark_dirty();
+    }
+    void undo() override {
+        if (Node* node = scene_.find(node_id_)) {
+            removed_ = node->components.extract(type_);
+            node->source = source_before_;
+            scene_.mark_dirty();
+        }
+    }
+    [[nodiscard]] std::string description() const override {
+        return "Add " + display_name_;
+    }
+
+private:
+    Scene& scene_;
+    uint32_t node_id_;
+    ComponentTypeId type_;
+    std::function<void(Node3D&)> add_;
+    std::string display_name_;
+    std::string source_before_;
+    std::string source_after_;
+    ComponentStorage::Detached removed_;
+    bool added_{false};
+};
+
 /// A component as it was at one moment, for undoing an edit of it: a copy
 /// made by its clone rule, and the node's source. The source travels with it
 /// because a mesh component's model is loaded from the node's source, so

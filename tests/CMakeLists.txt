@@ -66,6 +66,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/grouped_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
@@ -181,6 +182,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_curve_editor.cpp
     test_choices.cpp
+    test_grouped_picker.cpp
     test_fields.cpp
     test_kit.cpp
     test_list_editor.cpp

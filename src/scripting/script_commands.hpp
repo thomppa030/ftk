@@ -108,4 +108,40 @@ private:
     std::size_t index_{0};
 };
 
+/// Adds a script to a node. Undo takes it off keeping its fields, and redo
+/// puts it back with them, so values set in between survive the round trip.
+class AddScriptCommand : public Command {
+public:
+    AddScriptCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name)
+        : scene_{scene}, scripts_{scripts}, node_id_{node_id}, type_name_{std::move(type_name)} {}
+
+    void execute() override {
+        Node* node = scene_.find(node_id_);
+        Node3D* spatial = node != nullptr ? node->as_spatial() : nullptr;
+        if (spatial == nullptr) return;
+        ScriptEntry entry;
+        entry.type_name = type_name_;
+        entry.serialized = fields_;
+        scripts_.instantiate(*spatial, entry);
+        spatial->scripts.push_back(std::move(entry));
+        scene_.mark_dirty();
+    }
+    void undo() override {
+        Node* node = scene_.find(node_id_);
+        ScriptEntry* entry = node != nullptr ? detail::find_script(*node, type_name_) : nullptr;
+        if (entry == nullptr) return;
+        fields_ = scripts_.fields_of(*entry);
+        node->scripts.erase(node->scripts.begin() + (entry - node->scripts.data()));
+        scene_.mark_dirty();
+    }
+    [[nodiscard]] std::string description() const override { return "Add " + type_name_; }
+
+private:
+    Scene& scene_;
+    ScriptManager& scripts_;
+    uint32_t node_id_;
+    std::string type_name_;
+    nlohmann::json fields_;
+};
+
 } // namespace fjell

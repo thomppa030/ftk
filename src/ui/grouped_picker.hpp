@@ -1,8 +1,11 @@
 #pragma once
 
+#include "ui/theme.hpp"
+
 #include <imgui.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -28,27 +31,38 @@ struct Item {
     /// The row's first line.
     std::string label;
     /// A dim second line under the label. Empty draws a single-line row.
-    std::string sublabel;
+    std::string sublabel{};
     /// A picture drawn at the head of the row, or 0 for none. The caller owns
     /// it and must keep it alive for the frame.
     ImTextureID preview{0};
     /// A short word in a coloured pill before the label — "KB", "PAD". Empty
     /// draws no pill.
-    std::string tag;
+    std::string tag{};
     /// The pill's colour. Ignored when `tag` is empty.
     ImU32 tag_color{0};
     /// Searched along with the label, for text a row does not show. An
     /// asset's folder, say, so "materials/" finds everything under it.
-    std::string search_text;
+    std::string search_text{};
+    /// A dot in the category's colour at the head of the row, for a group
+    /// that mixes categories ("Recently added").
+    std::optional<theme::Category> category{};
+    /// A dim word at the row's right end ("added").
+    std::string detail{};
+    /// A disabled item is shown dimmed and can't be picked;
+    /// `disabled_reason` is its tooltip ("Crate already has a Mesh").
+    bool enabled{true};
+    std::string disabled_reason{};
 };
 
 /// A run of items under one header. Empty groups are not drawn.
 struct Group {
     std::string label;
-    std::vector<Item> items;
+    std::vector<Item> items{};
     /// Whether the header starts open. Only read the first time a picker
     /// draws the group; the user's own collapsing wins after that.
     bool open{true};
+    /// A group of one kind of thing shows its category's dot on the header.
+    std::optional<theme::Category> category{};
 };
 
 /// How one picker differs from the default.
@@ -82,7 +96,8 @@ void open(const char* widget_id);
 void close();
 
 /// Draw `widget_id`'s picker, if it is the open one. Returns true and writes
-/// the chosen item's value to `picked` on a pick.
+/// the chosen item's value to `picked` on a pick. The arrow keys move a
+/// highlight through the items that can be picked and Enter picks it.
 ///
 /// Call this every frame from the same place in the layout: the popup hangs
 /// under the item drawn before it.

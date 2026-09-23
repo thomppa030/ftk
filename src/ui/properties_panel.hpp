@@ -3,6 +3,7 @@
 #include "scene/transform.hpp"
 #include "core/commands.hpp"
 #include "ui/edit_tracker.hpp"
+#include "ui/grouped_picker.hpp"
 
 #include <nlohmann/json.hpp>
 #include "ui/kit/text_field.hpp"
@@ -64,6 +65,10 @@ private:
     void draw_components(Node3D& node, const InspectorContext& ictx);
     void draw_scripts(Node3D& node, const InspectorContext& ictx);
     void draw_script(Node3D& node, ScriptEntry& entry, const InspectorContext& ictx);
+    // The one Add component button and its picker of components and scripts.
+    void draw_add(Node3D& node, const InspectorContext& ictx);
+    [[nodiscard]] std::vector<grouped_picker::Group> addable_groups(const Node3D& node) const;
+    void add_to_node(Node3D& node, const std::string& value, const InspectorContext& ictx);
 
     // A node type's own section (properties_node_sections.cpp). Each
     // returns whether a setting changed; the caller turns that into dirty
@@ -106,6 +111,9 @@ private:
     EditTracker<ComponentState> component_edits_;
     EditTracker<nlohmann::json> node_edits_;
     EditTracker<nlohmann::json> script_edits_;
+    // Picker values ("component:rigidbody", "script:Door") added this
+    // session, most recent first.
+    std::vector<std::string> recent_;
 
     // The transform as it was before the edit under way, for its undo step.
     Transform drag_start_transform_;

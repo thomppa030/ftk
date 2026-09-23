@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/theme.hpp"
+
 // Headings, in three levels and no fourth:
 //
 //   section      a part of the panel (Transform, Fog Volume, Components):
@@ -26,5 +28,9 @@ void subheading(const char* label);
 
 /// A sub-heading that folds. Returns true while it is open.
 bool subheading_foldable(const char* label, bool default_open = true);
+
+/// A sub-heading for a group of things of one kind, led by its category's
+/// dot ("Physics" in the Add Component picker).
+bool subheading_foldable(const char* label, theme::Category category, bool default_open = true);
 
 } // namespace fjell::ui
