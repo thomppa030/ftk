@@ -4,6 +4,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+
 using fjell::test::ImGuiHarness;
 namespace ui = fjell::ui;
 
@@ -81,4 +85,38 @@ TEST_CASE("A foldable sub-heading starts the way it is asked to", "[ui][kit]") {
     CHECK_FALSE(open);
     h.click("heading");
     CHECK(open);
+}
+
+TEST_CASE("An icon button centres an icon wider than its padding leaves room for", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        // A wide label stands in for an icon glyph: wider than the square
+        // minus ImGui's frame padding on both sides.
+        ui::icon_button("wide", "WW", "Wide");
+        h.mark("icon");
+    });
+    h.step(2);
+    const ImVec2 min = h.rect_min("icon");
+    const ImVec2 max = h.rect_max("icon");
+    REQUIRE(ImGui::CalcTextSize("WW").x > (max.x - min.x) - ImGui::GetStyle().FramePadding.x * 2.0f);
+
+    // Around the button, the text is the only thing drawn from the font
+    // atlas rather than its white pixel, so its vertices give where the
+    // label landed.
+    const ImVec2 white = ImGui::GetIO().Fonts->TexUvWhitePixel;
+    float text_min = FLT_MAX;
+    float text_max = -FLT_MAX;
+    const ImDrawData* data = ImGui::GetDrawData();
+    for (const ImDrawList* list : data->CmdLists) {
+        for (const ImDrawVert& v : list->VtxBuffer) {
+            if (v.uv.x == white.x && v.uv.y == white.y) continue;
+            if (v.pos.y < min.y || v.pos.y > max.y) continue;
+            if (v.pos.x < min.x - 16.0f || v.pos.x > max.x + 16.0f) continue;
+            text_min = std::min(text_min, v.pos.x);
+            text_max = std::max(text_max, v.pos.x);
+        }
+    }
+    REQUIRE(text_min < text_max);
+    const float text_centre = (text_min + text_max) * 0.5f;
+    CHECK(std::abs(text_centre - (min.x + max.x) * 0.5f) <= 1.0f);
 }
