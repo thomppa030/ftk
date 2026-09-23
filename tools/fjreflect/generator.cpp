@@ -89,6 +89,17 @@ static void write_generated_cpp(const ComponentInfo& comp,
         else out << "\"" << f.category << "\"";
         out << ", " << (f.is_readonly ? 1 : 0);
         out << ", " << (f.is_replicated ? 1 : 0);
+        out << ", ";
+        if (f.shader_types.empty()) {
+            out << "nullptr";
+        } else {
+            out << "\"";
+            for (size_t t = 0; t < f.shader_types.size(); ++t) {
+                if (t > 0) out << ",";
+                out << f.shader_types[t];
+            }
+            out << "\"";
+        }
         out << "},\n";
     }
     out << "};\n\n";

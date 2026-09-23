@@ -6,6 +6,7 @@
 #include "scripting/fjell/world.hpp"
 #include "scripting/timer_manager.hpp"
 #include "platform/shared_library.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 
 #ifndef NDEBUG
 #include "platform/file_watcher.hpp"
@@ -46,6 +47,7 @@ struct OwnedFieldDesc {
     std::string category;       // group header (empty if none)
     bool readonly{false};
     bool replicated{false};     // [[fj::replicated]] — synced over the network
+    std::vector<ShaderType> shader_types{}; // Ref<Material>: [[fj::shader_type]] (empty = any)
 };
 
 struct OwnedScriptType {

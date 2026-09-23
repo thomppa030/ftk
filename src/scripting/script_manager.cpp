@@ -25,6 +25,8 @@
 extern "C" void fjell_input_clear_connections();
 
 #include <imgui.h>
+#include <ranges>
+#include <string_view>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
@@ -83,7 +85,26 @@ extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void*, void*) {}
 
 namespace fjell {
 
-static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
+/// The Types a [[fj::shader_type]] names. A word naming none is dropped and
+/// reported against the field; the rest still narrow the slot.
+static std::vector<ShaderType> parse_shader_types(const char* names, const char* type_name,
+                                                  const char* field_name) {
+    std::vector<ShaderType> types;
+    if (names == nullptr) return types;
+    for (auto part : std::string_view(names) | std::views::split(',')) {
+        std::string_view word(part.begin(), part.end());
+        if (auto type = shader_type_from_name(word)) {
+            types.push_back(*type);
+        } else {
+            FJELL_CORE_ERROR("Script '{}': [[fj::shader_type]] on '{}' names '{}', which is not "
+                             "a shader type (spatial, sky, ui, terrain, water, fog)",
+                             type_name ? type_name : "<unnamed>", field_name, word);
+        }
+    }
+    return types;
+}
+
+static OwnedFieldDesc copy_field(const FjellFieldDesc& fd, const char* type_name) {
     OwnedFieldDesc ofd;
     ofd.name = fd.name;
     ofd.type = fd.type;
@@ -103,6 +124,7 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
     if (fd.category) {
         ofd.category = fd.category;
     }
+    ofd.shader_types = parse_shader_types(fd.shader_types, type_name, fd.name);
     if (fd.type == FJELL_FIELD_ENUM && fd.enum_labels && fd.size > 0) {
         for (uint32_t e = 0; e < fd.size; ++e) {
             if (fd.enum_labels[e]) {
@@ -130,7 +152,7 @@ static void copy_fields(const FjellFieldDesc* fields, uint32_t count,
                 type_name ? type_name : "<unnamed>", count, i);
             return;
         }
-        out.push_back(copy_field(fields[i]));
+        out.push_back(copy_field(fields[i], type_name));
     }
 }
 
@@ -1013,7 +1035,8 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                     InspectorContext sctx{.resource_manager = s_services.resources};
                     if (asset_ref_field({.label = lbl, .id = "##ref_field",
                                          .extensions = exts, .ctx = &sctx,
-                                         .asset_type = asset_entry}, current_path)) {
+                                         .asset_type = asset_entry,
+                                         .shader_types = f.shader_types}, current_path)) {
                         // Path changed — load the asset
                         if (current_path.empty()) {
                             *ref = {};

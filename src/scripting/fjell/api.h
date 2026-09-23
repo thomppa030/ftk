@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 25
+#define FJELL_API_VERSION 26
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -90,6 +90,7 @@ typedef struct FjellFieldDesc {
     const char*        category;     // group header in inspector (null if none)
     uint8_t            readonly;     // 1 = inspector shows but disables editing
     uint8_t            replicated;   // 1 = [[fj::replicated]], synced over the network
+    const char*        shader_types; // Ref<Material>: [[fj::shader_type]] names, comma-separated (null = any)
 } FjellFieldDesc;
 
 // ── Action types for [[fj::action]] input binding ────────────────────

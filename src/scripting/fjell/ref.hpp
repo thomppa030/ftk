@@ -23,6 +23,10 @@ struct RefData {
 /// inspector shows an asset picker for the right type; the chosen asset is
 /// saved with the scene.
 ///
+/// A `Ref<Material>` takes any material unless it says which shader types it
+/// can use: `[[fj::shader_type(water)]]` (or `(water, fog)`) lists only those
+/// materials in the picker and refuses others dropped on the field.
+///
 /// A `Ref` does not own or load anything: it holds a handle and resolves
 /// through the engine on each access, so it stays correct across asset
 /// hot-reload. Always check `valid()` before use — an unassigned field is the

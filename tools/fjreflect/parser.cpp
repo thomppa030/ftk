@@ -184,8 +184,10 @@ static bool parse_quoted_arg(const std::string& attrs, const std::string& key,
 
 /// Parse 'fj::enum(A, B, C)' — comma-separated identifiers (or quoted strings).
 /// Stores label list in out. Whitespace tolerated. Quotes optional.
-static bool parse_enum_labels(const std::string& attrs, std::vector<std::string>& out) {
-    auto pos = attrs.find("fj::enum(");
+/// Parse a comma-separated list argument: [[fj::<name>(A, B, "C")]].
+static bool parse_list_arg(const std::string& attrs, const std::string& name,
+                           std::vector<std::string>& out) {
+    auto pos = attrs.find("fj::" + name + "(");
     if (pos == std::string::npos) return false;
     auto open = attrs.find('(', pos);
     auto close = attrs.find(')', open);
@@ -209,6 +211,16 @@ static bool parse_enum_labels(const std::string& attrs, std::vector<std::string>
     return !out.empty();
 }
 
+/// Why a field's [[fj::shader_type]] cannot stand, or empty when it can. The
+/// Type names themselves are the engine's to check when it loads the module:
+/// it owns the list, and a copy here would drift from it.
+static std::string shader_type_error(const FieldInfo& fi) {
+    if (fi.shader_types.empty()) return {};
+    if (fi.fj_field_type == "FJELL_FIELD_REF" && fi.ref_target == "Material") return {};
+    return "[[fj::shader_type]] requires Ref<Material>, got '" + fi.cpp_type + "' on '" +
+           fi.name + "'";
+}
+
 /// Apply all hint/decoration attributes to a FieldInfo.
 /// Range/step/tooltip/category/enum/color/readonly are independent of field type
 /// and the type-specific guards are applied later by the caller.
@@ -219,7 +231,8 @@ static void apply_attrs(FieldInfo& fi, const std::string& attrs) {
     parse_step(attrs, fi.hint_speed);
     parse_quoted_arg(attrs, "tooltip", fi.tooltip);
     parse_quoted_arg(attrs, "category", fi.category);
-    parse_enum_labels(attrs, fi.enum_labels);
+    parse_list_arg(attrs, "enum", fi.enum_labels);
+    parse_list_arg(attrs, "shader_type", fi.shader_types);
     fi.is_color = attrs.find("fj::color") != std::string::npos;
     fi.is_readonly = attrs.find("fj::readonly") != std::string::npos;
     fi.is_replicated = attrs.find("fj::replicated") != std::string::npos;
@@ -556,6 +569,7 @@ ParseResult parse_file(const std::string& filepath) {
                 static const char* implicit[] = {
                     "fj::range", "fj::step", "fj::tooltip", "fj::category",
                     "fj::color", "fj::enum", "fj::readonly", "fj::replicated",
+                    "fj::shader_type",
                 };
                 for (const auto* k : implicit) {
                     if (attrs.find(k) != std::string::npos) { is_property = true; break; }
@@ -667,6 +681,12 @@ ParseResult parse_file(const std::string& filepath) {
                     }
                     fi.fj_field_type = "FJELL_FIELD_ENUM";
                 }
+                if (auto error = shader_type_error(fi); !error.empty()) {
+                    result.errors.push_back(filepath + ":" + std::to_string(j + 1) +
+                                            ": error: " + error);
+                    pending_attrs.clear();
+                    continue;
+                }
 
                 comp.fields.push_back(std::move(fi));
                 pending_attrs.clear();
@@ -743,6 +763,11 @@ ParseResult parse_file(const std::string& filepath) {
                                 } else {
                                     fi.fj_field_type = "FJELL_FIELD_ENUM";
                                 }
+                            }
+                            if (auto error = shader_type_error(fi); keep && !error.empty()) {
+                                result.errors.push_back(filepath + ":" + std::to_string(j + 1) +
+                                                        ": error: " + error);
+                                keep = false;
                             }
                             if (keep) comp.fields.push_back(std::move(fi));
                         }

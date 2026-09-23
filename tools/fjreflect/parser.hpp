@@ -26,6 +26,7 @@ struct FieldInfo {
     std::string tooltip;       // [[fj::tooltip("...")]]
     std::string category;      // [[fj::category("...")]]
     std::vector<std::string> enum_labels; // [[fj::enum(A, B, C)]]
+    std::vector<std::string> shader_types; // [[fj::shader_type(water, fog)]] on Ref<Material>
 
     // UI bind flags
     bool is_bind{false};       // [[fj::bind]] — auto-sync to widget context

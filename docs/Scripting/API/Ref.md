@@ -52,6 +52,15 @@ Assigned in the editor via the inspector's asset picker. When you declare:
 
 the inspector renders a drop-target for `AudioAsset` files. The `asset_type_id` byte in `RefData` is set when the inspector or deserializer writes the ref, and it gates `get()` — passing the wrong type returns null.
 
+A `Ref<Material>` accepts any material by default. When the script can only use materials of certain shader types, say so:
+
+```cpp
+[[fj::shader_type(water)]] fjell::Ref<fjell::Material> calm_sea;
+[[fj::shader_type(water, fog)]] fjell::Ref<fjell::Material> surface_or_medium;
+```
+
+The picker then lists only materials whose shader declares one of those types, a drop of another type is refused with the reason shown over the field, and a field already holding the wrong type says so under it. `fj::shader_type` implies `fj::property`. On anything other than a `Ref<Material>` it is a build error; a name that is not a shader type (`spatial`, `sky`, `ui`, `terrain`, `water`, `fog`) is reported when the engine loads the module.
+
 Every dereference goes through `fjell_ref_resolve` (a C function exported by the engine). It's a pool lookup — cheap, but not free. If you dereference in a hot loop, cache the pointer at the top.
 
 ## Members
