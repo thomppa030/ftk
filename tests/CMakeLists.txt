@@ -67,6 +67,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp

@@ -4,6 +4,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
+#include "ui/kit/component_block.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
@@ -234,6 +235,32 @@ Edit KitGallery::choices() {
     return edit;
 }
 
+void KitGallery::blocks() {
+    if (section_foldable("Component blocks", icon::more)) {
+        const std::pair<const char*, theme::Category> samples[] = {
+            {"Mesh", theme::Category::Rendering},
+            {"Collider", theme::Category::Physics},
+            {"Audio Source", theme::Category::Audio},
+        };
+        for (const auto& [name, category] : samples) {
+            ImGui::PushID(name);
+            bool remove = false;
+            if (component_block(name, category, remove)) {
+                if (auto t = PropertyTable("##body")) {
+                    row("Cast shadows", [&] { checkbox("##shadows", shadows_); });
+                }
+            }
+            if (remove) removed_ = name;
+            ImGui::PopID();
+        }
+        if (removed_ != nullptr) {
+            char text[64];
+            std::snprintf(text, sizeof(text), "Remove clicked on %s", removed_);
+            hint(text);
+        }
+    }
+}
+
 void KitGallery::draw(bool* open) {
     ImGui::SetNextWindowSize({420.0f, 640.0f}, ImGuiCond_FirstUseEver);
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", open)) {
@@ -242,6 +269,7 @@ void KitGallery::draw(bool* open) {
         buttons();
         rows();
         fields();
+        blocks();
     }
 }
 

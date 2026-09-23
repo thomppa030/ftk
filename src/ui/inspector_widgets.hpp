@@ -50,16 +50,6 @@ inline void prop_row(const char* label, F&& draw_input) {
     ui::row(label, std::forward<F>(draw_input));
 }
 
-inline void colored_separator(const ImVec4& color) {
-    ImGui::Spacing();
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    float w = ImGui::GetContentRegionAvail().x;
-    ImGui::GetWindowDrawList()->AddRectFilled(
-        p, {p.x + w, p.y + 2.0f},
-        ImGui::ColorConvertFloat4ToU32(color));
-    ImGui::Dummy({0.0f, 4.0f});
-}
-
 [[deprecated("Use asset_ref_field() from ui/asset_ref_widget.hpp")]]
 inline bool asset_path_field(const char* label, const char* id, std::string& path) {
     bool changed = false;
@@ -81,15 +71,6 @@ inline bool asset_path_field(const char* label, const char* id, std::string& pat
         ImGui::EndDragDropTarget();
     }
     return changed;
-}
-
-/// A full-width destructive button. Kept for the component block until it
-/// gets its header trash icon; new code uses ui::button with a danger kind.
-inline bool remove_button(const char* label) {
-    ImGui::Spacing();
-    const bool pressed = ui::button(label, ui::ButtonKind::Danger, {-1.0f, 0.0f});
-    ImGui::Spacing();
-    return pressed;
 }
 
 } // namespace fjell

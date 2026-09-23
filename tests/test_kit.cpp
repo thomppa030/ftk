@@ -1,5 +1,6 @@
 #include "imgui_harness.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/component_block.hpp"
 #include "ui/kit/section.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -84,6 +85,44 @@ TEST_CASE("A foldable sub-heading starts the way it is asked to", "[ui][kit]") {
     h.step(2);
     CHECK_FALSE(open);
     h.click("heading");
+    CHECK(open);
+}
+
+TEST_CASE("A component block folds from its header and asks to be removed from its trash icon", "[ui][kit]") {
+    ImGuiHarness h;
+    bool open = false;
+    bool remove = false;
+    int removals = 0;
+    h.set_ui([&] {
+        remove = false;
+        open = ui::component_block("Collider", fjell::theme::Category::Physics, remove);
+        h.mark("trash");  // the last item is the trash icon
+        if (remove) ++removals;
+    });
+    h.step(2);
+    CHECK(open);
+    const ImVec2 trash_min = h.rect_min("trash");
+    const ImVec2 trash_max = h.rect_max("trash");
+    const float y = (trash_min.y + trash_max.y) * 0.5f;
+
+    // The header left of the trash icon folds the block.
+    ImGuiIO& io = ImGui::GetIO();
+    const auto click_at = [&](float x) {
+        io.AddMousePosEvent(x, y);
+        h.step();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        h.step();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        h.step();
+    };
+    click_at(trash_min.x - 40.0f);
+    CHECK_FALSE(open);
+    click_at(trash_min.x - 40.0f);
+    CHECK(open);
+
+    // The trash icon asks for removal and leaves the fold alone.
+    h.click("trash");
+    CHECK(removals == 1);
     CHECK(open);
 }
 

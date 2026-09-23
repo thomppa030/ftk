@@ -25,6 +25,8 @@
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
 #include "ui/inspector_widgets.hpp"
+#include "ui/inspectors/inspector_registry.hpp"
+#include "ui/kit/component_block.hpp"
 #include "ui/kit/text_field.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "core/string_utils.hpp"
@@ -444,16 +446,22 @@ void PropertiesPanel::draw() {
             auto& registry = ComponentRegistry::instance();
             ComponentTypeId remove_id = ~0u;
 
+            const auto& inspectors = component_inspectors();
             obj->components.for_each([&](ComponentTypeId id, void* ptr) {
                 const auto* meta = registry.find(id);
                 if (!meta) return;
+                const auto* inspector = inspectors.find(id);
 
                 // Each component's widgets get their own ID scope: two
                 // components on one node may both have an "Add" or "Clear".
                 ImGui::PushID(meta->json_key.c_str());
-                colored_separator(meta->color);
-                if (ImGui::CollapsingHeader(meta->display_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    if (meta->draw(*obj, ptr, ictx)) {
+                bool remove = false;
+                const auto category = inspector ? inspector->category : theme::Category::Structure;
+                if (ui::component_block(meta->display_name.c_str(), category, remove)) {
+                    const bool changed = inspector && inspector->draw
+                        ? inspector->draw(*obj, ptr, ictx).changed
+                        : meta->draw(*obj, ptr, ictx);
+                    if (changed) {
                         scene_->mark_dirty();
                     }
 
@@ -463,11 +471,9 @@ void PropertiesPanel::draw() {
                     if (meta->material != nullptr) {
                         draw_material_inspector_for(meta->material(ptr));
                     }
-
-                    std::string remove_label = "Remove " + meta->display_name;
-                    if (remove_button(remove_label.c_str())) {
-                        remove_id = id;
-                    }
+                }
+                if (remove) {
+                    remove_id = id;
                 }
                 ImGui::PopID();
             });
