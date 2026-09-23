@@ -9,10 +9,12 @@
 #include "renderer/uniform_types.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/scene.hpp"
+#include "scripting/script_commands.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/icons_lc.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/inspectors/inspector_registry.hpp"
+#include "ui/inspectors/script_fields.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
@@ -85,7 +87,7 @@ void PropertiesPanel::draw() {
         // The node's own settings come before what is composed onto it.
         draw_node_sections(*node, ictx);
         draw_components(*node, ictx);
-        draw_scripts(*node);
+        draw_scripts(*node, ictx);
     }
 }
 
@@ -197,10 +199,25 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
     }
 }
 
-void PropertiesPanel::draw_scripts(Node3D& node) {
+void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
     ui::section("Scripts", ui::icon::scripts);
-    if (scripts_->draw_inspector(node)) {
-        scene_->mark_dirty();
+    std::string remove;
+    for (auto& entry : node.scripts) {
+        ImGui::PushID(entry.type_name.c_str());
+        bool removed = false;
+        if (ui::component_block(entry.type_name.c_str(), theme::Category::Logic, removed)) {
+            draw_script(node, entry, ictx);
+        }
+        if (removed) remove = entry.type_name;
+        ImGui::PopID();
+    }
+    if (!remove.empty()) {
+        if (history_) {
+            history_->execute(std::make_unique<RemoveScriptCommand>(*scene_, *scripts_, node.id, remove));
+        } else {
+            scripts_->remove_script(node, remove);
+            scene_->mark_dirty();
+        }
     }
 
     // Add script button
@@ -219,6 +236,44 @@ void PropertiesPanel::draw_scripts(Node3D& node) {
             ImGui::EndPopup();
         }
     }
+}
+
+void PropertiesPanel::draw_script(Node3D& node, ScriptEntry& entry, const InspectorContext& ictx) {
+    // A script without an instance keeps its saved fields; the block says
+    // why they can't be edited instead of showing nothing.
+    const auto* type = scripts_->find_script_type(entry.type_name);
+    if (!scripts_->is_loaded()) {
+        ui::status(ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
+        return;
+    }
+    if (type == nullptr || !type->loaded) {
+        ui::status(ui::Severity::Warning, "Not in the last build. Its values are kept until it is back");
+        return;
+    }
+    if (!entry.instance) {
+        ui::status(ui::Severity::Error, "Couldn't be created: Scripts > Build & Reload tries again");
+        return;
+    }
+    if (type->fields.empty()) {
+        ui::hint("No properties");
+        return;
+    }
+
+    // The fields in one group, so the block knows whether one of them is
+    // being edited or under the mouse.
+    ImGui::BeginGroup();
+    const ui::Edit edit = draw_script_fields(type->fields, entry.instance.get(), ictx, scene_);
+    ImGui::EndGroup();
+    const bool active = ImGui::IsItemActive();
+    const bool hovered = ImGui::IsItemHovered();
+    script_edits_.track(
+        *scene_, history_, node.id, ScriptManager::hash_type_name(entry.type_name),
+        {edit.changed, edit.committed, active, hovered},
+        [&] { return scripts_->fields_of(entry); },
+        [&](nlohmann::json before, nlohmann::json after) {
+            return std::make_unique<ScriptEditCommand>(*scene_, *scripts_, node.id, entry.type_name,
+                                                       std::move(before), std::move(after));
+        });
 }
 
 void PropertiesPanel::draw_material_inspector_for(Material* mat) {

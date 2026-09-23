@@ -2,9 +2,6 @@
 #include "scene/component_registry.hpp"
 #include "scripting/script_globals.hpp"
 #include "core/asset_type_registry.hpp"
-#include "ui/asset_ref_widget.hpp"
-#include "scripting/field_inspector.hpp"
-#include "ui/kit/text_field.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"
 #include "animation/anim_notify_registry.hpp"
@@ -15,7 +12,6 @@
 #include "scripting/gc_visitor.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
-#include "core/string_utils.hpp"
 #include "core/input_action_map.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -26,10 +22,8 @@
 
 extern "C" void fjell_input_clear_connections();
 
-#include <imgui.h>
 #include <ranges>
 #include <string_view>
-#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <array>
@@ -454,15 +448,42 @@ Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
 
     ScriptEntry entry;
     entry.type_name = type->name;
+    instantiate(obj, entry);
+    obj.scripts.push_back(std::move(entry));
+    return {};
+}
+
+void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
+    const auto* type = find_script_type(entry.type_name);
+    if (!type || !type->loaded || !type->create) {
+        entry.instance.reset();
+        return;
+    }
     entry.instance.reset(type->create());
     entry.instance->node_ = &obj;
     entry.instance->world_ = &world_;
     entry.instance->transform_ = &obj.transform;
     entry.instance->id_ = obj.id;
     entry.instance->name_ = obj.name.c_str();
+    if (!entry.serialized.empty()) {
+        auto_deserialize_fields(type->fields, entry.instance.get(), entry.serialized);
+    }
+}
 
-    obj.scripts.push_back(std::move(entry));
-    return {};
+nlohmann::json ScriptManager::fields_of(const ScriptEntry& entry) const {
+    const auto* type = find_script_type(entry.type_name);
+    if (!entry.instance || !type) return entry.serialized;
+    nlohmann::json fields = nlohmann::json::object();
+    auto_serialize_fields(type->fields, entry.instance.get(), fields);
+    return fields;
+}
+
+void ScriptManager::set_fields(ScriptEntry& entry, const nlohmann::json& fields) {
+    entry.serialized = fields;
+    const auto* type = find_script_type(entry.type_name);
+    if (entry.instance && type) {
+        auto_deserialize_fields(type->fields, entry.instance.get(), fields);
+    }
 }
 
 void ScriptManager::remove_script(Node3D& obj, const std::string& type_name) {
@@ -869,7 +890,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 auto& j = in[f.name];
                 if (j.is_object() && j.contains("asset_path") && s_services.resources) {
                     auto path = j["asset_path"].get<std::string>();
-                    if (!path.empty()) {
+                    if (path.empty()) {
+                        *ref = {};
+                    } else {
                         auto result = s_services.resources->load_asset_by_type(
                             f.ref_type_name, path);
                         if (result) {
@@ -910,218 +933,9 @@ void ScriptManager::deserialize_all(Scene& scene) {
         for (auto& comp : obj->scripts) {
             const auto* ctype = find_script_type(comp.type_name);
             if (!ctype || !ctype->loaded || !ctype->create) continue;
-
-            comp.instance.reset(ctype->create());
-            comp.instance->node_ = spatial;
-            comp.instance->world_ = &world_;
-            comp.instance->transform_ = &spatial->transform;
-            comp.instance->id_ = obj->id;
-            comp.instance->name_ = obj->name.c_str();
-
-            if (!comp.serialized.empty()) {
-                auto_deserialize_fields(ctype->fields, comp.instance.get(), comp.serialized);
-            }
+            instantiate(*spatial, comp);
         }
     }
-}
-
-// ── Inspector ───────────────────────────────────────────────────────────
-
-bool draw_reflected_fields(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
-    auto* base = static_cast<uint8_t*>(base_ptr);
-    bool changed = false;
-    std::string current_category;
-    bool category_open = true;
-    bool in_tree = false;  // true if current_category was opened via TreeNode
-    for (std::size_t i = 0; i < fields.size(); ++i) {
-        const auto& f = fields[i];
-
-        if (f.category != current_category) {
-            if (in_tree) { ImGui::TreePop(); in_tree = false; }
-            current_category = f.category;
-            if (current_category.empty()) {
-                category_open = true;
-            } else {
-                category_open = ImGui::TreeNodeEx(current_category.c_str(),
-                                                  ImGuiTreeNodeFlags_DefaultOpen |
-                                                  ImGuiTreeNodeFlags_SpanAvailWidth);
-                in_tree = category_open;
-            }
-        }
-        if (!category_open) continue;
-
-        void* ptr = base + f.offset;
-        float spd = f.speed > 0.0f ? f.speed : 0.1f;
-        std::string label = display_name(f.name);
-        const char* lbl = label.c_str();
-
-        ImGui::PushID(static_cast<int>(i));
-        if (f.readonly) ImGui::BeginDisabled();
-        switch (f.type) {
-            case FJELL_FIELD_FLOAT:
-                changed |= ImGui::DragFloat(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
-                break;
-            case FJELL_FIELD_INT:
-                changed |= ImGui::DragInt(lbl, static_cast<int*>(ptr), spd,
-                                          static_cast<int>(f.min), static_cast<int>(f.max));
-                break;
-            case FJELL_FIELD_BOOL:
-                changed |= ImGui::Checkbox(lbl, static_cast<bool*>(ptr));
-                break;
-            case FJELL_FIELD_VEC2:
-                changed |= ImGui::DragFloat2(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
-                break;
-            case FJELL_FIELD_VEC3:
-                changed |= ImGui::DragFloat3(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
-                break;
-            case FJELL_FIELD_VEC4:
-                changed |= ImGui::DragFloat4(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
-                break;
-            case FJELL_FIELD_COLOR3:
-                changed |= ImGui::ColorEdit3(lbl, static_cast<float*>(ptr));
-                break;
-            case FJELL_FIELD_COLOR4:
-                changed |= ImGui::ColorEdit4(lbl, static_cast<float*>(ptr));
-                break;
-            case FJELL_FIELD_STRING: {
-                // A fixed buffer in the script: edited as a string and
-                // written back, truncated to fit, only when the edit commits.
-                auto* buf = static_cast<char*>(ptr);
-                std::string text(buf, std::find(buf, buf + f.size, '\0'));
-                if (f.size > 0 && ui::text_field(lbl, text).committed) {
-                    const std::size_t n = std::min(text.size(), static_cast<std::size_t>(f.size) - 1);
-                    std::memcpy(buf, text.data(), n);
-                    buf[n] = '\0';
-                    changed = true;
-                }
-                break;
-            }
-            case FJELL_FIELD_STD_STRING:
-                changed |= ui::text_field(lbl, *static_cast<std::string*>(ptr)).committed;
-                break;
-            case FJELL_FIELD_ENUM:
-                if (!f.enum_labels.empty()) {
-                    std::string preview = f.enum_labels[
-                        std::clamp(*static_cast<int*>(ptr), 0,
-                                   static_cast<int>(f.enum_labels.size()) - 1)];
-                    if (ImGui::BeginCombo(lbl, preview.c_str())) {
-                        for (int e = 0; e < static_cast<int>(f.enum_labels.size()); ++e) {
-                            if (ImGui::Selectable(f.enum_labels[e].c_str(),
-                                                  *static_cast<int*>(ptr) == e)) {
-                                *static_cast<int*>(ptr) = e;
-                                changed = true;
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                }
-                break;
-            case FJELL_FIELD_WEAK_REF: {
-                auto* ref = static_cast<WeakRefData*>(ptr);
-                const char* target_name = "(null)";
-                if (ref->id != 0 && s_services.scene) {
-                    auto* node = s_services.scene->find(ref->id);
-                    if (node && s_services.scene->generation_of(ref->id) == ref->generation) {
-                        target_name = node->name.c_str();
-                    } else {
-                        target_name = "(stale)";
-                    }
-                }
-                ImGui::Text("%s: %s", lbl, target_name);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Clear")) {
-                    *ref = {};
-                    changed = true;
-                }
-                break;
-            }
-            case FJELL_FIELD_REF: {
-                auto* ref = static_cast<RefData*>(ptr);
-                const auto* asset_entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
-
-                if (asset_entry && s_services.resources) {
-                    // Reverse lookup current path
-                    std::string current_path;
-                    if (ref->handle_id != 0 && asset_entry->path_of) {
-                        current_path = asset_entry->path_of(*s_services.resources, ref->handle_id);
-                    }
-
-                    const std::string exts[] = {asset_entry->extension};
-                    InspectorContext sctx{.resource_manager = s_services.resources};
-                    if (asset_ref_field({.label = lbl, .id = "##ref_field",
-                                         .extensions = exts, .ctx = &sctx,
-                                         .asset_type = asset_entry,
-                                         .shader_types = f.shader_types}, current_path)) {
-                        changed = true;
-                        // Path changed — load the asset
-                        if (current_path.empty()) {
-                            *ref = {};
-                        } else {
-                            auto resolved = base_path::resolve_asset(
-                                current_path, s_services.project);
-                            auto result = s_services.resources->load_asset_by_type(
-                                f.ref_type_name, resolved);
-                            if (result) {
-                                ref->handle_id = *result;
-                                ref->asset_type_id = asset_entry->type_id;
-                            } else {
-                                FJELL_CORE_ERROR("Asset ref: {}", result.error());
-                            }
-                        }
-                    }
-                } else {
-                    ImGui::Text("%s: handle %u", lbl, ref->handle_id);
-                }
-                break;
-            }
-            case FJELL_FIELD_WIDGET_PTR: {
-                auto* widget = *static_cast<UiComponent**>(ptr);
-                ImGui::Text("%s: %s", lbl,
-                            widget ? f.ref_type_name.c_str() : "(unbound)");
-                break;
-            }
-        }
-        if (f.readonly) ImGui::EndDisabled();
-        if (!f.tooltip.empty() && ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", f.tooltip.c_str());
-        }
-        ImGui::PopID();
-    }
-    if (in_tree) ImGui::TreePop();
-    return changed;
-}
-
-
-bool ScriptManager::draw_inspector(Node3D& obj) {
-    bool changed = false;
-    std::string remove_name;
-    for (auto& comp : obj.scripts) {
-        const auto* ctype = find_script_type(comp.type_name);
-        const char* label = ctype ? ctype->name.c_str() : comp.type_name.c_str();
-
-        ImGui::PushID(comp.type_name.c_str());
-        bool open = ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen);
-
-        if (ImGui::BeginPopupContextItem()) {
-            if (ImGui::MenuItem("Remove")) {
-                remove_name = comp.type_name;
-            }
-            ImGui::EndPopup();
-        }
-
-        if (open && comp.instance && ctype && ctype->loaded) {
-            changed |= draw_reflected_fields(ctype->fields, comp.instance.get());
-        } else if (open && (!ctype || !ctype->loaded)) {
-            ImGui::TextDisabled("Script not loaded");
-        }
-        ImGui::PopID();
-    }
-
-    if (!remove_name.empty()) {
-        remove_script(obj, remove_name);
-        changed = true;
-    }
-    return changed;
 }
 
 // ── Hot-reload watcher (debug only) ─────────────────────────────────────

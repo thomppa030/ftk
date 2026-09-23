@@ -32,6 +32,7 @@ class Input;
 class Clock;
 class PhysicsWorld;
 struct Node3D;
+struct ScriptEntry;
 
 struct OwnedFieldDesc {
     std::string name;
@@ -103,9 +104,17 @@ public:
 
     Result<> add_script(Node3D& obj, const std::string& type_name);
     void remove_script(Node3D& obj, const std::string& type_name);
-    /// Draws the node's scripts and their fields. Returns true when a field
-    /// changed or a script was removed.
-    bool draw_inspector(Node3D& obj);
+
+    /// Makes `entry`'s live instance from its saved fields, replacing any
+    /// it had. An entry whose type isn't in the loaded library keeps its
+    /// saved fields and gets no instance.
+    void instantiate(Node3D& obj, ScriptEntry& entry);
+    /// The script's field values as the scene file stores them: read from
+    /// the instance, or the saved fields when it has none.
+    [[nodiscard]] nlohmann::json fields_of(const ScriptEntry& entry) const;
+    /// Sets the script's fields to `fields` (as fields_of() gives them), on
+    /// the instance when it has one and in its saved fields.
+    void set_fields(ScriptEntry& entry, const nlohmann::json& fields);
 
     void serialize_all(Scene& scene);
     void deserialize_all(Scene& scene);

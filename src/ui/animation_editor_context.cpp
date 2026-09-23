@@ -4,7 +4,8 @@
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
 #include "animation/animator_component.hpp"
-#include "scripting/field_inspector.hpp"
+#include "scene/component_meta.hpp"
+#include "ui/inspectors/script_fields.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -920,7 +921,11 @@ void AnimationEditorContext::draw_properties() {
                 const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
                 if (info && !info->fields.empty()) {
                     ImGui::SeparatorText("Properties");
-                    draw_reflected_fields(info->fields, ni.instance.get());
+                    InspectorContext ictx{};
+                    ictx.resource_manager = deps_.resource_manager;
+                    ictx.project_mgr = deps_.project_mgr;
+                    ictx.icons = deps_.icon_cache;
+                    (void)draw_script_fields(info->fields, ni.instance.get(), ictx, nullptr);
                 }
             }
 

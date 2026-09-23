@@ -62,7 +62,8 @@ private:
     void draw_transform(Node3D& node);
     void draw_node_sections(Node3D& node, const InspectorContext& ictx);
     void draw_components(Node3D& node, const InspectorContext& ictx);
-    void draw_scripts(Node3D& node);
+    void draw_scripts(Node3D& node, const InspectorContext& ictx);
+    void draw_script(Node3D& node, ScriptEntry& entry, const InspectorContext& ictx);
 
     // A node type's own section (properties_node_sections.cpp). Each
     // returns whether a setting changed; the caller turns that into dirty
@@ -104,6 +105,7 @@ private:
     // own section.
     EditTracker<ComponentState> component_edits_;
     EditTracker<nlohmann::json> node_edits_;
+    EditTracker<nlohmann::json> script_edits_;
 
     // The transform as it was before the edit under way, for its undo step.
     Transform drag_start_transform_;

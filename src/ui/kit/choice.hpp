@@ -78,6 +78,13 @@ Edit choice(const char* id, E& value, std::span<const Choice<E>> choices) {
     });
 }
 
+/// The same field for a value that is an index into names read from data
+/// rather than an enum type, such as a script's enum property.
+inline Edit choice(const char* id, int& index, std::span<const char* const> names) {
+    return detail::fits_segmented(names) ? detail::segmented(id, index, names)
+                                         : detail::combo(id, index, names);
+}
+
 // Name tables are arrays; these take them without spelling out a span.
 template <typename E, std::size_t N>
 Edit combo(const char* id, E& value, const Choice<E> (&choices)[N]) {
