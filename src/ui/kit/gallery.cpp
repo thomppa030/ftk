@@ -87,15 +87,10 @@ void tokens() {
         swatch("danger_hov", theme::danger_hov());
 
         subheading("Categories");
-        const std::pair<const char*, theme::Category> categories[] = {
-            {"Rendering", theme::Category::Rendering}, {"Light", theme::Category::Light},
-            {"Camera", theme::Category::Camera}, {"Environment", theme::Category::Environment},
-            {"Physics", theme::Category::Physics}, {"Animation", theme::Category::Animation},
-            {"Audio", theme::Category::Audio}, {"VFX", theme::Category::Vfx},
-            {"UI", theme::Category::Ui}, {"Logic", theme::Category::Logic},
-            {"Structure", theme::Category::Structure},
-        };
-        for (const auto& [name, c] : categories) swatch(name, theme::category(c));
+        for (int c = 0; c <= static_cast<int>(theme::Category::Structure); ++c) {
+            const auto category = static_cast<theme::Category>(c);
+            swatch(theme::category_name(category), theme::category(category));
+        }
 
         subheading("Axes and canvas");
         swatch("axis_x", theme::axis_x());

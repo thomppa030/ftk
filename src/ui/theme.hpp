@@ -100,6 +100,25 @@ inline ImVec4 category(Category c) {
     return hex(0x8F929A);
 }
 
+// What a category is called where it names a group (the Add Component
+// picker, the gallery).
+inline const char* category_name(Category c) {
+    switch (c) {
+        case Category::Rendering:   return "Rendering";
+        case Category::Light:       return "Light";
+        case Category::Camera:      return "Camera";
+        case Category::Environment: return "Environment";
+        case Category::Physics:     return "Physics";
+        case Category::Animation:   return "Animation";
+        case Category::Audio:       return "Audio";
+        case Category::Vfx:         return "VFX";
+        case Category::Ui:          return "UI";
+        case Category::Logic:       return "Logic";
+        case Category::Structure:   return "Structure";
+    }
+    return "Structure";
+}
+
 // Vector components, in the viewport gizmo's axis colours muted to the
 // palette so they don't read as error and success.
 inline ImVec4 axis_x() { return hex(0xD9736C); }

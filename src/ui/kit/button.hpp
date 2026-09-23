@@ -21,8 +21,10 @@ bool button(const char* label, ButtonKind kind = ButtonKind::Secondary, ImVec2 s
 
 /// A button that does something to what it sits beside ("Fit to mesh",
 /// "Create material"): its icon from ui::icon, then the verb in sentence
-/// case. Secondary unless the action destroys something (GhostDanger).
-bool action(const char* icon, const char* label, ButtonKind kind = ButtonKind::Secondary);
+/// case. Secondary unless the action destroys something (GhostDanger). A
+/// width of -1 fills the row.
+bool action(const char* icon, const char* label, ButtonKind kind = ButtonKind::Secondary,
+            ImVec2 size = {0.0f, 0.0f});
 
 /// A square button, frame-height tall, showing only an icon. `tooltip`
 /// names the action and its shortcut ("Snap to grid (Ctrl G)"): an icon on

@@ -1,4 +1,5 @@
 #include "ui/grouped_picker.hpp"
+#include "ui/kit/section.hpp"
 #include "ui/theme.hpp"
 
 #include <algorithm>
@@ -11,11 +12,23 @@ namespace fjell::grouped_picker {
 namespace {
 
 constexpr float PREVIEW_SIZE = 32.0F;
+// The column a row's category dot sits in, and the dot.
+constexpr float DOT_COLUMN = 16.0F;
+constexpr float DOT_DIAMETER = 7.0F;
 
 // Only one picker is open at a time, the same way only one popup is.
 std::string g_open_for;      // widget id whose picker is open
 std::string g_pending_open;  // widget id asked to open on the next draw
 std::array<char, 128> g_search{};
+// The item the arrow keys have reached, counted over the pickable items
+// shown, and the search it was counted under.
+int g_highlight = 0;
+std::string g_highlight_search;
+// How many pickable items the last draw showed, which bounds the highlight:
+// what a folded group hides isn't known until it is drawn.
+int g_shown_pickable = 0;
+// Set when the arrow keys moved the highlight, to bring it into view once.
+bool g_scroll_to_highlight = false;
 
 /// Case-insensitive substring test, so typing "brick" finds "Brick_01".
 bool contains_fold(std::string_view haystack, std::string_view needle) {
@@ -51,21 +64,39 @@ void draw_tag(const std::string& text, ImU32 color) {
     ImGui::Dummy({p1.x - p0.x, p1.y - p0.y});
 }
 
-/// Draw one row: preview or tag, then the label over its sublabel. Returns
-/// true when it was clicked.
-bool draw_row(const Item& item) {
+/// Draw one row: category dot, preview or tag, then the label over its
+/// sublabel, and the detail word at the right end. Returns true when it was
+/// clicked.
+bool draw_row(const Item& item, bool highlighted, bool dot_column) {
     const bool two_line = !item.sublabel.empty();
     const float text_height = ImGui::GetTextLineHeight() * (two_line ? 2.0F : 1.0F);
     const float row_height = item.preview != 0
         ? std::max(PREVIEW_SIZE, text_height)
         : text_height;
 
-    const bool clicked = ImGui::Selectable(("##" + item.value).c_str(), false,
+    ImGui::BeginDisabled(!item.enabled);
+    const ImVec2 row_min = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::Selectable(("##" + item.value).c_str(), highlighted,
                                            ImGuiSelectableFlags_None,
                                            {0.0F, row_height});
+    if (!item.disabled_reason.empty()) ImGui::SetItemTooltip("%s", item.disabled_reason.c_str());
+    if (highlighted && g_scroll_to_highlight) {
+        ImGui::SetScrollHereY();
+        g_scroll_to_highlight = false;
+    }
+    const float row_right = ImGui::GetItemRectMax().x;
     ImGui::SameLine(0.0F, 0.0F);
 
     ImGui::BeginGroup();
+    if (dot_column) {
+        if (item.category) {
+            ImGui::GetWindowDrawList()->AddCircleFilled(
+                {row_min.x + DOT_COLUMN * 0.5F, row_min.y + row_height * 0.5F}, DOT_DIAMETER * 0.5F,
+                ImGui::ColorConvertFloat4ToU32(theme::category(*item.category)));
+        }
+        ImGui::Dummy({DOT_COLUMN, row_height});
+        ImGui::SameLine();
+    }
     if (item.preview != 0) {
         ImGui::Image(item.preview, {PREVIEW_SIZE, PREVIEW_SIZE});
         ImGui::SameLine();
@@ -83,9 +114,18 @@ bool draw_row(const Item& item) {
         ImGui::PopStyleColor();
     }
     ImGui::EndGroup();
+    if (!item.detail.empty()) {
+        const float width = ImGui::CalcTextSize(item.detail.c_str()).x;
+        ImGui::SameLine(row_right - ImGui::GetWindowPos().x + ImGui::GetScrollX() - width
+                        - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::TextUnformatted(item.detail.c_str());
+        ImGui::PopStyleColor();
+    }
     ImGui::EndGroup();
+    ImGui::EndDisabled();
 
-    return clicked;
+    return clicked && item.enabled;
 }
 
 } // namespace
@@ -93,6 +133,9 @@ bool draw_row(const Item& item) {
 void open(const char* widget_id) {
     g_pending_open = widget_id != nullptr ? widget_id : "";
     g_search.fill('\0');
+    g_highlight = 0;
+    g_highlight_search.clear();
+    g_shown_pickable = 0;
 }
 
 bool is_open(const char* widget_id) {
@@ -128,13 +171,33 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::InputTextWithHint("##search", config.search_hint,
                              g_search.data(), g_search.size());
-    ImGui::Separator();
 
     bool chose = false;
 
+    // The items the arrow keys walk: those shown and pickable, in order.
+    const std::string_view needle{g_search.data()};
+    if (g_highlight_search != needle) {
+        g_highlight = 0;
+        g_highlight_search = needle;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+        ++g_highlight;
+        g_scroll_to_highlight = true;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+        --g_highlight;
+        g_scroll_to_highlight = true;
+    }
+    g_highlight = g_shown_pickable > 0 ? std::clamp(g_highlight, 0, g_shown_pickable - 1) : 0;
+    const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+
+    const bool dot_column = std::ranges::any_of(groups, [](const Group& g) {
+        return std::ranges::any_of(g.items, [](const Item& i) { return i.category.has_value(); });
+    });
+
     if (ImGui::BeginChild("##list", {0.0F, 0.0F})) {
-        const std::string_view needle{g_search.data()};
         bool any_shown = false;
+        int index = 0;
 
         for (const auto& group : groups) {
             // A group whose every item is filtered out takes its header with
@@ -144,26 +207,34 @@ bool draw(const char* widget_id, std::span<const Group> groups,
             if (!has_match) continue;
             any_shown = true;
 
+            // An item may sit in two groups ("Recently added" and its own),
+            // so each group is its own ID scope.
+            ImGui::PushID(group.label.c_str());
             bool body_open = true;
             if (!config.hide_group_headers) {
-                ImGui::SetNextItemOpen(group.open, ImGuiCond_Appearing);
-                ImGui::PushStyleColor(ImGuiCol_Text, theme::accent());
-                body_open = ImGui::CollapsingHeader(group.label.c_str());
-                ImGui::PopStyleColor();
+                body_open = group.category
+                    ? ui::subheading_foldable(group.label.c_str(), *group.category, group.open)
+                    : ui::subheading_foldable(group.label.c_str(), group.open);
             }
-            if (!body_open) continue;
-
+            if (!body_open) {
+                ImGui::PopID();
+                continue;
+            }
             for (const auto& item : group.items) {
                 if (!matches_search(item, needle)) continue;
+                const bool highlighted = item.enabled && index == g_highlight;
+                if (item.enabled) ++index;
                 ImGui::PushID(item.value.c_str());
-                if (draw_row(item)) {
+                if (draw_row(item, highlighted, dot_column) || (highlighted && enter)) {
                     picked = item.value;
                     chose = true;
                 }
                 ImGui::PopID();
             }
+            ImGui::PopID();
         }
 
+        g_shown_pickable = index;
         if (!any_shown) {
             ImGui::TextDisabled("%s", config.loading ? config.loading_message
                                                      : config.empty_message);

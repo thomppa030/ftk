@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <cctype>
+#include <optional>
 #include <string>
 
 namespace fjell::ui {
@@ -14,6 +15,8 @@ namespace {
 
 constexpr float SECTION_SIZE = 13.0f;
 constexpr float SUBHEADING_SIZE = 11.5f;
+// The category dot before a group's name.
+constexpr float DOT_DIAMETER = 7.0f;
 
 std::string uppercase(const char* label) {
     std::string out(label);
@@ -23,10 +26,12 @@ std::string uppercase(const char* label) {
     return out;
 }
 
-// One heading row: an optional rule above, then chevron, icon and label in
-// the secondary text colour. Folds when `foldable`; returns whether open.
+// One heading row: an optional rule above, then chevron, icon or category
+// dot, and label in the secondary text colour. Folds when `foldable`;
+// returns whether open.
 bool heading(const char* label, const char* icon, float size, bool rule,
-             bool foldable, bool default_open) {
+             bool foldable, bool default_open,
+             std::optional<theme::Category> dot = std::nullopt) {
     ImGui::PushID(label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
@@ -61,6 +66,14 @@ bool heading(const char* label, const char* icon, float size, bool rule,
     if (icon != nullptr) {
         ImGui::TextUnformatted(icon);
         ImGui::SameLine(0.0f, theme::GAP_S + theme::GAP_XS);
+    } else if (dot) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float r = DOT_DIAMETER * 0.5f;
+        ImGui::GetWindowDrawList()->AddCircleFilled(
+            {p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f}, r,
+            ImGui::ColorConvertFloat4ToU32(theme::category(*dot)));
+        ImGui::Dummy({DOT_DIAMETER, ImGui::GetTextLineHeight()});
+        ImGui::SameLine(0.0f, theme::GAP_S);
     }
     const std::string text = uppercase(label);
     ImGui::TextUnformatted(text.c_str());
@@ -89,6 +102,10 @@ void subheading(const char* label) {
 
 bool subheading_foldable(const char* label, bool default_open) {
     return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open);
+}
+
+bool subheading_foldable(const char* label, theme::Category category, bool default_open) {
+    return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open, category);
 }
 
 } // namespace fjell::ui
