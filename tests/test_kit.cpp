@@ -3,6 +3,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
+#include "ui/kit/menu.hpp"
 #include "ui/kit/section.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -218,4 +219,24 @@ TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
     const ImGuiWindow* tooltip = ImGui::FindWindowByName("##Tooltip_00");
     REQUIRE(tooltip != nullptr);
     CHECK(tooltip->WasActive);
+}
+
+TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
+    ImGuiHarness h;
+    int fits = 0;
+    int creates = 0;
+    h.set_ui([&] {
+        if (ui::menu_item({.label = "Fit to mesh"})) ++fits;
+        h.mark("fit");
+        if (ui::menu_item({.label = "Create material", .enabled = false,
+                           .disabled_reason = "Needs a terrain asset first"})) {
+            ++creates;
+        }
+        h.mark("create");
+    });
+    h.step(2);
+    h.click("fit");
+    h.click("create");
+    CHECK(fits == 1);
+    CHECK(creates == 0);
 }

@@ -10,6 +10,7 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
+#include "ui/kit/menu.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
@@ -268,6 +269,18 @@ void KitGallery::blocks() {
             if (component_block(name, category, remove)) {
                 if (auto t = PropertyTable("##body")) {
                     row("Cast shadows", [&] { checkbox("##shadows", shadows_); });
+                    // An action sits in the value column beside what it acts
+                    // on, one click away.
+                    if (category == theme::Category::Physics) {
+                        row("Size", [&] { vec3("##size", scale_); });
+                        row("", [&] {
+                            const std::string fit = std::string(icon::use_selected) + "  Fit to mesh";
+                            if (button(fit.c_str())) removed_ = "Fit to mesh";
+                            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+                            const std::string clear = std::string(icon::remove) + "  Clear points";
+                            if (button(clear.c_str(), ButtonKind::GhostDanger)) removed_ = "Clear points";
+                        });
+                    }
                 }
             }
             if (remove) removed_ = name;
@@ -275,7 +288,7 @@ void KitGallery::blocks() {
         }
         if (removed_ != nullptr) {
             char text[64];
-            std::snprintf(text, sizeof(text), "Remove clicked on %s", removed_);
+            std::snprintf(text, sizeof(text), "Last clicked: %s", removed_);
             hint(text);
         }
     }
@@ -301,6 +314,18 @@ void KitGallery::lists() {
 
 void KitGallery::feedback() {
     if (section_foldable("Feedback", icon::more)) {
+        subheading("Menu");
+        if (button("Open menu")) ImGui::OpenPopup("##gallery_menu");
+        if (ImGui::BeginPopup("##gallery_menu")) {
+            menu_item({.icon = icon::rename, .label = "Rename", .shortcut = "F2"});
+            menu_item({.icon = icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"});
+            menu_item({.label = "Copy path"});
+            menu_item({.icon = icon::add, .label = "Create material", .enabled = false,
+                       .disabled_reason = "Needs a terrain asset first"});
+            ImGui::Separator();
+            menu_item({.icon = icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true});
+            ImGui::EndPopup();
+        }
         subheading("Empty state");
         if (ImGui::BeginChild("##empty", {0.0f, 180.0f}, ImGuiChildFlags_Borders)) {
             if (empty_state(icon::nothing_selected, "Nothing selected",
