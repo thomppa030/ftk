@@ -103,3 +103,103 @@ TEST_CASE("Dropping a card where it already is changes nothing", "[ui][kit]") {
     CHECK(f.items == std::vector{10, 20, 30});
     CHECK(f.commits == 0);
 }
+
+namespace {
+
+// A selectable list of numbers: each card counts how often its summary and
+// its fields are drawn, and marks its summary line.
+struct SelectableFixture {
+    ImGuiHarness h;
+    std::vector<int> items{10, 20, 30};
+    int selected{-1};
+    int fields_drawn{0};
+    int summaries_drawn{0};
+
+    SelectableFixture() {
+        h.set_ui([this] {
+            (void)ui::selectable_list_editor(
+                "##select", items, selected, "Add", "Nothing", {},
+                [this](const int&, std::size_t i) {
+                    ++summaries_drawn;
+                    ImGui::TextUnformatted("summary");
+                    h.mark("summary" + std::to_string(i));
+                },
+                [this](int&, std::size_t i) {
+                    ++fields_drawn;
+                    ImGui::TextUnformatted("fields");
+                    h.mark("summary" + std::to_string(i));
+                    return ui::Edit{};
+                },
+                [] { return 0; });
+        });
+        h.step(3);
+    }
+};
+
+} // namespace
+
+TEST_CASE("Clicking a card selects it, and clicking it again lets it go", "[ui][kit]") {
+    SelectableFixture f;
+    CHECK(f.selected == -1);
+    f.h.click("summary1");
+    CHECK(f.selected == 1);
+    f.h.click("summary1");
+    CHECK(f.selected == -1);
+}
+
+TEST_CASE("Only the selected card draws its fields", "[ui][kit]") {
+    SelectableFixture f;
+    f.h.click("summary2");
+    f.fields_drawn = 0;
+    f.summaries_drawn = 0;
+    f.h.step();
+    CHECK(f.fields_drawn == 1);
+    CHECK(f.summaries_drawn == 2);
+}
+
+TEST_CASE("Removing a card before the selected one keeps the selection on its item", "[ui][kit]") {
+    SelectableFixture f;
+    f.h.click("summary2");
+    // The trash icon of card 0: the frame-height square at the card's right.
+    const ImVec2 min = f.h.rect_min("summary0");
+    const float side = ImGui::GetFrameHeight();
+    const float right = ImGui::GetMainViewport()->Size.x - ImGui::GetStyle().WindowPadding.x;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(right - 4.0f - side * 0.5f, min.y + side * 0.5f);
+    f.h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    f.h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    f.h.step();
+    CHECK(f.items == std::vector{20, 30});
+    CHECK(f.selected == 1);
+}
+
+TEST_CASE("Cards out of sight are not drawn", "[ui][kit]") {
+    ImGuiHarness h;
+    std::vector<int> items(500, 0);
+    int selected = -1;
+    int drawn = 0;
+    h.set_ui([&] {
+        (void)ui::selectable_list_editor(
+            "##long", items, selected, "Add", "Nothing", {.max_cards = 8},
+            [&](const int&, std::size_t) { ++drawn; },
+            [&](int&, std::size_t) { ++drawn; return ui::Edit{}; }, [] { return 0; });
+    });
+    h.step(3);
+    drawn = 0;
+    h.step();
+    CHECK(drawn > 0);
+    CHECK(drawn <= 10);
+}
+
+TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
+    // Item 0 moved in front of 3: items 1 and 2 shift down.
+    CHECK(ui::index_after_move(0, 0, 3) == 2);
+    CHECK(ui::index_after_move(1, 0, 3) == 0);
+    CHECK(ui::index_after_move(3, 0, 3) == 3);
+    // Item 3 moved in front of 1: items 1 and 2 shift up.
+    CHECK(ui::index_after_move(3, 3, 1) == 1);
+    CHECK(ui::index_after_move(1, 3, 1) == 2);
+    CHECK(ui::index_after_move(0, 3, 1) == 0);
+}
