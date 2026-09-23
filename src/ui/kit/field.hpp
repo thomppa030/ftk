@@ -5,6 +5,7 @@
 #include <glm/vec2.hpp>
 #include <glm/ext/vector_int2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 // Value fields for the value column of a property row (ui::row). Each fills
 // the width it is given, takes its name from the row rather than drawing
@@ -69,6 +70,7 @@ Edit slider_labelled(const char* id, float& value, float min, float max, const c
 /// the viewport gizmo's colours. All of them share `spec`.
 Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec = {});
 Edit vec3(const char* id, glm::vec3& value, const DragSpec& spec = {});
+Edit vec4(const char* id, glm::vec4& value, const DragSpec& spec = {});
 
 /// Two whole numbers side by side with their axis letters: a size in tiles
 /// or pixels. `min` equal to `max` leaves the range open.
