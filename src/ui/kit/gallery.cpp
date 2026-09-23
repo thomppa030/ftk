@@ -15,15 +15,17 @@
 #include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/kit/tree.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
 
-#include <algorithm>
 #include <cstdio>
-#include <cstring>
+#include <iterator>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace fjell::ui {
 
@@ -320,26 +322,69 @@ void KitGallery::lists() {
                             [](float& t, std::size_t) { return drag("##t", t, {.unit = Unit::Seconds}); });
         if (edit.committed) ++commits_;
 
-        subheading("Search");
+        subheading("Tree");
         search_field("##gallery_search", query_);
-        // A parent stays, dimmed, while something under it matches.
-        struct Row {
-            const char* name;
-            const char* parent;
-        };
-        const Row scene[] = {{"Props", nullptr}, {"Crate_01", "Props"}, {"Crate_02", "Props"},
-                             {"Barrel", "Props"}, {"Lights", nullptr}, {"Sun", "Lights"}};
-        auto child_matches = [&](const char* parent) {
-            return std::ranges::any_of(scene, [&](const Row& r) {
-                return r.parent != nullptr && std::strcmp(r.parent, parent) == 0 && matches(r.name, query_);
-            });
-        };
-        for (const Row& row : scene) {
-            const bool own = matches(row.name, query_);
-            if (!own && (row.parent != nullptr || !child_matches(row.name))) continue;
-            if (row.parent != nullptr) ImGui::Indent();
-            highlighted_text(row.name, query_, !own);
-            if (row.parent != nullptr) ImGui::Unindent();
+        tree_sample();
+    }
+}
+
+void KitGallery::tree_sample() {
+    using C = theme::Category;
+    struct Row {
+        int depth;
+        const char* icon;
+        std::optional<C> category;
+        std::vector<C> dots;
+    };
+    // Sheet 6's harbour, depth first: a row's descendants follow it.
+    static const Row rows[] = {
+        {0, icon::folder, C::Structure, {}},
+        {1, icon::directional_light, C::Light, {}},
+        {1, icon::camera, C::Camera, {}},
+        {1, icon::folder, C::Structure, {}},
+        {2, icon::mesh, std::nullopt, {C::Rendering, C::Physics, C::Audio, C::Logic}},
+        {2, icon::mesh, std::nullopt, {C::Rendering, C::Physics}},
+        {2, icon::mesh, std::nullopt, {C::Rendering, C::Animation}},
+        {3, icon::mesh, std::nullopt, {C::Rendering, C::Physics}},
+        {1, icon::volumetric_fog, C::Environment, {}},
+    };
+    constexpr std::size_t count = std::size(rows);
+
+    // A row stays, dimmed, while something under it matches.
+    auto shown = [&](std::size_t i, bool& dimmed) {
+        const bool own = matches(tree_names_[i], query_);
+        bool below = false;
+        for (std::size_t j = i + 1; j < count && rows[j].depth > rows[i].depth; ++j) {
+            below = below || matches(tree_names_[j], query_);
+        }
+        dimmed = !own;
+        return own || below;
+    };
+
+    if (tree_selected_ < count && ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_F2)) {
+        tree_rename_.start(static_cast<std::uint32_t>(tree_selected_), tree_names_[tree_selected_]);
+    }
+    if (auto tree = Tree("##gallery_tree")) {
+        int folded_below = -1;
+        for (std::size_t i = 0; i < count; ++i) {
+            const Row& row = rows[i];
+            if (folded_below >= 0 && row.depth > folded_below) continue;
+            folded_below = -1;
+            bool dimmed = false;
+            if (!shown(i, dimmed)) continue;
+            const bool has_children = i + 1 < count && rows[i + 1].depth > row.depth;
+            const std::string id = std::to_string(i);
+            const auto result = tree_row({
+                .id = id.c_str(), .name = tree_names_[i], .depth = row.depth, .has_children = has_children,
+                .icon = row.icon, .category = row.category, .dots = row.dots,
+                .selection = i == tree_selected_ ? RowSelection::Primary
+                           : i == 5            ? RowSelection::Secondary
+                                               : RowSelection::None,
+                .query = query_, .dimmed = dimmed, .force_open = !query_.empty(),
+                .rename = &tree_rename_, .key = static_cast<std::uint32_t>(i)});
+            if (result.clicked) tree_selected_ = i;
+            if (result.renamed) tree_names_[i] = *result.renamed;
+            if (has_children && !result.open) folded_below = row.depth;
         }
     }
 }

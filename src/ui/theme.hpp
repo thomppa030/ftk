@@ -143,6 +143,11 @@ inline constexpr float GAP_L = 16.0f;
 inline constexpr float TOOL_BUTTON = 32.0f;
 inline constexpr float TOOL_ICON = 20.0f;
 
+/// A tree's rows (hierarchy, bone tree, UI element tree): their height and
+/// how far each level indents.
+inline constexpr float TREE_ROW = 24.0f;
+inline constexpr float TREE_INDENT = 16.0f;
+
 /// Height of the category bar over a component block.
 inline constexpr float CATEGORY_BAR = 3.0f;
 

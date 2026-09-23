@@ -351,6 +351,7 @@ add_executable(fjell
     ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/text_field.cpp
+    ui/kit/tree.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
     ui/brush.cpp
