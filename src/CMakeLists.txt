@@ -348,6 +348,7 @@ add_executable(fjell
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
     ui/kit/row.cpp
+    ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/text_field.cpp
     ui/material_params_widget.cpp
@@ -628,6 +629,7 @@ add_executable(fjell-hub
     core/log.cpp
     core/window.cpp
     ui/console.cpp
+    ui/kit/search.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
     renderer/gpu/upload_context.cpp

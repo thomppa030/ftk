@@ -6,6 +6,7 @@
 #include "scene/light_node.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/icons_lc.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
@@ -169,18 +170,7 @@ bool HierarchyPanel::matches_filter(const Node& obj) const {
         if (!type_match) return false;
     }
 
-    // Text filter (case-insensitive substring)
-    if (filter_text_[0] == '\0') return true;
-
-    // Simple case-insensitive search
-    auto to_lower = [](const std::string& s) {
-        std::string out = s;
-        for (auto& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return out;
-    };
-    std::string name_lower = to_lower(obj.name);
-    std::string filter_lower = to_lower(filter_text_);
-    return name_lower.find(filter_lower) != std::string::npos;
+    return ui::matches(obj.name, filter_text_);
 }
 
 bool HierarchyPanel::subtree_matches_filter(const Node& obj) const {
@@ -297,7 +287,7 @@ void HierarchyPanel::draw() {
         if (search_w < 60.0f) search_w = 60.0f;
 
         ImGui::SetNextItemWidth(search_w);
-        ImGui::InputTextWithHint("##filter", "Search...", filter_text_, sizeof(filter_text_));
+        ui::search_field("##filter", filter_text_);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
         const char* type_labels[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};

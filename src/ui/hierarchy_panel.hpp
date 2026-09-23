@@ -53,12 +53,12 @@ private:
     uint32_t remove_pending_id_{0};
 
     // Search/filter state
-    char filter_text_[128]{};
+    std::string filter_text_;
     int type_filter_{0}; // 0=All, 1=Mesh, 2=Light, 3=Camera, 4=Folder, 5=Empty
 
     [[nodiscard]] bool matches_filter(const Node& obj) const;
     [[nodiscard]] bool subtree_matches_filter(const Node& obj) const;
-    [[nodiscard]] bool is_filtering() const { return filter_text_[0] != '\0' || type_filter_ != 0; }
+    [[nodiscard]] bool is_filtering() const { return !filter_text_.empty() || type_filter_ != 0; }
 
     // Multi-selection state
     std::unordered_set<uint32_t> selection_;

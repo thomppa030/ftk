@@ -80,6 +80,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
@@ -185,6 +186,7 @@ add_executable(fjell-tests
     test_curve_editor.cpp
     test_choices.cpp
     test_edit_record.cpp
+    test_search.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp
     test_fields.cpp

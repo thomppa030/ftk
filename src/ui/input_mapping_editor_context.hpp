@@ -87,7 +87,7 @@ private:
     RebindTarget rebind_target_{RebindTarget::source};
 
     // "Add Action" popup filter
-    char action_filter_[128]{};
+    std::string action_filter_;
 
     // Deferred removal
     int remove_binding_idx_{-1};

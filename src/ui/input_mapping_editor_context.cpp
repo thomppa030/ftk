@@ -8,6 +8,7 @@
 #include "core/project_manager.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "ui/grouped_picker.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -422,7 +423,7 @@ void InputMappingEditorContext::draw_mappings() {
         }
 
         if (ImGui::Button(add_label)) {
-            action_filter_[0] = '\0';
+            action_filter_.clear();
             scan_actions();
             ImGui::OpenPopup("add_action_popup");
         }
@@ -940,7 +941,7 @@ void InputMappingEditorContext::draw_add_action_popup() {
     ImGui::Dummy({0.0F, 4.0F});
 
     ImGui::SetNextItemWidth(280.0F);
-    ImGui::InputTextWithHint("##filter", "Filter actions...", action_filter_, sizeof(action_filter_));
+    ui::search_field("##filter", action_filter_);
 
     ImGui::Dummy({0.0F, 4.0F});
 
@@ -951,15 +952,7 @@ void InputMappingEditorContext::draw_add_action_popup() {
         }
     }
 
-    std::string filter_lower(action_filter_);
-    std::transform(filter_lower.begin(), filter_lower.end(), filter_lower.begin(), ::tolower);
-
-    auto passes_filter = [&](const std::string& name) {
-        if (filter_lower.empty()) return true;
-        std::string n = name;
-        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-        return n.find(filter_lower) != std::string::npos;
-    };
+    auto passes_filter = [&](const std::string& name) { return ui::matches(name, action_filter_); };
 
     ImGui::BeginChild("action_list", ImVec2{320.0F, 280.0F});
 

@@ -1,9 +1,9 @@
 #include "ui/grouped_picker.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/theme.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -19,7 +19,7 @@ constexpr float DOT_DIAMETER = 7.0F;
 // Only one picker is open at a time, the same way only one popup is.
 std::string g_open_for;      // widget id whose picker is open
 std::string g_pending_open;  // widget id asked to open on the next draw
-std::array<char, 128> g_search{};
+std::string g_search;
 // The item the arrow keys have reached, counted over the pickable items
 // shown, and the search it was counted under.
 int g_highlight = 0;
@@ -30,23 +30,9 @@ int g_shown_pickable = 0;
 // Set when the arrow keys moved the highlight, to bring it into view once.
 bool g_scroll_to_highlight = false;
 
-/// Case-insensitive substring test, so typing "brick" finds "Brick_01".
-bool contains_fold(std::string_view haystack, std::string_view needle) {
-    if (needle.empty()) return true;
-    auto lower = [](char c) {
-        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    };
-    auto found = std::ranges::search(haystack, needle, [&](char a, char b) {
-        return lower(a) == lower(b);
-    });
-    return !found.empty();
-}
-
 bool matches_search(const Item& item, std::string_view needle) {
-    if (needle.empty()) return true;
-    return contains_fold(item.label, needle) ||
-           contains_fold(item.sublabel, needle) ||
-           contains_fold(item.search_text, needle);
+    return ui::matches(item.label, needle) || ui::matches(item.sublabel, needle)
+        || ui::matches(item.search_text, needle);
 }
 
 /// A short word in a coloured pill, for a row's category.
@@ -67,7 +53,7 @@ void draw_tag(const std::string& text, ImU32 color) {
 /// Draw one row: category dot, preview or tag, then the label over its
 /// sublabel, and the detail word at the right end. Returns true when it was
 /// clicked.
-bool draw_row(const Item& item, bool highlighted, bool dot_column) {
+bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_view query) {
     const bool two_line = !item.sublabel.empty();
     const float text_height = ImGui::GetTextLineHeight() * (two_line ? 2.0F : 1.0F);
     const float row_height = item.preview != 0
@@ -106,7 +92,7 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column) {
     }
 
     ImGui::BeginGroup();
-    ImGui::TextUnformatted(item.label.c_str());
+    ui::highlighted_text(item.label, query);
     if (two_line) {
         ImGui::PushStyleColor(ImGuiCol_Text,
                               ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -132,7 +118,7 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column) {
 
 void open(const char* widget_id) {
     g_pending_open = widget_id != nullptr ? widget_id : "";
-    g_search.fill('\0');
+    g_search.clear();
     g_highlight = 0;
     g_highlight_search.clear();
     g_shown_pickable = 0;
@@ -169,13 +155,12 @@ bool draw(const char* widget_id, std::span<const Group> groups,
 
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::InputTextWithHint("##search", config.search_hint,
-                             g_search.data(), g_search.size());
+    ui::search_field("##search", g_search, config.search_hint);
 
     bool chose = false;
 
     // The items the arrow keys walk: those shown and pickable, in order.
-    const std::string_view needle{g_search.data()};
+    const std::string_view needle{g_search};
     if (g_highlight_search != needle) {
         g_highlight = 0;
         g_highlight_search = needle;
@@ -225,7 +210,7 @@ bool draw(const char* widget_id, std::span<const Group> groups,
                 const bool highlighted = item.enabled && index == g_highlight;
                 if (item.enabled) ++index;
                 ImGui::PushID(item.value.c_str());
-                if (draw_row(item, highlighted, dot_column) || (highlighted && enter)) {
+                if (draw_row(item, highlighted, dot_column, needle) || (highlighted && enter)) {
                     picked = item.value;
                     chose = true;
                 }

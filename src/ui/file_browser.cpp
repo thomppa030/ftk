@@ -4,6 +4,7 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/kit/search.hpp"
 
 
 #include <imgui.h>
@@ -59,7 +60,7 @@ void FileBrowser::open(const std::string& title, Mode mode,
     mode_ = mode;
     extensions_ = extensions;
     selected_index_ = -1;
-    search_buf_[0] = '\0';
+    search_.clear();
     name_buf_[0] = '\0';
 
     // Start in home directory
@@ -323,21 +324,13 @@ void FileBrowser::refresh() {
     };
     std::sort(entries_.begin(), entries_.end(), comparator);
 
-    // Rebuild filtered indices
-    filtered_indices_.clear();
-    std::string filter(search_buf_);
-    std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
+    refilter();
+}
 
+void FileBrowser::refilter() {
+    filtered_indices_.clear();
     for (size_t i = 0; i < entries_.size(); ++i) {
-        if (filter.empty()) {
-            filtered_indices_.push_back(i);
-            continue;
-        }
-        std::string lower_name = entries_[i].name;
-        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-        if (lower_name.find(filter) != std::string::npos) {
-            filtered_indices_.push_back(i);
-        }
+        if (ui::matches(entries_[i].name, search_)) filtered_indices_.push_back(i);
     }
 }
 
@@ -411,22 +404,8 @@ void FileBrowser::draw_path_bar() {
 
 void FileBrowser::draw_search_bar() {
     ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputTextWithHint("##search", "Search...", search_buf_, sizeof(search_buf_))) {
-        // Rebuild filtered indices on every keystroke
-        filtered_indices_.clear();
-        std::string filter(search_buf_);
-        std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
-        for (size_t i = 0; i < entries_.size(); ++i) {
-            if (filter.empty()) {
-                filtered_indices_.push_back(i);
-                continue;
-            }
-            std::string lower_name = entries_[i].name;
-            std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-            if (lower_name.find(filter) != std::string::npos) {
-                filtered_indices_.push_back(i);
-            }
-        }
+    if (ui::search_field("##search", search_)) {
+        refilter();
         selected_index_ = -1;
     }
 }

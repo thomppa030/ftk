@@ -34,6 +34,7 @@ private:
 
     // Values for the sample controls to edit.
     std::string name_{"Crate"};
+    std::string query_{"cra"};
     float intensity_{3.2f};
     bool shadows_{true};
     bool snap_{true};

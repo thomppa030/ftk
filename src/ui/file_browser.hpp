@@ -80,6 +80,8 @@ private:
     bool draw_ui(float window_w, float window_h);
     void draw_path_bar();
     void draw_search_bar();
+    // Rebuilds filtered_indices_ from the entries that match the search.
+    void refilter();
     void draw_file_list();
     void draw_bottom_bar();
 
@@ -116,7 +118,7 @@ private:
     int selected_index_{-1};               // index into filtered_indices_
 
     char path_buf_[512]{};
-    char search_buf_[256]{};
+    std::string search_;
     char name_buf_[128]{};
 
     // Sort state
