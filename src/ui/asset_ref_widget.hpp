@@ -25,9 +25,17 @@ struct AssetRefConfig {
     std::span<const ShaderType> shader_types{};
 };
 
-/// Unified asset reference widget.
-/// Draws: label, read-only display field, drag-drop target, [Use Selected], [Browse], [Clear].
-/// Returns true if path was changed.
+/// A field holding an asset reference, for the value column of a property
+/// row: the asset's kind icon and name (the path in the tooltip), "None" when
+/// empty and "missing: name" when the file is gone. Clicking it opens a
+/// searchable picker of every asset the field takes, the content browser's
+/// selection first; an asset dragged onto it is taken if it fits and refused,
+/// with the reason, if it doesn't. A clear button follows it, disabled while
+/// it is empty so the field keeps its width. `config.label` is not drawn: the row names the field. Returns
+/// true when `path` changed; every change is a finished edit.
+bool asset_slot(const AssetRefConfig& config, std::string& path);
+
+/// The slot under its own label, for panels not yet on property rows.
 bool asset_ref_field(const AssetRefConfig& config, std::string& path);
 
 /// Every file under the project with this extension, as project-relative
@@ -35,10 +43,5 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path);
 /// cache the result and refresh it now and then.
 [[nodiscard]] std::vector<std::string> list_project_assets(const Project* project,
                                                             std::string_view extension);
-
-/// Call this when the inspector FileBrowser fires on_selected.
-/// Converts absolute path to project-relative and delivers to the pending widget.
-void asset_ref_browse_accept(const std::string& absolute_path,
-                             const std::string& project_root);
 
 } // namespace fjell

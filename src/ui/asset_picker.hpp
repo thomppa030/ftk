@@ -3,6 +3,7 @@
 #include "renderer/resources/fjsl_parser.hpp"
 
 #include <span>
+#include <string_view>
 #include <string>
 
 namespace fjell {
@@ -32,9 +33,11 @@ void open(const char* widget_id);
 /// chosen project- or engine-relative path to `picked` when the user picks
 /// one; the caller turns that into a reference. Shaders and materials are
 /// listed only when drawn as one of `shader_types`; empty lists them all.
+/// `selected` is the content browser's selection, project-relative, offered
+/// first when the field takes it; empty for none.
 bool draw(const char* widget_id, std::span<const std::string> extensions,
-          std::span<const ShaderType> shader_types,
-          const Project* project, std::string& picked);
+          std::span<const ShaderType> shader_types, const Project* project,
+          std::string_view selected, std::string& picked);
 
 /// Forget the cached listing, so the next picker walks the directories again.
 /// For when assets are added or removed behind the editor's back.

@@ -66,6 +66,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp

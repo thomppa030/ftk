@@ -1,6 +1,7 @@
 #include "ui/kit/feedback.hpp"
 
 #include "ui/kit/button.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -45,6 +46,24 @@ void gap_below(float gap) {
 }
 
 } // namespace
+
+void status(Severity severity, const char* text) {
+    const char* glyph = severity == Severity::Success ? icon::success
+                      : severity == Severity::Warning ? icon::warning
+                                                      : icon::error;
+    const ImVec4 colour = severity == Severity::Success ? theme::success()
+                        : severity == Severity::Warning ? theme::warning()
+                                                        : theme::error();
+    ImGui::PushFont(nullptr, theme::SMALL_TEXT);
+    ImGui::PushStyleColor(ImGuiCol_Text, colour);
+    ImGui::TextUnformatted(glyph);
+    ImGui::SameLine(0.0f, theme::GAP_S + theme::GAP_XS);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+}
 
 bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {
     const ImVec2 origin = ImGui::GetCursorScreenPos();

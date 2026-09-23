@@ -1,5 +1,6 @@
 #include "ui/kit/gallery.hpp"
 
+#include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
@@ -194,6 +195,23 @@ void KitGallery::fields() {
             row("Rotation", [&] { edit |= vec3("##rotation", rotation_, {.speed = 1.0f, .unit = Unit::Degrees, .format = "%.1f"}); });
             row("Scale", [&] { edit |= vec3("##scale", scale_, {.speed = 0.05f, .min = 0.01f, .max = 100.0f}); });
             row("Tiling", [&] { edit |= vec2("##tiling", tiling_, {.speed = 0.05f, .unit = Unit::Times}); });
+        }
+        subheading("Asset slots");
+        if (auto t = PropertyTable("##gallery_slots")) {
+            static const std::string shader_exts[] = {".fjsl"};
+            static const std::string material_exts[] = {".fjmat"};
+            row("Shader", [&] {
+                edit.changed |= asset_slot({.label = "Shader", .id = "##shader", .extensions = shader_exts},
+                                           slot_shader_);
+            });
+            row("Material", [&] {
+                edit.changed |= asset_slot({.label = "Material", .id = "##material", .extensions = material_exts},
+                                           slot_empty_);
+            });
+            row("Surface", [&] {
+                edit.changed |= asset_slot({.label = "Surface", .id = "##missing", .extensions = material_exts},
+                                           slot_missing_);
+            });
         }
         subheading("Toggles");
         if (auto t = PropertyTable("##gallery_toggles")) {

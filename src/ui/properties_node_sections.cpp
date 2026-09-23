@@ -478,13 +478,15 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
     // How the haze looks is its material; the node keeps where it is, how
     // far it reaches and how it answers movement.
     static const std::string fog_mat_exts[] = {".fjmat"};
-    if (asset_ref_field({.label = "Material",
-                         .id = "##FogMatRef",
-                         .extensions = fog_mat_exts,
-                         .ctx = &ictx,
-                         .shader_types = only_shader_type(ShaderType::Fog)},
-                        fog.material_path)) {
-        changed = true;
+    if (auto t = ui::PropertyTable("##fog_material")) {
+        ui::row("Material", [&] {
+            changed |= asset_slot({.label = "Material",
+                                   .id = "##material",
+                                   .extensions = fog_mat_exts,
+                                   .ctx = &ictx,
+                                   .shader_types = only_shader_type(ShaderType::Fog)},
+                                  fog.material_path);
+        });
     }
     if (fog.material != nullptr) {
         draw_material_inspector_for(fog.material);
@@ -553,13 +555,15 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
     // What the bank looks like is its material; the node keeps the shape,
     // how the bank drifts and how it answers movement.
     static const std::string volume_mat_exts[] = {".fjmat"};
-    if (asset_ref_field({.label = "Material",
-                         .id = "##FogVolMatRef",
-                         .extensions = volume_mat_exts,
-                         .ctx = &ictx,
-                         .shader_types = only_shader_type(ShaderType::Fog)},
-                        volume.material_path)) {
-        changed = true;
+    if (auto t = ui::PropertyTable("##volume_material")) {
+        ui::row("Material", [&] {
+            changed |= asset_slot({.label = "Material",
+                                   .id = "##material",
+                                   .extensions = volume_mat_exts,
+                                   .ctx = &ictx,
+                                   .shader_types = only_shader_type(ShaderType::Fog)},
+                                  volume.material_path);
+        });
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);
@@ -628,37 +632,43 @@ bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const In
     bool changed = false;
     ui::section("World environment", ui::icon::world_environment);
     static const std::string hdri_exts[] = {".hdr", ".exr"};
-    if (asset_ref_field({.label = "HDRI", .id = "##EnvHDRI", .extensions = hdri_exts, .ctx = &ictx},
-                        env.hdri_path)) {
-        changed = true;
-    }
     static const std::string sky_shader_exts[] = {".fjsl"};
-    if (asset_ref_field({.label = "Sky Shader",
-                         .id = "##EnvSkyShader",
-                         .extensions = sky_shader_exts,
-                         .ctx = &ictx,
-                         .shader_types = only_shader_type(ShaderType::Sky)},
-                        env.sky_shader)) {
-        changed = true;
+    static const std::string day_profile_exts[] = {".fjday"};
+    static const std::string weather_exts[] = {".fjweather"};
+    static const std::string climate_exts[] = {".fjclimate"};
+    if (auto t = ui::PropertyTable("##sky_assets")) {
+        ui::row("HDRI", [&] {
+            changed |= asset_slot({.label = "HDRI", .id = "##hdri", .extensions = hdri_exts, .ctx = &ictx},
+                                  env.hdri_path);
+        });
+        ui::row("Sky shader", [&] {
+            changed |= asset_slot({.label = "Sky shader",
+                                   .id = "##sky_shader",
+                                   .extensions = sky_shader_exts,
+                                   .ctx = &ictx,
+                                   .shader_types = only_shader_type(ShaderType::Sky)},
+                                  env.sky_shader);
+        });
     }
     if (!env.sky_shader.empty()) {
         changed |= draw_sky_uniforms(env, ictx);
     }
-    static const std::string day_profile_exts[] = {".fjday"};
-    if (asset_ref_field({.label = "Day Profile", .id = "##EnvDayProfile", .extensions = day_profile_exts,
-                         .ctx = &ictx},
-                        env.day_profile)) {
-        changed = true;
-    }
-    static const std::string weather_exts[] = {".fjweather"};
-    if (asset_ref_field({.label = "Weather", .id = "##EnvWeather", .extensions = weather_exts, .ctx = &ictx},
-                        env.weather)) {
-        changed = true;
-    }
-    static const std::string climate_exts[] = {".fjclimate"};
-    if (asset_ref_field({.label = "Climate", .id = "##EnvClimate", .extensions = climate_exts, .ctx = &ictx},
-                        env.climate)) {
-        changed = true;
+    if (auto t = ui::PropertyTable("##time_assets")) {
+        ui::row("Day profile", [&] {
+            changed |= asset_slot(
+                {.label = "Day profile", .id = "##day_profile", .extensions = day_profile_exts, .ctx = &ictx},
+                env.day_profile);
+        });
+        ui::row("Weather", [&] {
+            changed |= asset_slot(
+                {.label = "Weather", .id = "##weather", .extensions = weather_exts, .ctx = &ictx},
+                env.weather);
+        });
+        ui::row("Climate", [&] {
+            changed |= asset_slot(
+                {.label = "Climate", .id = "##climate", .extensions = climate_exts, .ctx = &ictx},
+                env.climate);
+        });
     }
     changed |= draw_weather_controls(env, ictx);
 

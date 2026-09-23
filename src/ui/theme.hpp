@@ -58,6 +58,9 @@ inline ImVec4 accent_bright() { return hex(0xDFB06A); }  // the primary button u
 inline ImVec4 selection()           { return hex(0xD4A054, 0.24f); }
 inline ImVec4 selection_secondary() { return hex(0xD4A054, 0.11f); }
 
+// A field an asset being dragged would fit into, under the pointer.
+inline ImVec4 drop_fits() { return hex(0xD4A054, 0.12f); }
+
 // A toggle or segmented control that is on.
 inline ImVec4 toggle_on() { return srgb(0.26f, 0.59f, 0.98f, 0.65f); }
 

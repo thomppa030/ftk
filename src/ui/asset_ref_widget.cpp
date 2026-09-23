@@ -1,10 +1,12 @@
 #include "ui/asset_ref_widget.hpp"
+#include "ui/kit/asset_kind.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/theme.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/content_browser.hpp"
-#include "ui/file_browser.hpp"
 #include "ui/icon_cache.hpp"
-#include "ui/icons_lc.hpp"
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
@@ -15,32 +17,12 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 
 namespace fjell {
 
-// ── Browse pending state ────────────────────────────────────────────────
-// Only one widget can have an active browse session at a time.
-
-static std::string s_browse_pending_id;      // ImGui ID of the widget waiting
-static std::string s_browse_result;          // path delivered by FileBrowser
-static bool        s_browse_result_ready{false};
-
-void asset_ref_browse_accept(const std::string& absolute_path,
-                             const std::string& project_root) {
-    if (s_browse_pending_id.empty()) return;
-    if (project_root.empty()) {
-        s_browse_result = absolute_path;
-    } else {
-        std::error_code ec;
-        s_browse_result = std::filesystem::relative(
-            absolute_path, project_root, ec).string();
-        if (ec) s_browse_result = absolute_path;
-    }
-    s_browse_result_ready = true;
-}
-
-// A pick the field turned down, said under it for a few seconds: the pin
-// and browse buttons have nowhere else to say why nothing happened.
+// A drop the field turned down, said under it for a few seconds after it
+// was let go.
 static std::string s_refused_id;
 static std::string s_refused_text;
 static double      s_refused_until{0.0};
@@ -79,9 +61,52 @@ static std::string shader_type_refusal(const std::string& candidate, const Proje
            "; this slot needs " + needs;
 }
 
+// Whether the asset a reference points at is on disk. The file system is
+// asked at most once a second per reference: every slot on screen asks every
+// frame.
+static bool asset_exists(const std::string& reference, const Project* project) {
+    struct Seen {
+        bool exists;
+        double at;
+    };
+    static std::unordered_map<std::string, Seen> seen;
+    const double now = ImGui::GetTime();
+    if (auto it = seen.find(reference); it != seen.end() && now - it->second.at < 1.0) {
+        return it->second.exists;
+    }
+    std::error_code ec;
+    const std::string file = base_path::resolve_shared(reference, project);
+    const bool exists = !file.empty() && std::filesystem::exists(file, ec);
+    seen[reference] = {exists, now};
+    return exists;
+}
+
+// The kinds a slot takes, as words: "material", "mesh or skeleton".
+static std::string accepted_nouns(std::span<const std::string> extensions) {
+    std::string nouns;
+    for (const auto& ext : extensions) {
+        const char* noun = ui::asset_kind(ext).noun;
+        if (nouns.find(noun) != std::string::npos) continue;
+        if (!nouns.empty()) nouns += " or ";
+        nouns += noun;
+    }
+    return nouns.empty() ? std::string("asset") : nouns;
+}
+
+// Why a dropped file can't go in this slot, or empty when it can.
+static std::string drop_refusal(const std::string& dropped, std::span<const std::string> extensions,
+                                const Project* project, std::span<const ShaderType> shader_types) {
+    if (!matches_extension(dropped, extensions)) {
+        const auto file = std::filesystem::path(dropped);
+        return "Takes a " + accepted_nouns(extensions) + ". " + file.filename().string() + " is a " +
+               ui::asset_kind(file.extension().string()).noun + ".";
+    }
+    return shader_type_refusal(dropped, project, shader_types);
+}
+
 // ── Widget ──────────────────────────────────────────────────────────────
 
-bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
+bool asset_slot(const AssetRefConfig& config, std::string& path) {
     bool changed = false;
 
     const Project* project = config.ctx && config.ctx->project_mgr
@@ -93,67 +118,12 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     auto to_reference = [&](const std::string& picked) {
         return base_path::asset_reference(picked, project);
     };
-    auto display_path = [&](const std::string& reference) -> std::string {
-        auto shown = base_path::asset_display_path(reference, project);
-        // An id the database no longer knows: show it, so the field reads as
-        // broken rather than empty.
-        return shown.empty() ? reference : shown;
-    };
-
-    ImGui::PushID(config.id);
-
-    // Label (skipped when empty — caller wants single-line layout, e.g. list items)
-    const bool has_label = config.label != nullptr && config.label[0] != '\0';
-    if (has_label) {
-        ImGui::TextUnformatted(config.label);
-    }
-
-    auto shown_path = display_path(path);
-
-    // Display field — filename only, full path on hover
-    auto display = shown_path.empty()
-        ? std::string("(none)")
-        : std::filesystem::path(shown_path).filename().string();
-
-    float button_width = ImGui::GetFrameHeight();
-    int num_buttons = 0;
-    if (config.ctx && config.ctx->content_browser) num_buttons++;
-    if (config.ctx && config.ctx->file_browser) num_buttons++;
-    if (!path.empty()) num_buttons++;
-    float buttons_total = static_cast<float>(num_buttons) * (button_width + ImGui::GetStyle().ItemSpacing.x);
-
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons_total);
-    // The buffer size counts the terminator std::string keeps behind its
-    // characters; ImGui asserts on a buffer with no room for one the moment
-    // the field is clicked into.
-    ImGui::InputText("##display", display.data(), display.size() + 1,
-                     ImGuiInputTextFlags_ReadOnly);
-
-    // Clicking the field picks an asset. The read-only InputText still takes
-    // the click to place a caret; the picker opening over it is what the user
-    // sees, and the caret goes with the focus when the popup takes it.
-    if (ImGui::IsItemClicked()) {
-        asset_picker::open(config.id);
-    }
-
-    // Tooltip: full path
-    if (ImGui::IsItemHovered() && !shown_path.empty()) {
-        ImGui::SetTooltip("%s", shown_path.c_str());
-    }
-
-    // The picker draws here so it opens under the field rather than wherever
-    // the row happens to end.
-    if (std::string chosen; asset_picker::draw(config.id, config.extensions, config.shader_types,
-                                               project, chosen)) {
-        path = to_reference(chosen);
-        changed = true;
-    }
+    const std::string shown_path = base_path::asset_display_path(path, project);
 
     // Anything picked by other means than the list: the list only offers
-    // what fits, these could bring in anything.
+    // what fits, a drop could bring in anything.
     auto offer = [&](const std::string& candidate) {
-        if (!matches_extension(candidate, config.extensions)) return;
-        auto refusal = shader_type_refusal(candidate, project, config.shader_types);
+        auto refusal = drop_refusal(candidate, config.extensions, project, config.shader_types);
         if (!refusal.empty()) {
             s_refused_id = config.id;
             s_refused_text = std::move(refusal);
@@ -164,111 +134,155 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         changed = true;
     };
 
-    // Drag-and-drop target. Taken before delivery so a shader or material of
-    // the wrong Type says why while it is still over the field, and the drop
-    // is simply not accepted.
+    ImGui::PushID(config.id);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float height = ImGui::GetFrameHeight();
+    const float width = ImGui::CalcItemWidth();
+    const bool has_value = !path.empty();
+    // The clear button is always there, disabled while the slot is empty,
+    // so the field keeps its width whether it holds something or not.
+    const float clear_w = height + style.ItemInnerSpacing.x;
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const ImVec2 max{min.x + std::max(width - clear_w, height), min.y + height};
+
+    // The field is one button: clicking anywhere on it opens the picker.
+    if (ImGui::InvisibleButton("##slot", {max.x - min.x, height})) {
+        asset_picker::open(config.id);
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered && !shown_path.empty()) {
+        ImGui::SetItemTooltip("%s", shown_path.c_str());
+    }
+
+    // A dragged asset is judged while it is still over the field: one that
+    // fits lights the field, one that doesn't outlines it red and says why,
+    // and is not taken.
+    enum class Drop { None, Fits, Refused } drop = Drop::None;
     if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload(
-                "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            std::string dropped(static_cast<const char*>(payload->Data));
-            auto refusal = matches_extension(dropped, config.extensions)
-                ? shader_type_refusal(dropped, project, config.shader_types)
-                : std::string{};
-            if (!refusal.empty()) {
-                ImGui::SetTooltip("%s", refusal.c_str());
-            } else if (payload->IsDelivery()) {
-                offer(dropped);
+        const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+        if (payload != nullptr && payload->IsDataType("ASSET_PATH")) {
+            const std::string dragged(static_cast<const char*>(payload->Data));
+            const std::string refusal =
+                drop_refusal(dragged, config.extensions, project, config.shader_types);
+            if (refusal.empty()) {
+                drop = Drop::Fits;
+                if (const auto* taken = ImGui::AcceptDragDropPayload(
+                        "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery
+                                          | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+                    taken != nullptr && taken->IsDelivery()) {
+                    offer(dragged);
+                }
+            } else {
+                drop = Drop::Refused;
+                if (ImGui::BeginTooltip()) {
+                    ImGui::PushTextWrapPos(theme::TOOLTIP_WRAP);
+                    ImGui::PushStyleColor(ImGuiCol_Text, theme::error());
+                    ImGui::TextUnformatted(ui::icon::refused);
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(refusal.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
             }
         }
         ImGui::EndDragDropTarget();
     }
 
-    // Check for pending browse result
-    if (s_browse_result_ready && s_browse_pending_id == config.id) {
-        offer(s_browse_result);
-        s_browse_pending_id.clear();
-        s_browse_result.clear();
-        s_browse_result_ready = false;
+    // The picker hangs under the field, so it draws right after it.
+    const std::string selected = config.ctx && config.ctx->content_browser
+        ? config.ctx->content_browser->selected_asset_path() : std::string{};
+    if (std::string chosen; asset_picker::draw(config.id, config.extensions, config.shader_types,
+                                               project, selected, chosen)) {
+        path = to_reference(chosen);
+        changed = true;
     }
 
-    // Icon buttons — tighter FramePadding so they don't dominate the row.
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
-
-    // One square icon button of the row, under its own ID.
-    auto slot_button = [&](const char* id, const char* glyph) {
-        ImGui::PushID(id);
-        const bool pressed = ImGui::Button(glyph, {button_width, button_width});
-        ImGui::PopID();
-        return pressed;
-    };
-
-    // Use Selected button
-    if (config.ctx && config.ctx->content_browser) {
-        ImGui::SameLine();
-        if (slot_button("pick", ui::icon::use_selected)) {
-            auto selected = config.ctx->content_browser->selected_asset_path();
-            if (!selected.empty()) offer(selected);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Use selected asset from content browser");
-        }
+    // What the field shows: the asset's kind and name, "None" when empty,
+    // and a missing asset by name in the error colour, never as empty.
+    const std::string& reference = path;
+    const bool missing = has_value && (shown_path.empty() || !asset_exists(reference, project));
+    const std::string name = shown_path.empty()
+        ? reference
+        : std::filesystem::path(shown_path).filename().string();
+    const auto& kind = ui::asset_kind(std::filesystem::path(shown_path.empty() ? reference : shown_path)
+                                          .extension().string());
+    const char* glyph = missing ? ui::icon::warning : kind.icon;
+    ImVec4 icon_colour = theme::category(kind.category);
+    ImVec4 text_colour = theme::text();
+    std::string text = name;
+    if (!has_value) {
+        glyph = config.extensions.empty() ? ui::icon::file
+                                          : ui::asset_kind(config.extensions.front()).icon;
+        icon_colour = theme::text_disabled();
+        text_colour = theme::text_secondary();
+        text = "None";
+    } else if (missing) {
+        icon_colour = theme::error();
+        text_colour = theme::error();
+        text = "missing: " + name;
     }
 
-    // Browse button
-    if (config.ctx && config.ctx->file_browser) {
-        ImGui::SameLine();
-        if (slot_button("browse", ui::icon::browse)) {
-            s_browse_pending_id = config.id;
-            s_browse_result_ready = false;
-            std::vector<std::string> exts(config.extensions.begin(), config.extensions.end());
-            config.ctx->file_browser->open(
-                std::string("Select ") + (has_label ? config.label : "asset"),
-                FileBrowser::Mode::select_file, exts);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Browse for file");
-        }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = style.FrameRounding;
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
+                      rounding);
+    if (drop == Drop::Fits) {
+        dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::drop_fits()), rounding);
+        dl->AddRect(min, max, ImGui::GetColorU32(theme::accent()), rounding);
+    } else if (drop == Drop::Refused) {
+        dl->AddRect(min, max, ImGui::GetColorU32(theme::error()), rounding);
     }
+    const float text_y = min.y + style.FramePadding.y;
+    float x = min.x + style.FramePadding.x;
+    dl->AddText({x, text_y}, ImGui::GetColorU32(icon_colour), glyph);
+    x += ImGui::CalcTextSize(glyph).x + theme::GAP_S + theme::GAP_XS;
+    const float chevron = height;
+    dl->PushClipRect({x, min.y}, {max.x - chevron, max.y}, true);
+    dl->AddText({x, text_y}, ImGui::GetColorU32(text_colour), text.c_str());
+    dl->PopClipRect();
+    const float chevron_w = ImGui::CalcTextSize(ui::icon::dropdown).x;
+    dl->AddText({max.x - chevron + (chevron - chevron_w) * 0.5f, text_y},
+                ImGui::GetColorU32(theme::text_secondary()), ui::icon::dropdown);
 
-    // Clear button
-    if (!path.empty()) {
-        ImGui::SameLine();
-        if (slot_button("clear", ui::icon::clear)) {
-            path.clear();
-            changed = true;
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Clear");
-        }
+    ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+    ImGui::BeginDisabled(!has_value);
+    if (ui::icon_button("##clear", ui::icon::clear, has_value ? "Clear" : "Nothing to clear",
+                        ui::ButtonKind::GhostDanger)) {
+        path.clear();
+        changed = true;
     }
-
-    ImGui::PopStyleVar();
+    ImGui::EndDisabled();
 
     // What is wrong with the pick just refused, else with what the field
     // holds: a scene written by hand or before the slot said what it takes.
     std::string problem;
     if (s_refused_id == config.id && ImGui::GetTime() < s_refused_until) {
         problem = s_refused_text;
-    } else if (!path.empty()) {
+    } else if (has_value && !missing) {
         problem = shader_type_refusal(path, project, config.shader_types);
     }
     if (!problem.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95F, 0.45F, 0.40F, 1.0F));
-        ImGui::TextWrapped("%s", problem.c_str());
-        ImGui::PopStyleColor();
+        ui::status(ui::Severity::Error, problem.c_str());
     }
 
     // Per-type preview — takes a path, so hand it the resolved one.
-    if (config.asset_type && config.asset_type->draw_preview &&
-        !shown_path.empty() && config.ctx && config.ctx->resource_manager) {
-        config.asset_type->draw_preview(
-            shown_path, *config.ctx->resource_manager,
-            config.ctx->icons, project,
-            ImGui::GetContentRegionAvail().x);
+    if (config.asset_type && config.asset_type->draw_preview && !shown_path.empty() && !missing &&
+        config.ctx && config.ctx->resource_manager) {
+        config.asset_type->draw_preview(shown_path, *config.ctx->resource_manager, config.ctx->icons,
+                                        project, ImGui::GetContentRegionAvail().x);
     }
 
     ImGui::PopID();
     return changed;
+}
+
+bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
+    if (config.label != nullptr && config.label[0] != '\0') {
+        ImGui::TextUnformatted(config.label);
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    return asset_slot(config, path);
 }
 
 std::vector<std::string> list_project_assets(const Project* project, std::string_view extension) {

@@ -1496,16 +1496,6 @@ void Engine::bind_menu_bar() {
             import_dialog_.open(path, import_output_dir_);
         }));
 
-    // Asset reference widget browser → deliver result to pending widget
-    connections_.push_back(asset_file_browser_.on_selected.bind(
-        [this](const std::string& path) {
-            std::string root;
-            if (project_mgr_.active()) {
-                root = project_mgr_.active()->root().string();
-            }
-            asset_ref_browse_accept(path, root);
-        }));
-
     // React to project open/close from any source
     connections_.push_back(project_mgr_.on_opened.bind(
         [this](const std::string& name) {

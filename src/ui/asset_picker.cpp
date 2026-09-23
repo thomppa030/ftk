@@ -220,9 +220,12 @@ ImTextureID thumbnail_for(const Entry& entry, int& requests) {
 }
 
 /// Turn the listing into the picker's groups: one per source, or one per
-/// source and type when the field takes more than one type.
+/// source and type when the field takes more than one type. The asset
+/// selected in the content browser, when the field takes it, comes first
+/// under a group of its own.
 std::vector<grouped_picker::Group> build_groups(std::span<const std::string> extensions,
-                                                std::span<const ShaderType> shader_types) {
+                                                std::span<const ShaderType> shader_types,
+                                                std::string_view selected) {
     // Only one accepted type means a type header would say what the field
     // already says.
     const bool split_by_type = extensions.size() != 1;
@@ -235,6 +238,7 @@ std::vector<grouped_picker::Group> build_groups(std::span<const std::string> ext
     std::optional<Source> current_source;
     std::string current_extension;
 
+    const std::string selected_path = std::filesystem::path(selected).generic_string();
     for (const auto& entry : g_listing.entries) {
         // A shader or material of another Type cannot go in this slot, so
         // it is not offered. One whose Type could not be read is not either:
@@ -243,6 +247,20 @@ std::vector<grouped_picker::Group> build_groups(std::span<const std::string> ext
             (!entry.shader_type || std::ranges::find(shader_types, *entry.shader_type) ==
                                        shader_types.end())) {
             continue;
+        }
+
+        if (!selected_path.empty() && entry.relative == selected_path) {
+            auto folder = std::filesystem::path(entry.relative).parent_path().generic_string();
+            groups.insert(groups.begin(), {.label = "USE SELECTED", .items = {}, .open = true});
+            groups.front().items.push_back({
+                .value = entry.relative,
+                .label = entry.filename,
+                .sublabel = folder.empty() ? "/" : folder,
+                .preview = thumbnail_for(entry, requests),
+                .tag = {},
+                .tag_color = 0,
+                .search_text = entry.relative,
+            });
         }
 
         const bool new_source = !current_source || *current_source != entry.source;
@@ -297,8 +315,8 @@ void invalidate() {
 }
 
 bool draw(const char* widget_id, std::span<const std::string> extensions,
-          std::span<const ShaderType> shader_types,
-          const Project* project, std::string& picked) {
+          std::span<const ShaderType> shader_types, const Project* project,
+          std::string_view selected, std::string& picked) {
     if (!grouped_picker::is_open(widget_id)) return false;
 
     poll_scan();
@@ -320,7 +338,8 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         .size = {POPUP_WIDTH, POPUP_HEIGHT},
     };
 
-    return grouped_picker::draw(widget_id, build_groups(extensions, shader_types), config, picked);
+    return grouped_picker::draw(widget_id, build_groups(extensions, shader_types, selected), config,
+                               picked);
 }
 
 } // namespace fjell::asset_picker

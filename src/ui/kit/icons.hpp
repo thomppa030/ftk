@@ -36,6 +36,28 @@ inline constexpr const char* source            = ICON_LC_LINK;
 inline constexpr const char* snap              = ICON_LC_MAGNET;
 inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
 
+// Kinds of asset (ui/kit/asset_kind.hpp says which file is which)
+inline constexpr const char* mesh         = ICON_LC_BOX;
+inline constexpr const char* skeleton     = ICON_LC_BONE;
+inline constexpr const char* material     = ICON_LC_CIRCLE_DOT;
+inline constexpr const char* texture      = ICON_LC_IMAGE;
+inline constexpr const char* shader       = ICON_LC_CODE;
+inline constexpr const char* animation    = ICON_LC_FILM;
+inline constexpr const char* blend_space  = ICON_LC_WORKFLOW;
+inline constexpr const char* audio        = ICON_LC_AUDIO_LINES;
+inline constexpr const char* vfx          = ICON_LC_SPARKLES;
+inline constexpr const char* ui_layout    = ICON_LC_LAYOUT_PANEL_TOP;
+inline constexpr const char* font         = ICON_LC_TYPE;
+inline constexpr const char* surface      = ICON_LC_LAYERS_3;
+inline constexpr const char* day_profile  = ICON_LC_SUNRISE;
+inline constexpr const char* weather      = ICON_LC_CLOUD_RAIN;
+inline constexpr const char* climate      = ICON_LC_THERMOMETER_SUN;
+inline constexpr const char* water        = ICON_LC_WAVES_HORIZONTAL;
+inline constexpr const char* scene        = ICON_LC_CLAPPERBOARD;
+inline constexpr const char* preset       = ICON_LC_BOXES;
+inline constexpr const char* input        = ICON_LC_GAMEPAD_2;
+inline constexpr const char* file         = ICON_LC_FILE;
+
 // Folding and dropdowns
 inline constexpr const char* fold_open   = ICON_LC_CHEVRON_DOWN;
 inline constexpr const char* fold_closed = ICON_LC_CHEVRON_RIGHT;
@@ -46,5 +68,6 @@ inline constexpr const char* help    = ICON_LC_CIRCLE_HELP;
 inline constexpr const char* warning = ICON_LC_TRIANGLE_ALERT;
 inline constexpr const char* error   = ICON_LC_CIRCLE_X;
 inline constexpr const char* success = ICON_LC_CIRCLE_CHECK;
+inline constexpr const char* refused = ICON_LC_BAN;
 
 } // namespace fjell::ui::icon
