@@ -49,6 +49,9 @@ std::optional<std::string> RenameBox::draw(float width) {
     // Esc puts the text back as it was when the field was entered, so the
     // edit ends with the old name and changes nothing.
     ImGui::InputText("##rename", &text_, ImGuiInputTextFlags_AutoSelectAll);
+    // A sunken field edged in amber: the name being edited.
+    ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                        ImGui::GetColorU32(theme::accent()), ImGui::GetStyle().FrameRounding);
     if (!ImGui::IsItemDeactivated()) return std::nullopt;
     key_.reset();
     if (text_.empty() || text_ == original_) return std::nullopt;

@@ -31,9 +31,10 @@ namespace fjell::ui {
 /// it in a multi-selection.
 enum class RowSelection { None, Primary, Secondary };
 
-/// A name being edited in its row. The owner starts it (F2, the context
-/// menu, a new node) and keeps it; the row whose key it holds draws the field
-/// in place of its name.
+/// A name being edited in its row: a sunken field edged in amber, the text
+/// where the name was. The owner starts it (F2, the context menu, a new
+/// node) and keeps it; the row whose key it holds draws the field in place
+/// of its name.
 class RenameBox {
 public:
     /// Opens the field on `key`'s row with `name` in it, selected.
