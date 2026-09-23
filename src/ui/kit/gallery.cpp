@@ -9,6 +9,7 @@
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/list_editor.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
@@ -280,6 +281,24 @@ void KitGallery::blocks() {
     }
 }
 
+void KitGallery::lists() {
+    if (section_foldable("Lists", icon::more)) {
+        Edit edit;
+        subheading("Points");
+        edit |= list_editor("##points", points_, "Add point", "No points. The collider's corners are used",
+                            [](glm::vec3& p, std::size_t) { return vec3("##p", p); });
+        subheading("Names");
+        edit |= list_editor("##names", names_, "Add name", "No names yet",
+                            [](std::string& name, std::size_t) { return text_field("##name", name); },
+                            [] { return std::string("new"); });
+        subheading("Events");
+        edit |= list_editor("##events", events_, "Add event",
+                            "No events. Add one to call a script at a frame",
+                            [](float& t, std::size_t) { return drag("##t", t, {.unit = Unit::Seconds}); });
+        if (edit.committed) ++commits_;
+    }
+}
+
 void KitGallery::feedback() {
     if (section_foldable("Feedback", icon::more)) {
         subheading("Empty state");
@@ -308,6 +327,7 @@ void KitGallery::draw(bool* open) {
         rows();
         fields();
         blocks();
+        lists();
         feedback();
     }
 }

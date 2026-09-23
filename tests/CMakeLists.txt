@@ -73,6 +73,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
@@ -180,6 +181,7 @@ add_executable(fjell-tests
     test_choices.cpp
     test_fields.cpp
     test_kit.cpp
+    test_list_editor.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

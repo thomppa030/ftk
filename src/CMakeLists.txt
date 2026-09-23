@@ -333,6 +333,7 @@ add_executable(fjell
     ui/kit/feedback.cpp
     ui/kit/field.cpp
     ui/kit/gallery.cpp
+    ui/kit/list_editor.cpp
     ui/kit/row.cpp
     ui/kit/section.cpp
     ui/kit/text_field.cpp
