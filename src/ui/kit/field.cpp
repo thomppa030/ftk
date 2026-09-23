@@ -183,6 +183,13 @@ Edit vec3(const char* id, glm::vec3& value, const DragSpec& spec) {
     return vec_n(id, &value.x, 3, spec);
 }
 
+void readout(const char* text) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+}
+
 Edit checkbox(const char* id, bool& value) {
     const bool changed = ImGui::Checkbox(id, &value);
     return {changed, changed};
