@@ -82,6 +82,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LOCK               "\xee\x84\x8b"  // U+E10B
 #define ICON_LC_LOCK_OPEN          "\xee\x84\x8c"  // U+E10C
 #define ICON_LC_UNDO               "\xee\x86\x9b"  // U+E19B
+#define ICON_LC_UNDO_2             "\xee\x8a\xa1"  // U+E2A1
 #define ICON_LC_REDO               "\xee\x85\x83"  // U+E143
 
 #define ICON_LC_CHEVRON_RIGHT      "\xee\x81\xaf"  // U+E06F
@@ -127,11 +128,13 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LINK               "\xee\x84\x82"  // U+E102
 #define ICON_LC_LINK_2             "\xee\x84\x83"  // U+E103
 #define ICON_LC_PIN                "\xee\x89\x99"  // U+E259
+#define ICON_LC_CROSSHAIR          "\xee\x82\xac"  // U+E0AC
 #define ICON_LC_PLAY_SQUARE        "\xee\x92\x81"  // U+E481
 #define ICON_LC_HOUSE              "\xee\x83\xb5"  // U+E0F5
 #define ICON_LC_MENU               "\xee\x84\x95"  // U+E115
-#define ICON_LC_MORE_HORIZONTAL    "\xee\x82\xb6"  // U+E0B6
+#define ICON_LC_MORE_HORIZONTAL    "\xee\x82\xb6"  // U+E0B6, Lucide's "ellipsis"
 #define ICON_LC_MORE_VERTICAL      "\xee\x82\xb7"  // U+E0B7
+#define ICON_LC_GRIP_VERTICAL      "\xee\x83\xab"  // U+E0EB
 #define ICON_LC_CIRCLE_HELP        "\xee\x82\x82"  // U+E082
 
 #define ICON_LC_ARROW_UP_FROM_LINE "\xee\x91\x9a"  // U+E45A

@@ -51,6 +51,7 @@ inline ImVec4 text_on_accent() { return hex(0x111214); }
 inline ImVec4 accent()     { return hex(0xD4A054); }
 inline ImVec4 accent_hov() { return hex(0xB8893E); }
 inline ImVec4 accent_dim() { return hex(0xD4A054, 0.40f); }
+inline ImVec4 accent_bright() { return hex(0xDFB06A); }  // the primary button under the mouse
 
 // Selection is a wash of the accent; secondary rows of a multi-selection
 // get a lighter one.
@@ -67,6 +68,7 @@ inline ImVec4 warning()    { return hex(0xDEC358); }
 inline ImVec4 error()      { return hex(0xE66E68); }
 inline ImVec4 danger()     { return hex(0xAB413E); }  // destructive fill
 inline ImVec4 danger_hov() { return hex(0xC34F4B); }
+inline ImVec4 text_on_danger() { return hex(0xFFFFFF); }
 
 /// What kind of thing something is, by domain rather than file type: a
 /// mesh, its material and its texture are all Rendering, and the icon tells
