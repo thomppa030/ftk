@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <vector>
 
+struct ImGuiPayload;
+
 namespace fjell {
 
 class CommandHistory;
@@ -35,6 +37,26 @@ private:
     void draw_node(Node& obj, int depth);
     // Frames the viewport's camera on the node, as a double-click does.
     void frame(const Node& obj);
+
+    // Drag and drop. A drop lands under `parent_id` (-1 for the top), in
+    // front of `before_id` (0 for last), at `depth` in the tree.
+    struct Target {
+        int32_t parent_id;
+        uint32_t before_id;
+        int depth;
+    };
+    // What dragging the row drags: the selection when the row is in it.
+    [[nodiscard]] std::vector<uint32_t> dragged_ids(uint32_t row_id) const;
+    [[nodiscard]] static std::vector<uint32_t> payload_ids(const ImGuiPayload& payload);
+    [[nodiscard]] Target drop_target(const Node& row, int depth, bool open, ui::DropPlace place,
+                                     const std::vector<uint32_t>& ids) const;
+    // Why the nodes can't go under `parent_id`, or empty when they can.
+    [[nodiscard]] std::string refuse_drop(const std::vector<uint32_t>& ids, int32_t parent_id) const;
+    void move_nodes(const std::vector<uint32_t>& ids, int32_t parent_id, uint32_t before_id);
+    // Why the drop under the cursor is refused: found this frame, shown by
+    // the drag preview the next.
+    std::string refusal_now_;
+    std::string refusal_shown_;
 
     // Inline rename of one row, started by F2 on the primary selection or
     // from the row's context menu.

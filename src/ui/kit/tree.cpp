@@ -1,5 +1,6 @@
 #include "ui/kit/tree.hpp"
 
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/search.hpp"
 
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace fjell::ui {
 
@@ -22,6 +24,9 @@ constexpr float DOT = 7.0f;
 constexpr float DOT_GAP = 4.0f;
 constexpr float DOTS_LEAD = 8.0f;
 constexpr float ROUNDING = 3.0f;
+// The insert line's thickness and the ring at its start.
+constexpr float INSERT_LINE = 2.0f;
+constexpr float RING = 8.0f;
 
 } // namespace
 
@@ -159,6 +164,49 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     ImGui::PopID();
     result.open = spec.has_children && (open || spec.force_open);
     return result;
+}
+
+DropPlace drop_place() {
+    const float y = ImGui::GetIO().MousePos.y;
+    const float top = ImGui::GetItemRectMin().y;
+    const float height = ImGui::GetItemRectSize().y;
+    if (y < top + height * 0.25f) return DropPlace::Before;
+    if (y > top + height * 0.75f) return DropPlace::After;
+    return DropPlace::Into;
+}
+
+void draw_drop(DropPlace place, int depth) {
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 accent = ImGui::GetColorU32(theme::accent());
+    if (place == DropPlace::Into) {
+        dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::drop_fits()), ROUNDING);
+        dl->AddRect(min, max, accent, ROUNDING);
+        return;
+    }
+    // The line starts where a row at `depth` has its icon, so the ring's
+    // indent says which parent the rows land under.
+    const float y = std::floor(place == DropPlace::Before ? min.y : max.y);
+    const float x = min.x + ROW_PAD + static_cast<float>(depth) * theme::TREE_INDENT + TWISTY + PART_GAP;
+    dl->AddLine({x, y}, {max.x - ROW_PAD, y}, accent, INSERT_LINE);
+    dl->AddCircleFilled({x, y}, RING * 0.5f, ImGui::GetColorU32(theme::surface_base()));
+    dl->AddCircle({x, y}, RING * 0.5f - 1.0f, accent, 0, INSERT_LINE);
+}
+
+void drag_preview(const char* icon, std::optional<theme::Category> category, std::string_view text,
+                  std::string_view refusal) {
+    if (icon != nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_Text, category ? theme::category(*category) : theme::text_secondary());
+        ImGui::TextUnformatted(icon);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(0.0f, PART_GAP);
+    }
+    ImGui::TextUnformatted(text.data(), text.data() + text.size());
+    if (!refusal.empty()) {
+        const std::string why(refusal);
+        status(Severity::Error, why.c_str());
+    }
 }
 
 } // namespace fjell::ui

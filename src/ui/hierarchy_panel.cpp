@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,6 +29,9 @@
 namespace fjell {
 
 namespace {
+
+// What a hierarchy drag carries: the dragged nodes' ids, in scene order.
+constexpr const char* NODES_PAYLOAD = "HIERARCHY_NODE";
 
 // The toolbar's node-kind filter, and the least the search beside it keeps.
 constexpr float TYPE_FILTER_WIDTH = 96.0f;
@@ -204,6 +208,10 @@ void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
 void HierarchyPanel::draw() {
     if (auto p = Panel(ui::icon::hierarchy, "Hierarchy")) {
         delete_pending_ = false;
+        // A row drawn before the one under the cursor has already shown the
+        // drag; it shows why a drop is refused a frame late.
+        refusal_shown_ = std::move(refusal_now_);
+        refusal_now_.clear();
 
         // The search box owns the keyboard while it is active, so F2 there
         // must not start a rename.
@@ -269,17 +277,9 @@ void HierarchyPanel::draw() {
         if (avail.y > 0) {
             ImGui::Dummy(avail);
             if (ImGui::BeginDragDropTarget()) {
-                if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
-                    uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
-                    if (history_) {
-                        auto* child = scene_->find(dragged_id);
-                        auto name = child ? child->name : "";
-                        history_->execute(std::make_unique<ReparentCommand>(
-                            *scene_, dragged_id, child ? child->parent_id : -1,
-                            -1, name));
-                    } else {
-                        scene_->reparent(dragged_id, -1);
-                    }
+                // Under everything: last, at the top level.
+                if (const auto* payload = ImGui::AcceptDragDropPayload(NODES_PAYLOAD)) {
+                    move_nodes(payload_ids(*payload), -1, 0);
                 }
                 if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
                     std::string path(static_cast<const char*>(payload->Data));
@@ -392,44 +392,34 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         ImGui::EndPopup();
     }
 
-    // The row is still the last item: nothing above added one.
+    // The row is still the last item: nothing above added one. Dragging a
+    // selected row drags the whole selection.
     if (ImGui::BeginDragDropSource()) {
-        ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
-        if (selection_.size() > 1 && selection_.contains(obj.id)) {
-            ImGui::Text("%zu objects", selection_.size());
-        } else {
-            ImGui::Text("%s", obj.name.c_str());
-        }
+        const std::vector<uint32_t> ids = dragged_ids(obj.id);
+        ImGui::SetDragDropPayload(NODES_PAYLOAD, ids.data(), ids.size() * sizeof(uint32_t));
+        const std::string what = ids.size() > 1 ? std::to_string(ids.size()) + " objects" : obj.name;
+        ui::drag_preview(visuals.icon, visuals.category, what, refusal_shown_);
         ImGui::EndDragDropSource();
     }
 
-    // Drop target — reparent dragged object under this one, or instantiate preset
+    // Dropped rows go in front of this one, after it, or into it.
     if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
-            uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
-            if (dragged_id != obj.id) {
-                bool is_ancestor = false;
-                int32_t check = static_cast<int32_t>(obj.id);
-                while (check != -1) {
-                    if (static_cast<uint32_t>(check) == dragged_id) {
-                        is_ancestor = true;
-                        break;
-                    }
-                    const auto* p = scene_->find(static_cast<uint32_t>(check));
-                    check = p ? p->parent_id : -1;
+        if (const ImGuiPayload* dragging = ImGui::GetDragDropPayload();
+            dragging != nullptr && dragging->IsDataType(NODES_PAYLOAD)) {
+            const std::vector<uint32_t> ids = payload_ids(*dragging);
+            const ui::DropPlace place = ui::drop_place();
+            const Target target = drop_target(obj, depth, row.open, place, ids);
+            std::string refusal = refuse_drop(ids, target.parent_id);
+            if (refusal.empty()) {
+                ui::draw_drop(place, target.depth);
+                if (const auto* payload = ImGui::AcceptDragDropPayload(
+                        NODES_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery
+                                           | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+                    payload != nullptr && payload->IsDelivery()) {
+                    move_nodes(ids, target.parent_id, target.before_id);
                 }
-                if (!is_ancestor) {
-                    if (history_) {
-                        auto* child = scene_->find(dragged_id);
-                        auto old_parent = child ? child->parent_id : -1;
-                        auto name = child ? child->name : "";
-                        history_->execute(std::make_unique<ReparentCommand>(
-                            *scene_, dragged_id, old_parent,
-                            static_cast<int32_t>(obj.id), name));
-                    } else {
-                        scene_->reparent(dragged_id, static_cast<int32_t>(obj.id));
-                    }
-                }
+            } else {
+                refusal_now_ = std::move(refusal);
             }
         }
         if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
@@ -445,6 +435,94 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
     if (row.open) {
         for (auto* child : child_it->second) draw_node(*child, depth + 1);
     }
+}
+
+std::vector<uint32_t> HierarchyPanel::dragged_ids(uint32_t row_id) const {
+    if (!selection_.contains(row_id)) return {row_id};
+    // A node whose ancestor is also dragged goes along with it, not on its own.
+    auto under_another = [&](uint32_t id) {
+        const Node* node = scene_->find(id);
+        for (int32_t up = node ? node->parent_id : -1; up != -1;) {
+            if (selection_.contains(static_cast<uint32_t>(up))) return true;
+            const Node* parent = scene_->find(static_cast<uint32_t>(up));
+            up = parent ? parent->parent_id : -1;
+        }
+        return false;
+    };
+    std::vector<uint32_t> ids;
+    for (const auto& obj : scene_->objects()) {
+        if (selection_.contains(obj->id) && !under_another(obj->id)) ids.push_back(obj->id);
+    }
+    return ids;
+}
+
+std::vector<uint32_t> HierarchyPanel::payload_ids(const ImGuiPayload& payload) {
+    std::vector<uint32_t> ids(static_cast<std::size_t>(payload.DataSize) / sizeof(uint32_t));
+    std::memcpy(ids.data(), payload.Data, ids.size() * sizeof(uint32_t));
+    return ids;
+}
+
+HierarchyPanel::Target HierarchyPanel::drop_target(const Node& row, int depth, bool open, ui::DropPlace place,
+                                                   const std::vector<uint32_t>& ids) const {
+    auto siblings_of = [&](int32_t parent) -> const std::vector<Node*>* {
+        auto it = children_map_.find(parent);
+        return it != children_map_.end() ? &it->second : nullptr;
+    };
+    auto dragged = [&](uint32_t id) { return std::ranges::find(ids, id) != ids.end(); };
+    // The first of `parent`'s children from `from` on that isn't being moved.
+    auto first_staying = [&](int32_t parent, std::size_t from) -> uint32_t {
+        const auto* siblings = siblings_of(parent);
+        if (siblings == nullptr) return 0;
+        for (std::size_t i = from; i < siblings->size(); ++i) {
+            if (!dragged((*siblings)[i]->id)) return (*siblings)[i]->id;
+        }
+        return 0;
+    };
+    auto index_among_siblings = [&]() -> std::size_t {
+        const auto* siblings = siblings_of(row.parent_id);
+        if (siblings == nullptr) return 0;
+        auto it = std::ranges::find(*siblings, &row);
+        return static_cast<std::size_t>(it - siblings->begin());
+    };
+    const auto self = static_cast<int32_t>(row.id);
+    switch (place) {
+        case ui::DropPlace::Before:
+            return {row.parent_id, first_staying(row.parent_id, index_among_siblings()), depth};
+        case ui::DropPlace::Into:
+            return {self, 0, depth + 1};
+        case ui::DropPlace::After:
+            // Below an open row is its first child's place.
+            if (open) return {self, first_staying(self, 0), depth + 1};
+            return {row.parent_id, first_staying(row.parent_id, index_among_siblings() + 1), depth};
+    }
+    return {row.parent_id, 0, depth};
+}
+
+std::string HierarchyPanel::refuse_drop(const std::vector<uint32_t>& ids, int32_t parent_id) const {
+    for (int32_t up = parent_id; up != -1;) {
+        const Node* node = scene_->find(static_cast<uint32_t>(up));
+        if (node == nullptr) break;
+        if (std::ranges::find(ids, node->id) != ids.end()) {
+            return up == parent_id ? node->name + " can't go inside itself"
+                                   : node->name + " can't go inside something under it";
+        }
+        up = node->parent_id;
+    }
+    return {};
+}
+
+void HierarchyPanel::move_nodes(const std::vector<uint32_t>& ids, int32_t parent_id, uint32_t before_id) {
+    if (ids.empty()) return;
+    const Node* first = scene_->find(ids.front());
+    const std::string what = ids.size() > 1 ? std::to_string(ids.size()) + " objects"
+                                            : (first ? first->name : std::string("object"));
+    auto command = std::make_unique<MoveNodesCommand>(*scene_, ids, parent_id, before_id, "Move " + what);
+    if (history_) {
+        history_->execute(std::move(command));
+    } else {
+        command->execute();
+    }
+    scene_->mark_dirty();
 }
 
 void HierarchyPanel::frame(const Node& obj) {

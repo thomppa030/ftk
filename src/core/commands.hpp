@@ -236,6 +236,47 @@ private:
 
 // ── Point Light ──────────────────────────────────────────────────────────
 
+/// Moves nodes under one parent, in front of one sibling (or last), keeping
+/// where they are in the world: a drag in the hierarchy. Each node's parent
+/// and place are noted as it moves, so undo puts them back one by one in
+/// reverse and the scene's order comes back exactly.
+class MoveNodesCommand : public Command {
+public:
+    MoveNodesCommand(Scene& scene, std::vector<uint32_t> ids, int32_t parent_id, uint32_t before_id,
+                     std::string description)
+        : scene_{scene}, ids_{std::move(ids)}, parent_id_{parent_id}, before_id_{before_id}
+        , description_{std::move(description)} {}
+
+    void execute() override {
+        from_.clear();
+        for (uint32_t id : ids_) {
+            const Node* node = scene_.find(id);
+            if (node == nullptr) continue;
+            from_.push_back({id, node->parent_id, static_cast<std::size_t>(scene_.index_of(id))});
+            scene_.move(id, parent_id_, before_id_);
+        }
+    }
+    void undo() override {
+        for (auto it = from_.rbegin(); it != from_.rend(); ++it) {
+            scene_.move_to(it->id, it->parent_id, it->index);
+        }
+    }
+    [[nodiscard]] std::string description() const override { return description_; }
+
+private:
+    struct Place {
+        uint32_t id;
+        int32_t parent_id;
+        std::size_t index;
+    };
+    Scene& scene_;
+    std::vector<uint32_t> ids_;
+    int32_t parent_id_;
+    uint32_t before_id_;
+    std::string description_;
+    std::vector<Place> from_;
+};
+
 class AddPointLightCommand : public Command {
 public:
     explicit AddPointLightCommand(Scene& scene) : scene_{scene} {}

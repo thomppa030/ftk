@@ -108,3 +108,25 @@ TEST_CASE("A rename commits on Enter or a click away, and Esc keeps the old name
     CHECK_FALSE(t.renamed.has_value());
     CHECK_FALSE(t.rename.editing());
 }
+
+TEST_CASE("A drop over a row lands in front of it, into it, or after it, by height", "[ui][kit]") {
+    ImGuiHarness h;
+    ui::DropPlace place = ui::DropPlace::Into;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            (void)ui::tree_row({.id = "1", .name = "Docks"});
+            h.mark("row");
+            place = ui::drop_place();
+        }
+    });
+    h.step(2);
+    const ImVec2 min = h.rect_min("row");
+    auto hover = [&](float fraction) {
+        ImGui::GetIO().AddMousePosEvent(min.x + 40.0f, min.y + theme::TREE_ROW * fraction);
+        h.step(1);
+        return place;
+    };
+    CHECK(hover(0.1f) == ui::DropPlace::Before);
+    CHECK(hover(0.5f) == ui::DropPlace::Into);
+    CHECK(hover(0.9f) == ui::DropPlace::After);
+}

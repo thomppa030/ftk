@@ -44,6 +44,12 @@ public:
     void restore(std::unique_ptr<Node> node, std::size_t index = SIZE_MAX);
     /// Where the node is in objects(), or -1.
     [[nodiscard]] int index_of(uint32_t id);
+    /// Makes the node a child of `parent_id` (-1 for none) keeping where it
+    /// is in the world, and puts it in front of `before_id` among the
+    /// objects, or last when `before_id` is 0.
+    void move(uint32_t id, int32_t parent_id, uint32_t before_id);
+    /// The same with its place as an index, for undoing a move.
+    void move_to(uint32_t id, int32_t parent_id, std::size_t index);
     void clear();
 
     void compute_world_matrices(class ThreadPool* pool = nullptr);

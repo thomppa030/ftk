@@ -155,6 +155,30 @@ int Scene::index_of(uint32_t id) {
     return it != id_to_index_.end() ? it->second : -1;
 }
 
+void Scene::move(uint32_t id, int32_t parent_id, uint32_t before_id) {
+    const int from = index_of(id);
+    if (from < 0 || before_id == id) return;
+    // Where `before` stands once this node is out of the list.
+    std::size_t to = objects_.size() - 1;
+    if (before_id != 0) {
+        const int before = index_of(before_id);
+        if (before >= 0) to = static_cast<std::size_t>(before > from ? before - 1 : before);
+    }
+    move_to(id, parent_id, to);
+}
+
+void Scene::move_to(uint32_t id, int32_t parent_id, std::size_t index) {
+    const int from = index_of(id);
+    if (from < 0) return;
+    reparent(id, parent_id);
+    auto node = std::move(objects_[static_cast<std::size_t>(from)]);
+    objects_.erase(objects_.begin() + from);
+    index = std::min(index, objects_.size());
+    objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
+    rebuild_id_index();
+    dirty_ = true;
+}
+
 void Scene::insert_point_light(int index, const PointLight& light) {
     point_lights_.insert(point_lights_.begin() + index, light);
     dirty_ = true;
