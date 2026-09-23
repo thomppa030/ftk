@@ -4,6 +4,7 @@
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/inset_group.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/section.hpp"
 
@@ -254,4 +255,37 @@ TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][ki
     CHECK(h.rect_max("tool").y - h.rect_min("tool").y == fjell::theme::TOOL_BUTTON);
     h.click("tool");
     CHECK(on);
+}
+
+TEST_CASE("An inset group folds from its heading and keeps its contents inside it", "[ui][kit]") {
+    ImGuiHarness h;
+    bool drawn = false;
+    float window_right = 0.0f;
+    h.set_ui([&] {
+        window_right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        drawn = false;
+        const float heading_y = ImGui::GetCursorScreenPos().y;
+        if (auto box = ui::InsetGroup("##box", "Material", nullptr, {1, 1, 1, 1})) {
+            drawn = true;
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            float v = 0.5f;
+            (void)ui::drag("##v", v);
+            h.mark("field");
+        }
+        (void)heading_y;
+    });
+    h.step(2);
+    REQUIRE(drawn);
+    // The field stops at the box's padding, not at the window's edge.
+    CHECK(h.rect_max("field").x < window_right - 4.0f);
+    // The heading is the box's first line: clicking it folds the box.
+    const ImVec2 field_min = h.rect_min("field");
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(field_min.x + 40.0f, field_min.y - ImGui::GetFrameHeight() * 0.5f - 2.0f);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    h.step(2);
+    CHECK_FALSE(drawn);
 }

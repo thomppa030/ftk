@@ -8,6 +8,7 @@
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/inset_group.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
@@ -269,6 +270,18 @@ void KitGallery::blocks() {
             if (component_block(name, category, remove)) {
                 if (auto t = PropertyTable("##body")) {
                     row("Cast shadows", [&] { checkbox("##shadows", shadows_); });
+                }
+                // A mesh's material values, set apart in their box.
+                if (category == theme::Category::Rendering) {
+                    if (auto box = InsetGroup("##material", "Material", icon::material,
+                                              theme::category(theme::Category::Rendering))) {
+                        if (auto t = PropertyTable("##material_rows")) {
+                            row("Roughness", [&] { slider("##roughness", slope_, 0.0f, 90.0f); });
+                            row("Tint", [&] { color("##tint", tint_, ColorSpace::Srgb); });
+                        }
+                    }
+                }
+                if (auto t = PropertyTable("##body_more")) {
                     // An action sits in the value column beside what it acts
                     // on, one click away.
                     if (category == theme::Category::Physics) {
