@@ -1,13 +1,15 @@
 # Files written before the editor UI kit that still style themselves by hand.
 # cmake/EditorUiCheck.cmake skips these; everything else must use the theme's
-# tokens and the kit. When a file is migrated, delete its line here: the check
-# fails while a listed file has nothing left to allow, so the list only
-# shrinks. Never add a file to it.
+# tokens, ui::icon and the kit. When a file is migrated, delete its line here:
+# the check fails while a listed file has nothing left to allow, so the list
+# only shrinks. The one time files are added is the commit that teaches the
+# check a new pattern, and then only the files already using it.
 src/animation/animator_component_meta.cpp
 src/core/engine.cpp
 src/hub/hub_ui.cpp
 src/import/import_dialog.cpp
 src/physics/buoyancy_component_meta.cpp
+src/renderer/components/terrain_component_meta.cpp
 src/renderer/components/water_component_meta.cpp
 src/ui/animation_editor_context.cpp
 src/ui/asset_ref_widget.cpp
@@ -23,6 +25,8 @@ src/ui/history_panel.cpp
 src/ui/imgui_curve_editor.cpp
 src/ui/input_mapping_editor_context.cpp
 src/ui/panel_widget.hpp
+src/ui/project_settings_panel.cpp
+src/ui/properties_panel.cpp
 src/ui/scene_editor_context.cpp
 src/ui/stats_panel.cpp
 src/ui/status_bar.hpp

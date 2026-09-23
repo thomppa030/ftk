@@ -25,14 +25,20 @@ function(fjell_check_editor_ui)
         "theme::srgb[ \t]*\\("
         # ImColor(0.8f, ...), ImColor(212, 160, 84)
         "ImColor[ \t]*[({][ \t]*-?[0-9.]"
+        # ImColor red(0.8f, ...)
+        "ImColor[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=?[ \t]*[({][ \t]*-?[0-9.]"
         # TextColored({0.8f, ...}, "...")
         "TextColored[ \t]*\\([ \t]*{[ \t]*-?[0-9.]"
         # PushStyleColor(ImGuiCol_Button, {0.8f, ...})
         "PushStyleColor[ \t]*\\([^)]*{[ \t]*-?[0-9.]"
         # PushStyleVar(ImGuiStyleVar_FramePadding, {4, 4}) / ImVec2(4, 4) / 4.0f
         "PushStyleVar[ \t]*\\([^,]*,[ \t]*(ImVec2[ \t]*[({][ \t]*-?[0-9.]|{[ \t]*-?[0-9.]|-?[0-9.])"
-        # io.Fonts->Fonts[1] instead of the theme's named fonts
-        "Fonts\\["
+        # io.Fonts->Fonts[1] instead of the theme's named fonts. Written
+        # without the bracket: CMake list splitting treats an unbalanced
+        # bracket as grouping and would merge this with the next pattern.
+        "Fonts->Fonts"
+        # ICON_LC_PLUS instead of ui::icon::add: icons are named by meaning
+        "ICON_LC_[A-Z]"
     )
     list(JOIN patterns "|" pattern)
 
@@ -61,9 +67,10 @@ function(fjell_check_editor_ui)
             "${CMAKE_SOURCE_DIR}/${root}/*.h")
         foreach(source IN LISTS sources)
             file(RELATIVE_PATH rel "${CMAKE_SOURCE_DIR}" "${source}")
-            # The theme defines the tokens and the kit is the one place that
-            # turns them into widgets.
-            if(rel STREQUAL "src/ui/theme.hpp" OR rel MATCHES "^src/ui/kit/")
+            # The theme defines the tokens, icons_lc.hpp the glyphs, and the
+            # kit is the one place that turns them into widgets.
+            if(rel STREQUAL "src/ui/theme.hpp" OR rel STREQUAL "src/ui/icons_lc.hpp"
+               OR rel MATCHES "^src/ui/kit/")
                 continue()
             endif()
             file(STRINGS "${source}" hits REGEX "${pattern}")
@@ -105,9 +112,11 @@ function(fjell_check_editor_ui)
     if(offenders)
         list(JOIN offenders "\n" offenders)
         string(APPEND report
-            "Editor UI styled by hand (a colour literal, a literal style push, or a font by index):\n"
+            "Editor UI styled by hand (a colour literal, a literal style push, a font by index, "
+            "or an icon glyph by name):\n"
             "${offenders}\n"
-            "Use a colour token from src/ui/theme.hpp or a piece of the kit in src/ui/kit/. "
+            "Use a colour token from src/ui/theme.hpp, an icon from ui::icon, or a piece of "
+            "the kit in src/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
     endif()
     if(stale)

@@ -1,4 +1,5 @@
 #include "ui/asset_ref_widget.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/file_browser.hpp"
@@ -193,10 +194,18 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Icon buttons — tighter FramePadding so they don't dominate the row.
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
 
-    // Use Selected button (pin glyph — "use the pinned/selected asset")
+    // One square icon button of the row, under its own ID.
+    auto slot_button = [&](const char* id, const char* glyph) {
+        ImGui::PushID(id);
+        const bool pressed = ImGui::Button(glyph, {button_width, button_width});
+        ImGui::PopID();
+        return pressed;
+    };
+
+    // Use Selected button
     if (config.ctx && config.ctx->content_browser) {
         ImGui::SameLine();
-        if (ImGui::Button(ICON_LC_PIN "##pick", {button_width, button_width})) {
+        if (slot_button("pick", ui::icon::use_selected)) {
             auto selected = config.ctx->content_browser->selected_asset_path();
             if (!selected.empty()) offer(selected);
         }
@@ -208,7 +217,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Browse button
     if (config.ctx && config.ctx->file_browser) {
         ImGui::SameLine();
-        if (ImGui::Button(ICON_LC_FOLDER "##browse", {button_width, button_width})) {
+        if (slot_button("browse", ui::icon::browse)) {
             s_browse_pending_id = config.id;
             s_browse_result_ready = false;
             std::vector<std::string> exts(config.extensions.begin(), config.extensions.end());
@@ -224,7 +233,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Clear button
     if (!path.empty()) {
         ImGui::SameLine();
-        if (ImGui::Button(ICON_LC_X "##clear", {button_width, button_width})) {
+        if (slot_button("clear", ui::icon::clear)) {
             path.clear();
             changed = true;
         }
