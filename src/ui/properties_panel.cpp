@@ -25,6 +25,7 @@
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
 #include "ui/inspector_widgets.hpp"
+#include "ui/kit/text_field.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "core/string_utils.hpp"
 #include "ui/material_params_widget.hpp"
@@ -41,7 +42,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <utility>
 
 namespace fjell {
 
@@ -314,7 +314,7 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
 
 void PropertiesPanel::commit_name() {
     auto* node = scene_->find(name_node_id_);
-    std::string new_name(name_buf_.data());
+    const std::string& new_name = name_field_.text();
     if (node == nullptr || new_name.empty() || new_name == node->name) return;
     if (history_) {
         history_->execute(std::make_unique<RenameCommand>(
@@ -331,22 +331,20 @@ void PropertiesPanel::draw() {
         auto* obj = base ? base->as_spatial() : nullptr;
         if (base) {
 
-            // Editable name. It commits on Enter or when the field loses
-            // focus, as one undoable rename; while it is being typed into,
-            // the buffer belongs to the field and is not refilled. The flag
-            // is cleared every frame, so a field that stops being drawn
-            // mid-edit (node deselected or deleted) refills when it returns.
-            bool was_editing = std::exchange(name_editing_, false);
-            if (!was_editing) {
-                std::strncpy(name_buf_.data(), base->name.c_str(), name_buf_.size() - 1);
-                name_buf_.back() = '\0';
+            // Editable name: one undoable rename, on Enter or when the
+            // field loses focus. The node is taken when the edit starts,
+            // since the click that ends it can select another node first.
+            if (!name_field_.editing()) {
+                name_node_id_ = base->id;
+            }
+            const Node* named = scene_->find(name_node_id_);
+            if (named == nullptr) {
+                named = base;
                 name_node_id_ = base->id;
             }
             if (auto t = PropertyTable("##name")) {
                 prop_row("Name", [&] {
-                    ImGui::InputText("##Name", name_buf_.data(), name_buf_.size());
-                    name_editing_ = ImGui::IsItemActive();
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    if (name_field_.draw("##Name", named->name).committed) {
                         commit_name();
                     }
                 });

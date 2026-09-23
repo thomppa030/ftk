@@ -1,9 +1,9 @@
 #pragma once
 
 #include "scene/transform.hpp"
+#include "ui/kit/text_field.hpp"
 
 #include <cstdint>
-#include <array>
 #include <string>
 #include <vector>
 
@@ -67,12 +67,9 @@ private:
     IconCache* icons_{nullptr};
     TerrainSculptTool* sculpt_{nullptr};
 
-    // The name field's text while it is being typed into, and the node it
-    // belongs to. The node is remembered because the click that ends the
-    // edit can also change the selection before the edit is committed.
-    std::array<char, 128> name_buf_{};
+    // The node name field and the node its current edit belongs to.
+    ui::TextField name_field_;
     uint32_t name_node_id_{0};
-    bool name_editing_{false};
 
     // Drag coalescing
     Transform drag_start_transform_;
