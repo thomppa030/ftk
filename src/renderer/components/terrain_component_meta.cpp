@@ -1,32 +1,16 @@
-#include "core/asset_type_registry.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/resources/material.hpp"
-#include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "renderer/resources/terrain_asset.hpp"
-#include "ui/icons_lc.hpp"
-#include "ui/inspector_widgets.hpp"
-#include "ui/terrain_sculpt.hpp"
-#include "ui/asset_ref_widget.hpp"
-#include "renderer/resources/asset_shader_type.hpp"
-#include "ui/brush_widgets.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
-
-#include <filesystem>
-#include <optional>
 
 namespace fjell {
 
-namespace {
-
-// Resolve the component's material path to a loaded material, or clear it.
 void load_terrain_material(TerrainComponent& terrain, ResourceManager* resources,
                            const Project* project) {
     terrain.material_handle = {};
@@ -42,248 +26,11 @@ void load_terrain_material(TerrainComponent& terrain, ResourceManager* resources
     terrain.material = resources->get(*handle);
 }
 
-// Write a fresh .fjmat on the default terrain shader beside the .fjterrain and
-// register it with the project, returning its project-relative path.
-std::optional<std::string> create_terrain_material(const TerrainComponent& terrain,
-                                                   Project& project) {
-    namespace fs = std::filesystem;
-    const fs::path terrain_abs = base_path::resolve_asset(terrain.terrain_path, &project);
-    if (terrain_abs.empty()) return std::nullopt;
-    fs::path material_abs = terrain_abs;
-    material_abs.replace_extension(".fjmat");
-
-    std::error_code ec;
-    if (fs::exists(material_abs, ec)) {
-        FJELL_CORE_ERROR("terrain material: {} already exists", material_abs.string());
-        return std::nullopt;
-    }
-    MaterialAsset asset;
-    asset.shader = "shaders/terrain.fjsl";
-    try {
-        save_material_asset(material_abs.string(), asset);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("terrain material: {}", e.what());
-        return std::nullopt;
-    }
-
-    const fs::path relative = fs::relative(material_abs, project.root(), ec);
-    const std::string relative_str =
-        ec ? material_abs.generic_string() : relative.generic_string();
-    if (auto* db = project.asset_db()) {
-        db->register_asset(relative_str);
-    }
-    return relative_str;
-}
-
-// The layer table: one .fjmat and a tiling per layer. Layer 0 is the ground
-// where nothing else has been painted or blended in.
-void draw_layers(TerrainAsset& asset, const InspectorContext& ctx, const Project* project) {
-    ImGui::Separator();
-    ImGui::Text("Layers");
-
-    static const std::string material_exts[] = {".fjmat"};
-    static const std::string surface_exts[] = {".fjsurface"};
-    const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
-    // Stable ids and labels for each row, so the widgets keep their state
-    // across frames without building strings every draw.
-    static constexpr const char* labels[FJTERRAIN_MAX_LAYERS] = {"Layer 0", "Layer 1",
-                                                                 "Layer 2", "Layer 3"};
-    static constexpr const char* ids[FJTERRAIN_MAX_LAYERS] = {
-        "##TerrainLayer0", "##TerrainLayer1", "##TerrainLayer2", "##TerrainLayer3"};
-    static constexpr const char* tiling_ids[FJTERRAIN_MAX_LAYERS] = {
-        "##TerrainTiling0", "##TerrainTiling1", "##TerrainTiling2", "##TerrainTiling3"};
-    static constexpr const char* surface_ids[FJTERRAIN_MAX_LAYERS] = {
-        "##TerrainSurface0", "##TerrainSurface1", "##TerrainSurface2", "##TerrainSurface3"};
-
-    for (uint32_t i = 0; i < asset.layer_count(); ++i) {
-        std::string path = asset.layer_material_path(i);
-        if (asset_ref_field({.label = labels[i], .id = ids[i], .extensions = material_exts,
-                             .ctx = &ctx, .asset_type = mat_type,
-                             .shader_types = only_shader_type(ShaderType::Spatial)},
-                            path)) {
-            asset.set_layer_material_path(i, path);
-            if (ctx.resource_manager != nullptr) {
-                ctx.resource_manager->resolve_terrain_layers(asset, project);
-            }
-        }
-        float tiling = asset.layer_uv_scale(i);
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::DragFloat(tiling_ids[i], &tiling, 0.1F, 0.1F, 1000.0F, "Tiling %.1f m")) {
-            asset.set_layer_uv_scale(i, tiling);
-        }
-        // What physics reports for ground this layer dominates.
-        std::string surface = asset.layer_surface_path(i);
-        if (asset_ref_field({.label = "Surface", .id = surface_ids[i], .extensions = surface_exts,
-                             .ctx = &ctx, .asset_type = surface_type},
-                            surface)) {
-            asset.set_layer_surface_path(i, surface);
-            if (ctx.resource_manager != nullptr) {
-                ctx.resource_manager->resolve_terrain_layers(asset, project);
-            }
-        }
-    }
-
-    if (asset.layer_count() < FJTERRAIN_MAX_LAYERS) {
-        if (ImGui::Button("Add Layer")) {
-            asset.set_layer_count(asset.layer_count() + 1);
-        }
-        if (asset.layer_count() > 0) ImGui::SameLine();
-    }
-    if (asset.layer_count() > 0 && ImGui::Button("Remove Last Layer")) {
-        asset.set_layer_count(asset.layer_count() - 1);
-    }
-}
-
-} // namespace
-
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<TerrainComponent>({
         .display_name = "Terrain",
         .json_key = "terrain",
         .color = {0.35f, 0.65f, 0.35f, 1.0f},
-
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* terrain = static_cast<TerrainComponent*>(ptr);
-            bool changed = false;
-
-            Project* project = ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr;
-
-            static const std::string terrain_exts[] = {".fjterrain"};
-            if (asset_ref_field({.label = "Terrain Asset", .id = "##TerrainAsset",
-                                 .extensions = terrain_exts, .ctx = &ctx},
-                                terrain->terrain_path)) {
-                // Resolve immediately: the path alone renders nothing, and the
-                // inspector is the one place that changes it outside load.
-                terrain->terrain_handle = {};
-                terrain->terrain = nullptr;
-                if (!terrain->terrain_path.empty() && ctx.resource_manager != nullptr) {
-                    auto resolved = base_path::resolve_asset(terrain->terrain_path, project);
-                    auto handle = ctx.resource_manager->load_terrain_asset(resolved, project);
-                    if (handle) {
-                        terrain->terrain_handle = *handle;
-                        terrain->terrain = ctx.resource_manager->get(*handle);
-                    } else {
-                        FJELL_CORE_ERROR("terrain: {}", handle.error());
-                    }
-                }
-                changed = true;
-            }
-
-            // The surface shader. Empty is the engine's terrain.fjsl at its
-            // defaults; assign a .fjmat to tune or replace the blending.
-            static const std::string material_exts[] = {".fjmat"};
-            const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-            if (asset_ref_field({.label = "Material", .id = "##TerrainMaterial",
-                                 .extensions = material_exts, .ctx = &ctx,
-                                 .asset_type = mat_type,
-                                 .shader_types = only_shader_type(ShaderType::Terrain)},
-                                terrain->material_path)) {
-                load_terrain_material(*terrain, ctx.resource_manager, project);
-                changed = true;
-            }
-            if (terrain->material_path.empty()) {
-                ImGui::TextDisabled("Drawing with the engine's terrain shader at its defaults.");
-                // The blend rules are material params, and params live in a
-                // .fjmat, so tuning them from here means giving this terrain
-                // one. It goes next to the .fjterrain under the same name.
-                if (!terrain->terrain_path.empty() && project != nullptr &&
-                    ImGui::Button("Create Material")) {
-                    if (auto created = create_terrain_material(*terrain, *project)) {
-                        terrain->material_path = *created;
-                        load_terrain_material(*terrain, ctx.resource_manager, project);
-                        changed = true;
-                    }
-                }
-            }
-
-            if (terrain->terrain != nullptr) {
-                const auto& data = terrain->terrain->data();
-                ImGui::TextDisabled("%u x %u samples, %u patches of %u quads",
-                                    data.sample_count(), data.sample_count(),
-                                    terrain->terrain->patches_per_side(),
-                                    data.patch_quads());
-                ImGui::TextDisabled("%.0f m across, height %.1f m",
-                                    terrain->terrain->world_size(),
-                                    terrain->terrain->height_scale());
-            }
-
-            if (ImGui::Checkbox("Show Wireframe", &terrain->show_wireframe)) changed = true;
-
-            // Layers live in the .fjterrain, so edits mark the asset dirty
-            // rather than the node; the scene save writes the asset too.
-            if (terrain->has_asset()) {
-                draw_layers(*terrain->terrain, ctx, project);
-            }
-
-            // Brush settings are editor state on the tool, not data on the
-            // component, so touching them does not mark the node changed.
-            if (ctx.sculpt != nullptr && terrain->has_asset()) {
-                ImGui::Separator();
-                ImGui::Text("Sculpt");
-                auto& tool = *ctx.sculpt;
-                using BrushTool = TerrainSculptTool::BrushTool;
-                struct BrushEntry {
-                    BrushTool tool;
-                    const char* id;
-                    const char* label;
-                    const char* tip;
-                };
-                static constexpr BrushEntry brushes[] = {
-                    {BrushTool::raise,   "brush_raise",   "Raise " ICON_LC_ARROW_UP_FROM_LINE,
-                     "Raise the ground under the brush"},
-                    {BrushTool::lower,   "brush_lower",   "Lower " ICON_LC_ARROW_DOWN_TO_LINE,
-                     "Lower the ground under the brush"},
-                    {BrushTool::smooth,  "brush_smooth",  "Smooth " ICON_LC_BLEND,
-                     "Blend each point toward its neighbours"},
-                    {BrushTool::flatten, "brush_flatten", "Flatten " ICON_LC_CHEVRONS_DOWN_UP,
-                     "Pull the ground to the height where the stroke began"},
-                    {BrushTool::noise,   "brush_noise",   "Noise " ICON_LC_AUDIO_WAVEFORM,
-                     "Roughen the ground under the brush"},
-                    {BrushTool::paint,   "brush_paint",   "Paint " ICON_LC_PAINTBRUSH,
-                     "Paint a material layer onto the ground"},
-                };
-                // Clicking the active brush puts it down again, so the row
-                // needs no separate "none" entry. A stroke finishes with the
-                // operation it began with, so the row is dead while one runs.
-                ImGui::BeginDisabled(tool.stroking());
-                bool first = true;
-                for (const auto& entry : brushes) {
-                    if (!first) ImGui::SameLine();
-                    first = false;
-                    const bool on = tool.tool() == entry.tool;
-                    if (toggle_button(entry.id, entry.label, on, entry.tip)) {
-                        tool.set_tool(on ? BrushTool::none : entry.tool);
-                    }
-                }
-                ImGui::EndDisabled();
-                if (tool.active()) {
-                    if (tool.tool() == BrushTool::paint) {
-                        const uint32_t layers = terrain->terrain->layer_count();
-                        if (layers == 0) {
-                            ImGui::TextDisabled("Add a layer above to have something to paint.");
-                        }
-                        static constexpr const char* layer_ids[FJTERRAIN_MAX_LAYERS] = {
-                            "paint_layer0", "paint_layer1", "paint_layer2", "paint_layer3"};
-                        static constexpr const char* layer_labels[FJTERRAIN_MAX_LAYERS] = {
-                            "Layer 0", "Layer 1", "Layer 2", "Layer 3"};
-                        for (uint32_t i = 0; i < layers; ++i) {
-                            if (i > 0) ImGui::SameLine();
-                            if (toggle_button(layer_ids[i], layer_labels[i],
-                                              tool.paint_layer() == i, "Paint this layer")) {
-                                tool.set_paint_layer(i);
-                            }
-                        }
-                        if (tool.paint_layer() >= layers && layers > 0) tool.set_paint_layer(0);
-                    }
-                    draw_brush_settings(tool.brush().settings());
-                    ImGui::TextDisabled(tool.tool() == BrushTool::paint
-                                            ? "Drag on the terrain to paint. Ctrl+Z undoes a stroke."
-                                            : "Drag on the terrain to sculpt. Ctrl+Z undoes a stroke.");
-                }
-            }
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<TerrainComponent>();

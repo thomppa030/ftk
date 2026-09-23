@@ -20,6 +20,7 @@
 #include "renderer/components/tilemap_component.hpp"
 #include "renderer/components/water_component.hpp"
 #include "scene/component_registry.hpp"
+#include "ui/inspectors/environment_inspectors.hpp"
 #include "ui/inspectors/physics_inspectors.hpp"
 #include "ui/inspectors/rendering_inspectors.hpp"
 #include "ui/inspectors/spline_inspectors.hpp"
@@ -49,9 +50,9 @@ InspectorRegistry build() {
     r.add<TilemapComponent>({.category = C::Rendering, .draw = draw_tilemap});
     r.add<SplineMeshComponent>({.category = C::Rendering, .draw = draw_spline_mesh});
 
-    r.add<TerrainComponent>({.category = C::Environment});
-    r.add<WaterComponent>({.category = C::Environment});
-    r.add<MotionSourceComponent>({.category = C::Environment});
+    r.add<TerrainComponent>({.category = C::Environment, .draw = draw_terrain});
+    r.add<WaterComponent>({.category = C::Environment, .draw = draw_water});
+    r.add<MotionSourceComponent>({.category = C::Environment, .draw = draw_motion_source});
 
     r.add<RigidbodyComponent>({.category = C::Physics, .draw = draw_rigidbody});
     r.add<ColliderComponent>({.category = C::Physics, .draw = draw_collider});

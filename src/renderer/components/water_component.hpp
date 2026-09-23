@@ -144,4 +144,19 @@ struct WaterComponent : NodeComponent {
 // the one node a script set it on.
 void clone_component(const ComponentStorage& from, const WaterComponent& src, ComponentStorage& to);
 
+class Project;
+class ResourceManager;
+
+/// Loads the component's material_path, or clears the material when it is
+/// empty or doesn't load. Called on scene load and when the path changes.
+void load_water_material(WaterComponent& water, ResourceManager* resources, const Project* project);
+
+/// Loads the component's medium_material_path, the fog drawn under the
+/// surface, or clears it.
+void load_water_medium(WaterComponent& water, ResourceManager* resources, const Project* project);
+
+/// Reads the component's water_path; empty or unreadable leaves the field
+/// empty, which is flat water rather than a missing surface.
+void load_water_field(WaterComponent& water, const Project* project);
+
 } // namespace fjell

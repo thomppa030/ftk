@@ -1,26 +1,26 @@
 #pragma once
 
 #include "ui/brush.hpp"
-
-#include <imgui.h>
+#include "ui/kit/field.hpp"
+#include "ui/kit/row.hpp"
 
 namespace fjell {
 
-/// The shared brush sliders, for any inspector that offers a brush. A tool
-/// draws its own rows — which layer to paint, which sculpt operation —
-/// around these. Returns true when a value changed.
-inline bool draw_brush_settings(BrushSettings& brush) {
-    bool changed = false;
-    if (ImGui::SliderFloat("Radius (m)", &brush.radius, BrushSettings::MIN_RADIUS,
-                           BrushSettings::MAX_RADIUS, "%.1f", ImGuiSliderFlags_Logarithmic)) {
-        changed = true;
-    }
-    if (ImGui::SliderFloat("Strength", &brush.strength, 0.0f, 1.0f, "%.2f")) changed = true;
-    if (ImGui::SliderFloat("Hardness", &brush.hardness, 0.0f, 1.0f, "%.2f")) changed = true;
-    ImGui::TextDisabled("Ctrl+wheel radius   +Shift strength   +Alt hardness");
-    ImGui::SetItemTooltip("Or [ and ]: bare for the radius, Shift for the strength,\n"
-                          "Ctrl for the hardness.");
-    return changed;
+/// The shared brush rows, for any inspector that offers a brush, drawn into
+/// the caller's property table. A tool draws its own rows (which layer to
+/// paint, which sculpt operation) around these. Brush settings are the
+/// tool's, not the scene's, so changing them is no edit of the scene.
+inline void draw_brush_settings(BrushSettings& brush) {
+    ui::row("Radius", "Ctrl and the wheel, or [ and ], change it in the viewport.", [&] {
+        (void)ui::slider("##radius", brush.radius, BrushSettings::MIN_RADIUS, BrushSettings::MAX_RADIUS,
+                         ui::Unit::Metres, "%.1f", true);
+    });
+    ui::row("Strength", "Ctrl Shift and the wheel, or Shift [ and ], change it in the viewport.", [&] {
+        (void)ui::slider("##strength", brush.strength, 0.0f, 1.0f);
+    });
+    ui::row("Hardness", "How much of the radius works at full strength before it fades. "
+                        "Ctrl Alt and the wheel, or Ctrl [ and ], change it in the viewport.",
+            [&] { (void)ui::slider("##hardness", brush.hardness, 0.0f, 1.0f); });
 }
 
 } // namespace fjell

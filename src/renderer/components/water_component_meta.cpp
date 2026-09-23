@@ -8,13 +8,9 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "ui/asset_ref_widget.hpp"
-#include "renderer/resources/asset_shader_type.hpp"
-#include "ui/inspector_widgets.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -22,7 +18,6 @@
 
 namespace fjell {
 
-namespace {
 
 // Resolve the component's material path to a loaded material, or clear it.
 void load_water_material(WaterComponent& water, ResourceManager* resources,
@@ -96,104 +91,6 @@ const bool registered = [] {
         .json_key = "water",
         .color = {0.30f, 0.55f, 0.75f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* water = static_cast<WaterComponent*>(ptr);
-            bool changed = false;
-
-            Project* project = ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr;
-
-            static const std::string water_exts[] = {".fjwater"};
-            if (asset_ref_field({.label = "Wave field",
-                                 .id = "##WaterRef",
-                                 .extensions = water_exts,
-                                 .ctx = &ctx},
-                                water->water_path)) {
-                load_water_field(*water, project);
-                changed = true;
-            }
-
-            static const std::string mat_exts[] = {".fjmat"};
-            if (asset_ref_field({.label = "Material",
-                                 .id = "##WaterMatRef",
-                                 .extensions = mat_exts,
-                                 .ctx = &ctx,
-                                 .shader_types = only_shader_type(ShaderType::Water)},
-                                water->material_path)) {
-                load_water_material(*water, ctx.resource_manager, project);
-                changed = true;
-            }
-            if (asset_ref_field({.label = "Medium",
-                                 .id = "##WaterMediumRef",
-                                 .extensions = mat_exts,
-                                 .ctx = &ctx,
-                                 .shader_types = only_shader_type(ShaderType::Fog)},
-                                water->medium_material_path)) {
-                load_water_medium(*water, ctx.resource_manager, project);
-                changed = true;
-            }
-
-            ImGui::Separator();
-
-            const char* const extents[] = {"Bounded", "Infinite"};
-            int extent = static_cast<int>(water->extent);
-            if (ImGui::Combo("Extent", &extent, extents, 2)) {
-                water->extent = static_cast<WaterComponent::Extent>(extent);
-                changed = true;
-            }
-            ImGui::SetItemTooltip("Bounded is a square centred on the node — a lake, a "
-                                  "harbour. Infinite follows the camera to the horizon.");
-
-            const bool bounded = water->extent == WaterComponent::Extent::bounded;
-
-            // Size and tessellation are the placed square's; an infinite sea
-            // has neither, and its levels are fixed rather than authored.
-            ImGui::BeginDisabled(!bounded);
-            if (ImGui::DragFloat("Size", &water->size, 1.0f, 1.0f, 100000.0f, "%.0f m")) {
-                water->size = std::max(water->size, 1.0f);
-                changed = true;
-            }
-
-            int patches = static_cast<int>(water->patches_per_side);
-            if (ImGui::DragInt("Patches", &patches, 1.0f, 1, 512)) {
-                water->patches_per_side = static_cast<std::uint32_t>(std::clamp(patches, 1, 512));
-                changed = true;
-            }
-            ImGui::EndDisabled();
-
-            // What the tessellation actually comes to, against what the wave
-            // field needs. A train under about four vertices per wavelength
-            // cannot be drawn and reads as noise instead of chop, and nothing
-            // else in the editor puts those two numbers side by side.
-            const float spacing = water->vertex_spacing();
-            if (bounded) {
-                ImGui::TextDisabled("%.2f m between vertices", spacing);
-            } else {
-                ImGui::TextDisabled("%.2f m between vertices at the camera, %.0f m of sea",
-                                    spacing, WaterClipmap::half_extent());
-            }
-            const float shortest = water::shortest_wavelength(water->water);
-            if (water->water_loaded && shortest > 0.0f) {
-                const float per_wave = shortest / std::max(spacing, 1e-4f);
-                if (per_wave < 4.0f) {
-                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                                       "shortest wave has %.1f vertices — needs 4", per_wave);
-                    ImGui::SetItemTooltip("Raise Patches, shrink Size, or drop the "
-                                          "shortest trains from the wave field.");
-                } else {
-                    ImGui::TextDisabled("shortest wave has %.1f vertices", per_wave);
-                }
-            }
-
-            const std::uint32_t verts =
-                bounded ? (water->patches_per_side * WATER_PATCH_QUADS + 1) *
-                              (water->patches_per_side * WATER_PATCH_QUADS + 1)
-                        : WaterClipmap::patch_count() * (WATER_PATCH_QUADS + 1) *
-                              (WATER_PATCH_QUADS + 1);
-            ImGui::TextDisabled("%u vertices", verts);
-
-            return changed;
-        },
-
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<WaterComponent>();
         },
@@ -243,5 +140,4 @@ const bool registered = [] {
     return true;
 }();
 
-} // namespace
 } // namespace fjell

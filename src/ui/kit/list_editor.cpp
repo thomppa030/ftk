@@ -173,8 +173,11 @@ bool ListEditor::end_item() {
     ImGui::GetStateStorage()->SetFloat(card_id_, height);
 
     // The trash icon, always there: removing is undoable.
-    ImGui::SetCursorScreenPos({card_min_.x + card_width_ - PAD - row_h, card_min_.y + PAD});
-    const bool remove = icon_button("##remove", icon::remove, "Remove", ButtonKind::GhostDanger);
+    bool remove = false;
+    if (options_.remove) {
+        ImGui::SetCursorScreenPos({card_min_.x + card_width_ - PAD - row_h, card_min_.y + PAD});
+        remove = icon_button("##remove", icon::remove, "Remove", ButtonKind::GhostDanger);
+    }
 
     // The whole card takes a dragged item of this list, landing it before
     // or after this one by which half the pointer is over.

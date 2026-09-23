@@ -26,6 +26,9 @@ struct ListOptions {
     /// Cards have a grip and can be dragged to a new place. Off for a list
     /// whose order is not the user's, such as spline points kept in key order.
     bool reorder{true};
+    /// Cards have a trash icon. Off for a list whose items can't be taken
+    /// out of the middle, such as terrain layers, each a painted channel.
+    bool remove{true};
     /// With more items than this, the cards scroll inside a box this many
     /// cards tall instead of lengthening the panel. 0 never scrolls.
     int max_cards{0};

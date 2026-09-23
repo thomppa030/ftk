@@ -58,6 +58,14 @@ inline constexpr const char* preset       = ICON_LC_BOXES;
 inline constexpr const char* input        = ICON_LC_GAMEPAD_2;
 inline constexpr const char* file         = ICON_LC_FILE;
 
+// Terrain brush tools
+inline constexpr const char* raise   = ICON_LC_ARROW_UP_FROM_LINE;
+inline constexpr const char* lower   = ICON_LC_ARROW_DOWN_TO_LINE;
+inline constexpr const char* smooth  = ICON_LC_BLEND;
+inline constexpr const char* flatten = ICON_LC_CHEVRONS_DOWN_UP;
+inline constexpr const char* noise   = ICON_LC_AUDIO_WAVEFORM;
+inline constexpr const char* paint   = ICON_LC_PAINTBRUSH;
+
 // Folding and dropdowns
 inline constexpr const char* fold_open   = ICON_LC_CHEVRON_DOWN;
 inline constexpr const char* fold_closed = ICON_LC_CHEVRON_RIGHT;

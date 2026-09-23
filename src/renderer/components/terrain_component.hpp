@@ -36,4 +36,12 @@ struct TerrainComponent : NodeComponent {
     [[nodiscard]] bool has_asset() const { return terrain != nullptr; }
 };
 
+class Project;
+class ResourceManager;
+
+/// Loads the component's material_path, or clears the material when it is
+/// empty or doesn't load: then the terrain draws with the engine's shader.
+void load_terrain_material(TerrainComponent& terrain, ResourceManager* resources,
+                           const Project* project);
+
 } // namespace fjell
