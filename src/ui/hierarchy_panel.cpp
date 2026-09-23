@@ -74,25 +74,31 @@ std::vector<theme::Category> node_dots(const Node& obj) {
     return dots;
 }
 
-// Draw the shared "add object" menu items used by both toolbar + and context menu
-void draw_add_object_menu(Delegate<void(const std::string&)>& on_add) {
-    if (ImGui::MenuItem("Cube")) on_add.broadcast("cube");
-    if (ImGui::MenuItem("Plane")) on_add.broadcast("plane");
-    if (ImGui::MenuItem("Sphere")) on_add.broadcast("sphere");
+// The "add object" menu, shared by the toolbar's add button and the right
+// click on empty space. Returns what was picked, or empty.
+std::string draw_add_object_menu() {
+    std::string picked;
+    auto item = [&](const char* label, const char* type) {
+        if (ImGui::MenuItem(label)) picked = type;
+    };
+    item("Cube", "cube");
+    item("Plane", "plane");
+    item("Sphere", "sphere");
     ImGui::Separator();
-    if (ImGui::MenuItem("Sprite")) on_add.broadcast("sprite");
-    if (ImGui::MenuItem("Empty Node")) on_add.broadcast("empty");
-    if (ImGui::MenuItem("Folder")) on_add.broadcast("folder");
+    item("Sprite", "sprite");
+    item("Empty Node", "empty");
+    item("Folder", "folder");
     ImGui::Separator();
-    if (ImGui::MenuItem("Camera")) on_add.broadcast("camera");
+    item("Camera", "camera");
     ImGui::Separator();
-    if (ImGui::MenuItem("Directional Light")) on_add.broadcast("light:directional");
-    if (ImGui::MenuItem("Point Light")) on_add.broadcast("light:point");
-    if (ImGui::MenuItem("Spot Light")) on_add.broadcast("light:spot");
+    item("Directional Light", "light:directional");
+    item("Point Light", "light:point");
+    item("Spot Light", "light:spot");
     ImGui::Separator();
-    if (ImGui::MenuItem("Volumetric Fog")) on_add.broadcast("volumetric_fog");
-    if (ImGui::MenuItem("Fog Volume")) on_add.broadcast("fog_volume");
-    if (ImGui::MenuItem("World Environment")) on_add.broadcast("world_environment");
+    item("Volumetric Fog", "volumetric_fog");
+    item("Fog Volume", "fog_volume");
+    item("World Environment", "world_environment");
+    return picked;
 }
 
 } // namespace
@@ -250,7 +256,7 @@ void HierarchyPanel::draw() {
         (void)ui::choice("##type", type_filter_, TYPE_NAMES);
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
-            draw_add_object_menu(on_add_primitive);
+            add_object(draw_add_object_menu());
             ImGui::EndPopup();
         }
 
@@ -303,7 +309,7 @@ void HierarchyPanel::draw() {
             ImGui::OpenPopup("##HierarchyContext");
         }
         if (ImGui::BeginPopup("##HierarchyContext")) {
-            draw_add_object_menu(on_add_primitive);
+            add_object(draw_add_object_menu());
             ImGui::EndPopup();
         }
 
@@ -523,6 +529,16 @@ void HierarchyPanel::move_nodes(const std::vector<uint32_t>& ids, int32_t parent
         command->execute();
     }
     scene_->mark_dirty();
+}
+
+void HierarchyPanel::add_object(const std::string& type) {
+    if (type.empty()) return;
+    on_add_primitive.broadcast(type);
+    // The new node is selected by now. An empty is only a name until it
+    // holds something, so it is named first.
+    if (type == "empty") {
+        if (const Node* added = scene_->find(*selected_id_)) rename_.start(added->id, added->name);
+    }
 }
 
 void HierarchyPanel::frame(const Node& obj) {

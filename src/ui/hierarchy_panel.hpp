@@ -35,6 +35,9 @@ public:
 
 private:
     void draw_node(Node& obj, int depth);
+    // Adds a node of `type` from the add menu (empty when nothing was
+    // picked); a new empty opens in rename.
+    void add_object(const std::string& type);
     // Frames the viewport's camera on the node, as a double-click does.
     void frame(const Node& obj);
 
