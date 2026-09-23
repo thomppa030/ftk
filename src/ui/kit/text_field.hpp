@@ -15,9 +15,18 @@ struct Edit {
 };
 
 /// A single-line text field that commits on Enter or when it loses focus,
-/// never per keystroke, and restores the old text on Escape.
+/// never per keystroke, and restores the old text on Escape. `value` is
+/// written only on the committing frame, so code that reads it while the
+/// user types sees the old text.
 ///
-/// It is kept by the caller as a member, one per field, and never writes
+///     if (ui::text_field("##Default", clip.default_name).committed) {
+///         changed = true;
+///     }
+Edit text_field(const char* id, std::string& value);
+
+/// The same field for a caller that applies the edit itself (through an
+/// undo command) and needs to know whether an edit is under way. Kept by
+/// the caller as a member, one per field, and never writes
 /// `value` itself: the caller applies text() when `committed` is set, which
 /// is where a rename command or "unsaved" belongs.
 ///

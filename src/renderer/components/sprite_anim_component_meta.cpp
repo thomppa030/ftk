@@ -3,11 +3,11 @@
 #include "renderer/components/sprite_anim_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/kit/text_field.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
-#include <cstring>
 #include <string>
 
 namespace fjell {
@@ -40,12 +40,7 @@ static const bool registered = [] {
                 new_anim_name[0] = '\0';
             }
             ImGui::Text("Default"); ImGui::SameLine(); ImGui::SetNextItemWidth(-1);
-            char def_buf[128];
-            std::strncpy(def_buf, sa->default_animation.c_str(), sizeof(def_buf) - 1);
-            def_buf[sizeof(def_buf) - 1] = '\0';
-            if (ImGui::InputText("##SpriteAnimDefault", def_buf, sizeof(def_buf))) {
-                if (ImGui::IsItemDeactivatedAfterEdit()) { sa->default_animation = def_buf; changed = true; }
-            }
+            if (ui::text_field("##SpriteAnimDefault", sa->default_animation).committed) changed = true;
             ImGui::Text("Playback Speed"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##SpriteAnimSpeed", &sa->playback_speed, 0.01f, 0.0f, 10.0f)) changed = true;
             return changed;
