@@ -5,6 +5,7 @@
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
 #include "ui/kit/component_block.hpp"
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
@@ -261,6 +262,25 @@ void KitGallery::blocks() {
     }
 }
 
+void KitGallery::feedback() {
+    if (section_foldable("Feedback", icon::more)) {
+        subheading("Empty state");
+        if (ImGui::BeginChild("##empty", {0.0f, 180.0f}, ImGuiChildFlags_Borders)) {
+            if (empty_state(icon::nothing_selected, "Nothing selected",
+                            "Pick an object in the viewport or the hierarchy to edit it here",
+                            "Select all")) {
+                ++empty_clicks_;
+            }
+        }
+        ImGui::EndChild();
+        if (empty_clicks_ > 0) {
+            char text[48];
+            std::snprintf(text, sizeof(text), "Action clicked %d times", empty_clicks_);
+            hint(text);
+        }
+    }
+}
+
 void KitGallery::draw(bool* open) {
     ImGui::SetNextWindowSize({420.0f, 640.0f}, ImGuiCond_FirstUseEver);
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", open)) {
@@ -270,6 +290,7 @@ void KitGallery::draw(bool* open) {
         rows();
         fields();
         blocks();
+        feedback();
     }
 }
 
