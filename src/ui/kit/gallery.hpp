@@ -7,6 +7,7 @@
 #include <glm/vec4.hpp>
 
 #include <string>
+#include <vector>
 
 namespace fjell::ui {
 
@@ -24,6 +25,7 @@ private:
     Edit choices();
     void blocks();
     void feedback();
+    void lists();
 
     // Sample enums for the choice fields.
     enum class Shape { Box, Sphere, Capsule, Mesh };
@@ -55,6 +57,9 @@ private:
     glm::vec4 tint_{0.61f, 0.78f, 0.91f, 1.0f};
     const char* removed_{nullptr};
     int empty_clicks_{0};
+    std::vector<glm::vec3> points_{{0.5f, 0.0f, 0.5f}, {-0.5f, 0.0f, 0.5f}, {0.0f, 0.2f, -0.6f}};
+    std::vector<std::string> names_{"idle", "walk", "run_cycle_fast"};
+    std::vector<float> events_;
     // Asset slots showing a real asset, nothing, and a file that is gone.
     std::string slot_shader_{"shaders/fog.fjsl"};
     std::string slot_empty_;

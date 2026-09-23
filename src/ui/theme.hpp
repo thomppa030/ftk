@@ -37,6 +37,7 @@ inline ImVec4 surface_raised()  { return hex(0x2B2D31); }  // buttons, headers
 inline ImVec4 surface_hover()   { return hex(0x313338); }  // under the mouse
 inline ImVec4 surface_active()  { return hex(0x383A40); }  // pressed
 inline ImVec4 surface_highest() { return hex(0x404249); }  // a raised surface under the mouse
+inline ImVec4 surface_inset()   { return hex(0x0B0C0D); }  // a field on a sunken card
 inline ImVec4 border()          { return hex(0x0E0E10); }  // separators, rules
 
 // Text in three tiers. Disabled is only for what is switched off; hints,
