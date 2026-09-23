@@ -36,6 +36,7 @@
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/material_params_widget.hpp"
+#include "ui/shader_error_callout.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -93,17 +94,25 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
     const uint32_t pid = ictx.pipeline_cache->register_shader(
         canonical_sky_shader_path(env.sky_shader, project));
-    if (ictx.pipeline_cache->has_compile_error(pid)) return false;
+    auto sky_box = [] {
+        return ui::InsetGroup("##sky_values", "Sky shader", ui::icon::shader,
+                              theme::category(theme::Category::Environment));
+    };
+    // A shader that never compiled has no uniforms to show, only why.
+    if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {
+        if (auto box = sky_box()) shader_error_callout(*ictx.pipeline_cache, pid, project);
+        return false;
+    }
     const auto& meta = ictx.pipeline_cache->metadata(pid);
     if (meta.shader_type != ShaderType::Sky) return false;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
-    if (!any) return false;
+    if (!any && !ictx.pipeline_cache->has_compile_error(pid)) return false;
 
-    auto box = ui::InsetGroup("##sky_values", "Sky shader", ui::icon::shader,
-                              theme::category(theme::Category::Environment));
+    auto box = sky_box();
     if (!box) return false;
+    shader_error_callout(*ictx.pipeline_cache, pid, project);
     std::string revert_name;
     if (auto t = ui::PropertyTable("##sky_uniforms")) {
         for (const auto& u : meta.uniforms) {
@@ -157,18 +166,27 @@ bool draw_fog_overrides(const Material* material, std::string_view default_shade
     const uint32_t pid = material != nullptr
         ? material->pipeline_id()
         : ictx.pipeline_cache->register_shader(std::string(default_shader));
-    if (pid >= ictx.pipeline_cache->shader_count()
-        || ictx.pipeline_cache->has_compile_error(pid)) return false;
+    if (pid >= ictx.pipeline_cache->shader_count()) return false;
+    const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
+    auto node_box = [] {
+        return ui::InsetGroup("##node_values", "This node", ui::icon::volumetric_fog,
+                              theme::category(theme::Category::Environment));
+    };
+    // A shader that never compiled has no uniforms to show, only why.
+    if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {
+        if (auto box = node_box()) shader_error_callout(*ictx.pipeline_cache, pid, project);
+        return false;
+    }
     const auto& meta = ictx.pipeline_cache->metadata(pid);
     if (meta.shader_type != ShaderType::Fog) return false;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
-    if (!any) return false;
+    if (!any && !ictx.pipeline_cache->has_compile_error(pid)) return false;
 
-    auto box = ui::InsetGroup("##node_values", "This node", ui::icon::volumetric_fog,
-                              theme::category(theme::Category::Environment));
+    auto box = node_box();
     if (!box) return false;
+    shader_error_callout(*ictx.pipeline_cache, pid, project);
     ui::hint("The material's values for this node alone; the material and other nodes sharing it keep their own");
     std::string revert_name;
     if (auto t = ui::PropertyTable("##node_values")) {

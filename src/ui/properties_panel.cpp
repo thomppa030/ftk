@@ -2,6 +2,7 @@
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "core/log.hpp"
+#include "core/project_manager.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -26,6 +27,7 @@
 #include "ui/kit/text_field.hpp"
 #include "ui/material_params_widget.hpp"
 #include "ui/panel_widget.hpp"
+#include "ui/shader_error_callout.hpp"
 
 #include <imgui.h>
 
@@ -390,6 +392,8 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
     auto box = ui::InsetGroup("##material_values", "Material", ui::icon::material,
                               theme::category(theme::Category::Rendering));
     if (!box) return;
+    // Its values stay editable: they are the last version that compiled.
+    shader_error_callout(*pipeline_cache_, pid, project_mgr_ != nullptr ? project_mgr_->active() : nullptr);
     if (auto t = ui::PropertyTable("##material")) {
         ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
         // UV scale: every surface material has one; a ui quad's UV is its own

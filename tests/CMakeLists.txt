@@ -18,6 +18,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/frame_cache_key.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/shader_diagnostic.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
@@ -184,6 +185,7 @@ add_executable(fjell-tests
     test_curve_editor.cpp
     test_choices.cpp
     test_edit_record.cpp
+    test_shader_diagnostic.cpp
     test_grouped_picker.cpp
     test_fields.cpp
     test_kit.cpp

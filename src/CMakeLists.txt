@@ -114,6 +114,7 @@ add_executable(fjell
     renderer/render_target_pool.cpp
     renderer/post_process_resources.cpp
     renderer/pipeline_cache.cpp
+    renderer/shader_diagnostic.cpp
     renderer/resources/primitives.cpp
     renderer/bindless.cpp
     renderer/frame_graph.cpp
@@ -307,6 +308,7 @@ add_executable(fjell
     ui/icon_cache.cpp
     ui/properties_node_sections.cpp
     ui/properties_panel.cpp
+    ui/shader_error_callout.cpp
     ui/stats_panel.cpp
     ui/net_panel.cpp
     ui/project_settings_panel.cpp
