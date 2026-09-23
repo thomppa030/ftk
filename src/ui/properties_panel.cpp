@@ -15,6 +15,7 @@
 #include "ui/inspectors/inspector_registry.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
@@ -236,21 +237,22 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
         }
     }
 
-    ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s", mat->shader_path().c_str());
-
-    // UV scale: every surface material has one; a ui quad's UV is its own and
-    // a terrain material tiles each layer by that layer's own scale
-    if (meta.shader_type == ShaderType::Spatial) {
-        const auto& gpu = bindless_->material_at(mat->material_id());
-        float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
-        if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
-        if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
-        if (auto t = PropertyTable("##mat_uv")) {
-            prop_row("UV Scale", [&] {
-                if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
+    if (auto t = ui::PropertyTable("##material")) {
+        ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
+        // UV scale: every surface material has one; a ui quad's UV is its own
+        // and a terrain material tiles each layer by that layer's own scale.
+        if (meta.shader_type == ShaderType::Spatial) {
+            const auto& gpu = bindless_->material_at(mat->material_id());
+            glm::vec2 uv_scale{gpu.base_params[7], gpu.base_params[8]};
+            if (uv_scale.x == 0.0f) uv_scale.x = 1.0f;
+            if (uv_scale.y == 0.0f) uv_scale.y = 1.0f;
+            ui::row("UV scale", [&] {
+                if (ui::vec2("##uv_scale", uv_scale, {.speed = 0.1f, .min = 0.01f, .max = 100.0f,
+                                                      .unit = ui::Unit::Times})
+                        .changed) {
                     GpuMaterial updated = gpu;
-                    updated.base_params[7] = uv_sc[0];
-                    updated.base_params[8] = uv_sc[1];
+                    updated.base_params[7] = uv_scale.x;
+                    updated.base_params[8] = uv_scale.y;
                     bindless_->update_material(mat->material_id(), updated);
                     scene_->mark_dirty();
                 }

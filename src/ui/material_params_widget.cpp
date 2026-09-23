@@ -1,14 +1,21 @@
 #include "ui/material_params_widget.hpp"
 
-#include <string_view>
 #include "core/string_utils.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_gi_params.hpp"
 #include "renderer/uniform_types.hpp"
+#include "ui/kit/color_field.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
 
 #include <imgui.h>
+
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace fjell {
 
@@ -17,17 +24,38 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
     switch (u.type) {
         case UniformType::Float:
             if (u.hint == UniformHint::None && u.range.max > u.range.min) {
-                return ImGui::SliderFloat("##val", v, u.range.min, u.range.max);
+                return ui::slider("##val", *v, u.range.min, u.range.max).changed;
             }
-            return ImGui::DragFloat("##val", v, 0.01f);
-        case UniformType::Vec2:
-            return ImGui::DragFloat2("##val", v, 0.01f);
-        case UniformType::Vec3:
-            if (u.hint == UniformHint::Color) return ImGui::ColorEdit3("##val", v);
-            return ImGui::DragFloat3("##val", v, 0.01f);
-        case UniformType::Vec4:
-            if (u.hint == UniformHint::Color) return ImGui::ColorEdit4("##val", v);
-            return ImGui::DragFloat4("##val", v, 0.01f);
+            return ui::drag("##val", *v, {.speed = 0.01f}).changed;
+        case UniformType::Vec2: {
+            glm::vec2 value{v[0], v[1]};
+            const bool changed = ui::vec2("##val", value, {.speed = 0.01f}).changed;
+            v[0] = value.x;
+            v[1] = value.y;
+            return changed;
+        }
+        case UniformType::Vec3: {
+            glm::vec3 value{v[0], v[1], v[2]};
+            // The values arrive as a person reads them, a colour in sRGB.
+            const bool changed = u.hint == UniformHint::Color
+                ? ui::color("##val", value, ui::ColorSpace::Srgb).changed
+                : ui::vec3("##val", value, {.speed = 0.01f}).changed;
+            v[0] = value.x;
+            v[1] = value.y;
+            v[2] = value.z;
+            return changed;
+        }
+        case UniformType::Vec4: {
+            glm::vec4 value{v[0], v[1], v[2], v[3]};
+            const bool changed = u.hint == UniformHint::Color
+                ? ui::color("##val", value, ui::ColorSpace::Srgb).changed
+                : ui::vec4("##val", value, {.speed = 0.01f}).changed;
+            v[0] = value.x;
+            v[1] = value.y;
+            v[2] = value.z;
+            v[3] = value.w;
+            return changed;
+        }
         default:
             return false;
     }
@@ -43,29 +71,22 @@ bool draw_material_params(const ShaderMetadata& meta,
     // custom FJSL shaders like solid_lit.fjsl that only ever declare their
     // own uniforms (tint, etc.) and never reference ROUGHNESS/METALLIC in
     // fragment(), where they still fall through to these factors. Shown
-    // above the custom-uniform loop below so a shader with zero custom
-    // uniforms still gets an editable material. A ui shader paints a quad
-    // and reads neither, and a terrain shader takes them from its layers, so
-    // both show only their own uniforms.
-    if (meta.shader_type == ShaderType::Spatial) {
+    // above the custom uniforms so a shader with none still gets an editable
+    // material. A ui shader paints a quad and reads neither, and a terrain
+    // shader takes them from its layers, so both show only their own uniforms.
+    if (meta.shader_type == ShaderType::Spatial && ui::subheading_foldable("Base PBR")) {
         GpuMaterial base = bindless.material_at(material.material_id());
         float metallic = base.base_params[4];
         float roughness = base.base_params[5];
         bool base_changed = false;
-
-        ImGui::TextDisabled("Base PBR");
-        ImGui::PushID("__metallic_factor");
-        ImGui::Text("Metallic");
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##val", &metallic, 0.0f, 1.0f)) base_changed = true;
-        ImGui::PopID();
-        ImGui::PushID("__roughness_factor");
-        ImGui::Text("Roughness");
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##val", &roughness, 0.0f, 1.0f)) base_changed = true;
-        ImGui::PopID();
-        ImGui::Separator();
-
+        if (auto t = ui::PropertyTable("##base_pbr")) {
+            ui::row("Metallic", [&] {
+                base_changed |= ui::slider("##metallic", metallic, 0.0f, 1.0f).changed;
+            });
+            ui::row("Roughness", [&] {
+                base_changed |= ui::slider("##roughness", roughness, 0.0f, 1.0f).changed;
+            });
+        }
         if (base_changed) {
             base.base_params[4] = metallic;
             base.base_params[5] = roughness;
@@ -77,41 +98,46 @@ bool draw_material_params(const ShaderMetadata& meta,
     uint32_t param_count = material.custom_param_count();
     if (param_count == 0) return changed;
     const auto& gpu = bindless.material_at(material.material_id());
-    // The heading last drawn, so a shader that names its groups is read as a
-    // handful of subjects rather than one wall of sliders. A shader that names
-    // none is laid out exactly as before.
-    std::string_view drawn_group;
-    bool first_row = true;
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        uint32_t fcount = uniform_float_count(u.type);
-        if (u.slot + fcount > param_count) continue;
-        uint32_t abs_offset = gpu.param_offset + u.slot;
 
-        if (u.group != drawn_group) {
-            drawn_group = u.group;
-            if (!u.group.empty()) {
-                if (!first_row) ImGui::Spacing();
-                ImGui::SeparatorText(u.group.c_str());
+    // A shader that names its groups is read as a handful of subjects, each
+    // under a heading that folds, rather than one wall of sliders. The
+    // uniforms before the first named group sit under no heading.
+    const auto& uniforms = meta.uniforms;
+    std::size_t start = 0;
+    while (start < uniforms.size()) {
+        const std::string group = uniforms[start].group;
+        std::size_t end = start;
+        while (end < uniforms.size() && uniforms[end].group == group) ++end;
+
+        const bool open = group.empty() || ui::subheading_foldable(group.c_str());
+        if (open) {
+            ImGui::PushID(group.c_str());
+            if (auto t = ui::PropertyTable("##uniforms")) {
+                for (std::size_t i = start; i < end; ++i) {
+                    const auto& u = uniforms[i];
+                    if (u.type == UniformType::Sampler2D) continue;
+                    const uint32_t fcount = uniform_float_count(u.type);
+                    if (u.slot + fcount > param_count) continue;
+                    const uint32_t abs_offset = gpu.param_offset + u.slot;
+                    const std::string label = display_name(u.name);
+                    ImGui::PushID(u.name.c_str());
+                    ui::row(label.c_str(), [&] {
+                        // Read the current values from the CPU-side params buffer.
+                        float temp[4]{};
+                        for (uint32_t k = 0; k < fcount; ++k) temp[k] = bindless.read_param(abs_offset + k);
+                        decode_uniform_from_gpu(u, std::span{temp}.first(fcount));
+                        if (draw_uniform_value(u, std::span{temp}.first(fcount))) {
+                            encode_uniform_for_gpu(u, std::span{temp}.first(fcount));
+                            bindless.write_params(abs_offset, temp, fcount);
+                            changed = true;
+                        }
+                    });
+                    ImGui::PopID();
+                }
             }
+            ImGui::PopID();
         }
-        first_row = false;
-
-        ImGui::PushID(u.name.c_str());
-        ImGui::Text("%s", display_name(u.name).c_str());
-        ImGui::SetNextItemWidth(-1);
-        // Read current values from CPU-side params buffer
-        float temp[4]{};
-        for (uint32_t i = 0; i < fcount; ++i) {
-            temp[i] = bindless.read_param(abs_offset + i);
-        }
-        decode_uniform_from_gpu(u, std::span{temp}.first(fcount));
-        if (draw_uniform_value(u, std::span{temp}.first(fcount))) {
-            encode_uniform_for_gpu(u, std::span{temp}.first(fcount));
-            bindless.write_params(abs_offset, temp, fcount);
-            changed = true;
-        }
-        ImGui::PopID();
+        start = end;
     }
 
     // Re-derive what the GI paths read of this material from the live param

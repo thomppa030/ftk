@@ -101,8 +101,10 @@ Edit drag_one(const char* id, float& value, const DragSpec& spec, const Axis* ax
 }
 
 Edit vec_n(const char* id, float* values, int count, const DragSpec& spec) {
+    // A fourth component has no gizmo axis; its letter is plain.
     const Axis axes[] = {
         {"X", theme::axis_x()}, {"Y", theme::axis_y()}, {"Z", theme::axis_z()},
+        {"W", theme::text_secondary()},
     };
     Edit edit;
     ImGui::BeginGroup();
@@ -206,6 +208,10 @@ Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec) {
 
 Edit vec3(const char* id, glm::vec3& value, const DragSpec& spec) {
     return vec_n(id, &value.x, 3, spec);
+}
+
+Edit vec4(const char* id, glm::vec4& value, const DragSpec& spec) {
+    return vec_n(id, &value.x, 4, spec);
 }
 
 void readout(const char* text) {

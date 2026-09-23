@@ -58,6 +58,28 @@ glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
     };
 }
 
+// One uniform's value as a node's own: the field, and after it, while the
+// node overrides the value, a button that goes back to the value underneath.
+// Returns whether the value changed; `revert` is set when going back.
+bool override_row(const FjslUniform& u, std::span<float> values, bool overridden,
+                  const char* revert_tip, bool& revert) {
+    bool changed = false;
+    const std::string label = display_name(u.name);
+    ImGui::PushID(u.name.c_str());
+    ui::row(label.c_str(), [&] {
+        const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+        const float revert_w = overridden ? ImGui::GetFrameHeight() + spacing : 0.0f;
+        ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - revert_w, 1.0f));
+        changed = draw_uniform_value(u, values);
+        if (overridden) {
+            ImGui::SameLine(0.0f, spacing);
+            revert = ui::icon_button("##revert", ui::icon::revert, revert_tip);
+        }
+    });
+    ImGui::PopID();
+    return changed;
+}
+
 // The sky shader's uniforms as rows on the World Environment node: each shows
 // the node's override when it has one and the .fjsl default otherwise, and an
 // edit stores an override on the node. A day profile track of the same name
@@ -77,45 +99,42 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
     if (!any) return false;
 
-    ImGui::TextDisabled("Sky Uniforms");
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        const uint32_t count = uniform_float_count(u.type);
-        auto override_it = std::find_if(env.sky_uniforms.begin(), env.sky_uniforms.end(),
-                                        [&](const WorldEnvironmentNode::SkyUniform& o) { return o.name == u.name; });
-        const bool overridden = override_it != env.sky_uniforms.end();
+    if (!ui::subheading_foldable("Sky shader")) return false;
+    std::string revert_name;
+    if (auto t = ui::PropertyTable("##sky_uniforms")) {
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) continue;
+            const uint32_t count = uniform_float_count(u.type);
+            auto override_it = std::find_if(env.sky_uniforms.begin(), env.sky_uniforms.end(),
+                                            [&](const WorldEnvironmentNode::SkyUniform& o) { return o.name == u.name; });
+            const bool overridden = override_it != env.sky_uniforms.end();
 
-        std::array<float, 4> temp{};
-        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
-        if (overridden) {
-            for (uint32_t i = 0; i < count && i < override_it->count; ++i) temp[i] = override_it->values[i];
-        }
-
-        ImGui::PushID(u.name.c_str());
-        ImGui::Text("%s", display_name(u.name).c_str());
-        if (overridden) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Reset")) {
-                env.sky_uniforms.erase(override_it);
-                changed = true;
-                ImGui::PopID();
-                continue;
-            }
-        }
-        ImGui::SetNextItemWidth(-1);
-        if (draw_uniform_value(u, std::span{temp}.first(count))) {
-            WorldEnvironmentNode::SkyUniform value;
-            value.name = u.name;
-            value.count = count;
-            value.values = temp;
+            std::array<float, 4> temp{};
+            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
             if (overridden) {
-                *override_it = std::move(value);
-            } else {
-                env.sky_uniforms.push_back(std::move(value));
+                for (uint32_t i = 0; i < count && i < override_it->count; ++i) temp[i] = override_it->values[i];
             }
-            changed = true;
+
+            bool revert = false;
+            if (override_row(u, std::span{temp}.first(count), overridden, "Use the shader's value", revert)) {
+                WorldEnvironmentNode::SkyUniform value;
+                value.name = u.name;
+                value.count = count;
+                value.values = temp;
+                if (overridden) {
+                    *override_it = std::move(value);
+                } else {
+                    env.sky_uniforms.push_back(std::move(value));
+                }
+                changed = true;
+            }
+            if (revert) revert_name = u.name;
         }
-        ImGui::PopID();
+    }
+    if (!revert_name.empty()) {
+        std::erase_if(env.sky_uniforms,
+                      [&](const WorldEnvironmentNode::SkyUniform& o) { return o.name == revert_name; });
+        changed = true;
     }
     return changed;
 }
@@ -143,46 +162,42 @@ bool draw_fog_overrides(const Material* material, std::string_view default_shade
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
     if (!any) return false;
 
-    ImGui::TextDisabled("This Node");
-    ImGui::SetItemTooltip("Values of the material's uniforms for this node alone. "
-                          "The material keeps its own; other nodes sharing it are untouched.");
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        const uint32_t count = uniform_float_count(u.type);
-        NamedValue* override = find_named(params, u.name);
-        const NamedValue* base = find_named(material_values, u.name);
+    if (!ui::subheading_foldable("This node")) return false;
+    ui::hint("The material's values for this node alone; the material and other nodes sharing it keep their own");
+    std::string revert_name;
+    if (auto t = ui::PropertyTable("##node_values")) {
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) continue;
+            const uint32_t count = uniform_float_count(u.type);
+            const NamedValue* override = find_named(params, u.name);
+            const NamedValue* base = find_named(material_values, u.name);
 
-        std::array<float, 4> temp{};
-        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
-        if (base != nullptr) {
-            for (uint32_t i = 0; i < count && i < base->count; ++i) temp[i] = base->values[i];
-        }
-        if (override != nullptr) {
-            for (uint32_t i = 0; i < count && i < override->count; ++i) temp[i] = override->values[i];
-        }
-
-        ImGui::PushID(u.name.c_str());
-        ImGui::Text("%s", display_name(u.name).c_str());
-        if (override != nullptr) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Reset")) {
-                params.erase(params.begin() + (override - params.data()));
-                changed = true;
-                ImGui::PopID();
-                continue;
+            std::array<float, 4> temp{};
+            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
+            if (base != nullptr) {
+                for (uint32_t i = 0; i < count && i < base->count; ++i) temp[i] = base->values[i];
             }
+            if (override != nullptr) {
+                for (uint32_t i = 0; i < count && i < override->count; ++i) temp[i] = override->values[i];
+            }
+
+            bool revert = false;
+            if (override_row(u, std::span{temp}.first(count), override != nullptr, "Use the material's value",
+                             revert)) {
+                NamedValue value;
+                value.name = u.name;
+                value.count = count;
+                value.values = temp;
+                value.srgb = u.hint == UniformHint::Color;
+                set_named(params, std::move(value));
+                changed = true;
+            }
+            if (revert) revert_name = u.name;
         }
-        ImGui::SetNextItemWidth(-1);
-        if (draw_uniform_value(u, std::span{temp}.first(count))) {
-            NamedValue value;
-            value.name = u.name;
-            value.count = count;
-            value.values = temp;
-            value.srgb = u.hint == UniformHint::Color;
-            set_named(params, std::move(value));
-            changed = true;
-        }
-        ImGui::PopID();
+    }
+    if (!revert_name.empty()) {
+        std::erase_if(params, [&](const NamedValue& v) { return v.name == revert_name; });
+        changed = true;
     }
     return changed;
 }
