@@ -323,6 +323,7 @@ add_executable(fjell
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
     ui/imgui_curve_editor.cpp
+    ui/kit/text_field.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
     ui/brush.cpp

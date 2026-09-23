@@ -1,4 +1,17 @@
 # --- Testable engine subset (no Vulkan, no GLFW, no ImGui) ---
+# Dear ImGui's core without backends, so editor UI code runs headless in
+# tests (imgui_harness.hpp). The engine compiles the same sources together
+# with its GLFW and Vulkan backends.
+add_library(fjell-imgui-headless STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
+)
+target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+
 add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
@@ -51,6 +64,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -59,6 +73,7 @@ target_include_directories(fjell-testable PUBLIC
 )
 target_link_libraries(fjell-testable PUBLIC
     fjell-platform
+    fjell-imgui-headless
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     glm::glm
@@ -144,6 +159,8 @@ add_executable(fjell-tests
     test_environment_scenario.cpp
     test_input_source.cpp
     test_folder_colors.cpp
+    imgui_harness.cpp
+    test_text_field.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

@@ -1,0 +1,46 @@
+#pragma once
+
+#include <string>
+#include <string_view>
+
+namespace fjell::ui {
+
+/// What a field did this frame. `changed` is true on every frame the text or
+/// number moved (for a live preview); `committed` is true once, when the edit
+/// is finished — on Enter or when the field loses focus — and is what undo
+/// and "unsaved" hang off.
+struct Edit {
+    bool changed{false};
+    bool committed{false};
+};
+
+/// A single-line text field that commits on Enter or when it loses focus,
+/// never per keystroke, and restores the old text on Escape.
+///
+/// It is kept by the caller as a member, one per field, and never writes
+/// `value` itself: the caller applies text() when `committed` is set, which
+/// is where a rename command or "unsaved" belongs.
+///
+///     if (name_field_.draw("##Name", node.name).committed) {
+///         rename(node, name_field_.text());
+///     }
+class TextField {
+public:
+    /// Draws the field for `value`. `committed` is set only when the
+    /// finished text differs from `value`; read it back with text().
+    Edit draw(const char* id, std::string_view value);
+
+    /// The field's text: the committed text on a committing frame.
+    [[nodiscard]] const std::string& text() const { return text_; }
+
+    /// Whether the field was being typed into as of the last draw(). A
+    /// caller that edits a selected object reads this before drawing to keep
+    /// the object the edit started on.
+    [[nodiscard]] bool editing() const { return editing_; }
+
+private:
+    std::string text_;
+    bool editing_{false};
+};
+
+} // namespace fjell::ui
