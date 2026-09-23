@@ -36,6 +36,27 @@ TEST_CASE("Every button kind reports its click", "[ui][kit]") {
     }
 }
 
+TEST_CASE("An action leads with its icon and is as tall as any button", "[ui][kit]") {
+    ImGuiHarness h;
+    int clicks = 0;
+    h.set_ui([&] {
+        ui::button("Create material");
+        h.mark("button");
+        if (ui::action("+", "Create material")) ++clicks;
+        h.mark("action");
+    });
+    h.step(2);
+    const float button_height = h.rect_max("button").y - h.rect_min("button").y;
+    const float action_height = h.rect_max("action").y - h.rect_min("action").y;
+    CHECK(action_height == button_height);
+    // Wider than the same verb on a plain button by the icon and its gap.
+    const float plain = h.rect_max("button").x - h.rect_min("button").x;
+    const float with_icon = h.rect_max("action").x - h.rect_min("action").x;
+    CHECK(with_icon >= plain + ImGui::CalcTextSize("+  ").x - 0.5f);
+    h.click("action");
+    CHECK(clicks == 1);
+}
+
 TEST_CASE("An icon button is a frame-height square", "[ui][kit]") {
     ImGuiHarness h;
     int clicks = 0;

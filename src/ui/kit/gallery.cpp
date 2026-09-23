@@ -287,11 +287,11 @@ void KitGallery::blocks() {
                     if (category == theme::Category::Physics) {
                         row("Size", [&] { vec3("##size", scale_); });
                         row("", [&] {
-                            const std::string fit = std::string(icon::use_selected) + "  Fit to mesh";
-                            if (button(fit.c_str())) removed_ = "Fit to mesh";
+                            if (action(icon::use_selected, "Fit to mesh")) removed_ = "Fit to mesh";
                             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-                            const std::string clear = std::string(icon::remove) + "  Clear points";
-                            if (button(clear.c_str(), ButtonKind::GhostDanger)) removed_ = "Clear points";
+                            if (action(icon::remove, "Clear points", ButtonKind::GhostDanger)) {
+                                removed_ = "Clear points";
+                            }
                         });
                     }
                 }
