@@ -89,6 +89,7 @@ add_executable(fjell
     renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
     renderer/resources/fjmesh_writer.cpp
+    renderer/resources/asset_shader_type.cpp
     renderer/resources/material_asset.cpp
     renderer/resources/material_gi_params.cpp
     renderer/resources/material_instance.cpp

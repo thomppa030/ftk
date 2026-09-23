@@ -43,6 +43,23 @@ TEST_CASE("Parse shader_type spatial", "[fjsl]") {
     REQUIRE(meta.shader_type == ShaderType::Spatial);
 }
 
+// The declaration alone decides which slot a shader or material may fill, so
+// it has to agree with what the full parse makes of the same file.
+TEST_CASE("The declared shader_type is read without a full parse", "[fjsl]") {
+    REQUIRE(declared_shader_type("shader_type water;\nvoid fragment() {}\n") == ShaderType::Water);
+    REQUIRE(declared_shader_type("// a sea\nshader_type   fog ;") == ShaderType::Fog);
+    REQUIRE(parse_fjsl("shader_type fog;").shader_type == ShaderType::Fog);
+}
+
+TEST_CASE("A library, a missing or an unknown shader_type declares nothing", "[fjsl]") {
+    REQUIRE_FALSE(declared_shader_type("shader_function;\nin float x;\nout float y;\n").has_value());
+    REQUIRE_FALSE(declared_shader_type("void fragment() {}\n").has_value());
+    REQUIRE_FALSE(declared_shader_type("shader_type particle;").has_value());
+    // A file claiming both is a library to the parser, which reports the
+    // clash; nothing may be drawn with it either way.
+    REQUIRE_FALSE(declared_shader_type("shader_function;\nshader_type spatial;").has_value());
+}
+
 TEST_CASE("A group heads the uniforms declared under it", "[fjsl]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;

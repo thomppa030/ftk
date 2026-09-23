@@ -7,6 +7,7 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 
 #include <imgui.h>
 
@@ -37,7 +38,14 @@ void asset_ref_browse_accept(const std::string& absolute_path,
     s_browse_result_ready = true;
 }
 
-// ── Extension matching ──────────────────────────────────────────────────
+// A pick the field turned down, said under it for a few seconds: the pin
+// and browse buttons have nowhere else to say why nothing happened.
+static std::string s_refused_id;
+static std::string s_refused_text;
+static double      s_refused_until{0.0};
+constexpr double REFUSAL_SECONDS = 4.0;
+
+// ── Acceptance ──────────────────────────────────────────────────────────
 
 static bool matches_extension(const std::string& path,
                               std::span<const std::string> extensions) {
@@ -46,6 +54,28 @@ static bool matches_extension(const std::string& path,
     return std::ranges::any_of(extensions, [&](const std::string& e) {
         return ext == e;
     });
+}
+
+/// Why a shader or material cannot go in this slot, or empty when it can.
+/// `candidate` is an absolute path, a project-relative one or an id; a file
+/// that cannot be found is left for whoever loads it to report.
+static std::string shader_type_refusal(const std::string& candidate, const Project* project,
+                                       std::span<const ShaderType> accepted) {
+    if (accepted.empty() || !carries_shader_type(candidate)) return {};
+    std::filesystem::path file = candidate;
+    if (!file.is_absolute()) file = base_path::resolve_shared(candidate, project);
+    if (file.empty()) return {};
+    if (shader_type_accepted(file, project, accepted)) return {};
+
+    const char* kind = file.extension() == ".fjmat" ? "material" : "shader";
+    auto name = file.filename().string();
+    auto type = asset_shader_type(file, project);
+    auto needs = describe_shader_types(accepted);
+    if (!type) {
+        return name + " is not drawn as any shader type; this slot needs a " + needs + " " + kind;
+    }
+    return name + " is a " + std::string(shader_type_name(*type)) + " " + kind +
+           "; this slot needs " + needs;
 }
 
 // ── Widget ──────────────────────────────────────────────────────────────
@@ -112,18 +142,41 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
 
     // The picker draws here so it opens under the field rather than wherever
     // the row happens to end.
-    if (std::string chosen; asset_picker::draw(config.id, config.extensions, project, chosen)) {
+    if (std::string chosen; asset_picker::draw(config.id, config.extensions, config.shader_types,
+                                               project, chosen)) {
         path = to_reference(chosen);
         changed = true;
     }
 
-    // Drag-and-drop target
+    // Anything picked by other means than the list: the list only offers
+    // what fits, these could bring in anything.
+    auto offer = [&](const std::string& candidate) {
+        if (!matches_extension(candidate, config.extensions)) return;
+        auto refusal = shader_type_refusal(candidate, project, config.shader_types);
+        if (!refusal.empty()) {
+            s_refused_id = config.id;
+            s_refused_text = std::move(refusal);
+            s_refused_until = ImGui::GetTime() + REFUSAL_SECONDS;
+            return;
+        }
+        path = to_reference(candidate);
+        changed = true;
+    };
+
+    // Drag-and-drop target. Taken before delivery so a shader or material of
+    // the wrong Type says why while it is still over the field, and the drop
+    // is simply not accepted.
     if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+        if (const auto* payload = ImGui::AcceptDragDropPayload(
+                "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery)) {
             std::string dropped(static_cast<const char*>(payload->Data));
-            if (matches_extension(dropped, config.extensions)) {
-                path = to_reference(dropped);
-                changed = true;
+            auto refusal = matches_extension(dropped, config.extensions)
+                ? shader_type_refusal(dropped, project, config.shader_types)
+                : std::string{};
+            if (!refusal.empty()) {
+                ImGui::SetTooltip("%s", refusal.c_str());
+            } else if (payload->IsDelivery()) {
+                offer(dropped);
             }
         }
         ImGui::EndDragDropTarget();
@@ -131,10 +184,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
 
     // Check for pending browse result
     if (s_browse_result_ready && s_browse_pending_id == config.id) {
-        if (matches_extension(s_browse_result, config.extensions)) {
-            path = to_reference(s_browse_result);
-            changed = true;
-        }
+        offer(s_browse_result);
         s_browse_pending_id.clear();
         s_browse_result.clear();
         s_browse_result_ready = false;
@@ -148,10 +198,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         ImGui::SameLine();
         if (ImGui::Button(ICON_LC_PIN "##pick", {button_width, button_width})) {
             auto selected = config.ctx->content_browser->selected_asset_path();
-            if (!selected.empty() && matches_extension(selected, config.extensions)) {
-                path = to_reference(selected);
-                changed = true;
-            }
+            if (!selected.empty()) offer(selected);
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Use selected asset from content browser");
@@ -187,6 +234,20 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     }
 
     ImGui::PopStyleVar();
+
+    // What is wrong with the pick just refused, else with what the field
+    // holds: a scene written by hand or before the slot said what it takes.
+    std::string problem;
+    if (s_refused_id == config.id && ImGui::GetTime() < s_refused_until) {
+        problem = s_refused_text;
+    } else if (!path.empty()) {
+        problem = shader_type_refusal(path, project, config.shader_types);
+    }
+    if (!problem.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95F, 0.45F, 0.40F, 1.0F));
+        ImGui::TextWrapped("%s", problem.c_str());
+        ImGui::PopStyleColor();
+    }
 
     // Per-type preview — takes a path, so hand it the resolved one.
     if (config.asset_type && config.asset_type->draw_preview &&

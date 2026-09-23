@@ -52,6 +52,13 @@ enum class ShaderType : uint8_t {
 /// reading a stored string (a .fjmat, a test) decide for themselves.
 [[nodiscard]] std::optional<ShaderType> shader_type_from_name(std::string_view name);
 
+/// What a .fjsl declares itself to be, read the way parse_fjsl() reads it
+/// but without parsing the rest: the Type after `shader_type`, or nullopt
+/// for a `shader_function;` library, a missing declaration or a word that
+/// names no Type. For deciding which slot a shader or material can go in
+/// without compiling it.
+[[nodiscard]] std::optional<ShaderType> declared_shader_type(const std::string& source);
+
 // Lighting mode parsed from .fjsl files
 enum class RenderMode : uint8_t {
     Lit,    // default PBR lighting

@@ -2,6 +2,7 @@
 #include "renderer/components/mesh_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "core/base_path.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "core/project_manager.hpp"
@@ -37,7 +38,7 @@ static const bool registered = [] {
                 changed = true;
             }
             const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-            if (asset_ref_field({.label = "Material", .id = "##MeshMaterial", .extensions = material_exts, .ctx = &ctx, .asset_type = mat_type}, mesh->material_name)) {
+            if (asset_ref_field({.label = "Material", .id = "##MeshMaterial", .extensions = material_exts, .ctx = &ctx, .asset_type = mat_type, .shader_types = only_shader_type(ShaderType::Spatial)}, mesh->material_name)) {
                 if (mesh->material_name.empty()) {
                     mesh->material_name = "default";
                 }

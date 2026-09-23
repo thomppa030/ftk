@@ -2,6 +2,7 @@
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -38,7 +39,7 @@ static const bool registered = [] {
                 node.source = skel_model_path;
                 changed = true;
             }
-            if (asset_ref_field({.label = "Material", .id = "##SkelMaterial", .extensions = material_exts, .ctx = &ctx}, skel->material_name)) {
+            if (asset_ref_field({.label = "Material", .id = "##SkelMaterial", .extensions = material_exts, .ctx = &ctx, .shader_types = only_shader_type(ShaderType::Spatial)}, skel->material_name)) {
                 if (skel->material_name.empty()) {
                     skel->material_name = "default";
                 }

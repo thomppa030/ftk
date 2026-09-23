@@ -5,6 +5,7 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "core/thread_pool.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 
 #include <imgui.h>
 
@@ -38,6 +39,9 @@ struct Entry {
     std::string filename;     // what the row shows
     std::string extension;
     Source source{Source::project};
+    // What a shader or material is drawn as, read during the walk so that
+    // filtering on it costs a draw nothing. Nullopt for everything else.
+    std::optional<ShaderType> shader_type;
 };
 
 /// One listing, keyed by the extensions that produced it. Two fields taking
@@ -69,7 +73,7 @@ bool matches(const std::filesystem::path& path,
 /// Walk one root and add every accepted file under it. `.fjcache` and the
 /// project's own `.fjell` bookkeeping hold generated files, never assets.
 void collect(const std::filesystem::path& root, Source source,
-             std::span<const std::string> extensions,
+             std::span<const std::string> extensions, const Project* project,
              std::vector<Entry>& out) {
     if (root.empty()) return;
     std::error_code ec;
@@ -94,22 +98,24 @@ void collect(const std::filesystem::path& root, Source source,
         entry.filename = name;
         entry.extension = path.extension().string();
         entry.source = source;
+        entry.shader_type = asset_shader_type(path, project);
         out.push_back(std::move(entry));
     }
 }
 
-/// Walk both roots. Runs on a worker: it touches nothing but its arguments
-/// and the vector it returns.
-std::vector<Entry> scan(std::vector<std::string> extensions,
+/// Walk both roots. Runs on a worker: it touches nothing but its arguments,
+/// the vector it returns and the shader-type probe, which locks for itself.
+/// The project outlives the walk: invalidate() waits for it at shutdown.
+std::vector<Entry> scan(std::vector<std::string> extensions, const Project* project,
                         std::filesystem::path project_root,
                         std::filesystem::path engine_root) {
     std::vector<Entry> entries;
     const bool has_project = !project_root.empty();
 
     if (has_project) {
-        collect(project_root, Source::project, extensions, entries);
+        collect(project_root, Source::project, extensions, project, entries);
     }
-    collect(engine_root, Source::engine, extensions, entries);
+    collect(engine_root, Source::engine, extensions, project, entries);
 
     // An engine asset the project also carries would be listed twice, and the
     // project's copy is the one a reference resolves to.
@@ -142,16 +148,17 @@ void begin_scan(std::span<const std::string> extensions, const Project* project)
     if (g_pool == nullptr) {
         // No pool yet (a tool or a test drawing the widget): the walk still
         // has to happen, it just happens here.
-        g_listing.entries = scan(std::move(exts), std::move(project_root), std::move(engine_root));
+        g_listing.entries = scan(std::move(exts), project, std::move(project_root),
+                                 std::move(engine_root));
         g_listing.extensions = g_scan_extensions;
         g_listing.valid = true;
         return;
     }
 
-    g_scan = g_pool->submit([exts = std::move(exts),
+    g_scan = g_pool->submit([exts = std::move(exts), project,
                              project_root = std::move(project_root),
                              engine_root = std::move(engine_root)]() mutable {
-        return scan(std::move(exts), std::move(project_root), std::move(engine_root));
+        return scan(std::move(exts), project, std::move(project_root), std::move(engine_root));
     });
     g_scanning = true;
 }
@@ -214,7 +221,8 @@ ImTextureID thumbnail_for(const Entry& entry, int& requests) {
 
 /// Turn the listing into the picker's groups: one per source, or one per
 /// source and type when the field takes more than one type.
-std::vector<grouped_picker::Group> build_groups(std::span<const std::string> extensions) {
+std::vector<grouped_picker::Group> build_groups(std::span<const std::string> extensions,
+                                                std::span<const ShaderType> shader_types) {
     // Only one accepted type means a type header would say what the field
     // already says.
     const bool split_by_type = extensions.size() != 1;
@@ -228,6 +236,15 @@ std::vector<grouped_picker::Group> build_groups(std::span<const std::string> ext
     std::string current_extension;
 
     for (const auto& entry : g_listing.entries) {
+        // A shader or material of another Type cannot go in this slot, so
+        // it is not offered. One whose Type could not be read is not either:
+        // nothing could draw it here.
+        if (!shader_types.empty() && carries_shader_type(entry.absolute) &&
+            (!entry.shader_type || std::ranges::find(shader_types, *entry.shader_type) ==
+                                       shader_types.end())) {
+            continue;
+        }
+
         const bool new_source = !current_source || *current_source != entry.source;
         const bool new_type = split_by_type && current_extension != entry.extension;
         if (new_source || new_type) {
@@ -280,6 +297,7 @@ void invalidate() {
 }
 
 bool draw(const char* widget_id, std::span<const std::string> extensions,
+          std::span<const ShaderType> shader_types,
           const Project* project, std::string& picked) {
     if (!grouped_picker::is_open(widget_id)) return false;
 
@@ -302,7 +320,7 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         .size = {POPUP_WIDTH, POPUP_HEIGHT},
     };
 
-    return grouped_picker::draw(widget_id, build_groups(extensions), config, picked);
+    return grouped_picker::draw(widget_id, build_groups(extensions, shader_types), config, picked);
 }
 
 } // namespace fjell::asset_picker

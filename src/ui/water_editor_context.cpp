@@ -14,6 +14,7 @@
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
@@ -320,7 +321,8 @@ void WaterEditorContext::draw_generator_panel() {
                          .id = "##WaterPreviewMat",
                          .extensions = mat_exts,
                          .ctx = &ictx,
-                         .asset_type = mat_type},
+                         .asset_type = mat_type,
+                         .shader_types = only_shader_type(ShaderType::Water)},
                         water_.preview_material)) {
         load_preview_material();
         dirty_ = true;

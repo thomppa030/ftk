@@ -2,6 +2,7 @@
 
 #include "renderer/systems/vfx_curve.hpp"
 #include "renderer/systems/vfx_pin.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 
 #include <glm/glm.hpp>
 #include <nlohmann/json_fwd.hpp>
@@ -97,6 +98,8 @@ struct VfxModule {
         const char* label;
         std::string* reference;
         std::span<const std::string> extensions;
+        /// For a material or shader: the Types the module can draw it as.
+        std::span<const ShaderType> shader_types{};
     };
 
     /// Asset references this module holds. Empty for modules with none.

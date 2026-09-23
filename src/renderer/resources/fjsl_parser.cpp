@@ -302,6 +302,12 @@ static const std::regex& shader_function_re() {
     return re;
 }
 
+/// `shader_type <word>;` — what a pass-drawn file is. Group 1: the word.
+static const std::regex& shader_type_re() {
+    static const std::regex re(R"(shader_type\s+(\w+)\s*;)");
+    return re;
+}
+
 /// `in <type> <name>;` / `out <type> <name>;` — a shader_function's interface.
 /// Groups: 1 type, 2 name. No defaults: the consumer passes everything, so a
 /// function never reaches for a built-in of whatever happens to call it.
@@ -626,7 +632,6 @@ static void collect_matches(const std::string& source, std::string_view keyword,
 // whole file to regex_replace to scan and copy from end to end.
 static std::string extract_user_globals(const std::string& source,
                                         std::optional<ShaderType> type) {
-    static const std::regex shader_type_re(R"(shader_type\s+\w+\s*;)");
     static const std::regex render_mode_re(R"(render_mode\s+[^;]+;)");
 
     auto cut_round = [](const std::string& text, std::string_view keyword,
@@ -645,7 +650,7 @@ static std::string extract_user_globals(const std::string& source,
         return out;
     };
 
-    std::string s = cut_round(source, "shader_type", shader_type_re);
+    std::string s = cut_round(source, "shader_type", shader_type_re());
     s = cut_round(s, "shader_function", shader_function_re());
     s = cut_round(s, "render_mode", render_mode_re);
     // A function's interface: parsed into ports, and emitted as parameters and
@@ -861,6 +866,13 @@ void log_fjsl_diagnostics(const FjslComposition& composition, const std::string&
     log_diagnostics(composition.diagnostics, name);
 }
 
+std::optional<ShaderType> declared_shader_type(const std::string& source) {
+    if (std::regex_search(source, shader_function_re())) return std::nullopt;
+    std::smatch sm;
+    if (!std::regex_search(source, sm, shader_type_re())) return std::nullopt;
+    return shader_type_from_name(sm[1].str());
+}
+
 ShaderMetadata parse_fjsl(const std::string& source) {
     ShaderMetadata meta;
 
@@ -885,8 +897,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         if (std::regex_search(source, fn, shader_function_re())) {
             meta.is_function = true;
             std::smatch clash;
-            static const std::regex type_re(R"(shader_type\s+(\w+)\s*;)");
-            if (std::regex_search(source, clash, type_re)) {
+            if (std::regex_search(source, clash, shader_type_re())) {
                 diagnose(static_cast<size_t>(clash.position(0)), FjslSeverity::error,
                          "a file is either a shader_function or a shader_type, not both");
             }
@@ -894,12 +905,11 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
 
     // Parse shader_type
-    static const std::regex shader_type_re(R"(shader_type\s+(\w+)\s*;)");
     std::smatch sm;
     if (meta.is_function) {
         // Falls through to the ports and uniforms below; a function has no
         // Type, so nothing here picks a template or a material expression.
-    } else if (!std::regex_search(source, sm, shader_type_re)) {
+    } else if (!std::regex_search(source, sm, shader_type_re())) {
         diagnose(0, FjslSeverity::error,
                  "missing shader_type declaration; expected 'shader_type spatial;' "
                  "or 'shader_function;'");

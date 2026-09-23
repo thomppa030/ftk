@@ -994,7 +994,8 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
                 std::snprintf(widget_id, sizeof(widget_id), "##vfxasset%p", 
                               static_cast<const void*>(field.reference));
                 if (asset_ref_field({.label = field.label, .id = widget_id,
-                                     .extensions = field.extensions, .ctx = &ictx},
+                                     .extensions = field.extensions, .ctx = &ictx,
+                                     .shader_types = field.shader_types},
                                     *field.reference)) {
                     changed = true;
                     resolve_module_assets(*mod);

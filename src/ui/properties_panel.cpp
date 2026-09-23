@@ -23,6 +23,7 @@
 #include "ui/icon_cache.hpp"
 #include "ui/icons_lc.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "core/string_utils.hpp"
@@ -593,7 +594,8 @@ void PropertiesPanel::draw() {
                 if (asset_ref_field({.label = "Material",
                                      .id = "##FogMatRef",
                                      .extensions = fog_mat_exts,
-                                     .ctx = &ictx},
+                                     .ctx = &ictx,
+                                     .shader_types = only_shader_type(ShaderType::Fog)},
                                     vf->material_path)) {
                     scene_->mark_dirty();
                 }
@@ -674,7 +676,8 @@ void PropertiesPanel::draw() {
                 if (asset_ref_field({.label = "Material",
                                      .id = "##FogVolMatRef",
                                      .extensions = volume_mat_exts,
-                                     .ctx = &ictx},
+                                     .ctx = &ictx,
+                                     .shader_types = only_shader_type(ShaderType::Fog)},
                                     fv->material_path)) {
                     scene_->mark_dirty();
                 }
@@ -792,7 +795,8 @@ void PropertiesPanel::draw() {
                 asset_ref_field({.label = "Sky Shader",
                                  .id = "##EnvSkyShader",
                                  .extensions = sky_shader_exts,
-                                 .ctx = &ictx},
+                                 .ctx = &ictx,
+                                 .shader_types = only_shader_type(ShaderType::Sky)},
                                 env->sky_shader);
                 if (!env->sky_shader.empty()) {
                     draw_sky_uniforms(*env, ictx);

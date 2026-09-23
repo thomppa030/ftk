@@ -11,6 +11,7 @@
 #include "ui/inspector_widgets.hpp"
 #include "ui/terrain_sculpt.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/brush_widgets.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
@@ -98,7 +99,8 @@ void draw_layers(TerrainAsset& asset, const InspectorContext& ctx, const Project
     for (uint32_t i = 0; i < asset.layer_count(); ++i) {
         std::string path = asset.layer_material_path(i);
         if (asset_ref_field({.label = labels[i], .id = ids[i], .extensions = material_exts,
-                             .ctx = &ctx, .asset_type = mat_type},
+                             .ctx = &ctx, .asset_type = mat_type,
+                             .shader_types = only_shader_type(ShaderType::Spatial)},
                             path)) {
             asset.set_layer_material_path(i, path);
             if (ctx.resource_manager != nullptr) {
@@ -174,7 +176,8 @@ static const bool registered = [] {
             const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
             if (asset_ref_field({.label = "Material", .id = "##TerrainMaterial",
                                  .extensions = material_exts, .ctx = &ctx,
-                                 .asset_type = mat_type},
+                                 .asset_type = mat_type,
+                                 .shader_types = only_shader_type(ShaderType::Terrain)},
                                 terrain->material_path)) {
                 load_terrain_material(*terrain, ctx.resource_manager, project);
                 changed = true;

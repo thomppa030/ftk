@@ -10,6 +10,7 @@
 #include "scene/component_meta.hpp"
 #include "scene/scene.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "ui/imgui_curve_editor.hpp"
 #include "ui/inspector_widgets.hpp"
@@ -259,7 +260,8 @@ void WeatherEditorContext::draw_properties() {
     ictx.project_mgr = deps_.project_mgr;
     (void)ictx;
     static const std::string sky_exts[] = {".fjsl"};
-    if (asset_ref_field({.label = "Sky Shader", .id = "##WeatherSky", .extensions = sky_exts, .ctx = &ictx},
+    if (asset_ref_field({.label = "Sky Shader", .id = "##WeatherSky", .extensions = sky_exts, .ctx = &ictx,
+                         .shader_types = only_shader_type(ShaderType::Sky)},
                         e.sky_shader)) changed = true;
     static const std::string day_exts[] = {".fjday"};
     if (asset_ref_field({.label = "Day Profile", .id = "##WeatherDay", .extensions = day_exts, .ctx = &ictx},

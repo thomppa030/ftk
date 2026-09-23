@@ -1,5 +1,6 @@
 #include "renderer/systems/vfx_module.hpp"
 #include "core/math/color_space.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/imgui_curve_editor.hpp"
 
 #include <imgui.h>
@@ -1275,7 +1276,10 @@ std::vector<VfxModule::AssetField> MeshParticleModule::asset_fields() {
     if (shape == ParticleMeshShape::custom) {
         fields.push_back({"Model", &model_path, mesh_extensions()});
     }
-    fields.push_back({"Material", &material_path, material_extensions()});
+    // Mesh particles draw through the mesh pipelines, which only a spatial
+    // shader has.
+    fields.push_back({"Material", &material_path, material_extensions(),
+                      only_shader_type(ShaderType::Spatial)});
     return fields;
 }
 

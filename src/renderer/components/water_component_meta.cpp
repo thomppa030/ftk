@@ -9,6 +9,7 @@
 #include "renderer/resources/material_instance.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
@@ -115,7 +116,8 @@ const bool registered = [] {
             if (asset_ref_field({.label = "Material",
                                  .id = "##WaterMatRef",
                                  .extensions = mat_exts,
-                                 .ctx = &ctx},
+                                 .ctx = &ctx,
+                                 .shader_types = only_shader_type(ShaderType::Water)},
                                 water->material_path)) {
                 load_water_material(*water, ctx.resource_manager, project);
                 changed = true;
@@ -123,7 +125,8 @@ const bool registered = [] {
             if (asset_ref_field({.label = "Medium",
                                  .id = "##WaterMediumRef",
                                  .extensions = mat_exts,
-                                 .ctx = &ctx},
+                                 .ctx = &ctx,
+                                 .shader_types = only_shader_type(ShaderType::Fog)},
                                 water->medium_material_path)) {
                 load_water_medium(*water, ctx.resource_manager, project);
                 changed = true;

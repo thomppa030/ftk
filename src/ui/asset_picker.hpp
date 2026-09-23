@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/resources/fjsl_parser.hpp"
+
 #include <span>
 #include <string>
 
@@ -28,8 +30,10 @@ void open(const char* widget_id);
 
 /// Draw the picker if it belongs to `widget_id`. Returns true and writes the
 /// chosen project- or engine-relative path to `picked` when the user picks
-/// one; the caller turns that into a reference.
+/// one; the caller turns that into a reference. Shaders and materials are
+/// listed only when drawn as one of `shader_types`; empty lists them all.
 bool draw(const char* widget_id, std::span<const std::string> extensions,
+          std::span<const ShaderType> shader_types,
           const Project* project, std::string& picked);
 
 /// Forget the cached listing, so the next picker walks the directories again.

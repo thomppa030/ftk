@@ -2,6 +2,7 @@
 
 #include "scene/component_meta.hpp"
 #include "core/asset_type_registry.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 
 #include <span>
 #include <string>
@@ -18,6 +19,10 @@ struct AssetRefConfig {
     std::span<const std::string> extensions;     // accepted file extensions
     const InspectorContext* ctx{nullptr};         // for content browser, file browser, icons
     const AssetTypeEntry* asset_type{nullptr};    // optional, for draw_preview
+    /// For a slot taking shaders or materials: the Types it can draw. Others
+    /// are not offered, not accepted, and named under the field when one is
+    /// already there. Empty takes any.
+    std::span<const ShaderType> shader_types{};
 };
 
 /// Unified asset reference widget.
