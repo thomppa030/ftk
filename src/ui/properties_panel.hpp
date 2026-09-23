@@ -17,7 +17,6 @@ class BindlessTextures;
 class CommandHistory;
 class EnvironmentSubsystem;
 class ContentBrowser;
-class FileBrowser;
 class IconCache;
 class Material;
 class PipelineCache;
@@ -48,7 +47,6 @@ public:
               ResourceManager* resource_manager = nullptr,
               ProjectManager* project_mgr = nullptr,
               ContentBrowser* content_browser = nullptr,
-              FileBrowser* file_browser = nullptr,
               IconCache* icons = nullptr,
               TerrainSculptTool* sculpt = nullptr);
 
@@ -95,7 +93,6 @@ private:
     ResourceManager* resource_manager_{nullptr};
     ProjectManager* project_mgr_{nullptr};
     ContentBrowser* content_browser_{nullptr};
-    FileBrowser* file_browser_{nullptr};
     IconCache* icons_{nullptr};
     TerrainSculptTool* sculpt_{nullptr};
 

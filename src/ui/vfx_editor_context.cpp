@@ -986,7 +986,6 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
             ictx.resource_manager = deps_.resource_manager;
             ictx.project_mgr = deps_.project_mgr;
             ictx.content_browser = deps_.content_browser;
-            ictx.file_browser = deps_.file_browser;
             ictx.icons = deps_.icon_cache;
 
             for (auto& field : mod->asset_fields()) {

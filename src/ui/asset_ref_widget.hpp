@@ -17,7 +17,7 @@ struct AssetRefConfig {
     const char* label;
     const char* id;                              // ImGui ID (e.g., "##MatRef")
     std::span<const std::string> extensions;     // accepted file extensions
-    const InspectorContext* ctx{nullptr};         // for content browser, file browser, icons
+    const InspectorContext* ctx{nullptr};         // for the project, content browser, icons
     const AssetTypeEntry* asset_type{nullptr};    // optional, for draw_preview
     /// For a slot taking shaders or materials: the Types it can draw. Others
     /// are not offered, not accepted, and named under the field when one is

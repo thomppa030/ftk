@@ -312,7 +312,6 @@ void WaterEditorContext::draw_generator_panel() {
     ictx.resource_manager = deps_.resource_manager;
     ictx.project_mgr = deps_.project_mgr;
     ictx.content_browser = deps_.content_browser;
-    ictx.file_browser = deps_.file_browser;
     ictx.icons = deps_.icon_cache;
 
     static const std::string mat_exts[] = {".fjmat"};

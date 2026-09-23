@@ -36,7 +36,6 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
                            ResourceManager* resource_manager,
                            ProjectManager* project_mgr,
                            ContentBrowser* content_browser,
-                           FileBrowser* file_browser,
                            IconCache* icons, TerrainSculptTool* sculpt) {
     scene_ = scene;
     selected_id_ = selected_id;
@@ -48,7 +47,6 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
     resource_manager_ = resource_manager;
     project_mgr_ = project_mgr;
     content_browser_ = content_browser;
-    file_browser_ = file_browser;
     icons_ = icons;
     sculpt_ = sculpt;
 }
@@ -80,7 +78,7 @@ void PropertiesPanel::draw() {
 
         const InspectorContext ictx{
             scene_, history_, resource_manager_, pipeline_cache_, bindless_, project_mgr_,
-            content_browser_, file_browser_, icons_, sculpt_};
+            content_browser_, icons_, sculpt_};
         draw_transform(*node);
         // The node's own settings come before what is composed onto it.
         draw_node_sections(*node, ictx);

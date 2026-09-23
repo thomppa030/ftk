@@ -30,7 +30,6 @@ class ResourceManager;
 class ScriptSubsystem;
 class ThreadPool;
 class ContentBrowser;
-class FileBrowser;
 class NetManager;
 class CameraSubsystem;
 class PhysicsSubsystem;
@@ -55,7 +54,6 @@ struct SceneEditorDeps {
     ThreadPool* thread_pool;
     Window* window;
     ContentBrowser* content_browser{nullptr};
-    FileBrowser* file_browser{nullptr};
     NetManager* net_manager{nullptr};
     CameraSubsystem* camera_subsystem{nullptr};
     ScreenDebugQueue* screen_debug_queue{nullptr};

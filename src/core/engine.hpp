@@ -295,7 +295,6 @@ private:
     void prebake_project_fonts(const std::filesystem::path& root);
 
     // Asset reference widget browser (separate from import browser)
-    FileBrowser asset_file_browser_;
 };
 
 } // namespace fjell

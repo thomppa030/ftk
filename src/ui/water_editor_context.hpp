@@ -15,7 +15,6 @@
 namespace fjell {
 
 class ContentBrowser;
-class FileBrowser;
 class IconCache;
 class Input;
 class ProjectManager;
@@ -35,7 +34,6 @@ struct WaterEditorDeps {
     /// that give it [Use Selected] and [Browse].
     IconCache* icon_cache{nullptr};
     ContentBrowser* content_browser{nullptr};
-    FileBrowser* file_browser{nullptr};
     /// The scene the engine ticks. The editor previews a sea of its own, but
     /// a water node in the open scene that names this asset follows the edits
     /// too, so the two stay in step.

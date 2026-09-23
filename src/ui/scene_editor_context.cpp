@@ -249,7 +249,7 @@ void SceneEditorContext::init() {
                            deps_.vulkan_context->pipeline_cache(),
                            &deps_.vulkan_context->bindless_textures(),
                            deps_.resource_manager, deps_.project_mgr,
-                           deps_.content_browser, deps_.file_browser,
+                           deps_.content_browser,
                            deps_.icon_cache, &sculpt_tool_);
 
     // Undo commands mutate a scene that stop() throws away, and a selection

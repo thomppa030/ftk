@@ -14,7 +14,6 @@ namespace fjell {
 class BindlessTextures;
 class CommandHistory;
 class ContentBrowser;
-class FileBrowser;
 class IconCache;
 class Material;
 class PipelineCache;
@@ -34,7 +33,6 @@ struct InspectorContext {
     BindlessTextures* bindless{nullptr};
     ProjectManager* project_mgr{nullptr};
     ContentBrowser* content_browser{nullptr};
-    FileBrowser* file_browser{nullptr};
     IconCache* icons{nullptr};
     /// The scene editor's terrain sculpting tool, so a terrain component's
     /// inspector can offer its brush. Null in any other context.

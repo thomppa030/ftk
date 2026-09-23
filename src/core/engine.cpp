@@ -96,7 +96,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     import_dialog_.set_gpu(gpu_core);
     menu_bar_.set_gpu(gpu_core);
     import_file_browser_.set_gpu(gpu_core);
-    asset_file_browser_.set_gpu(gpu_core);
 
     // Icon provider for standalone file browsers (uses IconCache from the editor's context)
     auto icon_provider = [](const FileBrowser::Entry& entry) -> ImTextureID {
@@ -124,7 +123,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         return icons->icon_for_current_context(name);
     };
     import_file_browser_.set_icon_provider(icon_provider);
-    asset_file_browser_.set_icon_provider(icon_provider);
 
     init_subsystems();
     init_project(project_path, create_name);
@@ -576,7 +574,6 @@ void Engine::init_editor() {
             .thread_pool = &thread_pool_,
             .window = &window_,
             .content_browser = &content_browser_,
-            .file_browser = &asset_file_browser_,
             .net_manager = net_manager_.get(),
             .camera_subsystem = camera_subsystem_,
             .screen_debug_queue = screen_debug_queue_.get(),
@@ -689,7 +686,6 @@ void Engine::init_editor() {
                 .thread_pool = &thread_pool_,
                 .icon_cache = icon_cache_.get(),
                 .content_browser = &content_browser_,
-                .file_browser = &asset_file_browser_,
                 .scene = &scene_,
             };
             auto ctx = std::make_unique<WaterEditorContext>(deps);
@@ -753,8 +749,7 @@ void Engine::init_editor() {
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
-                .content_browser = &content_browser_,
-                .file_browser = &asset_file_browser_
+                .content_browser = &content_browser_
             };
             auto ctx = std::make_unique<VfxEditorContext>(deps);
             ctx->init();
@@ -2012,7 +2007,6 @@ void Engine::run() {
         input_action_map_.update(input_);
         if (import_dialog_.is_open()) import_dialog_.tick();
         if (import_file_browser_.is_open()) import_file_browser_.tick();
-        if (asset_file_browser_.is_open()) asset_file_browser_.tick();
         menu_bar_.tick_browsers();
         clock_.tick();
         // One clock for what is simulated and what is drawn: the renderer is

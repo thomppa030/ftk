@@ -23,7 +23,6 @@ class IconCache;
 class Input;
 class ProjectManager;
 class ContentBrowser;
-class FileBrowser;
 class ResourceManager;
 class VulkanContext;
 struct PinDescriptor;
@@ -56,7 +55,6 @@ struct VfxEditorDeps {
 
     // For the asset reference widget: pick-from-browser and browse buttons.
     ContentBrowser* content_browser{nullptr};
-    FileBrowser* file_browser{nullptr};
 };
 
 class VfxEditorContext final : public EditorContext {
