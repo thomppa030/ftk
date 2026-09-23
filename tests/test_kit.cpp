@@ -1,14 +1,17 @@
 #include "imgui_harness.hpp"
+#include "ui/kit/asset_kind.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/section.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <string>
 
 using fjell::test::ImGuiHarness;
 namespace ui = fjell::ui;
@@ -185,4 +188,34 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
     CHECK(max.y < area_max.y - 100.0f);
     h.click("action");
     CHECK(clicks == 1);
+}
+
+TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
+    using fjell::theme::Category;
+    CHECK(ui::asset_kind(".fjmat").category == Category::Rendering);
+    CHECK(std::string(ui::asset_kind(".fjmat").noun) == "material");
+    CHECK(ui::asset_kind(".png").category == Category::Rendering);
+    CHECK(ui::asset_kind(".fjweather").category == Category::Environment);
+    CHECK(ui::asset_kind(".fjsurface").category == Category::Physics);
+    CHECK(ui::asset_kind(".fjanim").category == Category::Animation);
+    CHECK(std::string(ui::asset_kind(".xyz").noun) == "file");
+}
+
+TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        ImGui::BeginDisabled(true);
+        ui::icon_button("clear", "x", "Nothing to clear");
+        ImGui::EndDisabled();
+        h.mark("button");
+    });
+    h.step(2);
+    const ImVec2 min = h.rect_min("button");
+    const ImVec2 max = h.rect_max("button");
+    ImGui::GetIO().AddMousePosEvent((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+    // Past the tooltip delay.
+    h.step(30);
+    const ImGuiWindow* tooltip = ImGui::FindWindowByName("##Tooltip_00");
+    REQUIRE(tooltip != nullptr);
+    CHECK(tooltip->WasActive);
 }
