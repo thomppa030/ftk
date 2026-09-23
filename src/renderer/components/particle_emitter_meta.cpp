@@ -5,12 +5,9 @@
 #include "renderer/systems/vfx_module.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "core/base_path.hpp"
-#include "core/project_manager.hpp"
+#include "core/log.hpp"
 #include "scene/node.hpp"
 
-#include "ui/asset_ref_widget.hpp"
-
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
@@ -89,55 +86,23 @@ static std::shared_ptr<VfxEffect> effect_from_legacy_json(const nlohmann::json& 
     return effect;
 }
 
+void load_emitter_effect(EmitterComponent& emitter, ResourceManager& resources, const Project* project) {
+    emitter.effect.reset();
+    if (emitter.vfx_path.empty()) return;
+    try {
+        auto effect = load_vfx_effect(base_path::resolve_asset(emitter.vfx_path, project));
+        resolve_vfx_textures(effect, resources, project);
+        emitter.effect = std::make_shared<VfxEffect>(std::move(effect));
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("Failed to load VFX '{}': {}", emitter.vfx_path, e.what());
+    }
+}
+
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<EmitterComponent>({
         .display_name = "Particle Emitter",
         .json_key = "emitter",
         .color = {0.78f, 0.55f, 0.85f, 1.0f},
-
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* em = static_cast<EmitterComponent*>(ptr);
-            bool changed = false;
-            static const std::string exts[] = {".fjvfx"};
-            if (asset_ref_field({.label = "VFX Effect", .id = "##vfx_path", .extensions = exts, .ctx = &ctx}, em->vfx_path)) {
-                if (!em->vfx_path.empty() && ctx.resource_manager && ctx.project_mgr) {
-                    auto resolved = base_path::resolve_asset(
-                        em->vfx_path, ctx.project_mgr->active());
-                    try {
-                        auto effect = load_vfx_effect(resolved);
-                        // Resolve texture modules
-                        for (auto& emitter : effect.emitters) {
-                            for (auto& mod : emitter.spawn_modules) {
-                                if (mod->type() == ModuleType::initial_texture) {
-                                    auto* tex = static_cast<InitialTextureModule*>(mod.get());
-                                    if (!tex->texture_path.empty()) {
-                                        auto r = ctx.resource_manager->load_texture(
-                                            base_path::resolve_asset(
-                                                tex->texture_path, ctx.project_mgr->active()));
-                                        if (r) tex->bindless_index =
-                                            ctx.resource_manager->bindless_index(*r);
-                                    }
-                                }
-                            }
-                        }
-                        em->effect = std::make_shared<VfxEffect>(std::move(effect));
-                    } catch (const std::exception&) {
-                        em->effect.reset();
-                    }
-                } else {
-                    em->effect.reset();
-                }
-                changed = true;
-            }
-            if (em->effect) {
-                if (ImGui::Checkbox("Looping", &em->looping)) changed = true;
-                ImGui::SameLine();
-                if (ImGui::Button("Fire")) {
-                    em->fire = true;
-                }
-            }
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<EmitterComponent>();

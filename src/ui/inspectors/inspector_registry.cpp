@@ -22,6 +22,7 @@
 #include "scene/component_registry.hpp"
 #include "ui/inspectors/animation_inspectors.hpp"
 #include "ui/inspectors/environment_inspectors.hpp"
+#include "ui/inspectors/gameplay_inspectors.hpp"
 #include "ui/inspectors/physics_inspectors.hpp"
 #include "ui/inspectors/rendering_inspectors.hpp"
 #include "ui/inspectors/spline_inspectors.hpp"
@@ -63,13 +64,13 @@ InspectorRegistry build() {
     r.add<AnimatorComponent>({.category = C::Animation, .draw = draw_animator});
     r.add<SpriteAnimComponent>({.category = C::Animation, .draw = draw_sprite_animation});
 
-    r.add<AudioSourceComponent>({.category = C::Audio});
-    r.add<EmitterComponent>({.category = C::Vfx});
-    r.add<UiWidgetComponent>({.category = C::Ui});
-    r.add<InputComponent>({.category = C::Logic});
+    r.add<AudioSourceComponent>({.category = C::Audio, .draw = draw_audio_source});
+    r.add<EmitterComponent>({.category = C::Vfx, .draw = draw_particle_emitter});
+    r.add<UiWidgetComponent>({.category = C::Ui, .draw = draw_ui_widget});
+    r.add<InputComponent>({.category = C::Logic, .draw = draw_input});
 
     r.add<SplineComponent>({.category = C::Structure, .draw = draw_spline});
-    r.add<ArrowComponent>({.category = C::Structure});
+    r.add<ArrowComponent>({.category = C::Structure, .draw = draw_arrow});
 
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
         if (r.find(id) == nullptr) {

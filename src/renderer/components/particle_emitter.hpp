@@ -23,4 +23,12 @@ struct EmitterComponent : NodeComponent {
     bool fire{false};     // one-frame flag: trigger burst manually
 };
 
+class Project;
+class ResourceManager;
+
+/// Loads the effect vfx_path names, with the textures and materials its
+/// modules use, as this emitter's own copy. Empty or unreadable leaves no
+/// effect, which draws nothing.
+void load_emitter_effect(EmitterComponent& emitter, ResourceManager& resources, const Project* project);
+
 } // namespace fjell

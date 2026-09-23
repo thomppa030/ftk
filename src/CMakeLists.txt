@@ -327,6 +327,7 @@ add_executable(fjell
     ui/inspectors/asset_rows.cpp
     ui/inspectors/collision_filter_inspector.cpp
     ui/inspectors/environment_inspectors.cpp
+    ui/inspectors/gameplay_inspectors.cpp
     ui/inspectors/inspector_registry.cpp
     ui/inspectors/physics_inspectors.cpp
     ui/inspectors/rendering_inspectors.cpp

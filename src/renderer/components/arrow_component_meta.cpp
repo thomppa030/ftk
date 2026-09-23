@@ -2,7 +2,6 @@
 #include "renderer/components/arrow_component.hpp"
 #include "scene/node.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
@@ -12,20 +11,6 @@ static const bool registered = [] {
         .display_name = "Arrow",
         .json_key = "arrow",
         .color = {0.9f, 0.75f, 0.3f, 1.0f},
-
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
-            auto* arr = static_cast<ArrowComponent*>(ptr);
-            bool changed = false;
-            ImGui::Text("Length");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##ArrowLen", &arr->length, 0.1f, 0.1f, 50.0f))
-                changed = true;
-            ImGui::Text("Color");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::ColorEdit3("##ArrowColor", &arr->color.x))
-                changed = true;
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             node.components.add<ArrowComponent>();
