@@ -21,6 +21,7 @@
 #include "renderer/components/water_component.hpp"
 #include "scene/component_registry.hpp"
 #include "ui/inspectors/physics_inspectors.hpp"
+#include "ui/inspectors/rendering_inspectors.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 
 namespace fjell {
@@ -40,11 +41,11 @@ InspectorRegistry build() {
     using C = theme::Category;
     InspectorRegistry r;
 
-    r.add<MeshComponent>({.category = C::Rendering});
-    r.add<SkeletalMeshComponent>({.category = C::Rendering});
+    r.add<MeshComponent>({.category = C::Rendering, .draw = draw_mesh});
+    r.add<SkeletalMeshComponent>({.category = C::Rendering, .draw = draw_skeletal_mesh});
     r.add<InstancedMeshComponent>({.category = C::Rendering});
-    r.add<SpriteComponent>({.category = C::Rendering});
-    r.add<TilemapComponent>({.category = C::Rendering});
+    r.add<SpriteComponent>({.category = C::Rendering, .draw = draw_sprite});
+    r.add<TilemapComponent>({.category = C::Rendering, .draw = draw_tilemap});
     r.add<SplineMeshComponent>({.category = C::Rendering});
 
     r.add<TerrainComponent>({.category = C::Environment});

@@ -2,9 +2,7 @@
 #include "core/base_path.hpp"
 #include "renderer/components/tilemap_component.hpp"
 #include "scene/node.hpp"
-#include "ui/asset_ref_widget.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
@@ -14,35 +12,6 @@ static const bool registered = [] {
         .display_name = "Tilemap",
         .json_key = "tilemap",
         .color = {0.30f, 0.65f, 0.85f, 1.0f},
-
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
-            auto* tm = static_cast<TilemapComponent*>(ptr);
-            bool changed = false;
-            static const std::string exts[] = {".png", ".jpg", ".jpeg"};
-            if (asset_ref_field({.label = "Tileset", .id = "##TilemapTileset", .extensions = exts, .ctx = &ctx}, tm->tileset_texture)) { tm->texture_loaded = false; tm->dirty = true; changed = true; }
-            ImGui::Text("Tile Size (px)"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragInt2("##TileTileSize", &tm->tile_size.x, 1, 1, 512)) { tm->dirty = true; changed = true; }
-            ImGui::Text("Map Size (tiles)"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragInt2("##TileMapSize", &tm->map_size.x, 1, 1, 256)) { tm->tiles.resize(tm->map_size.x * tm->map_size.y, -1); tm->dirty = true; changed = true; }
-            ImGui::Text("World Tile Size"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat("##TileWorldSize", &tm->world_tile_size, 0.01f, 0.01f, 10.0f)) { tm->dirty = true; changed = true; }
-            ImGui::Text("Sort Layer"); ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragInt("##TileSortLayer", &tm->sort_layer, 1.0f)) changed = true;
-            if (ImGui::Button("Fill All (tile 0)")) { tm->tiles.assign(tm->map_size.x * tm->map_size.y, 0); tm->dirty = true; changed = true; }
-
-            ImGui::Separator();
-            if (ImGui::Checkbox("Lit (PBR + GI)", &tm->lit)) changed = true;
-            if (tm->lit) {
-                if (asset_ref_field({.label = "Normal Map", .id = "##TileNormal", .extensions = exts, .ctx = &ctx}, tm->normal_path)) { tm->normal_loaded = false; changed = true; }
-                ImGui::Text("Roughness"); ImGui::SetNextItemWidth(-1);
-                if (ImGui::DragFloat("##TileRoughness", &tm->roughness, 0.01f, 0.0f, 1.0f)) changed = true;
-                ImGui::Text("Metallic"); ImGui::SetNextItemWidth(-1);
-                if (ImGui::DragFloat("##TileMetallic", &tm->metallic, 0.01f, 0.0f, 1.0f)) changed = true;
-                ImGui::Text("Emission"); ImGui::SetNextItemWidth(-1);
-                if (ImGui::DragFloat("##TileEmission", &tm->emission, 0.05f, 0.0f, 100.0f)) changed = true;
-            }
-            return changed;
-        },
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             auto& tm = node.components.add<TilemapComponent>();
