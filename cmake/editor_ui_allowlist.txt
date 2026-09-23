@@ -22,7 +22,6 @@ src/ui/hierarchy_panel.cpp
 src/ui/history_panel.cpp
 src/ui/imgui_curve_editor.cpp
 src/ui/input_mapping_editor_context.cpp
-src/ui/inspector_widgets.hpp
 src/ui/panel_widget.hpp
 src/ui/scene_editor_context.cpp
 src/ui/stats_panel.cpp

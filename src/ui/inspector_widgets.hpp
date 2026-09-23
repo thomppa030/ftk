@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/math/color_space.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/section.hpp"
 #include "ui/theme.hpp"
 
 #include <glm/glm.hpp>
@@ -23,56 +25,19 @@ inline bool color_edit_linear(const char* id, glm::vec3& linear) {
     return true;
 }
 
-/// One toggle in a row of tools: an icon or short label that reads as
-/// pressed while `on` is true. Returns true on click. `tooltip` carries the
-/// full name and any shortcut, since the button itself is terse.
+/// One toggle in a row of tools. Kept for the callers written before the
+/// kit; new code uses ui::toggle_button (icon) or ui::toggle (text).
 inline bool toggle_button(const char* id, const char* label, bool on, const char* tooltip) {
-    ImVec4 active{0.26f, 0.59f, 0.98f, 0.65f};
-    ImVec4 idle{0.0f, 0.0f, 0.0f, 0.0f};
-    ImGui::PushStyleColor(ImGuiCol_Button, on ? active : idle);
     ImGui::PushID(id);
-    bool clicked = ImGui::Button(label);
+    const bool clicked = ui::toggle(label, on, tooltip);
     ImGui::PopID();
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", tooltip);
-    }
     return clicked;
 }
 
-/// A small-caps dimmed section heading with a 1px separator above. Use
-/// instead of `ImGui::TextColored(palette_purple, "Transform")`. Renders:
-///
-///     ────────────────────────────────
-///     TRANSFORM
-///
-/// in dim text. Optional leading icon (Lucide glyph) sits inline.
+/// A section heading. Kept for the callers written before the kit; new
+/// code uses ui::section.
 inline void section_header(const char* label, const char* icon = nullptr) {
-    ImGui::Spacing();
-    auto* dl = ImGui::GetWindowDrawList();
-    auto p = ImGui::GetCursorScreenPos();
-    float w = ImGui::GetContentRegionAvail().x;
-    dl->AddLine({p.x, p.y}, {p.x + w, p.y},
-                ImGui::GetColorU32(ImGuiCol_Separator), 1.0f);
-    ImGui::Dummy({0.0f, 4.0f});
-
-    // Use bold font if present (Fonts[1]) for the heading
-    bool pushed = false;
-    if (ImGui::GetIO().Fonts->Fonts.Size > 1) {
-        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
-        pushed = true;
-    }
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    if (icon != nullptr) {
-        ImGui::TextUnformatted(icon);
-        ImGui::SameLine(0.0f, 6.0f);
-    }
-    ImGui::TextUnformatted(label);
-    ImGui::PopStyleColor();
-    if (pushed) {
-        ImGui::PopFont();
-    }
-    ImGui::Spacing();
+    ui::section(label, icon);
 }
 
 /// RAII for a 2-column property table. The label column is fitted to the
@@ -160,13 +125,11 @@ inline bool asset_path_field(const char* label, const char* id, std::string& pat
     return changed;
 }
 
+/// A full-width destructive button. Kept for the component block until it
+/// gets its header trash icon; new code uses ui::button with a danger kind.
 inline bool remove_button(const char* label) {
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_Button, {0.5f, 0.15f, 0.15f, 0.6f});
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.7f, 0.2f, 0.2f, 0.8f});
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.8f, 0.15f, 0.15f, 1.0f});
-    bool pressed = ImGui::Button(label, {-1, 0});
-    ImGui::PopStyleColor(3);
+    const bool pressed = ui::button(label, ui::ButtonKind::Danger, {-1.0f, 0.0f});
     ImGui::Spacing();
     return pressed;
 }
