@@ -1,18 +1,11 @@
 #pragma once
 
+#include "ui/kit/edit.hpp"
+
 #include <string>
 #include <string_view>
 
 namespace fjell::ui {
-
-/// What a field did this frame. `changed` is true on every frame the text or
-/// number moved (for a live preview); `committed` is true once, when the edit
-/// is finished — on Enter or when the field loses focus — and is what undo
-/// and "unsaved" hang off.
-struct Edit {
-    bool changed{false};
-    bool committed{false};
-};
 
 /// A single-line text field that commits on Enter or when it loses focus,
 /// never per keystroke, and restores the old text on Escape. `value` is

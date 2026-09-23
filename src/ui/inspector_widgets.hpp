@@ -2,6 +2,7 @@
 
 #include "core/math/color_space.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/theme.hpp"
 
@@ -40,56 +41,13 @@ inline void section_header(const char* label, const char* icon = nullptr) {
     ui::section(label, icon);
 }
 
-/// RAII for a 2-column property table. The label column is fitted to the
-/// panel (theme::label_column); the input column stretches to fill. Use inside ImGui::Begin(). Inputs declared
-/// via prop_row() get full column width via SetNextItemWidth.
-///
-///     if (auto t = PropertyTable("##xform")) {
-///         prop_row("Position", [&] { ImGui::DragFloat3("##pos", &p.x); });
-///         prop_row("Rotation", [&] { ImGui::DragFloat3("##rot", &r.x); });
-///     }
-class PropertyTable {
-public:
-    explicit PropertyTable(const char* id) {
-        const float label_width = theme::label_column(ImGui::GetContentRegionAvail().x);
-        ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
-                              | ImGuiTableFlags_NoSavedSettings
-                              | ImGuiTableFlags_PadOuterX;
-        open_ = ImGui::BeginTable(id, 2, flags);
-        if (open_) {
-            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, label_width);
-            ImGui::TableSetupColumn("##input", ImGuiTableColumnFlags_WidthStretch);
-        }
-    }
-    ~PropertyTable() {
-        if (open_) {
-            ImGui::EndTable();
-        }
-    }
+/// The kit's property table and row, under the names written before the
+/// kit; new code uses ui::PropertyTable and ui::row (ui/kit/row.hpp).
+using PropertyTable = ui::PropertyTable;
 
-    PropertyTable(const PropertyTable&) = delete;
-    PropertyTable& operator=(const PropertyTable&) = delete;
-    PropertyTable(PropertyTable&&) = delete;
-    PropertyTable& operator=(PropertyTable&&) = delete;
-
-    explicit operator bool() const { return open_; }
-
-private:
-    bool open_{false};
-};
-
-/// One row inside a PropertyTable: label on the left, input on the right.
-/// `draw_input` is called between SetNextItemWidth(-FLT_MIN) and
-/// table-cell ending, so the input fills the column.
 template <typename F>
 inline void prop_row(const char* label, F&& draw_input) {
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-    ImGui::TableSetColumnIndex(1);
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    std::forward<F>(draw_input)();
+    ui::row(label, std::forward<F>(draw_input));
 }
 
 inline void colored_separator(const ImVec4& color) {
