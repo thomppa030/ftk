@@ -55,6 +55,13 @@ Edit drag_int(const char* id, int& value, float speed = 0.2f, int min = 0, int m
 Edit slider(const char* id, float& value, float min, float max,
             Unit unit = Unit::None, const char* format = "%.2f");
 
+/// A whole number between two meaningful ends.
+Edit slider_int(const char* id, int& value, int min, int max, Unit unit = Unit::None);
+
+/// A slider whose value reads as `text` rather than as a number: a time of
+/// day ("13:30"), a named phase ("waxing gibbous").
+Edit slider_labelled(const char* id, float& value, float min, float max, const char* text);
+
 /// Two or three numbers side by side, each marked with its axis letter in
 /// the viewport gizmo's colours. All of them share `spec`.
 Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec = {});

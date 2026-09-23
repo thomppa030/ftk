@@ -305,6 +305,7 @@ add_executable(fjell
     ui/hierarchy_panel.cpp
     ui/history_panel.cpp
     ui/icon_cache.cpp
+    ui/properties_node_sections.cpp
     ui/properties_panel.cpp
     ui/stats_panel.cpp
     ui/net_panel.cpp
@@ -328,6 +329,7 @@ add_executable(fjell
     ui/kit/choice.cpp
     ui/kit/color_field.cpp
     ui/kit/component_block.cpp
+    ui/kit/feedback.cpp
     ui/kit/field.cpp
     ui/kit/gallery.cpp
     ui/kit/row.cpp

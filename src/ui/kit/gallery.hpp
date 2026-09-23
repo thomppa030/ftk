@@ -23,6 +23,7 @@ private:
     void fields();
     Edit choices();
     void blocks();
+    void feedback();
 
     // Sample enums for the choice fields.
     enum class Shape { Box, Sphere, Capsule, Mesh };
@@ -52,7 +53,8 @@ private:
     Body body_{Body::Dynamic};
     glm::vec3 light_colour_{0.88f, 0.62f, 0.27f};  // linear
     glm::vec4 tint_{0.61f, 0.78f, 0.91f, 1.0f};
-    const char* removed_{nullptr};  // the sample block whose trash was clicked last
+    const char* removed_{nullptr};
+    int empty_clicks_{0};  // the sample block whose trash was clicked last
     // How many edits the sample fields have committed, to see that a drag
     // is one commit.
     int commits_{0};

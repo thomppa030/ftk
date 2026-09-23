@@ -23,7 +23,17 @@ class ResourceManager;
 class Scene;
 class ScriptManager;
 class TerrainSculptTool;
+struct CameraNode;
+struct DirectionalLightNode;
+struct FogVolumeNode;
 struct GridSettings;
+struct InspectorContext;
+struct Node;
+struct Node3D;
+struct PointLightNode;
+struct SpotLightNode;
+struct VolumetricFogNode;
+struct WorldEnvironmentNode;
 
 class PropertiesPanel {
 public:
@@ -46,7 +56,22 @@ public:
     void set_environment(EnvironmentSubsystem* environment) { environment_ = environment; }
 
 private:
-    void draw_weather_controls(struct WorldEnvironmentNode& env, const struct InspectorContext& ictx);
+    // The panel's parts, top to bottom.
+    void draw_name(const Node& selected);
+    void draw_transform(Node3D& node);
+    void draw_node_sections(Node3D& node, const InspectorContext& ictx);
+    void draw_components(Node3D& node, const InspectorContext& ictx);
+    void draw_scripts(Node3D& node);
+
+    // A node type's own section (properties_node_sections.cpp).
+    void draw_camera(CameraNode& camera);
+    void draw_directional_light(DirectionalLightNode& light);
+    void draw_point_light(PointLightNode& light);
+    void draw_spot_light(SpotLightNode& light);
+    void draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx);
+    void draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx);
+    void draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx);
+    void draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);
     void commit_name();
 
@@ -76,9 +101,10 @@ private:
     // Undo steps for edits made in the component blocks.
     ComponentEditTracker component_edits_;
 
-    // Drag coalescing
+    // The transform as it was before the edit under way, for its undo step.
     Transform drag_start_transform_;
     std::string drag_start_name_;
+    bool transform_editing_{false};
 };
 
 } // namespace fjell

@@ -160,6 +160,21 @@ Edit slider(const char* id, float& value, float min, float max, Unit unit, const
     return finish(changed, hidden, number, unit, nullptr, can_be_negative(min, max));
 }
 
+Edit slider_int(const char* id, int& value, int min, int max, Unit unit) {
+    const bool hidden = hide_text(id);
+    const bool changed = ImGui::SliderInt(id, &value, min, max);
+    char number[32];
+    ImFormatString(number, sizeof(number), "%d", value);
+    return finish(changed, hidden, number, unit, nullptr,
+                  can_be_negative(static_cast<float>(min), static_cast<float>(max)));
+}
+
+Edit slider_labelled(const char* id, float& value, float min, float max, const char* text) {
+    const bool hidden = hide_text(id);
+    const bool changed = ImGui::SliderFloat(id, &value, min, max);
+    return finish(changed, hidden, text, Unit::None, nullptr, false);
+}
+
 Edit vec2(const char* id, glm::vec2& value, const DragSpec& spec) {
     return vec_n(id, &value.x, 2, spec);
 }

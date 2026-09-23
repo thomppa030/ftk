@@ -129,6 +129,8 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LINK_2             "\xee\x84\x83"  // U+E103
 #define ICON_LC_PIN                "\xee\x89\x99"  // U+E259
 #define ICON_LC_CROSSHAIR          "\xee\x82\xac"  // U+E0AC
+#define ICON_LC_CLOUD_FOG          "\xee\x88\x94"  // U+E214
+#define ICON_LC_MOUSE_POINTER_CLICK "\xee\x84\xa0"  // U+E120
 #define ICON_LC_PLAY_SQUARE        "\xee\x92\x81"  // U+E481
 #define ICON_LC_HOUSE              "\xee\x83\xb5"  // U+E0F5
 #define ICON_LC_MENU               "\xee\x84\x95"  // U+E115

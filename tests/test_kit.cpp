@@ -1,6 +1,7 @@
 #include "imgui_harness.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/section.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -158,4 +159,30 @@ TEST_CASE("An icon button centres an icon wider than its padding leaves room for
     REQUIRE(text_min < text_max);
     const float text_centre = (text_min + text_max) * 0.5f;
     CHECK(std::abs(text_centre - (min.x + max.x) * 0.5f) <= 1.0f);
+}
+
+TEST_CASE("An empty state sits in the middle of the space and offers its action", "[ui][kit]") {
+    ImGuiHarness h;
+    int clicks = 0;
+    ImVec2 area_min;
+    ImVec2 area_max;
+    h.set_ui([&] {
+        area_min = ImGui::GetCursorScreenPos();
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        area_max = {area_min.x + avail.x, area_min.y + avail.y};
+        if (ui::empty_state("?", "Nothing selected", "Pick an object to edit it here", "Select all")) {
+            ++clicks;
+        }
+        h.mark("action");
+    });
+    h.step(2);
+    const ImVec2 min = h.rect_min("action");
+    const ImVec2 max = h.rect_max("action");
+    CHECK(std::abs((min.x + max.x) * 0.5f - (area_min.x + area_max.x) * 0.5f) <= 1.0f);
+    // The block is centred vertically, so its last line is below the middle
+    // but nowhere near the bottom.
+    CHECK(max.y > (area_min.y + area_max.y) * 0.5f);
+    CHECK(max.y < area_max.y - 100.0f);
+    h.click("action");
+    CHECK(clicks == 1);
 }

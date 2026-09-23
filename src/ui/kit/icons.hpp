@@ -20,6 +20,22 @@ inline constexpr const char* more         = ICON_LC_MORE_HORIZONTAL;
 inline constexpr const char* search       = ICON_LC_SEARCH;
 inline constexpr const char* reorder      = ICON_LC_GRIP_VERTICAL;
 
+// What a section or panel is about
+inline constexpr const char* properties        = ICON_LC_SLIDERS_HORIZONTAL;
+inline constexpr const char* transform         = ICON_LC_MOVE_3D;
+inline constexpr const char* components        = ICON_LC_PACKAGE;
+inline constexpr const char* scripts           = ICON_LC_FILE_CODE;
+inline constexpr const char* camera            = ICON_LC_CAMERA;
+inline constexpr const char* directional_light = ICON_LC_SUN;
+inline constexpr const char* point_light       = ICON_LC_LIGHTBULB;
+inline constexpr const char* spot_light        = ICON_LC_FLASHLIGHT;
+inline constexpr const char* volumetric_fog    = ICON_LC_CLOUD;
+inline constexpr const char* fog_volume        = ICON_LC_CLOUD_FOG;
+inline constexpr const char* world_environment = ICON_LC_GLOBE;
+inline constexpr const char* source            = ICON_LC_LINK;
+inline constexpr const char* snap              = ICON_LC_MAGNET;
+inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
+
 // Folding and dropdowns
 inline constexpr const char* fold_open   = ICON_LC_CHEVRON_DOWN;
 inline constexpr const char* fold_closed = ICON_LC_CHEVRON_RIGHT;
