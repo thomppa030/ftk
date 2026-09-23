@@ -447,9 +447,14 @@ void PropertiesPanel::draw() {
                 const auto* meta = registry.find(id);
                 if (!meta) return;
 
+                // Each component's widgets get their own ID scope: two
+                // components on one node may both have an "Add" or "Clear".
+                ImGui::PushID(meta->json_key.c_str());
                 colored_separator(meta->color);
                 if (ImGui::CollapsingHeader(meta->display_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                    meta->draw(*obj, ptr, ictx);
+                    if (meta->draw(*obj, ptr, ictx)) {
+                        scene_->mark_dirty();
+                    }
 
                     // A component that paints itself with a material shows
                     // that material's own parameters here, so a surface is
@@ -463,6 +468,7 @@ void PropertiesPanel::draw() {
                         remove_id = id;
                     }
                 }
+                ImGui::PopID();
             });
 
             if (remove_id != ~0u) {
