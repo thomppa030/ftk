@@ -186,6 +186,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_curve_editor.cpp
     test_choices.cpp
+    test_command_group.cpp
     test_edit_record.cpp
     test_search.cpp
     test_tree.cpp

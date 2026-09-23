@@ -4,8 +4,10 @@
 #include "scene/scene.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
-#include "ui/icon_cache.hpp"
-#include "ui/icons_lc.hpp"
+#include "ui/inspectors/inspector_registry.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
@@ -18,49 +20,54 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
-#include <cstring>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace fjell {
 
 namespace {
 
+// The toolbar's node-kind filter, and the least the search beside it keeps.
+constexpr float TYPE_FILTER_WIDTH = 96.0f;
+constexpr float MIN_SEARCH_WIDTH = 60.0f;
+
+// A node type's icon, and the category it is tinted in. A plain node (an
+// empty, a mesh) has none: what it is shows in its component dots.
 struct NodeVisuals {
-    ImVec4 border_color;
-    const char* icon_name;
+    const char* icon;
+    std::optional<theme::Category> category;
 };
 
 NodeVisuals node_visuals(const Node& obj) {
-    if (dynamic_cast<const DirectionalLightNode*>(&obj) ||
-        dynamic_cast<const PointLightNode*>(&obj) ||
-        dynamic_cast<const SpotLightNode*>(&obj)) {
-        const char* icon = "point_light";
-        if (dynamic_cast<const DirectionalLightNode*>(&obj)) icon = "dir_light";
-        return {{0.96f, 0.78f, 0.26f, 1.0f}, icon};
-    }
-    if (dynamic_cast<const VolumetricFogNode*>(&obj)) {
-        return {{0.55f, 0.70f, 0.85f, 1.0f}, "node"};
-    }
-    if (dynamic_cast<const FogVolumeNode*>(&obj)) {
-        return {{0.62f, 0.76f, 0.88f, 1.0f}, "node"};
-    }
-    if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) {
-        return {{0.4f, 0.6f, 0.9f, 1.0f}, "node"};
-    }
-    if (dynamic_cast<const CameraNode*>(&obj)) {
-        return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
-    }
-    if (!obj.preset_source.empty()) {
-        return {{0.3f, 0.7f, 0.65f, 1.0f}, "node"};
-    }
-    if (!obj.is_spatial()) {
-        return {{0.85f, 0.72f, 0.40f, 1.0f}, "folder"};
-    }
-    if (obj.components.get<MeshComponent>()) {
-        return {{0.36f, 0.55f, 0.94f, 1.0f}, "mesh"};
-    }
-    return {{0.50f, 0.50f, 0.50f, 1.0f}, "node"};
+    using C = theme::Category;
+    if (dynamic_cast<const DirectionalLightNode*>(&obj)) return {ui::icon::directional_light, C::Light};
+    if (dynamic_cast<const PointLightNode*>(&obj)) return {ui::icon::point_light, C::Light};
+    if (dynamic_cast<const SpotLightNode*>(&obj)) return {ui::icon::spot_light, C::Light};
+    if (dynamic_cast<const VolumetricFogNode*>(&obj)) return {ui::icon::volumetric_fog, C::Environment};
+    if (dynamic_cast<const FogVolumeNode*>(&obj)) return {ui::icon::fog_volume, C::Environment};
+    if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) return {ui::icon::world_environment, C::Environment};
+    if (dynamic_cast<const CameraNode*>(&obj)) return {ui::icon::camera, C::Camera};
+    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure};
+    if (!obj.is_spatial()) return {ui::icon::folder, C::Structure};
+    if (obj.components.get<MeshComponent>() != nullptr) return {ui::icon::mesh, std::nullopt};
+    return {ui::icon::transform, std::nullopt};
+}
+
+// A dot per category composed onto the node, first come first: its
+// components' categories, then Logic for scripts.
+std::vector<theme::Category> node_dots(const Node& obj) {
+    std::vector<theme::Category> dots;
+    auto add = [&](theme::Category category) {
+        if (std::ranges::find(dots, category) == dots.end()) dots.push_back(category);
+    };
+    const auto& inspectors = component_inspectors();
+    obj.components.for_each([&](ComponentTypeId id, const void*) {
+        if (const auto* inspector = inspectors.find(id)) add(inspector->category);
+    });
+    if (!obj.scripts.empty()) add(theme::Category::Logic);
+    return dots;
 }
 
 // Draw the shared "add object" menu items used by both toolbar + and context menu
@@ -187,71 +194,22 @@ bool HierarchyPanel::subtree_matches_filter(const Node& obj) const {
 // ── Init / Draw ──────────────────────────────────────────────────────────
 
 void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
-                          uint32_t* selected_id, CommandHistory* history,
-                          IconCache* icons) {
+                          uint32_t* selected_id, CommandHistory* history) {
     scene_ = scene;
     viewports_ = viewports;
     selected_id_ = selected_id;
     history_ = history;
-    icons_ = icons;
-}
-
-void HierarchyPanel::begin_rename(uint32_t id) {
-    const auto* obj = scene_->find(id);
-    if (!obj) return;
-    renaming_id_ = id;
-    rename_focus_pending_ = true;
-    std::strncpy(rename_buf_, obj->name.c_str(), sizeof(rename_buf_) - 1);
-    rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-}
-
-void HierarchyPanel::draw_rename_box(Node& obj, float x, float width,
-                                     float row_min_y, float row_h) {
-    // The tree row already advanced the layout; the box is placed over the
-    // row's label area and the cursor put back where the row left it.
-    ImVec2 resume = ImGui::GetCursorScreenPos();
-    float frame_h = ImGui::GetFrameHeight();
-    ImGui::SetCursorScreenPos({x, row_min_y + (row_h - frame_h) * 0.5f});
-    ImGui::SetNextItemWidth(std::max(width, 40.0f));
-    if (rename_focus_pending_) {
-        ImGui::SetKeyboardFocusHere();
-        rename_focus_pending_ = false;
-    }
-    // Sits inside a highlighted row already, so it needs no frame of its own.
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    bool entered = ImGui::InputText("##rename", rename_buf_, sizeof(rename_buf_),
-                                    ImGuiInputTextFlags_EnterReturnsTrue |
-                                    ImGuiInputTextFlags_AutoSelectAll);
-    ImGui::PopStyleVar();
-    bool done = entered || ImGui::IsItemDeactivated();
-    ImGui::SetCursorScreenPos(resume);
-    if (!done) return;
-
-    std::string new_name(rename_buf_);
-    if (!new_name.empty() && new_name != obj.name) {
-        if (history_) {
-            history_->execute(std::make_unique<RenameCommand>(
-                *scene_, obj.id, obj.name, new_name));
-        } else {
-            obj.name = new_name;
-            scene_->mark_dirty();
-        }
-    }
-    renaming_id_ = 0;
 }
 
 void HierarchyPanel::draw() {
-    if (auto p = Panel(ICON_LC_LIST_TREE, "Hierarchy")) {
-        remove_pending_id_ = 0;
-
-        // A rename outlives its row only until the node is gone.
-        if (renaming_id_ != 0 && !scene_->find(renaming_id_)) renaming_id_ = 0;
+    if (auto p = Panel(ui::icon::hierarchy, "Hierarchy")) {
+        delete_pending_ = false;
 
         // The search box owns the keyboard while it is active, so F2 there
         // must not start a rename.
         if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
             ImGui::IsKeyPressed(ImGuiKey_F2, false) && *selected_id_ != 0) {
-            begin_rename(*selected_id_);
+            if (const auto* obj = scene_->find(*selected_id_)) rename_.start(obj->id, obj->name);
         }
 
         // Sync selection with external changes to selected_id_
@@ -268,30 +226,20 @@ void HierarchyPanel::draw() {
         // Build draw-order list for shift-click range selection
         draw_order_.clear();
 
-        // ── Toolbar row ──────────────────────────────────────────────
-        float h = ImGui::GetFrameHeight();
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
-        if (ImGui::Button(ICON_LC_PLUS "##add", {h, h})) {
+        // Toolbar: add, search, and which kind of node to show.
+        if (ui::icon_button("##add", ui::icon::add, "Add object", ui::ButtonKind::Secondary)) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
-        ImGui::PopStyleVar();
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Add object");
-        }
         ImGui::SameLine();
-
-        // Type filter combo (fixed width, right-aligned)
-        float combo_w = 70.0f;
-        float avail_w = ImGui::GetContentRegionAvail().x;
-        float search_w = avail_w - combo_w - ImGui::GetStyle().ItemSpacing.x;
-        if (search_w < 60.0f) search_w = 60.0f;
-
+        const float type_w = TYPE_FILTER_WIDTH;
+        const float search_w = std::max(ImGui::GetContentRegionAvail().x - type_w - ImGui::GetStyle().ItemSpacing.x,
+                                        MIN_SEARCH_WIDTH);
         ImGui::SetNextItemWidth(search_w);
         ui::search_field("##filter", filter_text_);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1.0f);
-        const char* type_labels[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
-        ImGui::Combo("##type", &type_filter_, type_labels, 6);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        static constexpr const char* TYPE_NAMES[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
+        (void)ui::choice("##type", type_filter_, TYPE_NAMES);
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
             draw_add_object_menu(on_add_primitive);
@@ -306,11 +254,13 @@ void HierarchyPanel::draw() {
             children_map_[obj->parent_id].push_back(obj.get());
         }
 
-        // Draw root objects
-        auto it = children_map_.find(-1);
-        if (it != children_map_.end()) {
-            for (auto* obj : it->second) {
-                draw_node(*obj);
+        // A rename outlives its row only until the node is gone.
+        if (rename_.editing() && *selected_id_ == 0) rename_.cancel();
+
+        if (auto tree = ui::Tree("##scene")) {
+            auto it = children_map_.find(-1);
+            if (it != children_map_.end()) {
+                for (auto* obj : it->second) draw_node(*obj, 0);
             }
         }
 
@@ -357,162 +307,57 @@ void HierarchyPanel::draw() {
             ImGui::EndPopup();
         }
 
-        // Deferred removal
-        if (remove_pending_id_ != 0) {
-            on_remove_object.broadcast(remove_pending_id_);
-            selection_.erase(remove_pending_id_);
-        }
+        if (delete_pending_) on_delete_selection.broadcast();
     }
 }
 
-void HierarchyPanel::draw_node(Node& obj) {
+void HierarchyPanel::draw_node(Node& obj, int depth) {
     // Skip nodes that don't match the filter (and have no matching descendants)
-    bool filtering = is_filtering();
+    const bool filtering = is_filtering();
     if (filtering && !subtree_matches_filter(obj)) return;
 
     // Record draw order for shift-click range selection
     draw_order_.push_back(obj.id);
 
     auto child_it = children_map_.find(static_cast<int32_t>(obj.id));
-    bool has_children = child_it != children_map_.end() && !child_it->second.empty();
+    const bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
-    ImGui::PushID(static_cast<int>(obj.id));
+    const NodeVisuals visuals = node_visuals(obj);
+    const std::vector<theme::Category> dots = node_dots(obj);
+    const ui::RowSelection selection = obj.id == *selected_id_  ? ui::RowSelection::Primary
+                                     : selection_.contains(obj.id) ? ui::RowSelection::Secondary
+                                                                   : ui::RowSelection::None;
+    const std::string id = std::to_string(obj.id);
+    const auto row = ui::tree_row({
+        .id = id.c_str(),
+        .name = obj.name,
+        .depth = depth,
+        .has_children = has_children,
+        .icon = visuals.icon,
+        .category = visuals.category,
+        .dots = dots,
+        .selection = selection,
+        .query = filter_text_,
+        // A node shown only for what is under it.
+        .dimmed = filtering && !matches_filter(obj),
+        .force_open = filtering,
+        .rename = &rename_,
+        .key = obj.id,
+    });
+    // The row is the last item: its menu, drag and drop attach to it.
+    ImGui::PushID(id.c_str());
 
-    bool is_selected = selection_.contains(obj.id);
-    bool is_primary = (obj.id == *selected_id_);
-    bool is_renaming = (obj.id == renaming_id_);
-
-    ImGuiTreeNodeFlags flags =
-        ImGuiTreeNodeFlags_OpenOnArrow |
-        ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_FramePadding;
-    // The rename box sits on top of the row and needs to take the mouse.
-    if (is_renaming) flags |= ImGuiTreeNodeFlags_AllowOverlap;
-
-    if (!has_children) {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-    if (is_selected) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-
-    // Auto-expand when filtering so matches are visible
-    if (filtering && has_children) {
-        ImGui::SetNextItemOpen(true);
-    }
-
-    // Determine visuals for this node type
-    auto visuals = node_visuals(obj);
-
-    // Row styling — equal vertical padding for centered text
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 6.0f});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 2.0f});
-
-    // Primary selection = brighter, secondary = dimmer
-    if (is_selected) {
-        if (is_primary) {
-            ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
+    if (row.renamed) {
+        if (history_) {
+            history_->execute(std::make_unique<RenameCommand>(*scene_, obj.id, obj.name, *row.renamed));
         } else {
-            ImGui::PushStyleColor(ImGuiCol_Header, {0.18f, 0.22f, 0.45f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.22f, 0.27f, 0.52f, 1.0f});
-        }
-        ImGui::PushStyleColor(ImGuiCol_Text, {0.95f, 0.95f, 0.95f, 1.0f});
-    }
-
-    // The label is padded to leave room for the icon drawn over it; while
-    // renaming, the box replaces the text and the row shows none of its own.
-    std::string padded_label = is_renaming ? "##renaming" : "          " + obj.name;
-    float tree_indent = ImGui::GetTreeNodeToLabelSpacing();
-
-    bool node_open = ImGui::TreeNodeEx(padded_label.c_str(), flags);
-
-    if (is_selected) {
-        ImGui::PopStyleColor(3);
-    }
-
-    ImGui::PopStyleVar(2);
-
-    // Capture row rect and hover state
-    ImVec2 row_min = ImGui::GetItemRectMin();
-    ImVec2 row_max = ImGui::GetItemRectMax();
-    float row_h = row_max.y - row_min.y;
-    bool row_hovered = ImGui::IsItemHovered();
-
-    // Icon size based on actual row height
-    float icon_size = row_h * 0.8f;
-
-    // Draw left border stripe
-    {
-        ImU32 border_col = ImGui::ColorConvertFloat4ToU32(visuals.border_color);
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            {row_min.x, row_min.y},
-            {row_min.x + 3.0f, row_max.y},
-            border_col);
-    }
-
-    // Draw icon over the padded space
-    if (icons_) {
-        auto icon_desc = icons_->icon(visuals.icon_name);
-        if (icon_desc) {
-            ImVec2 icon_pos = {row_min.x + tree_indent + 2.0f,
-                               row_min.y + (row_h - icon_size) * 0.5f};
-            ImGui::GetWindowDrawList()->AddImage(
-                icon_desc, icon_pos,
-                {icon_pos.x + icon_size, icon_pos.y + icon_size});
-        }
-    }
-
-    if (is_renaming) {
-        float text_x = row_min.x + tree_indent + 2.0f + icon_size + 6.0f;
-        float delete_area = 14.0f + 8.0f * 2.0f;
-        draw_rename_box(obj, text_x, row_max.x - delete_area - text_x, row_min.y, row_h);
-        // The box owns clicks and keys on this row until it closes; the rest
-        // of the row's interaction would only fight it for them.
-        if (has_children && node_open) {
-            for (auto* child : child_it->second) {
-                draw_node(*child);
-            }
-            ImGui::TreePop();
-        }
-        ImGui::PopID();
-        return;
-    }
-
-    // Delete "button" — drawn manually, click detected via mouse pos
-    if (row_hovered || is_selected) {
-        float btn_size = 14.0f;
-        float margin = 8.0f;
-        ImVec2 btn_min = {row_max.x - btn_size - margin,
-                          row_min.y + (row_max.y - row_min.y - btn_size) * 0.5f};
-        ImVec2 btn_max = {btn_min.x + btn_size, btn_min.y + btn_size};
-
-        ImVec2 mouse = ImGui::GetMousePos();
-        bool btn_hovered = mouse.x >= btn_min.x && mouse.x <= btn_max.x &&
-                           mouse.y >= btn_min.y && mouse.y <= btn_max.y;
-
-        ImU32 bg_col = btn_hovered
-            ? ImGui::ColorConvertFloat4ToU32({0.8f, 0.2f, 0.2f, 0.6f})
-            : IM_COL32(0, 0, 0, 0);
-        ImU32 text_col = ImGui::ColorConvertFloat4ToU32({0.7f, 0.7f, 0.7f, 1.0f});
-
-        auto* draw_list = ImGui::GetWindowDrawList();
-        if (btn_hovered) {
-            draw_list->AddRectFilled(btn_min, btn_max, bg_col, 2.0f);
-        }
-        // Center the "X" text in the button rect
-        ImVec2 text_size = ImGui::CalcTextSize("X");
-        ImVec2 text_pos = {btn_min.x + (btn_size - text_size.x) * 0.5f,
-                           btn_min.y + (btn_size - text_size.y) * 0.5f};
-        draw_list->AddText(text_pos, text_col, "X");
-
-        if (btn_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            remove_pending_id_ = obj.id;
+            obj.name = *row.renamed;
+            scene_->mark_dirty();
         }
     }
 
     // Click handling with multi-select (Ctrl / Shift)
-    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+    if (row.clicked) {
         if (ImGui::GetIO().KeyCtrl) {
             toggle_select(obj.id);
         } else if (ImGui::GetIO().KeyShift) {
@@ -521,26 +366,9 @@ void HierarchyPanel::draw_node(Node& obj) {
             select(obj.id);
         }
     }
-
-    // Double-click to focus camera
-    if (row_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    if (row.double_clicked) {
         select(obj.id);
-        if (auto* spatial = obj.as_spatial()) {
-            glm::vec3 center = glm::vec3(spatial->world_matrix_[3]);
-            float radius = 1.0f;
-            auto* mesh = obj.components.get<MeshComponent>();
-            if (mesh && mesh->model && !mesh->model->collision_vertices().empty()) {
-                float max_r2 = 0.0f;
-                for (const auto& v : mesh->model->collision_vertices()) {
-                    auto wv = glm::vec3(spatial->world_matrix_ * glm::vec4(v, 1.0f));
-                    max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
-                }
-                radius = std::max(std::sqrt(max_r2), 0.1f);
-            }
-            if (auto* cam = viewports_->active_camera()) {
-                cam->focus(center, radius);
-            }
-        }
+        frame(obj);
     }
 
     // Right-click context menu on node
@@ -553,19 +381,19 @@ void HierarchyPanel::draw_node(Node& obj) {
     }
     if (ImGui::BeginPopup("##NodeContext")) {
         if (ImGui::MenuItem("Rename", "F2")) {
-            begin_rename(obj.id);
+            rename_.start(obj.id, obj.name);
         }
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
             on_duplicate.broadcast();
         }
         if (ImGui::MenuItem("Delete", "Delete")) {
-            remove_pending_id_ = obj.id;
+            delete_pending_ = true;
         }
         ImGui::EndPopup();
     }
 
-    // Drag source — must follow immediately after TreeNodeEx
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+    // The row is still the last item: nothing above added one.
+    if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
         if (selection_.size() > 1 && selection_.contains(obj.id)) {
             ImGui::Text("%zu objects", selection_.size());
@@ -613,15 +441,29 @@ void HierarchyPanel::draw_node(Node& obj) {
         ImGui::EndDragDropTarget();
     }
 
-    // Recurse children
-    if (has_children && node_open) {
-        for (auto* child : child_it->second) {
-            draw_node(*child);
-        }
-        ImGui::TreePop();
-    }
-
     ImGui::PopID();
+    if (row.open) {
+        for (auto* child : child_it->second) draw_node(*child, depth + 1);
+    }
+}
+
+void HierarchyPanel::frame(const Node& obj) {
+    const auto* spatial = obj.as_spatial();
+    if (spatial == nullptr) return;
+    glm::vec3 center = glm::vec3(spatial->world_matrix_[3]);
+    float radius = 1.0f;
+    const auto* mesh = obj.components.get<MeshComponent>();
+    if (mesh && mesh->model && !mesh->model->collision_vertices().empty()) {
+        float max_r2 = 0.0f;
+        for (const auto& v : mesh->model->collision_vertices()) {
+            auto wv = glm::vec3(spatial->world_matrix_ * glm::vec4(v, 1.0f));
+            max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+        }
+        radius = std::max(std::sqrt(max_r2), 0.1f);
+    }
+    if (auto* cam = viewports_->active_camera()) {
+        cam->focus(center, radius);
+    }
 }
 
 } // namespace fjell

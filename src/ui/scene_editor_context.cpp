@@ -240,8 +240,7 @@ void SceneEditorContext::init() {
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
-    hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_,
-                          &command_history(), deps_.icon_cache);
+    hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_, &command_history());
     properties_panel_.set_environment(deps_.environment);
     properties_panel_.init(deps_.scene, &selected_id_,
                            &deps_.script_subsystem->manager(), &command_history(),
@@ -269,12 +268,8 @@ void SceneEditorContext::init() {
             command_history().execute(std::make_unique<AddObjectCommand>(
                 *deps_.scene, selected_id_, &selected_id_));
         }));
-    connections_.push_back(hierarchy_panel_.on_remove_object.bind(
-        [this](uint32_t id) {
-            command_history().execute(std::make_unique<RemoveObjectCommand>(
-                *deps_.scene, id, &selected_id_,
-                [this]() { deps_.vulkan_context->wait_idle(); }));
-        }));
+    connections_.push_back(hierarchy_panel_.on_delete_selection.bind(
+        [this]() { delete_selection(); }));
     connections_.push_back(hierarchy_panel_.on_duplicate.bind(
         [this]() { duplicate_selection(); }));
     connections_.push_back(hierarchy_panel_.on_instantiate_preset.bind(
@@ -1909,12 +1904,18 @@ void SceneEditorContext::delete_selection() {
     if (sel.empty()) return;
 
     deps_.vulkan_context->wait_idle();
-    // Delete in reverse order to avoid invalidating IDs
+    // One undo step for the whole selection.
     std::vector<uint32_t> ids(sel.begin(), sel.end());
-    for (uint32_t id : ids) {
-        command_history().execute(std::make_unique<RemoveObjectCommand>(
-            *deps_.scene, id, &selected_id_,
-            [this]() { deps_.vulkan_context->wait_idle(); }));
+    auto remove = [this](uint32_t id) {
+        return std::make_unique<RemoveObjectCommand>(*deps_.scene, id, &selected_id_,
+                                                     [this]() { deps_.vulkan_context->wait_idle(); });
+    };
+    if (ids.size() == 1) {
+        command_history().execute(remove(ids.front()));
+    } else {
+        auto group = std::make_unique<CommandGroup>("Delete " + std::to_string(ids.size()) + " objects");
+        for (uint32_t id : ids) group->add(remove(id));
+        command_history().execute(std::move(group));
     }
     hierarchy_panel_.clear_selection();
 }

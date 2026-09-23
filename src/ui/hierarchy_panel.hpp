@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "ui/kit/tree.hpp"
 
 #include <cstdint>
 #include <string>
@@ -11,7 +12,6 @@
 namespace fjell {
 
 class CommandHistory;
-class IconCache;
 class Scene;
 class ViewportManager;
 struct Node;
@@ -19,7 +19,7 @@ struct Node;
 class HierarchyPanel {
 public:
     void init(Scene* scene, ViewportManager* viewports, uint32_t* selected_id,
-              CommandHistory* history, IconCache* icons = nullptr);
+              CommandHistory* history);
 
     void draw();
 
@@ -32,25 +32,21 @@ public:
     void clear_selection();
 
 private:
-    void draw_node(Node& obj);
+    void draw_node(Node& obj, int depth);
+    // Frames the viewport's camera on the node, as a double-click does.
+    void frame(const Node& obj);
 
-    // Inline rename of one row. Started by F2 on the primary selection or
-    // from the row's context menu; the text box takes the keyboard on the
-    // frame it appears, commits on Enter or when it loses focus, and Escape
-    // puts the old name back before that so committing it changes nothing.
-    void begin_rename(uint32_t id);
-    void draw_rename_box(Node& obj, float x, float width, float row_min_y, float row_h);
-    uint32_t renaming_id_{0};
-    bool rename_focus_pending_{false};
-    char rename_buf_[128]{};
+    // Inline rename of one row, started by F2 on the primary selection or
+    // from the row's context menu.
+    ui::RenameBox rename_;
 
     Scene* scene_{nullptr};
     ViewportManager* viewports_{nullptr};
     uint32_t* selected_id_{nullptr};
     CommandHistory* history_{nullptr};
 
-    IconCache* icons_{nullptr};
-    uint32_t remove_pending_id_{0};
+    // Delete from a row's context menu, carried out after the tree is drawn.
+    bool delete_pending_{false};
 
     // Search/filter state
     std::string filter_text_;
@@ -66,7 +62,8 @@ private:
 
 public:
     Delegate<void(const std::string&)> on_add_primitive;
-    Delegate<void(uint32_t)> on_remove_object;
+    // Delete everything selected, as one undo step.
+    Delegate<void()> on_delete_selection;
     Delegate<void()> on_duplicate;
     // Preset: instantiate a .fjp (path, parent_id to instantiate under)
     Delegate<void(const std::string&, int32_t)> on_instantiate_preset;
