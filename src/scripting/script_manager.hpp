@@ -103,7 +103,9 @@ public:
 
     Result<> add_script(Node3D& obj, const std::string& type_name);
     void remove_script(Node3D& obj, const std::string& type_name);
-    void draw_inspector(Node3D& obj);
+    /// Draws the node's scripts and their fields. Returns true when a field
+    /// changed or a script was removed.
+    bool draw_inspector(Node3D& obj);
 
     void serialize_all(Scene& scene);
     void deserialize_all(Scene& scene);

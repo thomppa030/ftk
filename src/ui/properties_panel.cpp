@@ -999,7 +999,9 @@ void PropertiesPanel::draw() {
 
             // Scripts
             section_header("SCRIPTS", ICON_LC_FILE_CODE);
-            scripts_->draw_inspector(*obj);
+            if (scripts_->draw_inspector(*obj)) {
+                scene_->mark_dirty();
+            }
 
             // Add script button
             if (scripts_->is_loaded() && !scripts_->script_types().empty()) {

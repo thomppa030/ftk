@@ -3,6 +3,7 @@
 #include "scripting/script_globals.hpp"
 #include "core/asset_type_registry.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/kit/text_field.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"
 #include "animation/anim_notify_registry.hpp"
@@ -925,8 +926,11 @@ void ScriptManager::deserialize_all(Scene& scene) {
 
 // ── Inspector ───────────────────────────────────────────────────────────
 
-static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
+// Draws a script instance's reflected fields. Returns true when a field
+// changed, so the caller can mark the scene unsaved.
+static bool draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
     auto* base = static_cast<uint8_t*>(base_ptr);
+    bool changed = false;
     std::string current_category;
     bool category_open = true;
     bool in_tree = false;  // true if current_category was opened via TreeNode
@@ -956,35 +960,45 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
         if (f.readonly) ImGui::BeginDisabled();
         switch (f.type) {
             case FJELL_FIELD_FLOAT:
-                ImGui::DragFloat(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
+                changed |= ImGui::DragFloat(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_INT:
-                ImGui::DragInt(lbl, static_cast<int*>(ptr),
-                               spd, static_cast<int>(f.min), static_cast<int>(f.max));
+                changed |= ImGui::DragInt(lbl, static_cast<int*>(ptr), spd,
+                                          static_cast<int>(f.min), static_cast<int>(f.max));
                 break;
             case FJELL_FIELD_BOOL:
-                ImGui::Checkbox(lbl, static_cast<bool*>(ptr));
+                changed |= ImGui::Checkbox(lbl, static_cast<bool*>(ptr));
                 break;
             case FJELL_FIELD_VEC2:
-                ImGui::DragFloat2(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
+                changed |= ImGui::DragFloat2(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_VEC3:
-                ImGui::DragFloat3(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
+                changed |= ImGui::DragFloat3(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_VEC4:
-                ImGui::DragFloat4(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
+                changed |= ImGui::DragFloat4(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_COLOR3:
-                ImGui::ColorEdit3(lbl, static_cast<float*>(ptr));
+                changed |= ImGui::ColorEdit3(lbl, static_cast<float*>(ptr));
                 break;
             case FJELL_FIELD_COLOR4:
-                ImGui::ColorEdit4(lbl, static_cast<float*>(ptr));
+                changed |= ImGui::ColorEdit4(lbl, static_cast<float*>(ptr));
                 break;
-            case FJELL_FIELD_STRING:
-                ImGui::InputText(lbl, static_cast<char*>(ptr), f.size);
+            case FJELL_FIELD_STRING: {
+                // A fixed buffer in the script: edited as a string and
+                // written back, truncated to fit, only when the edit commits.
+                auto* buf = static_cast<char*>(ptr);
+                std::string text(buf, std::find(buf, buf + f.size, '\0'));
+                if (f.size > 0 && ui::text_field(lbl, text).committed) {
+                    const std::size_t n = std::min(text.size(), static_cast<std::size_t>(f.size) - 1);
+                    std::memcpy(buf, text.data(), n);
+                    buf[n] = '\0';
+                    changed = true;
+                }
                 break;
+            }
             case FJELL_FIELD_STD_STRING:
-                ImGui::InputText(lbl, static_cast<std::string*>(ptr));
+                changed |= ui::text_field(lbl, *static_cast<std::string*>(ptr)).committed;
                 break;
             case FJELL_FIELD_ENUM:
                 if (!f.enum_labels.empty()) {
@@ -996,6 +1010,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                             if (ImGui::Selectable(f.enum_labels[e].c_str(),
                                                   *static_cast<int*>(ptr) == e)) {
                                 *static_cast<int*>(ptr) = e;
+                                changed = true;
                             }
                         }
                         ImGui::EndCombo();
@@ -1017,6 +1032,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Clear")) {
                     *ref = {};
+                    changed = true;
                 }
                 break;
             }
@@ -1037,6 +1053,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                                          .extensions = exts, .ctx = &sctx,
                                          .asset_type = asset_entry,
                                          .shader_types = f.shader_types}, current_path)) {
+                        changed = true;
                         // Path changed — load the asset
                         if (current_path.empty()) {
                             *ref = {};
@@ -1072,10 +1089,12 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
         ImGui::PopID();
     }
     if (in_tree) ImGui::TreePop();
+    return changed;
 }
 
 
-void ScriptManager::draw_inspector(Node3D& obj) {
+bool ScriptManager::draw_inspector(Node3D& obj) {
+    bool changed = false;
     std::string remove_name;
     for (auto& comp : obj.scripts) {
         const auto* ctype = find_script_type(comp.type_name);
@@ -1092,7 +1111,7 @@ void ScriptManager::draw_inspector(Node3D& obj) {
         }
 
         if (open && comp.instance && ctype && ctype->loaded) {
-            draw_fields_inspector(ctype->fields, comp.instance.get());
+            changed |= draw_fields_inspector(ctype->fields, comp.instance.get());
         } else if (open && (!ctype || !ctype->loaded)) {
             ImGui::TextDisabled("Script not loaded");
         }
@@ -1101,7 +1120,9 @@ void ScriptManager::draw_inspector(Node3D& obj) {
 
     if (!remove_name.empty()) {
         remove_script(obj, remove_name);
+        changed = true;
     }
+    return changed;
 }
 
 // ── Hot-reload watcher (debug only) ─────────────────────────────────────
