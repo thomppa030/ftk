@@ -73,6 +73,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp

@@ -338,6 +338,7 @@ add_executable(fjell
     ui/kit/feedback.cpp
     ui/kit/field.cpp
     ui/kit/gallery.cpp
+    ui/kit/inset_group.cpp
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
     ui/kit/row.cpp

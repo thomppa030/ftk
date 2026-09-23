@@ -16,6 +16,7 @@
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/inset_group.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
@@ -237,6 +238,11 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
         }
     }
 
+    // The material's values are its own, shared by every node using it, so
+    // they are set apart from the component's in a box of their own.
+    auto box = ui::InsetGroup("##material_values", "Material", ui::icon::material,
+                              theme::category(theme::Category::Rendering));
+    if (!box) return;
     if (auto t = ui::PropertyTable("##material")) {
         ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
         // UV scale: every surface material has one; a ui quad's UV is its own

@@ -30,11 +30,13 @@
 #include "ui/kit/color_field.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/inset_group.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/material_params_widget.hpp"
 #include "ui/inspector_widgets.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
 
@@ -99,7 +101,9 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
     if (!any) return false;
 
-    if (!ui::subheading_foldable("Sky shader")) return false;
+    auto box = ui::InsetGroup("##sky_values", "Sky shader", ui::icon::shader,
+                              theme::category(theme::Category::Environment));
+    if (!box) return false;
     std::string revert_name;
     if (auto t = ui::PropertyTable("##sky_uniforms")) {
         for (const auto& u : meta.uniforms) {
@@ -162,7 +166,9 @@ bool draw_fog_overrides(const Material* material, std::string_view default_shade
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
     if (!any) return false;
 
-    if (!ui::subheading_foldable("This node")) return false;
+    auto box = ui::InsetGroup("##node_values", "This node", ui::icon::volumetric_fog,
+                              theme::category(theme::Category::Environment));
+    if (!box) return false;
     ui::hint("The material's values for this node alone; the material and other nodes sharing it keep their own");
     std::string revert_name;
     if (auto t = ui::PropertyTable("##node_values")) {
