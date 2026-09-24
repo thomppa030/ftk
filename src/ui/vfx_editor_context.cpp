@@ -1,7 +1,6 @@
 #include "ui/vfx_editor_context.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/asset_ref_widget.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/systems/vfx_asset.hpp"
@@ -136,13 +135,17 @@ void VfxTimeline::draw_lanes(float bar_x, float bar_y, float bar_width,
 VfxEditorContext::VfxEditorContext(VfxEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset VfxEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .under_preview = {"Graph", "Timeline"}, .inspector = {"Modules"}};
+}
+
 void VfxEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "VFX Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
-    timeline_.set_title("VFX Timeline");
+    timeline_.set_title("Timeline");
     timeline_.set_looping(true);
     timeline_.set_duration(5.0f);
     timeline_.set_playing(true);
@@ -240,11 +243,8 @@ void VfxEditorContext::draw(float dt) {
     }
 #endif
 
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto t = ctx_title("VFX Preview");
-        if (vp->title != t) vp->title = std::move(t);
-    }
-    timeline_.set_title(ctx_title("VFX Timeline"));
+    name_preview(viewport_manager_);
+    timeline_.set_title(ctx_title("Timeline"));
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_node_editor();
@@ -301,26 +301,6 @@ void VfxEditorContext::draw(float dt) {
     prev_timeline_time_ = cur_time;
 
     draw_shared_panels(dt);
-}
-
-std::vector<std::string> VfxEditorContext::docked_window_names() const {
-    return {ctx_title("VFX Preview"), ctx_title("Module Stack"),
-            ctx_title("VFX Graph"), ctx_title("VFX Timeline"),
-            ctx_title("Stats"), ctx_title("Console"), ctx_title("History")};
-}
-
-void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, ModuleStack, Graph, Timeline, Stats, Console, History };
-    using N = DockNode;
-    // Graph gets the big center area, module stack on the right
-    static const auto layout = N::horizontal_split(0.72f,
-        N::vertical_split(0.55f,
-            N::leaf({EPanel::Preview}),
-            N::vertical_split(0.65f,
-                N::leaf({EPanel::Graph}),
-                N::leaf({EPanel::Timeline, EPanel::Stats, EPanel::Console, EPanel::History}))),
-        N::leaf({EPanel::ModuleStack}));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool VfxEditorContext::handle_shortcuts() {
@@ -552,7 +532,7 @@ static void draw_pin_icon(PinDataType type, bool connected, float size = kPinIco
 }
 
 void VfxEditorContext::draw_node_editor() {
-    if (ImGui::Begin(ctx_title("VFX Graph").c_str())) {
+    if (ImGui::Begin(ctx_title("Graph").c_str())) {
         if (!effect_ || !node_editor_ctx_) {
             ImGui::TextDisabled("No effect loaded");
             ImGui::End();
@@ -1044,7 +1024,7 @@ void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
 }
 
 void VfxEditorContext::draw_module_stack() {
-    if (ImGui::Begin(ctx_title("Module Stack").c_str())) {
+    if (ImGui::Begin(ctx_title("Modules").c_str())) {
         if (!effect_ || selected_emitter_ < 0 ||
             selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
             ImGui::TextDisabled("No emitter selected");

@@ -1,6 +1,5 @@
 #include "ui/font_editor_context.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/font_atlas.hpp"
 #include "ui/game_ui/font_library.hpp"
 #include "ui/game_ui/font_sample.hpp"
@@ -75,6 +74,10 @@ FontEditorContext::FontEditorContext(FontEditorDeps deps) : deps_{deps} {
     copy_to(sample_buf_, sizeof(sample_buf_), "The quick brown fox jumps over 13 lazy dogs");
 }
 
+EditorContext::DockPreset FontEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .inspector = {"Properties"}};
+}
+
 void FontEditorContext::init() {
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
@@ -86,21 +89,6 @@ void FontEditorContext::shutdown() {
         preview_ui_.reset();
     }
     preview_target_.reset();
-}
-
-std::vector<std::string> FontEditorContext::docked_window_names() const {
-    return {ctx_title("Font Preview"), ctx_title("Font"), ctx_title("Stats"), ctx_title("Console")};
-}
-
-void FontEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Font, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.62f,
-        N::vertical_split(0.7f,
-            N::leaf({EPanel::Preview}),
-            N::leaf({EPanel::Stats, EPanel::Console})),
-        N::leaf({EPanel::Font}));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 void FontEditorContext::open_font(const std::string& recipe_path) {
@@ -176,7 +164,7 @@ void FontEditorContext::draw(float dt) {
 }
 
 void FontEditorContext::draw_recipe_panel() {
-    if (!ImGui::Begin(ctx_title("Font").c_str())) {
+    if (!ImGui::Begin(ctx_title("Properties").c_str())) {
         ImGui::End();
         return;
     }
@@ -323,7 +311,7 @@ void FontEditorContext::draw_recipe_panel() {
 }
 
 void FontEditorContext::draw_preview_panel() {
-    if (!ImGui::Begin(ctx_title("Font Preview").c_str())) {
+    if (!ImGui::Begin(ctx_title("Preview").c_str())) {
         ImGui::End();
         return;
     }

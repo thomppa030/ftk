@@ -6,7 +6,6 @@
 #include "core/input_source.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "ui/grouped_picker.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/theme.hpp"
@@ -205,6 +204,10 @@ bool push_bold_font() {
 InputMappingEditorContext::InputMappingEditorContext(InputMappingEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset InputMappingEditorContext::dock_preset() const {
+    return {.preview = {"Mappings"}};
+}
+
 void InputMappingEditorContext::init() {
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
@@ -256,25 +259,6 @@ Result<> InputMappingEditorContext::restore(const std::string& text) {
 }
 
 // ── Dockspace ───────────────────────────────────────────────────────
-
-std::vector<std::string> InputMappingEditorContext::docked_window_names() const {
-    return {
-        ctx_title("Mappings"),
-        ctx_title("History"),
-        ctx_title("Console"),
-    };
-}
-
-void InputMappingEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Mappings, History, Console };
-    using N = DockNode;
-
-    static const auto layout = N::vertical_split(0.85f,
-        N::leaf({EPanel::Mappings}),
-        N::leaf({EPanel::History, EPanel::Console}));
-
-    build_dockspace(main_area, layout, docked_window_names());
-}
 
 // ── Rebind capture ──────────────────────────────────────────────────
 

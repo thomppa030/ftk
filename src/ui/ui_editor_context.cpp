@@ -1,5 +1,4 @@
 #include "ui/ui_editor_context.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/fjss_loader.hpp"
@@ -46,6 +45,10 @@ namespace fs = std::filesystem;
 
 UiEditorContext::UiEditorContext(UiEditorDeps deps)
     : deps_{deps} {}
+
+EditorContext::DockPreset UiEditorContext::dock_preset() const {
+    return {.tree = {"Elements"}, .preview = {"Preview"}, .under_preview = {"Action log"}, .inspector = {"Properties", "Mock data"}};
+}
 
 void UiEditorContext::init() {
     // Preview GameUi is initialized lazily when a .fjui file is opened
@@ -155,27 +158,6 @@ void UiEditorContext::draw(float dt) {
     draw_action_log();
 
     draw_shared_panels(dt);
-}
-
-std::vector<std::string> UiEditorContext::docked_window_names() const {
-    return {ctx_title("Element Tree"), ctx_title("UI Preview"),
-            ctx_title("UI Inspector"), ctx_title("Mock Data"), ctx_title("Action Log"),
-            ctx_title("History"), ctx_title("Stats"), ctx_title("Console")};
-}
-
-void UiEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { ElementTree, UiPreview, Inspector, MockData, ActionLog, History, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.16f,
-        N::leaf({EPanel::ElementTree}),
-        N::horizontal_split(0.76f,
-            N::vertical_split(0.75f,
-                N::leaf({EPanel::UiPreview}),
-                N::leaf({EPanel::ActionLog, EPanel::History, EPanel::Stats, EPanel::Console})),
-            N::vertical_split(0.55f,
-                N::leaf({EPanel::Inspector}),
-                N::leaf({EPanel::MockData}))));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool UiEditorContext::handle_shortcuts() {
@@ -427,7 +409,7 @@ void UiEditorContext::open_ui(const std::string& path) {
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    if (ImGui::Begin(ctx_title("UI Preview").c_str())) {
+    if (ImGui::Begin(ctx_title("Preview").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -655,7 +637,7 @@ void UiEditorContext::draw_preview(float dt) {
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    if (ImGui::Begin(ctx_title("Element Tree").c_str())) {
+    if (ImGui::Begin(ctx_title("Elements").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -739,7 +721,7 @@ void UiEditorContext::draw_stylesheet_problems() {
 }
 
 void UiEditorContext::draw_inspector() {
-    if (ImGui::Begin(ctx_title("UI Inspector").c_str())) {
+    if (ImGui::Begin(ctx_title("Properties").c_str())) {
         // Stylesheet problems show up next to the UI they broke, even with
         // nothing selected — a typo in a hot-reloaded sheet should be the
         // first thing visible, not something to dig out of the console.
@@ -1283,7 +1265,7 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_mock_data() {
-    if (ImGui::Begin(ctx_title("Mock Data").c_str())) {
+    if (ImGui::Begin(ctx_title("Mock data").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -1575,7 +1557,7 @@ void UiEditorContext::sync_mock_lists() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    if (ImGui::Begin(ctx_title("Action Log").c_str())) {
+    if (ImGui::Begin(ctx_title("Action log").c_str())) {
         if (ImGui::SmallButton("Clear")) {
             action_log_.clear();
         }

@@ -16,6 +16,7 @@
 namespace fjell {
 
 class Scene;
+class ViewportManager;
 class VulkanContext;
 
 class EditorContext {
@@ -29,7 +30,22 @@ public:
 
     [[nodiscard]] virtual const char* name() const = 0;
     [[nodiscard]] virtual const char* context_type() const = 0;
-    [[nodiscard]] virtual std::vector<std::string> docked_window_names() const = 0;
+    /// Where an asset editor's panels start (sheet 7), by their titles:
+    /// a tree or lists down the left, the preview, what sits under it (a
+    /// graph, timeline or canvas), the inspector down the right. Console,
+    /// Stats and History always sit along the bottom, under the preview.
+    /// Empty slots are left out.
+    struct DockPreset {
+        std::vector<std::string> tree{};
+        std::vector<std::string> preview{};
+        std::vector<std::string> under_preview{};
+        std::vector<std::string> inspector{};
+    };
+    [[nodiscard]] virtual DockPreset dock_preset() const { return {}; }
+
+    /// Every window the context docks, with its context suffix: the
+    /// preset's panels and the three along the bottom.
+    [[nodiscard]] virtual std::vector<std::string> docked_window_names() const;
 
     // Per-context undo/redo
     [[nodiscard]] CommandHistory& command_history() { return command_history_; }
@@ -47,8 +63,9 @@ public:
     /// calls this rather than draw().
     void draw_frame(float dt);
 
-    // Build default dockspace layout for this context (called within DockBuilder block)
-    virtual void setup_dockspace(ImGuiID main_area) = 0;
+    // Build default dockspace layout for this context (called within
+    // DockBuilder block): the preset's, unless the context lays out its own.
+    virtual void setup_dockspace(ImGuiID main_area);
 
     /// The editor's own actions in the header (open the shader, play in the
     /// scene), each drawn after ImGui::SameLine(). None by default.
@@ -139,6 +156,10 @@ public:
         std::snprintf(buf, sizeof(buf), "%s##ctx%d", base, context_index_);
         return buf;
     }
+
+    /// Names the context's preview window "Preview" with its context suffix,
+    /// so it docks where the preset puts it. Called before drawing it.
+    void name_preview(ViewportManager& viewports) const;
 
     // Shared panels — each context owns its own instances so they dock correctly
     void init_shared_panels(VulkanContext* vk) {

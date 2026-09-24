@@ -1,5 +1,4 @@
 #include "ui/blend_space_2d_editor_context.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -31,11 +30,15 @@ namespace fjell {
 BlendSpace2DEditorContext::BlendSpace2DEditorContext(BlendSpace2DEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset BlendSpace2DEditorContext::dock_preset() const {
+    return {.tree = {"Points", "Clips"}, .preview = {"Preview"}, .under_preview = {"Canvas"}, .inspector = {"Properties"}};
+}
+
 void BlendSpace2DEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "BS2D Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
@@ -97,10 +100,7 @@ void BlendSpace2DEditorContext::reload_clips() {
 // ── Drawing ─────────────────────────────────────────────────────────────
 
 void BlendSpace2DEditorContext::draw(float dt) {
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto t = ctx_title("BS2D Preview");
-        if (vp->title != t) vp->title = std::move(t);
-    }
+    name_preview(viewport_manager_);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
 
     if (ImGui::Begin(ctx_title("Canvas").c_str())) {
@@ -727,27 +727,6 @@ void BlendSpace2DEditorContext::update_preview(float dt) {
 }
 
 // ── Viewport boilerplate ────────────────────────────────────────────────
-
-std::vector<std::string> BlendSpace2DEditorContext::docked_window_names() const {
-    return {ctx_title("Canvas"), ctx_title("BS2D Preview"),
-            ctx_title("Points"), ctx_title("Clips"), ctx_title("Properties"),
-            ctx_title("Stats"), ctx_title("Console"), ctx_title("History")};
-}
-
-void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Canvas, Preview, Points, Clips, Properties, Stats, Console, History };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.22f,
-        N::vertical_split(0.40f,
-            N::leaf({EPanel::Points}),
-            N::vertical_split(0.60f,
-                N::leaf({EPanel::Clips}),
-                N::leaf({EPanel::Properties}))),
-        N::vertical_split(0.75f,
-            N::leaf({EPanel::Canvas, EPanel::Preview}),
-            N::leaf({EPanel::Stats, EPanel::Console, EPanel::History})));
-    build_dockspace(main_area, layout, docked_window_names());
-}
 
 bool BlendSpace2DEditorContext::handle_shortcuts() {
     return false;

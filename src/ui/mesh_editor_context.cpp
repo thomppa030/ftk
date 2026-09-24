@@ -1,5 +1,4 @@
 #include "ui/mesh_editor_context.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
@@ -44,11 +43,15 @@ void info_row(const char* label, const std::string& value) {
 MeshEditorContext::MeshEditorContext(MeshEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset MeshEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .inspector = {"Materials", "Collision", "Info"}};
+}
+
 void MeshEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Mesh Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
@@ -58,10 +61,7 @@ void MeshEditorContext::shutdown() {
 }
 
 void MeshEditorContext::draw(float dt) {
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto t = ctx_title("Mesh Preview");
-        if (vp->title != t) vp->title = std::move(t);
-    }
+    name_preview(viewport_manager_);
     preview_scene_.compute_world_matrices(nullptr);
 
     // Submitted every frame while this context is the one drawing. DebugDraw
@@ -92,25 +92,6 @@ void MeshEditorContext::draw(float dt) {
     draw_collision_panel();
     draw_info_panel();
     draw_shared_panels(dt);
-}
-
-std::vector<std::string> MeshEditorContext::docked_window_names() const {
-    return {ctx_title("Mesh Preview"), ctx_title("Material Slots"),
-            ctx_title("Collision"), ctx_title("Mesh Info"),
-            ctx_title("Stats"), ctx_title("Console")};
-}
-
-void MeshEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Slots, Collision, Info, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.72f,
-        N::vertical_split(0.75f,
-            N::leaf({EPanel::Preview}),
-            N::leaf({EPanel::Stats, EPanel::Console})),
-        N::vertical_split(0.5f,
-            N::leaf({EPanel::Slots}),
-            N::leaf({EPanel::Collision, EPanel::Info})));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool MeshEditorContext::handle_shortcuts() {
@@ -222,7 +203,7 @@ void MeshEditorContext::frame_camera() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MeshEditorContext::draw_slots_panel() {
-    if (ImGui::Begin(ctx_title("Material Slots").c_str())) {
+    if (ImGui::Begin(ctx_title("Materials").c_str())) {
         if (!model_) {
             ImGui::TextDisabled("No mesh loaded");
             ImGui::End();
@@ -679,7 +660,7 @@ void MeshEditorContext::draw_collision_panel() {
 }
 
 void MeshEditorContext::draw_info_panel() {
-    if (ImGui::Begin(ctx_title("Mesh Info").c_str())) {
+    if (ImGui::Begin(ctx_title("Info").c_str())) {
         if (!model_) {
             ImGui::TextDisabled("No mesh loaded");
             ImGui::End();

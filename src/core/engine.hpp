@@ -150,7 +150,8 @@ private:
     [[nodiscard]] const EditorContext& active_context() const;
     void switch_context(int index);
     void build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport);
-    void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);
+    void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);    // Whether a saved layout still docks every window the context has.
+    [[nodiscard]] static bool layout_names_every_window(const nlohmann::json& layout_json, const EditorContext& ctx);
     void rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json);
 
     // Layout save/load

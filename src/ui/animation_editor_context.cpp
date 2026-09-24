@@ -1,5 +1,4 @@
 #include "ui/animation_editor_context.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "animation/anim_notify_registry.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -40,13 +39,17 @@ namespace fs = std::filesystem;
 AnimationEditorContext::AnimationEditorContext(AnimationEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset AnimationEditorContext::dock_preset() const {
+    return {.tree = {"Bones", "Clips"}, .preview = {"Preview"}, .under_preview = {"State graph", "Timeline", "Parameters"}, .inspector = {"Properties", "Colliders"}};
+}
+
 void AnimationEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Anim Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
-    timeline_.set_title("Anim Timeline");
+    timeline_.set_title("Timeline");
 
     // Create own imnodes context for the state graph
     auto* prev_ctx = ImNodes::GetCurrentContext();
@@ -167,11 +170,8 @@ void AnimationEditorContext::draw(float dt) {
         }
     }
 
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto t = ctx_title("Anim Preview");
-        if (vp->title != t) vp->title = std::move(t);
-    }
-    timeline_.set_title(ctx_title("Anim Timeline"));
+    name_preview(viewport_manager_);
+    timeline_.set_title(ctx_title("Timeline"));
 
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     timeline_.draw(dt);
@@ -211,32 +211,6 @@ void AnimationEditorContext::draw(float dt) {
     draw_parameters();
 
     draw_shared_panels(dt);
-}
-
-std::vector<std::string> AnimationEditorContext::docked_window_names() const {
-    return {ctx_title("Bone Tree"), ctx_title("Clip List"), ctx_title("History"),
-            ctx_title("Anim Parameters"), ctx_title("Anim Preview"),
-            ctx_title("State Graph"), ctx_title("Anim Properties"),
-            ctx_title("Anim Timeline"), ctx_title("Stats"), ctx_title("Console"),
-            ctx_title("Bone Colliders")};
-}
-
-void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { BoneTree, ClipList, History, Parameters, Preview, StateGraph, Properties,
-                        Timeline, Stats, Console, Colliders };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.14f,
-        N::vertical_split(0.35f,
-            N::leaf({EPanel::BoneTree}),
-            N::vertical_split(0.50f,
-                N::leaf({EPanel::ClipList, EPanel::History}),
-                N::leaf({EPanel::Parameters}))),
-        N::horizontal_split(0.78f,
-            N::vertical_split(0.68f,
-                N::leaf({EPanel::Preview, EPanel::StateGraph}),
-                N::leaf({EPanel::Timeline, EPanel::Stats, EPanel::Console})),
-            N::leaf({EPanel::Properties, EPanel::Colliders})));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool AnimationEditorContext::handle_shortcuts() {
@@ -574,7 +548,7 @@ void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,
 }
 
 void AnimationEditorContext::draw_collider_panel() {
-    if (ImGui::Begin(ctx_title("Bone Colliders").c_str())) {
+    if (ImGui::Begin(ctx_title("Colliders").c_str())) {
         if (!skeleton_) {
             ImGui::TextDisabled("No skeleton loaded");
             ImGui::End();
@@ -704,7 +678,7 @@ void AnimationEditorContext::draw_collider_panel() {
 }
 
 void AnimationEditorContext::draw_bone_tree() {
-    if (ImGui::Begin(ctx_title("Bone Tree").c_str())) {
+    if (ImGui::Begin(ctx_title("Bones").c_str())) {
         if (!skeleton_) {
             ImGui::TextDisabled("No skeleton loaded");
         } else {
@@ -747,7 +721,7 @@ void AnimationEditorContext::draw_bone_tree() {
 }
 
 void AnimationEditorContext::draw_clip_list() {
-    if (ImGui::Begin(ctx_title("Clip List").c_str())) {
+    if (ImGui::Begin(ctx_title("Clips").c_str())) {
         if (available_clip_names_.empty()) {
             ImGui::TextDisabled("No clips found");
         } else {
@@ -765,7 +739,7 @@ void AnimationEditorContext::draw_clip_list() {
 }
 
 void AnimationEditorContext::draw_properties() {
-    if (ImGui::Begin(ctx_title("Anim Properties").c_str())) {
+    if (ImGui::Begin(ctx_title("Properties").c_str())) {
         auto& states = state_machine_.states_mutable();
 
         // Skeleton assignment (always visible in animset mode)
@@ -1211,7 +1185,7 @@ void AnimationEditorContext::build_graph_from_state_machine() {
 }
 
 void AnimationEditorContext::draw_state_graph() {
-    if (ImGui::Begin(ctx_title("State Graph").c_str())) {
+    if (ImGui::Begin(ctx_title("State graph").c_str())) {
         if (state_machine_.states().empty() && animset_path_.empty()) {
             ImGui::TextDisabled("No state machine loaded");
             ImGui::End();
@@ -1427,7 +1401,7 @@ void AnimationEditorContext::draw_state_graph() {
 // ── Parameters ──────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_parameters() {
-    if (ImGui::Begin(ctx_title("Anim Parameters").c_str())) {
+    if (ImGui::Begin(ctx_title("Parameters").c_str())) {
         if (animset_path_.empty()) {
             ImGui::TextDisabled("No state machine loaded");
             ImGui::End();

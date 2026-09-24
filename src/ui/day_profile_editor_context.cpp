@@ -8,7 +8,6 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "renderer/vulkan_context.hpp"
 
 #include <imgui.h>
@@ -60,11 +59,15 @@ DayProfileEditorContext::DayProfileEditorContext(DayProfileEditorDeps deps) : de
     timeline_.set_markers({{0.0f, "00:00"}, {6.0f, "06:00"}, {12.0f, "12:00"}, {18.0f, "18:00"}});
 }
 
+EditorContext::DockPreset DayProfileEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .under_preview = {"Timeline"}, .inspector = {"Properties"}};
+}
+
 void DayProfileEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Day Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
     timeline_.set_title(ctx_title("Timeline"));
@@ -72,24 +75,6 @@ void DayProfileEditorContext::init() {
 
 void DayProfileEditorContext::shutdown() {
     viewport_manager_.release_textures();
-}
-
-std::vector<std::string> DayProfileEditorContext::docked_window_names() const {
-    return {ctx_title("Timeline"), ctx_title("Day Preview"), ctx_title("Day Profile"),
-            ctx_title("Stats"), ctx_title("Console")};
-}
-
-void DayProfileEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Timeline, Preview, Tracks, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::vertical_split(0.2f,
-        N::leaf({EPanel::Timeline}),
-        N::horizontal_split(0.5f,
-            N::leaf({EPanel::Preview}),
-            N::horizontal_split(0.68f,
-                N::leaf({EPanel::Tracks}),
-                N::leaf({EPanel::Stats, EPanel::Console}))));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 std::vector<ViewportRenderRequest> DayProfileEditorContext::build_render_requests() {
@@ -171,10 +156,7 @@ void DayProfileEditorContext::set_scene_hour(float hour) {
 }
 
 void DayProfileEditorContext::draw(float dt) {
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto title = ctx_title("Day Preview");
-        if (vp->title != title) vp->title = std::move(title);
-    }
+    name_preview(viewport_manager_);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_timeline_panel(dt);
     draw_tracks_panel();
@@ -196,7 +178,7 @@ void DayProfileEditorContext::draw_timeline_panel(float dt) {
 }
 
 void DayProfileEditorContext::draw_tracks_panel() {
-    if (!ImGui::Begin(ctx_title("Day Profile").c_str())) {
+    if (!ImGui::Begin(ctx_title("Properties").c_str())) {
         ImGui::End();
         return;
     }

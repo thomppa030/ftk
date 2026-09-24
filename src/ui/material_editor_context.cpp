@@ -1,5 +1,4 @@
 #include "ui/material_editor_context.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
@@ -25,11 +24,15 @@ namespace fjell {
 MaterialEditorContext::MaterialEditorContext(MaterialEditorDeps deps)
     : deps_{deps} {}
 
+EditorContext::DockPreset MaterialEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .inspector = {"Parameters", "Textures"}};
+}
+
 void MaterialEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Material Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
@@ -40,34 +43,12 @@ void MaterialEditorContext::shutdown() {
 
 void MaterialEditorContext::draw(float dt) {
     // Update viewport title with context suffix
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto t = ctx_title("Material Preview");
-        if (vp->title != t) vp->title = std::move(t);
-    }
+    name_preview(viewport_manager_);
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_params_panel();
     draw_texture_panel();
     draw_shared_panels(dt);
-}
-
-std::vector<std::string> MaterialEditorContext::docked_window_names() const {
-    return {ctx_title("Material Preview"), ctx_title("Material Params"),
-            ctx_title("Texture Slots"), ctx_title("History"),
-            ctx_title("Stats"), ctx_title("Console")};
-}
-
-void MaterialEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Params, TextureSlots, History, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.72f,
-        N::vertical_split(0.75f,
-            N::leaf({EPanel::Preview}),
-            N::leaf({EPanel::Stats, EPanel::Console})),
-        N::vertical_split(0.50f,
-            N::leaf({EPanel::Params}),
-            N::leaf({EPanel::TextureSlots, EPanel::History})));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool MaterialEditorContext::handle_shortcuts() {
@@ -223,7 +204,7 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    if (ImGui::Begin(ctx_title("Material Params").c_str())) {
+    if (ImGui::Begin(ctx_title("Parameters").c_str())) {
         if (!material_) {
             ImGui::TextDisabled("No material loaded");
             ImGui::End();
@@ -277,7 +258,7 @@ void MaterialEditorContext::draw_params_panel() {
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    if (ImGui::Begin(ctx_title("Texture Slots").c_str())) {
+    if (ImGui::Begin(ctx_title("Textures").c_str())) {
         if (!material_) {
             ImGui::TextDisabled("No material loaded");
             ImGui::End();

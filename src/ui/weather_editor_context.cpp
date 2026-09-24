@@ -11,7 +11,6 @@
 #include "scene/scene.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "ui/imgui_curve_editor.hpp"
 #include "ui/inspector_widgets.hpp"
 
@@ -71,11 +70,15 @@ WeatherEditorContext::WeatherEditorContext(WeatherEditorDeps deps) : deps_{deps}
     timeline_.set_markers({{0.0f, "approach"}, {1.0f, "onset"}, {2.0f, "sustain"}, {3.0f, "tail"}});
 }
 
+EditorContext::DockPreset WeatherEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .under_preview = {"Timeline"}, .inspector = {"Properties"}};
+}
+
 void WeatherEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Weather Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
     timeline_.set_title(ctx_title("Timeline"));
@@ -83,24 +86,6 @@ void WeatherEditorContext::init() {
 
 void WeatherEditorContext::shutdown() {
     viewport_manager_.release_textures();
-}
-
-std::vector<std::string> WeatherEditorContext::docked_window_names() const {
-    return {ctx_title("Timeline"), ctx_title("Weather Preview"), ctx_title("Weather"),
-            ctx_title("Stats"), ctx_title("Console")};
-}
-
-void WeatherEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Timeline, Preview, Event, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::vertical_split(0.2f,
-        N::leaf({EPanel::Timeline}),
-        N::horizontal_split(0.5f,
-            N::leaf({EPanel::Preview}),
-            N::horizontal_split(0.68f,
-                N::leaf({EPanel::Event}),
-                N::leaf({EPanel::Stats, EPanel::Console}))));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 std::vector<ViewportRenderRequest> WeatherEditorContext::build_render_requests() {
@@ -180,10 +165,7 @@ bool WeatherEditorContext::is_playing_here() const {
 }
 
 void WeatherEditorContext::draw(float dt) {
-    if (auto* vp = viewport_manager_.active_panel()) {
-        auto title = ctx_title("Weather Preview");
-        if (vp->title != title) vp->title = std::move(title);
-    }
+    name_preview(viewport_manager_);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_timeline_panel(dt);
     draw_event_panel();
@@ -343,7 +325,7 @@ void WeatherEditorContext::play_from(WeatherPhase phase) {
 }
 
 void WeatherEditorContext::draw_event_panel() {
-    if (!ImGui::Begin(ctx_title("Weather").c_str())) {
+    if (!ImGui::Begin(ctx_title("Properties").c_str())) {
         ImGui::End();
         return;
     }

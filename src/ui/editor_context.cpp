@@ -3,9 +3,12 @@
 #include "ui/kit/asset_header.hpp"
 #include "ui/kit/asset_kind.hpp"
 #include "ui/kit/edit_record.hpp"
+#include "ui/viewport_manager.hpp"
 #include "core/log.hpp"
 
 #include <filesystem>
+
+#include <imgui_internal.h>
 
 namespace fjell {
 
@@ -136,6 +139,61 @@ void EditorContext::draw_header() {
             break;
         case ui::SaveAction::Revert: revert(); break;
         case ui::SaveAction::None: break;
+    }
+}
+
+namespace {
+
+// The panels along the bottom of every asset editor, in this order.
+constexpr const char* BOTTOM_TABS[] = {"Console", "Stats", "History"};
+
+} // namespace
+
+std::vector<std::string> EditorContext::docked_window_names() const {
+    const DockPreset preset = dock_preset();
+    std::vector<std::string> names;
+    for (const auto* slot : {&preset.tree, &preset.preview, &preset.under_preview, &preset.inspector}) {
+        for (const auto& name : *slot) names.push_back(ctx_title(name.c_str()));
+    }
+    for (const char* name : BOTTOM_TABS) names.push_back(ctx_title(name));
+    return names;
+}
+
+void EditorContext::setup_dockspace(ImGuiID main_area) {
+    const DockPreset preset = dock_preset();
+    // Columns first (tree, inspector), then the rows of the middle one:
+    // the bottom tabs, then what sits under the preview.
+    ImGuiID centre = main_area;
+    ImGuiID tree = 0;
+    ImGuiID inspector = 0;
+    ImGuiID under = 0;
+    ImGuiID bottom = 0;
+    if (!preset.tree.empty()) {
+        tree = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22f, nullptr, &centre);
+    }
+    if (!preset.inspector.empty()) {
+        const float share = preset.tree.empty() ? 0.29f : 0.33f;
+        inspector = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, share, nullptr, &centre);
+    }
+    bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.27f, nullptr, &centre);
+    if (!preset.under_preview.empty()) {
+        under = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.38f, nullptr, &centre);
+    }
+
+    auto dock = [&](const std::vector<std::string>& names, ImGuiID node) {
+        for (const auto& name : names) ImGui::DockBuilderDockWindow(ctx_title(name.c_str()).c_str(), node);
+    };
+    dock(preset.tree, tree);
+    dock(preset.preview, centre);
+    dock(preset.under_preview, under);
+    dock(preset.inspector, inspector);
+    for (const char* name : BOTTOM_TABS) ImGui::DockBuilderDockWindow(ctx_title(name).c_str(), bottom);
+}
+
+void EditorContext::name_preview(ViewportManager& viewports) const {
+    if (auto* panel = viewports.active_panel()) {
+        auto title = ctx_title("Preview");
+        if (panel->title != title) panel->title = std::move(title);
     }
 }
 

@@ -73,8 +73,10 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace fjell {
 
@@ -1180,7 +1182,10 @@ void Engine::setup_dockspace() {
         }
 
         // 2. Rebuild from saved JSON layout
-        if (!built && saved_context_layouts_.contains(type)) {
+        // A layout saved before a window was renamed or added would leave
+        // that window floating; the preset is used instead.
+        if (!built && saved_context_layouts_.contains(type)
+            && layout_names_every_window(saved_context_layouts_[type], ctx)) {
             rebuild_dockspace_from_json(ctx, saved_context_layouts_[type]);
             built = true;
         }
@@ -1194,6 +1199,24 @@ void Engine::setup_dockspace() {
     }
 
     ImGui::End();
+}
+
+bool Engine::layout_names_every_window(const nlohmann::json& layout_json, const EditorContext& ctx) {
+    std::unordered_set<std::string> saved;
+    std::function<void(const nlohmann::json&)> collect = [&](const nlohmann::json& node) {
+        if (node.contains("windows")) {
+            for (const auto& name : node["windows"]) saved.insert(name.get<std::string>());
+        }
+        if (node.contains("children")) {
+            for (const auto& child : node["children"]) collect(child);
+        }
+    };
+    collect(layout_json);
+    for (const auto& title : ctx.docked_window_names()) {
+        // Saved layouts keep the name without its "##ctxN" suffix.
+        if (!saved.contains(title.substr(0, title.find("##")))) return false;
+    }
+    return true;
 }
 
 void Engine::rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json) {

@@ -38,7 +38,7 @@ public:
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] const char* context_type() const override { return "material"; }
-    [[nodiscard]] std::vector<std::string> docked_window_names() const override;
+    [[nodiscard]] DockPreset dock_preset() const override;
     [[nodiscard]] std::string asset_path() const override { return fjmat_path_; }
     [[nodiscard]] std::string document() const override;
     [[nodiscard]] Result<> write() override;
@@ -48,7 +48,6 @@ public:
     void shutdown() override;
 
     void draw(float dt) override;
-    void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
 
     // Viewport

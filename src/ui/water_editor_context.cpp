@@ -15,7 +15,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
-#include "ui/dockspace_layout.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 
@@ -72,35 +71,21 @@ namespace {
 
 WaterEditorContext::WaterEditorContext(WaterEditorDeps deps) : deps_{deps} {}
 
+EditorContext::DockPreset WaterEditorContext::dock_preset() const {
+    return {.preview = {"Preview"}, .inspector = {"Sea", "Waves"}};
+}
+
 void WaterEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Water Preview");
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
 
 void WaterEditorContext::shutdown() {
     viewport_manager_.release_textures();
-}
-
-std::vector<std::string> WaterEditorContext::docked_window_names() const {
-    return {ctx_title("Water Preview"), ctx_title("Sea"), ctx_title("Waves"),
-            ctx_title("Stats"), ctx_title("Console")};
-}
-
-void WaterEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Sea, Waves, Stats, Console };
-    using N = DockNode;
-    static const auto layout = N::horizontal_split(0.58f,
-        N::leaf({EPanel::Preview}),
-        N::vertical_split(0.32f,
-            N::leaf({EPanel::Sea}),
-            N::vertical_split(0.62f,
-                N::leaf({EPanel::Waves}),
-                N::leaf({EPanel::Stats, EPanel::Console}))));
-    build_dockspace(main_area, layout, docked_window_names());
 }
 
 std::vector<ViewportRenderRequest> WaterEditorContext::build_render_requests() {
@@ -299,6 +284,7 @@ void WaterEditorContext::push_live() {
 
 void WaterEditorContext::draw(float dt) {
     preview_scene_.compute_world_matrices(nullptr);
+    name_preview(viewport_manager_);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_generator_panel();
     draw_wave_list_panel();
