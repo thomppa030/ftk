@@ -1,5 +1,6 @@
 #include "imgui_harness.hpp"
 #include "ui/kit/asset_kind.hpp"
+#include "ui/kit/brand.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
@@ -8,6 +9,7 @@
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/key_cap.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/pane.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/tabs.hpp"
@@ -603,4 +605,31 @@ TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
     fjell::theme::forget_fonts(editor);
     ImGui::DestroyContext(browser);
     ImGui::DestroyContext(editor);
+}
+
+TEST_CASE("A pane and the brand's marks leave ImGui's stacks as they found them", "[ui][kit]") {
+    ImGuiHarness h;
+    int style_vars = -1;
+    int colours = -1;
+    int fonts = -1;
+    h.set_ui([&] {
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        const int vars_before = g.StyleVarStack.Size;
+        const int colours_before = g.ColorStack.Size;
+        const int fonts_before = g.FontStack.Size;
+        {
+            auto side = ui::Pane("##side", {220.0f, 300.0f}, ui::PaneSurface::Sunken);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ui::draw_logo(dl, {110.0f, 20.0f}, 0.5f);
+            ui::wordmark(dl, {110.0f, 150.0f}, 20.0f);
+            ui::spinner(dl, {110.0f, 200.0f}, 14.0f, 1.0f);
+        }
+        style_vars = g.StyleVarStack.Size - vars_before;
+        colours = g.ColorStack.Size - colours_before;
+        fonts = g.FontStack.Size - fonts_before;
+    });
+    h.step(3);
+    CHECK(style_vars == 0);
+    CHECK(colours == 0);
+    CHECK(fonts == 0);
 }
