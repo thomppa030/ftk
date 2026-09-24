@@ -144,7 +144,7 @@ void ImportDialog::draw_form() {
         ui::subheading("Levels");
         if (auto t = ui::PropertyTable("##levels_table")) {
             for (uint32_t i = 0; i < settings_.lod_count; ++i) {
-                char label[16];
+                char label[24];
                 std::snprintf(label, sizeof(label), "Level %u", i + 1);
                 ImGui::PushID(static_cast<int>(i));
                 ui::row(label, "Drawn while the mesh covers more than this share of the screen, with this share of "
