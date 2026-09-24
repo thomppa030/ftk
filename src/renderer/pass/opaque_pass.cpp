@@ -90,6 +90,13 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // the transforms the instance cull kept.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
                  ResourceAccess::storage_buffer_read_vertex);
+    // What the subsystems' compute step wrote for the draws their hooks
+    // record here.
+    for (const auto& input : ctx.subsystem_draw_inputs) {
+        builder.read(builder.import("subsystem_draw_input", input.buffer.buffer,
+                                    input.buffer.size, input.buffer.persistent),
+                     input.draw_access);
+    }
 }
 
 void OpaquePass::record(const FrameContext& ctx) {

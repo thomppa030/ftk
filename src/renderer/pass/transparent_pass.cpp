@@ -429,6 +429,13 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // water, lit particles and sprites.
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
                  ResourceAccess::storage_buffer_read_fragment);
+    // What the subsystems' compute step wrote for the draws their hooks
+    // record here.
+    for (const auto& input : ctx.subsystem_draw_inputs) {
+        builder.read(builder.import("subsystem_draw_input", input.buffer.buffer,
+                                    input.buffer.size, input.buffer.persistent),
+                     input.draw_access);
+    }
 }
 
 } // namespace fjell

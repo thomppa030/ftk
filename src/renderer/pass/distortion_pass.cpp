@@ -21,6 +21,13 @@ void DistortionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(distortion, ResourceAccess::color_attachment);
     // Bound read-only for the depth test and sampled by the fragment shader.
     builder.read(depth, ResourceAccess::depth_read_sampled);
+    // What the subsystems' compute step wrote for the draws their hooks
+    // record here.
+    for (const auto& input : ctx.subsystem_draw_inputs) {
+        builder.read(builder.import("subsystem_draw_input", input.buffer.buffer,
+                                    input.buffer.size, input.buffer.persistent),
+                     input.draw_access);
+    }
 }
 
 void DistortionPass::record(const FrameContext& ctx) {

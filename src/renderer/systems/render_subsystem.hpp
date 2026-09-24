@@ -6,6 +6,7 @@
 
 namespace fjell {
 
+struct DeclareContext;
 class Device;
 class Project;
 class ResourceManager;
@@ -54,6 +55,12 @@ public:
 
     // Compute dispatch — called as a render pipeline pass (before color passes).
     virtual void record_compute(const FrameContext& ctx) { (void)ctx; }
+
+    // Add what record_compute() writes for the draw hooks to
+    // ctx.subsystem_draw_inputs, and anything another pass reads by name to
+    // ctx.buffer_imports. Called once per pipeline run, before any pass
+    // declares; a subsystem without compute work adds nothing.
+    virtual void collect_exports(DeclareContext& ctx) const { (void)ctx; }
 
     // Draw into the depth pre-pass — called before the opaque pass so the
     // subsystem's opaque geometry contributes to Hi-Z, contact shadows,

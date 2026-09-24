@@ -4,6 +4,7 @@
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -950,7 +951,40 @@ void ParticleSystem::record_compute(const FrameContext& ctx) {
               (ctx.environment->weather.wind_speed * ctx.environment->weather.wind_gust)
         : glm::vec3{0.0f};
     dispatch_compute(ctx, scene_ref, wind, cached_view_projection_);
-    insert_barriers(ctx.cmd);
+}
+
+void ParticleSystem::collect_exports(DeclareContext& ctx) const {
+    auto add = [&](const VkBuffer buffer, VkDeviceSize size, bool persistent,
+                   ResourceAccess draw_access) {
+        if (buffer == VK_NULL_HANDLE) { return; }
+        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, size, persistent}, draw_access});
+    };
+    // The particles themselves carry into the next frame; the alive lists,
+    // commands and mesh instances are rebuilt from them every frame.
+    if (mega_particle_buffer_) {
+        add(mega_particle_buffer_->handle(), mega_particle_buffer_->capacity(), true,
+            ResourceAccess::storage_buffer_read_vertex);
+        // The ray-traced GI builds its particle instances from these.
+        ctx.buffer_imports.emplace(fg_name_hash("particle_state"),
+                                   BufferImport{mega_particle_buffer_->handle(),
+                                                mega_particle_buffer_->capacity(), true});
+    }
+    if (mega_alive_buffer_) {
+        add(mega_alive_buffer_->handle(), mega_alive_buffer_->capacity(), false,
+            ResourceAccess::storage_buffer_read_vertex);
+    }
+    if (mega_indirect_buffer_) {
+        add(mega_indirect_buffer_->handle(), mega_indirect_buffer_->capacity(), false,
+            ResourceAccess::indirect_read);
+    }
+    if (mesh_instance_buffer_) {
+        add(mesh_instance_buffer_->handle(), mesh_instance_buffer_->size(), false,
+            ResourceAccess::storage_buffer_read_vertex);
+    }
+    if (mesh_indirect_buffer_) {
+        add(mesh_indirect_buffer_->handle(), mesh_indirect_buffer_->size(), false,
+            ResourceAccess::indirect_read);
+    }
 }
 
 void ParticleSystem::record_opaque(const FrameContext& ctx) {
@@ -1783,43 +1817,8 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
             vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                                0, sizeof(push), &push);
             vkCmdDispatch(cmd, 1, emitter_count, 1);
-
-            // The draws need to see the finalized commands, the alive list
-            // and the instance buffer — compute_barrier() only covers
-            // compute-to-compute, so add the indirect-read + vertex-shader-
-            // read edge explicitly.
-            VkMemoryBarrier2 indirect_barrier{};
-            indirect_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            indirect_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            indirect_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            indirect_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
-                                             VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-            indirect_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
-                                              VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-            VkDependencyInfo indirect_dep{};
-            indirect_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            indirect_dep.memoryBarrierCount = 1;
-            indirect_dep.pMemoryBarriers = &indirect_barrier;
-            vkCmdPipelineBarrier2(cmd, &indirect_dep);
         }
     }
-}
-
-void ParticleSystem::insert_barriers(VkCommandBuffer cmd) {
-    if (emitters_.empty()) return;
-
-    VkMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 void ParticleSystem::record_render(const FrameContext& ctx) {

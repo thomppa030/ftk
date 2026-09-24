@@ -97,6 +97,7 @@ public:
 
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) const override;
     void record_opaque(const FrameContext& ctx) override;
     void record_distortion(const FrameContext& ctx) override;
     void record_transparent(const FrameContext& ctx) override;
@@ -119,7 +120,6 @@ public:
 private:
     void dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
                           const glm::mat4& view_projection);
-    void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
     void record_render_distortion(const FrameContext& ctx);
     void record_render_opaque(const FrameContext& ctx);

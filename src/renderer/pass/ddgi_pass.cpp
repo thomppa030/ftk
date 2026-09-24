@@ -2071,6 +2071,9 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.read(normal, ResourceAccess::sampled_compute);
+    // The particle TLAS build reads the simulated particles.
+    builder.read(builder.import_named_buffer(ctx, "particle_state"),
+                 ResourceAccess::storage_buffer_read_compute);
     // Writes pass-private probe atlases (irradiance, visibility,
     // probe_offset) bound through the global descriptor. Graph can't
     // see that consumer edge.

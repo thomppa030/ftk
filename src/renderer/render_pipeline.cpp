@@ -8,6 +8,7 @@
 #include "renderer/pass/water_pass.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "core/log.hpp"
@@ -264,6 +265,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         }
 
         passes.collect_exports_all(decl_ctx);
+        for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
+            ctx.subsystems[i]->collect_exports(decl_ctx);
+        }
     }
 
     // ── Collect declared passes + run DAG sort ────────────────────────

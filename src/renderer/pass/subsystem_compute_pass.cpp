@@ -23,11 +23,15 @@ PassSetup SubsystemComputePass::setup() const {
     };
 }
 
-void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
-    // Subsystem compute dispatches update particle/sprite/tilemap SSBOs
-    // the graph doesn't track. Flag as side-effecting until Phase 3
-    // adds buffer tracking.
-    builder.has_side_effects();
+void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Everything the subsystems simulate and then draw. A buffer that
+    // carries state into the next frame is persistent, which keeps the
+    // simulation running while nothing on screen draws it.
+    for (const auto& input : ctx.subsystem_draw_inputs) {
+        builder.read_write(builder.import("subsystem_draw_input", input.buffer.buffer,
+                                          input.buffer.size, input.buffer.persistent),
+                           ResourceAccess::storage_buffer_read_write_compute);
+    }
 }
 
 void SubsystemComputePass::record(const FrameContext& ctx) {
