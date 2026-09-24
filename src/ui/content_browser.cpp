@@ -1,4 +1,5 @@
 #include "ui/content_browser.hpp"
+#include "ui/kit/tree.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/dialog.hpp"
 #include "ui/kit/search.hpp"
@@ -427,74 +428,59 @@ void ContentBrowser::draw_breadcrumb() {
     ui::search_field("##search", search_);
 }
 
-void ContentBrowser::draw_directory_tree() {
-    if (root_.empty()) return;
-    draw_directory_tree_node(root_);
+namespace {
+
+// A folder's stored colour, which is sRGB like every editor colour.
+ImVec4 folder_tint(const glm::vec3& colour) {
+    return {colour.r, colour.g, colour.b, 1.0f};
 }
 
-void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) {
+} // namespace
+
+void ContentBrowser::draw_directory_tree() {
+    if (root_.empty()) return;
+    if (auto tree = ui::Tree("##folders")) draw_directory_tree_node(root_, 0);
+}
+
+void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir, int depth) {
     namespace fs = std::filesystem;
-    auto name = dir.filename().string();
-
-    bool is_current = (dir == current_dir_);
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (is_current) flags |= ImGuiTreeNodeFlags_Selected;
-    if (dir == root_) flags |= ImGuiTreeNodeFlags_DefaultOpen;
-
-    // Check if has subdirectories
-    bool has_subdirs = false;
-    if (fs::is_directory(dir)) {
-        for (const auto& entry : fs::directory_iterator(dir)) {
-            if (entry.is_directory() && !entry.path().filename().string().starts_with(".") &&
-                entry.path().filename() != "build") {
-                has_subdirs = true;
-                break;
-            }
-        }
+    // The folders under it, leaving out hidden ones and the build folder.
+    std::vector<fs::path> subdirs;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        if (!entry.is_directory()) continue;
+        const auto name = entry.path().filename().string();
+        if (name.starts_with(".") || name == "build") continue;
+        subdirs.push_back(entry.path());
     }
+    std::sort(subdirs.begin(), subdirs.end());
 
-    if (!has_subdirs) {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-
-    ImGui::PushID(dir.c_str());
-
-    if (icons_) {
-        draw_folder_icon(dir, 14.0f);
-        ImGui::SameLine(0, 4);
-    }
-
-    bool open = ImGui::TreeNodeEx(name.c_str(), flags);
-
-    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        navigate_to(dir);
-    }
+    // A folder the user coloured shows it; the rest are plain folders.
+    std::optional<ImVec4> tint;
+    if (auto colour = folder_colors_.find(dir)) tint = folder_tint(*colour);
+    const std::string id = dir.string();
+    const std::string name = dir.filename().string();
+    const auto row = ui::tree_row({.id = id.c_str(),
+                                   .name = name,
+                                   .depth = depth,
+                                   .has_children = !subdirs.empty(),
+                                   .icon = ui::icon::folder,
+                                   .category = theme::Category::Structure,
+                                   .tint = tint,
+                                   .selection = dir == current_dir_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+                                   .starts_open = dir == root_});
+    if (row.clicked) navigate_to(dir);
 
     // The project root is not a folder the user made, so it keeps its look.
-    if (dir != root_ && ImGui::BeginPopupContextItem("##FolderColor")) {
-        ImGui::TextDisabled("Folder Color");
-        ImGui::Separator();
+    if (dir != root_ && ImGui::BeginPopupContextItem("##folder_colour")) {
+        ui::menu_heading("Folder colour");
         draw_folder_color_menu(dir);
         ImGui::EndPopup();
     }
 
-    if (has_subdirs && open) {
-        std::vector<fs::path> subdirs;
-        for (const auto& entry : fs::directory_iterator(dir)) {
-            if (!entry.is_directory()) continue;
-            auto dname = entry.path().filename().string();
-            if (dname.starts_with(".") || dname == "build") continue;
-            subdirs.push_back(entry.path());
-        }
-        std::sort(subdirs.begin(), subdirs.end());
-
-        for (const auto& sub : subdirs) {
-            draw_directory_tree_node(sub);
-        }
-        ImGui::TreePop();
+    if (row.open) {
+        for (const auto& sub : subdirs) draw_directory_tree_node(sub, depth + 1);
     }
-
-    ImGui::PopID();
 }
 
 void ContentBrowser::draw_file_grid() {
@@ -1000,36 +986,6 @@ void ContentBrowser::draw_common_context_items(int index) {
 
 // ── Folder colours ───────────────────────────────────────────────────────
 
-namespace {
-
-// A folder's stored colour, which is sRGB like every editor colour.
-ImVec4 folder_tint(const glm::vec3& colour) {
-    return {colour.r, colour.g, colour.b, 1.0f};
-}
-
-} // namespace
-
-void ContentBrowser::draw_folder_icon(const std::filesystem::path& folder, float size) {
-    VkDescriptorSet desc = VK_NULL_HANDLE;
-    std::optional<ImVec4> tint;
-    if (icons_) {
-        // The plain icon is drawn in amber, which a tint could only darken;
-        // a coloured folder draws the white one instead.
-        if (auto color = folder_colors_.find(folder)) {
-            desc = icons_->icon("folder_tint");
-            if (desc) tint = folder_tint(*color);
-        }
-        if (!desc) desc = icons_->icon("folder");
-    }
-    if (desc && tint) {
-        ImGui::ImageWithBg(reinterpret_cast<ImTextureID>(desc), {size, size}, {0.0f, 0.0f}, {1.0f, 1.0f},
-                           ImVec4{}, *tint);
-    } else if (desc) {
-        ImGui::Image(reinterpret_cast<ImTextureID>(desc), {size, size});
-    } else {
-        ImGui::Dummy({size, size});
-    }
-}
 
 void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder) {
     auto current = folder_colors_.find(folder);

@@ -181,3 +181,18 @@ TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
     CHECK(sized == fjell::theme::TREE_ROW * 2.0f);
     CHECK(after == fjell::theme::TREE_ROW);
 }
+
+TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
+    ImGuiHarness h;
+    bool folded_open = true;
+    bool default_open = false;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##starts")) {
+            folded_open = ui::tree_row({.id = "folded", .name = "folded", .has_children = true, .starts_open = false}).open;
+            default_open = ui::tree_row({.id = "plain", .name = "plain", .has_children = true}).open;
+        }
+    });
+    h.step(2);
+    CHECK_FALSE(folded_open);
+    CHECK(default_open);
+}

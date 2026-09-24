@@ -68,15 +68,12 @@ private:
     void navigate_to(const std::filesystem::path& dir);
     void apply_pending_navigation();
     void draw_directory_tree();
-    void draw_directory_tree_node(const std::filesystem::path& dir);
+    void draw_directory_tree_node(const std::filesystem::path& dir, int depth);
     void draw_file_grid();
     void draw_breadcrumb();
     void draw_context_menu();
     void draw_create_new_submenu();
     void draw_common_context_items(int index);
-    // Draws the folder icon in the folder's colour, or the plain one when it
-    // has none.
-    void draw_folder_icon(const std::filesystem::path& folder, float size);
     // Swatches, a picker and Clear for one folder's colour; the caller owns
     // the popup or menu it sits in.
     void draw_folder_color_menu(const std::filesystem::path& folder);

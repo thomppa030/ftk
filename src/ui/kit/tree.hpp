@@ -76,6 +76,8 @@ struct TreeRowSpec {
     bool dimmed{false};
     /// Open whatever the user folded, while a search shows what is inside.
     bool force_open{false};
+    /// Whether the row is open before the user first folds or unfolds it.
+    bool starts_open{true};
     /// The owner's rename, drawn in this row when it holds `key`.
     RenameBox* rename{nullptr};
     std::uint32_t key{0};
