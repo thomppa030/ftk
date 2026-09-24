@@ -553,24 +553,6 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
     vkCmdDispatch(cmd, max_groups, 1, 1);
 }
 
-void MeshletInstancePass::insert_cull_barrier(VkCommandBuffer cmd) {
-    VkMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
-                            VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
-                            VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
-    barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
-                             VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
 PassSetup MeshletInstancePass::setup() const {
     return {
         .name = "meshlet_cull",
@@ -579,16 +561,57 @@ PassSetup MeshletInstancePass::setup() const {
     };
 }
 
+void MeshletInstancePass::collect_exports(DeclareContext& ctx) {
+    // This frame slot's cull results. The depth prepass and the colour pass
+    // draw from the visible instances and the indirect commands; the second
+    // cull appends to both, from the instances this one set aside.
+    const uint32_t slot = ctx.frame_index;
+    auto add = [&](std::string_view name, const std::unique_ptr<Buffer>& buffer) {
+        if (!buffer) { return; }
+        ctx.buffer_imports.emplace(fg_name_hash(name),
+                                   BufferImport{buffer->handle(), buffer->size(), false});
+    };
+    add("meshlet_visible", visible_buffers_[slot]);
+    add("meshlet_indirect", indirect_buffers_[slot]);
+    add("meshlet_culled", culled_buffers_[slot]);
+    add("meshlet_culled_count", culled_counters_[slot]);
+}
+
 void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto it = ctx.imports.find(fg_name_hash("hiz_pyramid"));
     if (it != ctx.imports.end()) {
         auto hiz = builder.import_named(ctx, "hiz_pyramid");
         builder.read(hiz, ResourceAccess::sampled_compute);
     }
-    // Writes the visible/indirect/culled SSBO chain consumed by the
-    // mesh-shader depth/color passes through the meshlet descriptor
-    // set — those accesses are outside the DAG.
-    builder.has_side_effects();
+
+    // The expansion never leaves this pass, but every viewport in the frame
+    // expands into the same slot's buffers, so declaring them orders this
+    // viewport's expand after the last one's cull read them. Counters are
+    // zeroed by a transfer before the dispatch counts into them.
+    const uint32_t slot = ctx.frame_index;
+    if (instance_buffers_[slot] && expand_counters_[slot]) {
+        auto instances = builder.import("meshlet_instances", instance_buffers_[slot]->handle(),
+                                        instance_buffers_[slot]->size());
+        builder.read_write(instances, ResourceAccess::storage_buffer_read_write_compute);
+        auto count = builder.import("meshlet_expand_count", expand_counters_[slot]->handle(),
+                                    expand_counters_[slot]->size());
+        builder.write(count, ResourceAccess::transfer_dst);
+        builder.read_write(count, ResourceAccess::storage_buffer_read_write_compute);
+    }
+
+    // What the draws read: visible instances appended by atomics, and the
+    // indirect commands, uploaded by a transfer and then counted into.
+    auto visible = builder.import_named_buffer(ctx, "meshlet_visible");
+    builder.read_write(visible, ResourceAccess::storage_buffer_read_write_compute);
+    auto indirect = builder.import_named_buffer(ctx, "meshlet_indirect");
+    builder.write(indirect, ResourceAccess::transfer_dst);
+    builder.read_write(indirect, ResourceAccess::storage_buffer_read_write_compute);
+    // What the Hi-Z rejected, for the second cull to test again.
+    auto culled = builder.import_named_buffer(ctx, "meshlet_culled");
+    builder.write(culled, ResourceAccess::storage_buffer_write_compute);
+    auto culled_count = builder.import_named_buffer(ctx, "meshlet_culled_count");
+    builder.write(culled_count, ResourceAccess::transfer_dst);
+    builder.read_write(culled_count, ResourceAccess::storage_buffer_read_write_compute);
 }
 
 void MeshletInstancePass::record(const FrameContext& ctx) {
@@ -649,7 +672,6 @@ void MeshletInstancePass::record(const FrameContext& ctx) {
         extent.width, extent.height,
         hiz_ready ? hiz_imgs->hiz_mip_count : 0);
 
-    insert_cull_barrier(cb);
     if (ctx.render_stats != nullptr) {
         ctx.render_stats->two_pass_occlusion = hiz_ready;
     }

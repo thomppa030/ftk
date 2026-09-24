@@ -33,8 +33,16 @@ void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) 
         auto hiz = builder.import_named(ctx, "hiz_pyramid");
         builder.read(hiz, ResourceAccess::sampled_compute);
     }
-    // Appends to the shared meshlet visible buffer.
-    builder.has_side_effects();
+    // Tests again what the first cull set aside, and appends what is now
+    // visible to the same instances and indirect commands.
+    builder.read(builder.import_named_buffer(ctx, "meshlet_culled"),
+                 ResourceAccess::storage_buffer_read_compute);
+    builder.read(builder.import_named_buffer(ctx, "meshlet_culled_count"),
+                 ResourceAccess::storage_buffer_read_compute);
+    builder.read_write(builder.import_named_buffer(ctx, "meshlet_visible"),
+                       ResourceAccess::storage_buffer_read_write_compute);
+    builder.read_write(builder.import_named_buffer(ctx, "meshlet_indirect"),
+                       ResourceAccess::storage_buffer_read_write_compute);
 }
 
 void MeshletCullPass2::record(const FrameContext& ctx) {
@@ -86,8 +94,6 @@ void MeshletCullPass2::record(const FrameContext& ctx) {
         hiz_imgs->hiz_sampled_view, hiz_sampler,
         extent.width, extent.height,
         hiz_imgs->hiz_mip_count);
-
-    instance_pass_->insert_cull_barrier(cb);
 }
 
 } // namespace fjell

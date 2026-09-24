@@ -123,6 +123,9 @@ struct BufferScope {
             return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
         case ResourceAccess::storage_buffer_read_fragment:
             return {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
+        case ResourceAccess::storage_buffer_read_mesh:
+            return {VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
         case ResourceAccess::indirect_read:
             return {VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT};
         case ResourceAccess::index_read:
@@ -784,7 +787,9 @@ VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
       | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT
       | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT
       | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
-      | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+      | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT
+      | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT
+      | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
 
     const VkPipelineStageFlags2 disallowed = stages & graphics_only;
     if (disallowed == 0) { return stages; }

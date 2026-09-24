@@ -30,6 +30,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
 
     // Legacy create — forwards to standard create
@@ -75,9 +76,6 @@ public:
                               VkImageView hiz_view, VkSampler hiz_sampler,
                               uint32_t viewport_width, uint32_t viewport_height,
                               uint32_t hiz_mip_count);
-
-    // Barrier: cull write → depth prepass / indirect draw read + task shader read
-    void insert_cull_barrier(VkCommandBuffer cmd);
 
     // Visible instances buffer for binding in meshlet descriptor (set 3 binding 5)
     [[nodiscard]] VkBuffer visible_buffer(uint32_t frame_index) const {

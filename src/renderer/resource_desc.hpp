@@ -42,6 +42,8 @@ enum class ResourceAccess : uint8_t {
     storage_buffer_read_compute,
     storage_buffer_read_vertex,
     storage_buffer_read_fragment,
+    /// Read by a task or mesh shader.
+    storage_buffer_read_mesh,
     indirect_read,
     index_read,
     vertex_read,

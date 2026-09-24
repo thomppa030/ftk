@@ -335,6 +335,13 @@ void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     const bool has_msaa = ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT;
     auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
     builder.write(depth, ResourceAccess::depth_attachment);
+    // On the mesh-shader path the prepass draws what the first meshlet cull
+    // found visible. Without mesh shaders nothing exports these, and the
+    // imports come back empty.
+    builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
+                 ResourceAccess::storage_buffer_read_mesh);
+    builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
+                 ResourceAccess::indirect_read);
 }
 
 } // namespace fjell
