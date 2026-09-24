@@ -1,6 +1,13 @@
 #include "ui/animation_editor_context.hpp"
 #include "ui/inspectors/collision_shape_fields.hpp"
 #include "ui/kit/row.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/dialog.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/text_field.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/feedback.hpp"
@@ -188,23 +195,21 @@ void AnimationEditorContext::draw(float dt) {
         open_add_notify_popup_ = false;
     }
     if (ImGui::BeginPopup("##AddNotify")) {
-        ImGui::SeparatorText("Add Notify");
+        ui::menu_heading("Add notify");
         AnimNotifyRegistry::instance().for_each([&](const std::string& name, const NotifyTypeInfo& info) {
-            const char* suffix = info.is_state ? " (state)" : "";
-            if (ImGui::MenuItem((name + suffix).c_str())) {
-                if (current_clip_) {
-                    AnimNotifyInstance ni;
-                    ni.time = pending_notify_time_;
-                    ni.type_name = name;
-                    ni.instance = info.create();
-                    if (info.is_state) {
-                        ni.end_time = std::min(pending_notify_time_ + 0.5f, current_clip_->duration());
-                    }
-                    current_clip_->notifies().push_back(std::move(ni));
-                    sync_markers_from_clip();
-                    selected_event_index_ = static_cast<int>(current_clip_->notifies().size()) - 1;
-                }
+            // A state notify lasts; the rest fire once.
+            const std::string label = info.is_state ? name + " (lasts)" : name;
+            if (!ui::menu_item({.label = label.c_str()}) || !current_clip_) return;
+            AnimNotifyInstance ni;
+            ni.time = pending_notify_time_;
+            ni.type_name = name;
+            ni.instance = info.create();
+            if (info.is_state) {
+                ni.end_time = std::min(pending_notify_time_ + 0.5f, current_clip_->duration());
             }
+            current_clip_->notifies().push_back(std::move(ni));
+            sync_markers_from_clip();
+            selected_event_index_ = static_cast<int>(current_clip_->notifies().size()) - 1;
         });
         ImGui::EndPopup();
     }
@@ -610,314 +615,326 @@ void AnimationEditorContext::draw_collider_panel() {
 }
 
 void AnimationEditorContext::draw_bone_tree() {
-    if (ImGui::Begin(ctx_title("Bones").c_str())) {
-        if (!skeleton_) {
-            ImGui::TextDisabled("No skeleton loaded");
+    auto panel = Panel(ui::icon::skeleton, ctx_title("Bones").c_str());
+    if (!panel) return;
+    if (!skeleton_) {
+        ui::empty_state(ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
+        return;
+    }
+    const auto& joints = skeleton_->joints();
+
+    // Build children list
+    std::vector<std::vector<int>> children(joints.size());
+    std::vector<int> roots;
+    for (int i = 0; i < static_cast<int>(joints.size()); ++i) {
+        if (joints[i].parent >= 0) {
+            children[joints[i].parent].push_back(i);
         } else {
-            const auto& joints = skeleton_->joints();
-
-            // Build children list
-            std::vector<std::vector<int>> children(joints.size());
-            std::vector<int> roots;
-            for (int i = 0; i < static_cast<int>(joints.size()); ++i) {
-                if (joints[i].parent >= 0) {
-                    children[joints[i].parent].push_back(i);
-                } else {
-                    roots.push_back(i);
-                }
-            }
-
-            std::function<void(int, int)> draw_joint = [&](int idx, int depth) {
-                const std::string id = std::to_string(idx);
-                const auto row = ui::tree_row({
-                    .id = id.c_str(),
-                    .name = joints[idx].name,
-                    .depth = depth,
-                    .has_children = !children[idx].empty(),
-                    .icon = ui::icon::skeleton,
-                    .category = theme::Category::Animation,
-                    .selection = idx == selected_bone_ ? ui::RowSelection::Primary : ui::RowSelection::None,
-                });
-                if (row.clicked) selected_bone_ = idx;
-                if (row.open) {
-                    for (int child : children[idx]) draw_joint(child, depth + 1);
-                }
-            };
-
-            if (auto tree = ui::Tree("##bones")) {
-                for (int root : roots) draw_joint(root, 0);
-            }
+            roots.push_back(i);
         }
     }
-    ImGui::End();
+
+    std::function<void(int, int)> draw_joint = [&](int idx, int depth) {
+        const std::string id = std::to_string(idx);
+        const auto row = ui::tree_row({
+            .id = id.c_str(),
+            .name = joints[idx].name,
+            .depth = depth,
+            .has_children = !children[idx].empty(),
+            .icon = ui::icon::skeleton,
+            .category = theme::Category::Animation,
+            .selection = idx == selected_bone_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+        });
+        if (row.clicked) selected_bone_ = idx;
+        if (row.open) {
+            for (int child : children[idx]) draw_joint(child, depth + 1);
+        }
+    };
+
+    if (auto tree = ui::Tree("##bones")) {
+        for (int root : roots) draw_joint(root, 0);
+    }
 }
 
 void AnimationEditorContext::draw_clip_list() {
-    if (ImGui::Begin(ctx_title("Clips").c_str())) {
-        if (available_clip_names_.empty()) {
-            ImGui::TextDisabled("No clips found");
-        } else {
-            for (int i = 0; i < static_cast<int>(available_clip_names_.size()); ++i) {
-                ImGui::PushID(i);
-                bool selected = (i == selected_clip_);
-                if (ImGui::Selectable(available_clip_names_[i].c_str(), selected)) {
-                    load_clip(i);
-                }
-                ImGui::PopID();
-            }
+    auto panel = Panel(ui::icon::animation, ctx_title("Clips").c_str());
+    if (!panel) return;
+    if (available_clip_names_.empty()) {
+        ui::empty_state(ui::icon::animation, "No clips", "Clips next to the skeleton or in the animset show here");
+        return;
+    }
+    if (auto tree = ui::Tree("##clips")) {
+        for (int i = 0; i < static_cast<int>(available_clip_names_.size()); ++i) {
+            const std::string id = std::to_string(i);
+            const auto row = ui::tree_row({
+                .id = id.c_str(),
+                .name = available_clip_names_[static_cast<size_t>(i)],
+                .icon = ui::icon::animation,
+                .category = theme::Category::Animation,
+                .selection = i == selected_clip_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+            });
+            if (row.clicked) load_clip(i);
         }
     }
-    ImGui::End();
 }
 
 void AnimationEditorContext::draw_properties() {
-    if (ImGui::Begin(ctx_title("Properties").c_str())) {
-        auto& states = state_machine_.states_mutable();
+    auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    if (!panel) return;
+    auto& states = state_machine_.states_mutable();
+    InspectorContext ictx{};
+    ictx.resource_manager = deps_.resource_manager;
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.icons = deps_.icon_cache;
 
-        // Skeleton assignment (always visible in animset mode)
-        if (!animset_path_.empty()) {
-            ImGui::SeparatorText("Skeleton");
-            auto skel = state_machine_.skeleton_path();
-            if (skel.empty()) {
-                ImGui::TextDisabled("None — drag .fjskel here");
-            } else {
-                auto filename = fs::path(skel).filename().string();
-                ImGui::Text("%s", filename.c_str());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Clear##skel")) {
-                    state_machine_.set_skeleton_path("");
-                }
-            }
-            if (ImGui::BeginDragDropTarget()) {
-                if (auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                    std::string path(static_cast<const char*>(payload->Data),
-                                     static_cast<size_t>(payload->DataSize - 1));
-                    if (path.ends_with(".fjskel")) {
-                        state_machine_.set_skeleton_path(path);
-                        open_skeleton(path);
+    // The animset's skeleton, always there while an animset is open.
+    if (!animset_path_.empty()) {
+        ui::section("Animset", ui::icon::animation);
+        if (auto t = ui::PropertyTable("##animset")) {
+            ui::row("Skeleton", "The skeleton the animset's clips are made for.", [&] {
+                static const std::string skel_exts[] = {".fjskel"};
+                std::string skel = state_machine_.skeleton_path();
+                if (asset_slot({.label = "Skeleton", .id = "##skeleton", .extensions = skel_exts, .ctx = &ictx}, skel)) {
+                    state_machine_.set_skeleton_path(skel);
+                    if (!skel.empty()) {
+                        open_skeleton(skel);
                         auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
                         load_animset_clips(resolved);
                     }
                 }
-                ImGui::EndDragDropTarget();
-            }
-            ImGui::Separator();
+            });
         }
+    }
 
-        // State node selected in graph
-        if (selected_state_node_ >= 0 &&
-            selected_state_node_ < static_cast<int>(state_nodes_.size())) {
-            int si = state_nodes_[selected_state_node_].state_index;
-            if (si >= 0 && si < static_cast<int>(states.size())) {
-                auto& state = states[si];
+    if (selected_state_node_ >= 0 && selected_state_node_ < static_cast<int>(state_nodes_.size())) {
+        const int si = state_nodes_[static_cast<size_t>(selected_state_node_)].state_index;
+        if (si >= 0 && si < static_cast<int>(states.size())) draw_state_properties(states[static_cast<size_t>(si)]);
+    } else if (selected_link_ >= 0 && selected_link_ < static_cast<int>(transition_links_.size())) {
+        draw_transition_properties();
+    } else if (skeleton_ && selected_bone_ >= 0 && selected_bone_ < static_cast<int>(skeleton_->joints().size())) {
+        const auto& joints = skeleton_->joints();
+        const auto& joint = joints[static_cast<size_t>(selected_bone_)];
+        ui::section("Bone", ui::icon::skeleton);
+        if (auto t = ui::PropertyTable("##bone")) {
+            char text[96];
+            ui::row("Name", [&] { ui::readout(joint.name.c_str()); });
+            std::snprintf(text, sizeof(text), "%d", selected_bone_);
+            ui::row("Index", [&] { ui::readout(text); });
+            const char* parent = joint.parent >= 0 ? joints[static_cast<size_t>(joint.parent)].name.c_str() : "None, a root";
+            ui::row("Parent", [&] { ui::readout(parent); });
+            std::snprintf(text, sizeof(text), "%.3f, %.3f, %.3f m", joint.translation.x, joint.translation.y,
+                          joint.translation.z);
+            ui::row("Rest position", [&] { ui::readout(text); });
+            std::snprintf(text, sizeof(text), "%.3f, %.3f, %.3f, %.3f", joint.rotation.x, joint.rotation.y,
+                          joint.rotation.z, joint.rotation.w);
+            ui::row("Rest rotation", "As a quaternion: x, y, z, w.", [&] { ui::readout(text); });
+            std::snprintf(text, sizeof(text), "%.3f, %.3f, %.3f", joint.scale.x, joint.scale.y, joint.scale.z);
+            ui::row("Rest scale", [&] { ui::readout(text); });
+        }
+    } else if (current_clip_) {
+        ui::section("Clip", ui::icon::animation);
+        if (auto t = ui::PropertyTable("##clip")) {
+            char text[64];
+            ui::row("Name", [&] { ui::readout(current_clip_->name().c_str()); });
+            std::snprintf(text, sizeof(text), "%.2f s", current_clip_->duration());
+            ui::row("Duration", [&] { ui::readout(text); });
+            std::snprintf(text, sizeof(text), "%d", static_cast<int>(current_clip_->tracks().size()));
+            ui::row("Tracks", "One per bone the clip moves.", [&] { ui::readout(text); });
+        }
+    } else if (animset_path_.empty()) {
+        ui::empty_state(ui::icon::nothing_selected, "Nothing selected", "Select a bone, a clip or a state");
+    }
 
-                ImGui::SeparatorText("State");
+    draw_notify_properties();
+}
 
-                // Name
-                char name_buf[128];
-                std::snprintf(name_buf, sizeof(name_buf), "%s", state.name.c_str());
-                if (ImGui::InputText("Name", name_buf, sizeof(name_buf),
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    std::string old_name = state.name;
-                    state.name = name_buf;
-                    if (state_machine_.initial_state_name() == old_name) {
-                        state_machine_.set_initial(state.name);
-                    }
-                    state_machine_.rebuild_index();
-                    // Update transition targets referencing old name
-                    for (auto& s : states) {
-                        for (auto& t : s.transitions) {
-                            if (t.target == old_name) t.target = state.name;
+void AnimationEditorContext::draw_state_properties(AnimationState& state) {
+    auto& states = state_machine_.states_mutable();
+    InspectorContext ictx{};
+    ictx.resource_manager = deps_.resource_manager;
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.icons = deps_.icon_cache;
+
+    ui::section("State", ui::icon::animation);
+    if (auto t = ui::PropertyTable("##state")) {
+        ui::row("Name", [&] {
+            std::string name = state.name;
+            if (!ui::text_field("##name", name).committed || name.empty() || name == state.name) return;
+            const std::string old_name = state.name;
+            state.name = name;
+            if (state_machine_.initial_state_name() == old_name) state_machine_.set_initial(state.name);
+            state_machine_.rebuild_index();
+            // Transitions follow the state they point at.
+            for (auto& s : states) {
+                for (auto& transition : s.transitions) {
+                    if (transition.target == old_name) transition.target = state.name;
+                }
+            }
+        });
+        // A state plays one clip or one blend space; picking one clears the other.
+        ui::row("Clip", [&] {
+            static const std::string clip_exts[] = {".fjanim"};
+            if (asset_slot({.label = "Clip", .id = "##clip", .extensions = clip_exts, .ctx = &ictx}, state.clip) &&
+                !state.clip.empty()) {
+                state.blend_space.clear();
+            }
+        });
+        ui::row("Blend space", [&] {
+            static const std::string blend_exts[] = {".fjblend1D", ".fjblend2D"};
+            if (asset_slot({.label = "Blend space", .id = "##blend_space", .extensions = blend_exts, .ctx = &ictx},
+                           state.blend_space) &&
+                !state.blend_space.empty()) {
+                state.clip.clear();
+            }
+        });
+        ui::row("Speed", [&] {
+            (void)ui::drag("##speed", state.speed, {.speed = 0.01f, .min = 0.0f, .max = 10.0f, .unit = ui::Unit::Times});
+        });
+        ui::row("Loop", [&] { (void)ui::checkbox("##loop", state.looping); });
+        const bool initial = state.name == state_machine_.initial_state_name();
+        ui::row("Initial", "The state the machine starts in.", [&] {
+            if (initial) {
+                ui::readout("This state");
+            } else if (ui::action(ui::icon::play, "Start here")) {
+                state_machine_.set_initial(state.name);
+            }
+        });
+    }
+}
+
+void AnimationEditorContext::draw_transition_properties() {
+    auto& states = state_machine_.states_mutable();
+    const auto& link = transition_links_[static_cast<size_t>(selected_link_)];
+    const int si = link.source_state;
+    const int ti = link.transition_index;
+    if (si < 0 || si >= static_cast<int>(states.size()) || ti < 0 ||
+        ti >= static_cast<int>(states[static_cast<size_t>(si)].transitions.size())) {
+        return;
+    }
+    auto& source = states[static_cast<size_t>(si)];
+    auto& trans = source.transitions[static_cast<size_t>(ti)];
+
+    ui::section("Transition", ui::icon::animation);
+    if (auto t = ui::PropertyTable("##transition")) {
+        ui::row("From", [&] { ui::readout(source.name.c_str()); });
+        ui::row("To", [&] { ui::readout(trans.target.c_str()); });
+        ui::row("Blend time", [&] {
+            (void)ui::drag("##blend_time", trans.blend_time,
+                           {.speed = 0.01f, .min = 0.0f, .max = 5.0f, .unit = ui::Unit::Seconds});
+        });
+    }
+
+    // The parameters a condition can test, by name.
+    std::vector<std::string> param_names;
+    for (const auto& [name, value] : state_machine_.params_mutable()) param_names.push_back(name);
+    std::sort(param_names.begin(), param_names.end());
+    static constexpr const char* OPS[] = {"==", "!=", "<", "<=", ">", ">="};
+
+    ui::subheading("Conditions");
+    std::optional<std::size_t> remove;
+    bool add = false;
+    {
+        ui::ListEditor list("##conditions", trans.conditions.size(), {.reorder = false, .opens = true});
+        for (std::size_t ci = 0; ci < trans.conditions.size(); ++ci) {
+            auto& cond = trans.conditions[ci];
+            const bool open = open_condition_ == static_cast<int>(ci);
+            if (!list.begin_item(ci, open)) continue;
+            if (open) {
+                if (auto t = ui::PropertyTable("##condition")) {
+                    ui::row("Parameter", [&] {
+                        std::vector<const char*> names;
+                        int index = -1;
+                        for (std::size_t p = 0; p < param_names.size(); ++p) {
+                            names.push_back(param_names[p].c_str());
+                            if (param_names[p] == cond.param) index = static_cast<int>(p);
                         }
-                    }
-                }
-
-                // Clip (drag-drop)
-                char clip_buf[256];
-                std::snprintf(clip_buf, sizeof(clip_buf), "%s", state.clip.c_str());
-                ImGui::InputText("Clip", clip_buf, sizeof(clip_buf));
-                if (ImGui::BeginDragDropTarget()) {
-                    if (auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                        state.clip = std::string(static_cast<const char*>(payload->Data),
-                                                 static_cast<size_t>(payload->DataSize - 1));
-                        state.blend_space.clear();
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-
-                // Blend space (drag-drop)
-                char bs_buf[256];
-                std::snprintf(bs_buf, sizeof(bs_buf), "%s", state.blend_space.c_str());
-                ImGui::InputText("Blend Space", bs_buf, sizeof(bs_buf));
-                if (ImGui::BeginDragDropTarget()) {
-                    if (auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                        state.blend_space = std::string(static_cast<const char*>(payload->Data),
-                                                        static_cast<size_t>(payload->DataSize - 1));
-                        state.clip.clear();
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-
-                ImGui::DragFloat("Speed", &state.speed, 0.01f, 0.0f, 10.0f);
-                ImGui::Checkbox("Loop", &state.looping);
-
-                bool is_initial = (state.name == state_machine_.initial_state_name());
-                if (!is_initial && ImGui::Button("Set as Initial")) {
-                    state_machine_.set_initial(state.name);
-                }
-            }
-        }
-        // Transition link selected
-        else if (selected_link_ >= 0 &&
-                 selected_link_ < static_cast<int>(transition_links_.size())) {
-            auto& link = transition_links_[selected_link_];
-            int si = link.source_state;
-            int ti = link.transition_index;
-            if (si >= 0 && si < static_cast<int>(states.size()) &&
-                ti >= 0 && ti < static_cast<int>(states[si].transitions.size())) {
-                auto& trans = states[si].transitions[ti];
-
-                ImGui::SeparatorText("Transition");
-                ImGui::Text("From: %s", states[si].name.c_str());
-                ImGui::Text("To: %s", trans.target.c_str());
-                ImGui::DragFloat("Blend Time", &trans.blend_time, 0.01f, 0.0f, 5.0f);
-
-                ImGui::Separator();
-                ImGui::Text("Conditions:");
-
-                // Collect param names for combo
-                auto& params = state_machine_.params_mutable();
-                std::vector<std::string> param_names;
-                for (const auto& [name, _] : params) {
-                    param_names.push_back(name);
-                }
-                std::sort(param_names.begin(), param_names.end());
-
-                static const char* op_names[] = {"==", "!=", "<", "<=", ">", ">="};
-
-                int remove_idx = -1;
-                for (int ci = 0; ci < static_cast<int>(trans.conditions.size()); ++ci) {
-                    auto& cond = trans.conditions[ci];
-                    ImGui::PushID(ci);
-
-                    // Param combo
-                    ImGui::SetNextItemWidth(100.0f);
-                    if (ImGui::BeginCombo("##param", cond.param.c_str())) {
-                        for (const auto& pn : param_names) {
-                            if (ImGui::Selectable(pn.c_str(), pn == cond.param)) {
-                                cond.param = pn;
-                            }
+                        if (names.empty()) {
+                            ui::readout("No parameters yet");
+                            return;
                         }
-                        ImGui::EndCombo();
-                    }
-
-                    // Op combo
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(50.0f);
-                    int op_idx = static_cast<int>(cond.op);
-                    if (ImGui::Combo("##op", &op_idx, op_names, 6)) {
-                        cond.op = static_cast<CompareOp>(op_idx);
-                    }
-
-                    // Value
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(80.0f);
-                    ImGui::DragFloat("##val", &cond.value, 0.01f);
-
-                    // Remove
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("X")) {
-                        remove_idx = ci;
-                    }
-
-                    ImGui::PopID();
+                        if (index < 0) index = 0;
+                        if (ui::choice("##param", index, names).changed) {
+                            cond.param = param_names[static_cast<size_t>(index)];
+                        }
+                    });
+                    ui::row("Is", [&] {
+                        int op = static_cast<int>(cond.op);
+                        if (ui::choice("##op", op, OPS).changed) cond.op = static_cast<CompareOp>(op);
+                    });
+                    ui::row("Value", [&] { (void)ui::drag("##value", cond.value, {.speed = 0.01f}); });
                 }
-
-                if (remove_idx >= 0) {
-                    trans.conditions.erase(trans.conditions.begin() + remove_idx);
-                }
-
-                if (ImGui::Button("Add Condition")) {
-                    TransitionCondition cond;
-                    if (!param_names.empty()) cond.param = param_names[0];
-                    trans.conditions.push_back(std::move(cond));
-                }
+            } else {
+                char summary[160];
+                std::snprintf(summary, sizeof(summary), "%s %s %.2f", cond.param.empty() ? "?" : cond.param.c_str(),
+                              OPS[static_cast<int>(cond.op)], cond.value);
+                ImGui::TextUnformatted(summary);
             }
+            if (list.end_item()) remove = ci;
+            if (list.clicked()) open_condition_ = open ? -1 : static_cast<int>(ci);
         }
-        // Bone selected
-        else if (skeleton_ && selected_bone_ >= 0 &&
-                 selected_bone_ < static_cast<int>(skeleton_->joints().size())) {
-            const auto& joint = skeleton_->joints()[selected_bone_];
-            ImGui::Text("Bone: %s", joint.name.c_str());
-            ImGui::Text("Index: %d", selected_bone_);
-            ImGui::Text("Parent: %d", joint.parent);
-            ImGui::Separator();
-            ImGui::Text("Rest Pose:");
-            ImGui::Text("  T: %.3f, %.3f, %.3f",
-                joint.translation.x, joint.translation.y, joint.translation.z);
-            ImGui::Text("  R: %.3f, %.3f, %.3f, %.3f",
-                joint.rotation.x, joint.rotation.y, joint.rotation.z, joint.rotation.w);
-            ImGui::Text("  S: %.3f, %.3f, %.3f",
-                joint.scale.x, joint.scale.y, joint.scale.z);
-        } else if (current_clip_) {
-            ImGui::Text("Clip: %s", current_clip_->name().c_str());
-            ImGui::Text("Duration: %.2fs", current_clip_->duration());
-            ImGui::Text("Tracks: %d", static_cast<int>(current_clip_->tracks().size()));
-        } else {
-            ImGui::TextDisabled("No selection");
-        }
+        if (trans.conditions.empty()) list.empty("No conditions: the transition is taken as soon as it can be");
+        add = list.add_button("Add condition");
+    }
+    if (add) {
+        TransitionCondition cond;
+        if (!param_names.empty()) cond.param = param_names.front();
+        trans.conditions.push_back(std::move(cond));
+        open_condition_ = static_cast<int>(trans.conditions.size()) - 1;
+    }
+    if (remove) {
+        trans.conditions.erase(trans.conditions.begin() + static_cast<std::ptrdiff_t>(*remove));
+        if (open_condition_ == static_cast<int>(*remove)) open_condition_ = -1;
+        else if (open_condition_ > static_cast<int>(*remove)) --open_condition_;
+    }
+}
 
-        // Notify editing (when a clip is loaded and a notify marker is selected)
-        if (current_clip_ && selected_event_index_ >= 0 &&
-            selected_event_index_ < static_cast<int>(current_clip_->notifies().size())) {
-            auto& ni = current_clip_->notifies()[selected_event_index_];
+void AnimationEditorContext::draw_notify_properties() {
+    if (!current_clip_ || selected_event_index_ < 0 ||
+        selected_event_index_ >= static_cast<int>(current_clip_->notifies().size())) {
+        return;
+    }
+    auto& ni = current_clip_->notifies()[static_cast<size_t>(selected_event_index_)];
 
-            ImGui::Separator();
-            ImGui::SeparatorText("Notify");
-
-            // Type
-            ImGui::TextDisabled("Type: %s", ni.type_name.c_str());
-
-            // Time
-            float t = ni.time;
-            if (ImGui::DragFloat("Time", &t, 0.001f, 0.0f, current_clip_->duration(), "%.3fs")) {
-                ni.time = t;
+    ui::section("Notify", ui::icon::animation);
+    if (auto t = ui::PropertyTable("##notify")) {
+        ui::row("Type", [&] { ui::readout(ni.type_name.c_str()); });
+        ui::row("Time", [&] {
+            if (ui::drag("##time", ni.time, {.speed = 0.001f, .min = 0.0f, .max = current_clip_->duration(),
+                                             .unit = ui::Unit::Seconds, .format = "%.3f"}).changed) {
                 sync_markers_from_clip();
             }
-
-            // End time (for state notifies)
-            if (ni.end_time > 0.0f || (ni.instance && ni.instance->is_state())) {
-                float et = ni.end_time;
-                if (ImGui::DragFloat("End Time", &et, 0.001f, ni.time, current_clip_->duration(), "%.3fs")) {
-                    ni.end_time = et;
+        });
+        // A state notify lasts from its time to its end.
+        if (ni.end_time > 0.0f || (ni.instance && ni.instance->is_state())) {
+            ui::row("End time", [&] {
+                if (ui::drag("##end_time", ni.end_time, {.speed = 0.001f, .min = ni.time, .max = current_clip_->duration(),
+                                                         .unit = ui::Unit::Seconds, .format = "%.3f"}).changed) {
                     sync_markers_from_clip();
                 }
-            }
-
-            // Reflected fields (if instance exists and type is registered)
-            if (ni.instance) {
-                const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
-                if (info && !info->fields.empty()) {
-                    ImGui::SeparatorText("Properties");
-                    InspectorContext ictx{};
-                    ictx.resource_manager = deps_.resource_manager;
-                    ictx.project_mgr = deps_.project_mgr;
-                    ictx.icons = deps_.icon_cache;
-                    (void)draw_script_fields(info->fields, ni.instance.get(), ictx, nullptr);
-                }
-            }
-
-            // Delete notify button
-            ImGui::Spacing();
-            if (ImGui::Button("Delete Notify")) {
-                current_clip_->notifies().erase(
-                    current_clip_->notifies().begin() + selected_event_index_);
+            });
+        }
+        ui::row("", [&] {
+            if (ui::action(ui::icon::remove, "Delete notify", ui::ButtonKind::GhostDanger)) {
+                current_clip_->notifies().erase(current_clip_->notifies().begin() + selected_event_index_);
                 selected_event_index_ = -1;
                 sync_markers_from_clip();
             }
+        });
+    }
+    if (selected_event_index_ < 0) return;
+
+    // The notify type's own fields, when it has any.
+    if (ni.instance) {
+        const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
+        if (info && !info->fields.empty()) {
+            ui::subheading("Its fields");
+            InspectorContext ictx{};
+            ictx.resource_manager = deps_.resource_manager;
+            ictx.project_mgr = deps_.project_mgr;
+            ictx.icons = deps_.icon_cache;
+            (void)draw_script_fields(info->fields, ni.instance.get(), ictx, nullptr);
         }
     }
-    ImGui::End();
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────
@@ -1117,16 +1134,15 @@ void AnimationEditorContext::build_graph_from_state_machine() {
 }
 
 void AnimationEditorContext::draw_state_graph() {
-    if (ImGui::Begin(ctx_title("State graph").c_str())) {
+    if (auto panel = Panel(ui::icon::animation, ctx_title("State graph").c_str())) {
         if (state_machine_.states().empty() && animset_path_.empty()) {
-            ImGui::TextDisabled("No state machine loaded");
-            ImGui::End();
+            ui::empty_state(ui::icon::animation, "No state machine", "Open an animset to edit its states");
             return;
         }
 
         // Context menu (right-click on empty space)
         if (ImGui::BeginPopupContextWindow("##state_graph_ctx")) {
-            if (ImGui::MenuItem("Add State")) {
+            if (ui::menu_item({.icon = ui::icon::add, .label = "Add state"})) {
                 AnimationState new_state;
                 new_state.name = "State_" + std::to_string(state_machine_.states().size());
                 state_machine_.add_state(std::move(new_state));
@@ -1327,72 +1343,64 @@ void AnimationEditorContext::draw_state_graph() {
 
         ImNodes::SetCurrentContext(prev_ctx);
     }
-    ImGui::End();
 }
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_parameters() {
-    if (ImGui::Begin(ctx_title("Parameters").c_str())) {
-        if (animset_path_.empty()) {
-            ImGui::TextDisabled("No state machine loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::properties, ctx_title("Parameters").c_str());
+    if (!panel) return;
+    if (animset_path_.empty()) {
+        ui::empty_state(ui::icon::animation, "No state machine", "Parameters belong to an animset");
+        return;
+    }
+    auto& params = state_machine_.params_mutable();
 
-        auto& params = state_machine_.params_mutable();
+    // Sorted by name for a stable list.
+    std::vector<std::string> names;
+    names.reserve(params.size());
+    for (const auto& [name, value] : params) names.push_back(name);
+    std::sort(names.begin(), names.end());
 
-        // Add parameter
-        ImGui::SetNextItemWidth(120.0f);
-        ImGui::InputText("##new_param", new_param_name_, sizeof(new_param_name_));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Add") && new_param_name_[0] != '\0') {
-            std::string name(new_param_name_);
-            if (params.find(name) == params.end()) {
-                params[name] = 0.0f;
-                new_param_name_[0] = '\0';
+    std::optional<std::string> remove;
+    bool add = false;
+    {
+        ui::ListEditor list("##params", names.size(), {.reorder = false});
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            if (!list.begin_item(i)) continue;
+            if (auto t = ui::PropertyTable("##param")) {
+                ui::row(names[i].c_str(), [&] { (void)ui::slider("##value", params[names[i]], -10.0f, 10.0f); });
             }
+            if (list.end_item()) remove = names[i];
         }
+        if (names.empty()) list.empty("No parameters: transitions test these, and the game sets them");
+        add = list.add_button("Add parameter");
+    }
+    if (add) {
+        param_prompt_.clear();
+        ui::open_dialog("##add_param");
+    }
+    if (remove) params.erase(*remove);
+    if (ui::prompt_dialog("##add_param", {.title = "New parameter", .hint = "Its name, e.g. speed", .confirm = "Add"},
+                          param_prompt_) == ui::DialogAnswer::Confirm &&
+        !params.contains(param_prompt_)) {
+        params[param_prompt_] = 0.0f;
+    }
 
-        ImGui::Separator();
-
-        // Sort param names for stable display
-        std::vector<std::string> names;
-        names.reserve(params.size());
-        for (const auto& [name, _] : params) {
-            names.push_back(name);
-        }
-        std::sort(names.begin(), names.end());
-
-        std::string remove_name;
-        for (const auto& name : names) {
-            ImGui::PushID(name.c_str());
-            float& val = params[name];
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f);
-            ImGui::SliderFloat(name.c_str(), &val, -10.0f, 10.0f);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X")) {
-                remove_name = name;
-            }
-            ImGui::PopID();
-        }
-
-        if (!remove_name.empty()) {
-            params.erase(remove_name);
-        }
-
-        // State machine status
-        if (!state_machine_.states().empty()) {
-            ImGui::Separator();
-            ImGui::TextDisabled("State: %s", state_machine_.current_state_name().c_str());
+    // Where the preview's machine is.
+    if (!state_machine_.states().empty()) {
+        ui::section("Now", ui::icon::play);
+        if (auto t = ui::PropertyTable("##now")) {
+            ui::row("State", [&] { ui::readout(state_machine_.current_state_name().c_str()); });
             if (state_machine_.is_transitioning()) {
-                ImGui::TextDisabled("-> %s (%.0f%%)",
-                    state_machine_.next_state() ? state_machine_.next_state()->name.c_str() : "?",
-                    state_machine_.crossfade_alpha() * 100.0f);
+                char text[160];
+                std::snprintf(text, sizeof(text), "%s, %.0f%%",
+                              state_machine_.next_state() ? state_machine_.next_state()->name.c_str() : "?",
+                              state_machine_.crossfade_alpha() * 100.0f);
+                ui::row("Blending to", [&] { ui::readout(text); });
             }
         }
     }
-    ImGui::End();
 }
 
 // ── Sync preview ────────────────────────────────────────────────────────

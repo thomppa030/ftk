@@ -102,6 +102,9 @@ private:
     void add_bone_collider(CollisionPrimitiveKind kind, bool fit_to_bone);
     void draw_clip_list();
     void draw_properties();
+    void draw_state_properties(AnimationState& state);
+    void draw_transition_properties();
+    void draw_notify_properties();
     void draw_state_graph();
     void draw_parameters();
     void scan_clips();
@@ -157,7 +160,8 @@ private:
     int selected_link_{-1};
 
     // Parameter editing
-    char new_param_name_[64]{};
+    std::string param_prompt_;  // the name the Add parameter dialog asks for
+    int open_condition_{-1};    // the condition card showing its fields
 
     // Add Notify popup
     float pending_notify_time_{0.0f};
