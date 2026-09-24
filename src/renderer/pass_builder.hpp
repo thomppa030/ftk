@@ -41,6 +41,13 @@ struct BufferImport {
     bool persistent{false};
 };
 
+/// A buffer a render subsystem's compute step writes and its draws then
+/// read, with how the draws read it.
+struct SubsystemDrawInput {
+    BufferImport buffer;
+    ResourceAccess draw_access{ResourceAccess::storage_buffer_read_vertex};
+};
+
 /// FNV-1a over a string_view. Used to key the DeclareContext::imports
 /// catalog and PassBuilder transient names by a cheap 64-bit hash
 /// instead of std::string — declare() is a hot per-frame path that
@@ -115,6 +122,13 @@ struct DeclareContext {
     /// same way. A buffer both a producer and its consumers declare is what
     /// gives the graph the edge between them and the barrier on it.
     std::unordered_map<uint64_t, BufferImport> buffer_imports;
+
+    /// What the render subsystems' compute step (particle simulation)
+    /// writes for their own draws. The subsystems are pluggable, so the
+    /// passes that call their draw hooks cannot name these buffers; they
+    /// declare reads on the whole list, and the subsystem compute pass
+    /// declares the writes.
+    std::vector<SubsystemDrawInput> subsystem_draw_inputs;
 };
 
 /// Records a pass's imported/created resources and its accesses against
