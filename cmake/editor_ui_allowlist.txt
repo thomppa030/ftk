@@ -20,7 +20,6 @@ src/ui/input_mapping_editor_context.cpp
 src/ui/panel_widget.hpp
 src/ui/project_settings_panel.cpp
 src/ui/scene_editor_context.cpp
-src/ui/stats_panel.cpp
 src/ui/status_bar.hpp
 src/ui/timeline_widget.cpp
 src/ui/track_timeline_editor.cpp

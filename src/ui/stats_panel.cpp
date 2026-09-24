@@ -1,13 +1,17 @@
 #include "ui/stats_panel.hpp"
-#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "ui/icon_cache.hpp"
-#include "ui/icons_lc.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
 #include "ui/panel_widget.hpp"
 
 #include <imgui.h>
+
+#include <format>
+#include <string>
 
 namespace fjell {
 
@@ -17,30 +21,14 @@ double bytes_to_mib(uint64_t bytes) {
     return static_cast<double>(bytes) / (1024.0 * 1024.0);
 }
 
-float reduction_pct(uint32_t logical, uint32_t physical) {
-    if (logical == 0) { return 0.0F; }
-    return 100.0F * (1.0F - (static_cast<float>(physical)
-                              / static_cast<float>(logical)));
+double reduction_pct(uint32_t logical, uint32_t physical) {
+    if (logical == 0) { return 0.0; }
+    return 100.0 * (1.0 - (static_cast<double>(physical) / static_cast<double>(logical)));
 }
 
-// Two-column metric row: label on the left, value on the right. Stretches
-// with the panel width and keeps values lined up regardless of label length.
-void metric_row(const char* label, const char* value_fmt, ...) {
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::TextUnformatted(label);
-    ImGui::TableSetColumnIndex(1);
-    va_list args;
-    va_start(args, value_fmt);
-    ImGui::TextV(value_fmt, args);
-    va_end(args);
-}
-
-// Begin a two-column key/value table. Caller must ImGui::EndTable() if the
-// returned bool is true.
-bool begin_metric_table(const char* id) {
-    return ImGui::BeginTable(id, 2,
-        ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoBordersInBody);
+// One measurement: its name in the label column, the value read out beside it.
+void metric(const char* label, const std::string& value) {
+    ui::row(label, [&] { ui::readout(value.c_str()); });
 }
 
 } // namespace
@@ -63,25 +51,22 @@ void StatsPanel::draw(float dt, const char* title) {
     frame_time_history_[frame_time_index_] = dt * 1000.0F;
     frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
 
-    if (auto p = Panel(ICON_LC_GAUGE, title)) {
+    if (auto p = Panel(ui::icon::stats, title)) {
         draw_header();
         draw_rendering_section();
         draw_frame_graph_section();
-        draw_shader_errors_section();
     }
 }
 
 void StatsPanel::draw_header() {
-    // Always-visible at-a-glance: FPS, frame time, frame-time graph. These
-    // stay outside any collapsing header so they're useful even at a glance.
-    if (begin_metric_table("##stats_header")) {
-        metric_row("FPS",        "%.0f",     static_cast<double>(fps_));
-        metric_row("Frame",      "%.2f ms",  static_cast<double>(frame_time_));
-        metric_row("GPU",        "%s",       ctx_->gpu_name().c_str());
+    // Always visible, outside any section: the numbers worth a glance.
+    if (auto t = ui::PropertyTable("##stats_header")) {
+        metric("FPS", std::format("{:.0f}", fps_));
+        metric("Frame", std::format("{:.2f} ms", frame_time_));
+        metric("GPU", ctx_->gpu_name());
 #ifdef FJELL_ENABLE_TRACY
-        metric_row("Profiler",   "Tracy");
+        metric("Profiler", "Tracy");
 #endif
-        ImGui::EndTable();
     }
 
     ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
@@ -91,100 +76,62 @@ void StatsPanel::draw_header() {
 }
 
 void StatsPanel::draw_rendering_section() {
-    if (!ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
-    }
+    if (!ui::section_foldable("Rendering", ui::icon::rendering)) { return; }
 
     const auto& stats = ctx_->render_stats();
-
-    if (begin_metric_table("##rendering_metrics")) {
-        metric_row("Draw calls",  "%u", stats.draw_calls);
-        metric_row("Triangles",   "%u", stats.triangle_count);
-        metric_row("Objects",     "%u / %u culled",
-                   stats.objects_total - stats.objects_culled,
-                   stats.objects_culled);
-        metric_row("MSAA",        "%ux",
-                   static_cast<uint32_t>(ctx_->msaa_samples()));
-
-        metric_row("Meshlets",  "%u", stats.meshlets_dispatched);
+    if (auto t = ui::PropertyTable("##rendering_metrics")) {
+        metric("Draw calls", std::to_string(stats.draw_calls));
+        metric("Triangles", std::to_string(stats.triangle_count));
+        metric("Objects", std::format("{} / {} culled",
+                                      stats.objects_total - stats.objects_culled,
+                                      stats.objects_culled));
+        metric("MSAA", std::format("{}x", static_cast<uint32_t>(ctx_->msaa_samples())));
+        metric("Meshlets", std::to_string(stats.meshlets_dispatched));
         if (stats.two_pass_occlusion) {
-            metric_row("Occlusion", "2-Pass");
+            metric("Occlusion", "2-pass");
         }
-        if (stats.lod1_draws > 0 || stats.lod2_draws > 0
-            || stats.distance_culled > 0) {
-            metric_row("LOD draws", "%u / %u / %u (D: %u)",
-                       stats.lod0_draws, stats.lod1_draws,
-                       stats.lod2_draws, stats.distance_culled);
+        if (stats.lod1_draws > 0 || stats.lod2_draws > 0 || stats.distance_culled > 0) {
+            metric("LOD draws", std::format("{} / {} / {} (D: {})",
+                                            stats.lod0_draws, stats.lod1_draws,
+                                            stats.lod2_draws, stats.distance_culled));
         }
         if (stats.tlas_instances > 0) {
-            metric_row("TLAS", "%u instances, %u off screen",
-                       stats.tlas_instances, stats.gi_only_draws);
+            metric("TLAS", std::format("{} instances, {} off screen",
+                                       stats.tlas_instances, stats.gi_only_draws));
         }
-        ImGui::EndTable();
     }
 }
 
 void StatsPanel::draw_frame_graph_section() {
-    if (!ImGui::CollapsingHeader("Frame Graph")) { return; }
+    if (!ui::section_foldable("Frame graph", ui::icon::frame_graph, false)) { return; }
 
     auto& pipeline = ctx_->render_pipeline();
     const auto& a = pipeline.aliasing_stats();
 
-    bool aliasing = pipeline.aliasing_enabled();
-    if (ImGui::Checkbox("Aliasing enabled", &aliasing)) {
-        pipeline.set_aliasing_enabled(aliasing);
+    if (auto t = ui::PropertyTable("##fg_live")) {
+        ui::row("Aliasing", [&] {
+            bool aliasing = pipeline.aliasing_enabled();
+            if (ui::checkbox("##aliasing", aliasing).changed) {
+                pipeline.set_aliasing_enabled(aliasing);
+            }
+        });
+        metric("Logical -> physical", std::format("{} -> {} ({:.1f}%)",
+                                                  a.logical_count, a.physical_count,
+                                                  reduction_pct(a.logical_count, a.physical_count)));
+        metric("Live images", std::to_string(a.live_images));
+        metric("Live VRAM", std::format("{:.2f} MiB", bytes_to_mib(a.live_bytes)));
+        metric("Acquires", std::format("{} / frame", a.acquires));
+        metric("Allocations", std::format("{} / frame", a.allocations));
     }
 
-    if (begin_metric_table("##fg_live")) {
-        metric_row("Logical -> Physical", "%u -> %u (%.1f%%)",
-                   a.logical_count, a.physical_count,
-                   static_cast<double>(reduction_pct(a.logical_count,
-                                                     a.physical_count)));
-        metric_row("Live images",   "%u", a.live_images);
-        metric_row("Live VRAM",     "%.2f MiB", bytes_to_mib(a.live_bytes));
-        metric_row("Acquires",      "%u / frame", a.acquires);
-        metric_row("Allocations",   "%u / frame", a.allocations);
-        ImGui::EndTable();
-    }
-
-    ImGui::Spacing();
-    ImGui::TextDisabled("Peak since startup");
-
-    if (begin_metric_table("##fg_peak")) {
-        metric_row("Logical -> Physical", "%u -> %u (%.1f%%)",
-                   pipeline.peak_logical(), pipeline.peak_physical(),
-                   static_cast<double>(reduction_pct(pipeline.peak_logical(),
-                                                     pipeline.peak_physical())));
-        metric_row("Live VRAM",  "%.2f MiB",
-                   bytes_to_mib(pipeline.peak_live_bytes()));
-        metric_row("Saved",      "~%.2f MiB",
-                   bytes_to_mib(pipeline.peak_bytes_saved()));
-        ImGui::EndTable();
-    }
-}
-
-void StatsPanel::draw_shader_errors_section() {
-    auto* cache = ctx_->pipeline_cache();
-    if (cache == nullptr) { return; }
-
-    bool any_error = false;
-    for (uint32_t i = 0; i < cache->shader_count(); ++i) {
-        if (cache->has_compile_error(i)) { any_error = true; break; }
-    }
-    if (!any_error) { return; }
-
-    if (!ImGui::CollapsingHeader("Shader errors",
-                                 ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
-    }
-
-    for (uint32_t i = 0; i < cache->shader_count(); ++i) {
-        if (!cache->has_compile_error(i)) { continue; }
-        ImGui::PushStyleColor(ImGuiCol_Text, {0.9F, 0.3F, 0.3F, 1.0F});
-        ImGui::TextWrapped("[%s] %s",
-            cache->shader_path(i).c_str(),
-            cache->compile_error(i).c_str());
-        ImGui::PopStyleColor();
+    ui::subheading("Peak since startup");
+    if (auto t = ui::PropertyTable("##fg_peak")) {
+        metric("Logical -> physical", std::format("{} -> {} ({:.1f}%)",
+                                                  pipeline.peak_logical(), pipeline.peak_physical(),
+                                                  reduction_pct(pipeline.peak_logical(),
+                                                                pipeline.peak_physical())));
+        metric("Live VRAM", std::format("{:.2f} MiB", bytes_to_mib(pipeline.peak_live_bytes())));
+        metric("Saved", std::format("~{:.2f} MiB", bytes_to_mib(pipeline.peak_bytes_saved())));
     }
 }
 

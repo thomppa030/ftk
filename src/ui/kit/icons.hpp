@@ -40,6 +40,9 @@ inline constexpr const char* source            = ICON_LC_LINK;
 inline constexpr const char* snap              = ICON_LC_MAGNET;
 inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
 inline constexpr const char* console           = ICON_LC_TERMINAL;
+inline constexpr const char* stats             = ICON_LC_GAUGE;
+inline constexpr const char* rendering         = ICON_LC_MONITOR;
+inline constexpr const char* frame_graph       = ICON_LC_WORKFLOW;
 
 // Kinds of asset (ui/kit/asset_kind.hpp says which file is which)
 inline constexpr const char* mesh         = ICON_LC_BOX;
