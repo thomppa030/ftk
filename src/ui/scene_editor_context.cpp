@@ -69,6 +69,7 @@
 #include <limits>
 
 #include <filesystem>
+#include <format>
 
 namespace fjell {
 
@@ -1105,12 +1106,12 @@ void SceneEditorContext::draw_play_overlay() {
         draw_play_pill({viewport->WorkPos.x, viewport->WorkPos.y},
                        {viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y});
 
-        // FPS overlay: top-right corner, updates every 0.5s. Kept as an ImGui
-        // draw instead of a {fps} game-UI binding so the player-facing HUD
-        // doesn't rebuild its layout twice per second just to show a dev stat.
+        // The frame time, top right in the mono face, averaged over half a
+        // second. Kept as an ImGui draw instead of a {fps} game-UI binding so
+        // the player-facing HUD doesn't rebuild its layout twice a second
+        // just to show a dev stat.
         {
-            double dt = ImGui::GetIO().DeltaTime;
-            play_fps_accum_s_ += dt;
+            play_fps_accum_s_ += ImGui::GetIO().DeltaTime;
             ++play_fps_count_;
             if (play_fps_accum_s_ >= 0.5) {
                 play_fps_value_ = static_cast<float>(
@@ -1118,24 +1119,17 @@ void SceneEditorContext::draw_play_overlay() {
                 play_fps_accum_s_ = 0.0;
                 play_fps_count_ = 0;
             }
-
-            float fps_w = 96.0f;
-            float fps_h = 28.0f;
-            float fps_x = viewport->WorkPos.x + viewport->WorkSize.x - fps_w - 8.0f;
-            float fps_y = viewport->WorkPos.y + 8.0f;
-            ImGui::SetNextWindowPos({fps_x, fps_y});
-            ImGui::SetNextWindowSize({fps_w, fps_h});
-            ImGui::SetNextWindowBgAlpha(0.6f);
-            ImGui::Begin("##PlayFps", nullptr,
-                         ImGuiWindowFlags_NoTitleBar |
-                         ImGuiWindowFlags_NoResize |
-                         ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_NoScrollbar |
-                         ImGuiWindowFlags_NoDocking |
-                         ImGuiWindowFlags_NoFocusOnAppearing |
-                         ImGuiWindowFlags_NoInputs);
-            ImGui::Text("FPS: %.0f", play_fps_value_);
-            ImGui::End();
+            if (play_fps_value_ > 0.0f) {
+                const std::string frame_time =
+                    std::format("{:.1f} ms \xc2\xb7 {:.0f} fps", 1000.0f / play_fps_value_, play_fps_value_);
+                const ui::OverlayPiece line[] = {{frame_time}};
+                ImGui::PushFont(theme::mono_font(), 0.0f);
+                ui::corner_note(ImGui::GetWindowDrawList(),
+                                {viewport->WorkPos.x + viewport->WorkSize.x - ui::OVERLAY_INSET,
+                                 viewport->WorkPos.y + ui::OVERLAY_INSET},
+                                ui::Corner::TopRight, {.line = line, .ink = theme::text()});
+                ImGui::PopFont();
+            }
         }
 
         // Script-submitted debug text, over the whole play view. Still inside
