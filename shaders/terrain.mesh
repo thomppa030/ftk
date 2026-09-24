@@ -3,15 +3,11 @@
 
 #include "fjell_global_ubo.glsl"
 
-// One workgroup emits one terrain patch. PATCH_QUADS quads per side gives
-// (PATCH_QUADS+1)^2 vertices and PATCH_QUADS^2*2 triangles, and both must fit
-// the device's mesh shader output limits. Primitives bind first — 2N^2 outgrows
-// (N+1)^2 — so 11 quads (144 verts, 242 prims) is the largest square patch that
-// fits the 256/256 floor.
-#define PATCH_QUADS 11
-#define PATCH_VERTS (PATCH_QUADS + 1)
-#define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)
-#define MAX_TRIS    (PATCH_QUADS * PATCH_QUADS * 2)
+// One workgroup emits one terrain patch, at the level the task shader chose.
+// The output declaration is the finest level and bounds the allocation; a
+// coarser patch calls SetMeshOutputsEXT with its own smaller counts and leaves
+// the rest unused, which is why one pipeline serves every level.
+#include "fjell_terrain_grid.glsl"
 
 layout(local_size_x = 64) in;
 layout(triangles, max_vertices = MAX_VERTS, max_primitives = MAX_TRIS) out;
@@ -37,8 +33,10 @@ layout(push_constant) uniform PushConstants {
     // Read by the fragment stage; declared here so every stage sees the same
     // block.
     uint  terrain_material_id;
-    uint  _pad1;
-    uint  _pad2;
+    // Render target size in pixels, and the projected patch height in pixels
+    // below which each coarser LOD level takes over. Descending.
+    vec2  viewport;
+    vec3  lod_thresholds;
     uint  _pad3;
     uvec4 layer_material_ids;
     vec4  layer_uv_scales;
@@ -47,6 +45,8 @@ layout(push_constant) uniform PushConstants {
 struct TaskPayload {
     uint patch_x;
     uint patch_z;
+    uint level;
+    uint neighbour_level[4];
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -64,6 +64,8 @@ float sample_height(vec2 uv) {
     return push.height_offset + texture(height_tex, uv).r * push.height_scale;
 }
 
+#include "fjell_terrain_seam.glsl"
+
 // Normals come from height differences rather than stored data, so they follow
 // edits to the height texture with no extra work.
 vec3 compute_normal(vec2 uv, vec2 texel, float metres_per_uv) {
@@ -77,22 +79,31 @@ vec3 compute_normal(vec2 uv, vec2 texel, float metres_per_uv) {
 }
 
 void main() {
-    SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
+    uint quads = terrain_quads_at(payload.level);
+    uint verts_per_side = quads + 1u;
+    uint vert_count = verts_per_side * verts_per_side;
+    uint tri_count = quads * quads * 2u;
+    SetMeshOutputsEXT(vert_count, tri_count);
 
     vec2 texel = 1.0 / vec2(textureSize(height_tex, 0));
     vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
     vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
 
     // Vertices: position comes from the invocation index, not a vertex buffer.
-    // The loop strides by workgroup size because MAX_VERTS exceeds it.
-    for (uint i = gl_LocalInvocationIndex; i < MAX_VERTS; i += 64) {
-        uint ix = i % PATCH_VERTS;
-        uint iz = i / PATCH_VERTS;
-        vec2 local = vec2(float(ix), float(iz)) / float(PATCH_QUADS);
-        vec2 uv = patch_uv_min + local * patch_uv_size;
+    // The loop strides by workgroup size because the count can exceed it.
+    for (uint i = gl_LocalInvocationIndex; i < vert_count; i += 64) {
+        uint ix = i % verts_per_side;
+        uint iz = i / verts_per_side;
+
+        vec2 uv;
+        float height;
+        terrain_vertex(ix, iz, quads, payload.level,
+                       payload.neighbour_level[0], payload.neighbour_level[1],
+                       payload.neighbour_level[2], payload.neighbour_level[3],
+                       patch_uv_min, patch_uv_size, uv, height);
 
         vec3 world_pos = vec3(push.world_origin.x + uv.x * push.world_size,
-                              sample_height(uv),
+                              height,
                               push.world_origin.y + uv.y * push.world_size);
 
         // A shadow draw projects into its cascade; everything else into the
@@ -114,13 +125,13 @@ void main() {
     }
 
     // Triangles: fixed grid topology, pure index arithmetic, no index buffer.
-    for (uint t = gl_LocalInvocationIndex; t < MAX_TRIS; t += 64) {
+    for (uint t = gl_LocalInvocationIndex; t < tri_count; t += 64) {
         uint quad = t >> 1;
-        uint qx = quad % PATCH_QUADS;
-        uint qz = quad / PATCH_QUADS;
-        uint v0 = qz * PATCH_VERTS + qx;
+        uint qx = quad % quads;
+        uint qz = quad / quads;
+        uint v0 = qz * verts_per_side + qx;
         uint v1 = v0 + 1;
-        uint v2 = v0 + PATCH_VERTS;
+        uint v2 = v0 + verts_per_side;
         uint v3 = v2 + 1;
         gl_PrimitiveTriangleIndicesEXT[t] =
             ((t & 1u) == 0u) ? uvec3(v0, v2, v1) : uvec3(v1, v2, v3);

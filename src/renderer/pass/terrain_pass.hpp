@@ -33,15 +33,27 @@ struct TerrainPushConstants {
     /// a block every stage carries.
     uint32_t view_index;
     uint32_t terrain_material_id;   ///< material row of the terrain's own .fjmat
-    uint32_t pad1;                  ///< the uvec4 below is 16-byte aligned
-    uint32_t pad2;
-    uint32_t pad3;
+    uint32_t pad0;                  ///< std430 aligns the vec2 below to 8
+    /// Render target size in pixels, for projecting a patch to screen height.
+    glm::vec2 viewport;
+    /// Projected patch height in pixels below which each coarser LOD level
+    /// takes over, descending.
+    glm::vec3 lod_thresholds;
+    uint32_t pad3;                  ///< the uvec4 below is 16-byte aligned
     glm::uvec4 layer_material_ids;  ///< material row per layer
     glm::vec4 layer_uv_scales;      ///< metres per texture repeat, per layer
 };
-static_assert(sizeof(TerrainPushConstants) == 80, "push block layout must match the shaders");
-static_assert(offsetof(TerrainPushConstants, layer_material_ids) == 48);
-static_assert(offsetof(TerrainPushConstants, layer_uv_scales) == 64);
+// Offsets verified against the compiled SPIR-V, not assumed: the shader's
+// std430 rules align the vec2 and vec3 in ways the C++ struct only matches by
+// accident otherwise.
+// Offsets taken from the compiled SPIR-V rather than assumed: std430 aligns
+// the vec2 to 8 and the vec3 to 16, which C++ does not do on its own — hence
+// the explicit pad0.
+static_assert(sizeof(TerrainPushConstants) == 96, "push block layout must match the shaders");
+static_assert(offsetof(TerrainPushConstants, viewport) == 40);
+static_assert(offsetof(TerrainPushConstants, lod_thresholds) == 48);
+static_assert(offsetof(TerrainPushConstants, layer_material_ids) == 64);
+static_assert(offsetof(TerrainPushConstants, layer_uv_scales) == 80);
 
 /// Draws heightfield terrain. Geometry is generated in the mesh shader from the
 /// asset's height texture, so this pass binds a texture and dispatches one task
@@ -144,6 +156,12 @@ private:
     /// Which of this frame's sets each terrain asset was written into.
     std::unordered_map<const TerrainAsset*, VkDescriptorSet> frame_sets_;
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
+
+    /// Projected patch height in pixels below which each coarser level takes
+    /// over. A patch is finest above the first, coarsest below the last.
+    /// Tuned by eye against a real terrain; exposed so it can be moved
+    /// without a shader recompile.
+    glm::vec3 lod_thresholds_{220.0F, 90.0F, 35.0F};
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};

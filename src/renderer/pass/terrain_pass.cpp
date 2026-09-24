@@ -742,6 +742,11 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
         push.patch_quads = terrain.patch_quads();
         push.view_index = view_index;
         push.terrain_material_id = material_id;
+        // Level selection is per view: the extent here is this view's, so a
+        // shadow cascade covering a wide area picks coarser patches than the
+        // camera does for the same ground.
+        push.viewport = {static_cast<float>(extent.width), static_cast<float>(extent.height)};
+        push.lod_thresholds = lod_thresholds_;
         for (uint32_t i = 0; i < 4; ++i) {
             push.layer_material_ids[static_cast<int>(i)] = terrain.layer_material_id(i);
             push.layer_uv_scales[static_cast<int>(i)] = terrain.layer_uv_scale(i);

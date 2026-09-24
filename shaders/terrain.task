@@ -6,6 +6,7 @@
 // with that work.
 
 #include "fjell_global_ubo.glsl"
+#include "fjell_terrain_grid.glsl"
 
 layout(local_size_x = 1) in;
 
@@ -30,8 +31,10 @@ layout(push_constant) uniform PushConstants {
     // Read by the fragment stage; declared here so every stage sees the same
     // block.
     uint  terrain_material_id;
-    uint  _pad1;
-    uint  _pad2;
+    // Render target size in pixels, and the projected patch height in pixels
+    // below which each coarser LOD level takes over. Descending.
+    vec2  viewport;
+    vec3  lod_thresholds;
     uint  _pad3;
     uvec4 layer_material_ids;
     vec4  layer_uv_scales;
@@ -40,6 +43,12 @@ layout(push_constant) uniform PushConstants {
 struct TaskPayload {
     uint patch_x;
     uint patch_z;
+    // This patch's level, and the level of the neighbour across each edge:
+    // -X, +X, -Z, +Z. The mesh shader needs the neighbours to close seams,
+    // and computing them here costs one bounds fetch each instead of four
+    // per vertex.
+    uint level;
+    uint neighbour_level[4];
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -82,6 +91,31 @@ bool box_in_frustum(mat4 vp, vec3 lo, vec3 hi) {
     return true;
 }
 
+// The world-space box of a patch, from its own height bounds texel. Out of
+// range patches clamp, so a neighbour query off the edge of the field returns
+// the edge patch's box and therefore its level — which is what the edge patch
+// itself will use, so the seam agrees.
+vec2 patch_box(uint px, uint pz, out vec3 lo, out vec3 hi) {
+    ivec2 last = ivec2(int(push.patches_per_side) - 1);
+    ivec2 coord = clamp(ivec2(int(px), int(pz)), ivec2(0), last);
+    vec2 bounds = texelFetch(patch_bounds_tex, coord, 0).rg;
+    float patch_size = push.world_size / float(push.patches_per_side);
+    lo = vec3(push.world_origin.x + float(coord.x) * patch_size,
+              push.height_offset + bounds.x * push.height_scale,
+              push.world_origin.y + float(coord.y) * patch_size);
+    hi = vec3(lo.x + patch_size,
+              push.height_offset + bounds.y * push.height_scale,
+              lo.z + patch_size);
+    return bounds;
+}
+
+uint level_of(mat4 vp, uint px, uint pz) {
+    vec3 lo;
+    vec3 hi;
+    patch_box(px, pz, lo, hi);
+    return terrain_patch_level(vp, lo, hi, push.viewport, push.lod_thresholds);
+}
+
 void main() {
     uint patch_index = gl_WorkGroupID.x;
     uint px = patch_index % push.patches_per_side;
@@ -91,14 +125,9 @@ void main() {
     // actually reaches, read from its own texel. Using the whole field's range
     // would be correct but loose: a patch on flat ground would claim the full
     // vertical extent of the terrain and survive tests it should fail.
-    float patch_size = push.world_size / float(push.patches_per_side);
-    vec2 bounds = texelFetch(patch_bounds_tex, ivec2(px, pz), 0).rg;
-    vec3 lo = vec3(push.world_origin.x + float(px) * patch_size,
-                   push.height_offset + bounds.x * push.height_scale,
-                   push.world_origin.y + float(pz) * patch_size);
-    vec3 hi = vec3(lo.x + patch_size,
-                   push.height_offset + bounds.y * push.height_scale,
-                   lo.z + patch_size);
+    vec3 lo;
+    vec3 hi;
+    patch_box(px, pz, lo, hi);
 
     mat4 vp = push.view_index == 0u ? ubo.projection * ubo.view
                                     : ubo.cascade_vp[push.view_index - 1u];
@@ -109,5 +138,13 @@ void main() {
 
     payload.patch_x = px;
     payload.patch_z = pz;
+    payload.level = terrain_patch_level(vp, lo, hi, push.viewport, push.lod_thresholds);
+    // Neighbours across each edge, in the order the mesh shader expects.
+    // Each is the same pure function of that patch's own box, so the patch on
+    // the other side of the seam reaches the same number for us.
+    payload.neighbour_level[0] = level_of(vp, px - 1u, pz);
+    payload.neighbour_level[1] = level_of(vp, px + 1u, pz);
+    payload.neighbour_level[2] = level_of(vp, px, pz - 1u);
+    payload.neighbour_level[3] = level_of(vp, px, pz + 1u);
     EmitMeshTasksEXT(1, 1, 1);
 }
