@@ -5,6 +5,7 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/lit_surface_reads.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pass/water_pass.hpp"
@@ -420,23 +421,8 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                                          : ResourceAccess::depth_attachment);
     }
 
-    if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_fragment);
-    }
-    if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_fragment);
-    }
-    if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
-        builder.read(cubemap, ResourceAccess::sampled_fragment);
-    }
-    // The forward+ tile lists, read by the lit surfaces drawn here: glass,
-    // water, lit particles and sprites.
-    builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
-                 ResourceAccess::storage_buffer_read_fragment);
-    // The lit surfaces drawn here sample the ambient occlusion too.
-    if (auto ao = builder.import_named_optional(ctx, "gtao_ao"); ao.valid()) {
-        builder.read(ao, ResourceAccess::sampled_fragment);
-    }
+    // Glass, water, lit particles and sprites.
+    declare_lit_surface_reads(builder, ctx);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {

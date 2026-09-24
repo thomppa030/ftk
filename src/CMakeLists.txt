@@ -178,6 +178,7 @@ add_executable(fjell
     renderer/pass/wireframe_pass.cpp
     renderer/pass/scene_sdf_pass.cpp
     renderer/pass/opaque_pass.cpp
+    renderer/pass/lit_surface_reads.cpp
     renderer/pass/screen_color_copy_pass.cpp
     renderer/pass/distortion_pass.cpp
     renderer/pass/distortion_apply_pass.cpp

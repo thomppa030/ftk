@@ -4,6 +4,7 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/lit_surface_reads.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -70,25 +71,7 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                              ? ResourceAccess::depth_resolve
                              : ResourceAccess::depth_attachment);
 
-    // Consumed producer outputs. Declared reads here are what lets the
-    // DAG see the cross-pass edges currently papered over by inline
-    // finalize-to-SHADER_READ_ONLY barriers in the producers.
-    if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_fragment);
-    }
-    if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_fragment);
-    }
-    if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
-        builder.read(cubemap, ResourceAccess::sampled_fragment);
-    }
-    // The forward+ tile lists every surface shader finds its lights in.
-    builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
-                 ResourceAccess::storage_buffer_read_fragment);
-    // Every surface shader samples the ambient occlusion.
-    if (auto ao = builder.import_named_optional(ctx, "gtao_ao"); ao.valid()) {
-        builder.read(ao, ResourceAccess::sampled_fragment);
-    }
+    declare_lit_surface_reads(builder, ctx);
     // The GPU-driven draws: every meshlet both culls found visible.
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
                  ResourceAccess::storage_buffer_read_mesh);
