@@ -168,6 +168,7 @@ const char* unit_symbol(Unit unit) {
     switch (unit) {
         case Unit::None:            return "";
         case Unit::Metres:          return "m";
+        case Unit::Kilometres:      return "km";
         case Unit::SquareMetres:    return "m\xc2\xb2";
         case Unit::MetresPerSecond: return "m/s";
         case Unit::Degrees:         return "\xc2\xb0";
