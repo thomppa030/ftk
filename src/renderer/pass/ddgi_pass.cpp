@@ -215,6 +215,12 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
 
     images_need_init = true;
     indirect_needs_init = true;
+    // Every atlas is new and in UNDEFINED, whatever these said about the
+    // images they replace: the next record has to take them all out of it.
+    // A screen resize arriving before that record recreates the indirect
+    // image too, and must not turn this into a resize-only init.
+    first_frame_ = true;
+    resized_only_ = false;
 }
 
 void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
