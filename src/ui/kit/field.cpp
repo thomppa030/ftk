@@ -171,12 +171,14 @@ const char* unit_symbol(Unit unit) {
         case Unit::SquareMetres:    return "m\xc2\xb2";
         case Unit::MetresPerSecond: return "m/s";
         case Unit::Degrees:         return "\xc2\xb0";
+        case Unit::Radians:         return "rad";
         case Unit::Milliseconds:    return "ms";
         case Unit::Seconds:         return "s";
         case Unit::Minutes:         return "min";
         case Unit::Kilograms:       return "kg";
         case Unit::Pixels:          return "px";
         case Unit::Percent:         return "%";
+        case Unit::ExposureValue:   return "EV";
         case Unit::Times:           return "\xc3\x97";
     }
     return "";
