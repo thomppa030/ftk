@@ -4,6 +4,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/material_gi_params.hpp"
 #include "renderer/uniform_types.hpp"
 #include "ui/kit/color_field.hpp"
@@ -60,6 +61,38 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
             return false;
     }
 }
+
+namespace {
+
+// What the GI paths read of a material (its emission and albedo factors),
+// derived from the live param values the way the loader derives it from the
+// asset.
+void rederive_gi(const ShaderMetadata& meta, BindlessTextures& bindless, Material& material) {
+    const uint32_t param_count = material.custom_param_count();
+    const auto& gpu = bindless.material_at(material.material_id());
+    auto gi = derive_material_gi_params(meta, [&](const FjslUniform& u) {
+        std::vector<float> values;
+        uint32_t fcount = uniform_float_count(u.type);
+        if (u.slot + fcount > param_count) return values;
+        values.reserve(fcount);
+        for (uint32_t i = 0; i < fcount; ++i) {
+            values.push_back(bindless.read_param(gpu.param_offset + u.slot + i));
+        }
+        return values;
+    }, gpu.has_emissive_texture != 0U);
+
+    GpuMaterial updated = bindless.material_at(material.material_id());
+    updated.base_params[9] = gi.emission.x;
+    updated.base_params[10] = gi.emission.y;
+    updated.base_params[11] = gi.emission.z;
+    const glm::vec3 base_rgb = glm::vec3{material.params().base_color_factor} * gi.albedo;
+    updated.base_params[0] = base_rgb.x;
+    updated.base_params[1] = base_rgb.y;
+    updated.base_params[2] = base_rgb.z;
+    bindless.update_material(material.material_id(), updated);
+}
+
+} // namespace
 
 bool draw_material_params(const ShaderMetadata& meta,
                            BindlessTextures& bindless,
@@ -143,30 +176,34 @@ bool draw_material_params(const ShaderMetadata& meta,
     // Re-derive what the GI paths read of this material from the live param
     // values, the same way the loader derives it from the asset, so an edit
     // here lights the scene exactly as saving and reloading would.
-    if (changed) {
-        auto gi = derive_material_gi_params(meta, [&](const FjslUniform& u) {
-            std::vector<float> values;
-            uint32_t fcount = uniform_float_count(u.type);
-            if (u.slot + fcount > param_count) return values;
-            values.reserve(fcount);
-            for (uint32_t i = 0; i < fcount; ++i) {
-                values.push_back(bindless.read_param(gpu.param_offset + u.slot + i));
-            }
-            return values;
-        }, gpu.has_emissive_texture != 0U);
-
-        GpuMaterial updated = bindless.material_at(material.material_id());
-        updated.base_params[9] = gi.emission.x;
-        updated.base_params[10] = gi.emission.y;
-        updated.base_params[11] = gi.emission.z;
-        const glm::vec3 base_rgb = glm::vec3{material.params().base_color_factor} * gi.albedo;
-        updated.base_params[0] = base_rgb.x;
-        updated.base_params[1] = base_rgb.y;
-        updated.base_params[2] = base_rgb.z;
-        bindless.update_material(material.material_id(), updated);
-    }
+    if (changed) rederive_gi(meta, bindless, material);
 
     return changed;
+}
+
+void apply_material_values(const ShaderMetadata& meta, BindlessTextures& bindless,
+                           Material& material, const MaterialAsset& asset) {
+    const MaterialBaseParams base = read_base_params(asset);
+    GpuMaterial gpu = bindless.material_at(material.material_id());
+    gpu.base_params[4] = base.metallic_factor;
+    gpu.base_params[5] = base.roughness_factor;
+    gpu.base_params[7] = base.uv_scale.x;
+    gpu.base_params[8] = base.uv_scale.y;
+    bindless.update_material(material.material_id(), gpu);
+
+    const uint32_t param_count = material.custom_param_count();
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        const uint32_t fcount = uniform_float_count(u.type);
+        if (u.slot + fcount > param_count) continue;
+        auto it = asset.params.find(u.name);
+        if (it == asset.params.end() || it->second.size() < fcount) continue;
+        float temp[4]{};
+        for (uint32_t k = 0; k < fcount; ++k) temp[k] = it->second[k];
+        encode_uniform_for_gpu(u, std::span{temp}.first(fcount));
+        bindless.write_params(gpu.param_offset + u.slot, temp, fcount);
+    }
+    rederive_gi(meta, bindless, material);
 }
 
 } // namespace fjell

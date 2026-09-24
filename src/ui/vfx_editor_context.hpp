@@ -65,7 +65,9 @@ public:
     [[nodiscard]] const char* context_type() const override { return "vfx"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjvfx_path_; }
-    bool save() override;
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -81,7 +83,6 @@ public:
 
     // Open a .fjvfx from the content browser
     void open_effect(const std::string& fjvfx_path);
-    void save_effect();
 
     [[nodiscard]] const std::string& effect_path() const { return fjvfx_path_; }
 
@@ -153,6 +154,9 @@ private:
     bool fjvfx_changed_{false};
     void reload_effect();
 #endif
+
+    /// Makes `loaded` the effect being edited, keeping the selection.
+    void take_effect(VfxEffect loaded);
 };
 
 } // namespace fjell

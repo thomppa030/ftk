@@ -35,7 +35,9 @@ public:
     [[nodiscard]] const char* context_type() const override { return "font"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return recipe_path_; }
-    bool save() override;
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;

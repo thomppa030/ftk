@@ -126,25 +126,32 @@ void WeatherEditorContext::open_weather(const std::string& path) {
     }
     event_ = std::move(*loaded);
     loaded_ = true;
-    dirty_ = false;
+    document_opened();
     cursor_ = 0.0f;
     timeline_.set_time(0.0f);
 }
 
-bool WeatherEditorContext::save() {
-    if (!loaded_) return false;
-    auto written = save_weather_asset_file(event_abs_path_, event_);
-    if (!written) {
-        FJELL_CORE_ERROR("Weather editor: {}", written.error());
-        return false;
-    }
-    dirty_ = false;
+std::string WeatherEditorContext::document() const {
+    return loaded_ ? weather_asset_text(event_) : std::string{};
+}
+
+Result<> WeatherEditorContext::write() {
+    if (!loaded_) return make_error("no weather event is open");
+    if (auto written = save_weather_asset_file(event_abs_path_, event_); !written) return written;
     if (deps_.resource_manager != nullptr) {
         if (auto reloaded = deps_.resource_manager->reload_weather_asset(event_path_); !reloaded) {
             FJELL_CORE_ERROR("Weather editor: {}", reloaded.error());
         }
     }
-    return true;
+    return {};
+}
+
+Result<> WeatherEditorContext::restore(const std::string& text) {
+    auto event = weather_asset_from_text(text, event_abs_path_);
+    if (!event) return make_error(event.error());
+    event_ = std::move(*event);
+    push_live();
+    return {};
 }
 
 WeatherAssetHandle WeatherEditorContext::live_handle() {
@@ -324,7 +331,6 @@ void WeatherEditorContext::draw_properties() {
     if (asset_ref_field({.label = "Thunder", .id = "##WeatherThunder", .extensions = audio_exts, .ctx = &ictx}, e.audio.thunder)) changed = true;
 
     if (changed) {
-        dirty_ = true;
         push_live();
     }
 }
@@ -355,11 +361,10 @@ void WeatherEditorContext::draw_event_panel() {
         ImGui::IsItemDeactivatedAfterEdit()) {
         if (event_.name != name_buf) {
             event_.name = name_buf;
-            dirty_ = true;
             push_live();
         }
     }
-    if (dirty_) {
+    if (has_unsaved_changes()) {
         ImGui::SameLine();
         ImGui::TextDisabled("(unsaved, Ctrl+S)");
     }
@@ -413,7 +418,6 @@ void WeatherEditorContext::draw_event_panel() {
             tracks_.set_presets(std::move(presets));
         }
         if (tracks_.draw("##weather_tracks", event_.tracks, cursor_, format_phase_time)) {
-            dirty_ = true;
             push_live();
         }
     }

@@ -130,7 +130,7 @@ void WaterEditorContext::open_water(const std::string& path) {
     }
     water_ = std::move(*loaded);
     loaded_ = true;
-    dirty_ = false;
+    document_opened();
     // Open on the wind the field was authored at, so the first thing shown is
     // the sea as tuned rather than one the response has already moved.
     selected_contributor_ = 0;
@@ -224,15 +224,25 @@ void WaterEditorContext::load_preview_material() {
     water->material = deps_.resource_manager->get(*handle);
 }
 
-bool WaterEditorContext::save() {
-    if (!loaded_) return false;
-    auto written = save_fjwater_file(water_abs_path_, water_);
-    if (!written) {
-        FJELL_CORE_ERROR("Water editor: {}", written.error());
-        return false;
-    }
-    dirty_ = false;
-    return true;
+std::string WaterEditorContext::document() const {
+    return loaded_ ? fjwater_text(water_) : std::string{};
+}
+
+Result<> WaterEditorContext::write() {
+    if (!loaded_) return make_error("no water is open");
+    if (auto written = save_fjwater_file(water_abs_path_, water_); !written) return written;
+    return {};
+}
+
+Result<> WaterEditorContext::restore(const std::string& text) {
+    auto field = fjwater_from_text(text, water_abs_path_);
+    if (!field) return make_error(field.error());
+    const bool material_changed = field->preview_material != water_.preview_material;
+    water_ = std::move(*field);
+    if (selected_contributor_ >= water_.contributors.size()) selected_contributor_ = 0;
+    if (material_changed) load_preview_material();
+    push_live();
+    return {};
 }
 
 GerstnerContributor* WaterEditorContext::selected_gerstner() {
@@ -246,7 +256,6 @@ FftContributor* WaterEditorContext::selected_simulated() {
 }
 
 void WaterEditorContext::push_live() {
-    dirty_ = true;
     fold_stale_ = true;
     wind_fold_stale_ = true;
 
@@ -324,7 +333,6 @@ void WaterEditorContext::draw_generator_panel() {
                          .shader_types = only_shader_type(ShaderType::Water)},
                         water_.preview_material)) {
         load_preview_material();
-        dirty_ = true;
     }
     ImGui::SetItemTooltip("The material this field is previewed through. Saved "
                           "with the .fjwater as an authoring setting — a placed "

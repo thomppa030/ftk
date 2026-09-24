@@ -49,7 +49,9 @@ public:
     void draw(float dt) override;
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
-    bool save() override;
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     // Viewport
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }

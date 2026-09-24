@@ -125,19 +125,26 @@ void FontEditorContext::open_font(const std::string& recipe_path) {
     cell_size_edit_ = static_cast<int>(recipe_.cell_size);
     px_range_edit_ = recipe_.px_range;
     sample_dirty_ = true;
+    document_opened();
 
     // Asking is what starts the load; the panels show its progress.
     (void)deps_.vulkan_context->font_library().get(recipe_abs_path_);
 }
 
-bool FontEditorContext::save() {
-    if (!loaded_) return false;
-    auto written = save_font_recipe(recipe_abs_path_, recipe_);
-    if (!written) {
-        FJELL_CORE_ERROR("Font editor: {}", written.error());
-        return false;
-    }
-    return true;
+std::string FontEditorContext::document() const {
+    return loaded_ ? font_recipe_text(recipe_) : std::string{};
+}
+
+Result<> FontEditorContext::write() {
+    if (!loaded_) return make_error("no font is open");
+    return save_font_recipe(recipe_abs_path_, recipe_);
+}
+
+Result<> FontEditorContext::restore(const std::string& text) {
+    auto recipe = font_recipe_from_text(text, recipe_path_, nullptr);
+    if (!recipe) return make_error(recipe.error());
+    apply_recipe(*recipe);
+    return {};
 }
 
 void FontEditorContext::apply_recipe(const FjFontRecipe& recipe) {
@@ -146,7 +153,10 @@ void FontEditorContext::apply_recipe(const FjFontRecipe& recipe) {
     copy_to(ranges_buf_, sizeof(ranges_buf_), custom_ranges_text(recipe_));
     cell_size_edit_ = static_cast<int>(recipe_.cell_size);
     px_range_edit_ = recipe_.px_range;
-    if (!save()) return;
+    if (auto saved = save(); !saved) {
+        FJELL_CORE_ERROR("Font editor: {}", saved.error());
+        return;
+    }
     // The library rebuilds the atlas from the file just written; the
     // thumbnail follows the recipe's timestamp on its own.
     deps_.vulkan_context->font_library().reload(recipe_abs_path_);

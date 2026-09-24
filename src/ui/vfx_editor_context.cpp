@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <imgui.h>
+#include <nlohmann/json.hpp>
 #include <imgui_internal.h>
 #include <imgui_node_editor.h>
 
@@ -375,6 +376,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
         cam->focus({0.0f, 1.0f, 0.0f}, 3.0f);
     }
 
+    document_opened();
     FJELL_CORE_INFO("VFX editor opened: {}", fjvfx_path);
 
 #ifndef NDEBUG
@@ -389,37 +391,49 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
 #ifndef NDEBUG
 void VfxEditorContext::reload_effect() {
     if (fjvfx_abs_path_.empty()) return;
-
-    // Preserve editor state
-    int prev_emitter = selected_emitter_;
-    int prev_stack = selected_module_stack_;
-    int prev_module = selected_module_index_;
-
     try {
-        auto loaded = load_vfx_effect(fjvfx_abs_path_);
-        resolve_vfx_textures(loaded, *deps_.resource_manager, deps_.project_mgr->active());
-        effect_ = std::make_shared<VfxEffect>(std::move(loaded));
+        take_effect(load_vfx_effect(fjvfx_abs_path_));
     } catch (const std::exception& e) {
         FJELL_CORE_ERROR("VFX hot-reload failed for {}: {}", fjvfx_path_, e.what());
         return;
     }
+    document_opened();
+    FJELL_CORE_INFO("VFX hot-reloaded: {}", fjvfx_path_);
+}
 
-    // Restore selection (clamp to new bounds)
-    int emitter_count = static_cast<int>(effect_->emitters.size());
+#endif
+
+Result<> VfxEditorContext::restore(const std::string& text) {
+    try {
+        take_effect(load_vfx_effect_from_json(nlohmann::json::parse(text)));
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+    return {};
+}
+
+void VfxEditorContext::take_effect(VfxEffect loaded) {
+    // Keep what is selected, clamped to the new effect.
+    const int prev_emitter = selected_emitter_;
+    resolve_vfx_textures(loaded, *deps_.resource_manager, deps_.project_mgr->active());
+    effect_ = std::make_shared<VfxEffect>(std::move(loaded));
+
+    const int emitter_count = static_cast<int>(effect_->emitters.size());
     selected_emitter_ = (prev_emitter >= 0 && prev_emitter < emitter_count)
         ? prev_emitter : (emitter_count > 0 ? 0 : -1);
-    selected_module_stack_ = prev_stack;
-    selected_module_index_ = prev_module;
 
     timeline_.set_duration(std::max(effect_->max_lifetime() + 1.0f, 3.0f));
     setup_preview();
-
-    FJELL_CORE_INFO("VFX hot-reloaded: {}", fjvfx_path_);
 }
-#endif
 
-void VfxEditorContext::save_effect() {
-    if (fjvfx_abs_path_.empty() || !effect_) return;
+std::string VfxEditorContext::document() const {
+    // Node positions reach the effect only when saving, so moving a node
+    // alone isn't an unsaved change.
+    return effect_ ? vfx_effect_text(*effect_) : std::string{};
+}
+
+Result<> VfxEditorContext::write() {
+    if (fjvfx_abs_path_.empty() || !effect_) return make_error("no effect is open");
 
     // Sync current emitter's node positions before saving
     if (node_editor_ctx_) {
@@ -428,15 +442,15 @@ void VfxEditorContext::save_effect() {
         ne::SetCurrentEditor(nullptr);
     }
 
-    save_vfx_effect(fjvfx_abs_path_, *effect_);
+    try {
+        save_vfx_effect(fjvfx_abs_path_, *effect_);
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
     FJELL_CORE_INFO("VFX saved: {}", fjvfx_abs_path_);
+    return {};
 }
 
-bool VfxEditorContext::save() {
-    if (fjvfx_path_.empty()) return false;
-    save_effect();
-    return true;
-}
 
 void VfxEditorContext::setup_preview() {
     preview_scene_.clear();
@@ -592,7 +606,9 @@ void VfxEditorContext::draw_node_editor() {
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Save")) {
-                save_effect();
+                if (auto saved = save(); !saved) {
+                    FJELL_CORE_ERROR("Couldn't save {}: {}", fjvfx_path_, saved.error());
+                }
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);

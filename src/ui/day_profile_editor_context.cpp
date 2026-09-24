@@ -117,25 +117,32 @@ void DayProfileEditorContext::open_day_profile(const std::string& path) {
     }
     profile_ = std::move(*loaded);
     loaded_ = true;
-    dirty_ = false;
+    document_opened();
     cursor_hour_ = scene_hour();
     timeline_.set_time(cursor_hour_);
 }
 
-bool DayProfileEditorContext::save() {
-    if (!loaded_) return false;
-    auto written = save_day_profile_file(profile_abs_path_, profile_);
-    if (!written) {
-        FJELL_CORE_ERROR("Day profile editor: {}", written.error());
-        return false;
-    }
-    dirty_ = false;
+std::string DayProfileEditorContext::document() const {
+    return loaded_ ? day_profile_text(profile_) : std::string{};
+}
+
+Result<> DayProfileEditorContext::write() {
+    if (!loaded_) return make_error("no day profile is open");
+    if (auto written = save_day_profile_file(profile_abs_path_, profile_); !written) return written;
     if (deps_.resource_manager != nullptr) {
         if (auto reloaded = deps_.resource_manager->reload_day_profile(profile_path_); !reloaded) {
             FJELL_CORE_ERROR("Day profile editor: {}", reloaded.error());
         }
     }
-    return true;
+    return {};
+}
+
+Result<> DayProfileEditorContext::restore(const std::string& text) {
+    auto profile = day_profile_from_text(text, profile_abs_path_);
+    if (!profile) return make_error(profile.error());
+    profile_ = std::move(*profile);
+    push_live();
+    return {};
 }
 
 void DayProfileEditorContext::push_live() {
@@ -201,7 +208,7 @@ void DayProfileEditorContext::draw_tracks_panel() {
 
     // Header: name, save state, and how the open scene relates to it.
     ImGui::Text("%s", profile_.name.c_str());
-    if (dirty_) {
+    if (has_unsaved_changes()) {
         ImGui::SameLine();
         ImGui::TextDisabled("(unsaved, Ctrl+S)");
     }
@@ -245,7 +252,6 @@ void DayProfileEditorContext::draw_tracks_panel() {
         tracks_.set_presets(std::move(presets));
     }
     if (tracks_.draw("##day_tracks", profile_.tracks, cursor_hour_, format_hour)) {
-        dirty_ = true;
         push_live();
     }
     ImGui::End();

@@ -62,8 +62,9 @@ public:
     [[nodiscard]] const char* context_type() const override { return "water"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return water_path_; }
-    bool save() override;
-    [[nodiscard]] bool has_unsaved_changes() const override { return dirty_; }
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -152,7 +153,6 @@ private:
     std::array<float, 5> wind_folded_share_{};
     bool wind_fold_stale_{true};
     bool loaded_{false};
-    bool dirty_{false};
 
     /// The wind the preview is blown at, in m/s, and where it blows toward.
     /// The editor's own dial rather than the asset's: a `.fjwater` describes

@@ -110,11 +110,13 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
         cam->focus({0.0f, 0.0f, 0.0f}, 1.5f);
     }
 
+    document_opened();
     FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);
 }
 
-void MaterialEditorContext::save_material() {
-    if (fjmat_abs_path_.empty() || !material_) return;
+MaterialAsset MaterialEditorContext::current_asset() const {
+    MaterialAsset asset = asset_;
+    if (!material_) return asset;
 
     auto* cache = deps_.vulkan_context->pipeline_cache();
     auto& bindless = deps_.vulkan_context->bindless_textures();
@@ -132,25 +134,70 @@ void MaterialEditorContext::save_material() {
                 vals[i] = bindless.read_param(gpu.param_offset + u.slot + i);
             }
             decode_uniform_from_gpu(u, vals);
-            asset_.params[u.name] = vals;
+            asset.params[u.name] = vals;
         }
-        write_base_params(asset_, {
+        write_base_params(asset, {
             .base_color_factor = material_->params().base_color_factor,
             .metallic_factor = gpu.base_params[4],
             .roughness_factor = gpu.base_params[5],
             .uv_scale = {gpu.base_params[7], gpu.base_params[8]},
         });
     }
-
-    save_material_asset(fjmat_abs_path_, asset_);
-    if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmat_abs_path_);
-    FJELL_CORE_INFO("Material saved: {}", fjmat_abs_path_);
+    return asset;
 }
 
-bool MaterialEditorContext::save() {
-    if (fjmat_path_.empty()) return false;
-    save_material();
-    return true;
+std::string MaterialEditorContext::document() const {
+    if (fjmat_path_.empty()) return {};
+    return material_asset_text(current_asset());
+}
+
+Result<> MaterialEditorContext::write() {
+    if (fjmat_abs_path_.empty() || !material_) return make_error("no material is open");
+    asset_ = current_asset();
+    try {
+        save_material_asset(fjmat_abs_path_, asset_);
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+    if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmat_abs_path_);
+    FJELL_CORE_INFO("Material saved: {}", fjmat_abs_path_);
+    return {};
+}
+
+Result<> MaterialEditorContext::restore(const std::string& text) {
+    MaterialAsset asset;
+    try {
+        asset = material_asset_from_text(text);
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+    if (!material_) return make_error("no material is open");
+
+    if (asset.shader != asset_.shader || asset.textures != asset_.textures) {
+        asset_ = std::move(asset);
+        save_and_reload();
+        return {};
+    }
+    asset_ = asset;
+    auto* cache = deps_.vulkan_context->pipeline_cache();
+    const uint32_t pid = material_->pipeline_id();
+    if (pid < cache->shader_count()) {
+        apply_material_values(cache->metadata(pid), deps_.vulkan_context->bindless_textures(), *material_, asset);
+    }
+    return {};
+}
+
+void MaterialEditorContext::save_and_reload() {
+    if (auto saved = save(); !saved) {
+        FJELL_CORE_ERROR("Couldn't save {}: {}", fjmat_path_, saved.error());
+        return;
+    }
+    auto result = deps_.resource_manager->load_material_asset(fjmat_abs_path_, deps_.project_mgr->active());
+    if (result) {
+        material_handle_ = *result;
+        material_ = deps_.resource_manager->get(material_handle_);
+        setup_preview_scene();
+    }
 }
 
 // ── Preview scene ────────────────────────────────────────────────────────
@@ -291,7 +338,7 @@ void MaterialEditorContext::draw_texture_slot(const char* slot_name) {
     if (has_texture) {
         if (ImGui::SmallButton("Clear")) {
             asset_.textures.erase(slot_name);
-            // TODO: reload material to reflect cleared texture
+            save_and_reload();
         }
     }
     ImGui::EndGroup();
@@ -303,15 +350,7 @@ void MaterialEditorContext::draw_texture_slot(const char* slot_name) {
             auto ext = std::filesystem::path(path).extension().string();
             if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
                 asset_.textures[slot_name] = path;
-                // Save and reload to apply texture change
-                save_material();
-                auto result = deps_.resource_manager->load_material_asset(
-                    fjmat_abs_path_, deps_.project_mgr->active());
-                if (result) {
-                    material_handle_ = *result;
-                    material_ = deps_.resource_manager->get(material_handle_);
-                    setup_preview_scene();
-                }
+                save_and_reload();
             }
         }
         ImGui::EndDragDropTarget();

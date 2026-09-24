@@ -1673,7 +1673,9 @@ void Engine::draw_ui() {
     // Global shortcuts (Ctrl+S, Ctrl+Shift+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        active_context().save();
+        if (auto saved = active_context().save(); !saved) {
+            FJELL_CORE_ERROR("Couldn't save {}: {}", active_context().name(), saved.error());
+        }
         if (&active_context() == scene_context_) {
             save_scene();
         }
@@ -1730,7 +1732,7 @@ void Engine::draw_ui() {
     setup_dockspace();
 
     // Active context draws its own panels (including Stats, Console, History)
-    active_context().draw(clock_.delta_time());
+    active_context().draw_frame(clock_.delta_time());
 
     content_browser_.draw();
     settings_window_.draw();

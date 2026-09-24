@@ -13,7 +13,9 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 
 #include <imgui.h>
+#include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 
 namespace fjell {
@@ -140,7 +142,6 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
 
     fjmesh_abs_path_ = abs_path;
     authored_ = model_->authored();
-    dirty_ = false;
     name_ = std::filesystem::path(fjmesh_path).stem().string();
 
     collision_vertices_ = model_->collision_vertices();
@@ -163,6 +164,7 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
     setup_preview_scene();
     frame_camera();
 
+    document_opened();
     FJELL_CORE_INFO("Mesh editor opened: {}", fjmesh_path);
 }
 
@@ -235,12 +237,15 @@ void MeshEditorContext::draw_slots_panel() {
             return;
         }
 
-        ImGui::BeginDisabled(!dirty_);
+        const bool unsaved = has_unsaved_changes();
+        ImGui::BeginDisabled(!unsaved);
         if (ImGui::Button("Save")) {
-            (void)save();
+            if (auto saved = save(); !saved) {
+                FJELL_CORE_ERROR("Couldn't save {}: {}", fjmesh_path_, saved.error());
+            }
         }
         ImGui::EndDisabled();
-        if (dirty_) {
+        if (unsaved) {
             ImGui::SameLine();
             ImGui::TextDisabled("unsaved changes");
         }
@@ -270,7 +275,6 @@ void MeshEditorContext::draw_slots_panel() {
                         // doesn't orphan the slot.
                         slot.path = base_path::asset_reference(
                             dropped, deps_.project_mgr->active());
-                        dirty_ = true;
                         apply_slot_materials();
                     }
                 }
@@ -283,7 +287,6 @@ void MeshEditorContext::draw_slots_panel() {
             if (!slot.path.empty()) {
                 if (ImGui::SmallButton("Clear")) {
                     slot.path.clear();
-                    dirty_ = true;
                     apply_slot_materials();
                 }
             }
@@ -295,8 +298,30 @@ void MeshEditorContext::draw_slots_panel() {
     ImGui::End();
 }
 
-bool MeshEditorContext::save() {
-    if (fjmesh_abs_path_.empty()) return false;
+std::string MeshEditorContext::document() const {
+    if (fjmesh_abs_path_.empty()) return {};
+    // The file is binary; the document is what this editor changes in it:
+    // the slots, how collision is built, the shapes and the collision
+    // geometry's size (rebuilt from the settings, so its size follows them).
+    nlohmann::json j;
+    for (const auto& slot : authored_.material_slots) {
+        j["slots"].push_back({slot.name, slot.path});
+    }
+    j["collision_source"] = static_cast<int>(authored_.collision_source);
+    j["collision_simplify_ratio"] = authored_.collision_simplify_ratio;
+    j["collision_mesh"] = authored_.collision_mesh;
+    j["collision_geometry"] = {collision_vertices_.size(), collision_indices_.size()};
+    for (const auto& p : collision_primitives_) {
+        j["shapes"].push_back({static_cast<int>(p.kind), p.position.x, p.position.y, p.position.z,
+                               p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w,
+                               p.extents.x, p.extents.y, p.extents.z, p.bone,
+                               p.first_vertex, p.vertex_count, p.first_index, p.index_count});
+    }
+    return j.dump();
+}
+
+Result<> MeshEditorContext::write() {
+    if (fjmesh_abs_path_.empty()) return make_error("no mesh is open");
 
     // Slots written by the importer hold a path, since nothing has an id at
     // import time. Upgrade them here so they survive the material moving.
@@ -337,16 +362,58 @@ bool MeshEditorContext::save() {
     bool written = collision_dirty_
         ? rewrite_collision_data(fjmesh_abs_path_, section, authored_)
         : rewrite_authored_data(fjmesh_abs_path_, authored_);
-    if (!written) {
-        FJELL_CORE_ERROR("Failed to save mesh settings: {}", fjmesh_path_);
-        return false;
-    }
+    if (!written) return make_error("the mesh file couldn't be rewritten");
 
     collision_dirty_ = false;
-    dirty_ = false;
     if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmesh_abs_path_);
     FJELL_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
-    return true;
+    return {};
+}
+
+Result<> MeshEditorContext::restore(const std::string& text) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return make_error("the mesh document isn't JSON");
+
+    std::vector<MeshMaterialSlot> slots;
+    for (const auto& slot : j.value("slots", nlohmann::json::array())) {
+        slots.push_back({slot.at(0).get<std::string>(), slot.at(1).get<std::string>()});
+    }
+    const bool slots_changed = slots.size() != authored_.material_slots.size() ||
+        !std::equal(slots.begin(), slots.end(), authored_.material_slots.begin(),
+                    [](const MeshMaterialSlot& a, const MeshMaterialSlot& b) {
+                        return a.name == b.name && a.path == b.path;
+                    });
+    authored_.material_slots = std::move(slots);
+
+    const auto source = static_cast<FjMeshCollisionSource>(j.value("collision_source", 0));
+    const float ratio = j.value("collision_simplify_ratio", 0.1F);
+    const std::string proxy = j.value("collision_mesh", std::string{});
+    const bool settings_changed = source != authored_.collision_source ||
+                                  ratio != authored_.collision_simplify_ratio ||
+                                  proxy != authored_.collision_mesh;
+    authored_.collision_source = source;
+    authored_.collision_simplify_ratio = ratio;
+    authored_.collision_mesh = proxy;
+    if (settings_changed) rebuild_collision();
+
+    collision_primitives_.clear();
+    for (const auto& s : j.value("shapes", nlohmann::json::array())) {
+        CollisionPrimitive p;
+        p.kind = static_cast<CollisionPrimitiveKind>(s.at(0).get<int>());
+        p.position = {s.at(1).get<float>(), s.at(2).get<float>(), s.at(3).get<float>()};
+        p.rotation = glm::quat{s.at(7).get<float>(), s.at(4).get<float>(), s.at(5).get<float>(), s.at(6).get<float>()};
+        p.extents = {s.at(8).get<float>(), s.at(9).get<float>(), s.at(10).get<float>()};
+        p.bone = s.at(11).get<int32_t>();
+        p.first_vertex = s.at(12).get<uint32_t>();
+        p.vertex_count = s.at(13).get<uint32_t>();
+        p.first_index = s.at(14).get<uint32_t>();
+        p.index_count = s.at(15).get<uint32_t>();
+        collision_primitives_.push_back(p);
+    }
+    collision_dirty_ = true;
+    if (selected_primitive_ >= static_cast<int>(collision_primitives_.size())) selected_primitive_ = -1;
+    if (slots_changed) setup_preview_scene();
+    return {};
 }
 
 void MeshEditorContext::rebuild_collision() {
@@ -360,7 +427,6 @@ void MeshEditorContext::rebuild_collision() {
     collision_vertices_ = std::move(built.vertices);
     collision_indices_ = std::move(built.indices);
     collision_dirty_ = true;
-    dirty_ = true;
 }
 
 void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_bounds) {
@@ -397,7 +463,6 @@ void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_b
     collision_primitives_.push_back(prim);
     selected_primitive_ = static_cast<int>(collision_primitives_.size()) - 1;
     collision_dirty_ = true;
-    dirty_ = true;
 }
 
 void MeshEditorContext::draw_primitive_list() {
@@ -500,13 +565,11 @@ void MeshEditorContext::draw_primitive_list() {
                 ImGui::Unindent();
                 ImGui::PopID();
                 collision_dirty_ = true;
-                dirty_ = true;
                 break;
             }
 
             if (changed) {
                 collision_dirty_ = true;
-                dirty_ = true;
             }
             ImGui::Unindent();
         }
@@ -591,7 +654,6 @@ void MeshEditorContext::draw_collision_panel() {
                     std::string dropped(static_cast<const char*>(payload->Data));
                     if (std::filesystem::path(dropped).extension() == ".fjmesh") {
                         authored_.collision_mesh = dropped;
-                        dirty_ = true;
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -601,7 +663,6 @@ void MeshEditorContext::draw_collision_panel() {
             }
             if (!authored_.collision_mesh.empty() && ImGui::SmallButton("Clear")) {
                 authored_.collision_mesh.clear();
-                dirty_ = true;
             }
         }
 

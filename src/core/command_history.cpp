@@ -11,6 +11,12 @@ void CommandHistory::execute(CommandPtr cmd) {
     commands_[current_]->execute();
 }
 
+void CommandHistory::record(CommandPtr cmd) {
+    commands_.erase(commands_.begin() + (current_ + 1), commands_.end());
+    commands_.push_back(std::move(cmd));
+    current_ = static_cast<int>(commands_.size()) - 1;
+}
+
 void CommandHistory::undo() {
     if (!can_undo()) return;
     commands_[current_]->undo();

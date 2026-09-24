@@ -7,6 +7,7 @@ namespace fjell {
 class BindlessTextures;
 class Material;
 struct FjslUniform;
+struct MaterialAsset;
 struct ShaderMetadata;
 
 /// Draw the field for one uniform's value, picked by its type and hint: a
@@ -23,5 +24,12 @@ struct ShaderMetadata;
 [[nodiscard]] bool draw_material_params(const ShaderMetadata& meta,
                                          BindlessTextures& bindless,
                                          Material& material);
+
+/// Puts an asset's values onto the material's GPU copy, as editing them one
+/// by one would: the shader's uniforms, the base metallic, roughness and
+/// UV scale, and what the GI paths read of the material. Textures are not
+/// touched; they reach the GPU only by loading.
+void apply_material_values(const ShaderMetadata& meta, BindlessTextures& bindless,
+                           Material& material, const MaterialAsset& asset);
 
 } // namespace fjell

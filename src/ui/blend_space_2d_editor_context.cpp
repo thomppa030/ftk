@@ -65,6 +65,7 @@ void BlendSpace2DEditorContext::open(const std::string& path) {
         scan_available_clips();
     }
 
+    document_opened();
     FJELL_CORE_INFO("BlendSpace2D editor: opened {} ({} points, params='{}/{}', {} triangles)",
                     path, blend_space_.size(), blend_space_.parameter_x(),
                     blend_space_.parameter_y(),
@@ -637,16 +638,32 @@ void BlendSpace2DEditorContext::scan_available_clips() {
     }
 }
 
-bool BlendSpace2DEditorContext::save() {
-    if (asset_path_.empty()) return false;
+std::string BlendSpace2DEditorContext::document() const {
+    return asset_path_.empty() ? std::string{} : blend_space_.text();
+}
+
+Result<> BlendSpace2DEditorContext::write() {
+    if (asset_path_.empty()) return make_error("no blend space is open");
     auto resolved = base_path::resolve_asset(asset_path_, deps_.project_mgr->active());
-    if (auto r = blend_space_.save(resolved); r) {
-        FJELL_CORE_INFO("Saved blend space 2D: {}", asset_path_);
-        return true;
-    } else {
-        FJELL_CORE_ERROR("Failed to save blend space 2D: {}", r.error());
-        return false;
+    if (auto r = blend_space_.save(resolved); !r) return r;
+    FJELL_CORE_INFO("Saved blend space 2D: {}", asset_path_);
+    return {};
+}
+
+Result<> BlendSpace2DEditorContext::restore(const std::string& text) {
+    auto restored = BlendSpace2D::from_text(text, asset_path_);
+    if (!restored) return make_error(restored.error());
+    const bool skeleton_changed = restored->skeleton_path() != blend_space_.skeleton_path();
+    blend_space_ = std::move(*restored);
+    reload_clips();
+    if (skeleton_changed) {
+        if (!blend_space_.skeleton_path().empty()) {
+            load_skeleton(blend_space_.skeleton_path());
+        } else {
+            scan_available_clips();
+        }
     }
+    return {};
 }
 
 void BlendSpace2DEditorContext::setup_preview_state_machine() {

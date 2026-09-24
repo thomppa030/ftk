@@ -74,8 +74,25 @@ void UiEditorContext::shutdown() {
     }
 }
 
-bool UiEditorContext::save() {
-    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return false;
+std::string UiEditorContext::markup_text() const {
+    if (!preview_ui_ || !preview_ui_->root()) return {};
+    return is_widget_file_ ? widget_asset_text(loaded_widget_, preview_ui_->root())
+                           : FjuiSerializer::serialize(*preview_ui_->root());
+}
+
+std::string UiEditorContext::document() const {
+    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return {};
+    // The markup and its sheet, as the two files hold them.
+    std::string text = markup_text();
+    if (!fjss_path_.empty()) {
+        text += '\0';
+        text += FjssSerializer::serialize(preview_ui_->stylesheet(), fjss_path_);
+    }
+    return text;
+}
+
+Result<> UiEditorContext::write() {
+    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return make_error("no UI is open");
     auto markup_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
 
     // The watcher would otherwise see these writes and reopen the files we
@@ -83,31 +100,18 @@ bool UiEditorContext::save() {
     preview_ui_->expect_write(markup_path);
     preview_ui_->expect_write(fjss_path_);
 
-    if (is_widget_file_) {
-        auto result = save_widget_asset(markup_path, loaded_widget_, preview_ui_->root());
-        if (!result) {
-            FJELL_CORE_WARN("UI editor: {}", result.error());
-            return false;
-        }
-    } else {
+    {
         std::ofstream out(markup_path);
-        if (!out) {
-            FJELL_CORE_WARN("UI editor: cannot write {}", markup_path);
-            return false;
-        }
-        out << FjuiSerializer::serialize(*preview_ui_->root());
+        if (!out) return make_error("cannot write " + markup_path);
+        out << markup_text();
     }
-
     if (!fjss_path_.empty()) {
         std::ofstream out(fjss_path_);
-        if (!out) {
-            FJELL_CORE_WARN("UI editor: cannot write {}", fjss_path_);
-            return false;
-        }
+        if (!out) return make_error("cannot write " + fjss_path_);
         out << FjssSerializer::serialize(preview_ui_->stylesheet(), fjss_path_);
     }
     FJELL_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
-    return true;
+    return {};
 }
 
 void UiEditorContext::draw(float dt) {
@@ -393,6 +397,7 @@ void UiEditorContext::open_ui(const std::string& path) {
     }
 
     selected_node_ = nullptr;
+    document_opened();
     FJELL_CORE_INFO("UI editor opened: {}", fjui_path_);
 }
 

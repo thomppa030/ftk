@@ -37,8 +37,9 @@ public:
     void draw(float dt) override;
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
-    bool save() override;
-    [[nodiscard]] bool has_unsaved_changes() const override { return dirty_; }
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext&) override {}
@@ -76,7 +77,6 @@ private:
     std::string fjinput_path_;
     std::string fjinput_abs_path_;
     InputMappingContext context_;
-    bool dirty_{false};
 
     // Discovered actions for the "Add Action" picker
     std::vector<InputActionDef> discovered_actions_;

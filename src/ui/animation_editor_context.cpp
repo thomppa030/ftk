@@ -25,6 +25,7 @@
 #include "ui/icon_cache.hpp"
 
 #include <imgui.h>
+#include <nlohmann/json.hpp>
 #include <imgui_internal.h>
 #include <imnodes.h>
 
@@ -277,17 +278,31 @@ void AnimationEditorContext::apply_resize(VulkanContext& vk) {
 
 // ── Save ─────────────────────────────────────────────────────────────────
 
-bool AnimationEditorContext::save() {
-    bool saved_any = false;
+std::string AnimationEditorContext::document() const {
+    // The three things this editor saves: the clip's notifies (its tracks
+    // are never edited here), the skeleton's bone colliders and the animset.
+    nlohmann::json j;
+    if (current_clip_) j["notifies"] = current_clip_->notifies_text();
+    for (const auto& c : colliders_) {
+        const auto& p = c.shape;
+        j["colliders"].push_back({c.bone_name, static_cast<int>(p.kind), p.position.x, p.position.y,
+                                  p.position.z, p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w,
+                                  p.extents.x, p.extents.y, p.extents.z});
+    }
+    if (!animset_path_.empty()) j["animset"] = state_machine_.text();
+    return j.dump();
+}
+
+Result<> AnimationEditorContext::write() {
+    std::string failed;
 
     // Save current clip (events may have been edited)
     if (current_clip_ && !current_clip_path_.empty()) {
         auto resolved = base_path::resolve_asset(current_clip_path_, deps_.project_mgr->active());
         if (auto r = current_clip_->save(resolved); r) {
             FJELL_CORE_INFO("AnimEditor: saved clip {}", current_clip_path_);
-            saved_any = true;
         } else {
-            FJELL_CORE_ERROR("AnimEditor: failed to save clip: {}", r.error());
+            failed += "the clip: " + r.error() + ". ";
         }
     }
 
@@ -297,12 +312,10 @@ bool AnimationEditorContext::save() {
         if (rewrite_skeleton_colliders(resolved, colliders_)) {
             if (skeleton_) skeleton_->colliders() = colliders_;
             colliders_dirty_ = false;
-            saved_any = true;
             FJELL_CORE_INFO("AnimEditor: saved {} bone colliders to {}",
                             colliders_.size(), skeleton_path_);
         } else {
-            FJELL_CORE_ERROR("AnimEditor: failed to save bone colliders — reimport "
-                             "the skeleton if it predates the collider section");
+            failed += "the bone colliders: reimport the skeleton if it predates the collider section. ";
         }
     }
 
@@ -311,13 +324,47 @@ bool AnimationEditorContext::save() {
         auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
         if (auto r = state_machine_.save(resolved); r) {
             FJELL_CORE_INFO("AnimEditor: saved animset {}", animset_path_);
-            saved_any = true;
         } else {
-            FJELL_CORE_ERROR("AnimEditor: failed to save animset: {}", r.error());
+            failed += "the animset: " + r.error() + ". ";
         }
     }
 
-    return saved_any;
+    if (!failed.empty()) return make_error("couldn't save " + failed);
+    return {};
+}
+
+Result<> AnimationEditorContext::restore(const std::string& text) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return make_error("the animation document isn't JSON");
+
+    if (current_clip_ && j.contains("notifies")) {
+        if (auto r = current_clip_->set_notifies_from_text(j["notifies"].get<std::string>()); !r) return r;
+        sync_markers_from_clip();
+        if (selected_event_index_ >= static_cast<int>(current_clip_->notifies().size())) {
+            selected_event_index_ = -1;
+        }
+    }
+
+    std::vector<BoneCollider> colliders;
+    for (const auto& c : j.value("colliders", nlohmann::json::array())) {
+        BoneCollider collider;
+        collider.bone_name = c.at(0).get<std::string>();
+        auto& p = collider.shape;
+        p.kind = static_cast<CollisionPrimitiveKind>(c.at(1).get<int>());
+        p.position = {c.at(2).get<float>(), c.at(3).get<float>(), c.at(4).get<float>()};
+        p.rotation = glm::quat{c.at(8).get<float>(), c.at(5).get<float>(), c.at(6).get<float>(), c.at(7).get<float>()};
+        p.extents = {c.at(9).get<float>(), c.at(10).get<float>(), c.at(11).get<float>()};
+        colliders.push_back(std::move(collider));
+    }
+    colliders_ = std::move(colliders);
+    colliders_dirty_ = true;
+    if (selected_collider_ >= static_cast<int>(colliders_.size())) selected_collider_ = -1;
+
+    if (!animset_path_.empty() && j.contains("animset")) {
+        if (auto r = state_machine_.load_text(j["animset"].get<std::string>(), animset_path_); !r) return r;
+        build_graph_from_state_machine();
+    }
+    return {};
 }
 
 // ── Open from asset ──────────────────────────────────────────────────────
@@ -385,6 +432,7 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
         load_clip(0);
     }
 
+    document_opened();
     FJELL_CORE_INFO("AnimEditor: opened skeleton {} ({} joints, {} clips)",
                     skel_path, skeleton_->num_joints(),
                     static_cast<int>(available_clip_paths_.size()));
@@ -442,6 +490,7 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
 
     build_graph_from_state_machine();
 
+    document_opened();
     FJELL_CORE_INFO("AnimEditor: opened animset {} ({} states, {} params)",
                     animset_path,
                     static_cast<int>(state_machine_.states().size()),
@@ -994,6 +1043,15 @@ void AnimationEditorContext::load_clip(int index) {
     // Sync event markers to timeline
     sync_markers_from_clip();
     selected_event_index_ = -1;
+
+    // The new clip's notifies are as its file holds them; the colliders and
+    // the animset keep whatever edits they have.
+    if (auto saved = nlohmann::json::parse(saved_document(), nullptr, false); !saved.is_discarded()) {
+        saved["notifies"] = current_clip_->notifies_text();
+        set_saved_document(saved.dump());
+    } else {
+        document_opened();
+    }
 
     // Play on the preview animator
     auto* node = preview_scene_.find(preview_node_id_);

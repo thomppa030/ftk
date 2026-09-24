@@ -312,6 +312,7 @@ add_executable(fjell
     ui/stats_panel.cpp
     ui/net_panel.cpp
     ui/project_settings_window.cpp
+    ui/document_history.cpp
     ui/editor_context.cpp
     ui/animation_editor_context.cpp
     ui/blend_space_1d_editor_context.cpp

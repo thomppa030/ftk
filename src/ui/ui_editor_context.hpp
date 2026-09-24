@@ -49,7 +49,8 @@ public:
     /// Writes the markup and the stylesheet. The markup goes too because a
     /// node styled from the inspector gets an id there, and the stylesheet
     /// rule written for it only means something if the id is in the file.
-    bool save() override;
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
 
     void init() override;
     void shutdown() override;
@@ -68,6 +69,9 @@ public:
     [[nodiscard]] const std::string& ui_path() const { return fjui_path_; }
 
 private:
+    /// The markup as its file holds it: a widget file with its header and
+    /// props, or plain .fjui.
+    [[nodiscard]] std::string markup_text() const;
     void draw_preview(float dt);
     void draw_element_tree();
     void draw_inspector();

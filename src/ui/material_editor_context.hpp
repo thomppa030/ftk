@@ -40,7 +40,9 @@ public:
     [[nodiscard]] const char* context_type() const override { return "material"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjmat_path_; }
-    bool save() override;
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -56,7 +58,6 @@ public:
 
     // Open a .fjmat from the content browser
     void open_material(const std::string& fjmat_path);
-    void save_material();
 
     [[nodiscard]] const std::string& material_path() const { return fjmat_path_; }
 
@@ -65,6 +66,12 @@ private:
     void draw_texture_panel();
     void draw_texture_slot(const char* slot_name);
     void setup_preview_scene();
+    /// The asset with its parameter values as the GPU holds them now: the
+    /// parameter fields edit the GPU copy directly.
+    [[nodiscard]] MaterialAsset current_asset() const;
+    /// Saves the asset and loads the material again: the only way a texture
+    /// change reaches the GPU material.
+    void save_and_reload();
 
     MaterialEditorDeps deps_;
     std::string name_{"Material"};

@@ -47,8 +47,9 @@ public:
     [[nodiscard]] const char* context_type() const override { return "mesh"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjmesh_path_; }
-    bool save() override;
-    [[nodiscard]] bool has_unsaved_changes() const override { return dirty_; }
+    [[nodiscard]] std::string document() const override;
+    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -86,7 +87,6 @@ private:
 
     // Slot assignments being edited, seeded from the mesh's authored data.
     MeshAuthoredData authored_;
-    bool dirty_{false};
 
     // Collision being edited. Always rebuilt from the mesh's full-detail
     // geometry rather than from the previous result: simplification is not
