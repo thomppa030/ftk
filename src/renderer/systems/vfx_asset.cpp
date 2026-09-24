@@ -33,6 +33,7 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
             auto mod = create_module(type_name);
             if (mod) {
                 mod->from_json(jm);
+                mod->enabled = jm.value("enabled", true);
                 if (jm.contains("pos")) {
                     auto& jp = jm["pos"];
                     if (jp.is_array() && jp.size() == 2) {
@@ -148,9 +149,10 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
     auto save_modules = [](const std::vector<std::unique_ptr<VfxModule>>& mods) {
         nlohmann::json arr = nlohmann::json::array();
         for (const auto& m : mods) {
-            if (!m->enabled) continue;
             nlohmann::json jm;
             m->to_json(jm);
+            // A module switched off stays in the file, off.
+            if (!m->enabled) jm["enabled"] = false;
             if (m->position_set) {
                 jm["pos"] = {m->editor_x, m->editor_y};
             }
