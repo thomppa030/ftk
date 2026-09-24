@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -289,6 +290,54 @@ static bool parse_field_decl(const std::string& line, std::string& type, std::st
     return !type.empty() && !name.empty();
 }
 
+// The source with every comment turned into spaces. Line breaks inside a
+// block comment stay, so line numbers in diagnostics still match the file.
+// Everything after reads this, so a comment can neither become part of a
+// field declaration nor pass for an attribute or a brace. String, character
+// and raw string literals are skipped whole: a "//" inside one is text.
+static std::string blank_comments(const std::string& source) {
+    std::string out = source;
+    const size_t n = source.size();
+    size_t i = 0;
+    while (i < n) {
+        const char c = source[i];
+        const char next = i + 1 < n ? source[i + 1] : '\0';
+        if (c == '/' && next == '/') {
+            while (i < n && source[i] != '\n') out[i++] = ' ';
+        } else if (c == '/' && next == '*') {
+            out[i++] = ' ';
+            out[i++] = ' ';
+            while (i < n && !(source[i] == '*' && i + 1 < n && source[i + 1] == '/')) {
+                if (source[i] != '\n') out[i] = ' ';
+                ++i;
+            }
+            if (i < n) {
+                out[i++] = ' ';
+                out[i++] = ' ';
+            }
+        } else if (c == 'R' && next == '"') {
+            // R"delim( ... )delim"
+            size_t open = source.find('(', i + 2);
+            if (open == std::string::npos) { ++i; continue; }
+            const std::string end = ")" + source.substr(i + 2, open - (i + 2)) + "\"";
+            size_t close = source.find(end, open + 1);
+            i = close == std::string::npos ? n : close + end.size();
+        } else if (c == '\'' && i > 0 && std::isdigit(static_cast<unsigned char>(source[i - 1])) &&
+                   std::isalnum(static_cast<unsigned char>(next))) {
+            ++i; // a digit separator, as in 1'000
+        } else if (c == '"' || c == '\'') {
+            ++i;
+            while (i < n && source[i] != c && source[i] != '\n') {
+                i += source[i] == '\\' ? 2 : 1;
+            }
+            if (i < n) ++i;
+        } else {
+            ++i;
+        }
+    }
+    return out;
+}
+
 ParseResult parse_file(const std::string& filepath) {
     ParseResult result;
 
@@ -298,9 +347,12 @@ ParseResult parse_file(const std::string& filepath) {
         return result;
     }
 
+    std::ostringstream text;
+    text << file.rdbuf();
     std::vector<std::string> lines;
+    std::istringstream uncommented(blank_comments(text.str()));
     std::string line;
-    while (std::getline(file, line)) {
+    while (std::getline(uncommented, line)) {
         lines.push_back(line);
     }
 

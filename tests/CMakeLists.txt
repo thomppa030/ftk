@@ -170,6 +170,8 @@ add_executable(fjell-tests
     test_fjss_loader.cpp
     test_fjfont.cpp
     test_utf8.cpp
+    test_fjreflect_parser.cpp
+    ${CMAKE_SOURCE_DIR}/tools/fjreflect/parser.cpp
     test_fjterrain_io.cpp
     test_fjinst_io.cpp
     test_fjwater.cpp
@@ -229,6 +231,8 @@ target_link_libraries(fjell-tests PRIVATE
     fjell-testable
     Catch2::Catch2WithMain
 )
+# fjreflect's parser is tested in place; it depends on nothing from the engine.
+target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 
 if(MSVC)
     target_compile_options(fjell-tests PRIVATE /W4 /WX)
