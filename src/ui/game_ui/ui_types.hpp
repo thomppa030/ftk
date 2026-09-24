@@ -145,7 +145,12 @@ struct UiBoxShadow {
     float spread{0.0f};
     UiColor color{0.0f, 0.0f, 0.0f, 0.0f};
 
-    [[nodiscard]] bool active() const { return color.a > 0.0f && (blur > 0.0f || spread > 0.0f); }
+    // An offset alone is a shadow too: a hard copy of the shape moved down,
+    // the edge under a keycap.
+    [[nodiscard]] bool active() const {
+        return color.a > 0.0f &&
+               (blur > 0.0f || spread > 0.0f || offset_x != 0.0f || offset_y != 0.0f);
+    }
 };
 
 /// A copy of the text drawn under it: offset, softened over `blur` layout

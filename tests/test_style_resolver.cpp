@@ -909,6 +909,19 @@ TEST_CASE("Box shadow with spread and hex color", "[style][edge]") {
     REQUIRE(root->style.box_shadow.color.a == Catch::Approx(0x80 / 255.0f));
 }
 
+TEST_CASE("A box shadow with only an offset still draws", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { box-shadow: 0 2 0 0 #000000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.box_shadow.offset_y == Catch::Approx(2.0f));
+    REQUIRE(root->style.box_shadow.active());
+
+    auto flat = FjssParser::parse("div { box-shadow: 0 0 0 0 #000000; }");
+    resolver.resolve(*root, flat);
+    REQUIRE_FALSE(root->style.box_shadow.active());
+}
+
 TEST_CASE("Box shadow none resets", "[style][edge]") {
     auto root = make_node("div");
     auto sheet = FjssParser::parse(R"(

@@ -34,7 +34,9 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
 
     // Shadow mode (flags == 2): gaussian falloff from SDF distance
     if (flags > 1.5 && flags < 2.5) {
-        float blur = max(q.shadow_params.x, 0.001);
+        // At least half a pixel, so a hard shadow's edge is antialiased like
+        // the shape's own rather than stair-stepped.
+        float blur = max(q.shadow_params.x, 0.5);
         // Gaussian approximation: use smoothstep over blur radius
         float shadow_alpha = 1.0 - smoothstep(-blur, blur * 0.5, shape.dist);
         vec4 shadow_color = vec4(srgb_to_linear(q.color.rgb), q.color.a * shadow_alpha * opacity);
