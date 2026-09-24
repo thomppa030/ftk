@@ -39,6 +39,7 @@ public:
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] const char* context_type() const override { return "material"; }
     [[nodiscard]] DockPreset dock_preset() const override;
+    void draw_header_actions() override;
     [[nodiscard]] std::string asset_path() const override { return fjmat_path_; }
     [[nodiscard]] std::string document() const override;
     [[nodiscard]] Result<> write() override;
@@ -63,7 +64,6 @@ public:
 private:
     void draw_params_panel();
     void draw_texture_panel();
-    void draw_texture_slot(const char* slot_name);
     void setup_preview_scene();
     /// The asset with its parameter values as the GPU holds them now: the
     /// parameter fields edit the GPU copy directly.

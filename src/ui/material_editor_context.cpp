@@ -2,16 +2,26 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
+#include "core/string_utils.hpp"
+#include "platform/platform.hpp"
 #include "renderer/bindless.hpp"
-#include "renderer/resources/fjsl_parser.hpp"
-#include "renderer/resources/material.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/pipeline_cache.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "scene/component_meta.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/material_params_widget.hpp"
+#include "ui/panel_widget.hpp"
+#include "ui/shader_error_callout.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -204,141 +214,115 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    if (ImGui::Begin(ctx_title("Parameters").c_str())) {
-        if (!material_) {
-            ImGui::TextDisabled("No material loaded");
-            ImGui::End();
-            return;
-        }
-
-        auto* cache = deps_.vulkan_context->pipeline_cache();
-        auto& bindless = deps_.vulkan_context->bindless_textures();
-        uint32_t pid = material_->pipeline_id();
-
-        ImGui::TextDisabled("Shader: %s", material_->shader_path().c_str());
-        ImGui::TextDisabled("Material: %s", fjmat_path_.c_str());
-        // Only a spatial material goes on the preview sphere; the rest are
-        // drawn by a pass of their own from geometry the sphere does not
-        // have. Say which, and where to look instead — the preview is simply
-        // blank otherwise, which reads as a broken material.
-        switch (material_->shader_type()) {
-            case ShaderType::Spatial:
-                break;
-            case ShaderType::Ui:
-                ImGui::TextWrapped("UI shader: the preview sphere cannot draw it. Assign the "
-                                   "material to a node and open that widget in the UI editor.");
-                break;
-            case ShaderType::Terrain:
-                ImGui::TextWrapped("Terrain shader: the preview sphere cannot draw it. Assign "
-                                   "the material to a Terrain component and look at the scene.");
-                break;
-            case ShaderType::Water:
-                ImGui::TextWrapped("Water shader: the preview sphere cannot draw it — the "
-                                   "surface comes from the node's .fjwater wave field. Assign "
-                                   "the material to a Water component and look at the scene.");
-                break;
-            case ShaderType::Sky:
-                ImGui::TextWrapped("Sky shader: the preview sphere cannot draw it. Set it as "
-                                   "the scene's sky and look at the scene.");
-                break;
-            case ShaderType::Fog:
-                ImGui::TextWrapped("Fog shader: the preview sphere cannot draw it. Assign the "
-                                   "material to the scene's Volumetric Fog node and look at "
-                                   "the scene.");
-                break;
-        }
-        ImGui::Separator();
-
-        if (pid < cache->shader_count()) {
-            const auto& meta = cache->metadata(pid);
-            (void)draw_material_params(meta, bindless, *material_);
-        }
+    auto panel = Panel(ui::icon::properties, ctx_title("Parameters").c_str());
+    if (!panel) return;
+    if (!material_) {
+        ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");
+        return;
     }
-    ImGui::End();
+
+    auto* cache = deps_.vulkan_context->pipeline_cache();
+    const uint32_t pid = material_->pipeline_id();
+    const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active() : nullptr;
+    shader_error_callout(*cache, pid, project);
+
+    // Only a spatial material goes on the preview sphere; the rest are drawn
+    // by a pass of their own from geometry the sphere does not have. Say
+    // where to look instead: a blank preview reads as a broken material.
+    const char* elsewhere = nullptr;
+    switch (material_->shader_type()) {
+        case ShaderType::Spatial: break;
+        case ShaderType::Ui:
+            elsewhere = "A UI shader doesn't draw on the preview. Put the material on a node and "
+                        "open that widget in the UI editor.";
+            break;
+        case ShaderType::Terrain:
+            elsewhere = "A terrain shader doesn't draw on the preview. Put the material on a "
+                        "Terrain component and look at the scene.";
+            break;
+        case ShaderType::Water:
+            elsewhere = "A water shader doesn't draw on the preview: its surface comes from the "
+                        "node's .fjwater. Put the material on a Water component and look at the scene.";
+            break;
+        case ShaderType::Sky:
+            elsewhere = "A sky shader doesn't draw on the preview. Set it as the scene's sky and "
+                        "look at the scene.";
+            break;
+        case ShaderType::Fog:
+            elsewhere = "A fog shader doesn't draw on the preview. Put the material on the "
+                        "scene's Volumetric Fog node and look at the scene.";
+            break;
+    }
+    if (elsewhere != nullptr) ui::status(ui::Severity::Warning, elsewhere);
+
+    if (pid < cache->shader_count()) {
+        (void)draw_material_params(cache->metadata(pid), deps_.vulkan_context->bindless_textures(), *material_);
+    }
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    if (ImGui::Begin(ctx_title("Textures").c_str())) {
-        if (!material_) {
-            ImGui::TextDisabled("No material loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::texture, ctx_title("Textures").c_str());
+    if (!panel) return;
+    if (!material_) {
+        ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");
+        return;
+    }
 
-        // Fixed PBR slots; ui and terrain shaders sample only the textures
-        // they declare
-        if (material_->shader_type() == ShaderType::Spatial) {
-            draw_texture_slot("base_color");
-            draw_texture_slot("normal_map");
-            draw_texture_slot("metallic_roughness");
-            draw_texture_slot("emissive");
-        }
-
-        // Custom texture slots from shader metadata
-        auto* cache = deps_.vulkan_context->pipeline_cache();
-        uint32_t pid = material_->pipeline_id();
-        if (pid < cache->shader_count()) {
-            const auto& meta = cache->metadata(pid);
-            for (const auto& u : meta.uniforms) {
-                if (u.type != UniformType::Sampler2D) continue;
-                draw_texture_slot(u.name.c_str());
-            }
+    // The fixed PBR slots on a surface material, then the textures the
+    // shader declares; ui and terrain shaders sample only their own.
+    std::vector<std::string> slots;
+    if (material_->shader_type() == ShaderType::Spatial) {
+        slots = {"base_color", "normal_map", "metallic_roughness", "emissive"};
+    }
+    auto* cache = deps_.vulkan_context->pipeline_cache();
+    const uint32_t pid = material_->pipeline_id();
+    if (pid < cache->shader_count()) {
+        for (const auto& u : cache->metadata(pid).uniforms) {
+            if (u.type == UniformType::Sampler2D) slots.push_back(u.name);
         }
     }
-    ImGui::End();
+
+    InspectorContext ictx{};
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.icons = deps_.icon_cache;
+    static const std::string texture_exts[] = {".png", ".jpg", ".jpeg", ".tga"};
+    bool changed = false;
+    if (auto t = ui::PropertyTable("##textures")) {
+        for (const auto& slot : slots) {
+            ImGui::PushID(slot.c_str());
+            const std::string label = display_name(slot);
+            ui::row(label.c_str(), [&] {
+                auto it = asset_.textures.find(slot);
+                std::string path = it != asset_.textures.end() ? it->second : std::string{};
+                if (asset_slot({.label = label.c_str(), .id = "##texture", .extensions = texture_exts, .ctx = &ictx},
+                               path)) {
+                    if (path.empty()) {
+                        asset_.textures.erase(slot);
+                    } else {
+                        asset_.textures[slot] = path;
+                    }
+                    changed = true;
+                }
+            });
+            ImGui::PopID();
+        }
+    }
+    // A texture reaches the GPU material only through the file.
+    if (changed) save_and_reload();
 }
 
-void MaterialEditorContext::draw_texture_slot(const char* slot_name) {
-    ImGui::PushID(slot_name);
-
-    auto it = asset_.textures.find(slot_name);
-    bool has_texture = it != asset_.textures.end() && !it->second.empty();
-    std::string display_name = has_texture
-        ? std::filesystem::path(it->second).filename().string()
-        : "(none)";
-
-    // Thumbnail
-    float thumb_size = 48.0f;
-    if (has_texture && deps_.icon_cache) {
-        auto resolved = base_path::resolve_asset(it->second, deps_.project_mgr->active());
-        auto desc = deps_.icon_cache->thumbnail(resolved);
-        if (desc) {
-            ImGui::Image(desc, {thumb_size, thumb_size});
-        } else {
-            ImGui::Dummy({thumb_size, thumb_size});
-        }
-    } else {
-        ImGui::Dummy({thumb_size, thumb_size});
-    }
-
+void MaterialEditorContext::draw_header_actions() {
+    if (!material_) return;
+    // The shader this material is made from, opened in the external editor.
+    const std::filesystem::path shader = material_->shader_path();
     ImGui::SameLine();
-    ImGui::BeginGroup();
-    ImGui::Text("%s", slot_name);
-    ImGui::TextDisabled("%s", display_name.c_str());
-
-    if (has_texture) {
-        if (ImGui::SmallButton("Clear")) {
-            asset_.textures.erase(slot_name);
-            save_and_reload();
+    if (ui::action(ui::icon::shader, shader.filename().string().c_str(), ui::ButtonKind::Ghost)) {
+        const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active() : nullptr;
+        if (auto opened = platform::open_path(base_path::resolve_shared(shader.string(), project)); !opened) {
+            FJELL_CORE_ERROR("Couldn't open {}: {}", shader.string(), opened.error());
         }
     }
-    ImGui::EndGroup();
-
-    // Drag-drop target for texture assets from content browser
-    if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-            std::string path(static_cast<const char*>(payload->Data));
-            auto ext = std::filesystem::path(path).extension().string();
-            if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
-                asset_.textures[slot_name] = path;
-                save_and_reload();
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    ImGui::Separator();
-    ImGui::PopID();
+    ImGui::SetItemTooltip("Open %s", shader.string().c_str());
 }
 
 } // namespace fjell
