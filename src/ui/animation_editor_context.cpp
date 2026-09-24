@@ -450,8 +450,7 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
         load_animset_clips(resolved);
     }
 
-    state_graph_.clear_selection();
-    state_graph_.frame_all();
+    state_graph_.show(animset_path);
 
     document_opened();
     FJELL_CORE_INFO("AnimEditor: opened animset {} ({} states, {} params)",

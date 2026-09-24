@@ -33,11 +33,9 @@ constexpr float TALL_LANE = 150.0f;
 constexpr float GROUP_ROW = 24.0f;
 constexpr float CURVE_PAD = 12.0f;      // above and below a tall curve
 constexpr float THIN_PAD = 5.0f;
-constexpr float HIT_RADIUS = 8.0f;
 constexpr float KEY_RADIUS = 4.0f;
 constexpr float STOP_HALF = 5.0f;
 constexpr float TANGENT_LENGTH = 36.0f;
-constexpr float MIN_VIEW = 1.0f / 96.0f;  // the closest zoom, as a share of the domain
 
 inline constexpr ui::Choice<TrackMode> MODES[] = {
     {TrackMode::Override, "Override"},
@@ -46,9 +44,13 @@ inline constexpr ui::Choice<TrackMode> MODES[] = {
 
 ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
 
-ImU32 to_screen_colour(const glm::vec3& linear) {
+ImVec4 to_screen_vec4(const glm::vec3& linear) {
     const glm::vec3 srgb = glm::clamp(color_space::linear_to_srgb(linear), 0.0f, 1.0f);
-    return ImGui::ColorConvertFloat4ToU32(ImVec4(srgb.r, srgb.g, srgb.b, 1.0f));
+    return {srgb.r, srgb.g, srgb.b, 1.0f};
+}
+
+ImU32 to_screen_colour(const glm::vec3& linear) {
+    return ImGui::ColorConvertFloat4ToU32(to_screen_vec4(linear));
 }
 
 std::string hex_of(const glm::vec3& linear) {
@@ -126,19 +128,15 @@ TrackLanes::Range& TrackLanes::range_for(const Track& track) {
     return it->second;
 }
 
-float TrackLanes::to_x(float t, const Lanes& lanes) const {
-    return lanes.x + (t - view_min_) / (view_max_ - view_min_) * lanes.width;
-}
-
-float TrackLanes::from_x(float x, const Lanes& lanes) const {
-    return view_min_ + (x - lanes.x) / lanes.width * (view_max_ - view_min_);
-}
-
 std::string TrackLanes::format(float t) const {
     if (format_) return format_(t);
     char buf[16];
     std::snprintf(buf, sizeof(buf), "%.2f", t);
     return buf;
+}
+
+void TrackLanes::show(const std::string& path) {
+    if (!view_.recall("track_lanes|" + path)) view_.frame({0.0f, 0.0f}, {1.0f, 0.0f});
 }
 
 void TrackLanes::select(const std::string& name) {
@@ -280,44 +278,31 @@ void TrackLanes::draw_ruler(const TrackSet& set, float label_w) {
     dl->AddRectFilled({lanes.x, origin.y}, {lanes.x + lanes.width, origin.y + h}, colour(theme::surface_sunken()),
                       ImGui::GetStyle().FrameRounding, ImDrawFlags_RoundCornersTop);
 
+    view_.place({lanes.x, origin.y}, {lanes.width, h});
     ImGui::SetCursorScreenPos({lanes.x, origin.y});
     ImGui::InvisibleButton("##ruler", {lanes.width, h});
-    if (ImGui::IsItemActivated()) drag_ = Drag::Scrub;
+    view_.input(ImGui::IsItemHovered());
+    if (ImGui::IsItemActivated() && !view_.panning()) drag_ = Drag::Scrub;
     if (ImGui::IsItemActive() && drag_ == Drag::Scrub) {
-        const float t = std::clamp(from_x(ImGui::GetIO().MousePos.x, lanes), 0.0f, 1.0f);
+        const float t = std::clamp(view_.to_world_x(ImGui::GetIO().MousePos.x), 0.0f, 1.0f);
         time_ = t * length_;
         on_scrub.broadcast(time_);
     }
     if (ImGui::IsItemDeactivated() && drag_ == Drag::Scrub) drag_ = Drag::None;
-    handle_view(lanes);
 
     dl->PushClipRect({lanes.x, origin.y}, {lanes.x + lanes.width, origin.y + h}, true);
     for (const auto& marker : markers_) {
-        const float x = std::floor(to_x(marker.at / length_, lanes)) + 0.5f;
+        const float x = std::floor(view_.to_screen_x(marker.at / length_)) + 0.5f;
         dl->AddLine({x, origin.y + h - 6.0f}, {x, origin.y + h}, colour(theme::grid_major()));
         dl->AddText({x + 4.0f, origin.y + (h - ImGui::GetTextLineHeight()) * 0.5f}, colour(theme::text_disabled()),
                     marker.label.c_str());
     }
-    const float px = std::floor(to_x(time_ / length_, lanes)) + 0.5f;
+    const float px = std::floor(view_.to_screen_x(time_ / length_)) + 0.5f;
     dl->AddLine({px, origin.y}, {px, origin.y + h}, colour(theme::text()), 1.0f);
     dl->AddTriangleFilled({px - 5.0f, origin.y}, {px + 5.0f, origin.y}, {px, origin.y + 6.0f}, colour(theme::text()));
     dl->PopClipRect();
     ImGui::SetCursorScreenPos({origin.x, origin.y + h});
     ImGui::Dummy({width, 0.0f});
-}
-
-void TrackLanes::handle_view(const Lanes& lanes) {
-    if (!ImGui::IsItemHovered()) return;
-    ImGuiIO& io = ImGui::GetIO();
-    // The wheel zooms time at the cursor; the view never leaves the domain.
-    if (io.MouseWheel != 0.0f) {
-        const float at = from_x(io.MousePos.x, lanes);
-        const float span = std::clamp((view_max_ - view_min_) * std::pow(0.85f, io.MouseWheel), MIN_VIEW, 1.0f);
-        const float share = (at - view_min_) / (view_max_ - view_min_);
-        view_min_ = std::clamp(at - share * span, 0.0f, 1.0f - span);
-        view_max_ = view_min_ + span;
-    }
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) drag_ = Drag::Pan;
 }
 
 // ── Lanes ────────────────────────────────────────────────────────────────
@@ -328,22 +313,14 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
     const float width = ImGui::GetContentRegionAvail().x;
     const ImVec2 top = ImGui::GetCursorScreenPos();
     const Lanes lanes{top.x + label_w, std::max(width - label_w, 1.0f)};
+    view_.place({lanes.x, top.y}, {lanes.width, ImGui::GetContentRegionAvail().y});
     ImDrawList* dl = ImGui::GetWindowDrawList();
+    readout_.clear();
 
     // The wheel over the names scrolls; over the lanes it zooms.
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     if (ImGui::IsWindowHovered() && mouse.x < lanes.x && ImGui::GetIO().MouseWheel != 0.0f) {
         ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseWheel * THIN_LANE * 2.0f);
-    }
-    if (drag_ == Drag::Pan) {
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-            const float span = view_max_ - view_min_;
-            const float shift = -ImGui::GetIO().MouseDelta.x / lanes.width * span;
-            view_min_ = std::clamp(view_min_ + shift, 0.0f, 1.0f - span);
-            view_max_ = view_min_ + span;
-        } else {
-            drag_ = Drag::None;
-        }
     }
 
     // Groups in the order their first track appears; tracks keep the set's order.
@@ -419,9 +396,15 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
     const float bottom = ImGui::GetCursorScreenPos().y;
     if (bottom > top.y) {
         dl->PushClipRect({lanes.x, top.y}, {lanes.x + lanes.width, bottom}, true);
-        const float px = std::floor(to_x(time_ / length_, lanes)) + 0.5f;
+        const float px = std::floor(view_.to_screen_x(time_ / length_)) + 0.5f;
         dl->AddLine({px, top.y}, {px, bottom}, colour(theme::text()));
         dl->PopClipRect();
+    }
+    // Over every lane, so the lanes drawn after the dragged one leave it be.
+    if (!readout_.empty()) {
+        const ImVec2 clip_min = ImGui::GetWindowPos();
+        const ImVec2 clip_max{clip_min.x + ImGui::GetWindowSize().x, clip_min.y + ImGui::GetWindowSize().y};
+        ui::canvas_readout(dl, readout_at_, readout_.c_str(), {lanes.x, clip_min.y}, clip_max);
     }
 
     if (removed < set.tracks.size()) {
@@ -521,7 +504,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
-    handle_view(lanes);
+    view_.input(hovered);
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     auto& keys = track.curve.keyframes;
 
@@ -529,7 +512,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     dl->PushClipRect(min, max, true);
     if (tall) {
         for (const auto& marker : markers_) {
-            const float x = std::floor(to_x(marker.at / length_, lanes)) + 0.5f;
+            const float x = std::floor(view_.to_screen_x(marker.at / length_)) + 0.5f;
             dl->AddLine({x, min.y}, {x, max.y}, colour(theme::grid_major()));
         }
         for (int g = 1; g < 4; ++g) {
@@ -553,7 +536,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     ImVec2 prev{};
     for (int s = 0; s <= samples; ++s) {
         const float x = lanes.x + lanes.width * static_cast<float>(s) / static_cast<float>(samples);
-        const float t = std::clamp(from_x(x, lanes), 0.0f, 1.0f);
+        const float t = std::clamp(view_.to_world_x(x), 0.0f, 1.0f);
         const ImVec2 p{x, to_y(curve_value(track.curve, t, set.wrap))};
         if (s > 0) dl->AddLine(prev, p, line, tall ? 2.0f : 1.5f);
         prev = p;
@@ -566,11 +549,11 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     }
 
     // Keys and the selected key's tangents.
-    const auto key_pos = [&](const CurveKeyframe& k) { return ImVec2{to_x(k.time, lanes), to_y(k.value)}; };
+    const auto key_pos = [&](const CurveKeyframe& k) { return ImVec2{view_.to_screen_x(k.time), to_y(k.value)}; };
     const auto tangent_end = [&](const CurveKeyframe& k, float slope, float side) {
         // The slope is value per unit of normalised time; on screen it is
         // drawn at a fixed length along that direction.
-        const float px_per_t = lanes.width / (view_max_ - view_min_);
+        const float px_per_t = view_.scale_x();
         const float px_per_v = (height - 2.0f * pad) / span;
         ImVec2 d{side * px_per_t, -side * slope * px_per_v};
         const float len = std::sqrt(d.x * d.x + d.y * d.y);
@@ -584,24 +567,21 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
         for (const float side : {-1.0f, 1.0f}) {
             const ImVec2 end = tangent_end(k, side < 0.0f ? k.tangent_in : k.tangent_out, side);
             dl->AddLine(key_pos(k), end, colour(theme::text_disabled()));
-            const bool near_end = hovered && near(mouse, end, HIT_RADIUS);
+            const bool near_end = hovered && near(mouse, end, ui::CANVAS_HIT_RADIUS);
             dl->AddCircleFilled(end, 3.0f, colour(near_end ? theme::text() : theme::text_secondary()));
             if (near_end) hot_tangent = side < 0.0f ? -1 : 1;
         }
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (hovered && hot_tangent == 0 && near(mouse, key_pos(keys[i]), HIT_RADIUS)) hot_key = static_cast<int>(i);
+        if (hovered && hot_tangent == 0 && near(mouse, key_pos(keys[i]), ui::CANVAS_HIT_RADIUS)) hot_key = static_cast<int>(i);
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-        const ImVec2 p = key_pos(keys[i]);
-        const bool sel = static_cast<int>(i) == selected_key_;
-        const bool hot = static_cast<int>(i) == hot_key;
-        dl->AddCircleFilled(p, KEY_RADIUS, colour(sel ? theme::accent() : hot ? theme::text() : theme::text_secondary()));
-        if (hot && !sel) dl->AddCircle(p, KEY_RADIUS + 3.0f, colour(theme::text_secondary()));
+        ui::canvas_handle(dl, key_pos(keys[i]), static_cast<int>(i) == hot_key, static_cast<int>(i) == selected_key_,
+                          {.radius = KEY_RADIUS});
     }
 
     // Pressing picks what is under the mouse; double-click adds a key.
-    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !view_.panning()) {
         if (hot_tangent != 0) {
             drag_ = hot_tangent < 0 ? Drag::TangentIn : Drag::TangentOut;
             drag_index_ = selected_key_;
@@ -613,8 +593,9 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
             selected_key_ = -1;
         }
     }
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_key < 0 && hot_tangent == 0) {
-        const float t = std::clamp(from_x(mouse.x, lanes), 0.0f, 1.0f);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_key < 0 && hot_tangent == 0 &&
+        !view_.panning()) {
+        const float t = std::clamp(view_.to_world_x(mouse.x), 0.0f, 1.0f);
         keys.push_back({t, std::clamp(from_y(mouse.y), range.min, range.max), 0.0f, 0.0f});
         selected_key_ = sort_keys(track.curve, static_cast<int>(keys.size()) - 1);
         changed = true;
@@ -622,7 +603,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     if (active && drag_index_ >= 0 && drag_index_ < static_cast<int>(keys.size())) {
         auto& k = keys[static_cast<size_t>(drag_index_)];
         if (drag_ == Drag::Key && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-            const float t = std::clamp(from_x(mouse.x, lanes), 0.0f, 1.0f);
+            const float t = std::clamp(view_.to_world_x(mouse.x), 0.0f, 1.0f);
             const float v = std::clamp(from_y(mouse.y), range.min, range.max);
             if (t != k.time || v != k.value) {
                 k.time = t;
@@ -633,7 +614,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
             }
         } else if (drag_ == Drag::TangentIn || drag_ == Drag::TangentOut) {
             const ImVec2 p = key_pos(k);
-            const float px_per_t = lanes.width / (view_max_ - view_min_);
+            const float px_per_t = view_.scale_x();
             const float px_per_v = (height - 2.0f * pad) / span;
             const float side = drag_ == Drag::TangentIn ? -1.0f : 1.0f;
             const float dx = std::max((mouse.x - p.x) * side, 2.0f);
@@ -642,13 +623,15 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
             changed = true;
         }
         // While a key moves, where it is reads beside it.
-        const auto& moved = keys[static_cast<size_t>(drag_index_)];
-        char readout[64];
-        std::snprintf(readout, sizeof(readout), "%s  %.2f", format(moved.time * length_).c_str(), moved.value);
-        const ImVec2 p = key_pos(moved);
-        dl->AddText({p.x + 8.0f, p.y - ImGui::GetTextLineHeight() - 4.0f}, colour(theme::text()), readout);
+        if (drag_ == Drag::Key) {
+            const auto& moved = keys[static_cast<size_t>(drag_index_)];
+            char readout[64];
+            std::snprintf(readout, sizeof(readout), "%s  %.2f", format(moved.time * length_).c_str(), moved.value);
+            readout_ = readout;
+            readout_at_ = key_pos(moved);
+        }
     }
-    if (ImGui::IsItemDeactivated() && drag_ != Drag::Pan && drag_ != Drag::Scrub) {
+    if (ImGui::IsItemDeactivated() && drag_ != Drag::Scrub) {
         drag_ = Drag::None;
         drag_index_ = -1;
     }
@@ -658,7 +641,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         if (hot_key >= 0) selected_key_ = hot_key;
         ImGui::OpenPopup("##key_menu");
-        ImGui::GetStateStorage()->SetFloat(ImGui::GetID("##menu_t"), from_x(mouse.x, lanes));
+        ImGui::GetStateStorage()->SetFloat(ImGui::GetID("##menu_t"), view_.to_world_x(mouse.x));
         ImGui::GetStateStorage()->SetFloat(ImGui::GetID("##menu_v"), from_y(mouse.y));
         ImGui::GetStateStorage()->SetBool(ImGui::GetID("##menu_on_key"), hot_key >= 0);
     }
@@ -699,7 +682,7 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
-    handle_view(lanes);
+    view_.input(hovered);
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const bool selected = track.name == selected_;
 
@@ -709,28 +692,24 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
     for (int i = 0; i < steps; ++i) {
         const float x0 = lanes.x + lanes.width * static_cast<float>(i) / static_cast<float>(steps);
         const float x1 = lanes.x + lanes.width * static_cast<float>(i + 1) / static_cast<float>(steps);
-        const float t = std::clamp(from_x((x0 + x1) * 0.5f, lanes), 0.0f, 1.0f);
+        const float t = std::clamp(view_.to_world_x((x0 + x1) * 0.5f), 0.0f, 1.0f);
         dl->AddRectFilled({x0, bar_top}, {x1 + 1.0f, bar_bottom}, to_screen_colour(track.gradient.evaluate(t, set.wrap)));
     }
 
     int hot_stop = -1;
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (hovered && near(mouse, {to_x(keys[i].time, lanes), mid}, HIT_RADIUS)) hot_stop = static_cast<int>(i);
+        if (hovered && near(mouse, {view_.to_screen_x(keys[i].time), mid}, ui::CANVAS_HIT_RADIUS)) {
+            hot_stop = static_cast<int>(i);
+        }
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-        const float x = to_x(keys[i].time, lanes);
-        const bool sel = selected && static_cast<int>(i) == selected_key_;
-        const bool hot = static_cast<int>(i) == hot_stop;
-        const ImVec2 a{x, mid - STOP_HALF};
-        const ImVec2 b{x + STOP_HALF, mid};
-        const ImVec2 c{x, mid + STOP_HALF};
-        const ImVec2 d{x - STOP_HALF, mid};
-        dl->AddQuadFilled(a, b, c, d, to_screen_colour(keys[i].color));
-        dl->AddQuad(a, b, c, d, colour(sel ? theme::accent() : hot ? theme::text() : theme::text_secondary()),
-                    sel ? 2.0f : 1.5f);
+        const ImVec4 fill = to_screen_vec4(keys[i].color);
+        ui::canvas_handle(dl, {view_.to_screen_x(keys[i].time), mid}, static_cast<int>(i) == hot_stop,
+                          selected && static_cast<int>(i) == selected_key_,
+                          {.shape = ui::HandleShape::Diamond, .radius = STOP_HALF, .fill = &fill});
     }
 
-    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !view_.panning()) {
         select(track.name);
         selected_key_ = hot_stop;
         if (hot_stop >= 0) {
@@ -738,8 +717,8 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
             drag_index_ = hot_stop;
         }
     }
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_stop < 0) {
-        const float t = std::clamp(from_x(mouse.x, lanes), 0.0f, 1.0f);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_stop < 0 && !view_.panning()) {
+        const float t = std::clamp(view_.to_world_x(mouse.x), 0.0f, 1.0f);
         keys.push_back({t, track.gradient.evaluate(t, set.wrap)});
         select(track.name);
         selected_key_ = sort_stops(track.gradient, static_cast<int>(keys.size()) - 1);
@@ -747,15 +726,15 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
     }
     if (active && drag_ == Drag::Stop && drag_index_ >= 0 && drag_index_ < static_cast<int>(keys.size()) &&
         ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-        const float t = std::clamp(from_x(mouse.x, lanes), 0.0f, 1.0f);
+        const float t = std::clamp(view_.to_world_x(mouse.x), 0.0f, 1.0f);
         if (keys[static_cast<size_t>(drag_index_)].time != t) {
             keys[static_cast<size_t>(drag_index_)].time = t;
             drag_index_ = sort_stops(track.gradient, drag_index_);
             selected_key_ = drag_index_;
             changed = true;
         }
-        const std::string readout = format(t * length_);
-        dl->AddText({to_x(t, lanes) + 8.0f, bar_top}, colour(theme::text()), readout.c_str());
+        readout_ = format(t * length_);
+        readout_at_ = {view_.to_screen_x(t), mid};
     }
     if (ImGui::IsItemDeactivated() && drag_ == Drag::Stop) {
         drag_ = Drag::None;
@@ -766,7 +745,7 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         select(track.name);
         selected_key_ = hot_stop;
-        ImGui::GetStateStorage()->SetFloat(ImGui::GetID("##menu_t"), from_x(mouse.x, lanes));
+        ImGui::GetStateStorage()->SetFloat(ImGui::GetID("##menu_t"), view_.to_world_x(mouse.x));
         ImGui::OpenPopup("##stop_menu");
     }
     if (ImGui::BeginPopup("##stop_menu")) {
@@ -790,11 +769,8 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
 }
 
 bool TrackLanes::handle_keys(TrackSet& set, const std::vector<std::string>& order) {
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::IsAnyItemActive()) return false;
-    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
-        view_min_ = 0.0f;
-        view_max_ = 1.0f;
-    }
+    if (!ui::canvas_has_keys()) return false;
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) view_.frame({0.0f, 0.0f}, {1.0f, 0.0f});
     if (!order.empty() && (ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_UpArrow))) {
         auto it = std::find(order.begin(), order.end(), selected_);
         const bool down = ImGui::IsKeyPressed(ImGuiKey_DownArrow);

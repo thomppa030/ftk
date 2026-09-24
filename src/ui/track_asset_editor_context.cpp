@@ -69,6 +69,7 @@ void TrackAssetEditorContext::open(const std::string& path) {
     name_ = std::filesystem::path(path).stem().string();
     loaded_ = load();
     if (loaded_) document_opened();
+    lanes_.show(path);
 }
 
 void TrackAssetEditorContext::draw(float dt) {

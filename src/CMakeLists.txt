@@ -344,6 +344,7 @@ add_executable(fjell
     ui/kit/asset_kind.cpp
     ui/kit/asset_tile.cpp
     ui/kit/button.cpp
+    ui/kit/canvas.cpp
     ui/kit/choice.cpp
     ui/kit/color_field.cpp
     ui/kit/component_block.cpp

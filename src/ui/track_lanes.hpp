@@ -2,6 +2,7 @@
 
 #include "core/delegate.hpp"
 #include "environment/track_set.hpp"
+#include "ui/kit/canvas.hpp"
 
 #include <functional>
 #include <string>
@@ -54,6 +55,9 @@ public:
     /// A time in domain units as it reads ("14:30", "onset 40%").
     void set_format(std::function<std::string(float)> format) { format_ = std::move(format); }
     void set_markers(std::vector<Marker> markers) { markers_ = std::move(markers); }
+    /// Starts showing the asset at `path`: the view as it was left this
+    /// session, or the whole timeline.
+    void show(const std::string& path);
 
     void set_time(float t) { time_ = t; }
     void set_playing(bool playing) { playing_ = playing; }
@@ -78,7 +82,7 @@ public:
     bool draw_selection(TrackSet& set);
 
 private:
-    enum class Drag { None, Scrub, Pan, Key, TangentIn, TangentOut, Stop };
+    enum class Drag { None, Scrub, Key, TangentIn, TangentOut, Stop };
 
     struct Range {
         float min{0.0f};
@@ -100,15 +104,12 @@ private:
                          bool tall);
     bool draw_color_lane(Track& track, const TrackSet& set, const Lanes& lanes, float y, float height);
     bool handle_keys(TrackSet& set, const std::vector<std::string>& order);
-    void handle_view(const Lanes& lanes);
     void advance(float dt);
     void select(const std::string& name);
 
     [[nodiscard]] Placement placement(std::string_view name) const;
     [[nodiscard]] const Preset* preset_for(std::string_view name) const;
     [[nodiscard]] Range& range_for(const Track& track);
-    [[nodiscard]] float to_x(float t, const Lanes& lanes) const;
-    [[nodiscard]] float from_x(float x, const Lanes& lanes) const;
     [[nodiscard]] std::string format(float t) const;
 
     std::vector<Preset> presets_;
@@ -124,10 +125,10 @@ private:
     bool playing_{false};
     bool looping_{true};
 
-    // The visible part of the domain, 0..1: the wheel zooms it, a middle
-    // drag pans it, F shows all of it.
-    float view_min_{0.0f};
-    float view_max_{1.0f};
+    // The visible part of the domain, as a share of it: the wheel zooms it,
+    // a middle drag pans it, F shows all of it.
+    ui::CanvasView view_{{.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
+                          .min_span = 1.0f / 96.0f}};
 
     std::string selected_;
     int selected_key_{-1};
@@ -137,6 +138,8 @@ private:
     std::unordered_map<std::string, Range> ranges_;
     std::string menu_track_;        // the track a label's context menu is for
     std::string custom_name_;
+    std::string readout_;           // what a dragged key or stop is at, drawn over the lanes
+    ImVec2 readout_at_{};
     TrackKind custom_kind_{TrackKind::Float};
 };
 

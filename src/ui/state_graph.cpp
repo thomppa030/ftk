@@ -23,12 +23,9 @@ constexpr float HEADER_H = 24.0f;
 constexpr float ROUNDING = 6.0f;
 constexpr float GRID = 24.0f;
 constexpr float EDGE = 6.0f;         // how near a box's edge a drag starts a transition
-constexpr float HIT_RADIUS = 8.0f;   // screen pixels, as every canvas
 constexpr float BADGE_R = 9.0f;
 constexpr float PAIR_OFFSET = 7.0f;  // the two lines of a transition each way
 constexpr float ENTRY_GAP = 110.0f;  // the Entry point, left of the initial state
-constexpr float MIN_ZOOM = 0.3f;
-constexpr float MAX_ZOOM = 2.5f;
 
 ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
 
@@ -82,6 +79,11 @@ std::optional<std::pair<int, int>> StateGraph::selected_transition() const {
     return std::pair{selected_transition_state_, selected_transition_};
 }
 
+void StateGraph::show(const std::string& path) {
+    clear_selection();
+    frame_pending_ = !view_.recall("state_graph|" + path);
+}
+
 void StateGraph::clear_selection() {
     selected_state_ = -1;
     selected_transition_state_ = -1;
@@ -105,18 +107,10 @@ glm::vec2 StateGraph::position_of(const AnimationState& state, int index) const 
     return {static_cast<float>(index % 4) * 240.0f, static_cast<float>(index / 4) * 150.0f};
 }
 
-ImVec2 StateGraph::to_screen(glm::vec2 p) const {
-    return {origin_.x + (p.x - view_.offset.x) * view_.zoom, origin_.y + (p.y - view_.offset.y) * view_.zoom};
-}
-
-glm::vec2 StateGraph::to_graph(ImVec2 s) const {
-    return {view_.offset.x + (s.x - origin_.x) / view_.zoom, view_.offset.y + (s.y - origin_.y) / view_.zoom};
-}
-
 void StateGraph::frame(const AnimationStateMachine& machine) {
     const auto& states = machine.states();
-    if (states.empty() || size_.x <= 0.0f || size_.y <= 0.0f) {
-        view_ = {};
+    if (states.empty()) {
+        view_.frame({-40.0f, -40.0f}, {400.0f, 300.0f});
         return;
     }
     glm::vec2 lo{1e9f};
@@ -128,12 +122,7 @@ void StateGraph::frame(const AnimationStateMachine& machine) {
     }
     lo.x -= ENTRY_GAP + 20.0f;  // room for the Entry point
     const glm::vec2 margin{40.0f};
-    lo -= margin;
-    hi += margin;
-    const glm::vec2 extent = hi - lo;
-    view_.zoom = std::clamp(std::min(size_.x / extent.x, size_.y / extent.y), MIN_ZOOM, 1.0f);
-    const glm::vec2 centre = (lo + hi) * 0.5f;
-    view_.offset = centre - glm::vec2(size_.x, size_.y) * 0.5f / view_.zoom;
+    view_.frame(lo - margin, hi + margin);
 }
 
 int StateGraph::add_state(AnimationStateMachine& machine, glm::vec2 at) {
@@ -153,24 +142,25 @@ int StateGraph::add_state(AnimationStateMachine& machine, glm::vec2 at) {
 
 bool StateGraph::draw(AnimationStateMachine& machine) {
     bool changed = false;
-    origin_ = ImGui::GetCursorScreenPos();
-    size_ = ImGui::GetContentRegionAvail();
-    size_.x = std::max(size_.x, 50.0f);
-    size_.y = std::max(size_.y, 50.0f);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 size{std::max(ImGui::GetContentRegionAvail().x, 50.0f), std::max(ImGui::GetContentRegionAvail().y, 50.0f)};
+    view_.place(origin, size);
     if (frame_pending_) {
         frame(machine);
         frame_pending_ = false;
     }
 
-    ImGui::InvisibleButton("##state_graph", size_,
+    ImGui::InvisibleButton("##state_graph", size,
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
                                ImGuiButtonFlags_MouseButtonMiddle);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
+    view_.input(hovered);
+    const float zoom = view_.scale_x();
     const ImVec2 mouse = ImGui::GetIO().MousePos;
-    const glm::vec2 mouse_graph = to_graph(mouse);
+    const glm::vec2 mouse_graph = view_.to_world(mouse);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 end{origin_.x + size_.x, origin_.y + size_.y};
+    const ImVec2 end{origin.x + size.x, origin.y + size.y};
 
     auto& states = machine.states_mutable();
     const int count = static_cast<int>(states.size());
@@ -180,13 +170,6 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
         (selected_transition_state_ >= 0 &&
          selected_transition_ >= static_cast<int>(states[static_cast<size_t>(selected_transition_state_)].transitions.size()))) {
         clear_selection();
-    }
-
-    // Zoom at the cursor; the view never flips or vanishes.
-    if (hovered && ImGui::GetIO().MouseWheel != 0.0f) {
-        const float zoom = std::clamp(view_.zoom * std::pow(1.15f, ImGui::GetIO().MouseWheel), MIN_ZOOM, MAX_ZOOM);
-        view_.offset = mouse_graph - (mouse_graph - view_.offset) * (view_.zoom / zoom);
-        view_.zoom = zoom;
     }
 
     // ── Geometry ──────────────────────────────────────────────────────
@@ -221,34 +204,31 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
     int hot_line = -1;
     if (hovered || active) {
         for (int li = 0; li < static_cast<int>(lines.size()); ++li) {
-            const ImVec2 mid = to_screen((lines[static_cast<size_t>(li)].from + lines[static_cast<size_t>(li)].to) * 0.5f);
+            const ImVec2 mid = view_.to_screen((lines[static_cast<size_t>(li)].from + lines[static_cast<size_t>(li)].to) * 0.5f);
             const float dx = mouse.x - mid.x;
             const float dy = mouse.y - mid.y;
-            if (dx * dx + dy * dy <= std::pow(std::max(BADGE_R * view_.zoom, HIT_RADIUS), 2.0f)) hot_badge = li;
+            if (dx * dx + dy * dy <= std::pow(std::max(BADGE_R * zoom, ui::CANVAS_HIT_RADIUS), 2.0f)) hot_badge = li;
         }
         if (hot_badge < 0) {
             for (int i = count - 1; i >= 0; --i) {
                 const glm::vec2 c = centres[static_cast<size_t>(i)];
-                if (!in_box(c, mouse_graph, EDGE / view_.zoom)) continue;
+                if (!in_box(c, mouse_graph, EDGE / zoom)) continue;
                 hot_state = i;
-                hot_edge = !in_box(c, mouse_graph, -EDGE / view_.zoom);
+                hot_edge = !in_box(c, mouse_graph, -EDGE / zoom);
                 break;
             }
         }
         if (hot_badge < 0 && hot_state < 0) {
             for (int li = 0; li < static_cast<int>(lines.size()); ++li) {
                 const auto& l = lines[static_cast<size_t>(li)];
-                if (distance_to_segment(mouse, to_screen(l.from), to_screen(l.to)) <= 4.0f) hot_line = li;
+                if (distance_to_segment(mouse, view_.to_screen(l.from), view_.to_screen(l.to)) <= 4.0f) hot_line = li;
             }
         }
     }
     if (hot_badge < 0) hot_badge = hot_line;
 
     // ── Input ─────────────────────────────────────────────────────────
-    const bool alt = ImGui::GetIO().KeyAlt;
-    if (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (alt && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
-        drag_ = Drag::Pan;
-    } else if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (!view_.panning() && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if (hot_badge >= 0) {
             select_transition(lines[static_cast<size_t>(hot_badge)].state, lines[static_cast<size_t>(hot_badge)].transition);
         } else if (hot_state >= 0 && hot_edge) {
@@ -263,11 +243,7 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
             clear_selection();
         }
     }
-    if (drag_ == Drag::Pan) {
-        const ImVec2 delta = ImGui::GetIO().MouseDelta;
-        view_.offset -= glm::vec2(delta.x, delta.y) / view_.zoom;
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) drag_ = Drag::None;
-    } else if (drag_ == Drag::Move && drag_state_ >= 0 && drag_state_ < count) {
+    if (drag_ == Drag::Move && drag_state_ >= 0 && drag_state_ < count) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             // Snapped to the grid, so states line up.
             glm::vec2 p = mouse_graph - drag_grab_;
@@ -293,7 +269,8 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
         }
         drag_ = Drag::None;
     }
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_state < 0 && hot_badge < 0) {
+    if (!view_.panning() && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hot_state < 0 &&
+        hot_badge < 0) {
         (void)add_state(machine, glm::round(mouse_graph / (GRID * 0.5f)) * (GRID * 0.5f));
         changed = true;
         return changed;
@@ -333,7 +310,7 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
         ImGui::EndPopup();
     }
 
-    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsAnyItemActive();
+    const bool focused = ui::canvas_has_keys();
     if (focused && ImGui::IsKeyPressed(ImGuiKey_F, false)) frame(machine);
     if (focused && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) remove_selected = true;
     if (remove_selected) {
@@ -351,36 +328,26 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
     }
 
     // ── Drawing ───────────────────────────────────────────────────────
-    dl->PushClipRect(origin_, end, true);
-    dl->AddRectFilled(origin_, end, colour(theme::surface_sunken()));
-    const float step = GRID * view_.zoom;
-    if (step >= 6.0f) {
-        const float gx = std::fmod(-view_.offset.x * view_.zoom, step);
-        const float gy = std::fmod(-view_.offset.y * view_.zoom, step);
-        for (float x = origin_.x + (gx < 0.0f ? gx + step : gx); x < end.x; x += step) {
-            dl->AddLine({std::floor(x) + 0.5f, origin_.y}, {std::floor(x) + 0.5f, end.y}, colour(theme::grid_minor()));
-        }
-        for (float y = origin_.y + (gy < 0.0f ? gy + step : gy); y < end.y; y += step) {
-            dl->AddLine({origin_.x, std::floor(y) + 0.5f}, {end.x, std::floor(y) + 0.5f}, colour(theme::grid_minor()));
-        }
-    }
+    dl->PushClipRect(origin, end, true);
+    dl->AddRectFilled(origin, end, colour(theme::surface_sunken()));
+    ui::canvas_grid(dl, view_, GRID, theme::grid_minor());
 
-    const float line_w = std::max(1.5f, 1.8f * view_.zoom);
+    const float line_w = std::max(1.5f, 1.8f * zoom);
     // The Entry point and its arrow into the initial state.
     if (const int initial = index_of(machine, machine.initial_state_name()); initial >= 0) {
         const glm::vec2 c = centres[static_cast<size_t>(initial)];
-        const ImVec2 dot = to_screen({c.x - BOX_W * 0.5f - ENTRY_GAP, c.y});
-        const ImVec2 tip = to_screen({c.x - BOX_W * 0.5f - 2.0f, c.y});
-        dl->AddCircleFilled(dot, 6.0f * view_.zoom, colour(theme::text_secondary()));
-        dl->AddLine({dot.x + 7.0f * view_.zoom, dot.y}, {tip.x - 8.0f * view_.zoom, tip.y}, colour(theme::text_secondary()),
+        const ImVec2 dot = view_.to_screen({c.x - BOX_W * 0.5f - ENTRY_GAP, c.y});
+        const ImVec2 tip = view_.to_screen({c.x - BOX_W * 0.5f - 2.0f, c.y});
+        dl->AddCircleFilled(dot, 6.0f * zoom, colour(theme::text_secondary()));
+        dl->AddLine({dot.x + 7.0f * zoom, dot.y}, {tip.x - 8.0f * zoom, tip.y}, colour(theme::text_secondary()),
                     line_w);
-        const float a = 7.0f * view_.zoom;
+        const float a = 7.0f * zoom;
         dl->AddTriangleFilled(tip, {tip.x - a * 1.3f, tip.y - a * 0.7f}, {tip.x - a * 1.3f, tip.y + a * 0.7f},
                               colour(theme::text_secondary()));
-        ImGui::PushFont(nullptr, std::max(theme::SMALL_TEXT * view_.zoom, 8.0f));
+        ImGui::PushFont(nullptr, std::max(theme::SMALL_TEXT * zoom, 8.0f));
         const char* label = "Entry";
         const ImVec2 ts = ImGui::CalcTextSize(label);
-        dl->AddText({dot.x - ts.x * 0.5f, dot.y + 10.0f * view_.zoom}, colour(theme::text_disabled()), label);
+        dl->AddText({dot.x - ts.x * 0.5f, dot.y + 10.0f * zoom}, colour(theme::text_disabled()), label);
         ImGui::PopFont();
     }
 
@@ -389,11 +356,11 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
         const auto& l = lines[static_cast<size_t>(li)];
         const bool sel = selected_transition_state_ == l.state && selected_transition_ == l.transition;
         const ImVec4 c = sel ? theme::accent() : li == hot_badge ? theme::text() : theme::text_secondary();
-        const ImVec2 a = to_screen(l.from);
-        const ImVec2 b = to_screen(l.to);
+        const ImVec2 a = view_.to_screen(l.from);
+        const ImVec2 b = view_.to_screen(l.to);
         dl->AddLine(a, b, colour(c), sel ? line_w * 1.4f : line_w);
         const ImVec2 mid{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
-        const float r = BADGE_R * view_.zoom;
+        const float r = BADGE_R * zoom;
         dl->AddCircleFilled(mid, r, colour(theme::surface_raised()));
         dl->AddCircle(mid, r, colour(c), 0, line_w);
         const float len = std::max(std::hypot(b.x - a.x, b.y - a.y), 1e-3f);
@@ -405,15 +372,15 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
                               {mid.x - d.x * s * 0.8f - n.x * s, mid.y - d.y * s * 0.8f - n.y * s}, colour(c));
         // A dot beside the badge when it waits on conditions.
         if (!states[static_cast<size_t>(l.state)].transitions[static_cast<size_t>(l.transition)].conditions.empty()) {
-            dl->AddCircleFilled({mid.x + n.x * (r + 5.0f * view_.zoom), mid.y + n.y * (r + 5.0f * view_.zoom)},
-                                2.5f * view_.zoom, colour(theme::category(theme::Category::Animation)));
+            dl->AddCircleFilled({mid.x + n.x * (r + 5.0f * zoom), mid.y + n.y * (r + 5.0f * zoom)},
+                                2.5f * zoom, colour(theme::category(theme::Category::Animation)));
         }
     }
 
     // A transition being dragged out.
     if (drag_ == Drag::Link && drag_state_ >= 0 && drag_state_ < count) {
         const glm::vec2 from = box_edge(centres[static_cast<size_t>(drag_state_)], mouse_graph);
-        const ImVec2 a = to_screen(from);
+        const ImVec2 a = view_.to_screen(from);
         // Dashed, to the mouse.
         const float len = std::hypot(mouse.x - a.x, mouse.y - a.y);
         for (float t = 0.0f; t < len; t += 9.0f) {
@@ -427,15 +394,15 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
 
     // States.
     const ImVec4 header = mix(theme::surface_raised(), theme::category(theme::Category::Animation), 0.3f);
-    const float title_size = std::clamp(theme::BODY_TEXT * view_.zoom, 7.0f, 30.0f);
-    const float body_size = std::clamp(theme::SMALL_TEXT * view_.zoom, 7.0f, 28.0f);
+    const float title_size = std::clamp(theme::BODY_TEXT * zoom, 7.0f, 30.0f);
+    const float body_size = std::clamp(theme::SMALL_TEXT * zoom, 7.0f, 28.0f);
     for (int i = 0; i < count; ++i) {
         const auto& state = states[static_cast<size_t>(i)];
         const glm::vec2 c = centres[static_cast<size_t>(i)];
-        const ImVec2 lo = to_screen(c - glm::vec2(BOX_W, BOX_H) * 0.5f);
-        const ImVec2 hi = to_screen(c + glm::vec2(BOX_W, BOX_H) * 0.5f);
-        const float rounding = ROUNDING * view_.zoom;
-        const float head = HEADER_H * view_.zoom;
+        const ImVec2 lo = view_.to_screen(c - glm::vec2(BOX_W, BOX_H) * 0.5f);
+        const ImVec2 hi = view_.to_screen(c + glm::vec2(BOX_W, BOX_H) * 0.5f);
+        const float rounding = ROUNDING * zoom;
+        const float head = HEADER_H * zoom;
         dl->AddRectFilled(lo, hi, colour(theme::surface_raised()), rounding);
         dl->AddRectFilled(lo, {hi.x, lo.y + head}, colour(header), rounding, ImDrawFlags_RoundCornersTop);
         const bool sel = selected_state_ == i;
@@ -448,7 +415,7 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
             dl->AddRect(lo, hi, colour(theme::border()), rounding);
         }
         dl->PushClipRect(lo, hi, true);
-        const float pad = 10.0f * view_.zoom;
+        const float pad = 10.0f * zoom;
         ImGui::PushFont(theme::bold_font(), title_size);
         dl->AddText({lo.x + pad, lo.y + (head - ImGui::GetFontSize()) * 0.5f}, colour(theme::text()), state.name.c_str());
         ImGui::PopFont();
@@ -464,7 +431,7 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
 
         // On its edge, where a drag would start a transition.
         if (hot_state == i && hot_edge && drag_ == Drag::None) {
-            const ImVec2 at = to_screen(box_edge(c, mouse_graph));
+            const ImVec2 at = view_.to_screen(box_edge(c, mouse_graph));
             dl->AddCircle(at, 5.0f, colour(theme::accent()), 0, 1.5f);
         }
     }
@@ -474,7 +441,7 @@ bool StateGraph::draw(AnimationStateMachine& machine) {
     if (drag_ == Drag::None && hovered && hot_badge < 0 && hot_state < 0 && count == 0) {
         const char* hint = "Double-click to add a state";
         const ImVec2 ts = ImGui::CalcTextSize(hint);
-        dl->AddText({origin_.x + (size_.x - ts.x) * 0.5f, origin_.y + (size_.y - ts.y) * 0.5f},
+        dl->AddText({origin.x + (size.x - ts.x) * 0.5f, origin.y + (size.y - ts.y) * 0.5f},
                     colour(theme::text_disabled()), hint);
     }
     return changed;

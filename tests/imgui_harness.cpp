@@ -52,11 +52,11 @@ const ImGuiHarness::Rect& ImGuiHarness::marked(const std::string& name) const {
 ImVec2 ImGuiHarness::rect_min(const std::string& name) const { return marked(name).min; }
 ImVec2 ImGuiHarness::rect_max(const std::string& name) const { return marked(name).max; }
 
-void ImGuiHarness::drag(ImVec2 from, ImVec2 to) {
+void ImGuiHarness::drag(ImVec2 from, ImVec2 to, ImGuiMouseButton button) {
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(from.x, from.y);
     step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    io.AddMouseButtonEvent(button, true);
     step();
     constexpr int STEPS = 4;
     for (int i = 1; i <= STEPS; ++i) {
@@ -64,7 +64,15 @@ void ImGuiHarness::drag(ImVec2 from, ImVec2 to) {
         io.AddMousePosEvent(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
         step();
     }
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    io.AddMouseButtonEvent(button, false);
+    step();
+}
+
+void ImGuiHarness::wheel(ImVec2 at, float notches) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(at.x, at.y);
+    step();
+    io.AddMouseWheelEvent(0.0f, notches);
     step();
 }
 
