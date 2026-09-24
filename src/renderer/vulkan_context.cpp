@@ -767,6 +767,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         // the scene, and geometry has to reach the mega-buffer before the TLAS
         // is built during recording.
         prep_ctx.mega_buffer = gpu_.mega_buffer();
+        // For a pass that configures another before anything records: the
+        // tonemap switches the exposure histogram on or off here.
+        prep_ctx.passes = &passes_;
         if (!viewports.empty() && viewports[0].target) {
             prep_ctx.view = viewports[0].view;
             prep_ctx.projection = viewports[0].projection;
