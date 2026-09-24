@@ -162,4 +162,5 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_ACTIVITY           "\xee\x80\xb8"  // U+E038
 #define ICON_LC_USERS              "\xee\x86\xa4"  // U+E1A4
 #define ICON_LC_FLASK_CONICAL      "\xee\x83\x95"  // U+E0D5
+#define ICON_LC_BOX_SELECT         "\xee\x87\x8b"  // U+E1CB
 // NOLINTEND(cppcoreguidelines-macro-usage)

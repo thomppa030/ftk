@@ -46,6 +46,7 @@ public:
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] const char* context_type() const override { return "mesh"; }
     [[nodiscard]] DockPreset dock_preset() const override;
+    void draw_header_actions() override;
     [[nodiscard]] std::string asset_path() const override { return fjmesh_path_; }
     [[nodiscard]] std::string document() const override;
     [[nodiscard]] Result<> write() override;

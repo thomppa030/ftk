@@ -67,6 +67,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/document_history.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/grouped_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_header.cpp
@@ -203,6 +204,7 @@ add_executable(fjell-tests
     test_pages.cpp
     test_document_history.cpp
     test_asset_header.cpp
+    test_collision_shape_fields.cpp
     test_tree.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp

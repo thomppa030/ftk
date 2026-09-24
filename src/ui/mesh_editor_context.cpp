@@ -2,20 +2,35 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "renderer/components/mesh_component.hpp"
 #include "physics/collision_build.hpp"
 #include "physics/collision_shape.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/asset_shader_type.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "scene/component_meta.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
+#include "ui/inspectors/collision_shape_fields.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/list_editor.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
+#include <optional>
 
 namespace fjell {
 
@@ -28,14 +43,6 @@ std::string group_digits(uint64_t value) {
         s.insert(static_cast<size_t>(pos), ",");
     }
     return s;
-}
-
-void info_row(const char* label, const std::string& value) {
-    ImGui::TableNextRow();
-    ImGui::TableNextColumn();
-    ImGui::TextUnformatted(label);
-    ImGui::TableNextColumn();
-    ImGui::TextUnformatted(value.c_str());
 }
 
 } // namespace
@@ -203,66 +210,37 @@ void MeshEditorContext::frame_camera() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MeshEditorContext::draw_slots_panel() {
-    if (ImGui::Begin(ctx_title("Materials").c_str())) {
-        if (!model_) {
-            ImGui::TextDisabled("No mesh loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::material, ctx_title("Materials").c_str());
+    if (!panel) return;
+    if (!model_) {
+        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        return;
+    }
+    if (authored_.material_slots.empty()) {
+        ui::empty_state(ui::icon::material, "No material slots",
+                        "Reimport the mesh to record the materials its parts were made with");
+        return;
+    }
 
-        if (authored_.material_slots.empty()) {
-            ImGui::TextWrapped(
-                "This mesh has no material slots. Reimport it to record the "
-                "materials its submeshes were authored with.");
-            ImGui::End();
-            return;
-        }
-
-        for (size_t i = 0; i < authored_.material_slots.size(); ++i) {
+    InspectorContext ictx{};
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.icons = deps_.icon_cache;
+    static const std::string material_exts[] = {".fjmat"};
+    bool changed = false;
+    // Each slot is named by the material its part had in the source file.
+    if (auto t = ui::PropertyTable("##slots")) {
+        for (std::size_t i = 0; i < authored_.material_slots.size(); ++i) {
             auto& slot = authored_.material_slots[i];
             ImGui::PushID(static_cast<int>(i));
-
-            // Slots hold ids; show the path they point at.
-            std::string shown = "(none)";
-            if (!slot.path.empty()) {
-                shown = base_path::asset_display_path(
-                    slot.path, deps_.project_mgr->active());
-                if (shown.empty()) shown = slot.path + "  (missing)";
-            }
-            ImGui::Text("%zu  %s", i, slot.name.c_str());
-            ImGui::TextDisabled("%s", shown.c_str());
-
-            // Drop a .fjmat from the content browser onto the row to assign it.
-            ImGui::InvisibleButton("##drop", {-1.0F, ImGui::GetFrameHeight()});
-            if (ImGui::BeginDragDropTarget()) {
-                if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                    std::string dropped(static_cast<const char*>(payload->Data));
-                    if (std::filesystem::path(dropped).extension() == ".fjmat") {
-                        // Stored as an id so renaming or moving the material
-                        // doesn't orphan the slot.
-                        slot.path = base_path::asset_reference(
-                            dropped, deps_.project_mgr->active());
-                        apply_slot_materials();
-                    }
-                }
-                ImGui::EndDragDropTarget();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Drop a .fjmat here to assign it to this slot");
-            }
-
-            if (!slot.path.empty()) {
-                if (ImGui::SmallButton("Clear")) {
-                    slot.path.clear();
-                    apply_slot_materials();
-                }
-            }
-
-            ImGui::Separator();
+            ui::row(slot.name.c_str(), [&] {
+                changed |= asset_slot({.label = slot.name.c_str(), .id = "##material", .extensions = material_exts,
+                                       .ctx = &ictx, .shader_types = only_shader_type(ShaderType::Spatial)},
+                                      slot.path);
+            });
             ImGui::PopID();
         }
     }
-    ImGui::End();
+    if (changed) apply_slot_materials();
 }
 
 std::string MeshEditorContext::document() const {
@@ -433,330 +411,201 @@ void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_b
 }
 
 void MeshEditorContext::draw_primitive_list() {
-    ImGui::SeparatorText("Shapes");
-
+    ui::subheading("Shapes");
     if (model_ != nullptr && model_->authored_version() < FJMESH_LAYOUT_VERSION) {
-        ImGui::TextWrapped(
-            "This mesh was written by an older version of the format and has no "
-            "room for a shape list. Reimport it to author shapes.");
+        ui::status(ui::Severity::Warning,
+                   "This mesh was written by an older version of the format and has no room for shapes. "
+                   "Reimport it to add some.");
         return;
     }
 
+    auto list = ui::ListEditor("##shapes", collision_primitives_.size(), {.reorder = false});
     if (collision_primitives_.empty()) {
-        ImGui::TextWrapped(
-            "No shapes authored — this mesh collides as its geometry above. "
-            "Add a shape to collide as something simpler, or as several convex "
-            "pieces so it can move.");
+        list.empty("No shapes: the mesh collides as its geometry above. Add one to collide as something "
+                   "simpler, or as convex pieces so it can move");
     }
-
-    static constexpr struct { CollisionPrimitiveKind kind; const char* label; } KINDS[] = {
-        {CollisionPrimitiveKind::box, "Box"},
-        {CollisionPrimitiveKind::sphere, "Sphere"},
-        {CollisionPrimitiveKind::capsule, "Capsule"},
-    };
-
-    if (ImGui::Button("Fit to Bounds")) ImGui::OpenPopup("fit_kind");
-    if (ImGui::BeginPopup("fit_kind")) {
-        for (const auto& k : KINDS) {
-            if (ImGui::Selectable(k.label)) add_primitive(k.kind, true);
-        }
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Add")) ImGui::OpenPopup("add_kind");
-    if (ImGui::BeginPopup("add_kind")) {
-        for (const auto& k : KINDS) {
-            if (ImGui::Selectable(k.label)) add_primitive(k.kind, false);
-        }
-        ImGui::EndPopup();
-    }
-
-    static const char* KIND_NAMES[] = {"Box", "Sphere", "Capsule", "Convex Hull",
-                                        "Triangle Mesh"};
-
-    for (int i = 0; i < static_cast<int>(collision_primitives_.size()); ++i) {
-        auto& prim = collision_primitives_[static_cast<size_t>(i)];
-        ImGui::PushID(i);
-
-        bool selected = selected_primitive_ == i;
-        auto label = std::string(KIND_NAMES[static_cast<int>(prim.kind)]) +
-                     "##" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), selected)) {
-            selected_primitive_ = selected ? -1 : i;
-        }
-
+    std::optional<std::size_t> removed;
+    for (std::size_t i = 0; i < collision_primitives_.size(); ++i) {
+        auto& prim = collision_primitives_[i];
+        const bool selected = selected_primitive_ == static_cast<int>(i);
+        if (!list.begin_item(i, selected)) continue;
+        // Only the selected shape shows its fields; the others one line each.
         if (selected) {
-            ImGui::Indent();
-            bool changed = false;
-
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Position", &prim.position.x, 0.01F)) changed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position");
-
-            switch (prim.kind) {
-                case CollisionPrimitiveKind::box:
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat3("##Extents", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Half extents");
-                    break;
-                case CollisionPrimitiveKind::sphere:
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##Radius", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
-                    break;
-                case CollisionPrimitiveKind::capsule:
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##CapRadius", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##CapHeight", &prim.extents.y, 0.01F, 0.001F, 1000.0F)) {
-                        changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Height");
-                    break;
-                default:
-                    ImGui::TextDisabled("Derived from the mesh geometry.");
-                    break;
+            ImGui::TextUnformatted(collision_kind_name(prim.kind));
+            if (auto t = ui::PropertyTable("##shape")) {
+                if (collision_shape_rows(prim, "Relative to the mesh's origin").changed) collision_dirty_ = true;
             }
-
-            if (ImGui::SmallButton("Remove")) {
-                collision_primitives_.erase(collision_primitives_.begin() + i);
-                selected_primitive_ = -1;
-                changed = true;
-                ImGui::Unindent();
-                ImGui::PopID();
-                collision_dirty_ = true;
-                break;
-            }
-
-            if (changed) {
-                collision_dirty_ = true;
-            }
-            ImGui::Unindent();
+        } else {
+            ImGui::TextUnformatted(collision_shape_summary(prim).c_str());
         }
-        ImGui::PopID();
+        if (list.end_item()) removed = i;
+        if (list.clicked()) selected_primitive_ = selected ? -1 : static_cast<int>(i);
+    }
+    if (list.add_button("Add shape")) ImGui::OpenPopup("##add_shape");
+    if (auto pick = add_shape_menu("##add_shape", "the mesh")) add_primitive(pick->kind, pick->fitted);
+    if (removed) {
+        collision_primitives_.erase(collision_primitives_.begin() + static_cast<std::ptrdiff_t>(*removed));
+        selected_primitive_ = -1;
+        collision_dirty_ = true;
     }
 }
 
 void MeshEditorContext::draw_collision_panel() {
-    if (ImGui::Begin(ctx_title("Collision").c_str())) {
-        if (!model_) {
-            ImGui::TextDisabled("No mesh loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::collision, ctx_title("Collision").c_str());
+    if (!panel) return;
+    if (!model_) {
+        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        return;
+    }
 
-        struct SourceOption {
-            FjMeshCollisionSource value;
-            const char* label;
-            const char* help;
-        };
-        static constexpr SourceOption OPTIONS[] = {
-            {FjMeshCollisionSource::render_mesh, "Render mesh",
-             "Collide against the visible geometry. Static bodies only."},
-            {FjMeshCollisionSource::convex_hull, "Convex hull",
-             "Hull of the visible geometry. The only source that works on a "
-             "moving body."},
-            {FjMeshCollisionSource::simplified, "Simplified mesh",
-             "Decimated triangle mesh. Static bodies only."},
-            {FjMeshCollisionSource::custom_mesh, "Custom mesh",
-             "Collide against a separate .fjmesh authored as a proxy."},
-        };
+    struct SourceHelp {
+        FjMeshCollisionSource value;
+        const char* help;
+    };
+    static constexpr ui::Choice<FjMeshCollisionSource> SOURCES[] = {
+        {FjMeshCollisionSource::render_mesh, "Render mesh"},
+        {FjMeshCollisionSource::convex_hull, "Convex hull"},
+        {FjMeshCollisionSource::simplified, "Simplified mesh"},
+        {FjMeshCollisionSource::custom_mesh, "Custom mesh"},
+    };
+    static constexpr SourceHelp HELP[] = {
+        {FjMeshCollisionSource::render_mesh, "Collides against the visible geometry. Static bodies only"},
+        {FjMeshCollisionSource::convex_hull, "The hull of the visible geometry: the only source a moving body can use"},
+        {FjMeshCollisionSource::simplified, "A decimated triangle mesh. Static bodies only"},
+        {FjMeshCollisionSource::custom_mesh, "Collides against a separate .fjmesh made as a proxy"},
+    };
 
-        const char* current = "Render mesh";
-        for (const auto& opt : OPTIONS) {
-            if (opt.value == authored_.collision_source) current = opt.label;
-        }
+    // A mesh imported before the format kept full-detail collision has
+    // nothing to rebuild from, and deriving from the stored result would
+    // compound the loss it already carries.
+    const bool can_rebuild = model_->has_full_collision();
+    if (!can_rebuild) {
+        ui::status(ui::Severity::Warning,
+                   "This mesh predates the format that keeps what collision is built from. "
+                   "Reimport it to change the source.");
+    }
 
-        // A mesh imported before the format kept full-detail collision has
-        // nothing to rebuild from, and deriving from the stored result would
-        // compound the loss it already carries.
-        const bool can_rebuild = model_->has_full_collision();
+    InspectorContext ictx{};
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.icons = deps_.icon_cache;
+    static const std::string mesh_exts[] = {".fjmesh"};
+    if (auto t = ui::PropertyTable("##collision")) {
         ImGui::BeginDisabled(!can_rebuild);
-
-        if (ImGui::BeginCombo("Source", current)) {
-            for (const auto& opt : OPTIONS) {
-                bool selected = opt.value == authored_.collision_source;
-                if (ImGui::Selectable(opt.label, selected) && !selected) {
-                    authored_.collision_source = opt.value;
-                    rebuild_collision();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", opt.help);
-            }
-            ImGui::EndCombo();
-        }
+        ui::row("Source", [&] {
+            if (ui::combo("##source", authored_.collision_source, SOURCES).changed) rebuild_collision();
+        });
         ImGui::EndDisabled();
-
-        for (const auto& opt : OPTIONS) {
-            if (opt.value == authored_.collision_source) {
-                ImGui::TextWrapped("%s", opt.help);
-            }
+        for (const auto& h : HELP) {
+            if (h.value == authored_.collision_source) ui::hint(h.help);
         }
-
-        ImGui::Separator();
-
         if (authored_.collision_source == FjMeshCollisionSource::simplified) {
             ImGui::BeginDisabled(!can_rebuild);
-            // Rebuild on release rather than per-frame: simplifying the helmet
-            // costs about a millisecond, which is enough to make a drag stutter.
-            ImGui::SliderFloat("Detail", &authored_.collision_simplify_ratio,
-                               0.01F, 1.0F, "%.2f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) rebuild_collision();
-            ImGui::EndDisabled();
-            ImGui::TextDisabled("Fraction of the original triangles to keep.");
-        }
-
-        if (authored_.collision_source == FjMeshCollisionSource::custom_mesh) {
-            ImGui::Text("Proxy: %s", authored_.collision_mesh.empty()
-                        ? "(none)" : authored_.collision_mesh.c_str());
-            ImGui::InvisibleButton("##proxy_drop", {-1.0F, ImGui::GetFrameHeight()});
-            if (ImGui::BeginDragDropTarget()) {
-                if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                    std::string dropped(static_cast<const char*>(payload->Data));
-                    if (std::filesystem::path(dropped).extension() == ".fjmesh") {
-                        authored_.collision_mesh = dropped;
-                    }
+            // Rebuilt when the drag lets go: simplifying the helmet takes
+            // about a millisecond, enough to make a drag stutter.
+            ui::row("Detail", [&] {
+                if (ui::slider("##detail", authored_.collision_simplify_ratio, 0.01F, 1.0F)
+                        .committed) {
+                    rebuild_collision();
                 }
-                ImGui::EndDragDropTarget();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Drop a .fjmesh here to use as the collision proxy");
-            }
-            if (!authored_.collision_mesh.empty() && ImGui::SmallButton("Clear")) {
-                authored_.collision_mesh.clear();
-            }
+            });
+            ImGui::EndDisabled();
+            ui::hint("The share of the original triangles kept");
         }
-
-        draw_primitive_list();
-
-        ImGui::SeparatorText("Current geometry");
-
-        if (ImGui::Checkbox("Show in viewport", &show_collision_)) {
-            deps_.vulkan_context->set_show_colliders(show_collision_);
-        }
-
-        // A hull is a point cloud, so it reports no triangles by design.
-        bool is_hull = authored_.collision_source == FjMeshCollisionSource::convex_hull;
-        if (ImGui::BeginTable("collision", 2, ImGuiTableFlags_SizingStretchProp)) {
-            info_row("Vertices", group_digits(collision_vertices_.size()));
-            info_row("Triangles", group_digits(collision_indices_.size() / 3));
-            info_row("Supports dynamic", is_hull ? "yes" : "no");
-            ImGui::EndTable();
-        }
-
-        if (!can_rebuild) {
-            ImGui::TextWrapped(
-                "This mesh predates the format that keeps the geometry collision "
-                "is built from. Reimport it to change the source.");
+        if (authored_.collision_source == FjMeshCollisionSource::custom_mesh) {
+            ui::row("Proxy", [&] {
+                (void)asset_slot({.label = "Proxy", .id = "##proxy", .extensions = mesh_exts, .ctx = &ictx},
+                                 authored_.collision_mesh);
+            });
         }
     }
-    ImGui::End();
+
+    draw_primitive_list();
+
+    ui::subheading("Current geometry");
+    // A hull is a point cloud, so it reports no triangles by design.
+    const bool is_hull = authored_.collision_source == FjMeshCollisionSource::convex_hull;
+    if (auto t = ui::PropertyTable("##geometry")) {
+        ui::row("Show in preview", [&] {
+            if (ui::checkbox("##show", show_collision_).changed) {
+                deps_.vulkan_context->set_show_colliders(show_collision_);
+            }
+        });
+        ui::row("Vertices", [&] { ui::readout(group_digits(collision_vertices_.size()).c_str()); });
+        ui::row("Triangles", [&] { ui::readout(group_digits(collision_indices_.size() / 3).c_str()); });
+        ui::row("Moving bodies", [&] { ui::readout(is_hull ? "Yes" : "No"); });
+    }
 }
 
 void MeshEditorContext::draw_info_panel() {
-    if (ImGui::Begin(ctx_title("Info").c_str())) {
-        if (!model_) {
-            ImGui::TextDisabled("No mesh loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::info, ctx_title("Info").c_str());
+    if (!panel) return;
+    if (!model_) {
+        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        return;
+    }
 
-        ImGui::TextDisabled("%s", fjmesh_path_.c_str());
+    auto readout = [](const char* label, const std::string& value) {
+        ui::row(label, [&] { ui::readout(value.c_str()); });
+    };
+    auto vec = [](const glm::vec3& v) { return std::format("{:.3f}, {:.3f}, {:.3f} m", v.x, v.y, v.z); };
 
-        if (!authored_.source_file.empty()) {
-            ImGui::TextDisabled("Imported from %s", authored_.source_file.c_str());
+    if (auto t = ui::PropertyTable("##info")) {
+        if (!authored_.source_file.empty()) readout("Imported from", authored_.source_file);
+        // total_indices() covers every LOD, so triangles are per LOD below.
+        readout("Parts", group_digits(model_->mega_entry_count()));
+        readout("Meshlets", group_digits(model_->total_meshlet_count()));
+        readout("Indices", group_digits(model_->total_indices()));
+    }
 
-            auto source = find_import_source(fjmesh_abs_path_);
-            ImGui::BeginDisabled(source.empty() || !deps_.import_model);
-            if (ImGui::Button("Reimport")) {
-                deps_.import_model(source);
+    ui::subheading("Bounds");
+    const auto& aabb = model_->local_aabb();
+    if (auto t = ui::PropertyTable("##bounds")) {
+        readout("Min", vec(aabb.min));
+        readout("Max", vec(aabb.max));
+        readout("Size", vec(aabb.max - aabb.min));
+        readout("Radius", std::format("{:.3f} m", model_->bounding_radius()));
+    }
+
+    ui::subheading("Levels of detail");
+    if (auto t = ui::PropertyTable("##lods")) {
+        const auto& entries = model_->mega_entries();
+        uint32_t lod_index = 0;
+        for (const auto& lod : model_->lod_levels()) {
+            uint32_t indices = 0;
+            const uint32_t end = lod.first_mega_entry + lod.mega_entry_count;
+            for (uint32_t i = lod.first_mega_entry; i < end && i < entries.size(); ++i) {
+                indices += entries[i].index_count;
             }
-            ImGui::EndDisabled();
-            // The button is disabled in exactly this case, and a disabled
-            // widget needs the flag to report hover at all.
-            if (source.empty() &&
-                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Source file not found next to the mesh");
-            }
-        }
-
-        ImGui::Separator();
-
-        // Geometry counts. total_indices() covers every LOD, so triangles are
-        // reported per-LOD in the table below rather than as a single number.
-        if (ImGui::BeginTable("geometry", 2, ImGuiTableFlags_SizingStretchProp)) {
-            info_row("Submeshes", group_digits(model_->mega_entry_count()));
-            info_row("Meshlets", group_digits(model_->total_meshlet_count()));
-            info_row("Indices", group_digits(model_->total_indices()));
-            ImGui::EndTable();
-        }
-
-        ImGui::SeparatorText("Bounds");
-        const auto& aabb = model_->local_aabb();
-        if (ImGui::BeginTable("bounds", 2, ImGuiTableFlags_SizingStretchProp)) {
-            char buf[96];
-            std::snprintf(buf, sizeof(buf), "%.3f, %.3f, %.3f", aabb.min.x, aabb.min.y, aabb.min.z);
-            info_row("Min", buf);
-            std::snprintf(buf, sizeof(buf), "%.3f, %.3f, %.3f", aabb.max.x, aabb.max.y, aabb.max.z);
-            info_row("Max", buf);
-            glm::vec3 extent = aabb.max - aabb.min;
-            std::snprintf(buf, sizeof(buf), "%.3f, %.3f, %.3f", extent.x, extent.y, extent.z);
-            info_row("Size", buf);
-            std::snprintf(buf, sizeof(buf), "%.3f", model_->bounding_radius());
-            info_row("Radius", buf);
-            ImGui::EndTable();
-        }
-
-        ImGui::SeparatorText("LODs");
-        if (ImGui::BeginTable("lods", 4,
-                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                              ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("LOD");
-            ImGui::TableSetupColumn("Submeshes");
-            ImGui::TableSetupColumn("Triangles");
-            ImGui::TableSetupColumn("Screen size");
-            ImGui::TableHeadersRow();
-
-            const auto& entries = model_->mega_entries();
-            uint32_t lod_index = 0;
-            for (const auto& lod : model_->lod_levels()) {
-                uint32_t indices = 0;
-                uint32_t end = lod.first_mega_entry + lod.mega_entry_count;
-                for (uint32_t i = lod.first_mega_entry; i < end && i < entries.size(); ++i) {
-                    indices += entries[i].index_count;
-                }
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", lod_index);
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", lod.mega_entry_count);
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(group_digits(indices / 3).c_str());
-                ImGui::TableNextColumn();
-                ImGui::Text("%.3f", lod.max_screen_size);
-                ++lod_index;
-            }
-            ImGui::EndTable();
-        }
-
-        ImGui::SeparatorText("SDF");
-        if (model_->has_sdf()) {
-            uint32_t res = model_->sdf_grid_resolution();
-            ImGui::Text("%u x %u x %u", res, res, res);
-            ImGui::TextDisabled("%s voxels",
-                                group_digits(model_->sdf_grid_data().size()).c_str());
-        } else {
-            ImGui::TextDisabled("None");
+            const std::string label = "LOD " + std::to_string(lod_index);
+            readout(label.c_str(), std::format("{} triangles, {} parts, to {:.3f} of the screen",
+                                               group_digits(indices / 3), lod.mega_entry_count,
+                                               lod.max_screen_size));
+            ++lod_index;
         }
     }
-    ImGui::End();
+
+    ui::subheading("Distance field");
+    if (auto t = ui::PropertyTable("##sdf")) {
+        if (model_->has_sdf()) {
+            const uint32_t res = model_->sdf_grid_resolution();
+            readout("Grid", std::format("{} \xc3\x97 {} \xc3\x97 {}", res, res, res));
+            readout("Voxels", group_digits(model_->sdf_grid_data().size()));
+        } else {
+            readout("Grid", "None");
+        }
+    }
+}
+
+void MeshEditorContext::draw_header_actions() {
+    if (!model_ || authored_.source_file.empty()) return;
+    // Import the source file again, keeping what was authored here.
+    const auto source = find_import_source(fjmesh_abs_path_);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(source.empty() || !deps_.import_model);
+    if (ui::action(ui::icon::reload, "Reimport", ui::ButtonKind::Ghost)) deps_.import_model(source);
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("%s", source.empty() ? "The source file isn't next to the mesh any more"
+                                               : ("Import " + authored_.source_file + " again").c_str());
 }
 
 } // namespace fjell

@@ -1,4 +1,10 @@
 #include "ui/animation_editor_context.hpp"
+#include "ui/inspectors/collision_shape_fields.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/list_editor.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/panel_widget.hpp"
 #include "animation/anim_notify_registry.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -548,133 +554,59 @@ void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,
 }
 
 void AnimationEditorContext::draw_collider_panel() {
-    if (ImGui::Begin(ctx_title("Colliders").c_str())) {
-        if (!skeleton_) {
-            ImGui::TextDisabled("No skeleton loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::collision, ctx_title("Colliders").c_str());
+    if (!panel) return;
+    if (!skeleton_) {
+        ui::empty_state(ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
+        return;
+    }
 
-        if (ImGui::Checkbox("Show in preview", &show_colliders_)) {
-            // Redrawn from the list each frame; nothing else to do.
-        }
+    const auto& joints = skeleton_->joints();
+    const bool has_bone = selected_bone_ >= 0 && selected_bone_ < static_cast<int>(joints.size());
+    if (auto t = ui::PropertyTable("##collider_view")) {
+        // Redrawn from the list each frame; nothing else to do.
+        ui::row("Show in preview", [&] { (void)ui::checkbox("##show", show_colliders_); });
+    }
 
-        const auto& joints = skeleton_->joints();
-        bool has_bone = selected_bone_ >= 0 &&
-                        selected_bone_ < static_cast<int>(joints.size());
-
-        static constexpr struct { CollisionPrimitiveKind kind; const char* label; } KINDS[] = {
-            {CollisionPrimitiveKind::capsule, "Capsule"},
-            {CollisionPrimitiveKind::sphere, "Sphere"},
-            {CollisionPrimitiveKind::box, "Box"},
-        };
-
-        ImGui::BeginDisabled(!has_bone);
-        if (ImGui::Button("Fit to Bone")) ImGui::OpenPopup("fit_bone_kind");
-        if (ImGui::BeginPopup("fit_bone_kind")) {
-            for (const auto& k : KINDS) {
-                if (ImGui::Selectable(k.label)) add_bone_collider(k.kind, true);
+    auto list = ui::ListEditor("##bone_colliders", colliders_.size(), {.reorder = false});
+    if (colliders_.empty()) {
+        list.empty("No shapes: the skeleton collides only as its node's collider. Add shapes for "
+                   "hits per bone");
+    }
+    std::optional<std::size_t> removed;
+    for (std::size_t i = 0; i < colliders_.size(); ++i) {
+        auto& col = colliders_[i];
+        const bool selected = selected_collider_ == static_cast<int>(i);
+        if (!list.begin_item(i, selected)) continue;
+        // Only the selected shape shows its fields; the others one line each.
+        if (selected) {
+            ImGui::Text("%s on %s", collision_kind_name(col.shape.kind), col.bone_name.c_str());
+            if (auto t = ui::PropertyTable("##shape")) {
+                if (collision_shape_rows(col.shape, "Relative to the bone").changed) colliders_dirty_ = true;
             }
-            ImGui::EndPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Add")) ImGui::OpenPopup("add_bone_kind");
-        if (ImGui::BeginPopup("add_bone_kind")) {
-            for (const auto& k : KINDS) {
-                if (ImGui::Selectable(k.label)) add_bone_collider(k.kind, false);
-            }
-            ImGui::EndPopup();
-        }
-        ImGui::EndDisabled();
-
-        if (!has_bone) {
-            ImGui::TextDisabled("Select a bone to add a shape to it.");
         } else {
-            ImGui::SameLine();
-            ImGui::TextDisabled("on %s", joints[static_cast<size_t>(selected_bone_)].name.c_str());
+            ImGui::Text("%s \xc2\xb7 %s", col.bone_name.c_str(), collision_shape_summary(col.shape).c_str());
         }
-
-        ImGui::Separator();
-
-        if (colliders_.empty()) {
-            ImGui::TextWrapped(
-                "No shapes. A skeleton without them collides only as whatever "
-                "collider its node carries — add shapes here to get per-bone "
-                "hit detection.");
-        }
-
-        static const char* KIND_NAMES[] = {"Box", "Sphere", "Capsule",
-                                            "Convex Hull", "Triangle Mesh"};
-
-        for (int i = 0; i < static_cast<int>(colliders_.size()); ++i) {
-            auto& col = colliders_[static_cast<size_t>(i)];
-            ImGui::PushID(i);
-
-            bool selected = selected_collider_ == i;
-            auto label = std::string(KIND_NAMES[static_cast<int>(col.shape.kind)]) +
-                         " — " + col.bone_name;
-            if (ImGui::Selectable(label.c_str(), selected)) {
-                selected_collider_ = selected ? -1 : i;
-                // Selecting a shape follows it to its bone, so the tree and the
-                // preview agree about what is being edited.
-                if (!selected && col.shape.bone >= 0) selected_bone_ = col.shape.bone;
-            }
-
-            if (selected) {
-                ImGui::Indent();
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::DragFloat3("##Pos", &col.shape.position.x, 0.005F)) {
-                    colliders_dirty_ = true;
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position, in bone space");
-
-                switch (col.shape.kind) {
-                    case CollisionPrimitiveKind::capsule:
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat("##Radius", &col.shape.extents.x, 0.005F,
-                                             0.001F, 100.0F)) {
-                            colliders_dirty_ = true;
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat("##Height", &col.shape.extents.y, 0.005F,
-                                             0.001F, 100.0F)) {
-                            colliders_dirty_ = true;
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Height");
-                        break;
-                    case CollisionPrimitiveKind::sphere:
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat("##SphRadius", &col.shape.extents.x, 0.005F,
-                                             0.001F, 100.0F)) {
-                            colliders_dirty_ = true;
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
-                        break;
-                    default:
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat3("##Ext", &col.shape.extents.x, 0.005F,
-                                              0.001F, 100.0F)) {
-                            colliders_dirty_ = true;
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Half extents");
-                        break;
-                }
-
-                if (ImGui::SmallButton("Remove")) {
-                    colliders_.erase(colliders_.begin() + i);
-                    selected_collider_ = -1;
-                    colliders_dirty_ = true;
-                    ImGui::Unindent();
-                    ImGui::PopID();
-                    break;
-                }
-                ImGui::Unindent();
-            }
-            ImGui::PopID();
+        if (list.end_item()) removed = i;
+        if (list.clicked()) {
+            selected_collider_ = selected ? -1 : static_cast<int>(i);
+            // Selecting a shape follows it to its bone, so the tree and the
+            // preview agree about what is being edited.
+            if (!selected && col.shape.bone >= 0) selected_bone_ = col.shape.bone;
         }
     }
-    ImGui::End();
+    ImGui::BeginDisabled(!has_bone);
+    if (list.add_button("Add shape")) ImGui::OpenPopup("##add_shape");
+    ImGui::EndDisabled();
+    if (!has_bone) {
+        ui::hint("Select a bone to add a shape to it");
+    }
+    if (auto pick = add_shape_menu("##add_shape", "the bone")) add_bone_collider(pick->kind, pick->fitted);
+    if (removed) {
+        colliders_.erase(colliders_.begin() + static_cast<std::ptrdiff_t>(*removed));
+        selected_collider_ = -1;
+        colliders_dirty_ = true;
+    }
 }
 
 void AnimationEditorContext::draw_bone_tree() {
