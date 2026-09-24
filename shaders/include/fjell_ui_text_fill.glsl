@@ -87,10 +87,12 @@ vec4 fjell_ui_text_fill(vec2 atlas_uv, vec2 screen_pos, uint glyph_index) {
     vec3 msd = texture(textures[nonuniformEXT(atlas_index)], atlas_uv).rgb;
     float sd = fjell_ui_text_median(msd.r, msd.g, msd.b);
 
-    // screenPxRange: use unclamped UV derivatives so fwidth is correct
+    // The distance range in screen pixels: the atlas range times screen
+    // pixels per texel, averaged over the two axes. Unclamped UV derivatives
+    // keep fwidth correct.
     vec2 unit_range = vec2(px_range) / atlas_size;
     vec2 screen_tex_size = vec2(1.0) / fwidth(atlas_uv);
-    float screen_px_range = max(dot(unit_range, screen_tex_size), 1.0);
+    float screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.0);
 
     // Convert to screen-pixel distance and threshold
     float screen_px_dist = screen_px_range * (sd - 0.5);
