@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <string>
 #include <utility>
 
 // A dialog that asks before something that can't be undone: the editor
@@ -29,12 +30,34 @@ struct DialogSpec {
     bool destructive{false};
 };
 
+/// A dialog that asks for a name before making something ("Save layout
+/// as", "New script").
+struct PromptSpec {
+    const char* title{""};
+    /// Shown in the empty field, saying what the name is for.
+    const char* hint{""};
+    /// The verb on the confirming button.
+    const char* confirm{"OK"};
+};
+
 /// Opens the dialog `id` on its next draw.
 void open_dialog(const char* id);
 
 namespace detail {
+/// How a dialog's buttons behave, from what its body holds.
+struct DialogButtons {
+    /// False greys the confirming button out, with `why_not` as its tooltip.
+    bool can_confirm{true};
+    const char* why_not{nullptr};
+    /// The confirming button takes the focus as the dialog opens: for a
+    /// body with nothing to type into.
+    bool focus_confirm{true};
+    /// The body confirmed this frame (Enter in its field).
+    bool confirmed{false};
+};
+
 bool begin_dialog(const char* id, const DialogSpec& spec);
-DialogAnswer end_dialog(const DialogSpec& spec);
+DialogAnswer end_dialog(const DialogSpec& spec, const DialogButtons& buttons = {});
 } // namespace detail
 
 /// Draws the dialog `id` while it is open, `body` between its title and its
@@ -45,5 +68,11 @@ DialogAnswer confirm_dialog(const char* id, const DialogSpec& spec, Body&& body)
     std::forward<Body>(body)();
     return detail::end_dialog(spec);
 }
+
+/// Asks for a name in a field that has the focus as the dialog opens.
+/// Enter confirms and Esc cancels; the confirming button is greyed out
+/// while the name is empty. `text` is the field's text, kept by the caller
+/// and emptied before opening. Returns the answer on the frame it is given.
+DialogAnswer prompt_dialog(const char* id, const PromptSpec& spec, std::string& text);
 
 } // namespace fjell::ui

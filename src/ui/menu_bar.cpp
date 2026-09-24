@@ -5,6 +5,7 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/kit/dialog.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
@@ -146,7 +147,7 @@ void MenuBar::draw_layout_menu() {
     }
     if (ui::menu_item({.icon = ui::icon::save, .label = "Save layout as..."})) {
         show_save_layout_popup_ = true;
-        std::memset(layout_name_buf_, 0, sizeof(layout_name_buf_));
+        layout_name_.clear();
     }
     ImGui::Separator();
 
@@ -169,7 +170,7 @@ void MenuBar::draw_scripts_menu() {
 
     if (ui::menu_item({.icon = ui::icon::new_file, .label = "New script..."})) {
         show_new_script_popup_ = true;
-        std::memset(new_script_name_, 0, sizeof(new_script_name_));
+        new_script_name_.clear();
     }
     ImGui::Separator();
     if (ui::menu_item({.icon = ui::icon::reload, .label = building_ ? "Building..." : "Build and reload",
@@ -180,61 +181,26 @@ void MenuBar::draw_scripts_menu() {
 }
 
 void MenuBar::draw_popups() {
-    // Save Layout As popup
+    static constexpr const char* SAVE_LAYOUT = "##save_layout";
+    static constexpr const char* NEW_SCRIPT = "##new_script";
+
     if (show_save_layout_popup_) {
-        ImGui::OpenPopup("Save Layout As");
+        ui::open_dialog(SAVE_LAYOUT);
         show_save_layout_popup_ = false;
     }
-    if (ImGui::BeginPopupModal("Save Layout As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Layout Name:");
-        ImGui::SetNextItemWidth(250.0f);
-        bool enter = ImGui::InputText("##LayoutName", layout_name_buf_, sizeof(layout_name_buf_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(layout_name_buf_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool save = ImGui::Button("Save", {120, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
-
-        if (save) {
-            on_save_layout.broadcast(std::string(layout_name_buf_));
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
+    if (ui::prompt_dialog(SAVE_LAYOUT, {.title = "Save layout as", .hint = "Layout name", .confirm = "Save layout"},
+                          layout_name_) == ui::DialogAnswer::Confirm) {
+        on_save_layout.broadcast(layout_name_);
     }
 
-    // New Script popup
     if (show_new_script_popup_) {
-        ImGui::OpenPopup("New Script");
+        ui::open_dialog(NEW_SCRIPT);
         show_new_script_popup_ = false;
     }
-    if (ImGui::BeginPopupModal("New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Class Name:");
-        ImGui::SetNextItemWidth(300.0f);
-        bool enter = ImGui::InputText("##ClassName", new_script_name_, sizeof(new_script_name_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(new_script_name_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool create = ImGui::Button("Create", {140, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        bool cancel = ImGui::Button("Cancel", {140, 0});
-
-        if (create) {
-            on_new_script.broadcast(std::string(new_script_name_));
-            ImGui::CloseCurrentPopup();
-        }
-        if (cancel) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
+    if (ui::prompt_dialog(NEW_SCRIPT, {.title = "New script", .hint = "Class name", .confirm = "Create script"},
+                          new_script_name_) == ui::DialogAnswer::Confirm) {
+        on_new_script.broadcast(new_script_name_);
     }
-
 }
 
 void MenuBar::set_gpu(GpuCore* gpu) {

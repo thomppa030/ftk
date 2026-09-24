@@ -75,9 +75,9 @@ private:
     FileBrowser new_browser_;
     std::vector<Connection> browser_connections_;
     bool show_new_script_popup_{false};
-    char new_script_name_[128]{};
+    std::string new_script_name_;
     bool show_save_layout_popup_{false};
-    char layout_name_buf_[128]{};
+    std::string layout_name_;
     std::string active_layout_name_;
 };
 

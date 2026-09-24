@@ -195,6 +195,7 @@ add_executable(fjell-tests
     test_scene_order.cpp
     test_search.cpp
     test_status_bar.cpp
+    test_dialog.cpp
     test_tree.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp
