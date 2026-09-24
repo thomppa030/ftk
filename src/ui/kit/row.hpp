@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <string_view>
 #include <utility>
 
 // Property rows: a label column on the left, fitted to the panel, and a
@@ -35,15 +36,36 @@ private:
     bool open_{false};
 };
 
+/// While it lives, a search over the rows drawn: a row whose label doesn't
+/// contain `query` is left out, the labels that do show the match, headings
+/// are skipped with their groups open, and hints are dropped. For a page
+/// of settings searched as a whole. An empty query filters nothing.
+class RowFilter {
+public:
+    explicit RowFilter(std::string_view query);
+    ~RowFilter();
+
+    RowFilter(const RowFilter&) = delete;
+    RowFilter& operator=(const RowFilter&) = delete;
+    RowFilter(RowFilter&&) = delete;
+    RowFilter& operator=(RowFilter&&) = delete;
+
+    /// How many rows matched so far.
+    [[nodiscard]] int matches() const;
+};
+
 namespace detail {
-void begin_row(const char* label, const char* help);
+/// Starts a row; false when a RowFilter leaves it out.
+bool begin_row(const char* label, const char* help);
+/// Whether a RowFilter with a query is in effect.
+[[nodiscard]] bool filtering();
 } // namespace detail
 
 /// One row: `label` on the left, then `draw_value` in the value column with
 /// the next item's width set to fill it.
 template <typename F>
 void row(const char* label, F&& draw_value) {
-    detail::begin_row(label, nullptr);
+    if (!detail::begin_row(label, nullptr)) return;
     std::forward<F>(draw_value)();
 }
 
@@ -51,7 +73,7 @@ void row(const char* label, F&& draw_value) {
 /// `help`. For explanations longer than a hint.
 template <typename F>
 void row(const char* label, const char* help, F&& draw_value) {
-    detail::begin_row(label, help);
+    if (!detail::begin_row(label, help)) return;
     std::forward<F>(draw_value)();
 }
 

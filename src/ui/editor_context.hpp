@@ -2,7 +2,6 @@
 
 #include "core/command_history.hpp"
 #include "ui/history_panel.hpp"
-#include "ui/project_settings_panel.hpp"
 #include "ui/stats_panel.hpp"
 #include "renderer/viewport_source.hpp"
 
@@ -99,21 +98,18 @@ public:
     }
 
     // Shared panels — each context owns its own instances so they dock correctly
-    void init_shared_panels(VulkanContext* vk, class ProjectManager* projects) {
+    void init_shared_panels(VulkanContext* vk) {
         stats_panel_.init(vk);
-        project_settings_panel_.init(vk, projects);
     }
     void draw_shared_panels(float dt);
 
     [[nodiscard]] StatsPanel& stats_panel() { return stats_panel_; }
     [[nodiscard]] HistoryPanel& history_panel() { return history_panel_; }
-    [[nodiscard]] ProjectSettingsPanel& project_settings_panel() { return project_settings_panel_; }
 
 private:
     CommandHistory command_history_;
     StatsPanel stats_panel_;
     HistoryPanel history_panel_;
-    ProjectSettingsPanel project_settings_panel_;
     ImGuiID dockspace_id_{0};
     int context_index_{0};
     bool dockspace_built_{false};

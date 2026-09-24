@@ -2,9 +2,12 @@
 
 #include "ui/kit/edit_record.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/search.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui_internal.h>
+
+#include <string>
 
 namespace fjell::ui {
 
@@ -28,7 +31,35 @@ void help_icon(const char* help) {
     }
 }
 
+// The search a RowFilter puts over the rows drawn while it lives.
+struct Filter {
+    bool active{false};
+    std::string query;
+    int matches{0};
+};
+
+Filter& filter() {
+    static Filter state;
+    return state;
+}
+
 } // namespace
+
+RowFilter::RowFilter(std::string_view query) {
+    filter() = {.active = !query.empty(), .query = std::string(query), .matches = 0};
+}
+
+RowFilter::~RowFilter() {
+    filter() = {};
+}
+
+int RowFilter::matches() const {
+    return filter().matches;
+}
+
+bool detail::filtering() {
+    return filter().active;
+}
 
 PropertyTable::PropertyTable(const char* id) {
     const float label_width = theme::label_column(ImGui::GetContentRegionAvail().x);
@@ -49,21 +80,31 @@ PropertyTable::~PropertyTable() {
     detail::set_edit_label(nullptr);
 }
 
-void detail::begin_row(const char* label, const char* help) {
+bool detail::begin_row(const char* label, const char* help) {
+    Filter& search = filter();
+    if (search.active && !matches(label, search.query)) return false;
     set_edit_label(label);
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
+    if (search.active) {
+        ++search.matches;
+        highlighted_text(label, search.query);
+    } else {
+        ImGui::TextUnformatted(label);
+    }
     if (help != nullptr) {
         ImGui::SameLine(0.0f, theme::GAP_S);
         help_icon(help);
     }
     ImGui::TableSetColumnIndex(1);
     ImGui::SetNextItemWidth(-FLT_MIN);
+    return true;
 }
 
 void hint(const char* text) {
+    // A hint belongs to the row above, which a search may have left out.
+    if (detail::filtering()) return;
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
     if (ImGuiTable* table = ImGui::GetCurrentTable()) {
