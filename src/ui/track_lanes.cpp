@@ -228,17 +228,22 @@ bool TrackLanes::draw_add_menu(TrackSet& set) {
             }
         }
         if (!groups.empty()) ImGui::Separator();
+        bool custom = false;
         if (ui::menu_item({.icon = ui::icon::add, .label = "Custom number track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Float;
-            custom_name_.clear();
-            ui::open_dialog("##custom_track");
+            custom = true;
         }
         if (ui::menu_item({.icon = ui::icon::colour, .label = "Custom colour track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Color;
+            custom = true;
+        }
+        ImGui::EndPopup();
+        // Opened out here, in the panel's scope where the dialog is drawn:
+        // inside the menu it would be a different popup.
+        if (custom) {
             custom_name_.clear();
             ui::open_dialog("##custom_track");
         }
-        ImGui::EndPopup();
     }
     return changed;
 }
