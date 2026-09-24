@@ -217,6 +217,18 @@ public:
     /// Upload the ray mesh into the mega-buffer. Idempotent.
     void upload_ray_mesh(MegaBuffer& mega);
 
+    /// Rebuild the ray mesh from the current heights and push it back over the
+    /// same mega-buffer region, if a sculpt has moved the ground since the
+    /// last call. Cheap and idempotent when nothing changed, so a ray-tracing
+    /// consumer can call it every frame it draws.
+    ///
+    /// The grid's topology never changes, only its heights, so the vertices
+    /// are overwritten in place and the entry keeps its position. Returns true
+    /// when the geometry changed, which is the signal to rebuild the BLAS
+    /// describing it: the acceleration structure still points at valid memory
+    /// but now describes triangles that have moved.
+    bool refresh_ray_mesh(MegaBuffer& mega);
+
     /// Copy a rectangle of normalized heights out, row-major, `size_x * size_z`
     /// floats. The rect is clipped to the field; clipped-away cells are left
     /// untouched in `out`. This is what an undo entry captures before a stroke.
@@ -325,6 +337,8 @@ private:
     std::vector<uint16_t> patch_bounds_texels_;
     /// The edit generation `patch_bounds_image_` is current as of.
     uint32_t patch_bounds_generation_{0};
+    /// The edit generation the ray mesh was built from.
+    uint32_t ray_mesh_generation_{0};
     uint32_t weight_side_{0};
     VkSampler sampler_{VK_NULL_HANDLE};
     std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};

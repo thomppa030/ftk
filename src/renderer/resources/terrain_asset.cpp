@@ -541,6 +541,19 @@ void TerrainAsset::upload_ray_mesh(MegaBuffer& mega) {
     ray_mesh_entry_ = mega.upload(ray_vertices_, ray_indices_);
 }
 
+bool TerrainAsset::refresh_ray_mesh(MegaBuffer& mega) {
+    if (!ray_mesh_uploaded() || ray_mesh_generation_ == edit_generation_) return false;
+
+    // Rebuilt whole rather than per edited rect: a vertex's normal comes from
+    // its neighbours a decimation stride away, so the rows around an edit
+    // change too, and the mesh is a fraction of the height field — every 4th
+    // sample, so 1/16th of the vertices. Cheaper to redo than to reason about.
+    build_ray_mesh();
+    mega.update_vertices(ray_mesh_entry_, ray_vertices_);
+    ray_mesh_generation_ = edit_generation_;
+    return true;
+}
+
 void TerrainAsset::ensure_height_range() const {
     if (!height_range_stale_) return;
     float lowest = 1.0F;

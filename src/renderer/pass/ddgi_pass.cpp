@@ -4,6 +4,7 @@
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/accel_structure.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -1081,7 +1082,7 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo[ctx.frame_index]->mapped(), &constants, sizeof(constants));
 }
 
-void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     if (!ctx.scene) return;
 
     // Terrain's render geometry is generated in a mesh shader and never exists
@@ -1095,8 +1096,20 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
             if (tc == nullptr || tc->terrain == nullptr) continue;
             tc->terrain->upload_ray_mesh(*ctx.mega_buffer);
             if (!tc->terrain->ray_mesh_uploaded()) continue;
+            // A sculpt moves the ground the rays trace against. The mesh keeps
+            // its place in the buffer — same grid, new heights — so the BLAS
+            // is still valid memory describing triangles that have moved, and
+            // has to be rebuilt over them.
+            const bool moved = tc->terrain->refresh_ray_mesh(*ctx.mega_buffer);
+            if (moved) {
+                // The new vertices are a batched copy that would not be
+                // submitted until the frame ends, while the build below
+                // submits and waits on its own queue — it would read the
+                // heights the sculpt replaced.
+                gpu.upload_context().wait_all();
+            }
             accel_manager_->ensure_blas_entry(tc->terrain, tc->terrain->ray_mesh_entry(),
-                                              *ctx.mega_buffer);
+                                              *ctx.mega_buffer, moved);
         }
     }
 

@@ -60,6 +60,15 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
     return entry;
 }
 
+void MegaBuffer::update_vertices(const MegaMeshEntry& entry,
+                                 const std::vector<Vertex>& vertices) {
+    if (entry.vertex_count == 0 || vertices.size() != entry.vertex_count) return;
+    const VkDeviceSize byte_offset =
+        static_cast<VkDeviceSize>(entry.vertex_offset) * sizeof(Vertex);
+    upload_.upload_buffer(vertex_buffer_.handle(), byte_offset, vertices.data(),
+                          vertices.size() * sizeof(Vertex));
+}
+
 void MegaBuffer::bind(VkCommandBuffer cmd) const {
     VkBuffer buffers[] = {vertex_buffer_.handle()};
     VkDeviceSize offsets[] = {0};

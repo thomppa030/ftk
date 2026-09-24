@@ -148,9 +148,10 @@ void AccelStructureManager::retire_blas(Blas blas) {
     });
 }
 
-void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega) {
+void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEntry& entry,
+                                              const MegaBuffer& mega, bool geometry_changed) {
     if (auto it = entry_blas_map_.find(key); it != entry_blas_map_.end()) {
-        if (it->second.mega_generation == mega.generation()) return;
+        if (it->second.mega_generation == mega.generation() && !geometry_changed) return;
         retire_blas(std::move(it->second));
         entry_blas_map_.erase(it);
     }

@@ -31,6 +31,17 @@ public:
     MegaMeshEntry upload(const std::vector<Vertex>& vertices,
                          const std::vector<uint32_t>& indices);
 
+    /// Overwrite the vertices of a mesh already uploaded, leaving its indices
+    /// and its place in the buffer alone. For geometry whose shape changes but
+    /// whose topology does not — a sculpted terrain, whose ray-tracing mesh is
+    /// the same grid at new heights. The vertex count must match what was
+    /// uploaded; a different count needs a new entry.
+    ///
+    /// A consumer that baked device addresses from the entry (a BLAS) is not
+    /// invalidated by this, since nothing moves, but it is now describing
+    /// different triangles and must be rebuilt to match.
+    void update_vertices(const MegaMeshEntry& entry, const std::vector<Vertex>& vertices);
+
     void bind(VkCommandBuffer cmd) const;
 
     [[nodiscard]] uint32_t vertex_count() const { return vertex_offset_; }

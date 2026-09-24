@@ -69,7 +69,14 @@ public:
 
     /// Build or retrieve BLAS from a raw MegaMeshEntry (terrain, particle
     /// mesh primitives). Uses the entry pointer as the map key.
-    void ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega);
+    ///
+    /// `geometry_changed` forces a rebuild for geometry whose vertices were
+    /// overwritten in place — sculpted terrain. Nothing has moved, so the
+    /// structure still points at valid memory and the mega-buffer generation
+    /// has not changed, but it describes triangles that are no longer where
+    /// they were.
+    void ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega,
+                           bool geometry_changed = false);
 
     /// Get BLAS for a raw entry key (nullptr if not built).
     [[nodiscard]] const Blas* find_blas(const void* key) const;
