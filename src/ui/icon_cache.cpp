@@ -67,6 +67,8 @@ IconCache::IconCache(VkDevice device, VkPhysicalDevice physical_device,
 }
 
 static void destroy_entry(VkDevice device, IconCache::IconEntry& e) {
+    if (e.pixel_descriptor) ImGui_ImplVulkan_RemoveTexture(e.pixel_descriptor);
+    if (e.pixel_sampler) vkDestroySampler(device, e.pixel_sampler, nullptr);
     if (e.descriptor) ImGui_ImplVulkan_RemoveTexture(e.descriptor);
     if (e.sampler) vkDestroySampler(device, e.sampler, nullptr);
     if (e.view) vkDestroyImageView(device, e.view, nullptr);
@@ -270,6 +272,21 @@ IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h,
         entry.sampler, entry.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     return entry;
+}
+
+void IconCache::add_pixel_view(IconEntry& entry) {
+    if (entry.pixel_descriptor != VK_NULL_HANDLE || entry.view == VK_NULL_HANDLE) return;
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    vk_check(vkCreateSampler(device_, &sampler_info, nullptr, &entry.pixel_sampler), "create pixel sampler");
+    entry.pixel_descriptor = ImGui_ImplVulkan_AddTexture(
+        entry.pixel_sampler, entry.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
 // ── Icon loading ────────────────────────────────────────────────────────
