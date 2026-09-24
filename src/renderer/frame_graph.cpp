@@ -63,8 +63,11 @@ ImageUsage image_usage_for(ResourceAccess a) {
         case ResourceAccess::storage_read_compute:
             return ImageUsage::compute_storage_read;
         case ResourceAccess::storage_write_compute:
-        case ResourceAccess::storage_read_write_compute:
             return ImageUsage::compute_write;
+        case ResourceAccess::storage_read_write_compute:
+            return ImageUsage::compute_read_write;
+        case ResourceAccess::depth_read_sampled:
+            return ImageUsage::depth_read_sampled;
         case ResourceAccess::sampled_raytracing:
             return ImageUsage::raytracing_read;
         case ResourceAccess::storage_write_raytracing:
@@ -83,6 +86,7 @@ ImageUsage image_usage_for(ResourceAccess a) {
         case ResourceAccess::color_attachment:
         case ResourceAccess::depth_attachment:
         case ResourceAccess::depth_attachment_read:
+        case ResourceAccess::depth_read_sampled:
         case ResourceAccess::input_attachment:
         case ResourceAccess::sampled_fragment:
         case ResourceAccess::sampled_vertex:
@@ -405,7 +409,10 @@ VkImageUsageFlags usage_flag_for(ImageUsage u) {
         case ImageUsage::raytracing_read:        return VK_IMAGE_USAGE_SAMPLED_BIT;
         case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
+        case ImageUsage::compute_read_write:
         case ImageUsage::raytracing_write:       return VK_IMAGE_USAGE_STORAGE_BIT;
+        case ImageUsage::depth_read_sampled:     return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                                                      | VK_IMAGE_USAGE_SAMPLED_BIT;
         case ImageUsage::transfer_src:           return VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         case ImageUsage::transfer_dst:           return VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
@@ -638,8 +645,11 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
+        case ImageUsage::compute_read_write:
         case ImageUsage::raytracing_write:
             return VK_IMAGE_LAYOUT_GENERAL;
+        case ImageUsage::depth_read_sampled:
+            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
         case ImageUsage::transfer_src:
             return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         case ImageUsage::transfer_dst:
@@ -661,7 +671,12 @@ VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
         case ImageUsage::compute_read:
         case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
+        case ImageUsage::compute_read_write:
             return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        case ImageUsage::depth_read_sampled:
+            return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         case ImageUsage::raytracing_read:
         case ImageUsage::raytracing_write:
             return VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
@@ -715,6 +730,10 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
         case ImageUsage::compute_write:
         case ImageUsage::raytracing_write:
             return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        case ImageUsage::compute_read_write:
+            return VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        case ImageUsage::depth_read_sampled:
+            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
         case ImageUsage::transfer_src:
             return VK_ACCESS_2_TRANSFER_READ_BIT;
         case ImageUsage::transfer_dst:
@@ -977,6 +996,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         bool is_write = acc.usage == ImageUsage::color_attachment
                      || acc.usage == ImageUsage::depth_attachment
                      || acc.usage == ImageUsage::compute_write
+                     || acc.usage == ImageUsage::compute_read_write
                      || acc.usage == ImageUsage::raytracing_write
                      || acc.usage == ImageUsage::transfer_dst;
 

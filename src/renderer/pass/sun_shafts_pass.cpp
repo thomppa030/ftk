@@ -562,7 +562,7 @@ void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext&
     auto color = builder.import_named(ctx, "color");
     builder.read(shafts, ResourceAccess::sampled_compute);
     builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read_write(color, ResourceAccess::storage_read_write_compute);
 }
 
 void SunShaftsCompositePass::record(const FrameContext& ctx) {

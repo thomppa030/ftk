@@ -511,7 +511,7 @@ void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
 
     auto color = builder.import_named(ctx, "color");
     auto mr = builder.import_named(ctx, "mr");
-    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read_write(color, ResourceAccess::storage_read_write_compute);
     builder.read(mr, ResourceAccess::sampled_compute);
 }
 

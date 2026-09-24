@@ -19,7 +19,8 @@ void DistortionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto distortion = builder.import_named(ctx, "distortion");
     auto depth = builder.import_named(ctx, "depth");
     builder.write(distortion, ResourceAccess::color_attachment);
-    builder.read(depth, ResourceAccess::sampled_fragment);
+    // Bound read-only for the depth test and sampled by the fragment shader.
+    builder.read(depth, ResourceAccess::depth_read_sampled);
 }
 
 void DistortionPass::record(const FrameContext& ctx) {

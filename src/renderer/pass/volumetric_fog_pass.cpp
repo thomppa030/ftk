@@ -1226,7 +1226,7 @@ void FogCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     auto depth = builder.import_named(ctx, FogCore::COMPOSITE_DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
     builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read_write(color, ResourceAccess::storage_read_write_compute);
     // Increment the frame counter once per frame after the last node that
     // uses it. Composite is always last in the fog chain, so flip here.
     // (We mutate through core_ in record(), not declare — here we just

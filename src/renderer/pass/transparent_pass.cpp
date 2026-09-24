@@ -400,7 +400,10 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(normal, ResourceAccess::color_attachment);
     builder.write(msaa_velocity, ResourceAccess::color_attachment);
     builder.write(velocity, ResourceAccess::color_attachment);
-    builder.read(msaa_depth, ResourceAccess::sampled_fragment);
+    // The multisampled depth is the read-only attachment the draws test
+    // against; the resolved one is what the shaders sample. Without MSAA
+    // they are one image and the graph merges the two.
+    builder.read(msaa_depth, ResourceAccess::depth_read_sampled);
     builder.read(depth, ResourceAccess::sampled_fragment);
     builder.read(screen, ResourceAccess::sampled_fragment);
 
