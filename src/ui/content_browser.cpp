@@ -4,6 +4,7 @@
 #include "ui/kit/search.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/menu.hpp"
 #include "ui/kit/asset_tile.hpp"
 #include "ui/kit/asset_kind.hpp"
 #include "core/asset_identity.hpp"
@@ -834,11 +835,11 @@ void ContentBrowser::draw_context_menu() {
 
             switch (entry.type) {
                 case FileType::folder:
-                    if (ImGui::MenuItem("Open")) {
+                    if (ui::menu_item({.icon = ui::icon::open_file, .label = "Open"})) {
                         navigate_to(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ImGui::BeginMenu("Color")) {
+                    if (ui::begin_menu(ui::icon::colour, "Colour")) {
                         draw_folder_color_menu(entry.path);
                         ImGui::EndMenu();
                     }
@@ -848,7 +849,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::header:
                 case FileType::shader:
                 case FileType::material:
-                    if (ImGui::MenuItem("Open")) {
+                    if (ui::menu_item({.icon = ui::icon::open_file, .label = "Open"})) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -856,7 +857,7 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::model:
                     if (entry.path.extension() == ".fjmesh") {
-                        if (ImGui::MenuItem("Open in Mesh Editor")) {
+                        if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in mesh editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "mesh");
                             ImGui::CloseCurrentPopup();
@@ -864,25 +865,19 @@ void ContentBrowser::draw_context_menu() {
                         // Only meshes that recorded where they came from can be
                         // rebuilt from their source.
                         auto source = find_import_source(entry.path.string());
-                        if (ImGui::MenuItem("Reimport", nullptr, false, !source.empty())) {
+                        if (ui::menu_item({.icon = ui::icon::import, .label = "Reimport", .enabled = !source.empty(),
+                                           .disabled_reason = "No source file recorded: import it again from "
+                                                              "the original to enable this"})) {
                             on_import_model.broadcast(source);
                             ImGui::CloseCurrentPopup();
                         }
-                        // A disabled MenuItem isn't "hovered" unless asked for
-                        // explicitly, and the disabled case is the one that
-                        // needs explaining.
-                        if (source.empty() &&
-                            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                            ImGui::SetTooltip("No source file recorded — import it again "
-                                              "from the original to enable this");
-                        }
                     }
-                    if (ImGui::MenuItem("Add to Scene")) {
+                    if (ui::menu_item({.icon = ui::icon::add, .label = "Add to scene"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_add_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ImGui::MenuItem("Import...")) {
+                    if (ui::menu_item({.icon = ui::icon::import, .label = "Import..."})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_import_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
@@ -890,7 +885,7 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::texture:
-                    if (ImGui::MenuItem("Preview")) {
+                    if (ui::menu_item({.icon = ui::icon::preview, .label = "Preview"})) {
                         show_texture_preview_ = true;
                         preview_texture_path_ = entry.path.string();
                         ImGui::CloseCurrentPopup();
@@ -898,26 +893,26 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::scene:
-                    if (ImGui::MenuItem("Load Scene")) {
+                    if (ui::menu_item({.icon = ui::icon::scene, .label = "Load scene"})) {
                         on_load_scene.broadcast(entry.path.string());
                         ImGui::CloseCurrentPopup();
                     }
                     break;
 
                 case FileType::ui_layout:
-                    if (ImGui::MenuItem("Open in UI Editor")) {
+                    if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in UI editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "ui");
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ImGui::MenuItem("Open in Code Editor")) {
+                    if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in code editor"})) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
                     break;
 
                 case FileType::vfx:
-                    if (ImGui::MenuItem("Open in VFX Editor")) {
+                    if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in VFX editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "vfx");
                         ImGui::CloseCurrentPopup();
@@ -925,7 +920,7 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::widget:
-                    if (ImGui::MenuItem("Open in UI Editor")) {
+                    if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in UI editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "ui");
                         ImGui::CloseCurrentPopup();
@@ -933,7 +928,7 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::preset:
-                    if (ImGui::MenuItem("Instantiate in Scene")) {
+                    if (ui::menu_item({.icon = ui::icon::preset, .label = "Add to scene"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_instantiate_preset.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
@@ -942,12 +937,12 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::input_config:
                     if (entry.path.extension() == ".fjinput") {
-                        if (ImGui::MenuItem("Open in Input Editor")) {
+                        if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in input editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "input_mapping");
                             ImGui::CloseCurrentPopup();
                         }
-                    } else if (ImGui::MenuItem("Open in Code Editor")) {
+                    } else if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in code editor"})) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -955,23 +950,23 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::font:
                     if (entry.path.extension() == ".fjfont") {
-                        if (ImGui::MenuItem("Open in Font Editor")) {
+                        if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in font editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "font");
                             ImGui::CloseCurrentPopup();
                         }
-                        if (ImGui::MenuItem("Open in Code Editor")) {
+                        if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in code editor"})) {
                             (void)platform::open_path(entry.path);
                             ImGui::CloseCurrentPopup();
                         }
-                        if (ImGui::MenuItem("Bake Atlas")) {
+                        if (ui::menu_item({.icon = ui::icon::build, .label = "Bake atlas"})) {
                             on_bake_font.broadcast(entry.path.string());
                             ImGui::CloseCurrentPopup();
                         }
                     } else {
                         // A font file on its own is not an asset yet; the
                         // recipe beside it is what the UI names.
-                        if (ImGui::MenuItem("Create Font Asset")) {
+                        if (ui::menu_item({.icon = ui::icon::new_file, .label = "Create font asset"})) {
                             create_font_recipe(entry.path);
                             ImGui::CloseCurrentPopup();
                         }
@@ -983,7 +978,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::weather:
                 case FileType::climate:
                 case FileType::water:
-                    if (ImGui::MenuItem("Open in Code Editor")) {
+                    if (ui::menu_item({.icon = ui::icon::open_in, .label = "Open in code editor"})) {
                         (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -1001,23 +996,23 @@ void ContentBrowser::draw_context_menu() {
             // Right-clicked on empty space
             draw_create_new_submenu();
             ImGui::Separator();
-            if (ImGui::MenuItem("New Folder")) {
+            if (ui::menu_item({.icon = ui::icon::new_folder, .label = "New folder"})) {
                 create_folder();
             }
-            if (ImGui::MenuItem("New Script")) {
+            if (ui::menu_item({.icon = ui::icon::new_file, .label = "New script"})) {
                 create_asset_file("new_script", ".cpp", "#include <iostream>\n");
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Import...")) {
+            if (ui::menu_item({.icon = ui::icon::import, .label = "Import..."})) {
                 on_import_into.broadcast(current_dir_.string());
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Refresh")) {
+            if (ui::menu_item({.icon = ui::icon::reload, .label = "Refresh"})) {
                 refresh_current_dir();
             }
             // A thumbnail is re-rendered when its asset changes, not when
             // the renderer does; this is for the day the renderer did.
-            if (asset_thumbnails_ && ImGui::MenuItem("Regenerate Thumbnails")) {
+            if (asset_thumbnails_ && ui::menu_item({.icon = ui::icon::thumbnails, .label = "Regenerate thumbnails"})) {
                 for (const auto& e : entries_) {
                     if (!asset_thumbnails_->regenerates(e.path)) continue;
                     asset_thumbnails_->invalidate(e.path.string());
@@ -1025,10 +1020,10 @@ void ContentBrowser::draw_context_menu() {
                 }
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Show in File Manager")) {
+            if (ui::menu_item({.icon = ui::icon::show_in_files, .label = "Show in file manager"})) {
                 (void)platform::open_path(current_dir_);
             }
-            if (ImGui::MenuItem("Copy Path")) {
+            if (ui::menu_item({.icon = ui::icon::copy_path, .label = "Copy path"})) {
                 auto rel = std::filesystem::relative(current_dir_, root_);
                 ImGui::SetClipboardText(rel.string().c_str());
             }
@@ -1038,13 +1033,13 @@ void ContentBrowser::draw_context_menu() {
 }
 
 void ContentBrowser::draw_create_new_submenu() {
-    if (ImGui::BeginMenu("Create New")) {
+    if (ui::begin_menu(ui::icon::new_file, "Create new")) {
         for (const auto& tmpl : kAssetTemplates) {
             if (!tmpl.label) {
                 ImGui::Separator();
                 continue;
             }
-            if (ImGui::MenuItem(tmpl.label)) {
+            if (ui::menu_item({.icon = ui::asset_kind(tmpl.extension).icon, .label = tmpl.label})) {
                 create_asset_file(tmpl.filename, tmpl.extension, tmpl.content);
             }
         }
@@ -1058,21 +1053,22 @@ void ContentBrowser::draw_common_context_items(int index) {
     ImGui::Separator();
 
     auto& entry = entries_[index];
-    if (ImGui::MenuItem("Rename")) {
+    if (ui::menu_item({.icon = ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
         start_rename(index);
     }
-    if (ImGui::MenuItem("Delete")) {
-        delete_index_ = index;
-        show_delete_popup_ = true;
-    }
-    ImGui::Separator();
-    if (ImGui::MenuItem("Show in File Manager")) {
+    if (ui::menu_item({.icon = ui::icon::show_in_files, .label = "Show in file manager"})) {
         auto dir = entry.is_directory ? entry.path : entry.path.parent_path();
         (void)platform::open_path(dir);
     }
-    if (ImGui::MenuItem("Copy Path")) {
+    if (ui::menu_item({.icon = ui::icon::copy_path, .label = "Copy path"})) {
         auto rel = std::filesystem::relative(entry.path, root_);
         ImGui::SetClipboardText(rel.string().c_str());
+    }
+    // Destructive, so last.
+    ImGui::Separator();
+    if (ui::menu_item({.icon = ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
+        delete_index_ = index;
+        show_delete_popup_ = true;
     }
 }
 
@@ -1166,7 +1162,7 @@ void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder)
     if (ImGui::IsItemDeactivatedAfterEdit()) save_folder_colors();
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Clear Color", nullptr, false, current.has_value())) {
+    if (ui::menu_item({.icon = ui::icon::clear, .label = "Clear colour", .enabled = current.has_value(), .disabled_reason = "The folder has no colour"})) {
         folder_colors_.clear(folder);
         save_folder_colors();
     }

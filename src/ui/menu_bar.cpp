@@ -5,6 +5,10 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <imgui.h>
@@ -31,14 +35,16 @@ void MenuBar::draw() {
 void MenuBar::draw_file_menu() {
     if (!ImGui::BeginMenu("File")) return;
 
-    if (ImGui::MenuItem("Save Scene")) {
+    if (ui::menu_item({.icon = ui::icon::save, .label = "Save scene", .shortcut = "Ctrl S"})) {
         on_save_scene.broadcast();
     }
-    if (ImGui::MenuItem("Load Scene") && scene_path_ && !scene_path_->empty()) {
+    const bool has_scene = scene_path_ && !scene_path_->empty();
+    if (ui::menu_item({.icon = ui::icon::reload, .label = "Reload scene", .enabled = has_scene,
+                       .disabled_reason = "The scene hasn't been saved yet"})) {
         on_load_scene.broadcast();
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("Import Model...")) {
+    if (ui::menu_item({.icon = ui::icon::import, .label = "Import model..."})) {
         on_import_model.broadcast();
     }
     ImGui::EndMenu();
@@ -47,25 +53,27 @@ void MenuBar::draw_file_menu() {
 void MenuBar::draw_project_menu() {
     if (!ImGui::BeginMenu("Project")) return;
 
-    if (ImGui::MenuItem("New Project...")) {
+    if (ui::menu_item({.icon = ui::icon::new_file, .label = "New project..."})) {
         new_browser_.open("New Project", FileBrowser::Mode::select_location);
     }
-    if (ImGui::MenuItem("Open Project...")) {
+    if (ui::menu_item({.icon = ui::icon::open_file, .label = "Open project..."})) {
         open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
     }
-    if (project_ && ImGui::MenuItem("Save Project", "Ctrl+Shift+S")) {
-        on_save_project.broadcast();
-    }
-    if (project_ && ImGui::MenuItem("Close Project")) {
-        on_close_project.broadcast();
-    }
-    ImGui::Separator();
-    if (project_ && ImGui::MenuItem("Settings")) {
-        on_open_settings.broadcast();
-    }
-    ImGui::Separator();
-    if (project_ && ImGui::MenuItem("Build Game")) {
-        on_build_game.broadcast();
+    if (project_) {
+        if (ui::menu_item({.icon = ui::icon::save, .label = "Save project", .shortcut = "Ctrl Shift S"})) {
+            on_save_project.broadcast();
+        }
+        if (ui::menu_item({.icon = ui::icon::close, .label = "Close project"})) {
+            on_close_project.broadcast();
+        }
+        ImGui::Separator();
+        if (ui::menu_item({.icon = ui::icon::settings, .label = "Settings"})) {
+            on_open_settings.broadcast();
+        }
+        ImGui::Separator();
+        if (ui::menu_item({.icon = ui::icon::build, .label = "Build game"})) {
+            on_build_game.broadcast();
+        }
     }
     ImGui::Separator();
     if (project_) {
@@ -80,32 +88,48 @@ void MenuBar::draw_project_menu() {
 void MenuBar::draw_view_menu() {
     if (!ImGui::BeginMenu("View")) return;
 
-    if (viewports_ && ImGui::MenuItem("Add Viewport")) {
+    if (viewports_ && ui::menu_item({.icon = ui::icon::viewport, .label = "Add viewport"})) {
         viewports_->add_viewport();
     }
     ImGui::Separator();
     if (vk_) {
         auto& grid = vk_->grid_pass().settings();
-        ImGui::Checkbox("Show Grid", &grid.visible);
-        ImGui::Checkbox("Snap to Grid", &grid.snap_enabled);
-        ImGui::DragFloat("Grid Size", &grid.cell_size, 0.1f, 0.1f, 50.0f);
-        ImGui::DragFloat("Rotation Snap", &grid.rotation_snap_degrees, 1.0f, 1.0f, 90.0f, "%.0f deg");
-        ImGui::DragFloat("Scale Snap", &grid.scale_snap, 0.01f, 0.01f, 1.0f);
-        ImGui::DragFloat("Grid Opacity", &grid.opacity, 0.01f, 0.0f, 1.0f);
-        ImGui::DragFloat("Grid Fade", &grid.fade_distance, 1.0f, 10.0f, 500.0f);
+        if (ui::menu_item({.label = "Show grid", .checked = grid.visible})) grid.visible = !grid.visible;
+        if (ui::menu_item({.label = "Snap to grid", .checked = grid.snap_enabled})) {
+            grid.snap_enabled = !grid.snap_enabled;
+        }
+        // A menu is sunken, so its fields are inset.
+        ui::InsetFields inset;
+        if (auto t = ui::PropertyTable("##grid")) {
+            ui::row("Grid size", [&] {
+                (void)ui::drag("##size", grid.cell_size, {.speed = 0.1f, .min = 0.1f, .max = 50.0f, .unit = ui::Unit::Metres});
+            });
+            ui::row("Rotation snap", [&] {
+                (void)ui::drag("##rotation", grid.rotation_snap_degrees,
+                               {.speed = 1.0f, .min = 1.0f, .max = 90.0f, .unit = ui::Unit::Degrees, .format = "%.0f"});
+            });
+            ui::row("Scale snap", [&] {
+                (void)ui::drag("##scale", grid.scale_snap, {.speed = 0.01f, .min = 0.01f, .max = 1.0f});
+            });
+            ui::row("Grid opacity", [&] {
+                (void)ui::slider("##opacity", grid.opacity, 0.0f, 1.0f);
+            });
+            ui::row("Grid fade", [&] {
+                (void)ui::drag("##fade", grid.fade_distance, {.speed = 1.0f, .min = 10.0f, .max = 500.0f, .unit = ui::Unit::Metres});
+            });
+        }
     }
     ImGui::Separator();
     if (vk_) {
-        bool sdf = vk_->show_sdf_debug();
-        if (ImGui::Checkbox("SDF Debug", &sdf)) {
-            vk_->set_show_sdf_debug(sdf);
-        }
+        const bool sdf = vk_->show_sdf_debug();
+        if (ui::menu_item({.label = "SDF debug", .checked = sdf})) vk_->set_show_sdf_debug(!sdf);
     }
-    if (show_kit_gallery_ != nullptr) {
-        ImGui::Checkbox("Kit Gallery", show_kit_gallery_);
+    if (show_kit_gallery_ != nullptr &&
+        ui::menu_item({.label = "Kit gallery", .checked = *show_kit_gallery_})) {
+        *show_kit_gallery_ = !*show_kit_gallery_;
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("Capture Screenshot...", "F9")) {
+    if (ui::menu_item({.icon = ui::icon::capture, .label = "Capture screenshot...", .shortcut = "F9"})) {
         on_open_capture.broadcast();
     }
     ImGui::EndMenu();
@@ -114,29 +138,25 @@ void MenuBar::draw_view_menu() {
 void MenuBar::draw_layout_menu() {
     if (!ImGui::BeginMenu("Layout")) return;
 
-    // Save Layout — overwrite current active layout
-    bool has_active = !active_layout_name_.empty();
-    if (!has_active) ImGui::BeginDisabled();
-    if (ImGui::MenuItem("Save Layout")) {
+    // Save overwrites the layout in use.
+    const bool has_active = !active_layout_name_.empty();
+    if (ui::menu_item({.icon = ui::icon::save, .label = "Save layout", .enabled = has_active,
+                       .disabled_reason = "No layout is in use: save it under a name first"})) {
         on_save_layout.broadcast(active_layout_name_);
     }
-    if (!has_active) ImGui::EndDisabled();
-
-    // Save Layout As
-    if (ImGui::MenuItem("Save Layout As...")) {
+    if (ui::menu_item({.icon = ui::icon::save, .label = "Save layout as..."})) {
         show_save_layout_popup_ = true;
         std::memset(layout_name_buf_, 0, sizeof(layout_name_buf_));
     }
     ImGui::Separator();
 
-    // List saved layouts
+    // The saved layouts, the one in use checked.
     auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
     if (std::filesystem::is_directory(layout_dir)) {
         for (const auto& entry : std::filesystem::directory_iterator(layout_dir)) {
             if (entry.path().extension() != ".ini") continue;
             auto name = entry.path().stem().string();
-            bool is_active = (name == active_layout_name_);
-            if (ImGui::MenuItem(name.c_str(), nullptr, is_active)) {
+            if (ui::menu_item({.label = name.c_str(), .checked = name == active_layout_name_})) {
                 on_load_layout.broadcast(name);
             }
         }
@@ -147,14 +167,13 @@ void MenuBar::draw_layout_menu() {
 void MenuBar::draw_scripts_menu() {
     if (!project_ || !ImGui::BeginMenu("Scripts")) return;
 
-    if (ImGui::MenuItem("New Script...")) {
+    if (ui::menu_item({.icon = ui::icon::new_file, .label = "New script..."})) {
         show_new_script_popup_ = true;
         std::memset(new_script_name_, 0, sizeof(new_script_name_));
     }
     ImGui::Separator();
-    if (building_) {
-        ImGui::MenuItem("Building...", nullptr, false, false);
-    } else if (ImGui::MenuItem("Build & Reload")) {
+    if (ui::menu_item({.icon = ui::icon::reload, .label = building_ ? "Building..." : "Build and reload",
+                       .enabled = !building_, .disabled_reason = "A build is running"})) {
         on_build_scripts.broadcast();
     }
     ImGui::EndMenu();

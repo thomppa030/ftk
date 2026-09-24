@@ -8,6 +8,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/menu.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
@@ -78,26 +79,26 @@ std::vector<theme::Category> node_dots(const Node& obj) {
 // click on empty space. Returns what was picked, or empty.
 std::string draw_add_object_menu() {
     std::string picked;
-    auto item = [&](const char* label, const char* type) {
-        if (ImGui::MenuItem(label)) picked = type;
+    auto item = [&](const char* icon, const char* label, const char* type) {
+        if (ui::menu_item({.icon = icon, .label = label})) picked = type;
     };
-    item("Cube", "cube");
-    item("Plane", "plane");
-    item("Sphere", "sphere");
+    item(ui::icon::mesh, "Cube", "cube");
+    item(ui::icon::plane, "Plane", "plane");
+    item(ui::icon::sphere, "Sphere", "sphere");
     ImGui::Separator();
-    item("Sprite", "sprite");
-    item("Empty Node", "empty");
-    item("Folder", "folder");
+    item(ui::icon::texture, "Sprite", "sprite");
+    item(ui::icon::transform, "Empty", "empty");
+    item(ui::icon::folder, "Folder", "folder");
     ImGui::Separator();
-    item("Camera", "camera");
+    item(ui::icon::camera, "Camera", "camera");
     ImGui::Separator();
-    item("Directional Light", "light:directional");
-    item("Point Light", "light:point");
-    item("Spot Light", "light:spot");
+    item(ui::icon::directional_light, "Directional light", "light:directional");
+    item(ui::icon::point_light, "Point light", "light:point");
+    item(ui::icon::spot_light, "Spot light", "light:spot");
     ImGui::Separator();
-    item("Volumetric Fog", "volumetric_fog");
-    item("Fog Volume", "fog_volume");
-    item("World Environment", "world_environment");
+    item(ui::icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
+    item(ui::icon::fog_volume, "Fog volume", "fog_volume");
+    item(ui::icon::world_environment, "World environment", "world_environment");
     return picked;
 }
 
@@ -386,13 +387,14 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         ImGui::OpenPopup("##NodeContext");
     }
     if (ImGui::BeginPopup("##NodeContext")) {
-        if (ImGui::MenuItem("Rename", "F2")) {
+        if (ui::menu_item({.icon = ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
             rename_.start(obj.id, obj.name);
         }
-        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+        if (ui::menu_item({.icon = ui::icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"})) {
             on_duplicate.broadcast();
         }
-        if (ImGui::MenuItem("Delete", "Delete")) {
+        ImGui::Separator();
+        if (ui::menu_item({.icon = ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
             delete_pending_ = true;
         }
         ImGui::EndPopup();
