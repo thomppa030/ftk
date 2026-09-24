@@ -77,6 +77,12 @@ void row(const char* label, const char* help, F&& draw_value) {
     std::forward<F>(draw_value)();
 }
 
+/// The next row's label leads with an amber dot when `set_here`: its value
+/// is set on the thing being edited rather than coming from elsewhere (a
+/// style rule, the parent, a default). Unmarked rows of the same table call
+/// it with false, which keeps the dot's room so every label lines up.
+void mark_next_row(bool set_here);
+
 /// One short line under the row above, in the secondary colour: what you
 /// need to know while editing that field. Anything longer is help.
 void hint(const char* text);
