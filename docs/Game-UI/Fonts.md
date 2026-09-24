@@ -2,7 +2,8 @@
 
 A font in a game UI is a `.fjfont` recipe: which font file, which glyphs, and how
 to bake them. The MSDF atlas baked from it is derived data and lives in
-`.fjcache/` beside the recipe, rebuilt when the recipe or the font file is newer.
+`.fjcache/` beside the recipe, rebuilt when the recipe or the font file is newer
+and when an engine update changes how atlases are baked.
 Stylesheets name recipes with `@font-face` (see [FJSS](FJSS.md#fonts-font-face-font-family-font-weight)).
 
 ## The recipe
@@ -32,6 +33,12 @@ Every glyph in an atlas shares one scale, chosen so the largest glyph fills a ce
 which keeps stroke weight identical across the set. A charset edit therefore
 rebuilds the whole atlas. One page per font, at most 8192 square; a charset that
 does not fit fails the bake and says so.
+
+Many fonts, static cuts of variable fonts especially, draw a glyph as contours
+laid over each other: the bowl of an `a` over its stem. The baker fills those by
+the nonzero rule, the way FreeType does, so they bake clean. Where two contours
+cross at a shallow angle, as the slash of `Ø` does, a texel or two can still come
+out wrong and show as a nick in the outline at large sizes.
 
 ## Making one
 

@@ -2,7 +2,9 @@
 
 // Bakes a .fjfont recipe into its atlas. The one place that reads a font
 // file with FreeType and renders glyphs with msdfgen; the engine calls it
-// when a cached atlas is stale, fjimport calls it from the shell.
+// when a cached atlas is stale, fjimport calls it from the shell. A change
+// to the pixels it makes raises FJFONT_BAKE_REVISION, or atlases already
+// baked keep the old ones.
 
 #include "core/result.hpp"
 #include "ui/game_ui/fjfont.hpp"

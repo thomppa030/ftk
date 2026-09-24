@@ -98,9 +98,14 @@ struct FjFontRecipe {
 /// beside the recipe, the same rule asset thumbnails follow.
 [[nodiscard]] std::filesystem::path font_atlas_cache_path(const std::filesystem::path& recipe_path);
 
-/// FNV-1a over the recipe text and the font bytes: what the atlas records,
-/// so a rebuild happens when either changes and not when a file is merely
-/// touched.
+/// Raised whenever the baker makes different pixels from the same recipe
+/// and font. The source hash includes it, so atlases baked before go stale
+/// and are baked again.
+static constexpr uint32_t FJFONT_BAKE_REVISION = 2;
+
+/// FNV-1a over the bake revision, the recipe text and the font bytes: what
+/// the atlas records, so a rebuild happens when any of them changes and not
+/// when a file is merely touched.
 [[nodiscard]] uint64_t font_source_hash(std::string_view recipe_text,
                                         std::span<const uint8_t> source_bytes);
 

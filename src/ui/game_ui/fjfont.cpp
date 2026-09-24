@@ -253,6 +253,9 @@ uint64_t font_source_hash(std::string_view recipe_text, std::span<const uint8_t>
         h ^= b;
         h *= 1099511628211ULL;
     };
+    for (uint32_t shift = 0; shift < 32; shift += 8) {
+        mix(static_cast<uint8_t>(FJFONT_BAKE_REVISION >> shift));
+    }
     for (char c : recipe_text) mix(static_cast<uint8_t>(c));
     for (uint8_t b : source_bytes) mix(b);
     return h;

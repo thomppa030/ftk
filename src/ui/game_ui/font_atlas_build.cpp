@@ -219,9 +219,26 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
             -gd.bounds.b + px_range / scale_val
         );
 
+        // Fonts often draw a glyph as overlapping contours, a bowl laid over
+        // a stem, and where they cross the field alone can put texels on the
+        // wrong side of the outline. A scanline pass fills the outline by the
+        // nonzero rule and sets each texel's sign from that. Error correction
+        // must see the corrected signs, so it runs after the pass, and
+        // without its distance check, which msdfgen does not support
+        // together with the pass. msdfgen's own tool does the same when it
+        // cannot merge the overlaps first.
+        const msdfgen::SDFTransformation transformation(
+            msdfgen::Projection({scale_val, scale_val}, translate),
+            msdfgen::DistanceMapping(msdfgen::Range(range_shape)));
         msdfgen::Bitmap<float, 3> msdf(static_cast<int>(box.width), static_cast<int>(box.height));
-        msdfgen::generateMSDF(msdf, gd.shape, range_shape,
-                              {scale_val, scale_val}, translate);
+        msdfgen::generateMSDF(msdf, gd.shape, transformation,
+                              msdfgen::MSDFGeneratorConfig(true, msdfgen::ErrorCorrectionConfig(
+                                  msdfgen::ErrorCorrectionConfig::DISABLED)));
+        msdfgen::distanceSignCorrection(msdf, gd.shape, transformation, msdfgen::FILL_NONZERO);
+        msdfgen::msdfErrorCorrection(msdf, gd.shape, transformation,
+                                     msdfgen::MSDFGeneratorConfig(true, msdfgen::ErrorCorrectionConfig(
+                                         msdfgen::ErrorCorrectionConfig::EDGE_PRIORITY,
+                                         msdfgen::ErrorCorrectionConfig::DO_NOT_CHECK_DISTANCE)));
 
         // Copy to atlas (flip Y: msdfgen Y-up, atlas Y-down)
         for (uint32_t y = 0; y < box.height; ++y) {

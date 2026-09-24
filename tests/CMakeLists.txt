@@ -24,6 +24,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_gi_params.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
@@ -132,6 +133,15 @@ foreach(dep Jolt GPUOpen::VulkanMemoryAllocator ozz_base ozz_animation)
     endif()
 endforeach()
 
+# The font baker is tested on a real font, and its test reads the outline
+# back through msdfgen, so both see msdfgen and FreeType; msdfgen's headers
+# come in as system directories, the way the engine target treats them.
+target_link_libraries(fjell-testable PUBLIC msdfgen::msdfgen-core msdfgen::msdfgen-ext Freetype::Freetype)
+foreach(dep msdfgen-core msdfgen-ext)
+    get_target_property(dirs ${dep} INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(fjell-testable SYSTEM PUBLIC ${dirs})
+endforeach()
+
 if(MSVC)
     target_compile_options(fjell-testable PRIVATE /W4 /WX)
     target_compile_definitions(fjell-testable PRIVATE FJELL_ENGINE_BUILD)
@@ -172,6 +182,7 @@ add_executable(fjell-tests
     test_fjss_serializer.cpp
     test_fjss_loader.cpp
     test_fjfont.cpp
+    test_font_atlas_build.cpp
     test_utf8.cpp
     test_fjreflect_parser.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/parser.cpp
@@ -240,6 +251,9 @@ target_link_libraries(fjell-tests PRIVATE
 )
 # fjreflect's parser is tested in place; it depends on nothing from the engine.
 target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
+# Tests that need a real font bake the engine's own.
+target_compile_definitions(fjell-tests PRIVATE
+    FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
 
 if(MSVC)
     target_compile_options(fjell-tests PRIVATE /W4 /WX)
