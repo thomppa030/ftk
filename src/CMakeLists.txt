@@ -358,6 +358,7 @@ add_executable(fjell
     ui/kit/gallery.cpp
     ui/kit/inset_group.cpp
     ui/kit/key_cap.cpp
+    ui/kit/overlay.cpp
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
     ui/kit/pane.cpp

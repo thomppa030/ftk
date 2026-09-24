@@ -93,6 +93,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/overlay.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/pane.cpp

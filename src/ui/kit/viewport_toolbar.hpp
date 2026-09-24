@@ -31,6 +31,10 @@ private:
     ImVec2 min_{};
 };
 
+/// Where the pills along the top of an image end, for what is placed
+/// under them.
+[[nodiscard]] float pill_row_bottom(ImVec2 image_min);
+
 } // namespace fjell::ui
 
 namespace fjell::ui {

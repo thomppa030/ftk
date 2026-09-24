@@ -45,6 +45,10 @@ ViewportPill::~ViewportPill() {
     ImGui::PopID();
 }
 
+float pill_row_bottom(ImVec2 image_min) {
+    return image_min.y + INSET + ImGui::GetFrameHeight() + PAD * 2.0f;
+}
+
 bool begin_host_window(const char* name, ImGuiWindowFlags flags) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);

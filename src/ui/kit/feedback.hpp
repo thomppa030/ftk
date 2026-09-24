@@ -31,12 +31,6 @@ void unsaved_dot(ImDrawList* draw_list, ImVec2 centre);
 /// Its radius, to leave room for it.
 inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;
 
-/// A short note pinned over a picture (a viewport showing a debug view:
-/// "Showing DDGI indirect"), in the warning colour on a dark plate, its
-/// bottom-right corner at `corner`. Drawn over whatever is there; takes no
-/// space and no input.
-void corner_note(ImVec2 corner, const char* icon, const char* text);
-
 /// A panel with nothing to show: the icon, what the state is ("Nothing
 /// selected") and one line of what to do about it, centred in the space
 /// left in the window. With an `action`, a button for the one obvious thing

@@ -2,8 +2,8 @@
 #include "core/profiler.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/kit/button.hpp"
-#include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/overlay.hpp"
 #include "ui/kit/viewport_toolbar.hpp"
 #include "ui/theme.hpp"
 #include "ui/viewport_view.hpp"
@@ -353,9 +353,11 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         // A debug view is named in the corner, on every viewport it
         // replaces the picture of, so it is never left on unseen.
         if (!view_is_lit(panel.source, ctx) && img_w > 0 && img_h > 0) {
-            const float inset = theme::GAP_M;
-            ui::corner_note({panel.img_pos.x + img_w - inset, panel.img_pos.y + img_h - inset},
-                            ui::icon::debug, std::format("Showing {}", view_name(panel.source, ctx)).c_str());
+            const std::string showing = std::format("Showing {}", view_name(panel.source, ctx));
+            const ui::OverlayPiece line[] = {{showing}};
+            ui::corner_note(ImGui::GetWindowDrawList(),
+                            {panel.img_pos.x + img_w - ui::OVERLAY_INSET, panel.img_pos.y + img_h - ui::OVERLAY_INSET},
+                            ui::Corner::BottomRight, {.icon = ui::icon::debug, .line = line, .ink = theme::warning()});
         }
 
         if (preview_toolbar_ && img_w > 0 && img_h > 0) draw_preview_toolbar(panel, ctx);

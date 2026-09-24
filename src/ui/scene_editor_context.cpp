@@ -3,6 +3,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/overlay.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/kit/viewport_toolbar.hpp"
 #include "ui/theme.hpp"
@@ -62,7 +63,9 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cmath>
 #include <cstdio>
+#include <span>
 #include <limits>
 
 #include <filesystem>
@@ -327,8 +330,6 @@ void SceneEditorContext::draw(float dt) {
                 if (visible) {
                     float preview_w = 320.0f;
                     float preview_h = 180.0f;
-                    float pad = 8.0f;
-                    float border = 2.0f;
 
                     // Scale down if viewport is small
                     float max_w = vp->img_size.x * 0.35f;
@@ -338,30 +339,25 @@ void SceneEditorContext::draw(float dt) {
                         preview_h *= scale;
                     }
 
-                    float x = vp->img_pos.x + vp->img_size.x - preview_w - pad;
-                    float y = vp->img_pos.y + vp->img_size.y - preview_h - pad;
+                    const ImVec2 min{vp->img_pos.x + vp->img_size.x - preview_w - ui::OVERLAY_INSET,
+                                     vp->img_pos.y + vp->img_size.y - preview_h - ui::OVERLAY_INSET};
+                    const ImVec2 max{min.x + preview_w, min.y + preview_h};
 
-                    // Framed like the toolbar's pills: a dark plate, a black edge.
+                    // The picture alone with a black edge like the pills',
+                    // and the camera's name on a tag in its corner (sheet 33).
                     ImDrawList* dl = ImGui::GetWindowDrawList();
-                    ImVec4 plate = theme::surface_sunken();
-                    plate.w = 0.86f;
-                    dl->AddRectFilled(
-                        {x - border, y - border},
-                        {x + preview_w + border, y + preview_h + border},
-                        ImGui::GetColorU32(plate), 4.0f);
-                    dl->AddRect(
-                        {x - border, y - border},
-                        {x + preview_w + border, y + preview_h + border},
-                        ImGui::GetColorU32(theme::border()), 4.0f);
-                    dl->AddImage(tex, {x, y}, {x + preview_w, y + preview_h});
-
-                    // Label
-                    auto* cam_node = dynamic_cast<CameraNode*>(
-                        deps_.scene->find(selected_id_));
-                    if (cam_node) {
-                        const char* label = cam_node->name.c_str();
-                        dl->AddText({x + 4.0f, y + 2.0f},
-                                    ImGui::GetColorU32(theme::text_secondary()), label);
+                    const float rounding = ImGui::GetStyle().FrameRounding;
+                    dl->AddImageRounded(tex, min, max, {0.0f, 0.0f}, {1.0f, 1.0f}, IM_COL32_WHITE, rounding);
+                    dl->AddRect({min.x - 1.0f, min.y - 1.0f}, {max.x + 1.0f, max.y + 1.0f},
+                                ImGui::GetColorU32(theme::border()), rounding);
+                    if (auto* cam_node = dynamic_cast<CameraNode*>(deps_.scene->find(selected_id_))) {
+                        constexpr float TAG_INSET = 6.0f;
+                        const ui::OverlayPiece name[] = {{cam_node->name}};
+                        ui::corner_note(dl, {min.x + TAG_INSET, min.y + TAG_INSET}, ui::Corner::TopLeft,
+                                        {.icon = ui::icon::camera,
+                                         .line = name,
+                                         .ink = theme::text(),
+                                         .icon_ink = theme::category(theme::Category::Camera)});
                     }
                 }
                 ImGui::End();
@@ -946,12 +942,13 @@ void SceneEditorContext::draw_play_toolbar() {
 
         // How input reaches the game, bottom-left of the image, out of the
         // toolbar's way.
-        const char* hint = deps_.play->input_focused() ? "Shift+Esc to release input"
-                                                       : "Click to give the game input focus";
-        ImGui::SetCursorScreenPos({min.x + theme::GAP_M, max.y - ImGui::GetTextLineHeight() - theme::GAP_M});
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
-        ImGui::TextUnformatted(hint);
-        ImGui::PopStyleColor();
+        static constexpr ui::OverlayPiece RELEASE[] = {{"Shift", true}, {"Esc", true}, {"releases input"}};
+        static constexpr ui::OverlayPiece GIVE[] = {{"Click to give the game input"}};
+        ui::corner_note(ImGui::GetWindowDrawList(), {min.x + ui::OVERLAY_INSET, max.y - ui::OVERLAY_INSET},
+                        ui::Corner::BottomLeft,
+                        {.line = deps_.play->input_focused() ? std::span<const ui::OverlayPiece>(RELEASE)
+                                                             : std::span<const ui::OverlayPiece>(GIVE),
+                         .ink = theme::text_secondary()});
     }
 
     // Left: the gizmo's tool, then what is drawn over the scene and how
@@ -1191,34 +1188,44 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
                   return a->name < b->name;
               });
 
-    // A dark outline behind each glyph keeps text readable over a bright or
-    // busy scene without needing a filled panel behind the whole block.
-    auto draw_text_outlined = [&](const ImVec2& pos, const glm::vec4& color,
-                                  const char* text) {
-        ImVec4 outline = theme::border();
-        outline.w = color.a * 0.8f;
-        const ImU32 shadow = ImGui::GetColorU32(outline);
-        dl->AddText({pos.x + 1.0f, pos.y + 1.0f}, shadow, text);
-        dl->AddText(pos, ImGui::ColorConvertFloat4ToU32({color.r, color.g, color.b, color.a}), text);
-    };
-
+    // Watches and messages share one plate under the toolbar's pills, in
+    // the mono face (sheet 33): a watch's name in the secondary colour and
+    // its value in the script's, then the messages. Each world-anchored
+    // line gets a small plate of its own.
+    ImGui::PushFont(theme::mono_font(), 0.0f);
     const float line_h = ImGui::GetTextLineHeightWithSpacing();
-    const float pad = 8.0f;
+    constexpr float PAD_X = 8.0f;
+    constexpr float PAD_Y = 5.0f;
+    constexpr float COLUMN_GAP = 12.0f;
+    const auto ink = [](const glm::vec4& c) { return ImGui::ColorConvertFloat4ToU32({c.r, c.g, c.b, c.a}); };
 
-    // Watches: top-left, "name: value".
-    float y = origin.y + pad;
-    for (const auto* e : watches) {
-        std::string line = e->name + ": " + e->text;
-        draw_text_outlined({origin.x + pad, y}, e->color, line.c_str());
-        y += line_h;
-    }
+    if (!watches.empty() || !messages.empty()) {
+        float name_w = 0.0f;
+        float value_w = 0.0f;
+        for (const auto* e : watches) {
+            name_w = std::max(name_w, ImGui::CalcTextSize(e->name.c_str()).x);
+            value_w = std::max(value_w, ImGui::CalcTextSize(e->text.c_str()).x);
+        }
+        float width = watches.empty() ? 0.0f : name_w + COLUMN_GAP + value_w;
+        for (const auto* e : messages) width = std::max(width, ImGui::CalcTextSize(e->text.c_str()).x);
+        const float height = line_h * static_cast<float>(watches.size() + messages.size()) -
+                             ImGui::GetStyle().ItemSpacing.y;
 
-    // Messages: below the watch block, same column.
-    if (!watches.empty() && !messages.empty()) y += line_h * 0.5f;
-    for (const auto* e : messages) {
-        draw_text_outlined({origin.x + pad, y}, e->color, e->text.c_str());
-        y += line_h;
+        const ImVec2 min{origin.x + ui::OVERLAY_INSET, ui::pill_row_bottom({origin.x, origin.y}) + theme::GAP_M};
+        ui::overlay_plate(dl, min, {min.x + width + PAD_X * 2.0f, min.y + height + PAD_Y * 2.0f});
+        float y = min.y + PAD_Y;
+        const float x = min.x + PAD_X;
+        for (const auto* e : watches) {
+            dl->AddText({x, y}, ImGui::GetColorU32(theme::text_secondary()), e->name.c_str());
+            dl->AddText({x + name_w + COLUMN_GAP, y}, ink(e->color), e->text.c_str());
+            y += line_h;
+        }
+        for (const auto* e : messages) {
+            dl->AddText({x, y}, ink(e->color), e->text.c_str());
+            y += line_h;
+        }
     }
+    ImGui::PopFont();
 
     // World-anchored text: project through the camera that actually rendered
     // this view — the scene CameraNode while playing (Engine overrides the
@@ -1247,6 +1254,7 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
     if (!have_camera) return;
 
     const glm::mat4 view_proj = proj * view;
+    ImGui::PushFont(theme::mono_font(), 0.0f);
     for (const auto* e : world) {
         glm::vec4 clip = view_proj * glm::vec4(e->world_pos, 1.0f);
         if (clip.w <= 0.0f) continue;  // behind the camera
@@ -1259,10 +1267,17 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
         ImVec2 pos{origin.x + (ndc.x * 0.5f + 0.5f) * size.x,
                    origin.y + (ndc.y * 0.5f + 0.5f) * size.y};
 
-        ImVec2 text_size = ImGui::CalcTextSize(e->text.c_str());
-        pos.x -= text_size.x * 0.5f;  // centre on the anchor point
-        draw_text_outlined(pos, e->color, e->text.c_str());
+        // Centred on the anchor point, on a plate of its own.
+        constexpr float TAG_PAD_X = 6.0f;
+        constexpr float TAG_PAD_Y = 1.0f;
+        const ImVec2 text_size = ImGui::CalcTextSize(e->text.c_str());
+        pos.x = std::floor(pos.x - text_size.x * 0.5f);
+        pos.y = std::floor(pos.y);
+        ui::overlay_plate(dl, {pos.x - TAG_PAD_X, pos.y - TAG_PAD_Y},
+                          {pos.x + text_size.x + TAG_PAD_X, pos.y + text_size.y + TAG_PAD_Y});
+        dl->AddText(pos, ink(e->color), e->text.c_str());
     }
+    ImGui::PopFont();
 }
 
 // --- Viewport ---
