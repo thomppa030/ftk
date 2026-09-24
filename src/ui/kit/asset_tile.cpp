@@ -101,14 +101,17 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
         dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::surface_hover()), ROUNDING);
     }
 
-    // The picture, or the kind's icon on a sunken square.
+    // The picture, or the kind's icon, on a sunken square only while the
+    // tile is hovered or selected: at rest the icon stands on the panel.
     const ImVec2 pic_min{std::floor(min.x + (size.x - PICTURE) * 0.5f), min.y + PAD_TOP};
     const ImVec2 pic_max{pic_min.x + PICTURE, pic_min.y + PICTURE};
     if (spec.picture != 0) {
         const ImU32 tint = spec.tint ? ImGui::GetColorU32(*spec.tint) : IM_COL32_WHITE;
         dl->AddImageRounded(spec.picture, pic_min, pic_max, {0.0f, 0.0f}, {1.0f, 1.0f}, tint, ROUNDING);
     } else {
-        dl->AddRectFilled(pic_min, pic_max, ImGui::GetColorU32(theme::surface_sunken()), ROUNDING);
+        if (spec.selected || hovered) {
+            dl->AddRectFilled(pic_min, pic_max, ImGui::GetColorU32(theme::surface_sunken()), ROUNDING);
+        }
         if (spec.icon != nullptr) {
             const ImVec4 colour = spec.tint ? *spec.tint
                                 : spec.category ? theme::category(*spec.category)
