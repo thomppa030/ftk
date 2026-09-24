@@ -7,6 +7,7 @@
 #include "ui/game_ui/ui_style_properties.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/kit/canvas.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
@@ -522,8 +523,11 @@ void UiEditorContext::draw_preview(float dt) {
     // Overlay: layout debug (Edit mode only, drawn via ImGui DrawList on top)
     auto* root = preview_ui_->root();
     if (!play_mode_ && show_layout_overlay_ && root) {
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        draw_layout_overlay(root, draw_list, origin, layout_scale);
+        const ImVec2 mouse = ImGui::GetMousePos();
+        const bool over = ImGui::IsWindowHovered() && mouse.x >= origin.x && mouse.y >= origin.y &&
+                          mouse.x <= origin.x + scaled_w && mouse.y <= origin.y + scaled_h;
+        UiNode* hovered = over ? node_at(root, mouse, origin, layout_scale) : nullptr;
+        draw_layout_overlay(root, hovered, ImGui::GetWindowDrawList(), origin, layout_scale);
     }
 
     // Invisible button for interaction (placed over the image)
@@ -537,25 +541,7 @@ void UiEditorContext::draw_preview(float dt) {
         }
     } else if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         // Edit mode: click-to-select elements
-        ImVec2 mouse = ImGui::GetMousePos();
-        float local_x = (mouse.x - origin.x) / layout_scale;
-        float local_y = (mouse.y - origin.y) / layout_scale;
-
-        UiNode* hit = nullptr;
-        std::function<void(UiNode*)> hit_test = [&](UiNode* node) {
-            if (node->hidden_by_if) return;
-            if (node->style.display == UiDisplay::none) return;
-
-            auto& r = node->layout_rect;
-            if (local_x >= r.x && local_x <= r.x + r.w && local_y >= r.y && local_y <= r.y + r.h) {
-                hit = node;
-                for (auto& child : node->children) {
-                    hit_test(child.get());
-                }
-            }
-        };
-        if (root) hit_test(root);
-        selected_node_ = hit;
+        selected_node_ = root ? node_at(root, ImGui::GetMousePos(), origin, layout_scale) : nullptr;
     }
 }
 
@@ -1601,59 +1587,99 @@ void UiEditorContext::process_play_input(UiNode* root, ImVec2 origin, float scal
 
 // ── Layout Debug Overlay ─────────────────────────────────────────────────
 
-void UiEditorContext::draw_layout_overlay(UiNode* node, ImDrawList* draw_list,
-                                           ImVec2 origin, float scale) {
-    if (node->hidden_by_if) return;
-    if (node->style.display == UiDisplay::none) return;
+namespace {
 
-    auto& r = node->layout_rect;
-    if (r.w < 0.5f && r.h < 0.5f) {
-        for (auto& child : node->children) {
-            draw_layout_overlay(child.get(), draw_list, origin, scale);
+bool drawn(const UiNode& node) {
+    return !node.hidden_by_if && node.style.display != UiDisplay::none;
+}
+
+} // namespace
+
+UiNode* UiEditorContext::node_at(UiNode* root, ImVec2 mouse, ImVec2 origin, float scale) {
+    const float x = (mouse.x - origin.x) / scale;
+    const float y = (mouse.y - origin.y) / scale;
+    UiNode* hit = nullptr;
+    std::function<void(UiNode*)> visit = [&](UiNode* node) {
+        if (!drawn(*node)) return;
+        const auto& r = node->layout_rect;
+        if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) return;
+        hit = node;
+        for (auto& child : node->children) visit(child.get());
+    };
+    visit(root);
+    return hit;
+}
+
+void UiEditorContext::draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawList* draw_list, ImVec2 origin,
+                                          float scale) {
+    const ImU32 box = ImGui::GetColorU32(theme::layout_box());
+    const auto screen = [&](const UiRect& r) {
+        return std::pair{ImVec2{origin.x + r.x * scale, origin.y + r.y * scale},
+                         ImVec2{origin.x + (r.x + r.w) * scale, origin.y + (r.y + r.h) * scale}};
+    };
+
+    // Every element's box, outlined.
+    std::function<void(const UiNode*)> outline = [&](const UiNode* node) {
+        if (!drawn(*node)) return;
+        const auto& r = node->layout_rect;
+        if (r.w >= 0.5f || r.h >= 0.5f) {
+            const auto [p0, p1] = screen(r);
+            draw_list->AddRect(p0, p1, box);
         }
-        return;
-    }
+        for (const auto& child : node->children) outline(child.get());
+    };
+    outline(root);
 
-    ImVec2 p0 = {origin.x + r.x * scale, origin.y + r.y * scale};
-    ImVec2 p1 = {p0.x + r.w * scale, p0.y + r.h * scale};
+    // The element pointed at and the selected one: margin and padding
+    // shaded, their sizes written in them, the tag and size beside the box.
+    const auto detail = [&](const UiNode* node) {
+        if (node == nullptr || !drawn(*node)) return;
+        const auto [p0, p1] = screen(node->layout_rect);
+        const auto& m = node->layout_margin;
+        const auto& pd = node->layout_padding;
+        const ImVec2 m0{p0.x - m.left * scale, p0.y - m.top * scale};
+        const ImVec2 m1{p1.x + m.right * scale, p1.y + m.bottom * scale};
+        const ImVec2 i0{p0.x + pd.left * scale, p0.y + pd.top * scale};
+        const ImVec2 i1{p1.x - pd.right * scale, p1.y - pd.bottom * scale};
+        // A ring between an outer and an inner rectangle, as four strips.
+        const auto ring = [&](ImVec2 o0, ImVec2 o1, ImVec2 n0, ImVec2 n1, ImU32 fill) {
+            draw_list->AddRectFilled(o0, {o1.x, n0.y}, fill);
+            draw_list->AddRectFilled({o0.x, n1.y}, o1, fill);
+            draw_list->AddRectFilled({o0.x, n0.y}, {n0.x, n1.y}, fill);
+            draw_list->AddRectFilled({n1.x, n0.y}, {o1.x, n1.y}, fill);
+        };
+        ring(m0, m1, p0, p1, ImGui::GetColorU32(theme::layout_margin()));
+        ring(p0, p1, i0, i1, ImGui::GetColorU32(theme::layout_padding()));
+        draw_list->AddRect(p0, p1, box, 0.0f, 0, 1.5f);
 
-    // Margin area (orange, semi-transparent fill)
-    auto& m = node->layout_margin;
-    if (m.top > 0 || m.right > 0 || m.bottom > 0 || m.left > 0) {
-        ImVec2 mp0 = {p0.x - m.left * scale, p0.y - m.top * scale};
-        ImVec2 mp1 = {p1.x + m.right * scale, p1.y + m.bottom * scale};
-        // Top margin strip
-        draw_list->AddRectFilled(mp0, {mp1.x, p0.y}, IM_COL32(255, 165, 0, 40));
-        // Bottom margin strip
-        draw_list->AddRectFilled({mp0.x, p1.y}, mp1, IM_COL32(255, 165, 0, 40));
-        // Left margin strip
-        draw_list->AddRectFilled({mp0.x, p0.y}, {p0.x, p1.y}, IM_COL32(255, 165, 0, 40));
-        // Right margin strip
-        draw_list->AddRectFilled({p1.x, p0.y}, {mp1.x, p1.y}, IM_COL32(255, 165, 0, 40));
-    }
+        // A side's size, where the strip is tall enough to hold it.
+        ImGui::PushFont(theme::mono_font(), theme::AXIS_TEXT);
+        const float text_h = ImGui::GetFontSize();
+        const auto size_in = [&](float value, ImVec2 a, ImVec2 b) {
+            if (value <= 0.0f || std::min(b.x - a.x, b.y - a.y) < text_h) return;
+            char text[16];
+            std::snprintf(text, sizeof(text), "%g", value);
+            const ImVec2 ts = ImGui::CalcTextSize(text);
+            draw_list->AddText({(a.x + b.x - ts.x) * 0.5f, (a.y + b.y - ts.y) * 0.5f},
+                               ImGui::GetColorU32(theme::text()), text);
+        };
+        size_in(m.top, m0, {m1.x, p0.y});
+        size_in(m.bottom, {m0.x, p1.y}, m1);
+        size_in(m.left, {m0.x, p0.y}, {p0.x, p1.y});
+        size_in(m.right, {p1.x, p0.y}, {m1.x, p1.y});
+        size_in(pd.top, p0, {p1.x, i0.y});
+        size_in(pd.bottom, {p0.x, i1.y}, p1);
+        size_in(pd.left, {p0.x, i0.y}, {i0.x, i1.y});
+        size_in(pd.right, {i1.x, i0.y}, {p1.x, i1.y});
+        ImGui::PopFont();
 
-    // Padding area (green, semi-transparent fill)
-    auto& pd = node->layout_padding;
-    if (pd.top > 0 || pd.right > 0 || pd.bottom > 0 || pd.left > 0) {
-        ImVec2 pp0 = {p0.x + pd.left * scale, p0.y + pd.top * scale};
-        ImVec2 pp1 = {p1.x - pd.right * scale, p1.y - pd.bottom * scale};
-        // Top padding strip
-        draw_list->AddRectFilled(p0, {p1.x, pp0.y}, IM_COL32(100, 200, 100, 40));
-        // Bottom padding strip
-        draw_list->AddRectFilled({p0.x, pp1.y}, p1, IM_COL32(100, 200, 100, 40));
-        // Left padding strip
-        draw_list->AddRectFilled({p0.x, pp0.y}, {pp0.x, pp1.y}, IM_COL32(100, 200, 100, 40));
-        // Right padding strip
-        draw_list->AddRectFilled({pp1.x, pp0.y}, {p1.x, pp1.y}, IM_COL32(100, 200, 100, 40));
-    }
-
-    // Content border (blue outline)
-    draw_list->AddRect(p0, p1, IM_COL32(100, 150, 255, 80));
-
-    // Children
-    for (auto& child : node->children) {
-        draw_layout_overlay(child.get(), draw_list, origin, scale);
-    }
+        char label[96];
+        std::snprintf(label, sizeof(label), "%s  %g \xc3\x97 %g", node->tag.c_str(), node->layout_rect.w,
+                      node->layout_rect.h);
+        ui::canvas_readout(draw_list, {p1.x, p0.y}, label, draw_list->GetClipRectMin(), draw_list->GetClipRectMax());
+    };
+    if (hovered != selected_node_) detail(hovered);
+    detail(selected_node_);
 }
 
 } // namespace fjell

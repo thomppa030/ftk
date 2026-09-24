@@ -135,8 +135,11 @@ private:
     void draw_node_tree(UiNode* node, int depth);
 
     // Preview drawing helpers
-    void draw_layout_overlay(UiNode* node, ImDrawList* draw_list,
-                             ImVec2 origin, float scale);
+    /// Every element's box outlined; the selected and hovered elements'
+    /// margin and padding shaded and measured (sheet 32).
+    void draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawList* draw_list, ImVec2 origin, float scale);
+    /// The innermost element under screen point `mouse` in the preview.
+    [[nodiscard]] static UiNode* node_at(UiNode* root, ImVec2 mouse, ImVec2 origin, float scale);
     void process_play_input(UiNode* root, ImVec2 origin, float scale);
 
     UiEditorDeps deps_;

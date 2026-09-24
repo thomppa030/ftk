@@ -11,4 +11,3 @@ src/ui/content_browser.cpp
 src/ui/file_browser.cpp
 src/ui/grouped_picker.cpp
 src/ui/panel_widget.hpp
-src/ui/ui_editor_context.cpp
