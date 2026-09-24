@@ -1349,7 +1349,10 @@ void VulkanContext::submit_and_present() {
         VkSemaphoreSubmitInfo signal{};
         signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signal.semaphore = render_finished[recorded_image_index_];
-        signal.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // Every stage: the swapchain image's transition to PRESENT_SRC is
+        // the last thing in the command buffer, and present has to wait for
+        // it, not only for the colour writes before it.
+        signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         VkSubmitInfo2 submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -1485,7 +1488,9 @@ void VulkanContext::submit_and_present() {
         VkSemaphoreSubmitInfo post_signal{};
         post_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         post_signal.semaphore = render_finished[recorded_image_index_];
-        post_signal.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // Every stage, for the same reason as the single-submit path: the
+        // transition to PRESENT_SRC has to be inside what present waits on.
+        post_signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         VkSubmitInfo2 post_submit{};
         post_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
