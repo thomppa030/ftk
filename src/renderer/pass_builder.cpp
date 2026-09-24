@@ -48,18 +48,16 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
     return h;
 }
 
-FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name,
-                                     VkImageLayout initial_layout) {
+FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name) {
     if (!ctx.imports.contains(fg_name_hash(name))) {
         FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
                        std::string(name));
         return FgTexture{};
     }
-    return import_named_optional(ctx, name, initial_layout);
+    return import_named_optional(ctx, name);
 }
 
-FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::string_view name,
-                                              VkImageLayout initial_layout) {
+FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::string_view name) {
     auto it = ctx.imports.find(fg_name_hash(name));
     if (it == ctx.imports.end()) {
         return FgTexture{};
@@ -74,7 +72,7 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
         .base_layer = it->second.base_layer,
         .layer_count = it->second.layer_count,
         .mip_count = it->second.mip_count,
-        .initial_layout = initial_layout,
+        .initial_layout = it->second.initial_layout,
         .persistent = it->second.persistent,
     });
     return h;
