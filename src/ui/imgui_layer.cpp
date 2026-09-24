@@ -1,4 +1,5 @@
 #include "ui/imgui_layer.hpp"
+#include "ui/editor_view_settings.hpp"
 #include "core/engine_dir.hpp"
 #include "ui/theme.hpp"
 
@@ -70,6 +71,9 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   auto* prev_ctx = ImGui::GetCurrentContext();
   context_ = ImGui::CreateContext();
   ImGui::SetCurrentContext(context_);
+
+  // Before the first frame reads the ini the section is saved in.
+  register_editor_view_settings();
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;

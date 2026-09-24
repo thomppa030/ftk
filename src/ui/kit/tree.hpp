@@ -91,16 +91,22 @@ struct TreeRowResult {
     std::optional<std::string> renamed{};
 };
 
-/// The scope rows are drawn in: they sit edge to edge.
+/// The scope rows are drawn in: they sit edge to edge. A `text_size` other
+/// than 0 draws the rows' text at that size, and their height, indent and
+/// chevron scale with it so a larger size keeps its spacing.
 class Tree {
 public:
-    explicit Tree(const char* id);
+    explicit Tree(const char* id, float text_size = 0.0f);
     ~Tree();
     Tree(const Tree&) = delete;
     Tree& operator=(const Tree&) = delete;
     Tree(Tree&&) = delete;
     Tree& operator=(Tree&&) = delete;
     explicit operator bool() const { return true; }
+
+private:
+    bool sized_{false};
+    float outer_size_{0.0f};
 };
 
 TreeRowResult tree_row(const TreeRowSpec& spec);

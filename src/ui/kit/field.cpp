@@ -1,12 +1,16 @@
 #include "ui/kit/field.hpp"
 
+#include "ui/kit/button.hpp"
 #include "ui/kit/edit_record.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 namespace fjell::ui {
@@ -287,6 +291,42 @@ void readout(const char* text) {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
     ImGui::TextUnformatted(text);
     ImGui::PopStyleColor();
+}
+
+Edit stepper(const char* id, int& value, int min, int max, Unit unit) {
+    const std::string before = std::to_string(value);
+    ImGui::PushID(id);
+    // One frame, the field's colour, holding minus, the number and plus.
+    const float h = ImGui::GetFrameHeight();
+    constexpr float NUMBER_W = 52.0f;
+    const ImVec2 min_corner = ImGui::GetCursorScreenPos();
+    const ImVec2 max_corner{min_corner.x + h * 2.0f + NUMBER_W, min_corner.y + h};
+    ImGui::GetWindowDrawList()->AddRectFilled(min_corner, max_corner, ImGui::GetColorU32(ImGuiCol_FrameBg),
+                                              ImGui::GetStyle().FrameRounding);
+    int next = value;
+    ImGui::BeginDisabled(value <= min);
+    if (icon_button("##less", icon::minus, "Smaller")) next = value - 1;
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.0f, 0.0f);
+    char number[32];
+    std::snprintf(number, sizeof(number), "%d", value);
+    const std::string text = detail::with_unit(number, unit_symbol(unit));
+    const float text_w = ImGui::CalcTextSize(text.c_str()).x;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImGui::Dummy({NUMBER_W, h});
+    ImGui::GetWindowDrawList()->AddText({std::floor(at.x + (NUMBER_W - text_w) * 0.5f),
+                                         at.y + ImGui::GetStyle().FramePadding.y},
+                                        ImGui::GetColorU32(theme::text()), text.c_str());
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::BeginDisabled(value >= max);
+    if (icon_button("##more", icon::add, "Larger")) next = value + 1;
+    ImGui::EndDisabled();
+    ImGui::PopID();
+    const bool changed = std::clamp(next, min, max) != value;
+    value = std::clamp(next, min, max);
+    const Edit edit{changed, changed};
+    track(before, std::to_string(value), edit);
+    return edit;
 }
 
 Edit checkbox(const char* id, bool& value) {

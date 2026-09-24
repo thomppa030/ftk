@@ -8,6 +8,7 @@ namespace fjell::ui::icon {
 
 // Actions
 inline constexpr const char* add          = ICON_LC_PLUS;
+inline constexpr const char* minus        = ICON_LC_MINUS;
 inline constexpr const char* remove       = ICON_LC_TRASH_2;
 inline constexpr const char* clear        = ICON_LC_X;
 inline constexpr const char* browse       = ICON_LC_FOLDER_OPEN;
@@ -85,6 +86,7 @@ inline constexpr const char* new_folder    = ICON_LC_FOLDER_PLUS;
 inline constexpr const char* import        = ICON_LC_IMPORT;
 inline constexpr const char* close         = ICON_LC_LOG_OUT;
 inline constexpr const char* settings      = ICON_LC_SETTINGS;
+inline constexpr const char* view_options  = ICON_LC_SETTINGS_2;  // how a panel shows its contents
 inline constexpr const char* build         = ICON_LC_HAMMER;
 inline constexpr const char* reload        = ICON_LC_REFRESH_CW;
 inline constexpr const char* open_in       = ICON_LC_EXTERNAL_LINK;

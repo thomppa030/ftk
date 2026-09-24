@@ -151,3 +151,33 @@ TEST_CASE("A rename started from the keyboard draws no navigation ring", "[ui][k
     REQUIRE(ImGui::GetCurrentContext()->ActiveId != 0);
     CHECK_FALSE(ImGui::GetCurrentContext()->NavCursorVisible);
 }
+
+TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
+    ImGuiHarness h;
+    float plain = 0.0f;
+    float sized = 0.0f;
+    float after = 0.0f;
+    h.set_ui([&] {
+        {
+            ui::Tree tree("##plain");
+            (void)ui::tree_row({.id = "a", .name = "Plain"});
+            plain = ImGui::GetItemRectSize().y;
+        }
+        {
+            // Twice the text size around it: twice the row.
+            ui::Tree tree("##sized", ImGui::GetFontSize() * 2.0f);
+            (void)ui::tree_row({.id = "b", .name = "Sized"});
+            sized = ImGui::GetItemRectSize().y;
+        }
+        {
+            // The size goes with the tree that asked for it.
+            ui::Tree tree("##after");
+            (void)ui::tree_row({.id = "c", .name = "After"});
+            after = ImGui::GetItemRectSize().y;
+        }
+    });
+    h.step(2);
+    CHECK(plain == fjell::theme::TREE_ROW);
+    CHECK(sized == fjell::theme::TREE_ROW * 2.0f);
+    CHECK(after == fjell::theme::TREE_ROW);
+}

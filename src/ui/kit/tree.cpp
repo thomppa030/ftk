@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace fjell::ui {
 
@@ -27,6 +28,19 @@ constexpr float ROUNDING = 3.0f;
 // The insert line's thickness and the ring at its start.
 constexpr float INSERT_LINE = 2.0f;
 constexpr float RING = 8.0f;
+
+// The text size around the tree being drawn, before Tree changed it; 0
+// outside a sized tree. Its metrics are drawn for that size and scale with
+// the size the rows are drawn at.
+float& base_size() {
+    static float size = 0.0f;
+    return size;
+}
+
+float scale() { return base_size() > 0.0f ? ImGui::GetFontSize() / base_size() : 1.0f; }
+float row_height() { return std::round(theme::TREE_ROW * scale()); }
+float indent() { return std::round(theme::TREE_INDENT * scale()); }
+float twisty() { return std::round(TWISTY * scale()); }
 
 } // namespace
 
@@ -58,12 +72,20 @@ std::optional<std::string> RenameBox::draw(float width) {
     return text_;
 }
 
-Tree::Tree(const char* id) {
+Tree::Tree(const char* id, float text_size) : sized_{text_size > 0.0f} {
     ImGui::PushID(id);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 0.0f});
+    if (sized_) {
+        outer_size_ = std::exchange(base_size(), ImGui::GetFontSize());
+        ImGui::PushFont(nullptr, text_size);
+    }
 }
 
 Tree::~Tree() {
+    if (sized_) {
+        ImGui::PopFont();
+        base_size() = outer_size_;
+    }
     ImGui::PopStyleVar();
     ImGui::PopID();
 }
@@ -77,19 +99,19 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
 
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const float width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
-    const ImVec2 max{min.x + width, min.y + theme::TREE_ROW};
+    const ImVec2 max{min.x + width, min.y + row_height()};
     const bool renaming = spec.rename != nullptr && spec.rename->editing(spec.key);
 
     // The whole row is the click target. Only the rename field may sit over
     // it: allowing overlap otherwise would let something drawn behind the
     // tree take the row's mouse.
     if (renaming) ImGui::SetNextItemAllowOverlap();
-    ImGui::InvisibleButton("##row", {width, theme::TREE_ROW});
+    ImGui::InvisibleButton("##row", {width, row_height()});
     const bool hovered = ImGui::IsItemHovered();
-    const float twisty_x = min.x + ROW_PAD + static_cast<float>(spec.depth) * theme::TREE_INDENT;
+    const float twisty_x = min.x + ROW_PAD + static_cast<float>(spec.depth) * indent();
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         const float mouse_x = ImGui::GetIO().MousePos.x;
-        if (spec.has_children && mouse_x >= twisty_x && mouse_x < twisty_x + TWISTY) {
+        if (spec.has_children && mouse_x >= twisty_x && mouse_x < twisty_x + twisty()) {
             open = !open;
             storage->SetBool(open_id, open);
         } else {
@@ -110,20 +132,20 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     // A guide down through each level above, under its parent's chevron.
     const ImU32 guide = ImGui::GetColorU32(theme::surface_active());
     for (int level = 0; level < spec.depth; ++level) {
-        const float x = std::floor(min.x + ROW_PAD + static_cast<float>(level) * theme::TREE_INDENT
-                                   + TWISTY * 0.5f);
+        const float x = std::floor(min.x + ROW_PAD + static_cast<float>(level) * indent()
+                                   + twisty() * 0.5f);
         dl->AddLine({x, min.y}, {x, max.y}, guide);
     }
 
-    const float text_y = std::floor(min.y + (theme::TREE_ROW - ImGui::GetFontSize()) * 0.5f);
+    const float text_y = std::floor(min.y + (row_height() - ImGui::GetFontSize()) * 0.5f);
     if (spec.has_children) {
         const char* chevron = open || spec.force_open ? icon::fold_open : icon::fold_closed;
         const float w = ImGui::CalcTextSize(chevron).x;
-        dl->AddText({twisty_x + (TWISTY - w) * 0.5f, text_y}, ImGui::GetColorU32(theme::text_disabled()),
+        dl->AddText({twisty_x + (twisty() - w) * 0.5f, text_y}, ImGui::GetColorU32(theme::text_disabled()),
                     chevron);
     }
 
-    float x = twisty_x + TWISTY + PART_GAP;
+    float x = twisty_x + twisty() + PART_GAP;
     if (spec.icon != nullptr) {
         const ImVec4 tint = spec.tint ? *spec.tint
                           : spec.category ? theme::category(*spec.category)
@@ -150,7 +172,7 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     const float name_w = ImGui::CalcTextSize(name, name_end).x;
     if (renaming) {
         ImGui::SetCursorScreenPos({x - ImGui::GetStyle().FramePadding.x,
-                                   min.y + (theme::TREE_ROW - ImGui::GetFrameHeight()) * 0.5f});
+                                   min.y + (row_height() - ImGui::GetFrameHeight()) * 0.5f});
         result.renamed = spec.rename->draw(std::max(name_right - x, 1.0f));
     } else if (x + name_w <= name_right) {
         const ImU32 colour = ImGui::GetColorU32(spec.dimmed ? theme::text_disabled() : theme::text());
@@ -201,7 +223,7 @@ void draw_drop(DropPlace place, int depth) {
     // The line starts where a row at `depth` has its icon, so the ring's
     // indent says which parent the rows land under.
     const float y = std::floor(place == DropPlace::Before ? min.y : max.y);
-    const float x = min.x + ROW_PAD + static_cast<float>(depth) * theme::TREE_INDENT + TWISTY + PART_GAP;
+    const float x = min.x + ROW_PAD + static_cast<float>(depth) * indent() + twisty() + PART_GAP;
     dl->AddLine({x, y}, {max.x - ROW_PAD, y}, accent, INSERT_LINE);
     dl->AddCircleFilled({x, y}, RING * 0.5f, ImGui::GetColorU32(theme::surface_base()));
     dl->AddCircle({x, y}, RING * 0.5f - 1.0f, accent, 0, INSERT_LINE);
