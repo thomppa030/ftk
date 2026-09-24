@@ -1,4 +1,18 @@
 #include "ui/vfx_editor_context.hpp"
+#include "ui/inspectors/vfx_module_inspectors.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/component_block.hpp"
+#include "ui/kit/dialog.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/tabs.hpp"
+#include "ui/kit/text_field.hpp"
+#include "ui/panel_widget.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/components/particle_emitter.hpp"
@@ -20,6 +34,7 @@
 #include "ui/theme.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 #include <imgui_internal.h>
@@ -532,36 +547,32 @@ static void draw_pin_icon(PinDataType type, bool connected, float size = kPinIco
 }
 
 void VfxEditorContext::draw_node_editor() {
-    if (ImGui::Begin(ctx_title("Graph").c_str())) {
+    if (auto panel = Panel(ui::icon::vfx, ctx_title("Graph").c_str())) {
         if (!effect_ || !node_editor_ctx_) {
-            ImGui::TextDisabled("No effect loaded");
-            ImGui::End();
+            ui::empty_state(ui::icon::vfx, "No effect", "The effect couldn't be read; the console says why");
             return;
         }
 
         ne::SetCurrentEditor(node_editor_ctx_);
 
-        // Emitter selector + toolbar
+        // The emitters as tabs, the one the graph shows in front (sheet 25).
         {
-            // Emitter dropdown
-            if (ImGui::BeginCombo("##emitter",
-                    selected_emitter_ >= 0
-                        ? effect_->emitters[selected_emitter_].name.c_str()
-                        : "Select emitter")) {
-                for (int i = 0; i < static_cast<int>(effect_->emitters.size()); ++i) {
-                    bool sel = (i == selected_emitter_);
-                    if (ImGui::Selectable(effect_->emitters[i].name.c_str(), sel)) {
-                        sync_node_positions();
-                        selected_emitter_ = i;
-                        selected_module_stack_ = -1;
-                        selected_module_index_ = -1;
-                        needs_initial_layout_ = true;
-                    }
-                }
-                ImGui::EndCombo();
+            std::vector<std::string> names;
+            for (const auto& em : effect_->emitters) names.push_back(em.name);
+            const auto tabs = ui::tab_strip("##emitters", {.names = names,
+                                                           .selected = std::max(selected_emitter_, 0),
+                                                           .category = theme::Category::Vfx,
+                                                           .add_label = "Add emitter",
+                                                           .remove_label = "Remove emitter"});
+            if (tabs.selected) {
+                sync_node_positions();
+                selected_emitter_ = *tabs.selected;
+                selected_module_stack_ = -1;
+                selected_module_index_ = -1;
+                needs_initial_layout_ = true;
             }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+ Emitter")) {
+            if (tabs.add) {
+                sync_node_positions();
                 effect_->emitters.push_back(VfxEmitter::make_default());
                 auto& em = effect_->emitters.back();
                 em.name = "emitter_" + std::to_string(effect_->emitters.size());
@@ -569,30 +580,35 @@ void VfxEditorContext::draw_node_editor() {
                 needs_initial_layout_ = true;
                 setup_preview();
             }
-            if (selected_emitter_ >= 0 && effect_->emitters.size() > 1) {
-                ImGui::SameLine();
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-                if (ImGui::SmallButton("- Emitter")) {
-                    sync_node_positions();
-                    effect_->emitters.erase(effect_->emitters.begin() + selected_emitter_);
-                    selected_emitter_ = std::min(selected_emitter_,
-                        static_cast<int>(effect_->emitters.size()) - 1);
-                    selected_module_stack_ = -1;
-                    selected_module_index_ = -1;
-                    needs_initial_layout_ = true;
-                    setup_preview();
-                }
-                ImGui::PopStyleColor();
+            if (tabs.removed) {
+                sync_node_positions();
+                effect_->emitters.erase(effect_->emitters.begin() + *tabs.removed);
+                selected_emitter_ = std::min(selected_emitter_, static_cast<int>(effect_->emitters.size()) - 1);
+                selected_module_stack_ = -1;
+                selected_module_index_ = -1;
+                needs_initial_layout_ = true;
+                setup_preview();
             }
+            if (tabs.rename) {
+                renaming_emitter_ = *tabs.rename;
+                rename_text_ = effect_->emitters[static_cast<size_t>(*tabs.rename)].name;
+                ui::open_dialog("##rename_emitter");
+            }
+            if (ui::prompt_dialog("##rename_emitter", {.title = "Rename emitter", .hint = "Its name", .confirm = "Rename"},
+                                  rename_text_) == ui::DialogAnswer::Confirm &&
+                renaming_emitter_ >= 0 && renaming_emitter_ < static_cast<int>(effect_->emitters.size())) {
+                effect_->emitters[static_cast<size_t>(renaming_emitter_)].name = rename_text_;
+            }
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Preview speed");
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
-            ImGui::SliderFloat("Speed", &time_scale_, 0.0f, 3.0f, "%.1f");
+            (void)ui::slider("##speed", time_scale_, 0.0f, 3.0f, ui::Unit::Times, "%.1f");
         }
 
-        if (selected_emitter_ < 0 ||
-            selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-            ImGui::TextDisabled("No emitter selected");
-            ImGui::End();
+        if (selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
+            ui::empty_state(ui::icon::vfx, "No emitter selected", "Pick one above or add one");
             return;
         }
 
@@ -822,185 +838,134 @@ void VfxEditorContext::draw_node_editor() {
 
         ne::SetCurrentEditor(nullptr);
     }
-    ImGui::End();
 }
 
 // ── Context Menu (replaces Add Module panel) ────────────────────────────
+
+namespace {
+
+// Every module an emitter can hold: the stack it goes in and its name in
+// the Add menus.
+struct ModuleKind {
+    int stack;  // 0 spawn, 1 update, 2 render
+    const char* label;
+    std::unique_ptr<VfxModule> (*make)();
+};
+
+template <typename T>
+std::unique_ptr<VfxModule> make_module() {
+    return std::make_unique<T>();
+}
+
+constexpr ModuleKind MODULE_KINDS[] = {
+    {0, "Spawn rate", make_module<SpawnRateModule>},
+    {0, "Initial lifetime", make_module<InitialLifetimeModule>},
+    {0, "Initial position", make_module<InitialPositionModule>},
+    {0, "Initial velocity", make_module<InitialVelocityModule>},
+    {0, "Initial color", make_module<InitialColorModule>},
+    {0, "Initial size", make_module<InitialSizeModule>},
+    {0, "Burst", make_module<BurstModule>},
+    {0, "Emit over distance", make_module<EmitOverDistanceModule>},
+    {0, "Initial rotation", make_module<InitialRotationModule>},
+    {0, "Initial texture", make_module<InitialTextureModule>},
+    {0, "Flipbook", make_module<FlipbookModule>},
+    {0, "Velocity inheritance", make_module<VelocityInheritanceModule>},
+    {1, "Gravity", make_module<GravityModule>},
+    {1, "Color over life", make_module<ColorOverLifeModule>},
+    {1, "Size over life", make_module<SizeOverLifeModule>},
+    {1, "Drag", make_module<DragModule>},
+    {1, "Noise", make_module<NoiseModule>},
+    {1, "Attract", make_module<AttractModule>},
+    {1, "Velocity limit", make_module<VelocityLimitModule>},
+    {1, "Collision", make_module<CollisionModule>},
+    {1, "Wind", make_module<WindModule>},
+    {1, "Orbital", make_module<OrbitalModule>},
+    {1, "Emissive", make_module<EmissiveModule>},
+    {1, "Sub-emitter", make_module<SubEmitterModule>},
+    {1, "Color over life, curves", make_module<CurveColorOverLifeModule>},
+    {1, "Size over life, curve", make_module<CurveSizeOverLifeModule>},
+    {2, "Billboard", make_module<BillboardModule>},
+    {2, "Trail", make_module<TrailModule>},
+    {2, "Lit particle", make_module<LitParticleModule>},
+    {2, "Mesh particle", make_module<MeshParticleModule>},
+    {2, "Distortion", make_module<DistortionModule>},
+};
+
+constexpr const char* STACK_NAMES[] = {"Spawn", "Update", "Render"};
+
+} // namespace
+
+std::vector<std::unique_ptr<VfxModule>>& VfxEditorContext::stack_of(VfxEmitter& emitter, int stack) {
+    return stack == 0 ? emitter.spawn_modules : stack == 1 ? emitter.update_modules : emitter.render_modules;
+}
+
+void VfxEditorContext::draw_add_module_items(VfxEmitter& emitter, int stack) {
+    for (const auto& kind : MODULE_KINDS) {
+        if (kind.stack != stack || !ui::menu_item({.label = kind.label})) continue;
+        auto& modules = stack_of(emitter, stack);
+        modules.push_back(kind.make());
+        needs_initial_layout_ = true;
+        selected_module_stack_ = stack;
+        selected_module_index_ = static_cast<int>(modules.size()) - 1;
+    }
+}
 
 void VfxEditorContext::draw_context_menu() {
     if (!effect_ || selected_emitter_ < 0) return;
     auto& emitter = effect_->emitters[selected_emitter_];
 
     if (ImGui::BeginPopup("##add_module")) {
-        auto add_btn = [&](const char* label, auto make_fn, auto& stack, int stack_idx) {
-            if (ImGui::MenuItem(label)) {
-                stack.push_back(make_fn());
-                needs_initial_layout_ = true;
-                selected_module_stack_ = stack_idx;
-                selected_module_index_ = static_cast<int>(stack.size()) - 1;
+        for (int stack = 0; stack < 3; ++stack) {
+            if (ui::begin_menu(ui::icon::vfx, STACK_NAMES[stack])) {
+                draw_add_module_items(emitter, stack);
+                ImGui::EndMenu();
             }
-        };
-
-        if (ImGui::BeginMenu("Spawn")) {
-            add_btn("Spawn Rate",       []{ return std::make_unique<SpawnRateModule>(); },        emitter.spawn_modules, 0);
-            add_btn("Initial Lifetime", []{ return std::make_unique<InitialLifetimeModule>(); },  emitter.spawn_modules, 0);
-            add_btn("Initial Position", []{ return std::make_unique<InitialPositionModule>(); },  emitter.spawn_modules, 0);
-            add_btn("Initial Velocity", []{ return std::make_unique<InitialVelocityModule>(); },  emitter.spawn_modules, 0);
-            add_btn("Initial Color",    []{ return std::make_unique<InitialColorModule>(); },     emitter.spawn_modules, 0);
-            add_btn("Initial Size",     []{ return std::make_unique<InitialSizeModule>(); },      emitter.spawn_modules, 0);
-            add_btn("Burst",            []{ return std::make_unique<BurstModule>(); },            emitter.spawn_modules, 0);
-            add_btn("Emit Over Distance", []{ return std::make_unique<EmitOverDistanceModule>(); }, emitter.spawn_modules, 0);
-            add_btn("Initial Rotation", []{ return std::make_unique<InitialRotationModule>(); },  emitter.spawn_modules, 0);
-            add_btn("Initial Texture",  []{ return std::make_unique<InitialTextureModule>(); },   emitter.spawn_modules, 0);
-            add_btn("Flipbook",         []{ return std::make_unique<FlipbookModule>(); },         emitter.spawn_modules, 0);
-            add_btn("Velocity Inheritance", []{ return std::make_unique<VelocityInheritanceModule>(); }, emitter.spawn_modules, 0);
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Update")) {
-            add_btn("Gravity",          []{ return std::make_unique<GravityModule>(); },          emitter.update_modules, 1);
-            add_btn("Color Over Life",  []{ return std::make_unique<ColorOverLifeModule>(); },    emitter.update_modules, 1);
-            add_btn("Size Over Life",   []{ return std::make_unique<SizeOverLifeModule>(); },     emitter.update_modules, 1);
-            add_btn("Drag",             []{ return std::make_unique<DragModule>(); },             emitter.update_modules, 1);
-            add_btn("Noise",            []{ return std::make_unique<NoiseModule>(); },            emitter.update_modules, 1);
-            add_btn("Attract",          []{ return std::make_unique<AttractModule>(); },          emitter.update_modules, 1);
-            add_btn("Velocity Limit",   []{ return std::make_unique<VelocityLimitModule>(); },   emitter.update_modules, 1);
-            add_btn("Collision",        []{ return std::make_unique<CollisionModule>(); },        emitter.update_modules, 1);
-            add_btn("Wind",             []{ return std::make_unique<WindModule>(); },             emitter.update_modules, 1);
-            add_btn("Orbital",          []{ return std::make_unique<OrbitalModule>(); },          emitter.update_modules, 1);
-            add_btn("Emissive",         []{ return std::make_unique<EmissiveModule>(); },         emitter.update_modules, 1);
-            add_btn("Sub-Emitter",      []{ return std::make_unique<SubEmitterModule>(); },      emitter.update_modules, 1);
-            ImGui::Separator();
-            add_btn("Curve Color Over Life", []{ return std::make_unique<CurveColorOverLifeModule>(); }, emitter.update_modules, 1);
-            add_btn("Curve Size Over Life",  []{ return std::make_unique<CurveSizeOverLifeModule>(); },  emitter.update_modules, 1);
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Render")) {
-            add_btn("Billboard",        []{ return std::make_unique<BillboardModule>(); },        emitter.render_modules, 2);
-            add_btn("Trail",            []{ return std::make_unique<TrailModule>(); },            emitter.render_modules, 2);
-            add_btn("Lit Particle",     []{ return std::make_unique<LitParticleModule>(); },     emitter.render_modules, 2);
-            add_btn("Mesh Particle",    []{ return std::make_unique<MeshParticleModule>(); },    emitter.render_modules, 2);
-            add_btn("Distortion",       []{ return std::make_unique<DistortionModule>(); },      emitter.render_modules, 2);
-            ImGui::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::BeginMenu("Expression")) {
+        if (ui::begin_menu(ui::icon::curve, "Expression")) {
             auto& graph = emitter.expression_graph;
             auto add_expr = [&](const char* label, ExprNodeType type) {
-                if (ImGui::MenuItem(label)) {
+                if (ui::menu_item({.label = label})) {
                     auto* node = graph.add_node(type);
                     node->editor_x = context_menu_canvas_x_;
                     node->editor_y = context_menu_canvas_y_;
                     node->position_set = true;
                 }
             };
-
-            if (ImGui::BeginMenu("Constants")) {
-                add_expr("Float",  ExprNodeType::constant_float);
-                add_expr("Vec3",   ExprNodeType::constant_vec3);
-                add_expr("Color",  ExprNodeType::constant_vec4);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Sources")) {
-                add_expr("Time",       ExprNodeType::time);
-                add_expr("Delta Time", ExprNodeType::delta_time);
-                add_expr("Random",     ExprNodeType::random);
-                add_expr("Global Wind", ExprNodeType::global_wind);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Math")) {
-                add_expr("Add",      ExprNodeType::add);
-                add_expr("Subtract", ExprNodeType::subtract);
-                add_expr("Multiply", ExprNodeType::multiply);
-                add_expr("Divide",   ExprNodeType::divide);
-                add_expr("Negate",   ExprNodeType::negate);
-                add_expr("Abs",      ExprNodeType::abs_node);
-                add_expr("Sin",      ExprNodeType::sin_node);
-                add_expr("Cos",      ExprNodeType::cos_node);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Interpolation")) {
-                add_expr("Lerp",   ExprNodeType::lerp);
-                add_expr("Remap",  ExprNodeType::remap);
-                add_expr("Clamp",  ExprNodeType::clamp);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Conversion")) {
-                add_expr("Split Vec3",   ExprNodeType::split_vec3);
-                add_expr("Combine Vec3", ExprNodeType::combine_vec3);
-                add_expr("Split Vec4",   ExprNodeType::split_vec4);
-                add_expr("Combine Vec4", ExprNodeType::combine_vec4);
-                ImGui::EndMenu();
-            }
+            ui::menu_heading("Constants");
+            add_expr("Float", ExprNodeType::constant_float);
+            add_expr("Vec3", ExprNodeType::constant_vec3);
+            add_expr("Color", ExprNodeType::constant_vec4);
+            ui::menu_heading("Sources");
+            add_expr("Time", ExprNodeType::time);
+            add_expr("Delta time", ExprNodeType::delta_time);
+            add_expr("Random", ExprNodeType::random);
+            add_expr("Global wind", ExprNodeType::global_wind);
+            ui::menu_heading("Math");
+            add_expr("Add", ExprNodeType::add);
+            add_expr("Subtract", ExprNodeType::subtract);
+            add_expr("Multiply", ExprNodeType::multiply);
+            add_expr("Divide", ExprNodeType::divide);
+            add_expr("Negate", ExprNodeType::negate);
+            add_expr("Abs", ExprNodeType::abs_node);
+            add_expr("Sin", ExprNodeType::sin_node);
+            add_expr("Cos", ExprNodeType::cos_node);
+            ui::menu_heading("Interpolation");
+            add_expr("Lerp", ExprNodeType::lerp);
+            add_expr("Remap", ExprNodeType::remap);
+            add_expr("Clamp", ExprNodeType::clamp);
+            ui::menu_heading("Conversion");
+            add_expr("Split vec3", ExprNodeType::split_vec3);
+            add_expr("Combine vec3", ExprNodeType::combine_vec3);
+            add_expr("Split vec4", ExprNodeType::split_vec4);
+            add_expr("Combine vec4", ExprNodeType::combine_vec4);
             ImGui::EndMenu();
         }
         ImGui::EndPopup();
     }
 }
 
-// ── Module Stack (inspector for selected node) ─────────────────────────
-
-void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
-                                          std::vector<std::unique_ptr<VfxModule>>& stack,
-                                          const char* stack_label) {
-    ImGui::PushID(stack_label);
-    ImGui::PushID(index);
-
-    float btn_w = ImGui::CalcTextSize("X").x + ImGui::GetStyle().FramePadding.x * 2;
-    float btn_x = ImGui::GetWindowWidth() - btn_w - 10;
-
-    ImGui::Checkbox("##en", &mod->enabled);
-    ImGui::SameLine();
-
-    float avail = btn_x - ImGui::GetCursorPosX() - ImGui::GetStyle().ItemSpacing.x;
-    ImGui::PushItemWidth(avail);
-    bool open = ImGui::TreeNodeEx(mod->name(), ImGuiTreeNodeFlags_DefaultOpen);
-    ImGui::PopItemWidth();
-
-    ImGui::SameLine(btn_x);
-    if (ImGui::SmallButton("X")) {
-        stack.erase(stack.begin() + index);
-        needs_initial_layout_ = true;
-        if (open) ImGui::TreePop();
-        ImGui::PopID();
-        ImGui::PopID();
-        return;
-    }
-
-    if (open) {
-        if (mod->enabled) {
-            bool changed = mod->draw_inspector();
-
-            // Asset references go through the same widget the rest of the
-            // engine uses, which is what stores them as ids.
-            InspectorContext ictx{};
-            ictx.resource_manager = deps_.resource_manager;
-            ictx.project_mgr = deps_.project_mgr;
-            ictx.content_browser = deps_.content_browser;
-            ictx.icons = deps_.icon_cache;
-
-            for (auto& field : mod->asset_fields()) {
-                char widget_id[64];
-                std::snprintf(widget_id, sizeof(widget_id), "##vfxasset%p", 
-                              static_cast<const void*>(field.reference));
-                if (asset_ref_field({.label = field.label, .id = widget_id,
-                                     .extensions = field.extensions, .ctx = &ictx,
-                                     .shader_types = field.shader_types},
-                                    *field.reference)) {
-                    changed = true;
-                    resolve_module_assets(*mod);
-                }
-            }
-            (void)changed;
-
-        } else {
-            ImGui::TextDisabled("(disabled)");
-        }
-        ImGui::TreePop();
-    }
-
-    ImGui::PopID();
-    ImGui::PopID();
-}
+// ── Module Stack ────────────────────────────────────────────────────────
 
 void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
     const auto* project = deps_.project_mgr->active();
@@ -1024,117 +989,94 @@ void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
 }
 
 void VfxEditorContext::draw_module_stack() {
-    if (ImGui::Begin(ctx_title("Modules").c_str())) {
-        if (!effect_ || selected_emitter_ < 0 ||
-            selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-            ImGui::TextDisabled("No emitter selected");
-            ImGui::End();
-            return;
-        }
-
-        auto& emitter = effect_->emitters[selected_emitter_];
-
-        // Emitter settings
-        char name_buf[128];
-        std::snprintf(name_buf, sizeof(name_buf), "%s", emitter.name.c_str());
-        if (ImGui::InputText("Name", name_buf, sizeof(name_buf))) {
-            emitter.name = name_buf;
-        }
-
-        int max_p = static_cast<int>(emitter.max_particles);
-        if (ImGui::InputInt("Max Particles", &max_p, 100, 1000)) {
-            emitter.max_particles = static_cast<uint32_t>(std::max(100, max_p));
-        }
-
-        const char* blend_modes[] = {"Additive", "Alpha", "Opaque"};
-        int bm = static_cast<int>(emitter.blend_mode);
-        if (ImGui::Combo("Blend Mode", &bm, blend_modes, 3)) {
-            emitter.blend_mode = static_cast<ParticleBlendMode>(bm);
-        }
-
-        // ── Timing ──
-        ImGui::SeparatorText("Timing");
-
-        ImGui::SetNextItemWidth(120.0f);
-        ImGui::DragFloat("Start Delay", &emitter.start_delay, 0.05f, 0.0f, 60.0f, "%.2fs");
-
-        ImGui::SetNextItemWidth(120.0f);
-        ImGui::DragFloat("Duration", &emitter.duration, 0.05f, 0.0f, 60.0f, "%.2fs");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("0 = use particle lifetime (%0.1fs)", emitter.lifetime_max());
-        }
-
-        int lc = static_cast<int>(emitter.loop_count);
-        ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::InputInt("Loop Count", &lc, 1, 5)) {
-            emitter.loop_count = static_cast<uint32_t>(std::max(0, lc));
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("0 = infinite looping");
-        }
-
-        ImGui::Checkbox("Instanced Time", &emitter.instanced_time);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(
-                "Off: the expression graph's Time node reads the engine's shared\n"
-                "clock, so sin/cos-driven parameters land on a different phase\n"
-                "every time this emitter fires.\n"
-                "On: each firing gets its own instance of Time, starting at 0 on\n"
-                "every burst fire and loop restart, so the graph replays\n"
-                "identically each time.");
-        }
-
-        // Status readout
-        ImGui::TextDisabled("Elapsed: %.2fs  Loops: %u  %s",
-            emitter.emitter_elapsed, emitter.loops_completed,
-            emitter.finished ? "[finished]" : emitter.paused ? "[paused]" : "[active]");
-
-        ImGui::Separator();
-
-        // If a specific module is selected, show focused view
-        if (selected_module_stack_ >= 0 && selected_module_index_ >= 0) {
-            auto* stack_ptr =
-                (selected_module_stack_ == 0) ? &emitter.spawn_modules :
-                (selected_module_stack_ == 1) ? &emitter.update_modules :
-                                                &emitter.render_modules;
-            if (selected_module_index_ < static_cast<int>(stack_ptr->size())) {
-                const char* stack_names[] = {"Spawn", "Update", "Render"};
-                ImGui::TextColored(ImColor(stack_color(selected_module_stack_)).Value,
-                                   "%s", stack_names[selected_module_stack_]);
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%d/%d)",
-                    selected_module_index_ + 1,
-                    static_cast<int>(stack_ptr->size()));
-                ImGui::Separator();
-
-                draw_module_entry((*stack_ptr)[selected_module_index_].get(),
-                                  selected_module_index_, *stack_ptr,
-                                  stack_names[selected_module_stack_]);
-                ImGui::End();
-                return;
-            }
-        }
-
-        // Fallback: show all stacks
-        ImGui::SeparatorText("Spawn");
-        for (int i = 0; i < static_cast<int>(emitter.spawn_modules.size()); ++i) {
-            draw_module_entry(emitter.spawn_modules[i].get(), i,
-                              emitter.spawn_modules, "spawn");
-        }
-
-        ImGui::SeparatorText("Update");
-        for (int i = 0; i < static_cast<int>(emitter.update_modules.size()); ++i) {
-            draw_module_entry(emitter.update_modules[i].get(), i,
-                              emitter.update_modules, "update");
-        }
-
-        ImGui::SeparatorText("Render");
-        for (int i = 0; i < static_cast<int>(emitter.render_modules.size()); ++i) {
-            draw_module_entry(emitter.render_modules[i].get(), i,
-                              emitter.render_modules, "render");
-        }
+    auto panel = Panel(ui::icon::vfx, ctx_title("Modules").c_str());
+    if (!panel) return;
+    if (!effect_ || selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
+        ui::empty_state(ui::icon::vfx, "No emitter selected", "Select an emitter in the graph");
+        return;
     }
-    ImGui::End();
+    auto& emitter = effect_->emitters[static_cast<size_t>(selected_emitter_)];
+
+    ui::section("Emitter", ui::icon::vfx);
+    if (auto t = ui::PropertyTable("##emitter")) {
+        ui::row("Name", [&] { (void)ui::text_field("##name", emitter.name); });
+        ui::row("Max particles", [&] {
+            int max_particles = static_cast<int>(emitter.max_particles);
+            if (ui::drag_int("##max", max_particles, 10.0f, 100, 1000000).changed) {
+                emitter.max_particles = static_cast<uint32_t>(std::max(100, max_particles));
+            }
+        });
+        static constexpr ui::Choice<ParticleBlendMode> BLENDS[] = {
+            {ParticleBlendMode::additive, "Additive"}, {ParticleBlendMode::alpha, "Alpha"},
+            {ParticleBlendMode::opaque, "Opaque"}};
+        ui::row("Blend", [&] { (void)ui::choice("##blend", emitter.blend_mode, BLENDS); });
+        ui::row("Start delay", [&] {
+            (void)ui::drag("##delay", emitter.start_delay,
+                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ui::Unit::Seconds});
+        });
+        char lifetime[80];
+        std::snprintf(lifetime, sizeof(lifetime), "How long it emits. 0 runs for a particle's lifetime, %.1f s.",
+                      emitter.lifetime_max());
+        ui::row("Duration", lifetime, [&] {
+            (void)ui::drag("##duration", emitter.duration,
+                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ui::Unit::Seconds});
+        });
+        ui::row("Loops", "How many times it runs. 0 loops for ever.", [&] {
+            int loops = static_cast<int>(emitter.loop_count);
+            if (ui::drag_int("##loops", loops, 0.2f, 0, 1000).changed) {
+                emitter.loop_count = static_cast<uint32_t>(std::max(0, loops));
+            }
+        });
+        ui::row("Own time", "Off, the graph's Time node reads the engine's clock, so a sin- or cos-driven value "
+                            "lands on another phase each time the emitter fires. On, each firing starts its own "
+                            "Time at 0, so the graph replays the same way every time.",
+                [&] { (void)ui::checkbox("##instanced_time", emitter.instanced_time); });
+        char now[96];
+        std::snprintf(now, sizeof(now), "%.2f s, loop %u, %s", emitter.emitter_elapsed, emitter.loops_completed,
+                      emitter.finished ? "finished" : emitter.paused ? "paused" : "playing");
+        ui::row("Now", [&] { ui::readout(now); });
+    }
+
+    InspectorContext ictx{};
+    ictx.resource_manager = deps_.resource_manager;
+    ictx.project_mgr = deps_.project_mgr;
+    ictx.content_browser = deps_.content_browser;
+    ictx.icons = deps_.icon_cache;
+
+    for (int stack = 0; stack < 3; ++stack) {
+        auto& modules = stack_of(emitter, stack);
+        ui::section(STACK_NAMES[stack], ui::icon::vfx);
+        std::optional<std::size_t> remove;
+        for (std::size_t i = 0; i < modules.size(); ++i) {
+            VfxModule& module = *modules[i];
+            ImGui::PushID(stack);
+            ImGui::PushID(static_cast<int>(i));
+            bool removed = false;
+            if (ui::component_block(module.name(), theme::Category::Vfx, removed, module.enabled)) {
+                ui::FadedBody faded(!module.enabled);
+                if (draw_vfx_module_fields(module, ictx).committed) resolve_module_assets(module);
+            }
+            if (removed) remove = i;
+            ImGui::PopID();
+            ImGui::PopID();
+        }
+        if (remove) {
+            modules.erase(modules.begin() + static_cast<std::ptrdiff_t>(*remove));
+            needs_initial_layout_ = true;
+            selected_module_stack_ = -1;
+            selected_module_index_ = -1;
+        }
+        // Each stack adds its own kind of module.
+        ImGui::PushID(stack);
+        const std::string add = std::string("Add ") + (stack == 0 ? "spawn" : stack == 1 ? "update" : "render") +
+                                " module";
+        if (ui::action(ui::icon::add, add.c_str(), ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_to_stack");
+        if (ImGui::BeginPopup("##add_to_stack")) {
+            draw_add_module_items(emitter, stack);
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
 }
 
 // ── Expression Nodes ────────────────────────────────────────────────────

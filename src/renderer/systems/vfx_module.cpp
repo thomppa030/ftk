@@ -1,9 +1,7 @@
 #include "renderer/systems/vfx_module.hpp"
 #include "core/math/color_space.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
-#include "ui/imgui_curve_editor.hpp"
 
-#include <imgui.h>
 #include <nlohmann/json.hpp>
 
 #include <cstring>
@@ -221,10 +219,6 @@ uint32_t SpawnRateModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool SpawnRateModule::draw_inspector() {
-    return ImGui::DragFloat("Rate", &rate, 1.0f, 0.0f, 10000.0f);
-}
-
 void SpawnRateModule::to_json(nlohmann::json& j) const {
     j["type"] = "SpawnRate";
     j["rate"] = rate;
@@ -241,14 +235,6 @@ uint32_t InitialLifetimeModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 8, lifetime_min);
     write_float(buffer, 12, lifetime_max);
     return total;
-}
-
-bool InitialLifetimeModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Min", &lifetime_min, 0.01f, 0.01f, 60.0f);
-    changed |= ImGui::DragFloat("Max", &lifetime_max, 0.01f, 0.01f, 60.0f);
-    if (lifetime_max < lifetime_min) lifetime_max = lifetime_min;
-    return changed;
 }
 
 void InitialLifetimeModule::to_json(nlohmann::json& j) const {
@@ -274,27 +260,6 @@ uint32_t InitialPositionModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 32, 0.0f); // pad
     write_float(buffer, 36, 0.0f); // pad
     return total;
-}
-
-bool InitialPositionModule::draw_inspector() {
-    bool changed = false;
-    const char* shapes[] = {"Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Disk"};
-    int s = static_cast<int>(shape);
-    if (ImGui::Combo("Shape", &s, shapes, 7)) {
-        shape = static_cast<SpawnShape>(s);
-        changed = true;
-    }
-    if (shape == SpawnShape::sphere || shape == SpawnShape::cone ||
-        shape == SpawnShape::ring || shape == SpawnShape::disk) {
-        changed |= ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 100.0f);
-    }
-    if (shape == SpawnShape::box) {
-        changed |= ImGui::DragFloat3("Half Extents", &half_extents.x, 0.01f, 0.0f, 100.0f);
-    }
-    if (shape == SpawnShape::edge) {
-        changed |= ImGui::DragFloat("Length", &edge_length, 0.01f, 0.0f, 100.0f);
-    }
-    return changed;
 }
 
 void InitialPositionModule::to_json(nlohmann::json& j) const {
@@ -345,29 +310,6 @@ uint32_t InitialVelocityModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool InitialVelocityModule::draw_inspector() {
-    bool changed = false;
-    const char* modes[] = {"Directional", "Random", "Cone"};
-    int m = static_cast<int>(mode);
-    if (ImGui::Combo("Mode", &m, modes, 3)) {
-        mode = static_cast<VelocityMode>(m);
-        changed = true;
-    }
-    if (mode == VelocityMode::random) {
-        changed |= ImGui::DragFloat3("Min", &velocity_min.x, 0.1f);
-        changed |= ImGui::DragFloat3("Max", &velocity_max.x, 0.1f);
-    } else if (mode == VelocityMode::directional) {
-        changed |= ImGui::DragFloat3("Min", &velocity_min.x, 0.1f);
-        changed |= ImGui::DragFloat3("Max", &velocity_max.x, 0.1f);
-    } else if (mode == VelocityMode::cone) {
-        changed |= ImGui::DragFloat3("Direction", &direction.x, 0.01f);
-        changed |= ImGui::DragFloat("Angle", &angle, 0.5f, 0.0f, 90.0f);
-        changed |= ImGui::DragFloat("Speed Min", &speed_min, 0.1f, 0.0f, 100.0f);
-        changed |= ImGui::DragFloat("Speed Max", &speed_max, 0.1f, 0.0f, 100.0f);
-    }
-    return changed;
-}
-
 void InitialVelocityModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialVelocity";
     const char* mode_names[] = {"directional", "random", "cone"};
@@ -411,10 +353,6 @@ uint32_t InitialColorModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool InitialColorModule::draw_inspector() {
-    return ImGui::ColorEdit4("Color", &color.x);
-}
-
 void InitialColorModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialColor";
     j["color"] = {color.r, color.g, color.b, color.a};
@@ -436,14 +374,6 @@ uint32_t InitialSizeModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool InitialSizeModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Min", &size_min, 0.001f, 0.001f, 10.0f);
-    changed |= ImGui::DragFloat("Max", &size_max, 0.001f, 0.001f, 10.0f);
-    if (size_max < size_min) size_max = size_min;
-    return changed;
-}
-
 void InitialSizeModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialSize";
     j["min"] = size_min;
@@ -462,10 +392,6 @@ uint32_t GravityModule::write_gpu_data(uint8_t* buffer) const {
     write_vec3(buffer, 8, force);
     write_float(buffer, 20, 0.0f); // pad to 4-word boundary
     return total;
-}
-
-bool GravityModule::draw_inspector() {
-    return ImGui::DragFloat3("Force", &force.x, 0.1f);
 }
 
 void GravityModule::to_json(nlohmann::json& j) const {
@@ -496,20 +422,6 @@ uint32_t WindModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 20, strength);
     write_uint(buffer, 24, use_global ? 1u : 0u);
     return total;
-}
-
-bool WindModule::draw_inspector() {
-    bool changed = false;
-    if (ImGui::Checkbox("Use Global Wind", &use_global)) changed = true;
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Blow with the environment's wind: its direction, its speed and gusts\n"
-                          "times Strength. Direction below is ignored.");
-    }
-    ImGui::BeginDisabled(use_global);
-    if (ImGui::DragFloat3("Direction", &direction.x, 0.01f, -1.0f, 1.0f)) changed = true;
-    ImGui::EndDisabled();
-    if (ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f)) changed = true;
-    return changed;
 }
 
 void WindModule::to_json(nlohmann::json& j) const {
@@ -549,22 +461,6 @@ uint32_t OrbitalModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool OrbitalModule::draw_inspector() {
-    bool changed = false;
-    const char* modes[] = {"Vortex", "Orbit", "Swirl"};
-    int m = static_cast<int>(mode);
-    if (ImGui::Combo("Mode", &m, modes, 3)) {
-        mode = static_cast<OrbitalMode>(m);
-        changed = true;
-    }
-    if (ImGui::DragFloat3("Axis / Center", &axis.x, 0.01f, -1.0f, 1.0f)) changed = true;
-    if (ImGui::DragFloat("Speed", &speed, 0.1f, -20.0f, 20.0f)) changed = true;
-    if (mode == OrbitalMode::swirl) {
-        if (ImGui::DragFloat("Pull", &pull, 0.1f, -10.0f, 10.0f)) changed = true;
-    }
-    return changed;
-}
-
 void OrbitalModule::to_json(nlohmann::json& j) const {
     j["type"] = "Orbital";
     const char* mode_names[] = {"vortex", "orbit", "swirl"};
@@ -598,13 +494,6 @@ uint32_t ColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool ColorOverLifeModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::ColorEdit4("Start", &color_start.x);
-    changed |= ImGui::ColorEdit4("End", &color_end.x);
-    return changed;
-}
-
 void ColorOverLifeModule::to_json(nlohmann::json& j) const {
     j["type"] = "ColorOverLife";
     j["start"] = {color_start.r, color_start.g, color_start.b, color_start.a};
@@ -631,13 +520,6 @@ uint32_t SizeOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool SizeOverLifeModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Start", &size_start, 0.001f, 0.001f, 10.0f);
-    changed |= ImGui::DragFloat("End", &size_end, 0.001f, 0.001f, 10.0f);
-    return changed;
-}
-
 void SizeOverLifeModule::to_json(nlohmann::json& j) const {
     j["type"] = "SizeOverLife";
     j["start"] = size_start;
@@ -658,10 +540,6 @@ uint32_t DragModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool DragModule::draw_inspector() {
-    return ImGui::DragFloat("Drag", &drag, 0.01f, 0.0f, 10.0f);
-}
-
 void DragModule::to_json(nlohmann::json& j) const {
     j["type"] = "Drag";
     j["drag"] = drag;
@@ -680,14 +558,6 @@ uint32_t NoiseModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 16, scroll_speed);
     write_float(buffer, 20, 0.0f); // pad
     return total;
-}
-
-bool NoiseModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f);
-    changed |= ImGui::DragFloat("Frequency", &frequency, 0.1f, 0.01f, 50.0f);
-    changed |= ImGui::DragFloat("Scroll Speed", &scroll_speed, 0.1f, 0.0f, 10.0f);
-    return changed;
 }
 
 void NoiseModule::to_json(nlohmann::json& j) const {
@@ -712,14 +582,6 @@ uint32_t AttractModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 24, radius);
     write_float(buffer, 28, 0.0f); // pad
     return total;
-}
-
-bool AttractModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat3("Position", &position.x, 0.1f);
-    changed |= ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f);
-    changed |= ImGui::DragFloat("Radius", &radius, 0.1f, 0.01f, 1000.0f);
-    return changed;
 }
 
 void AttractModule::to_json(nlohmann::json& j) const {
@@ -747,10 +609,6 @@ uint32_t VelocityLimitModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool VelocityLimitModule::draw_inspector() {
-    return ImGui::DragFloat("Max Speed", &max_speed, 0.1f, 0.0f, 1000.0f);
-}
-
 void VelocityLimitModule::to_json(nlohmann::json& j) const {
     j["type"] = "VelocityLimit";
     j["max_speed"] = max_speed;
@@ -775,29 +633,6 @@ uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
     write_vec3(buffer, 40, sdf_volume_max);
     write_float(buffer, 52, 0.0f);
     return total;
-}
-
-bool CollisionModule::draw_inspector() {
-    bool changed = false;
-    const char* sources[] = {"SDF (static geometry)", "Depth Buffer (displaced)", "Both",
-                             "Overhead (shelter above)"};
-    int s = static_cast<int>(source);
-    if (ImGui::Combo("Source", &s, sources, 4)) {
-        source = static_cast<Source>(s);
-        changed = true;
-    }
-    const char* modes[] = {"Bounce", "Slide", "Kill"};
-    int r = static_cast<int>(response);
-    if (ImGui::Combo("Response", &r, modes, 3)) {
-        response = static_cast<Response>(r);
-        changed = true;
-    }
-    if (response != Response::kill) {
-        if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) changed = true;
-        if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
-    }
-    if (ImGui::SliderFloat("Radius (x size)", &radius_scale, 0.0f, 2.0f)) changed = true;
-    return changed;
 }
 
 void CollisionModule::to_json(nlohmann::json& j) const {
@@ -835,11 +670,6 @@ uint32_t InitialStretchModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool InitialStretchModule::draw_inspector() {
-    return ImGui::DragFloat("Stretch", &stretch, 0.1f, 0.0f, 100.0f,
-                            "%.1f", ImGuiSliderFlags_None);
-}
-
 void InitialStretchModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialStretch";
     j["stretch"] = stretch;
@@ -875,11 +705,6 @@ std::span<const std::string> VfxModule::mesh_extensions() {
     return exts;
 }
 
-bool InitialTextureModule::draw_inspector() {
-    // The texture itself is an asset field, drawn by the editor.
-    return false;
-}
-
 std::vector<VfxModule::AssetField> InitialTextureModule::asset_fields() {
     return {{"Texture", &texture_path, texture_extensions()}};
 }
@@ -906,31 +731,6 @@ uint32_t InitialRotationModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool InitialRotationModule::draw_inspector() {
-    bool changed = false;
-    float deg_min = glm::degrees(rotation_min);
-    float deg_max = glm::degrees(rotation_max);
-    if (ImGui::DragFloat("Min (deg)", &deg_min, 1.0f, -360.0f, 360.0f)) {
-        rotation_min = glm::radians(deg_min);
-        changed = true;
-    }
-    if (ImGui::DragFloat("Max (deg)", &deg_max, 1.0f, -360.0f, 360.0f)) {
-        rotation_max = glm::radians(deg_max);
-        changed = true;
-    }
-    float spd_deg = glm::degrees(speed);
-    float var_deg = glm::degrees(speed_variance);
-    if (ImGui::DragFloat("Speed (deg/s)", &spd_deg, 1.0f, -3600.0f, 3600.0f)) {
-        speed = glm::radians(spd_deg);
-        changed = true;
-    }
-    if (ImGui::DragFloat("Variance (deg/s)", &var_deg, 1.0f, 0.0f, 3600.0f)) {
-        speed_variance = glm::radians(var_deg);
-        changed = true;
-    }
-    return changed;
-}
-
 void InitialRotationModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialRotation";
     j["rotation_min"] = rotation_min;
@@ -953,13 +753,6 @@ uint32_t BurstModule::write_gpu_data(uint8_t* /*buffer*/) const {
     return 0;
 }
 
-bool BurstModule::draw_inspector() {
-    int c = static_cast<int>(count);
-    bool changed = ImGui::DragInt("Count", &c, 1.0f, 1, 100000);
-    if (changed) count = static_cast<uint32_t>(std::max(c, 1));
-    return changed;
-}
-
 void BurstModule::to_json(nlohmann::json& j) const {
     j["type"] = "Burst";
     j["count"] = count;
@@ -977,10 +770,6 @@ std::vector<PinDescriptor> EmitOverDistanceModule::pin_descriptors() {
 
 uint32_t EmitOverDistanceModule::write_gpu_data(uint8_t* /*buffer*/) const {
     return 0; // CPU-only module, no GPU data
-}
-
-bool EmitOverDistanceModule::draw_inspector() {
-    return ImGui::DragFloat("Particles / m", &particles_per_meter, 0.5f, 0.1f, 200.0f);
 }
 
 void EmitOverDistanceModule::to_json(nlohmann::json& j) const {
@@ -1008,47 +797,6 @@ uint32_t FlipbookModule::write_gpu_data(uint8_t* buffer) const {
     write_uint(buffer, 8, pack_params());
     write_uint(buffer, 12, 0); // pad
     return total;
-}
-
-bool FlipbookModule::draw_inspector() {
-    bool changed = false;
-    int c = static_cast<int>(columns);
-    int r = static_cast<int>(rows);
-    int fc = static_cast<int>(frame_count);
-    float f = fps;
-
-    if (ImGui::DragInt("Columns", &c, 0.1f, 1, 64)) {
-        columns = static_cast<uint32_t>(std::max(c, 1));
-        changed = true;
-    }
-    if (ImGui::DragInt("Rows", &r, 0.1f, 1, 64)) {
-        rows = static_cast<uint32_t>(std::max(r, 1));
-        changed = true;
-    }
-    if (ImGui::DragInt("Frame Count", &fc, 0.1f, 0, 255)) {
-        frame_count = static_cast<uint32_t>(std::max(fc, 0));
-        changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(0 = cols*rows)");
-
-    if (ImGui::DragFloat("FPS", &f, 0.5f, 0.25f, 63.75f)) {
-        fps = f;
-        changed = true;
-    }
-
-    const char* modes[] = {"Over Lifetime", "FPS (Loop)", "FPS (Clamp)"};
-    int mi = static_cast<int>(mode);
-    if (ImGui::Combo("Mode", &mi, modes, 3)) {
-        mode = static_cast<Mode>(mi);
-        changed = true;
-    }
-
-    // Preview info
-    uint32_t total = frame_count > 0 ? frame_count : columns * rows;
-    ImGui::TextDisabled("%u frames (%ux%u grid)", total, columns, rows);
-
-    return changed;
 }
 
 void FlipbookModule::to_json(nlohmann::json& j) const {
@@ -1079,11 +827,6 @@ uint32_t BillboardModule::write_gpu_data(uint8_t* /*buffer*/) const {
     return 0;
 }
 
-bool BillboardModule::draw_inspector() {
-    ImGui::TextDisabled("Camera-facing quad (default)");
-    return false;
-}
-
 void BillboardModule::to_json(nlohmann::json& j) const {
     j["type"] = "Billboard";
 }
@@ -1103,10 +846,6 @@ uint32_t VelocityInheritanceModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 8, factor);
     write_float(buffer, 12, 0.0f); // pad
     return total;
-}
-
-bool VelocityInheritanceModule::draw_inspector() {
-    return ImGui::SliderFloat("Factor", &factor, 0.0f, 1.0f);
 }
 
 void VelocityInheritanceModule::to_json(nlohmann::json& j) const {
@@ -1142,48 +881,6 @@ uint32_t CurveColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool CurveColorOverLifeModule::draw_inspector() {
-    bool changed = false;
-    if (ImGui::TreeNode("Red")) {
-        changed |= CurveEditor("##r", curve_r);
-        ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Green")) {
-        changed |= CurveEditor("##g", curve_g);
-        ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Blue")) {
-        changed |= CurveEditor("##b", curve_b);
-        ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Alpha")) {
-        changed |= CurveEditor("##a", curve_a);
-        ImGui::TreePop();
-    }
-    ImGui::Separator();
-    if (ImGui::Button("Linear")) {
-        curve_r = Curve::linear(1.0f, 1.0f);
-        curve_g = Curve::linear(0.8f, 0.1f);
-        curve_b = Curve::linear(0.2f, 0.0f);
-        curve_a = Curve::linear(1.0f, 0.0f);
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Fade Out")) {
-        curve_r = Curve::linear(1.0f, 1.0f);
-        curve_g = Curve::linear(1.0f, 1.0f);
-        curve_b = Curve::linear(1.0f, 1.0f);
-        curve_a = Curve::ease_in(1.0f, 0.0f);
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Pulse")) {
-        curve_a = Curve::bell(1.0f);
-        changed = true;
-    }
-    return changed;
-}
-
 void CurveColorOverLifeModule::to_json(nlohmann::json& j) const {
     j["type"] = "CurveColorOverLife";
     curve_r.to_json(j["r"]);
@@ -1215,31 +912,6 @@ uint32_t CurveSizeOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool CurveSizeOverLifeModule::draw_inspector() {
-    bool changed = CurveEditor("##size", curve, {-1, 150}, 0.0f, 1.0f);
-    ImGui::Separator();
-    if (ImGui::Button("Linear")) {
-        curve = Curve::linear(0.1f, 0.02f);
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Shrink")) {
-        curve = Curve::ease_in(0.1f, 0.0f);
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Grow")) {
-        curve = Curve::ease_out(0.0f, 0.1f);
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Pulse")) {
-        curve = Curve::bell(0.15f);
-        changed = true;
-    }
-    return changed;
-}
-
 void CurveSizeOverLifeModule::to_json(nlohmann::json& j) const {
     j["type"] = "CurveSizeOverLife";
     curve.to_json(j["curve"]);
@@ -1257,18 +929,6 @@ std::vector<PinDescriptor> MeshParticleModule::pin_descriptors() {
 
 uint32_t MeshParticleModule::write_gpu_data(uint8_t* /*buffer*/) const {
     return 0; // render module — no GPU module data
-}
-
-bool MeshParticleModule::draw_inspector() {
-    bool changed = false;
-    const char* shapes[] = {"Cube", "Sphere", "Custom"};
-    int s = static_cast<int>(shape);
-    if (ImGui::Combo("Shape", &s, shapes, 3)) {
-        shape = static_cast<ParticleMeshShape>(s);
-        changed = true;
-    }
-    // Model and material are asset fields, drawn by the editor.
-    return changed;
 }
 
 std::vector<VfxModule::AssetField> MeshParticleModule::asset_fields() {
@@ -1317,13 +977,6 @@ uint32_t LitParticleModule::write_gpu_data(uint8_t* /*buffer*/) const {
     return 0; // render module — no GPU module data
 }
 
-bool LitParticleModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f);
-    changed |= ImGui::SliderFloat("Roughness", &roughness, 0.04f, 1.0f);
-    return changed;
-}
-
 void LitParticleModule::to_json(nlohmann::json& j) const {
     j["type"] = "LitParticle";
     j["metallic"] = metallic;
@@ -1349,10 +1002,6 @@ uint32_t DistortionModule::write_gpu_data(uint8_t* buffer) const {
     write_float(buffer, 8, strength);
     write_uint(buffer, 12, normal_map_index);
     return total;
-}
-
-bool DistortionModule::draw_inspector() {
-    return ImGui::DragFloat("Strength", &strength, 0.001f, 0.0f, 1.0f);
 }
 
 std::vector<VfxModule::AssetField> DistortionModule::asset_fields() {
@@ -1385,13 +1034,6 @@ uint32_t EmissiveModule::write_gpu_data(uint8_t* buffer) const {
     write_color(buffer, 8, color);
     write_float(buffer, 20, intensity);
     return total; // 24 bytes
-}
-
-bool EmissiveModule::draw_inspector() {
-    bool changed = false;
-    if (ImGui::ColorEdit3("Color", &color.x)) changed = true;
-    if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 50.0f)) changed = true;
-    return changed;
 }
 
 void EmissiveModule::to_json(nlohmann::json& j) const {
@@ -1429,28 +1071,6 @@ uint32_t SubEmitterModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
-bool SubEmitterModule::draw_inspector() {
-    bool changed = false;
-    const char* triggers[] = {"Death", "Collision", "Both"};
-    int t = static_cast<int>(trigger);
-    if (ImGui::Combo("Trigger", &t, triggers, 3)) {
-        trigger = static_cast<SubEmitterTrigger>(t);
-        changed = true;
-    }
-    int idx = static_cast<int>(child_emitter_index);
-    if (ImGui::InputInt("Child Emitter Index", &idx)) {
-        child_emitter_index = static_cast<uint32_t>(std::max(0, idx));
-        changed = true;
-    }
-    int bc = static_cast<int>(burst_count);
-    if (ImGui::InputInt("Burst Count", &bc)) {
-        burst_count = static_cast<uint32_t>(std::max(1, bc));
-        changed = true;
-    }
-    changed |= ImGui::DragFloat("Velocity Inherit", &velocity_inherit, 0.01f, 0.0f, 1.0f);
-    return changed;
-}
-
 void SubEmitterModule::to_json(nlohmann::json& j) const {
     j["type"] = "SubEmitter";
     const char* names[] = {"death", "collision", "both"};
@@ -1476,15 +1096,6 @@ void SubEmitterModule::from_json(const nlohmann::json& j) {
 uint32_t TrailModule::write_gpu_data(uint8_t* /*buffer*/) const {
     // Trail has no GPU module data — it's handled via emitter flags and the trail pipeline
     return 0;
-}
-
-bool TrailModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Width", &width, 0.001f, 0.001f, 10.0f);
-    changed |= ImGui::SliderFloat("Width Over Life", &width_over_life, 0.0f, 1.0f,
-                                   "%.2f (0=taper, 1=constant)");
-    changed |= ImGui::Checkbox("Face Camera", &face_camera);
-    return changed;
 }
 
 void TrailModule::to_json(nlohmann::json& j) const {

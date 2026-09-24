@@ -331,6 +331,7 @@ add_executable(fjell
     ui/inspectors/animation_inspectors.cpp
     ui/inspectors/asset_rows.cpp
     ui/inspectors/collision_shape_fields.cpp
+    ui/inspectors/vfx_module_inspectors.cpp
     ui/inspectors/collision_filter_inspector.cpp
     ui/inspectors/environment_inspectors.cpp
     ui/inspectors/gameplay_inspectors.cpp
@@ -360,6 +361,7 @@ add_executable(fjell
     ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/status_bar.cpp
+    ui/kit/tabs.cpp
     ui/kit/text_field.cpp
     ui/kit/tree.cpp
     ui/material_params_widget.cpp

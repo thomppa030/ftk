@@ -84,6 +84,11 @@ Edit ivec2(const char* id, glm::ivec2& value, float speed = 0.2f, int min = 0, i
 /// A box that is ticked or not. Changing it is its own commit.
 Edit checkbox(const char* id, bool& value);
 
+/// A small switch in the toggle colour while on (sheet 24): something that
+/// is applied or not, like a module in a stack, where a checkbox would read
+/// as a field of it. Changing it is its own commit.
+Edit on_off(const char* id, bool& on, const char* tooltip = nullptr);
+
 /// A whole number stepped one at a time between `min` and `max` with the
 /// minus and plus beside it, for a few steps where a drag is too loose (a
 /// text size in a menu). Each step is its own commit.

@@ -100,9 +100,9 @@ private:
     void sync_node_positions();
     [[nodiscard]] PinDataType resolve_pin_type(uint64_t pin_id) const;
 
-    void draw_module_entry(VfxModule* mod, int index,
-                           std::vector<std::unique_ptr<VfxModule>>& stack,
-                           const char* stack_label);
+    /// The Add menu's entries for one stack (0 spawn, 1 update, 2 render).
+    void draw_add_module_items(VfxEmitter& emitter, int stack);
+    [[nodiscard]] static std::vector<std::unique_ptr<VfxModule>>& stack_of(VfxEmitter& emitter, int stack);
 
     // Node/pin ID encoding
     static constexpr int kSpawnBase  = 10000;
@@ -134,6 +134,9 @@ private:
     int selected_emitter_{-1};
     int selected_module_stack_{-1};   // 0=spawn, 1=update, 2=render
     int selected_module_index_{-1};
+    // The emitter a tab's double-click is renaming, and its new name.
+    int renaming_emitter_{-1};
+    std::string rename_text_;
 
     // Timeline
     VfxTimeline timeline_;
