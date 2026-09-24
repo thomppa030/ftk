@@ -20,6 +20,7 @@
 #include "ui/inspectors/script_fields.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/tree.hpp"
+#include "ui/state_graph.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -39,7 +40,6 @@
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 #include <imgui_internal.h>
-#include <imnodes.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -64,33 +64,6 @@ void AnimationEditorContext::init() {
 
     timeline_.set_title("Timeline");
 
-    // Create own imnodes context for the state graph
-    auto* prev_ctx = ImNodes::GetCurrentContext();
-    imnodes_ctx_ = static_cast<void*>(ImNodes::CreateContext());
-    ImNodes::SetCurrentContext(static_cast<ImNodesContext*>(imnodes_ctx_));
-
-    ImNodesStyle& style = ImNodes::GetStyle();
-    style.Flags |= ImNodesStyleFlags_GridSnapping;
-    style.Colors[ImNodesCol_NodeBackground]         = IM_COL32(43, 45, 49, 255);
-    style.Colors[ImNodesCol_NodeBackgroundHovered]   = IM_COL32(49, 51, 56, 255);
-    style.Colors[ImNodesCol_NodeBackgroundSelected]  = IM_COL32(56, 58, 64, 255);
-    style.Colors[ImNodesCol_TitleBar]                = IM_COL32(30, 31, 34, 255);
-    style.Colors[ImNodesCol_TitleBarHovered]         = IM_COL32(49, 51, 56, 255);
-    style.Colors[ImNodesCol_TitleBarSelected]        = IM_COL32(212, 160, 84, 255);
-    style.Colors[ImNodesCol_Link]                    = IM_COL32(212, 160, 84, 200);
-    style.Colors[ImNodesCol_LinkHovered]             = IM_COL32(212, 160, 84, 255);
-    style.Colors[ImNodesCol_LinkSelected]            = IM_COL32(184, 137, 62, 255);
-    style.Colors[ImNodesCol_Pin]                     = IM_COL32(212, 160, 84, 200);
-    style.Colors[ImNodesCol_PinHovered]              = IM_COL32(212, 160, 84, 255);
-    style.Colors[ImNodesCol_GridBackground]          = IM_COL32(17, 18, 20, 255);
-    style.Colors[ImNodesCol_GridLine]                = IM_COL32(43, 45, 49, 100);
-    style.Colors[ImNodesCol_GridLinePrimary]         = IM_COL32(43, 45, 49, 180);
-    style.NodeCornerRounding = 6.0f;
-    style.NodePadding        = ImVec2(10.0f, 6.0f);
-    style.LinkThickness      = 2.5f;
-    style.PinCircleRadius    = 4.5f;
-
-    ImNodes::SetCurrentContext(prev_ctx);
 
     // Wire timeline callbacks
     connections_.push_back(timeline_.on_scrub.bind([this](float time) {
@@ -133,15 +106,6 @@ void AnimationEditorContext::init() {
 }
 
 void AnimationEditorContext::shutdown() {
-    if (imnodes_ctx_) {
-        auto* prev_ctx = ImNodes::GetCurrentContext();
-        ImNodes::SetCurrentContext(static_cast<ImNodesContext*>(imnodes_ctx_));
-        ImNodes::DestroyContext();
-        if (prev_ctx != imnodes_ctx_) {
-            ImNodes::SetCurrentContext(prev_ctx);
-        }
-        imnodes_ctx_ = nullptr;
-    }
     viewport_manager_.release_textures();
     connections_.clear();
 }
@@ -362,7 +326,7 @@ Result<> AnimationEditorContext::restore(const std::string& text) {
 
     if (!animset_path_.empty() && j.contains("animset")) {
         if (auto r = state_machine_.load_text(j["animset"].get<std::string>(), animset_path_); !r) return r;
-        build_graph_from_state_machine();
+        state_graph_.clear_selection();
     }
     return {};
 }
@@ -486,7 +450,8 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
         load_animset_clips(resolved);
     }
 
-    build_graph_from_state_machine();
+    state_graph_.clear_selection();
+    state_graph_.frame_all();
 
     document_opened();
     FJELL_CORE_INFO("AnimEditor: opened animset {} ({} states, {} params)",
@@ -704,10 +669,9 @@ void AnimationEditorContext::draw_properties() {
         }
     }
 
-    if (selected_state_node_ >= 0 && selected_state_node_ < static_cast<int>(state_nodes_.size())) {
-        const int si = state_nodes_[static_cast<size_t>(selected_state_node_)].state_index;
-        if (si >= 0 && si < static_cast<int>(states.size())) draw_state_properties(states[static_cast<size_t>(si)]);
-    } else if (selected_link_ >= 0 && selected_link_ < static_cast<int>(transition_links_.size())) {
+    if (const int si = state_graph_.selected_state(); si >= 0 && si < static_cast<int>(states.size())) {
+        draw_state_properties(states[static_cast<size_t>(si)]);
+    } else if (state_graph_.selected_transition()) {
         draw_transition_properties();
     } else if (skeleton_ && selected_bone_ >= 0 && selected_bone_ < static_cast<int>(skeleton_->joints().size())) {
         const auto& joints = skeleton_->joints();
@@ -802,9 +766,7 @@ void AnimationEditorContext::draw_state_properties(AnimationState& state) {
 
 void AnimationEditorContext::draw_transition_properties() {
     auto& states = state_machine_.states_mutable();
-    const auto& link = transition_links_[static_cast<size_t>(selected_link_)];
-    const int si = link.source_state;
-    const int ti = link.transition_index;
+    const auto [si, ti] = *state_graph_.selected_transition();
     if (si < 0 || si >= static_cast<int>(states.size()) || ti < 0 ||
         ti >= static_cast<int>(states[static_cast<size_t>(si)].transitions.size())) {
         return;
@@ -1080,267 +1042,14 @@ void AnimationEditorContext::update_preview(float dt) {
 
 // ── State graph ─────────────────────────────────────────────────────────
 
-void AnimationEditorContext::build_graph_from_state_machine() {
-    state_nodes_.clear();
-    transition_links_.clear();
-    pending_positions_.clear();
-    node_id_counter_ = 0;
-    selected_state_node_ = -1;
-    selected_link_ = -1;
-
-    const auto& states = state_machine_.states();
-    constexpr float x_spacing = 250.0f;
-    constexpr float y_spacing = 200.0f;
-    constexpr int cols = 4;
-
-    for (int i = 0; i < static_cast<int>(states.size()); ++i) {
-        AnimStateNode sn;
-        sn.node_id = next_node_id();
-        sn.input_pin_id = next_node_id();
-        sn.output_pin_id = next_node_id();
-        sn.state_index = i;
-        pending_positions_[sn.node_id] = ImVec2(
-            50.0f + static_cast<float>(i % cols) * x_spacing,
-            50.0f + static_cast<float>(i / cols) * y_spacing);
-        state_nodes_.push_back(sn);
-    }
-
-    // Build transition links
-    for (int si = 0; si < static_cast<int>(states.size()); ++si) {
-        for (int ti = 0; ti < static_cast<int>(states[si].transitions.size()); ++ti) {
-            const auto& trans = states[si].transitions[ti];
-            // Find target node
-            int target_idx = -1;
-            for (int j = 0; j < static_cast<int>(states.size()); ++j) {
-                if (states[j].name == trans.target) {
-                    target_idx = j;
-                    break;
-                }
-            }
-            if (target_idx < 0) continue;
-
-            AnimTransitionLink link;
-            link.link_id = next_node_id();
-            link.start_pin = state_nodes_[si].output_pin_id;
-            link.end_pin = state_nodes_[target_idx].input_pin_id;
-            link.source_state = si;
-            link.target_state = target_idx;
-            link.transition_index = ti;
-            transition_links_.push_back(link);
-        }
-    }
-}
-
 void AnimationEditorContext::draw_state_graph() {
-    if (auto panel = Panel(ui::icon::animation, ctx_title("State graph").c_str())) {
-        if (state_machine_.states().empty() && animset_path_.empty()) {
-            ui::empty_state(ui::icon::animation, "No state machine", "Open an animset to edit its states");
-            return;
-        }
-
-        // Context menu (right-click on empty space)
-        if (ImGui::BeginPopupContextWindow("##state_graph_ctx")) {
-            if (ui::menu_item({.icon = ui::icon::add, .label = "Add state"})) {
-                AnimationState new_state;
-                new_state.name = "State_" + std::to_string(state_machine_.states().size());
-                state_machine_.add_state(std::move(new_state));
-                build_graph_from_state_machine();
-            }
-            ImGui::EndPopup();
-        }
-
-        // Save/restore imnodes context
-        auto* prev_ctx = ImNodes::GetCurrentContext();
-        ImNodes::SetCurrentContext(static_cast<ImNodesContext*>(imnodes_ctx_));
-
-        ImNodes::BeginNodeEditor();
-
-        // Apply deferred positions
-        for (const auto& [node_id, pos] : pending_positions_) {
-            ImNodes::SetNodeEditorSpacePos(node_id, pos);
-        }
-        pending_positions_.clear();
-
-        const auto& states = state_machine_.states();
-        const auto& initial = state_machine_.initial_state_name();
-
-        // Draw state nodes
-        for (int i = 0; i < static_cast<int>(state_nodes_.size()); ++i) {
-            const auto& sn = state_nodes_[i];
-            if (sn.state_index >= static_cast<int>(states.size())) continue;
-            const auto& state = states[sn.state_index];
-
-            // Color title bar based on state type
-            bool pushed_color = false;
-            if (state.name == initial) {
-                // Initial state: green
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(50, 140, 70, 255));
-                ImNodes::PushColorStyle(ImNodesCol_TitleBarHovered, IM_COL32(60, 160, 80, 255));
-                ImNodes::PushColorStyle(ImNodesCol_TitleBarSelected, IM_COL32(70, 180, 90, 255));
-                pushed_color = true;
-            } else if (state.uses_blend_space()) {
-                // Blend space state: orange
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(180, 120, 40, 255));
-                ImNodes::PushColorStyle(ImNodesCol_TitleBarHovered, IM_COL32(200, 140, 50, 255));
-                ImNodes::PushColorStyle(ImNodesCol_TitleBarSelected, IM_COL32(220, 160, 60, 255));
-                pushed_color = true;
-            }
-
-            ImNodes::BeginNode(sn.node_id);
-
-            ImNodes::BeginNodeTitleBar();
-            ImGui::TextUnformatted(state.name.c_str());
-            ImNodes::EndNodeTitleBar();
-
-            // Node body
-            if (!state.clip.empty()) {
-                auto filename = fs::path(state.clip).stem().string();
-                ImGui::TextDisabled("%s", filename.c_str());
-            } else if (!state.blend_space.empty()) {
-                auto filename = fs::path(state.blend_space).stem().string();
-                ImGui::TextDisabled("BS: %s", filename.c_str());
-            }
-
-            if (state.speed != 1.0f) {
-                ImGui::TextDisabled("%.1fx", state.speed);
-            }
-            if (state.looping) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("loop");
-            }
-
-            // Input pin
-            ImNodes::BeginInputAttribute(sn.input_pin_id);
-            ImGui::TextUnformatted("In");
-            ImNodes::EndInputAttribute();
-
-            // Output pin
-            ImNodes::BeginOutputAttribute(sn.output_pin_id);
-            ImGui::Indent(80.0f);
-            ImGui::TextUnformatted("Out");
-            ImNodes::EndOutputAttribute();
-
-            ImNodes::EndNode();
-
-            if (pushed_color) {
-                ImNodes::PopColorStyle();
-                ImNodes::PopColorStyle();
-                ImNodes::PopColorStyle();
-            }
-        }
-
-        // Draw transition links
-        for (const auto& link : transition_links_) {
-            ImNodes::Link(link.link_id, link.start_pin, link.end_pin);
-        }
-
-        ImNodes::EndNodeEditor();
-
-        // Handle new link creation
-        int start_pin = 0, end_pin = 0;
-        if (ImNodes::IsLinkCreated(&start_pin, &end_pin)) {
-            // Find source and target state nodes by pin IDs
-            int source_idx = -1, target_idx = -1;
-            for (int i = 0; i < static_cast<int>(state_nodes_.size()); ++i) {
-                if (state_nodes_[i].output_pin_id == start_pin) source_idx = i;
-                if (state_nodes_[i].input_pin_id == end_pin) target_idx = i;
-            }
-            if (source_idx >= 0 && target_idx >= 0) {
-                int si = state_nodes_[source_idx].state_index;
-                int ti = state_nodes_[target_idx].state_index;
-                auto& source_state = state_machine_.states_mutable()[si];
-
-                StateTransition new_trans;
-                new_trans.target = state_machine_.states()[ti].name;
-                int trans_idx = static_cast<int>(source_state.transitions.size());
-                source_state.transitions.push_back(std::move(new_trans));
-
-                AnimTransitionLink link;
-                link.link_id = next_node_id();
-                link.start_pin = start_pin;
-                link.end_pin = end_pin;
-                link.source_state = si;
-                link.target_state = ti;
-                link.transition_index = trans_idx;
-                transition_links_.push_back(link);
-            }
-        }
-
-        // Handle selection
-        selected_state_node_ = -1;
-        selected_link_ = -1;
-
-        if (ImNodes::NumSelectedNodes() > 0) {
-            int sel_id = 0;
-            ImNodes::GetSelectedNodes(&sel_id);
-            for (int i = 0; i < static_cast<int>(state_nodes_.size()); ++i) {
-                if (state_nodes_[i].node_id == sel_id) {
-                    selected_state_node_ = i;
-                    break;
-                }
-            }
-        }
-
-        if (ImNodes::NumSelectedLinks() > 0) {
-            int sel_id = 0;
-            ImNodes::GetSelectedLinks(&sel_id);
-            for (int i = 0; i < static_cast<int>(transition_links_.size()); ++i) {
-                if (transition_links_[i].link_id == sel_id) {
-                    selected_link_ = i;
-                    break;
-                }
-            }
-        }
-
-        // Handle Delete key
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-            bool needs_rebuild = false;
-
-            // Delete selected links (transitions)
-            int num_sel_links = ImNodes::NumSelectedLinks();
-            if (num_sel_links > 0) {
-                std::vector<int> sel_ids(static_cast<size_t>(num_sel_links));
-                ImNodes::GetSelectedLinks(sel_ids.data());
-                for (int link_id : sel_ids) {
-                    for (auto it = transition_links_.begin(); it != transition_links_.end(); ++it) {
-                        if (it->link_id == link_id) {
-                            int si = it->source_state;
-                            int ti = it->transition_index;
-                            auto& trans_vec = state_machine_.states_mutable()[si].transitions;
-                            if (ti < static_cast<int>(trans_vec.size())) {
-                                trans_vec.erase(trans_vec.begin() + ti);
-                            }
-                            needs_rebuild = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Delete selected nodes (states)
-            int num_sel_nodes = ImNodes::NumSelectedNodes();
-            if (num_sel_nodes > 0) {
-                std::vector<int> sel_ids(static_cast<size_t>(num_sel_nodes));
-                ImNodes::GetSelectedNodes(sel_ids.data());
-                for (int node_id : sel_ids) {
-                    for (const auto& sn : state_nodes_) {
-                        if (sn.node_id == node_id) {
-                            const auto& name = state_machine_.states()[sn.state_index].name;
-                            state_machine_.remove_state(name);
-                            needs_rebuild = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (needs_rebuild) {
-                build_graph_from_state_machine();
-            }
-        }
-
-        ImNodes::SetCurrentContext(prev_ctx);
+    auto panel = Panel(ui::icon::animation, ctx_title("State graph").c_str());
+    if (!panel) return;
+    if (state_machine_.states().empty() && animset_path_.empty()) {
+        ui::empty_state(ui::icon::animation, "No state machine", "Open an animset to edit its states");
+        return;
     }
+    (void)state_graph_.draw(state_machine_);
 }
 
 // ── Parameters ──────────────────────────────────────────────────────────

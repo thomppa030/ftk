@@ -3,6 +3,7 @@
 #include "animation/animation_state_machine.hpp"
 #include "physics/collision_shape.hpp"
 #include "ui/editor_context.hpp"
+#include "ui/state_graph.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
@@ -80,23 +81,6 @@ public:
     [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
 
 private:
-    // Graph data for imnodes state machine editor
-    struct AnimStateNode {
-        int node_id;
-        int input_pin_id;
-        int output_pin_id;
-        int state_index;
-    };
-
-    struct AnimTransitionLink {
-        int link_id;
-        int start_pin;
-        int end_pin;
-        int source_state;
-        int target_state;
-        int transition_index;
-    };
-
     void draw_bone_tree();
     void draw_collider_panel();
     void add_bone_collider(CollisionPrimitiveKind kind, bool fit_to_bone);
@@ -112,8 +96,6 @@ private:
     void update_preview(float dt);
     void sync_markers_from_clip();
 
-    int next_node_id() { return ++node_id_counter_; }
-    void build_graph_from_state_machine();
     void sync_preview_state_machine();
     void load_animset_clips(const std::string& animset_resolved_path);
 
@@ -150,14 +132,8 @@ private:
     int selected_clip_{-1};
     int selected_event_index_{-1};
 
-    // imnodes graph state
-    void* imnodes_ctx_{nullptr};
-    int node_id_counter_{0};
-    std::vector<AnimStateNode> state_nodes_;
-    std::vector<AnimTransitionLink> transition_links_;
-    std::unordered_map<int, ImVec2> pending_positions_;
-    int selected_state_node_{-1};
-    int selected_link_{-1};
+    // The state machine as a graph (sheet 27), and what is selected there.
+    StateGraph state_graph_;
 
     // Parameter editing
     std::string param_prompt_;  // the name the Add parameter dialog asks for
