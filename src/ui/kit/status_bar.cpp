@@ -1,5 +1,6 @@
 #include "ui/kit/status_bar.hpp"
 
+#include "ui/kit/feedback.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -94,10 +95,9 @@ void status_item(const char* icon, std::string_view text, bool unsaved) {
                 text.data(), text.data() + text.size());
     x += ImGui::CalcTextSize(text.data(), text.data() + text.size()).x;
     if (unsaved) {
-        const float r = 3.5f;
-        x += theme::GAP_S + r;
-        dl->AddCircleFilled({x, start.y + theme::STATUS_BAR * 0.5f}, r, ImGui::GetColorU32(theme::accent()));
-        x += r;
+        x += theme::GAP_S + UNSAVED_DOT_RADIUS;
+        unsaved_dot(dl, {x, start.y + theme::STATUS_BAR * 0.5f});
+        x += UNSAVED_DOT_RADIUS;
     }
     ImGui::Dummy({x + pad - start.x, theme::STATUS_BAR});
     if (unsaved && ImGui::IsItemHovered()) ImGui::SetTooltip("Unsaved changes");
