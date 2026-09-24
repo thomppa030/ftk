@@ -43,11 +43,12 @@ layout(push_constant) uniform PushConstants {
 struct TaskPayload {
     uint patch_x;
     uint patch_z;
-    // This patch's level, and the level of the neighbour across each edge:
-    // -X, +X, -Z, +Z. The mesh shader needs the neighbours to close seams,
-    // and computing them here costs one bounds fetch each instead of four
-    // per vertex.
+    // This patch's level, how far it has morphed toward the next coarser one,
+    // and the level of the neighbour across each edge: -X, +X, -Z, +Z. The
+    // mesh shader needs the neighbours to close seams, and computing them
+    // here costs one bounds fetch each instead of four per vertex.
     uint level;
+    float morph;
     uint neighbour_level[4];
 };
 
@@ -138,7 +139,10 @@ void main() {
 
     payload.patch_x = px;
     payload.patch_z = pz;
-    payload.level = terrain_patch_level(vp, lo, hi, push.viewport, push.lod_thresholds);
+    float morph;
+    payload.level = terrain_patch_level_morph(vp, lo, hi, push.viewport,
+                                              push.lod_thresholds, morph);
+    payload.morph = morph;
     // Neighbours across each edge, in the order the mesh shader expects.
     // Each is the same pure function of that patch's own box, so the patch on
     // the other side of the seam reaches the same number for us.

@@ -45,6 +45,9 @@ struct TaskPayload {
     uint patch_x;
     uint patch_z;
     uint level;
+    // How far this patch has slid toward the next coarser level, [0,1]. At 1
+    // it already draws that level's surface, so the flip is invisible.
+    float morph;
     uint neighbour_level[4];
 };
 
@@ -75,7 +78,7 @@ void main() {
 
         vec2 uv;
         float height;
-        terrain_vertex(ix, iz, quads, payload.level,
+        terrain_vertex(ix, iz, quads, payload.level, payload.morph,
                        payload.neighbour_level[0], payload.neighbour_level[1],
                        payload.neighbour_level[2], payload.neighbour_level[3],
                        patch_uv_min, patch_uv_size, uv, height);
