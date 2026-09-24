@@ -65,13 +65,14 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create terrain set layout");
     }
 
+    constexpr uint32_t SET_COUNT = MAX_FRAMES_IN_FLIGHT * TERRAINS_PER_FRAME;
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = static_cast<uint32_t>(terrain_bindings.size());
+    pool_size.descriptorCount = static_cast<uint32_t>(terrain_bindings.size()) * SET_COUNT;
 
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.maxSets = 1;
+    pool_info.maxSets = SET_COUNT;
     pool_info.poolSizeCount = 1;
     pool_info.pPoolSizes = &pool_size;
     if (vkCreateDescriptorPool(device_, &pool_info, nullptr, &descriptor_pool_) !=
@@ -79,13 +80,21 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create terrain descriptor pool");
     }
 
+    std::array<VkDescriptorSetLayout, SET_COUNT> layouts{};
+    layouts.fill(terrain_set_layout_);
+    std::array<VkDescriptorSet, SET_COUNT> sets{};
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = descriptor_pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &terrain_set_layout_;
-    if (vkAllocateDescriptorSets(device_, &alloc_info, &terrain_set_) != VK_SUCCESS) {
-        return make_error("Failed to allocate terrain descriptor set");
+    alloc_info.descriptorSetCount = SET_COUNT;
+    alloc_info.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(device_, &alloc_info, sets.data()) != VK_SUCCESS) {
+        return make_error("Failed to allocate terrain descriptor sets");
+    }
+    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (uint32_t i = 0; i < TERRAINS_PER_FRAME; ++i) {
+            terrain_sets_[slot][i] = sets[slot * TERRAINS_PER_FRAME + i];
+        }
     }
 
     auto task_code = read_spirv(base_path::resolve("shaders/terrain.task.spv"));
@@ -330,15 +339,24 @@ void TerrainPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
 }
 
 void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    frame_sets_.clear();
     if (ctx.scene == nullptr || pipeline_cache_ == nullptr) return;
     // Pipelines are built here rather than in record(): a first sighting of
     // a material or a hot-reloaded shader means vkCreateGraphicsPipelines,
-    // which does not belong inside command recording.
+    // which does not belong inside command recording. The texture sets are
+    // written here for the same reason, into this frame's slot, one per
+    // distinct terrain.
+    auto& sets = terrain_sets_[ctx.frame_index];
     bool any = false;
     for (const auto& node : ctx.scene->objects()) {
         const auto* tc = node->components.get<TerrainComponent>();
         if (tc == nullptr || tc->terrain == nullptr) continue;
         any = true;
+        if (!frame_sets_.contains(tc->terrain) && frame_sets_.size() < TERRAINS_PER_FRAME) {
+            VkDescriptorSet set = sets[frame_sets_.size()];
+            write_terrain_set(set, *tc->terrain);
+            frame_sets_[tc->terrain] = set;
+        }
         if (tc->material != nullptr) {
             (void)ensure_material_pipeline(tc->material->pipeline_id());
         }
@@ -577,18 +595,16 @@ void TerrainPass::destroy() {
     if (descriptor_pool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
         descriptor_pool_ = VK_NULL_HANDLE;
-        terrain_set_ = VK_NULL_HANDLE;
+        for (auto& slot : terrain_sets_) slot.fill(VK_NULL_HANDLE);
     }
     if (terrain_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, terrain_set_layout_, nullptr);
         terrain_set_layout_ = VK_NULL_HANDLE;
     }
-    bound_terrain_ = nullptr;
+    frame_sets_.clear();
 }
 
-void TerrainPass::bind_terrain_textures(const TerrainAsset& terrain) {
-    if (bound_terrain_ == &terrain) return;
-
+void TerrainPass::write_terrain_set(VkDescriptorSet set, const TerrainAsset& terrain) const {
     std::array<VkDescriptorImageInfo, 2> image_infos{};
     image_infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_infos[0].imageView = terrain.height_view();
@@ -600,7 +616,7 @@ void TerrainPass::bind_terrain_textures(const TerrainAsset& terrain) {
     std::array<VkWriteDescriptorSet, 2> writes{};
     for (uint32_t i = 0; i < writes.size(); ++i) {
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = terrain_set_;
+        writes[i].dstSet = set;
         writes[i].dstBinding = i;
         writes[i].descriptorCount = 1;
         writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -609,7 +625,6 @@ void TerrainPass::bind_terrain_textures(const TerrainAsset& terrain) {
 
     vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0,
                            nullptr);
-    bound_terrain_ = &terrain;
 }
 
 bool TerrainPass::scene_has_terrain(const FrameContext& ctx) {
@@ -678,8 +693,11 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
         if (pipeline == VK_NULL_HANDLE) {
             continue;
         }
-
-        bind_terrain_textures(terrain);
+        // Absent when the frame had more terrains than it has sets for.
+        const auto set = frame_sets_.find(&terrain);
+        if (set == frame_sets_.end()) {
+            continue;
+        }
 
         if (pipeline != bound_pipeline) {
             vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -691,7 +709,7 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
         }
 
         std::array<VkDescriptorSet, 3> sets = {ctx.global_descriptor_set, ctx.bindless_set,
-                                               terrain_set_};
+                                               set->second};
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
                                 static_cast<uint32_t>(sets.size()), sets.data(), 0,
                                 nullptr);

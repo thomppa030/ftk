@@ -1,10 +1,12 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
@@ -91,9 +93,9 @@ private:
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
-    /// Point the descriptor set at a terrain's height and weight textures.
-    /// Cheap to call every frame: it early-outs unless the asset changed.
-    void bind_terrain_textures(const TerrainAsset& terrain);
+    /// Point one of this frame's sets at a terrain's height, weight and
+    /// patch-bounds textures.
+    void write_terrain_set(VkDescriptorSet set, const TerrainAsset& terrain) const;
 
     /// Build (or rebuild after a recompile) the colour pipeline for a terrain
     /// FJSL entry. Returns null when the entry failed to compile or is not a
@@ -130,8 +132,17 @@ private:
     VkShaderModule mesh_module_{VK_NULL_HANDLE};
     VkDescriptorSetLayout terrain_set_layout_{VK_NULL_HANDLE};
     VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet terrain_set_{VK_NULL_HANDLE};
-    const TerrainAsset* bound_terrain_{nullptr};
+    /// How many distinct terrains a frame can draw. Past it a terrain is not
+    /// drawn that frame.
+    static constexpr uint32_t TERRAINS_PER_FRAME = 8;
+    /// The texture sets, one per terrain per frame in flight, written in
+    /// prepare_frame() for the terrains the scene holds. A set is never
+    /// rewritten while a frame that bound it may still be drawing, and two
+    /// terrains drawn in one frame each read their own.
+    std::array<std::array<VkDescriptorSet, TERRAINS_PER_FRAME>, MAX_FRAMES_IN_FLIGHT>
+        terrain_sets_{};
+    /// Which of this frame's sets each terrain asset was written into.
+    std::unordered_map<const TerrainAsset*, VkDescriptorSet> frame_sets_;
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
 
     PipelineCache* pipeline_cache_{nullptr};
