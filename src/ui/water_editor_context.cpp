@@ -17,6 +17,16 @@
 #include "renderer/resources/asset_shader_type.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/list_editor.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -24,6 +34,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <optional>
 #include <variant>
 
 namespace fjell {
@@ -47,7 +58,7 @@ namespace {
 /// a name, for the reason the trains are: "the long swell" is how an author
 /// looks for it, and it is what the row would have been called anyway.
 [[nodiscard]] std::string contributor_label(const GerstnerContributor& gerstner) {
-    if (gerstner.waves.empty()) return "Gerstner  -  no trains";
+    if (gerstner.waves.empty()) return "Gerstner \xc2\xb7 no trains";
     float longest = 0.0f;
     float tallest = 0.0f;
     for (const auto& wave : gerstner.waves) {
@@ -55,14 +66,14 @@ namespace {
         tallest = std::max(tallest, wave.amplitude * gerstner.amplitude_scale);
     }
     char label[96];
-    std::snprintf(label, sizeof(label), "Gerstner  -  %zu trains, to %.0f m long, %.2f m high",
+    std::snprintf(label, sizeof(label), "Gerstner \xc2\xb7 %zu trains, to %.0f m long, %.2f m high",
                   gerstner.waves.size(), longest, tallest);
     return label;
 }
 
 [[nodiscard]] std::string contributor_label(const FftContributor& fft) {
     char label[96];
-    std::snprintf(label, sizeof(label), "Simulated  -  %.0f m/s wind, %.2f m high, %.0f m patch",
+    std::snprintf(label, sizeof(label), "Simulated \xc2\xb7 %.0f m/s wind, %.2f m high, %.0f m patch",
                   fft.wind_speed, water::significant_amplitude(fft), fft.patch_size);
     return label;
 }
@@ -292,39 +303,37 @@ void WaterEditorContext::draw(float dt) {
 }
 
 void WaterEditorContext::draw_generator_panel() {
-    ImGui::Begin(ctx_title("Sea").c_str());
+    auto panel = Panel(ui::icon::water, ctx_title("Sea").c_str());
+    if (!panel) return;
     if (!loaded_) {
-        ImGui::TextDisabled("No .fjwater open.");
-        ImGui::End();
+        ui::empty_state(ui::icon::warning, "The file couldn't be read", "The console says why");
         return;
     }
 
     // What the field is being looked at through. Crest steepness and foam
     // read differently under every material, so tuning a sea against the
     // engine's default and placing it under the game's is tuning it blind.
-    ImGui::TextDisabled("Preview");
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
     ictx.project_mgr = deps_.project_mgr;
     ictx.content_browser = deps_.content_browser;
     ictx.icons = deps_.icon_cache;
-
-    static const std::string mat_exts[] = {".fjmat"};
-    const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-    if (asset_ref_field({.label = "Material",
-                         .id = "##WaterPreviewMat",
-                         .extensions = mat_exts,
-                         .ctx = &ictx,
-                         .asset_type = mat_type,
-                         .shader_types = only_shader_type(ShaderType::Water)},
-                        water_.preview_material)) {
-        load_preview_material();
+    if (auto t = ui::PropertyTable("##preview_material")) {
+        static const std::string mat_exts[] = {".fjmat"};
+        const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
+        ui::row("Preview material",
+                "The material this field is previewed through, saved with the .fjwater as an authoring "
+                "setting: a placed body of water takes its material from its own component. Unset draws "
+                "the engine's water shader.",
+                [&] {
+                    if (asset_slot({.label = "Preview material", .id = "##preview_material", .extensions = mat_exts,
+                                    .ctx = &ictx, .asset_type = mat_type,
+                                    .shader_types = only_shader_type(ShaderType::Water)},
+                                   water_.preview_material)) {
+                        load_preview_material();
+                    }
+                });
     }
-    ImGui::SetItemTooltip("The material this field is previewed through. Saved "
-                          "with the .fjwater as an authoring setting — a placed "
-                          "body of water takes its material from its own "
-                          "component. Unset draws the engine's water shader.");
-
     // A material whose shader is not water has no surface pipeline and would
     // draw nothing; say so here rather than leaving an unchanged preview to
     // be puzzled over.
@@ -332,228 +341,177 @@ void WaterEditorContext::draw_generator_panel() {
         if (auto* water = node->components.get<WaterComponent>();
             water != nullptr && water->material != nullptr &&
             water->material->shader_type() != ShaderType::Water) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                               "shader_type %s — water needs shader_type water",
-                               std::string(shader_type_name(water->material->shader_type())).c_str());
+            const std::string text = "Its shader is shader_type " +
+                                     std::string(shader_type_name(water->material->shader_type())) +
+                                     "; water needs shader_type water";
+            ui::status(ui::Severity::Warning, text.c_str());
         }
     }
 
-    ImGui::Separator();
     draw_contributor_list();
     draw_preview_wind();
     draw_measures();
-    ImGui::Separator();
 
-    if (water_.contributors.empty()) {
-        ImGui::TextDisabled("Flat water. Add a contributor to give it waves.");
-        ImGui::End();
-        return;
-    }
+    if (water_.contributors.empty()) return;
     if (FftContributor* simulated = selected_simulated()) {
         draw_simulated_editor(*simulated);
-        ImGui::End();
         return;
     }
     GerstnerContributor* sea = selected_gerstner();
-    if (sea == nullptr) {
-        ImGui::TextDisabled("Select a contributor to edit it.");
-        ImGui::End();
-        return;
-    }
-
-    ImGui::TextDisabled("Generate");
-    ImGui::TextWrapped(
-        "Fills the wave list from a few numbers. Overwrites whatever is "
-        "there — it is a starting shape, and the list below is the asset.");
-    ImGui::Spacing();
+    if (sea == nullptr) return;
 
     auto& g = sea->generator;
-    bool changed = false;
-
-    float wind_deg = direction_degrees(g.wind_direction);
-    if (ImGui::SliderFloat("Wind direction", &wind_deg, -180.0f, 180.0f, "%.0f deg")) {
-        g.wind_direction = direction_from_degrees(wind_deg);
-        changed = true;
-    }
-    changed |= ImGui::SliderFloat("Swell", &g.swell, 0.0f, 6.0f, "%.2f m");
-    ImGui::SetItemTooltip("Height of the largest train. The rest fall away from it.");
-    changed |= ImGui::SliderFloat("Chop", &g.chop, 0.0f, 1.0f, "%.2f");
-    ImGui::SetItemTooltip("How far the crests pinch. 0 is a sum of sines.");
-    changed |= ImGui::SliderFloat("Longest wavelength", &g.longest_wavelength,
-                                  2.0f, 200.0f, "%.1f m");
-    changed |= ImGui::SliderFloat("Spread", &g.spread_degrees, 0.0f, 90.0f, "%.0f deg");
-    ImGui::SetItemTooltip("How far the trains fan either side of the wind. "
-                          "0 reads as a canal rather than open sea; a swell "
-                          "that has travelled stays inside about 10.");
-    changed |= ImGui::SliderFloat("Wavelength falloff", &g.wavelength_falloff,
-                                  0.30f, 0.95f, "%.2f");
-    ImGui::SetItemTooltip("How much shorter each train is than the last. Low "
-                          "buries the long waves under chop, which reads as a "
-                          "wind sea; high keeps them and the surface rolls.");
-    changed |= ImGui::SliderFloat("Amplitude falloff", &g.amplitude_falloff,
-                                  0.30f, 0.95f, "%.2f");
-    ImGui::SetItemTooltip("How much lower each train is than the last. Below "
-                          "the wavelength falloff the short waves fade out "
-                          "and the swell reads smooth.");
-
-    int count = static_cast<int>(g.wave_count);
-    if (ImGui::SliderInt("Trains", &count, 1, static_cast<int>(MAX_WATER_WAVES))) {
-        g.wave_count = static_cast<std::uint32_t>(std::clamp(count, 1,
-                                    static_cast<int>(MAX_WATER_WAVES)));
-        changed = true;
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button("Generate waves", ImVec2(-1, 0))) {
-        sea->waves = generate_water_waves(g);
-        push_live();
+    ui::Edit generated;
+    ui::section("Generate", ui::icon::water);
+    if (auto t = ui::PropertyTable("##generate")) {
+        ui::row("Wind direction", [&] {
+            float wind_deg = direction_degrees(g.wind_direction);
+            const auto edit = ui::slider("##wind", wind_deg, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+            if (edit.changed) g.wind_direction = direction_from_degrees(wind_deg);
+            generated |= edit;
+        });
+        ui::row("Swell", "Height of the largest train. The rest fall away from it.", [&] {
+            generated |= ui::slider("##swell", g.swell, 0.0f, 6.0f, ui::Unit::Metres);
+        });
+        ui::row("Chop", "How far the crests pinch. 0 is a sum of sines.", [&] {
+            generated |= ui::slider("##chop", g.chop, 0.0f, 1.0f);
+        });
+        ui::row("Longest wavelength", [&] {
+            generated |= ui::slider("##longest", g.longest_wavelength, 2.0f, 200.0f, ui::Unit::Metres, "%.1f");
+        });
+        ui::row("Spread",
+                "How far the trains fan either side of the wind. 0 reads as a canal rather than open sea; a "
+                "swell that has travelled stays inside about 10.",
+                [&] { generated |= ui::slider("##spread", g.spread_degrees, 0.0f, 90.0f, ui::Unit::Degrees, "%.0f"); });
+        ui::row("Wavelength falloff",
+                "How much shorter each train is than the last. Low buries the long waves under chop, which "
+                "reads as a wind sea; high keeps them and the surface rolls.",
+                [&] { generated |= ui::slider("##wavelength_falloff", g.wavelength_falloff, 0.30f, 0.95f); });
+        ui::row("Amplitude falloff",
+                "How much lower each train is than the last. Below the wavelength falloff the short waves fade "
+                "out and the swell reads smooth.",
+                [&] { generated |= ui::slider("##amplitude_falloff", g.amplitude_falloff, 0.30f, 0.95f); });
+        ui::row("Trains", [&] {
+            int count = static_cast<int>(g.wave_count);
+            const auto edit = ui::slider_int("##trains", count, 1, static_cast<int>(MAX_WATER_WAVES));
+            if (edit.changed) {
+                g.wave_count = static_cast<std::uint32_t>(std::clamp(count, 1, static_cast<int>(MAX_WATER_WAVES)));
+            }
+            generated |= edit;
+        });
+        ui::row("", [&] {
+            if (ui::action(ui::icon::reload, "Generate waves")) generated.changed = true;
+            ImGui::SetItemTooltip("Fills the wave list from the numbers above, overwriting it: a starting shape, "
+                                  "and the list in Waves is the asset. Moving a number above does the same.");
+        });
     }
     // Moving a generator slider regenerates as it is dragged. The generator
     // is deterministic, so this is the same list the button would make, and
     // shaping a sea by watching it beats shaping it by pressing a button.
-    if (changed) {
+    if (generated.changed) {
         sea->waves = generate_water_waves(g);
         push_live();
     }
 
-    ImGui::Separator();
-    ImGui::TextDisabled("All of its trains");
-    if (ImGui::SliderFloat("Amplitude scale", &sea->amplitude_scale, 0.0f, 4.0f, "%.2f")) {
-        push_live();
+    ui::section("All of its trains", ui::icon::water);
+    if (auto t = ui::PropertyTable("##scales")) {
+        ui::Edit edit;
+        ui::row("Amplitude scale",
+                "Multiplies every train of this contributor. Where calm becomes storm without touching a "
+                "single wave.",
+                [&] { edit |= ui::slider("##amplitude_scale", sea->amplitude_scale, 0.0f, 4.0f, ui::Unit::Times); });
+        ui::row("Speed scale", [&] {
+            edit |= ui::slider("##speed_scale", sea->speed_scale, 0.0f, 3.0f, ui::Unit::Times);
+        });
+        ui::row("Steepness headroom",
+                "How much of the fold limit the trains share. 1 can never fold whatever they do; past the "
+                "measured ceiling the sharpest crests turn inside out, which reads as dark facets in the foam.",
+                [&] { edit |= ui::slider("##headroom", sea->steepness_headroom, 0.5f, 4.0f); });
+        draw_fold_readout();
+        if (edit.changed) push_live();
     }
-    ImGui::SetItemTooltip("Multiplies every train of this contributor. Where "
-                          "calm becomes storm without touching a single wave.");
-    if (ImGui::SliderFloat("Speed scale", &sea->speed_scale, 0.0f, 3.0f, "%.2f")) {
-        push_live();
+
+    ui::section("Wind response", ui::icon::weather);
+    if (auto t = ui::PropertyTable("##wind_response")) {
+        ui::Edit edit;
+        ui::row("Answers the weather",
+                "Whether the weather's wind reaches these trains. Off for a pool, a canal, anything indoors, "
+                "and for a swell that arrived from a storm somewhere else.",
+                [&] { edit |= ui::checkbox("##answers", sea->wind.enabled); });
+        if (sea->wind.enabled) {
+            ui::row("Reference wind",
+                    "The wind this sea is authored at. At this speed nothing below changes anything, so it is "
+                    "the sea you are looking at now.",
+                    [&] {
+                        edit |= ui::slider("##reference", sea->wind.reference_speed, 0.5f, 30.0f,
+                                           ui::Unit::MetresPerSecond, "%.1f");
+                    });
+            ui::row("Height at double wind", [&] {
+                edit |= ui::slider("##height_response", sea->wind.amplitude_response, 0.0f, 4.0f, ui::Unit::Times);
+            });
+            ui::row("Headroom at double wind",
+                    "Wind sharpens a sea as well as raising it. This multiplies the fold headroom, so a sea tuned "
+                    "near its ceiling will fold in a storm.",
+                    [&] {
+                        edit |= ui::slider("##headroom_response", sea->wind.steepness_response, 0.0f, 3.0f,
+                                           ui::Unit::Times);
+                    });
+            ui::row("Turns onto wind",
+                    "How far the wind combs the trains around. Only the short ones turn: a long swell holds the "
+                    "heading the storm that raised it gave it.",
+                    [&] { edit |= ui::slider("##turn", sea->wind.direction_response, 0.0f, 1.0f); });
+        }
+        if (edit.changed) push_live();
     }
-    if (ImGui::SliderFloat("Steepness headroom", &sea->steepness_headroom,
-                           0.5f, 4.0f, "%.2f")) {
-        push_live();
-    }
-    ImGui::SetItemTooltip("How much of the fold limit the trains share. 1 can "
-                          "never fold whatever they do; past the measured "
-                          "ceiling the sharpest crests turn inside out, which "
-                          "reads as dark facets in the foam.");
 
-    draw_fold_readout();
-
-    ImGui::Separator();
-    ImGui::TextDisabled("Wind response");
-    if (ImGui::Checkbox("Answers the weather", &sea->wind.enabled)) {
-        push_live();
-    }
-    ImGui::SetItemTooltip("Whether the weather's wind reaches these trains. "
-                          "Off for a pool, a canal, anything indoors — and for "
-                          "a swell that arrived from a storm somewhere else.");
-    if (sea->wind.enabled) {
-        if (ImGui::SliderFloat("Reference wind", &sea->wind.reference_speed,
-                               0.5f, 30.0f, "%.1f m/s")) {
-            push_live();
-        }
-        ImGui::SetItemTooltip("The wind this sea is authored at. At this speed "
-                              "nothing below changes anything, so it is the "
-                              "sea you are looking at now.");
-        if (ImGui::SliderFloat("Height at double wind", &sea->wind.amplitude_response,
-                               0.0f, 4.0f, "%.2fx")) {
-            push_live();
-        }
-        if (ImGui::SliderFloat("Headroom at double wind", &sea->wind.steepness_response,
-                               0.0f, 3.0f, "%.2fx")) {
-            push_live();
-        }
-        ImGui::SetItemTooltip("Wind sharpens a sea as well as raising it. This "
-                              "multiplies the fold headroom, so a sea tuned "
-                              "near its ceiling will fold in a storm.");
-        if (ImGui::SliderFloat("Turns onto wind", &sea->wind.direction_response,
-                               0.0f, 1.0f, "%.2f")) {
-            push_live();
-        }
-        ImGui::SetItemTooltip("How far the wind combs the trains around. Only "
-                              "the short ones turn: a long swell holds the "
-                              "heading the storm that raised it gave it.");
-
-        // A response is quoted at double the reference wind, which is a sea
-        // nobody is looking at while they tune. Show what it comes to at the
-        // winds that actually blow, folding measured rather than warned
-        // about — the same reading as above, at the storm end.
-        if (!sea->waves.empty()) {
-            ImGui::Spacing();
-            ImGui::TextDisabled("At a given wind");
-            if (ImGui::BeginTable("wind_preview", 4,
-                                  ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("wind");
-                ImGui::TableSetupColumn("height");
-                ImGui::TableSetupColumn("headroom");
-                ImGui::TableSetupColumn("folds");
-                ImGui::TableHeadersRow();
-
-                // Measured when the sea has changed and the mouse has let go
-                // of it, like the readout above and for the same reason: five
-                // whole-sea measurements are too slow to take mid-drag.
-                const bool remeasure_wind_folds = wind_fold_stale_ && !ImGui::IsAnyItemActive();
-                if (remeasure_wind_folds) wind_fold_stale_ = false;
-                std::size_t row = 0;
-
-                const float reference = std::max(sea->wind.reference_speed, 0.1f);
-                for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
-                    const float speed = reference * factor;
-                    // Height and headroom are this contributor's own answer;
-                    // whether the surface folds is a question about the whole
-                    // sea under that wind, every contributor answering it.
-                    const GerstnerContributor blown_sea =
-                        water::apply_wind(*sea, {speed, 0.0f});
-                    const FjWaterData blown = water::apply_wind(water_, {speed, 0.0f});
-
-                    if (remeasure_wind_folds) {
-                        wind_folded_share_[row] = water::folded_share(blown);
-                    }
-                    const float pct = 100.0f * wind_folded_share_[row];
-                    ++row;
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.1f m/s", speed);
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.2fx", blown_sea.amplitude_scale);
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.2f", blown_sea.steepness_headroom);
-                    ImGui::TableNextColumn();
-                    if (pct <= 0.0f) {
-                        ImGui::TextDisabled("none");
-                    } else {
-                        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                                           "%.1f%%", pct);
-                    }
+    // A response is quoted at double the reference wind, which is a sea
+    // nobody is looking at while they tune. Show what it comes to at the
+    // winds that actually blow, folding measured rather than warned about.
+    if (sea->wind.enabled && !sea->waves.empty()) {
+        ui::subheading("At a given wind");
+        if (auto t = ui::PropertyTable("##at_wind")) {
+            // Measured when the sea has changed and the mouse has let go of
+            // it, like the readout above and for the same reason: five
+            // whole-sea measurements are too slow to take mid-drag.
+            const bool remeasure = wind_fold_stale_ && !ImGui::IsAnyItemActive();
+            if (remeasure) wind_fold_stale_ = false;
+            std::size_t row = 0;
+            const float reference = std::max(sea->wind.reference_speed, 0.1f);
+            for (float factor : {0.0f, 0.5f, 1.0f, 1.5f, 2.0f}) {
+                const float speed = reference * factor;
+                // Height and headroom are this contributor's own answer;
+                // whether the surface folds is a question about the whole sea
+                // under that wind, every contributor answering it.
+                const GerstnerContributor blown_sea = water::apply_wind(*sea, {speed, 0.0f});
+                if (remeasure) {
+                    wind_folded_share_[row] = water::folded_share(water::apply_wind(water_, {speed, 0.0f}));
                 }
-                ImGui::EndTable();
+                const float pct = 100.0f * wind_folded_share_[row];
+                ++row;
+                char label[32];
+                std::snprintf(label, sizeof(label), "%.1f m/s", speed);
+                char text[96];
+                if (pct <= 0.0f) {
+                    std::snprintf(text, sizeof(text), "%.2f\xc3\x97 high, headroom %.2f, no folding",
+                                  blown_sea.amplitude_scale, blown_sea.steepness_headroom);
+                } else {
+                    std::snprintf(text, sizeof(text), "%.2f\xc3\x97 high, headroom %.2f, %.1f%% folds",
+                                  blown_sea.amplitude_scale, blown_sea.steepness_headroom, pct);
+                }
+                ui::row(label, [&] {
+                    if (pct <= 0.0f) {
+                        ui::readout(text);
+                    } else {
+                        ui::status(ui::Severity::Warning, text);
+                    }
+                });
             }
         }
     }
-
-    ImGui::End();
 }
 
 void WaterEditorContext::draw_contributor_list() {
-    ImGui::TextDisabled("Contributors");
-    ImGui::SetItemTooltip("What moves the surface. Their motions add, so order "
-                          "changes nothing about the sea — it is only the order "
-                          "you keep them in.");
-
-    for (std::size_t i = 0; i < water_.contributors.size(); ++i) {
-        const std::string label = std::visit(
-            [](const auto& kind) { return contributor_label(kind); }, water_.contributors[i]);
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Selectable(label.c_str(), i == selected_contributor_)) {
-            selected_contributor_ = i;
-        }
-        ImGui::PopID();
-    }
-    if (water_.contributors.empty()) {
-        ImGui::TextDisabled("none");
-    }
-
-    const bool has_selection = selected_contributor_ < water_.contributors.size();
-
+    ui::section("Contributors", ui::icon::water);
     std::uint32_t gerstner_count = 0;
     bool has_simulated = false;
     for (const auto& contributor : water_.contributors) {
@@ -561,72 +519,76 @@ void WaterEditorContext::draw_contributor_list() {
         if (std::holds_alternative<FftContributor>(contributor)) has_simulated = true;
     }
 
-    ImGui::BeginDisabled(gerstner_count >= MAX_GERSTNER_CONTRIBUTORS);
-    if (ImGui::SmallButton("Add Gerstner")) {
-        // Born with the generator's sea rather than empty, so adding one shows
-        // something to shape instead of a row that does nothing yet.
-        GerstnerContributor added;
-        added.waves = generate_water_waves(added.generator);
-        water_.contributors.emplace_back(std::move(added));
-        selected_contributor_ = water_.contributors.size() - 1;
-        push_live();
+    // Their motions add, so order changes nothing about the sea; it is only
+    // the order they are kept in. The selected one is what the sections
+    // below edit.
+    bool changed = false;
+    std::optional<std::size_t> remove;
+    {
+        ui::ListEditor list("##contributors", water_.contributors.size());
+        for (std::size_t i = 0; i < water_.contributors.size(); ++i) {
+            if (!list.begin_item(i, i == selected_contributor_)) continue;
+            const std::string label = std::visit(
+                [](const auto& kind) { return contributor_label(kind); }, water_.contributors[i]);
+            ImGui::TextUnformatted(label.c_str());
+            if (list.end_item()) remove = i;
+            if (list.clicked()) selected_contributor_ = i;
+        }
+        if (water_.contributors.empty()) list.empty("Flat water. Add a contributor to give it waves");
+        if (list.add_button("Add contributor")) ImGui::OpenPopup("##add_contributor");
+        // Inside the list's ID scope, where the button opened it.
+        if (ImGui::BeginPopup("##add_contributor")) {
+            char gerstner_limit[64];
+            std::snprintf(gerstner_limit, sizeof(gerstner_limit), "A field sums at most %u of them",
+                          MAX_GERSTNER_CONTRIBUTORS);
+            if (ui::menu_item({.icon = ui::icon::water, .label = "Gerstner trains",
+                               .enabled = gerstner_count < MAX_GERSTNER_CONTRIBUTORS,
+                               .disabled_reason = gerstner_limit})) {
+                // Born with the generator's sea rather than empty, so adding one
+                // shows something to shape instead of a row that does nothing yet.
+                GerstnerContributor added;
+                added.waves = generate_water_waves(added.generator);
+                water_.contributors.emplace_back(std::move(added));
+                selected_contributor_ = water_.contributors.size() - 1;
+                changed = true;
+            }
+            if (ui::menu_item({.icon = ui::icon::simulated, .label = "Simulated sea", .enabled = !has_simulated,
+                               .disabled_reason = "One to a field: a simulation is a patch of water carried forward "
+                                                  "every frame, and the world runs one"})) {
+                water_.contributors.emplace_back(FftContributor{});
+                selected_contributor_ = water_.contributors.size() - 1;
+                changed = true;
+            }
+            ImGui::EndPopup();
+        }
+        if (auto move = list.moved()) {
+            const auto [from, to] = *move;
+            auto first = water_.contributors.begin();
+            if (from < to) {
+                std::rotate(first + static_cast<std::ptrdiff_t>(from), first + static_cast<std::ptrdiff_t>(from) + 1,
+                            first + static_cast<std::ptrdiff_t>(to));
+            } else {
+                std::rotate(first + static_cast<std::ptrdiff_t>(to), first + static_cast<std::ptrdiff_t>(from),
+                            first + static_cast<std::ptrdiff_t>(from) + 1);
+            }
+            selected_contributor_ = ui::index_after_move(selected_contributor_, from, to);
+            changed = true;
+        }
     }
-    ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Authored trains, one at a time. A field sums at most %u "
-                          "Gerstner contributors.", MAX_GERSTNER_CONTRIBUTORS);
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(has_simulated);
-    if (ImGui::SmallButton("Add Simulated")) {
-        water_.contributors.emplace_back(FftContributor{});
-        selected_contributor_ = water_.contributors.size() - 1;
-        push_live();
-    }
-    ImGui::EndDisabled();
-    ImGui::SetItemTooltip("A sea raised from a wind-driven spectrum on the GPU. One to a "
-                          "field: a simulation is a patch of water carried forward every "
-                          "frame, and the world runs one.");
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!has_selection || selected_contributor_ == 0);
-    if (ImGui::SmallButton("Up")) {
-        std::swap(water_.contributors[selected_contributor_],
-                  water_.contributors[selected_contributor_ - 1]);
-        --selected_contributor_;
-        push_live();
-    }
-    ImGui::EndDisabled();
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!has_selection ||
-                         selected_contributor_ + 1 >= water_.contributors.size());
-    if (ImGui::SmallButton("Down")) {
-        std::swap(water_.contributors[selected_contributor_],
-                  water_.contributors[selected_contributor_ + 1]);
-        ++selected_contributor_;
-        push_live();
-    }
-    ImGui::EndDisabled();
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!has_selection);
-    // Says what it is about to take, since it acts on the selection and not on
-    // whichever row the eye happens to be on.
-    const char* remove_label = !has_selection ? "Remove"
-        : (std::holds_alternative<FftContributor>(water_.contributors[selected_contributor_])
-               ? "Remove Simulated" : "Remove Gerstner");
-    if (ImGui::SmallButton(remove_label)) {
-        water_.contributors.erase(water_.contributors.begin()
-                                  + static_cast<std::ptrdiff_t>(selected_contributor_));
+    if (remove) {
+        water_.contributors.erase(water_.contributors.begin() + static_cast<std::ptrdiff_t>(*remove));
         // Stay where the list was being worked on: the one that slid into
         // this place, or the new last when the last was removed.
-        if (selected_contributor_ >= water_.contributors.size() &&
-            !water_.contributors.empty()) {
+        if (selected_contributor_ > *remove) --selected_contributor_;
+        if (selected_contributor_ >= water_.contributors.size() && !water_.contributors.empty()) {
             selected_contributor_ = water_.contributors.size() - 1;
         }
+        changed = true;
+    }
+    if (changed) {
+        selected_wave_ = -1;
         push_live();
     }
-    ImGui::EndDisabled();
 }
 
 void WaterEditorContext::draw_fold_readout() {
@@ -645,134 +607,147 @@ void WaterEditorContext::draw_fold_readout() {
         fold_stale_ = false;
     }
     const float pct = 100.0f * folded_share_;
-    if (pct <= 0.0f) {
-        ImGui::TextDisabled(fold_stale_ ? "no folding  (measuring on release)" : "no folding");
-    } else {
-        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                           fold_stale_ ? "%.2f%% of the surface folds  (measuring on release)"
-                                       : "%.2f%% of the surface folds", pct);
-    }
-    ImGui::SetItemTooltip("Of the whole sea: every contributor summed, the simulated one "
-                          "included. Folded crests are where foam gathers; some of it is "
-                          "what a rough sea looks like.");
+    ui::row("Folding",
+            "Of the whole sea: every contributor summed, the simulated one included. Folded crests are where "
+            "foam gathers; some of it is what a rough sea looks like.",
+            [&] {
+                char text[64];
+                if (pct <= 0.0f) {
+                    ui::readout(fold_stale_ ? "None (measured on release)" : "None");
+                } else {
+                    std::snprintf(text, sizeof(text), fold_stale_ ? "%.2f%% of the surface (measured on release)"
+                                                                  : "%.2f%% of the surface", pct);
+                    ui::status(ui::Severity::Warning, text);
+                }
+            });
 }
 
 void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
-    ImGui::TextWrapped("A sea raised from a wind-driven spectrum and simulated on the "
-                       "GPU. It is drawn and not floated on: buoyancy rides the Gerstner "
-                       "contributors and does not feel this one.");
-    ImGui::Spacing();
+    ui::Edit edit;
 
-    bool changed = false;
-
-    ImGui::TextDisabled("The wind that raises it");
-    changed |= ImGui::Checkbox("Answers the weather", &sea.answers_weather);
-    ImGui::SetItemTooltip("On, the weather's wind replaces the two dials below — late, "
-                          "so a front builds the sea over its passage. Off, this sea "
-                          "is raised by its own wind whatever the weather does.");
-    float heading = direction_degrees(sea.wind_direction);
-    if (ImGui::SliderFloat("Wind heading", &heading, -180.0f, 180.0f, "%.0f deg")) {
-        sea.wind_direction = direction_from_degrees(heading);
-        changed = true;
-    }
-    changed |= ImGui::SliderFloat("Wind speed", &sea.wind_speed, 0.0f, 35.0f, "%.1f m/s");
-    ImGui::SetItemTooltip("8 is a fresh breeze, 15 a near gale, 25 a storm.");
-    if (sea.answers_weather) {
-        ImGui::TextDisabled("under weather these are the sea with no weather, and the "
-                            "preview wind stands in for it here");
-    }
-
-    float fetch_km = sea.fetch / 1000.0f;
-    if (ImGui::SliderFloat("Fetch", &fetch_km, 0.5f, 500.0f, "%.1f km",
-                           ImGuiSliderFlags_Logarithmic)) {
-        sea.fetch = fetch_km * 1000.0f;
-        changed = true;
-    }
-    ImGui::SetItemTooltip("How far the wind has blown over open water. Short is a lake's "
-                          "steep chop, long is the open ocean's heavy swell under the "
-                          "same wind.");
-
-    ImGui::Separator();
-    ImGui::TextDisabled("Stylisation");
-    changed |= ImGui::SliderFloat("Height", &sea.amplitude_scale, 0.0f, 4.0f, "%.2fx");
-    changed |= ImGui::SliderFloat("Choppiness", &sea.choppiness, 0.0f, 3.0f, "%.2f");
-    ImGui::SetItemTooltip("How far crests are pinched. 1 is the physical amount, which "
-                          "reads as gentle; past it crests sharpen until they fold and "
-                          "foam. The same motion a Gerstner train's steepness buys.");
-    changed |= ImGui::SliderFloat("Spread", &sea.spread_degrees, 2.0f, 90.0f, "%.0f deg");
-    ImGui::SetItemTooltip("The angle from the wind at which the sea carries half the "
-                          "energy it carries downwind. Narrow for long parallel ridges, "
-                          "wide for a confused sea.");
-    changed |= ImGui::SliderFloat("High cut", &sea.high_cut, 0.0f, 40.0f, "%.1f m");
-    ImGui::SetItemTooltip("Fades out waves shorter than this. The biggest stylisation "
-                          "control: it turns a busy correct ocean into a few big readable "
-                          "swells. 0 keeps everything the grid holds.");
-    draw_fold_readout();
-
-    ImGui::Separator();
-    ImGui::TextDisabled("The simulated patch");
-    changed |= ImGui::SliderFloat("Patch size", &sea.patch_size, 16.0f, 2000.0f, "%.0f m",
-                                  ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("The square of sea that is simulated; it tiles beyond that. It "
-                          "wants several of the longest waves in it, and few enough that "
-                          "the grid still resolves the short ones.");
-    static constexpr std::uint32_t RESOLUTIONS[] = {64, 128, 256, 512, 1024};
-    if (ImGui::BeginCombo("Resolution", std::to_string(sea.resolution).c_str())) {
-        for (std::uint32_t option : RESOLUTIONS) {
-            if (ImGui::Selectable(std::to_string(option).c_str(), option == sea.resolution)) {
-                sea.resolution = option;
-                changed = true;
-            }
+    ui::section("Wind", ui::icon::weather);
+    if (auto t = ui::PropertyTable("##sim_wind")) {
+        ui::row("Kind",
+                "A sea raised from a wind-driven spectrum and simulated on the GPU. It is drawn and floated on "
+                "only through its strongest waves, set under What floats on it.",
+                [&] { ui::readout("Simulated sea"); });
+        ui::row("Answers the weather",
+                "On, the weather's wind replaces the two below, late, so a front builds the sea over its "
+                "passage. Off, this sea is raised by its own wind whatever the weather does.",
+                [&] { edit |= ui::checkbox("##answers", sea.answers_weather); });
+        ui::row("Heading", [&] {
+            float heading = direction_degrees(sea.wind_direction);
+            const auto moved = ui::slider("##heading", heading, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+            if (moved.changed) sea.wind_direction = direction_from_degrees(heading);
+            edit |= moved;
+        });
+        ui::row("Speed", "8 is a fresh breeze, 15 a near gale, 25 a storm.", [&] {
+            edit |= ui::slider("##speed", sea.wind_speed, 0.0f, 35.0f, ui::Unit::MetresPerSecond, "%.1f");
+        });
+        if (sea.answers_weather) {
+            ui::hint("Under weather these are the sea with no weather; here the preview wind stands in");
         }
-        ImGui::EndCombo();
+        ui::row("Fetch",
+                "How far the wind has blown over open water. Short is a lake's steep chop, long is the open "
+                "ocean's heavy swell under the same wind.",
+                [&] {
+                    float fetch_km = sea.fetch / 1000.0f;
+                    const auto moved = ui::slider("##fetch", fetch_km, 0.5f, 500.0f, ui::Unit::Kilometres, "%.1f", true);
+                    if (moved.changed) sea.fetch = fetch_km * 1000.0f;
+                    edit |= moved;
+                });
     }
-    ImGui::SetItemTooltip("Samples along each side. Four times the cost for each step up.");
-    int seed = static_cast<int>(sea.seed);
-    if (ImGui::InputInt("Seed", &seed)) {
-        sea.seed = static_cast<std::uint32_t>(std::max(seed, 0));
-        changed = true;
-    }
-    ImGui::SetItemTooltip("Which sea of all the seas this spectrum describes.");
 
-    ImGui::Separator();
-    ImGui::TextDisabled("What floats on it");
-    int physics_waves = static_cast<int>(sea.physics_waves);
-    if (ImGui::SliderInt("Physics waves", &physics_waves, 0, 256)) {
-        sea.physics_waves = static_cast<std::uint32_t>(std::max(physics_waves, 0));
-        changed = true;
+    ui::section("Stylisation", ui::icon::water);
+    if (auto t = ui::PropertyTable("##stylisation")) {
+        ui::row("Height", [&] { edit |= ui::slider("##height", sea.amplitude_scale, 0.0f, 4.0f, ui::Unit::Times); });
+        ui::row("Choppiness",
+                "How far crests are pinched. 1 is the physical amount, which reads as gentle; past it crests "
+                "sharpen until they fold and foam. The same motion a Gerstner train's steepness buys.",
+                [&] { edit |= ui::slider("##choppiness", sea.choppiness, 0.0f, 3.0f); });
+        ui::row("Spread",
+                "The angle from the wind at which the sea carries half the energy it carries downwind. Narrow "
+                "for long parallel ridges, wide for a confused sea.",
+                [&] { edit |= ui::slider("##spread", sea.spread_degrees, 2.0f, 90.0f, ui::Unit::Degrees, "%.0f"); });
+        ui::row("High cut",
+                "Fades out waves shorter than this. The biggest stylisation control: it turns a busy correct "
+                "ocean into a few big readable swells. 0 keeps everything the grid holds.",
+                [&] { edit |= ui::slider("##high_cut", sea.high_cut, 0.0f, 40.0f, ui::Unit::Metres, "%.1f"); });
+        draw_fold_readout();
     }
-    ImGui::SetItemTooltip("How many of this sea's strongest waves a floating body feels. "
-                          "The simulation is on the GPU, which physics cannot read, so "
-                          "buoyancy is given the strongest waves in closed form — the same "
-                          "waves, on the same clock. 0 floats a body on the Gerstner "
-                          "contributors alone. Each one is work per floating point per tick.");
-    draw_physics_waves_readout(sea);
 
-    if (changed) push_live();
+    ui::section("Simulated patch", ui::icon::simulated);
+    if (auto t = ui::PropertyTable("##patch")) {
+        ui::row("Patch size",
+                "The square of sea that is simulated; it tiles beyond that. It wants several of the longest waves "
+                "in it, and few enough that the grid still resolves the short ones.",
+                [&] {
+                    edit |= ui::slider("##patch_size", sea.patch_size, 16.0f, 2000.0f, ui::Unit::Metres, "%.0f", true);
+                });
+        ui::row("Resolution", "Samples along each side. Four times the cost for each step up.", [&] {
+            static constexpr std::uint32_t RESOLUTIONS[] = {64, 128, 256, 512, 1024};
+            static constexpr const char* NAMES[] = {"64", "128", "256", "512", "1024"};
+            int index = 0;
+            for (int i = 0; i < 5; ++i) {
+                if (RESOLUTIONS[i] == sea.resolution) index = i;
+            }
+            const auto picked = ui::choice("##resolution", index, NAMES);
+            if (picked.changed) sea.resolution = RESOLUTIONS[index];
+            edit |= picked;
+        });
+        ui::row("Seed", "Which sea of all the seas this spectrum describes.", [&] {
+            int seed = static_cast<int>(sea.seed);
+            const auto moved = ui::drag_int("##seed", seed, 0.2f, 0, 1 << 30);
+            if (moved.changed) sea.seed = static_cast<std::uint32_t>(std::max(seed, 0));
+            edit |= moved;
+        });
+    }
+
+    ui::section("What floats on it", ui::icon::collision);
+    if (auto t = ui::PropertyTable("##floats")) {
+        ui::row("Physics waves",
+                "How many of this sea's strongest waves a floating body feels. The simulation is on the GPU, "
+                "which physics cannot read, so buoyancy is given the strongest waves in closed form: the same "
+                "waves, on the same clock. 0 floats a body on the Gerstner contributors alone. Each one is work "
+                "per floating point per tick.",
+                [&] {
+                    int physics_waves = static_cast<int>(sea.physics_waves);
+                    const auto moved = ui::slider_int("##physics_waves", physics_waves, 0, 256);
+                    if (moved.changed) sea.physics_waves = static_cast<std::uint32_t>(std::max(physics_waves, 0));
+                    edit |= moved;
+                });
+        draw_physics_waves_readout(sea);
+    }
+
+    if (edit.changed) push_live();
 
     // What those settings come to, since none of them is a wave to look at.
-    ImGui::Separator();
-    ImGui::TextDisabled("What it comes to");
-    const float peak = water::peak_frequency(sea);
-    if (peak > 0.0f) {
-        const float wavelength = glm::two_pi<float>() * 9.81f / (peak * peak);
-        ImGui::Text("Significant height: %.2f m", water::significant_amplitude(sea) * 2.0f);
-        ImGui::Text("Dominant wave:      %.0f m, every %.1f s", wavelength,
-                    glm::two_pi<float>() / peak);
-        if (wavelength * 3.0f > sea.patch_size) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                               "the patch holds under 3 of them — they will be cut short");
+    ui::section("What it comes to", ui::icon::info);
+    if (auto t = ui::PropertyTable("##comes_to")) {
+        const float peak = water::peak_frequency(sea);
+        if (peak > 0.0f) {
+            const float wavelength = glm::two_pi<float>() * 9.81f / (peak * peak);
+            char text[64];
+            std::snprintf(text, sizeof(text), "%.2f m", water::significant_amplitude(sea) * 2.0f);
+            ui::row("Significant height", [&] { ui::readout(text); });
+            std::snprintf(text, sizeof(text), "%.0f m, every %.1f s", wavelength, glm::two_pi<float>() / peak);
+            ui::row("Dominant wave", [&] { ui::readout(text); });
+            if (wavelength * 3.0f > sea.patch_size) {
+                ui::hint("The patch holds under 3 of them, so they are cut short");
+            }
+        } else {
+            ui::row("Significant height", [&] { ui::readout("No wind, no sea"); });
         }
-    } else {
-        ImGui::TextDisabled("no wind, no sea");
+        const float texel = sea.patch_size / static_cast<float>(std::max(sea.resolution, 1u));
+        char grid[64];
+        std::snprintf(grid, sizeof(grid), "%.2f m a sample, waves down to %.1f m", texel, texel * 2.0f);
+        ui::row("Grid", [&] { ui::readout(grid); });
     }
-    const float texel = sea.patch_size / static_cast<float>(std::max(sea.resolution, 1u));
-    ImGui::Text("Grid:               %.2f m a sample, waves down to %.1f m", texel, texel * 2.0f);
 }
 
 void WaterEditorContext::draw_physics_waves_readout(const FftContributor& sea) {
     if (sea.physics_waves == 0) {
-        ImGui::TextDisabled("a floating body does not feel this sea");
+        ui::hint("A floating body does not feel this sea");
         return;
     }
     // Read off the sea the preview is actually running, so the number is about
@@ -794,13 +769,14 @@ void WaterEditorContext::draw_physics_waves_readout(const FftContributor& sea) {
         physics_height_share_ = taken.height_share;
         physics_shortest_wave_ = taken.shortest_wavelength;
     }
-    ImGui::Text("feels %.0f%% of its height, waves down to %.1f m",
-                physics_height_share_ * 100.0f, physics_shortest_wave_);
-    ImGui::SetItemTooltip("The strongest waves carry most of a sea's height. What a body "
-                          "floating on them misses is everything shorter than the shortest "
-                          "of them: about right for a hull that long or longer, which "
-                          "averages out chop shorter than itself, and visibly wrong for a "
-                          "buoy or a swimmer.");
+    char text[80];
+    std::snprintf(text, sizeof(text), "%.0f%% of its height, waves down to %.1f m", physics_height_share_ * 100.0f,
+                  physics_shortest_wave_);
+    ui::row("A body feels",
+            "The strongest waves carry most of a sea's height. What a body floating on them misses is "
+            "everything shorter than the shortest of them: about right for a hull that long or longer, which "
+            "averages out chop shorter than itself, and visibly wrong for a buoy or a swimmer.",
+            [&] { ui::readout(text); });
 }
 
 void WaterEditorContext::draw_preview_wind() {
@@ -818,34 +794,41 @@ void WaterEditorContext::draw_preview_wind() {
     }
     if (!any_answers) return;
 
-    ImGui::Spacing();
     // The wind blowing on the preview, which is the editor's and not the
     // asset's: a .fjwater says how a sea answers wind, never what wind it
     // sits in. One wind for the whole preview, as the weather's is for a
     // placed sea, with every contributor answering it by its own response.
-    if (ImGui::SliderFloat("Preview wind", &preview_wind_speed_, 0.0f, 40.0f, "%.1f m/s")) {
-        apply_preview_wind();
-    }
-    ImGui::SetItemTooltip("What the preview is blown at, to watch the wind "
-                          "responses. Not saved — a placed sea takes its wind "
-                          "from the weather.");
-    if (ImGui::SliderFloat("Preview wind heading", &preview_wind_heading_,
-                           -180.0f, 180.0f, "%.0f deg")) {
-        apply_preview_wind();
-    }
-    // Back to the sea as authored, which only a Gerstner contributor has a
-    // wind for: a simulated one is whatever sea the wind it is given raises.
-    const GerstnerContributor* selected = selected_gerstner();
-    const GerstnerContributor* reference = selected != nullptr && selected->wind.enabled
-        ? selected
-        : answering;
-    if (reference != nullptr) {
-        if (ImGui::Button("Wind = reference")) {
-            preview_wind_speed_ = reference->wind.reference_speed;
-            apply_preview_wind();
+    ui::section("Preview wind", ui::icon::weather);
+    if (auto t = ui::PropertyTable("##preview_wind")) {
+        ui::row("Speed",
+                "What the preview is blown at, to watch the wind responses. Not saved: a placed sea takes its "
+                "wind from the weather.",
+                [&] {
+                    if (ui::slider("##preview_speed", preview_wind_speed_, 0.0f, 40.0f, ui::Unit::MetresPerSecond,
+                                   "%.1f").changed) {
+                        apply_preview_wind();
+                    }
+                });
+        ui::row("Heading", [&] {
+            if (ui::slider("##preview_heading", preview_wind_heading_, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f")
+                    .changed) {
+                apply_preview_wind();
+            }
+        });
+        // Back to the sea as authored, which only a Gerstner contributor has a
+        // wind for: a simulated one is whatever sea the wind it is given raises.
+        const GerstnerContributor* selected = selected_gerstner();
+        const GerstnerContributor* reference = selected != nullptr && selected->wind.enabled ? selected : answering;
+        if (reference != nullptr) {
+            ui::row("", [&] {
+                if (ui::action(ui::icon::revert, "Reference wind")) {
+                    preview_wind_speed_ = reference->wind.reference_speed;
+                    apply_preview_wind();
+                }
+                ImGui::SetItemTooltip("Back to the reference wind of the selected contributor, which is that "
+                                      "contributor as authored");
+            });
         }
-        ImGui::SetItemTooltip("Back to the reference wind of the selected contributor, "
-                              "which is that contributor as authored.");
     }
 }
 
@@ -863,108 +846,118 @@ void WaterEditorContext::draw_measures() {
     });
     if (longest <= 0.0f) return;
 
-    ImGui::Spacing();
-    ImGui::TextDisabled("Measures");
-    ImGui::Text("Crest to trough: %.2f m", water::wave_height(water_) * 2.0f);
-    ImGui::SetItemTooltip("With every crest of every contributor aligned, which "
-                          "a sea only rarely arranges.");
-    ImGui::Text("Longest train:   %.1f m", longest);
-    // The period is what says whether a sea rolls. Wind chop comes in at two
-    // to five seconds and reads as busy; swell that has travelled from a
-    // storm arrives at eight to fourteen and reads as a procession of ridges.
-    // The wavelength decides it, so this is a consequence rather than a
-    // setting — but it is the number to steer by.
-    const float omega = water::wave_frequency(longest) * longest_speed_scale;
-    if (omega > 1e-4f) {
-        const float period = glm::two_pi<float>() / omega;
-        const char* reads = period < 6.0f ? "wind chop"
-                          : (period < 8.0f ? "building" : "rolling swell");
-        ImGui::Text("Longest period:  %.1f s", period);
-        ImGui::TextDisabled("reads as %s", reads);
+    ui::section("Measures", ui::icon::info);
+    if (auto t = ui::PropertyTable("##measures")) {
+        char text[64];
+        std::snprintf(text, sizeof(text), "%.2f m", water::wave_height(water_) * 2.0f);
+        ui::row("Crest to trough", "With every crest of every contributor aligned, which a sea only rarely arranges.",
+                [&] { ui::readout(text); });
+        std::snprintf(text, sizeof(text), "%.1f m", longest);
+        ui::row("Longest train", [&] { ui::readout(text); });
+        // The period is what says whether a sea rolls. Wind chop comes in at
+        // two to five seconds and reads as busy; swell that has travelled
+        // from a storm arrives at eight to fourteen and reads as a procession
+        // of ridges. The wavelength decides it, so this is a consequence
+        // rather than a setting, but it is the number to steer by.
+        const float omega = water::wave_frequency(longest) * longest_speed_scale;
+        if (omega > 1e-4f) {
+            const float period = glm::two_pi<float>() / omega;
+            const char* reads = period < 6.0f ? "wind chop" : (period < 8.0f ? "building" : "rolling swell");
+            std::snprintf(text, sizeof(text), "%.1f s, reads as %s", period, reads);
+            ui::row("Longest period", [&] { ui::readout(text); });
+        }
+        // The shortest train is what decides how finely the surface has to be
+        // tessellated: under about four vertices per wavelength it cannot be
+        // drawn and comes out as noise instead of chop.
+        const float shortest = water::shortest_wavelength(water_);
+        std::snprintf(text, sizeof(text), "%.1f m", shortest);
+        ui::row("Shortest train", [&] { ui::readout(text); });
+        std::snprintf(text, sizeof(text), "Needs about %.1f m between vertices", shortest / 4.0f);
+        ui::hint(text);
     }
-    // The shortest train is what decides how finely the surface has to be
-    // tessellated: under about four vertices per wavelength it cannot be
-    // drawn and comes out as noise instead of chop.
-    const float shortest = water::shortest_wavelength(water_);
-    ImGui::Text("Shortest train:  %.1f m", shortest);
-    ImGui::TextDisabled("needs ~%.1f m between vertices", shortest / 4.0f);
 }
 
 void WaterEditorContext::draw_wave_list_panel() {
-    ImGui::Begin(ctx_title("Waves").c_str());
-    if (!loaded_) {
-        ImGui::TextDisabled("No .fjwater open.");
-        ImGui::End();
-        return;
-    }
+    auto panel = Panel(ui::icon::curve, ctx_title("Waves").c_str());
+    if (!panel) return;
+    if (!loaded_) return;
 
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ImGui::TextDisabled("Trains belong to a Gerstner contributor.");
-        ImGui::End();
+        ui::empty_state(ui::icon::water, "No trains here", "Trains belong to a Gerstner contributor; select one in Sea");
         return;
     }
 
-    ImGui::TextDisabled("%s", contributor_label(*sea).c_str());
-    ImGui::Text("%zu of %u trains", sea->waves.size(), MAX_WATER_WAVES);
-    ImGui::SameLine();
-    ImGui::BeginDisabled(sea->waves.size() >= MAX_WATER_WAVES);
-    if (ImGui::SmallButton("Add")) {
-        sea->waves.push_back(WaterWave{});
-        push_live();
+    char count[48];
+    std::snprintf(count, sizeof(count), "%zu of %u", sea->waves.size(), MAX_WATER_WAVES);
+    if (auto t = ui::PropertyTable("##train_count")) {
+        ui::row("Trains", [&] { ui::readout(count); });
     }
-    ImGui::EndDisabled();
-    ImGui::Separator();
 
-    int remove = -1;
-    for (std::size_t i = 0; i < sea->waves.size(); ++i) {
-        auto& wave = sea->waves[i];
-        ImGui::PushID(static_cast<int>(i));
-
-        // Name each train by its size rather than its index: which one is
-        // "the big swell" is the question being asked of the list.
-        if (ImGui::CollapsingHeader(
-                (std::to_string(i + 1) + ":  " + std::to_string(static_cast<int>(wave.wavelength))
-                 + " m  /  " + std::to_string(wave.amplitude).substr(0, 4) + " m").c_str(),
-                ImGuiTreeNodeFlags_DefaultOpen)) {
-            float deg = direction_degrees(wave.direction);
-            if (ImGui::SliderFloat("Direction", &deg, -180.0f, 180.0f, "%.0f deg")) {
-                wave.direction = direction_from_degrees(deg);
-                push_live();
+    // Each train is named by its size rather than its index: which one is
+    // "the big swell" is the question being asked of the list.
+    bool changed = false;
+    std::optional<std::size_t> remove;
+    {
+        ui::ListEditor list("##waves", sea->waves.size(), {.reorder = false, .opens = true});
+        for (std::size_t i = 0; i < sea->waves.size(); ++i) {
+            auto& wave = sea->waves[i];
+            const bool open = selected_wave_ == static_cast<int>(i);
+            if (!list.begin_item(i, open)) continue;
+            if (open) {
+                if (auto t = ui::PropertyTable("##wave")) {
+                    ui::Edit edit;
+                    ui::row("Direction", [&] {
+                        float deg = direction_degrees(wave.direction);
+                        const auto moved = ui::slider("##direction", deg, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+                        if (moved.changed) wave.direction = direction_from_degrees(deg);
+                        edit |= moved;
+                    });
+                    ui::row("Wavelength", [&] {
+                        edit |= ui::slider("##wavelength", wave.wavelength, 0.5f, 200.0f, ui::Unit::Metres, "%.1f");
+                    });
+                    ui::row("Amplitude", [&] {
+                        edit |= ui::slider("##amplitude", wave.amplitude, 0.0f, 6.0f, ui::Unit::Metres);
+                    });
+                    ui::row("Steepness", [&] { edit |= ui::slider("##steepness", wave.steepness, 0.0f, 1.0f); });
+                    ui::row("Speed", [&] { edit |= ui::slider("##speed", wave.speed, 0.0f, 3.0f, ui::Unit::Times); });
+                    // A train travels at the speed its wavelength implies, so
+                    // the period is a consequence rather than a setting, worth
+                    // showing because two trains with close periods beat
+                    // against each other.
+                    const float omega = water::wave_frequency(wave.wavelength) * wave.speed * sea->speed_scale;
+                    if (omega > 1e-4f) {
+                        char period[32];
+                        std::snprintf(period, sizeof(period), "%.1f s", glm::two_pi<float>() / omega);
+                        ui::row("Period", [&] { ui::readout(period); });
+                    }
+                    changed |= edit.changed;
+                }
+            } else {
+                char summary[96];
+                std::snprintf(summary, sizeof(summary), "%.1f m long \xc2\xb7 %.2f m high \xc2\xb7 %.0f\xc2\xb0",
+                              wave.wavelength, wave.amplitude, direction_degrees(wave.direction));
+                ImGui::TextUnformatted(summary);
             }
-            if (ImGui::SliderFloat("Wavelength", &wave.wavelength, 0.5f, 200.0f, "%.1f m")) {
-                push_live();
-            }
-            if (ImGui::SliderFloat("Amplitude", &wave.amplitude, 0.0f, 6.0f, "%.2f m")) {
-                push_live();
-            }
-            if (ImGui::SliderFloat("Steepness", &wave.steepness, 0.0f, 1.0f, "%.2f")) {
-                push_live();
-            }
-            if (ImGui::SliderFloat("Speed", &wave.speed, 0.0f, 3.0f, "%.2f")) {
-                push_live();
-            }
-
-            // A train travels at the speed its wavelength implies, so the
-            // period is a consequence rather than a setting — worth showing,
-            // because two trains with close periods beat against each other.
-            float omega = water::wave_frequency(wave.wavelength) * wave.speed
-                        * sea->speed_scale;
-            if (omega > 1e-4f) {
-                ImGui::TextDisabled("period %.1f s", glm::two_pi<float>() / omega);
-            }
-
-            if (ImGui::SmallButton("Remove")) remove = static_cast<int>(i);
+            if (list.end_item()) remove = i;
+            if (list.clicked()) selected_wave_ = open ? -1 : static_cast<int>(i);
         }
-        ImGui::PopID();
+        if (sea->waves.empty()) list.empty("No trains: generate some in Sea, or add one");
+        ImGui::BeginDisabled(sea->waves.size() >= MAX_WATER_WAVES);
+        if (list.add_button("Add train")) {
+            sea->waves.push_back(WaterWave{});
+            selected_wave_ = static_cast<int>(sea->waves.size()) - 1;
+            changed = true;
+        }
+        ImGui::EndDisabled();
     }
-
-    if (remove >= 0) {
-        sea->waves.erase(sea->waves.begin() + remove);
-        push_live();
+    if (remove) {
+        sea->waves.erase(sea->waves.begin() + static_cast<std::ptrdiff_t>(*remove));
+        if (selected_wave_ == static_cast<int>(*remove)) selected_wave_ = -1;
+        else if (selected_wave_ > static_cast<int>(*remove)) --selected_wave_;
+        changed = true;
     }
-
-    ImGui::End();
+    if (changed) push_live();
 }
 
 } // namespace fjell

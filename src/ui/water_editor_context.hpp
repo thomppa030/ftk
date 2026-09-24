@@ -134,6 +134,8 @@ private:
     water::SeaDerivation preview_derivation_;
     /// Index into `water_.contributors` of the one the panels edit.
     std::size_t selected_contributor_{0};
+    /// The train whose card is open in Waves, -1 for none.
+    int selected_wave_{-1};
 
     /// The last fold measurements, and whether the sea has changed since they
     /// were taken. Kept rather than measured every frame: with a simulated

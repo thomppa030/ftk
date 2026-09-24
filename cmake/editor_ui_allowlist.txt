@@ -21,4 +21,3 @@ src/ui/timeline_widget.cpp
 src/ui/ui_editor_context.cpp
 src/ui/vfx_editor_context.cpp
 src/ui/viewport_manager.cpp
-src/ui/water_editor_context.cpp

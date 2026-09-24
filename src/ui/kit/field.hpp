@@ -22,6 +22,7 @@ namespace fjell::ui {
 enum class Unit {
     None,
     Metres,
+    Kilometres,
     SquareMetres,
     MetresPerSecond,
     Degrees,
