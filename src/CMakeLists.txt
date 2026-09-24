@@ -75,6 +75,7 @@ add_executable(fjell
     core/window.cpp
     import/import_job.cpp
     import/import_dialog.cpp
+    import/source_inspection.cpp
     renderer/gpu/buffer.cpp
     renderer/camera.cpp
     renderer/debug_draw.cpp

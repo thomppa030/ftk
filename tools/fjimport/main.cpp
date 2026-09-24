@@ -21,6 +21,7 @@
 #include <meshoptimizer.h>
 
 #include <nlohmann/json.hpp>
+#include <unordered_set>
 
 #include <ozz/animation/offline/animation_builder.h>
 #include <ozz/animation/offline/raw_animation.h>
@@ -1586,11 +1587,51 @@ static fjell::MeshAuthoredData build_authored_data(
     return authored;
 }
 
+// What a source file holds, as one JSON line on stdout, for the editor's
+// import dialog to show before anything is imported.
+static void print_inspection(const aiScene* scene) {
+    uint64_t triangles = 0;
+    uint64_t vertices = 0;
+    std::unordered_set<std::string> bones;
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        const aiMesh* mesh = scene->mMeshes[m];
+        triangles += mesh->mNumFaces;
+        vertices += mesh->mNumVertices;
+        for (unsigned int b = 0; b < mesh->mNumBones; ++b) bones.insert(mesh->mBones[b]->mName.C_Str());
+    }
+    // Textures the materials name: embedded ones are "*<index>", the rest files.
+    std::unordered_set<std::string> texture_files;
+    for (unsigned int i = 0; i < scene->mNumMaterials; ++i) {
+        const aiMaterial* material = scene->mMaterials[i];
+        for (int type = aiTextureType_NONE + 1; type <= AI_TEXTURE_TYPE_MAX; ++type) {
+            const auto kind = static_cast<aiTextureType>(type);
+            for (unsigned int t = 0; t < material->GetTextureCount(kind); ++t) {
+                aiString path;
+                if (material->GetTexture(kind, t, &path) == AI_SUCCESS && path.length > 0 && path.C_Str()[0] != '*') {
+                    texture_files.insert(path.C_Str());
+                }
+            }
+        }
+    }
+    nlohmann::json j;
+    j["meshes"] = scene->mNumMeshes;
+    j["triangles"] = triangles;
+    j["vertices"] = vertices;
+    j["materials"] = scene->mNumMaterials;
+    j["embedded_textures"] = scene->mNumTextures;
+    j["texture_files"] = texture_files.size();
+    j["bones"] = bones.size();
+    j["animations"] = scene->mNumAnimations;
+    std::printf("%s\n", j.dump().c_str());
+    std::fflush(stdout);
+}
+
 static void print_usage(const char* prog) {
     std::fprintf(stderr,
         "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n"
+        "       %s <input.glb|gltf|fbx> --inspect  print what the file holds as one JSON line\n"
         "       %s <font.fjfont>        bake the recipe's atlas into .fjcache/ beside it\n",
-        prog, prog);
+        prog, prog, prog);
 }
 
 // Bakes one .fjfont recipe. Prints what a maintainer wants to see from a
@@ -1635,12 +1676,15 @@ int main(int argc, char* argv[]) {
     std::string output_path;
     std::string settings_path;
     bool use_json_progress = false;
+    bool inspect = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_path = argv[++i];
         } else if (std::strcmp(argv[i], "--settings") == 0 && i + 1 < argc) {
             settings_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--inspect") == 0) {
+            inspect = true;
         } else if (std::strcmp(argv[i], "--json-progress") == 0) {
             use_json_progress = true;
         } else if (argv[i][0] != '-') {
@@ -1682,7 +1726,7 @@ int main(int argc, char* argv[]) {
         output_path = p.string();
     }
 
-    if (!use_json_progress) {
+    if (!use_json_progress && !inspect) {
         std::printf("importing %s ...\n", input_path.c_str());
     }
 
@@ -1700,6 +1744,12 @@ int main(int argc, char* argv[]) {
                      input_path.c_str(), importer.GetErrorString());
         if (use_json_progress) json_error("Assimp failed to load file");
         return 1;
+    }
+
+    if (inspect) {
+        print_inspection(scene);
+        fjell::log::shutdown();
+        return 0;
     }
 
     // Check if any mesh has bones

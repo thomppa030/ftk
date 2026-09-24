@@ -16,6 +16,8 @@ add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
+    ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
+    ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
@@ -249,6 +251,7 @@ add_executable(fjell-tests
     test_vfx_pin.cpp
     test_vfx_graph.cpp
     test_hub_settings.cpp
+    test_source_inspection.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

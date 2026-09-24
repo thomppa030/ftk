@@ -36,8 +36,11 @@ public:
     /// Fired when import completes (success or failure).
     Delegate<void(bool success, const std::vector<std::string>& output_files)> on_complete;
 
-private:
+    /// Where the fjimport executable is: beside the engine when installed,
+    /// in the build tree during development; empty when it isn't found.
     [[nodiscard]] static std::filesystem::path find_fjimport();
+
+private:
     [[nodiscard]] std::filesystem::path write_settings_file(const MeshImportSettings& settings);
     void parse_progress_line(const std::string& line);
     void finish(bool success);
