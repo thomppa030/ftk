@@ -59,6 +59,9 @@ Result<> AnimationStateMachine::load_text(std::string_view text, const std::stri
         state.blend_space = js.value("blend_space", "");
         state.speed = js.value("speed", 1.0f);
         state.looping = js.value("loop", true);
+        if (const auto it = js.find("editor_position"); it != js.end() && it->is_array() && it->size() == 2) {
+            state.editor_position = glm::vec2((*it)[0].get<float>(), (*it)[1].get<float>());
+        }
 
         if (js.contains("transitions")) {
             for (const auto& jt : js["transitions"]) {
@@ -133,6 +136,7 @@ std::string AnimationStateMachine::text() const {
         if (!state.blend_space.empty()) js["blend_space"] = state.blend_space;
         if (state.speed != 1.0f) js["speed"] = state.speed;
         if (!state.looping) js["loop"] = state.looping;
+        if (state.editor_position) js["editor_position"] = {state.editor_position->x, state.editor_position->y};
 
         if (!state.transitions.empty()) {
             js["transitions"] = nlohmann::json::array();

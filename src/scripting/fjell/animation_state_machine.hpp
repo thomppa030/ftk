@@ -5,7 +5,10 @@
 #include "fjell/api.h"
 #include "fjell/delegate.hpp"
 
+#include <glm/vec2.hpp>
+
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -71,6 +74,10 @@ struct AnimationState {
     /// Transitions leaving this state, evaluated in order — the first whose
     /// conditions hold wins.
     std::vector<StateTransition> transitions;
+
+    /// Where the editor's state graph draws this state. Kept so the layout
+    /// survives a save; nothing at runtime reads it.
+    std::optional<glm::vec2> editor_position;
 
     /// Whether this state blends multiple clips rather than playing one.
     [[nodiscard]] bool uses_blend_space() const { return !blend_space.empty(); }

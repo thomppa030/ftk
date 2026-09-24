@@ -4,7 +4,10 @@
 #include "core/delegate.hpp"
 #include "core/result.hpp"
 
+#include <glm/vec2.hpp>
+
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -42,6 +45,9 @@ struct AnimationState {
     float speed{1.0f};
     bool looping{true};
     std::vector<StateTransition> transitions;
+    /// Where the editor's state graph draws it, in graph units. Saved with
+    /// the animset for the editor; the runtime never reads it.
+    std::optional<glm::vec2> editor_position;
 
     [[nodiscard]] bool uses_blend_space() const { return !blend_space.empty(); }
 };
