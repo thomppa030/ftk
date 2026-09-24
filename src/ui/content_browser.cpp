@@ -1,4 +1,11 @@
 #include "ui/content_browser.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/dialog.hpp"
+#include "ui/kit/search.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/asset_tile.hpp"
+#include "ui/kit/asset_kind.hpp"
 #include "core/asset_identity.hpp"
 #include "core/input_context_io.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
@@ -25,8 +32,22 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <optional>
+#include <utility>
 
 namespace fjell {
+
+namespace {
+
+// The search field at the end of the breadcrumb row.
+constexpr float SEARCH_WIDTH = 200.0f;
+
+// The delete confirmation, and how many of the files using an asset it
+// lists by name.
+constexpr const char* DELETE_DIALOG = "##delete_asset";
+constexpr size_t MAX_REFS_SHOWN = 8;
+
+} // namespace
 
 void ContentBrowser::init(IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
                           VulkanContext* vk_ctx, ResourceManager* resources,
@@ -155,33 +176,6 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
     return FileType::unknown;
-}
-
-const char* ContentBrowser::icon_name(FileType type) const {
-    switch (type) {
-        case FileType::folder:     return "folder";
-        case FileType::cpp_source: return "cpp";
-        case FileType::header:     return "header";
-        case FileType::model:      return "mesh";
-        case FileType::texture:    return "texture";
-        case FileType::scene:      return "folder";
-        case FileType::shader:     return "shader";
-        case FileType::material:   return "material";
-        case FileType::animation:  return "node";
-        case FileType::ui_layout:  return "shader";
-        case FileType::vfx:        return "node";
-        case FileType::widget:     return "node";
-        case FileType::preset:       return "node";
-        case FileType::input_config: return "node";
-        case FileType::font:         return "font";
-        case FileType::surface:      return "node";
-        case FileType::day_profile:  return "node";
-        case FileType::weather:      return "node";
-        case FileType::climate:      return "node";
-        case FileType::water:        return "node";
-        case FileType::unknown:      return "node";
-    }
-    return "node";
 }
 
 void ContentBrowser::draw_collapsed_tab() {
@@ -375,101 +369,91 @@ void ContentBrowser::draw() {
         preview_pending_release_ = true;
     }
 
-    // Delete confirmation popup (non-modal, lightweight)
+    // A file delete can't be undone, so it asks first, in a modal.
     if (show_delete_popup_ && delete_index_ >= 0 &&
         delete_index_ < static_cast<int>(entries_.size())) {
-        ImGui::OpenPopup("##DeleteConfirm");
+        ui::open_dialog(DELETE_DIALOG);
         show_delete_popup_ = false;
     }
-    if (ImGui::BeginPopup("##DeleteConfirm")) {
-        if (delete_index_ < 0 || delete_index_ >= static_cast<int>(entries_.size())) {
-            ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-            return;
-        }
-        auto& e = entries_[delete_index_];
-        ImGui::Text("Delete \"%s\"?", e.name.c_str());
+    if (delete_index_ < 0 || delete_index_ >= static_cast<int>(entries_.size())) return;
+    const Entry& e = entries_[static_cast<std::size_t>(delete_index_)];
 
-        // Warn while there is still a choice, and offer to move the references
-        // somewhere rather than leaving them dangling.
-        if (delete_refs_index_ != delete_index_) {
-            delete_refs_index_ = delete_index_;
-            delete_refs_.clear();
-            if (find_references && !e.is_directory) {
-                std::error_code rec;
-                auto rel = std::filesystem::relative(e.path, root_, rec);
-                if (!rec) delete_refs_ = find_references(rel.string());
-            }
+    // Warn while there is still a choice, and name what would be left
+    // pointing at nothing.
+    if (delete_refs_index_ != delete_index_) {
+        delete_refs_index_ = delete_index_;
+        delete_refs_.clear();
+        if (find_references && !e.is_directory) {
+            std::error_code rec;
+            auto rel = std::filesystem::relative(e.path, root_, rec);
+            if (!rec) delete_refs_ = find_references(rel.string());
         }
-
-        if (!delete_refs_.empty()) {
-            ImGui::Spacing();
-            ImGui::TextColored({0.95F, 0.75F, 0.3F, 1.0F},
-                               "Referenced by %zu file(s):", delete_refs_.size());
-            for (size_t i = 0; i < delete_refs_.size() && i < 8; ++i) {
-                ImGui::BulletText("%s", delete_refs_[i].c_str());
-            }
-            if (delete_refs_.size() > 8) {
-                ImGui::TextDisabled("  ... and %zu more", delete_refs_.size() - 8);
-            }
-
-            ImGui::TextDisabled("Deleting it leaves those references dangling.");
-        }
-
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.15f, 0.15f, 1.0f));
-        if (ImGui::Button("Delete", {80, 0})) {
-            std::error_code ec;
-            // Collect what is going away before deleting it, so the database
-            // can be told about paths that no longer exist.
-            std::vector<std::string> removed;
-            if (e.is_directory) {
-                for (const auto& sub : std::filesystem::recursive_directory_iterator(e.path, ec)) {
-                    if (!sub.is_regular_file()) continue;
-                    auto rel = std::filesystem::relative(sub.path(), root_, ec);
-                    if (!ec) removed.push_back(rel.string());
-                }
-                ec.clear();
-                std::filesystem::remove_all(e.path, ec);
-                if (!ec) {
-                    folder_colors_.removed(e.path);
-                    save_folder_colors();
-                }
-            } else {
-                auto rel = std::filesystem::relative(e.path, root_, ec);
-                if (!ec) removed.push_back(rel.string());
-                ec.clear();
-                std::filesystem::remove(e.path, ec);
-                // The sidecar holds this file's identity and has no meaning
-                // without it.
-                std::error_code side_ec;
-                std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
-                if (asset_thumbnails_ && asset_thumbnails_->supports(e.path)) {
-                    asset_thumbnails_->invalidate(e.path.string());
-                }
-            }
-            if (!ec) {
-                for (const auto& rel : removed) {
-                    on_asset_deleted.broadcast(rel);
-                }
-                FJELL_CORE_INFO("Deleted: {}", e.path.string());
-                refresh_current_dir();
-            } else {
-                FJELL_CORE_ERROR("Failed to delete: {}", ec.message());
-            }
-            delete_index_ = -1;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::PopStyleColor(3);
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {80, 0})) {
-            delete_index_ = -1;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
     }
+
+    const std::string title = "Delete " + e.name + "?";
+    const ui::DialogAnswer answer = ui::confirm_dialog(
+        DELETE_DIALOG,
+        {.title = title.c_str(), .confirm = e.is_directory ? "Delete folder" : "Delete file", .destructive = true},
+        [&] {
+            if (e.is_directory) {
+                ImGui::TextUnformatted("The folder and everything in it are deleted from disk. This can't be undone.");
+            } else {
+                ImGui::TextUnformatted("The file is deleted from disk. This can't be undone.");
+            }
+            if (!delete_refs_.empty()) {
+                ImGui::Dummy({0.0f, theme::GAP_S});
+                const std::string used = "Used by " + std::to_string(delete_refs_.size())
+                                       + (delete_refs_.size() == 1 ? " file, left pointing at nothing:" : " files, left pointing at nothing:");
+                ui::status(ui::Severity::Warning, used.c_str());
+                for (size_t i = 0; i < delete_refs_.size() && i < MAX_REFS_SHOWN; ++i) {
+                    ImGui::BulletText("%s", delete_refs_[i].c_str());
+                }
+                if (delete_refs_.size() > MAX_REFS_SHOWN) {
+                    ImGui::Text("and %zu more", delete_refs_.size() - MAX_REFS_SHOWN);
+                }
+            }
+        });
+    if (answer == ui::DialogAnswer::Confirm) {
+    std::error_code ec;
+    // Collect what is going away before deleting it, so the database
+    // can be told about paths that no longer exist.
+    std::vector<std::string> removed;
+    if (e.is_directory) {
+        for (const auto& sub : std::filesystem::recursive_directory_iterator(e.path, ec)) {
+            if (!sub.is_regular_file()) continue;
+            auto rel = std::filesystem::relative(sub.path(), root_, ec);
+            if (!ec) removed.push_back(rel.string());
+        }
+        ec.clear();
+        std::filesystem::remove_all(e.path, ec);
+        if (!ec) {
+            folder_colors_.removed(e.path);
+            save_folder_colors();
+        }
+    } else {
+        auto rel = std::filesystem::relative(e.path, root_, ec);
+        if (!ec) removed.push_back(rel.string());
+        ec.clear();
+        std::filesystem::remove(e.path, ec);
+        // The sidecar holds this file's identity and has no meaning
+        // without it.
+        std::error_code side_ec;
+        std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
+        if (asset_thumbnails_ && asset_thumbnails_->supports(e.path)) {
+            asset_thumbnails_->invalidate(e.path.string());
+        }
+    }
+    if (!ec) {
+        for (const auto& rel : removed) {
+            on_asset_deleted.broadcast(rel);
+        }
+        FJELL_CORE_INFO("Deleted: {}", e.path.string());
+        refresh_current_dir();
+    } else {
+        FJELL_CORE_ERROR("Failed to delete: {}", ec.message());
+    }
+    }
+    if (answer != ui::DialogAnswer::None) delete_index_ = -1;
 }
 
 void ContentBrowser::draw_breadcrumb() {
@@ -485,11 +469,15 @@ void ContentBrowser::draw_breadcrumb() {
         }
     }
 
+    // Each folder above is a ghost button back to it; the open one is text.
     for (size_t i = 0; i < segments.size(); ++i) {
         if (i > 0) {
-            ImGui::SameLine(0, 2);
-            ImGui::TextDisabled("/");
-            ImGui::SameLine(0, 2);
+            ImGui::SameLine(0, theme::GAP_XS);
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
+            ImGui::TextUnformatted(ui::icon::fold_closed);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0, theme::GAP_XS);
         }
 
         auto label = (i == 0) ? root_.filename().string()
@@ -497,14 +485,19 @@ void ContentBrowser::draw_breadcrumb() {
 
         ImGui::PushID(static_cast<int>(i));
         if (i == segments.size() - 1) {
+            ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(label.c_str());
-        } else {
-            if (ImGui::SmallButton(label.c_str())) {
-                navigate_to(segments[i]);
-            }
+        } else if (ui::button(label.c_str(), ui::ButtonKind::Ghost)) {
+            navigate_to(segments[i]);
         }
         ImGui::PopID();
     }
+
+    // The search over the open folder, at the row's end.
+    const float search_w = std::min(SEARCH_WIDTH, ImGui::GetContentRegionAvail().x);
+    ImGui::SameLine(std::max(ImGui::GetWindowContentRegionMax().x - search_w, ImGui::GetCursorPosX()));
+    ImGui::SetNextItemWidth(search_w);
+    ui::search_field("##search", search_);
 }
 
 void ContentBrowser::draw_directory_tree() {
@@ -580,33 +573,17 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) 
 void ContentBrowser::draw_file_grid() {
     constexpr int MAX_THUMBS_PER_FRAME = 2;
     int thumbs_loaded_this_frame = 0;
-    float cell_size = 80.0f;
-    float padding = 8.0f;
-    float cell_total = cell_size + padding;
-    float panel_width = ImGui::GetContentRegionAvail().x;
-    int columns = std::max(1, static_cast<int>(panel_width / cell_total));
+    const ImVec2 tile = ui::asset_tile_size();
+    const float gap = theme::GAP_M;
+    const float panel_width = ImGui::GetContentRegionAvail().x;
+    const int columns = std::max(1, static_cast<int>((panel_width + gap) / (tile.x + gap)));
 
-    // Back button for non-root
+    // Back up a folder, for non-root
     if (current_dir_ != root_) {
-        auto icon_desc = icons_ ? icons_->icon("folder") : VK_NULL_HANDLE;
-
-        ImGui::PushID(-1);
-        ImGui::BeginGroup();
-        if (icon_desc) {
-            ImGui::Image(icon_desc, {cell_size, cell_size});
-        } else {
-            ImGui::Dummy({cell_size, cell_size});
-        }
-        ImGui::TextWrapped("..");
-        ImGui::EndGroup();
-
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            navigate_to(current_dir_.parent_path());
-        }
-        ImGui::PopID();
-
-        // Start grid accounting for the back button
-        if (columns > 1) ImGui::SameLine(0, padding);
+        const auto up = ui::asset_tile({.id = "##up", .name = "..", .icon = ui::icon::folder,
+                                        .category = theme::Category::Structure});
+        if (up.double_clicked) navigate_to(current_dir_.parent_path());
+        if (columns > 1) ImGui::SameLine(0, gap);
     }
 
     // The whole grid area doubles as "the folder itself": right-clicking
@@ -618,161 +595,65 @@ void ContentBrowser::draw_file_grid() {
 
     int col = (current_dir_ != root_) ? 1 : 0;
     bool open_context_menu = false;
+    // A rename re-reads the folder, which replaces entries_, so it waits
+    // until the grid has been drawn.
+    std::optional<std::pair<int, std::string>> pending_rename;
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         auto& entry = entries_[i];
+        if (!ui::matches(entry.name, search_)) continue;
+
+        // Its picture: a texture's own thumbnail or an asset's rendered one;
+        // else its kind's icon, a folder in the colour it was given.
+        ImTextureID picture = 0;
+        if (entry.type == FileType::texture && icons_) {
+            const std::string thumb_path = entry.path.string();
+            VkDescriptorSet desc = icons_->thumbnail_cached(thumb_path);
+            if (!desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
+                desc = icons_->thumbnail(thumb_path);
+                ++thumbs_loaded_this_frame;
+            }
+            picture = reinterpret_cast<ImTextureID>(desc);
+        } else if (asset_thumbnails_ && entry.type != FileType::folder && asset_thumbnails_->supports(entry.path)) {
+            const auto asset_path = entry.path.string();
+            VkDescriptorSet desc = asset_thumbnails_->descriptor(asset_path);
+            if (!desc) asset_thumbnails_->request(asset_path);
+            picture = reinterpret_cast<ImTextureID>(desc);
+        }
+        const auto& kind = ui::asset_kind(entry.path.extension().string());
+        std::optional<ImVec4> tint;
+        if (entry.type == FileType::folder) {
+            if (auto color = folder_colors_.find(entry.path)) tint = ImVec4{color->r, color->g, color->b, 1.0f};
+        }
+        const std::string id = std::to_string(i);
+        const auto result = ui::asset_tile({
+            .id = id.c_str(),
+            .name = entry.name,
+            .picture = picture,
+            .icon = entry.type == FileType::folder ? ui::icon::folder : kind.icon,
+            .category = entry.type == FileType::folder ? theme::Category::Structure : kind.category,
+            .tint = tint,
+            .selected = i == selected_index_,
+            .query = search_,
+            .rename = &rename_,
+            .key = static_cast<uint32_t>(i),
+        });
 
         ImGui::PushID(i);
-
-        bool is_selected = (i == selected_index_);
-        bool is_renaming = (renaming_ && rename_index_ == i);
-
-        ImVec2 group_start = ImGui::GetCursorScreenPos();
-        auto* draw_list = ImGui::GetWindowDrawList();
-
-        // Reserve a background channel so the selection rect draws behind content
-        draw_list->ChannelsSplit(2);
-        draw_list->ChannelsSetCurrent(1); // foreground for content
-
-        ImGui::BeginGroup();
-
-        if (entry.type == FileType::folder) {
-            draw_folder_icon(entry.path, cell_size);
-        } else {
-            VkDescriptorSet icon_desc = VK_NULL_HANDLE;
-            bool is_thumbnail = false;
-            if (entry.type == FileType::texture && icons_) {
-                std::string thumb_path = entry.path.string();
-                icon_desc = icons_->thumbnail_cached(thumb_path);
-                if (!icon_desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
-                    icon_desc = icons_->thumbnail(thumb_path);
-                    ++thumbs_loaded_this_frame;
-                }
-            } else if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
-                auto asset_path = entry.path.string();
-                icon_desc = asset_thumbnails_->descriptor(asset_path);
-                if (!icon_desc) asset_thumbnails_->request(asset_path);
-                is_thumbnail = icon_desc != VK_NULL_HANDLE;
-            }
-            if (!icon_desc && icons_) {
-                icon_desc = icons_->icon(icon_name(entry.type));
-            }
-            if (icon_desc) {
-                // The type tints colour the generic icon; a rendered thumbnail
-                // is shown as it is.
-                ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
-                if (!is_thumbnail && entry.type == FileType::preset) {
-                    icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
-                } else if (!is_thumbnail && entry.type == FileType::widget) {
-                    icon_tint = {0.6f, 0.45f, 0.85f, 1.0f};
-                }
-                ImGui::Image(icon_desc, {cell_size, cell_size},
-                             ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
-            } else {
-                ImGui::Dummy({cell_size, cell_size});
-            }
+        if (result.renamed) pending_rename.emplace(i, *result.renamed);
+        if (result.clicked) selected_index_ = i;
+        if (result.double_clicked) {
+            // Copy entry — handle_double_click may invalidate entries_ via navigate_to
+            Entry entry_copy = entry;
+            handle_double_click(entry_copy);
+            // entries_ may be invalidated — stop processing this frame
+            ImGui::PopID();
+            break;
         }
-
-        // File name or rename input
-        if (is_renaming) {
-            ImGui::SetNextItemWidth(cell_size);
-            if (ImGui::InputText("##rename", rename_buf_, sizeof(rename_buf_),
-                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-                // Commit rename — preserve extension if user omitted it
-                std::string new_name(rename_buf_);
-                auto orig_ext = entry.path.extension().string();
-                if (!orig_ext.empty() && std::filesystem::path(new_name).extension().empty()) {
-                    new_name += orig_ext;
-                }
-                auto new_path = entry.path.parent_path() / new_name;
-                std::error_code ec;
-                std::filesystem::rename(entry.path, new_path, ec);
-                if (!ec) {
-                    if (entry.is_directory) {
-                        folder_colors_.moved(entry.path, new_path);
-                        save_folder_colors();
-                    }
-                    // A sidecar holds the file's identity, so it has to follow.
-                    std::error_code sc;
-                    auto from_side = asset_identity::sidecar_path(entry.path);
-                    if (std::filesystem::exists(from_side, sc)) {
-                        std::filesystem::rename(
-                            from_side, asset_identity::sidecar_path(new_path), sc);
-                    }
-                    // An action is addressed by the name inside it, not by its
-                    // file name, so a rename that left the field alone would
-                    // quietly keep binding the old one.
-                    if (new_path.extension() == ".fjaction") {
-                        auto def = parse_action_file(new_path.string());
-                        def.name = new_path.stem().string();
-                        write_action_file(def, new_path.string());
-                    }
-
-                    if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
-                        asset_thumbnails_->invalidate(entry.path.string());
-                    }
-
-                    auto old_rel = std::filesystem::relative(entry.path, root_);
-                    auto new_rel = std::filesystem::relative(new_path, root_);
-                    on_asset_moved.broadcast(old_rel.string(), new_rel.string());
-
-                    FJELL_CORE_INFO("Renamed: {} -> {}", entry.name, rename_buf_);
-                    refresh_current_dir();
-                } else {
-                    FJELL_CORE_ERROR("Failed to rename: {}", ec.message());
-                }
-                renaming_ = false;
-                rename_index_ = -1;
-            }
-            // Cancel on escape or click away
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-                (!ImGui::IsItemActive() && !ImGui::IsItemFocused() && ImGui::IsMouseClicked(0))) {
-                renaming_ = false;
-                rename_index_ = -1;
-            }
-            if (ImGui::IsWindowAppearing() || (!ImGui::IsItemActive() && rename_index_ == i)) {
-                ImGui::SetKeyboardFocusHere(-1);
-            }
-        } else {
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cell_size);
-            ImGui::TextWrapped("%s", entry.name.c_str());
-            ImGui::PopTextWrapPos();
-        }
-
-        ImGui::EndGroup();
-
-        // Draw selection backdrop behind the group
-        if (is_selected) {
-            draw_list->ChannelsSetCurrent(0); // background channel
-            float rounding = 4.0f;
-            ImU32 bg_color = ImGui::GetColorU32(ImGuiCol_Header);
-            draw_list->AddRectFilled(
-                {group_start.x - 4.0f, group_start.y - 2.0f},
-                {group_start.x + cell_size + 4.0f, ImGui::GetItemRectMax().y + 2.0f},
-                bg_color, rounding);
-            draw_list->ChannelsSetCurrent(1); // back to foreground
-        }
-
-        draw_list->ChannelsMerge();
-
-        // Interaction
-        if (ImGui::IsItemHovered()) {
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                selected_index_ = i;
-            }
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                // Copy entry — handle_double_click may invalidate entries_ via navigate_to
-                Entry entry_copy = entry;
-                handle_double_click(entry_copy);
-                // entries_ may be invalidated — stop processing this frame
-                ImGui::PopID();
-                break;
-            }
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                selected_index_ = i;
-                context_menu_index_ = i;
-                open_context_menu = true;
-            }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selected_index_ = i;
+            context_menu_index_ = i;
+            open_context_menu = true;
         }
 
         // Drag source — carries relative asset path
@@ -791,7 +672,10 @@ void ContentBrowser::draw_file_grid() {
 
         // Drop target on folders
         if (entry.is_directory && ImGui::BeginDragDropTarget()) {
-            if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            const auto* payload = ImGui::AcceptDragDropPayload(
+                "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+            if (payload != nullptr) ui::draw_drop(ui::DropPlace::Into, 0);
+            if (payload != nullptr && payload->IsDelivery()) {
                 // Find the source entry by matching the dropped path
                 std::string dropped_path(static_cast<const char*>(payload->Data));
                 int src_idx = -1;
@@ -838,11 +722,13 @@ void ContentBrowser::draw_file_grid() {
         // Grid layout
         col++;
         if (col < columns) {
-            ImGui::SameLine(0, padding);
+            ImGui::SameLine(0, gap);
         } else {
             col = 0;
         }
     }
+
+    if (pending_rename) rename_entry(pending_rename->first, pending_rename->second);
 
     // Deferred popup open — must happen outside PushID(i) so the ID matches BeginPopup
     if (open_context_menu) {
@@ -878,13 +764,10 @@ void ContentBrowser::draw_file_grid() {
 
     // The rename box owns the keyboard while it is open, so F2/Delete/Backspace
     // must not double as navigation shortcuts there.
-    if (ImGui::IsWindowFocused() && !renaming_) {
+    if (ImGui::IsWindowFocused() && !rename_.editing()) {
         if (ImGui::IsKeyPressed(ImGuiKey_F2) && selected_index_ >= 0 &&
             selected_index_ < static_cast<int>(entries_.size())) {
-            renaming_ = true;
-            rename_index_ = selected_index_;
-            std::strncpy(rename_buf_, entries_[selected_index_].name.c_str(), sizeof(rename_buf_) - 1);
-            rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+            start_rename(selected_index_);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selected_index_ >= 0 &&
             selected_index_ < static_cast<int>(entries_.size())) {
@@ -898,6 +781,60 @@ void ContentBrowser::draw_file_grid() {
 
     // Context menu must live in the same child window where OpenPopup is called
     draw_context_menu();
+}
+
+void ContentBrowser::start_rename(int index) {
+    if (index < 0 || index >= static_cast<int>(entries_.size())) return;
+    rename_.start(static_cast<uint32_t>(index), entries_[static_cast<std::size_t>(index)].name);
+}
+
+void ContentBrowser::rename_entry(int index, const std::string& name) {
+    if (index < 0 || index >= static_cast<int>(entries_.size())) return;
+    // A copy: refreshing the folder at the end replaces entries_.
+    const Entry entry = entries_[static_cast<std::size_t>(index)];
+    // Commit rename — preserve extension if user omitted it
+    std::string new_name = name;
+    auto orig_ext = entry.path.extension().string();
+    if (!orig_ext.empty() && std::filesystem::path(new_name).extension().empty()) {
+        new_name += orig_ext;
+    }
+    auto new_path = entry.path.parent_path() / new_name;
+    std::error_code ec;
+    std::filesystem::rename(entry.path, new_path, ec);
+    if (!ec) {
+        if (entry.is_directory) {
+            folder_colors_.moved(entry.path, new_path);
+            save_folder_colors();
+        }
+        // A sidecar holds the file's identity, so it has to follow.
+        std::error_code sc;
+        auto from_side = asset_identity::sidecar_path(entry.path);
+        if (std::filesystem::exists(from_side, sc)) {
+            std::filesystem::rename(
+                from_side, asset_identity::sidecar_path(new_path), sc);
+        }
+        // An action is addressed by the name inside it, not by its
+        // file name, so a rename that left the field alone would
+        // quietly keep binding the old one.
+        if (new_path.extension() == ".fjaction") {
+            auto def = parse_action_file(new_path.string());
+            def.name = new_path.stem().string();
+            write_action_file(def, new_path.string());
+        }
+
+        if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
+            asset_thumbnails_->invalidate(entry.path.string());
+        }
+
+        auto old_rel = std::filesystem::relative(entry.path, root_);
+        auto new_rel = std::filesystem::relative(new_path, root_);
+        on_asset_moved.broadcast(old_rel.string(), new_rel.string());
+
+        FJELL_CORE_INFO("Renamed: {} -> {}", entry.name, name);
+        refresh_current_dir();
+    } else {
+        FJELL_CORE_ERROR("Failed to rename: {}", ec.message());
+    }
 }
 
 void ContentBrowser::draw_context_menu() {
@@ -1133,10 +1070,7 @@ void ContentBrowser::draw_common_context_items(int index) {
 
     auto& entry = entries_[index];
     if (ImGui::MenuItem("Rename")) {
-        renaming_ = true;
-        rename_index_ = index;
-        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+        start_rename(index);
     }
     if (ImGui::MenuItem("Delete")) {
         delete_index_ = index;
@@ -1288,10 +1222,7 @@ void ContentBrowser::create_asset_file(std::string_view filename,
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         if (entries_[i].name == default_name) {
             selected_index_ = i;
-            renaming_ = true;
-            rename_index_ = i;
-            std::strncpy(rename_buf_, default_name.c_str(), sizeof(rename_buf_) - 1);
-            rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+            start_rename(i);
             break;
         }
     }
@@ -1325,10 +1256,7 @@ void ContentBrowser::create_folder() {
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         if (entries_[i].name == default_name) {
             selected_index_ = i;
-            renaming_ = true;
-            rename_index_ = i;
-            std::strncpy(rename_buf_, default_name.c_str(), sizeof(rename_buf_) - 1);
-            rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+            start_rename(i);
             break;
         }
     }

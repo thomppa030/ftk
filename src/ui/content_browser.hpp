@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/kit/tree.hpp"
+
 #include "core/delegate.hpp"
 #include "ui/folder_colors.hpp"
 
@@ -88,7 +90,6 @@ private:
     void handle_double_click(const Entry& entry);
 
     [[nodiscard]] static FileType classify(const std::filesystem::path& path);
-    [[nodiscard]] const char* icon_name(FileType type) const;
 
     IconCache* icons_{nullptr};
     AssetThumbnailRenderer* asset_thumbnails_{nullptr};
@@ -107,10 +108,14 @@ private:
     int selected_index_{-1};
     int context_menu_index_{-1};
 
-    // Rename state
-    bool renaming_{false};
-    int rename_index_{-1};
-    char rename_buf_[256]{};
+    // The entry being renamed, keyed by its index in entries_.
+    ui::RenameBox rename_;
+    // The search over the open folder.
+    std::string search_;
+    void start_rename(int index);
+    // Renames the entry on disk, taking its sidecar along, and tells the
+    // project the asset moved.
+    void rename_entry(int index, const std::string& new_name);
 
     // Delete confirmation popup
     bool show_delete_popup_{false};
