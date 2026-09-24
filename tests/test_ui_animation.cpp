@@ -360,3 +360,26 @@ TEST_CASE("A length that changes unit snaps instead of interpolating", "[anim]")
     REQUIRE_FALSE(anim.update(*root, 0.5f));
     REQUIRE(root->style.width == UiLength::percent(50.0f));
 }
+
+TEST_CASE("Fading a container fades what it holds, frame by frame", "[anim][opacity]") {
+    auto panel = make_node("div");
+    panel->style.transition = "opacity 0.4s linear";
+    auto* label = add_child(*panel, make_node("span"));
+    auto* bar = add_child(*label, make_node("bar"));
+    bar->style.opacity = 0.8f; // its own, which the fade multiplies
+
+    UiAnimation anim;
+    anim.update(*panel, 0.0f); // snapshot at full opacity
+    panel->style.opacity = 0.0f; // the cascade sets the target, e.g. under .calm
+    anim.update(*panel, 0.0f); // the transition starts
+
+    anim.update(*panel, 0.2f); // halfway
+    ui_resolve_draw_opacity(*panel);
+    REQUIRE(label->draw_opacity == Catch::Approx(0.5f).margin(0.05f));
+    REQUIRE(bar->draw_opacity == Catch::Approx(0.4f).margin(0.05f));
+
+    anim.update(*panel, 0.2f); // done
+    ui_resolve_draw_opacity(*panel);
+    REQUIRE(label->draw_opacity == Catch::Approx(0.0f));
+    REQUIRE(bar->draw_opacity == Catch::Approx(0.0f));
+}

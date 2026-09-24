@@ -323,7 +323,9 @@ void GameUi::update(float viewport_width, float viewport_height,
         layout_dirty_ = false;
     }
 
-    // 7. Flatten quads to SSBO
+    // 7. Flatten quads to SSBO, at the opacity each node is drawn at now
+    // that transitions have moved it this frame
+    ui_resolve_draw_opacity(*root_);
     renderer_.update(*root_, viewport_width, viewport_height, scale, frame_index);
 
     // 8. Shape and upload text for all text nodes

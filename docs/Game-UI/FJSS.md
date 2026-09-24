@@ -95,9 +95,12 @@ Visual: `background`, `background-color`, `border` (`2 solid #555`), `border-col
 `border-width`, `border-radius` (one, two or four values), `box-shadow`
 (`x y blur spread color`), `opacity`.
 
+`opacity` fades the element and everything inside it, as in CSS: nested opacities
+multiply, a child's own `opacity: 1` does not lift it out of a faded parent, and a
+transition on a container's opacity fades its whole contents.
+
 Text: `color`, `font-size`, `line-height`, `font-family`, `font-weight`,
-`text-shadow`. `color`, `font-size`, `line-height`, `font-family`, `font-weight`,
-`text-shadow` and `opacity` inherit.
+`text-shadow`. All of them inherit.
 
 `text-shadow` is `x y [blur] color`, the colour first or last, or `none`: a copy of
 the text drawn under it, offset and blurred as CSS blurs a shadow, at any text size.

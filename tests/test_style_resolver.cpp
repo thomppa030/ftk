@@ -216,14 +216,34 @@ TEST_CASE("Font-size inherits from parent", "[style]") {
     REQUIRE(child->style.font_size == Catch::Approx(24.0f));
 }
 
-TEST_CASE("Opacity inherits from parent", "[style]") {
+TEST_CASE("Opacity is the element's own and multiplies down at draw time", "[style][opacity]") {
     auto root = make_node("div");
     auto* child = add_child(*root, make_node("span"));
+    auto* grandchild = add_child(*child, make_node("span"));
 
-    auto sheet = FjssParser::parse("div { opacity: 0.5; }");
+    auto sheet = FjssParser::parse("div { opacity: 0.5; } span { opacity: 0.5; } span span { opacity: 1; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
     REQUIRE(child->style.opacity == Catch::Approx(0.5f));
+
+    ui_resolve_draw_opacity(*root);
+    REQUIRE(root->draw_opacity == Catch::Approx(0.5f));
+    REQUIRE(child->draw_opacity == Catch::Approx(0.25f));
+    // Its own full opacity does not lift it out of the faded group.
+    REQUIRE(grandchild->draw_opacity == Catch::Approx(0.25f));
+}
+
+TEST_CASE("A hidden container hides children that set their own opacity", "[style][opacity]") {
+    auto root = make_node("div", "", {"calm"});
+    auto* panel = add_child(*root, make_node("div", "", {"panel"}));
+    auto* slot = add_child(*panel, make_node("div", "", {"slot"}));
+
+    auto sheet = FjssParser::parse(".calm .panel { opacity: 0; } .slot { opacity: 0.45; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    ui_resolve_draw_opacity(*root);
+    REQUIRE(slot->style.opacity == Catch::Approx(0.45f));
+    REQUIRE(slot->draw_opacity == Catch::Approx(0.0f));
 }
 
 TEST_CASE("Width does NOT inherit", "[style]") {
@@ -533,8 +553,10 @@ TEST_CASE("Full cascade: tag + class + id + pseudo + inheritance + inline", "[st
     REQUIRE(slot->style.color.r == Catch::Approx(1.0f));
     REQUIRE(slot->style.font_size == Catch::Approx(14.0f));
 
-    // Slot: inherits opacity from parent (which was set by #hud rule)
-    REQUIRE(slot->style.opacity == Catch::Approx(0.9f));
+    // Slot: keeps its own opacity and is drawn at the #hud rule's through the group
+    REQUIRE(slot->style.opacity == Catch::Approx(1.0f));
+    ui_resolve_draw_opacity(*root);
+    REQUIRE(slot->draw_opacity == Catch::Approx(0.9f));
 }
 
 // --- Empty / edge cases ---

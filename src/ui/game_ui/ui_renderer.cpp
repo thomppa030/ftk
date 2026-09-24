@@ -431,7 +431,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
                        pg.w + 2.0f * blur, pg.h + 2.0f * blur};
             gg.uv_rect = {pg.uv_x0 - du, pg.uv_y0 - dv, pg.uv_x1 + du, pg.uv_y1 + dv};
             gg.color = {color.r, color.g, color.b, color.a};
-            gg.params = {style.opacity, static_cast<float>(atlas_index), pixel_range, blur};
+            gg.params = {source_node.draw_opacity, static_cast<float>(atlas_index), pixel_range, blur};
             gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
                             source_node.clip_rect.w, source_node.clip_rect.h};
             gg.viewport_size = {viewport_width, viewport_height};
@@ -476,7 +476,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
                           s.border_radius.bottom_right + expand,
                           s.border_radius.bottom_left + expand};
         // flags bit 1 = shadow quad; shadow_params = blur, spread
-        shadow.params = {0.0f, s.opacity, 2.0f, 0.0f};
+        shadow.params = {0.0f, node.draw_opacity, 2.0f, 0.0f};
         shadow.clip_rect = {node.clip_rect.x, node.clip_rect.y,
                             node.clip_rect.w, node.clip_rect.h};
         shadow.viewport_size = {viewport_width, viewport_height};
@@ -524,7 +524,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
                              s.border_color.b, s.border_color.a};
         quad.corners = {s.border_radius.top_left, s.border_radius.top_right,
                         s.border_radius.bottom_right, s.border_radius.bottom_left};
-        quad.params = {s.border_width, s.opacity, flags, s.gradient.angle};
+        quad.params = {s.border_width, node.draw_opacity, flags, s.gradient.angle};
         quad.clip_rect = {node.clip_rect.x, node.clip_rect.y,
                           node.clip_rect.w, node.clip_rect.h};
         if (s.gradient.active() && !has_texture && !has_material) {
@@ -552,7 +552,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& q
                     0.0f};
 
         // Classify opaque: fully opaque color, no border-radius, not shadow, not textured
-        bool is_opaque = s.opacity >= 1.0f &&
+        bool is_opaque = node.draw_opacity >= 1.0f &&
                          quad.color.a >= 1.0f &&
                          s.border_radius.top_left == 0.0f &&
                          s.border_radius.top_right == 0.0f &&

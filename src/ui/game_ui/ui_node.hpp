@@ -38,6 +38,12 @@ struct UiNode {
     // Clip rect from parent overflow:hidden (in screen pixels)
     UiRect clip_rect{0.0f, 0.0f, 99999.0f, 99999.0f};
 
+    // What the node is drawn at: its own opacity times every ancestor's.
+    // Opacity fades an element together with everything inside it, as CSS
+    // composites a group, so it is multiplied down the tree rather than
+    // inherited as a value. Set by ui_resolve_draw_opacity() before drawing.
+    float draw_opacity{1.0f};
+
     // Interaction state bitfield: hovered(1), active(2), focused(4)
     uint8_t interaction_state{0};
 
@@ -117,6 +123,16 @@ struct UiNode {
     [[nodiscard]] bool is_active() const { return (interaction_state & 2) != 0; }
     [[nodiscard]] bool is_focused() const { return (interaction_state & 4) != 0; }
 };
+
+/// Sets draw_opacity through the subtree. `parent` is the draw opacity of
+/// the node above; a transition on a container's opacity reaches its
+/// children through this, frame by frame.
+inline void ui_resolve_draw_opacity(UiNode& node, float parent = 1.0f) {
+    node.draw_opacity = parent * node.style.opacity;
+    for (auto& child : node.children) {
+        ui_resolve_draw_opacity(*child, node.draw_opacity);
+    }
+}
 
 /// Records `file` as the source of every node in the subtree that has none
 /// yet. Nodes spliced in from another file keep theirs.

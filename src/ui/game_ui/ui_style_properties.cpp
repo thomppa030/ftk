@@ -176,7 +176,7 @@ const UiPropertyDescriptor PROPERTIES[] = {
     number("border-width", &Style::border_width),
     {.name = "border-radius", .kind = Kind::corners, .member = &Style::border_radius,
      .animatable = true},
-    number("opacity", &Style::opacity, true, true),
+    number("opacity", &Style::opacity),
     composite("box-shadow"),
 
     // Text
