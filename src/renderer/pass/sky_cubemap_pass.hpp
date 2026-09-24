@@ -48,8 +48,10 @@ public:
                         float rayleigh_scale, float mie_scale,
                         float mie_g, float mie_coeff);
 
-    /// Dispatch the cubemap compute shader and generate mips.
-    /// Only does work if dirty.
+    /// Dispatch the cubemap compute shader and generate mips. Only does
+    /// work if dirty. Expects the cubemap in GENERAL layout: inside the
+    /// frame graph the declared write puts it there, and the creation-time
+    /// one-shot goes through begin_cubemap_write() first.
     void generate(VkCommandBuffer cmd);
     /// Render the active FJSL sky into the cubemap with its compute variant,
     /// so the sky that is drawn is the sky that lights. Rebuilds its pipeline
@@ -67,6 +69,11 @@ public:
 
     [[nodiscard]] bool dirty() const { return dirty_; }
     [[nodiscard]] bool has_hdri() const { return hdri_cubemap_view_ != VK_NULL_HANDLE; }
+    /// Whether record() renders the procedural cubemap this frame. An HDRI
+    /// replaces it entirely, so a stale gradient under one is not rendered
+    /// until the HDRI goes away. declare() and record() both answer this so
+    /// the graph sees exactly the frames that write.
+    [[nodiscard]] bool generates_this_frame() const { return dirty_ && !has_hdri(); }
 
     /// Monotonic counter — bumped whenever the sky cubemap view/sampler
     /// identity changes (HDRI load, HDRI clear). Consumers (DDGI, SSR) that
@@ -147,7 +154,6 @@ private:
     float atm_mie_coeff_{21e-6f};
 
     bool dirty_{true};
-    bool first_generate_{true};
 
     // FJSL sky: the sky shader's compute variant over the six faces. Binds
     // the global set, the bindless set and the storage image.

@@ -82,6 +82,7 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
+    begin_cubemap_write(cmd);
     generate(cmd);
     vkEndCommandBuffer(cmd);
 
@@ -262,21 +263,18 @@ void SkyCubemapPass::set_atmosphere(bool enabled, const glm::vec3& sun_dir,
 }
 
 void SkyCubemapPass::begin_cubemap_write(VkCommandBuffer cmd) {
-    // Transition cubemap mip 0 to GENERAL for compute write
+    // The whole image to GENERAL for the compute write and the mip blits.
+    // Only the creation-time one-shot comes through here, on a fresh image;
+    // in the frame the graph performs this transition from the declared
+    // write.
     {
         VkImageMemoryBarrier2 barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = first_generate_
-            ? VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT
-            : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        barrier.srcAccessMask = first_generate_
-            ? 0
-            : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        barrier.srcAccessMask = 0;
         barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.oldLayout = first_generate_
-            ? VK_IMAGE_LAYOUT_UNDEFINED
-            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -297,7 +295,6 @@ void SkyCubemapPass::begin_cubemap_write(VkCommandBuffer cmd) {
 
 void SkyCubemapPass::generate(VkCommandBuffer cmd) {
     if (!dirty_) return;
-    begin_cubemap_write(cmd);
 
     // Dispatch cubemap compute shader
     struct PushConstants {
@@ -341,7 +338,6 @@ void SkyCubemapPass::generate(VkCommandBuffer cmd) {
     generate_mips(cmd);
 
     dirty_ = false;
-    first_generate_ = false;
 }
 
 void SkyCubemapPass::generate_mips(VkCommandBuffer cmd) {
@@ -490,11 +486,6 @@ void SkyCubemapPass::generate_mips(VkCommandBuffer cmd) {
 }
 
 void SkyCubemapPass::create_cubemap() {
-    // A fresh image starts in UNDEFINED, so the next generate has to barrier
-    // from that rather than from SHADER_READ_ONLY. Tied to image creation
-    // because the pass can be created more than once against the same object.
-    first_generate_ = true;
-
     // Create cubemap image
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -846,17 +837,15 @@ void SkyCubemapPass::generate_brdf_lut() {
 
 void SkyCubemapPass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_sky_cubemap");
-    if (ctx.passes != nullptr) {
-        auto& sky = ctx.passes->get<SkyPass>("sky");
-        set_colors(sky.top_color(), sky.bottom_color());
-    }
-    if (dirty()) {
-        FJELL_GPU_ZONE(ctx, "Sky Cubemap");
-        if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
-            generate_fjsl(ctx);
-        } else {
-            generate(ctx.cmd);
-        }
+    // Everything that makes the cubemap stale was read in prepare_frame(),
+    // before declare() told the graph about this frame's write; nothing may
+    // dirty it here or the write would go unbarriered.
+    if (!generates_this_frame()) { return; }
+    FJELL_GPU_ZONE(ctx, "Sky Cubemap");
+    if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
+        generate_fjsl(ctx);
+    } else {
+        generate(ctx.cmd);
     }
 }
 
@@ -925,7 +914,6 @@ void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
         generate(ctx.cmd);
         return;
     }
-    begin_cubemap_write(ctx.cmd);
 
     struct PushConstants {
         float viewport_width;
@@ -944,7 +932,6 @@ void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
 
     generate_mips(ctx.cmd);
     dirty_ = false;
-    first_generate_ = false;
     fjsl_rendered_ = true;
 }
 
@@ -957,19 +944,20 @@ PassSetup SkyCubemapPass::setup() const {
 }
 
 void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // On a clean frame the pass writes nothing, declares nothing, and the
+    // graph culls it. On a dirty frame the declared write is what brings
+    // the whole image (every mip, all six faces) to GENERAL before the
+    // dispatch; the mip chain then blits through TRANSFER layouts and
+    // leaves everything readable by fragment shaders, which the
+    // final_layout reports so a reader's barrier is skipped.
+    if (!generates_this_frame()) { return; }
     auto cubemap = builder.import_named(ctx, "sky_cubemap");
-    if (cubemap.valid()) {
-        // SkyCubemapPass manages its own mip-chain layout choreography
-        // inside generate() — the graph would otherwise emit a barrier
-        // for a write that only happens when dirty_, leaving the
-        // cubemap in GENERAL on clean frames. Declaring only the
-        // final_layout lets the graph track the post-state without
-        // pre-transitioning the image.
-        builder.final_layout(cubemap,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-    }
+    if (!cubemap.valid()) { return; }
+    builder.write(cubemap, ResourceAccess::storage_write_compute);
+    builder.final_layout(cubemap,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     // BRDF LUT is a static pass-private texture — not in the catalog.
 }
 
@@ -981,7 +969,7 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
         ? hdri_cubemap_view_ : cubemap_view_;
     if (image == VK_NULL_HANDLE || view == VK_NULL_HANDLE) { return; }
     const uint32_t mips = hdri_cubemap_view_ != VK_NULL_HANDLE
-        ? HDRI_MIP_LEVELS : 1;
+        ? HDRI_MIP_LEVELS : MIP_LEVELS;
     ImportedImage img{};
     img.image = image;
     img.view = view;
