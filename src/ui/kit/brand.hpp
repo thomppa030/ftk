@@ -2,6 +2,8 @@
 
 #include <imgui.h>
 
+#include <string_view>
+
 // Fjell's own marks (sheet 9): the logo, the word, and what the hub and the
 // splash show while something loads. One function each, so the hub, the
 // splash and anything after them draw the same thing.
@@ -21,5 +23,10 @@ void wordmark(ImDrawList* draw_list, ImVec2 centre, float size);
 /// Something is loading: an arc in the accent turning around `centre`,
 /// `seconds` since it started.
 void spinner(ImDrawList* draw_list, ImVec2 centre, float radius, float seconds);
+
+/// Something is loading and this is what: the spinner with its caption
+/// under it in the secondary colour ("Opening harbour…"), centred on
+/// `top_centre`, the middle of the spinner's top edge.
+void loading(ImDrawList* draw_list, ImVec2 top_centre, std::string_view what, float seconds);
 
 } // namespace fjell::ui

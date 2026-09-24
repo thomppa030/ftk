@@ -210,12 +210,7 @@ void HubUI::draw_splash(float window_w, float window_h) {
     const float word_y = LOGO_TOP + ui::logo_size(LOGO_SCALE).y + 30.0f;
     ui::wordmark(dl, {cx, word_y}, 24.0f);
 
-    const float spin_y = word_y + 56.0f;
-    ui::spinner(dl, {cx, spin_y}, 14.0f, splash_timer_);
-    const std::string opening = "Opening " + launch_name_ + "\xe2\x80\xa6";
-    const ImVec2 ts = ImGui::CalcTextSize(opening.c_str());
-    dl->AddText({cx - ts.x * 0.5f, spin_y + 14.0f + theme::GAP_L}, ImGui::GetColorU32(theme::text_secondary()),
-                opening.c_str());
+    ui::loading(dl, {cx, word_y + 42.0f}, "Opening " + launch_name_ + "\xe2\x80\xa6", splash_timer_);
     ImGui::End();
 }
 
