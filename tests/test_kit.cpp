@@ -626,6 +626,7 @@ TEST_CASE("A pane and the brand's marks leave ImGui's stacks as they found them"
             ui::draw_logo(dl, {110.0f, 20.0f}, 0.5f);
             ui::wordmark(dl, {110.0f, 150.0f}, 20.0f);
             ui::spinner(dl, {110.0f, 200.0f}, 14.0f, 1.0f);
+            ui::loading(dl, {110.0f, 230.0f}, "Opening harbour\xe2\x80\xa6", 1.0f);
         }
         style_vars = g.StyleVarStack.Size - vars_before;
         colours = g.ColorStack.Size - colours_before;
