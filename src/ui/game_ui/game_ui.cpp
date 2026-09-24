@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <optional>
 #include <fstream>
 #include <sstream>
 
@@ -126,11 +127,12 @@ void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_
     // Run an initial data_bind pass to sync prop_map values into scoped
     // contexts before resolve_textures (material attributes may reference
     // {prop} bindings) and before any controller's begin_play reads them.
-    data_bind_.resolve(*root_, context_);
+    auto bind_result = data_bind_.resolve(*root_, context_);
 
     if (resource_manager_) {
         resolve_textures(*root_);
     }
+    apply_bound_assets(bind_result);
 
     dirty_ = true;
     FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
@@ -263,6 +265,7 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 1. Data binding: resolve {key} templates and if directives
     auto bind_result = data_bind_.resolve(*root_, context_);
+    apply_bound_assets(bind_result);
     if (bind_result.layout_changed) {
         dirty_ = true;
         layout_dirty_ = true;
@@ -382,44 +385,59 @@ void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDes
 }
 
 void GameUi::resolve_textures(UiNode& node) {
-    // An attribute may name its asset through a {key} template. Inside a
-    // widget instance the nearest scoped context holds its props; a tree
-    // loaded on its own (editor preview, thumbnail) has none and reads the
-    // root context, where the loader seeded the prop defaults.
-    auto resolve_reference = [&](const std::string& value) {
-        if (value.find('{') == std::string::npos) return value;
-        UiContext* ctx = &context_;
-        for (auto* n = &node; n; n = n->parent) {
-            if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
-        }
-        return UiDataBind::resolve_template(value, *ctx);
+    resolve_node_assets(node, false);
+    for (auto& child : node.children) {
+        resolve_textures(*child);
+    }
+}
+
+void GameUi::apply_bound_assets(const DataBindResult& result) {
+    if (!resource_manager_ || result.asset_changes.empty()) return;
+    for (auto* node : result.asset_changes) {
+        resolve_node_assets(*node, true);
+    }
+    needs_redraw_ = true;
+}
+
+void GameUi::resolve_node_assets(UiNode& node, bool bound) {
+    // The attribute's reference when it is the kind asked for: a plain path
+    // as written, or a {key} template as binding last resolved it.
+    auto reference_for = [&](const char* attr,
+                             const std::string& bound_value) -> std::optional<std::string> {
+        auto it = node.attributes.find(attr);
+        if (it == node.attributes.end() || it->second.empty()) return std::nullopt;
+        bool templated = it->second.find('{') != std::string::npos;
+        if (templated != bound) return std::nullopt;
+        return templated ? bound_value : it->second;
     };
 
-    // Resolve src="path" → bindless texture index. A project's own textures
-    // resolve against the project, like materials do; without a project the
-    // path is engine-relative.
-    auto src_it = node.attributes.find("src");
-    if (src_it != node.attributes.end() && !src_it->second.empty()) {
-        std::string src = resolve_reference(src_it->second);
-        auto resolved_path = src.empty() ? std::string{} : base_path::resolve_asset(src, project_);
-        auto tex_result = resolved_path.empty()
-            ? Result<TextureHandle>(make_error("asset reference does not resolve"))
-            : resource_manager_->load_texture(resolved_path);
-        if (tex_result) {
-            node.resolved_texture_id = resource_manager_->bindless_index(*tex_result);
-        } else {
-            FJELL_CORE_WARN("{}:{}: <{}> src='{}' did not load: {}",
-                            node.source_file, node.source_line, node.tag, src_it->second,
-                            tex_result.error());
+    // src="path" → bindless texture index. A project's own textures resolve
+    // against the project, like materials do; without a project the path is
+    // engine-relative.
+    if (auto src = reference_for("src", node.bound_src)) {
+        node.resolved_texture_id = 0;
+        if (!src->empty()) { // a key with no value yet draws no texture
+            auto resolved_path = base_path::resolve_asset(*src, project_);
+            auto tex_result = resolved_path.empty()
+                ? Result<TextureHandle>(make_error("asset reference does not resolve"))
+                : resource_manager_->load_texture(resolved_path);
+            if (tex_result) {
+                node.resolved_texture_id = resource_manager_->bindless_index(*tex_result);
+            } else {
+                FJELL_CORE_WARN("{}:{}: <{}> src='{}' did not load: {}",
+                                node.source_file, node.source_line, node.tag, *src,
+                                tex_result.error());
+            }
         }
     }
 
-    // Resolve material="name" → material SSBO index
-    // Try by name first (engine-created materials like "default"),
-    // then as a .fjmat asset path.
-    auto mat_it = node.attributes.find("material");
-    if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
-        std::string mat_name = resolve_reference(mat_it->second);
+    // material="name" → material SSBO index. Tried by name first
+    // (engine-created materials like "default"), then as a .fjmat path.
+    if (auto reference = reference_for("material", node.bound_material)) {
+        const std::string& mat_name = *reference;
+        node.resolved_material_id = UINT32_MAX;
+        node.resolved_pipeline_id = UINT32_MAX;
+        if (mat_name.empty()) return; // a key with no value yet: no material
         auto mat_handle = resource_manager_->find_material(mat_name);
         if (!mat_handle.valid()) {
             // Try loading as .fjmat asset — resolve via project if available
@@ -464,10 +482,6 @@ void GameUi::resolve_textures(UiNode& node) {
             FJELL_CORE_WARN("GameUi: <{}> material='{}' did not resolve to a valid handle",
                             node.tag, mat_name);
         }
-    }
-
-    for (auto& child : node.children) {
-        resolve_textures(*child);
     }
 }
 

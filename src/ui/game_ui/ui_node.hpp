@@ -62,6 +62,12 @@ struct UiNode {
     uint32_t resolved_material_id{UINT32_MAX};
     uint32_t resolved_pipeline_id{UINT32_MAX};
 
+    // A src or material written as a {key} template, as data binding last
+    // resolved it. GameUi loads what it names whenever binding reports a
+    // change, so a list item's icon or a swapped item follows its data.
+    std::string bound_src;
+    std::string bound_material;
+
     // <bar> value/max as data binding last resolved it, 0..1; 1 elsewhere.
     // What is drawn is fill_display, which UiBarDynamics moves toward it
     // like a spring; fill_velocity is its speed in bar widths per second

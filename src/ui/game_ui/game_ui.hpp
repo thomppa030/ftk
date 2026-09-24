@@ -153,7 +153,14 @@ private:
     /// no face declares is reported once per load.
     [[nodiscard]] const FontAtlas& font_for(const UiComputedStyle& style);
     void init_text_templates(UiNode& node);
+    // Loads the textures and materials the tree names by plain path; the
+    // ones written as {key} templates arrive through apply_bound_assets().
     void resolve_textures(UiNode& node);
+    // Loads what binding just resolved for the nodes it reports.
+    void apply_bound_assets(const DataBindResult& result);
+    // One node's src and material: the plain attributes, or with `bound`
+    // the templated ones as binding resolved them.
+    void resolve_node_assets(UiNode& node, bool bound);
     // Debug builds watch every file the loaded tree came from.
     void watch_sources(const std::string& markup_path, const std::string& fjss_path);
     // Everything a load does after it has a tree and a sheet.

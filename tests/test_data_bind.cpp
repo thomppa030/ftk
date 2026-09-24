@@ -1175,3 +1175,64 @@ TEST_CASE("set_item ignores a missing list and an index past the end", "[lists]"
     REQUIRE(sized != start);
 }
 
+// --- src and material templates ---
+
+TEST_CASE("A templated src is reported when it resolves and when it changes", "[databind][assets]") {
+    auto root = make_element("div");
+    root->attributes["src"] = "{icon}";
+
+    UiContext ctx;
+    ctx.set("icon", "a.png");
+    UiDataBind bind;
+    auto first = bind.resolve(*root, ctx);
+    REQUIRE(first.asset_changes == std::vector<UiNode*>{root.get()});
+    REQUIRE(root->bound_src == "a.png");
+
+    bump(ctx);
+    REQUIRE(bind.resolve(*root, ctx).asset_changes.empty());
+
+    ctx.set("icon", "b.png");
+    auto swapped = bind.resolve(*root, ctx);
+    REQUIRE(swapped.asset_changes == std::vector<UiNode*>{root.get()});
+    REQUIRE(root->bound_src == "b.png");
+}
+
+TEST_CASE("A plain src or material is left to the loader", "[databind][assets]") {
+    auto root = make_element("div");
+    root->attributes["src"] = "art/tile.png";
+    root->attributes["material"] = "ui_ring";
+
+    UiContext ctx;
+    UiDataBind bind;
+    REQUIRE(bind.resolve(*root, ctx).asset_changes.empty());
+    REQUIRE(root->bound_src.empty());
+    REQUIRE(root->bound_material.empty());
+}
+
+TEST_CASE("Each repeat binds its own item's src and material", "[databind][assets]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("div"));
+    tmpl->attributes["foreach"] = "effects";
+    tmpl->attributes["src"] = "{icon}";
+    tmpl->attributes["material"] = "{ring}";
+
+    UiContext ctx;
+    ctx.set_list_size("effects", 2);
+    ctx.set_item("effects", 0, "icon", "wet.png");
+    ctx.set_item("effects", 0, "ring", "ui_ring");
+    ctx.set_item("effects", 1, "icon", "burn.png");
+    ctx.set_item("effects", 1, "ring", "ui_ring_harmful");
+    UiDataBind bind;
+    auto result = bind.resolve(*root, ctx);
+
+    // The template itself is never bound; each clone once, for both attributes.
+    REQUIRE(result.asset_changes.size() == 2);
+    REQUIRE(tmpl->bound_src.empty());
+    REQUIRE(root->children[1]->bound_src == "wet.png");
+    REQUIRE(root->children[2]->bound_src == "burn.png");
+    REQUIRE(root->children[2]->bound_material == "ui_ring_harmful");
+
+    ctx.set_item("effects", 1, "icon", "poison.png");
+    auto changed = bind.resolve(*root, ctx);
+    REQUIRE(changed.asset_changes == std::vector<UiNode*>{root->children[2].get()});
+}

@@ -108,6 +108,22 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
         }
     }
 
+    // Resolve {key} templates in src and material. Loading what they name
+    // takes the resource manager, which binding does not have, so a node
+    // whose reference changed is handed back for its owner to load.
+    bool asset_changed = false;
+    for (auto [attr, bound] : {std::pair{"src", &node.bound_src},
+                               std::pair{"material", &node.bound_material}}) {
+        auto it = node.attributes.find(attr);
+        if (it == node.attributes.end() || it->second.find('{') == std::string::npos) continue;
+        auto resolved = resolve_template(it->second, ctx);
+        if (resolved != *bound) {
+            *bound = std::move(resolved);
+            asset_changed = true;
+        }
+    }
+    if (asset_changed) result.asset_changes.push_back(&node);
+
     // Resolve {key} templates in text content — text only, no layout change
     if (node.type == UiNodeType::text && !node.text_template.empty()) {
         auto resolved = resolve_template(node.text_template, ctx);

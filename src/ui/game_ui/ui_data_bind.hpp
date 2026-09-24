@@ -2,6 +2,8 @@
 
 #include "ui/game_ui/ui_node.hpp"
 
+#include <vector>
+
 namespace fjell {
 
 class UiContext;
@@ -10,6 +12,9 @@ class UiContext;
 struct DataBindResult {
     bool text_changed{false};    // text content updated (redraw only)
     bool layout_changed{false};  // visibility/class/structure changed (needs layout recompute)
+    // Nodes whose templated src or material now names something else. The
+    // caller loads those; the pointers hold until the tree next changes.
+    std::vector<UiNode*> asset_changes;
     [[nodiscard]] bool any() const { return text_changed || layout_changed; }
     operator bool() const { return any(); } // NOLINT — implicit for test compat
 };
