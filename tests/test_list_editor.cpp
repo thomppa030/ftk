@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -40,7 +41,7 @@ struct Fixture {
     // card's right edge, inset by the card's padding.
     [[nodiscard]] ImVec2 trash(int i) const {
         const float side = ImGui::GetFrameHeight();
-        const float top = h.rect_min("content" + std::to_string(i)).y;
+        const float top = line_top(i);
         return {right - 4.0f - side * 0.5f, top + side * 0.5f};
     }
     // A point on card `i`'s grip, left of its number and content.
@@ -48,8 +49,13 @@ struct Fixture {
         const ImVec2 content = h.rect_min("content" + std::to_string(i));
         return {content.x - 36.0f, content.y + 8.0f};
     }
+    // The top of card `i`'s first line: its text sits a frame's padding
+    // below it.
+    [[nodiscard]] float line_top(int i) const {
+        return h.rect_min("content" + std::to_string(i)).y - ImGui::GetStyle().FramePadding.y;
+    }
     // Card `i`'s top and bottom.
-    [[nodiscard]] float top(int i) const { return h.rect_min("content" + std::to_string(i)).y - 4.0f; }
+    [[nodiscard]] float top(int i) const { return line_top(i) - 4.0f; }
     [[nodiscard]] float bottom(int i) const { return top(i) + 4.0f + ImGui::GetFrameHeight() + 4.0f; }
 };
 
@@ -202,4 +208,24 @@ TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
     CHECK(ui::index_after_move(3, 3, 1) == 1);
     CHECK(ui::index_after_move(1, 3, 1) == 2);
     CHECK(ui::index_after_move(0, 3, 1) == 0);
+}
+
+TEST_CASE("A card whose first line is text centres it on the number's line", "[ui][kit]") {
+    ImGuiHarness h;
+    std::vector<int> items{10};
+    float list_top = 0.0f;
+    h.set_ui([&] {
+        list_top = ImGui::GetCursorScreenPos().y;
+        (void)ui::list_editor("##numbers", items, "Add", "Nothing", [&](int&, std::size_t) {
+            ImGui::TextUnformatted("Sphere on Head");
+            h.mark("text");
+            return ui::Edit{};
+        });
+    });
+    h.step(3);
+    // The number, grip and trash icon sit on a field line under the card's
+    // 4 px padding; the text's middle is that line's middle.
+    const float text_middle = (h.rect_min("text").y + h.rect_max("text").y) * 0.5f;
+    const float line_middle = list_top + 4.0f + ImGui::GetFrameHeight() * 0.5f;
+    CHECK(std::abs(text_middle - line_middle) <= 1.0f);
 }

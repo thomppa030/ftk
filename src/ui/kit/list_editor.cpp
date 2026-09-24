@@ -134,7 +134,9 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
     std::snprintf(number, sizeof(number), "%zu", index + 1);
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
     const ImVec2 number_size = ImGui::CalcTextSize(number);
-    const float number_right = card_min_.x + PAD_LEFT + GRIP_W + theme::GAP_S + INDEX_W;
+    // A list that can't be reordered has no grip, and the number takes its place.
+    const float grip_w = options_.reorder ? GRIP_W + theme::GAP_S : 0.0f;
+    const float number_right = card_min_.x + PAD_LEFT + grip_w + INDEX_W;
     dl->AddText({number_right - number_size.x, card_min_.y + PAD + (row_h - number_size.y) * 0.5f},
                 ImGui::GetColorU32(selected ? theme::accent() : theme::text_disabled()), number);
     ImGui::PopFont();
@@ -145,6 +147,9 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
     const float content_w = card_min_.x + card_width_ - PAD - row_h - theme::GAP_S - content_x;
     ImGui::SetCursorScreenPos({content_x, card_min_.y + PAD});
     ImGui::BeginGroup();
+    // A first line of text (a card's summary or heading) sits on the field
+    // line the number, grip and trash icon are centred on, not above it.
+    ImGui::AlignTextToFramePadding();
     ImGui::PushItemWidth(std::max(content_w, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, theme::surface_inset());
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, theme::surface_sunken());
