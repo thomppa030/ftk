@@ -1609,6 +1609,13 @@ static int bake_font(const std::string& recipe_path) {
                      recipe_path.c_str(), bake->missing.size(),
                      fjell::describe_codepoints(bake->missing).c_str());
     }
+    if (!bake->unmerged.empty()) {
+        std::fprintf(stderr,
+                     "warning: %s: the overlapping contours of %zu glyph(s) could not be merged "
+                     "and may show seams: %s\n",
+                     recipe_path.c_str(), bake->unmerged.size(),
+                     fjell::describe_codepoints(bake->unmerged).c_str());
+    }
     const auto& h = bake->atlas.header;
     std::printf("baked %s: %ux%u, %u glyphs, %u kerning pairs -> %s\n",
                 recipe_path.c_str(), h.atlas_width, h.atlas_height, h.glyph_count,

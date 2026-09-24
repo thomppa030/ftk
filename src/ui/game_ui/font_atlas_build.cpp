@@ -1,4 +1,5 @@
 #include "ui/game_ui/font_atlas_build.hpp"
+#include "ui/game_ui/glyph_outline.hpp"
 
 #include <msdfgen.h>
 #include <msdfgen-ext.h>
@@ -69,7 +70,8 @@ uint32_t pack_shelves(std::vector<PackedGlyph>& boxes, uint32_t page_width) {
 Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
                                        const std::filesystem::path& source_path,
                                        uint64_t source_hash,
-                                       std::vector<uint32_t>* missing) {
+                                       std::vector<uint32_t>* missing,
+                                       std::vector<uint32_t>* unmerged) {
     auto codepoints = charset_codepoints(recipe);
     if (codepoints.empty()) return make_error("the charset is empty");
 
@@ -129,6 +131,7 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
         if (gd.shape.contours.empty()) continue;
 
         gd.has_contours = true;
+        if (!merge_overlapping_contours(gd.shape) && unmerged) unmerged->push_back(codepoints[idx]);
         gd.shape.normalize();
         msdfgen::edgeColoringSimple(gd.shape, 3.0);
         gd.bounds = gd.shape.getBounds();
@@ -219,18 +222,17 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
             -gd.bounds.b + px_range / scale_val
         );
 
-        // Fonts often draw a glyph as overlapping contours, a bowl laid over
-        // a stem, and where they cross the field alone can put texels on the
-        // wrong side of the outline. A scanline pass fills the outline by the
-        // nonzero rule and sets each texel's sign from that. Error correction
-        // must see the corrected signs, so it runs after the pass, and
-        // without its distance check, which msdfgen does not support
-        // together with the pass. msdfgen's own tool does the same when it
-        // cannot merge the overlaps first.
         const msdfgen::SDFTransformation transformation(
             msdfgen::Projection({scale_val, scale_val}, translate),
             msdfgen::DistanceMapping(msdfgen::Range(range_shape)));
         msdfgen::Bitmap<float, 3> msdf(static_cast<int>(box.width), static_cast<int>(box.height));
+        // Generated without error correction, then a scanline pass fills the
+        // outline by the nonzero rule and sets each texel's sign from that,
+        // which catches what msdfgen's own correction misses: a texel the
+        // edge colouring left on the wrong side, and the crossings of
+        // contours that could not be merged. Error correction must see the
+        // corrected signs, so it runs after the pass, and without its
+        // distance check, which msdfgen does not support together with it.
         msdfgen::generateMSDF(msdf, gd.shape, transformation,
                               msdfgen::MSDFGeneratorConfig(true, msdfgen::ErrorCorrectionConfig(
                                   msdfgen::ErrorCorrectionConfig::DISABLED)));
@@ -317,7 +319,7 @@ Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path) {
     auto hash = font_source_hash(recipe_path, source_path);
     if (!hash) return make_error(hash.error());
 
-    auto atlas = bake_font_atlas(*recipe, source_path, *hash, &bake.missing);
+    auto atlas = bake_font_atlas(*recipe, source_path, *hash, &bake.missing, &bake.unmerged);
     if (!atlas) return make_error(recipe_path.string() + ": " + atlas.error());
     bake.atlas = std::move(*atlas);
 

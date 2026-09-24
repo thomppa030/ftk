@@ -127,6 +127,12 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
                             recipe->source, baked->missing.size(),
                             describe_codepoints(baked->missing));
         }
+        if (!baked->unmerged.empty()) {
+            FJELL_CORE_WARN("FontAtlas: {}: the overlapping contours of {} glyph(s) could not be "
+                            "merged and may show seams: {}",
+                            recipe->source, baked->unmerged.size(),
+                            describe_codepoints(baked->unmerged));
+        }
         FJELL_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
                        recipe_path, atlas.header.atlas_width, atlas.header.atlas_height,
                        atlas.glyphs.size(), atlas.header.cell_size, atlas.header.px_range);

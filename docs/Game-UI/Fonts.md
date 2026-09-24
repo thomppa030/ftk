@@ -35,10 +35,12 @@ rebuilds the whole atlas. One page per font, at most 8192 square; a charset that
 does not fit fails the bake and says so.
 
 Many fonts, static cuts of variable fonts especially, draw a glyph as contours
-laid over each other: the bowl of an `a` over its stem. The baker fills those by
-the nonzero rule, the way FreeType does, so they bake clean. Where two contours
-cross at a shallow angle, as the slash of `Ø` does, a texel or two can still come
-out wrong and show as a nick in the outline at large sizes.
+laid over each other: the bowl of a `b` over its stem. A distance field keeps
+every edge it is given, and the ones that run inside the fill show as a seam
+down the stroke, so the baker first merges the contours into the one outline
+FreeType would fill (`glyph_outline.cpp`). A glyph it cannot merge is baked as
+drawn, with its inside and outside still taken from that fill, and named in a
+warning: it may show a faint seam where its contours cross.
 
 ## Making one
 
