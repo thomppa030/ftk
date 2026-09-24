@@ -564,7 +564,6 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // ctx.registry->image_view(name) in C3.3+.
     if (ctx.transient_pool != nullptr) {
         FJELL_PROFILE_SCOPE_N("rp_alias_bind");
-        ctx.transient_pool->begin_frame(target.extent());
         auto& lifetimes = lifetimes_;
         auto& groups = groups_;
         graph.compute_lifetimes(lifetimes);

@@ -483,6 +483,9 @@ private:
   // present fires the compute queue submit + timeline wait.
   bool recorded_async_this_frame_{false};
   bool async_compute_enabled_{false};
+  /// Counts frames from the first begin_frame(); what the transient pool
+  /// and the frame graph date their state by.
+  uint64_t frame_serial_{0};
   // Per-frame-slot monotonic counter for timeline semaphore values.
   // Compute submit signals `next`, graphics waits on `next`, then we
   // advance. Separate per slot so MAX_FRAMES_IN_FLIGHT concurrent frames
