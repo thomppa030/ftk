@@ -1,5 +1,6 @@
 #include "ui/kit/inset_group.hpp"
 
+#include "ui/kit/button.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
@@ -20,7 +21,10 @@ constexpr float HEADING_SIZE = 11.5f;
 
 } // namespace
 
-InsetGroup::InsetGroup(const char* id, const char* heading, const char* icon, const ImVec4& icon_colour) {
+InsetGroup::InsetGroup(const char* id, const char* heading, const char* icon, const ImVec4& icon_colour)
+    : InsetGroup(id, InsetHeading{.text = heading, .icon = icon, .icon_colour = icon_colour}) {}
+
+InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {
     ImGui::PushID(id);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
@@ -37,30 +41,56 @@ InsetGroup::InsetGroup(const char* id, const char* heading, const char* icon, co
                                               ImGui::GetColorU32(theme::surface_sunken()),
                                               ImGui::GetStyle().FrameRounding);
 
-    // The heading: the whole row folds the box.
+    // The heading: the whole row but its remove icon folds the box.
+    const float remove_w = heading.remove != nullptr ? heading_h : 0.0f;
+    const float fold_w = std::max(width_ - remove_w - PAD, 1.0f);
     ImGui::SetCursorScreenPos({min_.x, min_.y + PAD * 0.5f});
-    if (ImGui::InvisibleButton("##fold", {std::max(width_, 1.0f), heading_h})) {
+    if (ImGui::InvisibleButton("##fold", {fold_w, heading_h})) {
         open_ = !open_;
         storage->SetBool(open_id, open_);
     }
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImGui::PushFont(theme::bold_font(), HEADING_SIZE);
+    if (heading.named) {
+        ImGui::PushFont(theme::bold_font(), theme::BODY_TEXT);
+    } else {
+        ImGui::PushFont(theme::bold_font(), HEADING_SIZE);
+    }
     const float y = min_.y + PAD * 0.5f + (heading_h - ImGui::GetFontSize()) * 0.5f;
     float x = min_.x + PAD;
     const ImU32 secondary = ImGui::GetColorU32(theme::text_secondary());
     const char* chevron = open_ ? icon::fold_open : icon::fold_closed;
     dl->AddText({x, y}, secondary, chevron);
     x += ImGui::CalcTextSize(chevron).x + theme::GAP_S;
-    if (icon != nullptr) {
-        dl->AddText({x, y}, ImGui::GetColorU32(icon_colour), icon);
-        x += ImGui::CalcTextSize(icon).x + theme::GAP_S + theme::GAP_XS;
+    if (heading.icon != nullptr) {
+        dl->AddText({x, y}, ImGui::GetColorU32(heading.icon_colour), heading.icon);
+        x += ImGui::CalcTextSize(heading.icon).x + theme::GAP_S + theme::GAP_XS;
     }
-    std::string text(heading);
-    for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    dl->PushClipRect(min_, {min_.x + width_ - PAD, min_.y + heading_h + PAD}, true);
-    dl->AddText({x, y}, secondary, text.c_str());
+    std::string text(heading.text);
+    if (!heading.named) {
+        for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    float text_right = min_.x + fold_w;
+    ImGui::PopFont();
+    // Folded, what the box holds reads at the heading's right.
+    if (!open_ && heading.folded_summary != nullptr) {
+        const float summary_w = ImGui::CalcTextSize(heading.folded_summary).x;
+        const float summary_x = min_.x + fold_w - summary_w - theme::GAP_S;
+        dl->AddText({summary_x, min_.y + PAD * 0.5f + (heading_h - ImGui::GetFontSize()) * 0.5f}, secondary,
+                    heading.folded_summary);
+        text_right = summary_x - theme::GAP_M;
+    }
+    ImGui::PushFont(theme::bold_font(), heading.named ? theme::BODY_TEXT : HEADING_SIZE);
+    dl->PushClipRect(min_, {text_right, min_.y + heading_h + PAD}, true);
+    dl->AddText({x, y}, heading.named ? ImGui::GetColorU32(theme::text()) : secondary, text.c_str());
     dl->PopClipRect();
     ImGui::PopFont();
+
+    if (heading.remove != nullptr) {
+        ImGui::SetCursorScreenPos({min_.x + width_ - PAD * 0.5f - remove_w, min_.y + PAD * 0.5f});
+        if (icon_button("##remove", icon::remove, heading.remove_tooltip, ButtonKind::GhostDanger)) {
+            *heading.remove = true;
+        }
+    }
 
     if (!open_) {
         ImGui::SetCursorScreenPos({min_.x, min_.y + height});
