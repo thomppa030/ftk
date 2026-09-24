@@ -40,6 +40,8 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LIST_TREE          "\xee\x90\x88"  // U+E408
 #define ICON_LC_FOLDER             "\xee\x83\x97"  // U+E0D7
 #define ICON_LC_FOLDER_OPEN        "\xee\x89\x87"  // U+E247
+#define ICON_LC_FOLDER_CLOCK       "\xee\x8c\xaf"  // U+E32F
+#define ICON_LC_LIST_X             "\xee\x89\x80"  // U+E240
 #define ICON_LC_TERMINAL           "\xee\x86\x81"  // U+E181
 #define ICON_LC_HISTORY            "\xee\x87\xb5"  // U+E1F5
 #define ICON_LC_GAUGE              "\xee\x86\xbf"  // U+E1BF

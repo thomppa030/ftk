@@ -1,14 +1,27 @@
 #include "hub/hub_ui.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
+#include "ui/kit/brand.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/pane.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/search.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <optional>
 #include <filesystem>
 #include <fstream>
-#include <numbers>
 #include <nlohmann/json.hpp>
 
 namespace fjell::hub {
@@ -53,152 +66,121 @@ void HubUI::setup_style() {
     fjell::theme::apply(ImGui::GetStyle());
 }
 
-// Draw the Fjell mountain logo using polylines
-// Coordinates from the tall portrait SVG variant, normalized to 0-1 range
-// Original bounding box: x=420 y=48, w=180 h=270
-void HubUI::draw_logo(float cx, float y, float scale) {
-    auto* dl = ImGui::GetWindowDrawList();
+namespace {
 
-    float w = 180.0f * scale;
-    float ox = cx - w * 0.5f; // left edge
-    float oy = y;              // top edge
+constexpr float SIDEBAR_W = 220.0f;
+constexpr float ROW_H = 44.0f;          // a recent project: its name over its folder
+constexpr float THUMB = 30.0f;
 
-    auto pt = [&](float sx, float sy) -> ImVec2 {
-        return {ox + (sx - 420.0f) * scale, oy + (sy - 48.0f) * scale};
-    };
-
-    auto color = [](float alpha) -> ImU32 {
-        return IM_COL32(250, 249, 245, static_cast<int>(alpha * 255));
-    };
-
-    // Back ridge
-    ImVec2 back[] = {pt(420,185), pt(445,158), pt(465,168), pt(485,148),
-                     pt(510,165), pt(535,152), pt(555,160), pt(575,145), pt(600,185)};
-    dl->AddPolyline(back, 9, color(0.22f), ImDrawFlags_None, 1.3f * scale);
-
-    // Mid ridge
-    ImVec2 mid[] = {pt(420,185), pt(450,160), pt(475,172), pt(495,152),
-                    pt(515,168), pt(540,155), pt(565,164), pt(585,148), pt(600,185)};
-    dl->AddPolyline(mid, 9, color(0.45f), ImDrawFlags_None, 1.8f * scale);
-
-    // Front ridge (dominant peak) — amber accent
-    ImVec2 front[] = {pt(420,185), pt(510,95), pt(600,185)};
-    ImU32 amber = IM_COL32(212, 160, 84, 255); // #D4A054
-    dl->AddPolyline(front, 3, amber, ImDrawFlags_None, 2.5f * scale);
-
-    // Horizon
-    dl->AddLine(pt(418,185), pt(602,185), color(0.3f), 0.8f * scale);
-
-    // Reflection: front
-    ImVec2 ref_front[] = {pt(420,185), pt(510,275), pt(600,185)};
-    dl->AddPolyline(ref_front, 3, color(0.25f), ImDrawFlags_None, 1.8f * scale);
-
-    // Reflection: mid
-    ImVec2 ref_mid[] = {pt(420,185), pt(450,210), pt(475,198), pt(495,218),
-                        pt(515,202), pt(540,215), pt(565,206), pt(585,222), pt(600,185)};
-    dl->AddPolyline(ref_mid, 9, color(0.12f), ImDrawFlags_None, 1.2f * scale);
-
-    // Reflection: back
-    ImVec2 ref_back[] = {pt(420,185), pt(445,212), pt(465,202), pt(485,222),
-                         pt(510,205), pt(535,218), pt(555,210), pt(575,225), pt(600,185)};
-    dl->AddPolyline(ref_back, 9, color(0.06f), ImDrawFlags_None, 0.8f * scale);
+// A path as it reads, the home folder shortened to "~".
+std::string shown_path(const std::string& path) {
+    const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (home == nullptr) home = std::getenv("USERPROFILE");
+#endif
+    if (home != nullptr && *home != '\0' && path.starts_with(home)) return "~" + path.substr(std::strlen(home));
+    return path;
 }
 
-void HubUI::draw_hub(float window_w, float window_h) {
-    float pad = 30.0f;
-    float content_w = window_w - pad * 2.0f;
-    float button_h = 36.0f;
-    float button_area = button_h + pad; // buttons + bottom padding
+} // namespace
 
+void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    ImGui::Begin("##Hub", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar);
-
-    float cx = window_w * 0.5f;
-
-    // -- Top section: logo + title --
-    float logo_scale = content_w / 300.0f;
-    // Full logo height: from top of SVG (y=48) to bottom of deepest reflection (y=275)
-    float logo_h = (275.0f - 48.0f) * logo_scale;
-    float logo_y = pad - 20.0f;
-
-    // Reserve space for the entire logo including reflections
-    ImGui::Dummy({0, logo_h + 5.0f});
-    draw_logo(cx, logo_y, logo_scale);
-
-    // "FJELL" title — separate from logo
-    auto title_size = ImGui::CalcTextSize("F J E L L");
-    ImGui::SetCursorPosX((window_w - title_size.x) * 0.5f);
-    ImGui::TextColored({0.878f, 0.878f, 0.878f, 0.7f}, "F J E L L");
-
-    auto subtitle = ImGui::CalcTextSize("Game Engine");
-    ImGui::SetCursorPosX((window_w - subtitle.x) * 0.5f);
-    ImGui::TextDisabled("Game Engine");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // -- Middle section: scrollable project list (fills remaining space) --
-    float list_top = ImGui::GetCursorPosY();
-    float list_height = window_h - list_top - button_area - pad;
-
-    ImGui::SetCursorPosX(pad);
-    ImGui::BeginChild("##ProjectList", {content_w, list_height}, ImGuiChildFlags_None);
-
-    if (recent_.list().empty()) {
-        auto msg = ImGui::CalcTextSize("No recent projects");
-        ImGui::SetCursorPosX((content_w - msg.x) * 0.5f);
-        ImGui::TextDisabled("No recent projects");
-    } else {
-        float item_h = 32.0f;
-        auto* dl = ImGui::GetWindowDrawList();
-
-        for (const auto& project : recent_.list()) {
-            ImGui::PushID(project.path.c_str());
-            std::string label = project.name.empty() ? project.path : project.name;
-
-            if (ImGui::Selectable("##sel", false, 0, {content_w, item_h})) {
-                splash_active_ = true;
-                splash_timer_ = 0.0f;
-                launch_path_ = project.path;
-                launch_name_ = project.name;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", project.path.c_str());
-            }
-
-            // Draw centered text over the selectable via draw list (no layout side effects)
-            auto rect_min = ImGui::GetItemRectMin();
-            auto rect_max = ImGui::GetItemRectMax();
-            auto text_size = ImGui::CalcTextSize(label.c_str());
-            ImVec2 text_pos = {
-                rect_min.x + (rect_max.x - rect_min.x - text_size.x) * 0.5f,
-                rect_min.y + (rect_max.y - rect_min.y - text_size.y) * 0.5f
-            };
-            dl->AddText(text_pos, IM_COL32(224, 224, 224, 255), label.c_str());
-
-            ImGui::PopID();
-        }
-    }
-    ImGui::EndChild();
-
-    // -- Bottom section: buttons pinned to bottom --
-    float button_w = (content_w - 10.0f) * 0.5f;
-    ImGui::SetCursorPos({pad, window_h - button_area});
-
-    if (ImGui::Button("New Project", {button_w, button_h})) {
-        new_browser_.open("New Project", FileBrowser::Mode::select_location);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Open Project", {button_w, 36.0f})) {
-        open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
-    }
-
+    (void)ui::begin_host_window("##Hub", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                             ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                             ImGuiWindowFlags_NoScrollbar);
+    if (auto side = ui::Pane("##side", {SIDEBAR_W, window_h}, ui::PaneSurface::Sunken)) draw_sidebar();
+    ImGui::SameLine(0.0f, 0.0f);
+    if (auto main = ui::Pane("##projects", {0.0f, window_h})) draw_projects();
     ImGui::End();
+}
+
+void HubUI::draw_sidebar() {
+    // The logo and the word over the two ways in.
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const ImVec2 top = ImGui::GetCursorScreenPos();
+    const float cx = top.x + width * 0.5f;
+    constexpr float LOGO_SCALE = 84.0f / 180.0f;
+    ui::draw_logo(dl, {cx, top.y + theme::GAP_M}, LOGO_SCALE);
+    const float word_y = top.y + theme::GAP_M + ui::logo_size(LOGO_SCALE).y + theme::GAP_L;
+    ui::wordmark(dl, {cx, word_y}, 20.0f);
+    const char* subtitle = "Game Engine";
+    const ImVec2 sub = ImGui::CalcTextSize(subtitle);
+    dl->AddText({cx - sub.x * 0.5f, word_y + 16.0f}, ImGui::GetColorU32(theme::text_secondary()), subtitle);
+    ImGui::Dummy({width, word_y + 16.0f + sub.y + theme::GAP_L * 2.0f - top.y});
+
+    constexpr float BUTTON_H = 32.0f;
+    if (ui::action(ui::icon::add, "New project", ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
+        new_browser_.open("New project", FileBrowser::Mode::select_location);
+    }
+    ImGui::Dummy({0.0f, theme::GAP_XS});
+    if (ui::action(ui::icon::open_file, "Open project", ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
+        open_browser_.open("Open project", FileBrowser::Mode::select_directory);
+    }
+}
+
+void HubUI::draw_projects() {
+    ui::section("Recent projects", ui::icon::recent);
+    if (recent_.list().empty()) {
+        (void)ui::empty_state(ui::icon::recent, "No recent projects", "Create a project, or open one from its folder");
+        return;
+    }
+    ImGui::SetNextItemWidth(-1.0f);
+    (void)ui::search_field("##search", search_);
+    ImGui::Dummy({0.0f, theme::GAP_S});
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float width = ImGui::GetContentRegionAvail().x;
+    std::optional<std::string> forget;
+    bool any = false;
+    for (const auto& project : recent_.list()) {
+        const std::string name = project.name.empty() ? std::filesystem::path(project.path).filename().string()
+                                                      : project.name;
+        const std::string folder = shown_path(project.path);
+        if (!search_.empty() && !ui::matches(name, search_) && !ui::matches(folder, search_)) continue;
+        any = true;
+
+        ImGui::PushID(project.path.c_str());
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 p1{p0.x + width, p0.y + ROW_H};
+        if (ImGui::InvisibleButton("##row", {width, ROW_H})) launch_project(project.path, name);
+        const bool hot = ImGui::IsItemHovered();
+        if (ImGui::BeginPopupContextItem("##project")) {
+            if (ui::menu_item({.icon = ui::icon::forget, .label = "Remove from list"})) forget = project.path;
+            if (ui::menu_item({.icon = ui::icon::show_in_files, .label = "Show in file manager"})) {
+                if (auto opened = platform::open_path(project.path); !opened) {
+                    FJELL_CORE_WARN("Couldn't show {}: {}", project.path, opened.error());
+                }
+            }
+            ImGui::EndPopup();
+        }
+        const bool menu_open = ImGui::IsPopupOpen("##project");
+
+        const float rounding = ImGui::GetStyle().FrameRounding;
+        if (hot || menu_open) dl->AddRectFilled(p0, p1, ImGui::GetColorU32(theme::surface_hover()), rounding);
+        const float cy = (p0.y + p1.y) * 0.5f;
+        const ImVec2 t0{p0.x + theme::GAP_M, cy - THUMB * 0.5f};
+        dl->AddRectFilled(t0, {t0.x + THUMB, t0.y + THUMB}, ImGui::GetColorU32(theme::surface_sunken()), 5.0f);
+        const ImVec2 icon = ImGui::CalcTextSize(ui::icon::folder);
+        dl->AddText({t0.x + (THUMB - icon.x) * 0.5f, cy - icon.y * 0.5f},
+                    ImGui::GetColorU32(theme::text_secondary()), ui::icon::folder);
+
+        const float text_x = t0.x + THUMB + theme::GAP_M + theme::GAP_XS;
+        dl->PushClipRect({text_x, p0.y}, {p1.x - theme::GAP_M, p1.y}, true);
+        const float line = ImGui::GetTextLineHeight();
+        ui::detail::draw_highlighted(dl, {text_x, cy - line}, name, search_, ImGui::GetColorU32(theme::text()));
+        ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT - 1.0f);
+        ui::detail::draw_highlighted(dl, {text_x, cy + 1.0f}, folder, search_,
+                                     ImGui::GetColorU32(theme::text_secondary()));
+        ImGui::PopFont();
+        dl->PopClipRect();
+        ImGui::PopID();
+    }
+    if (!any) ui::hint("No recent project matches");
+    if (forget) recent_.remove(*forget);
 }
 
 void HubUI::launch_project(const std::string& path, const std::string& name,
@@ -214,49 +196,26 @@ void HubUI::launch_project(const std::string& path, const std::string& name,
 void HubUI::draw_splash(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    ImGui::Begin("##Splash", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoBringToFrontOnFocus);
+    (void)ui::begin_host_window("##Splash", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                                ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float cx = window_w * 0.5f;
 
-    float cx = window_w * 0.5f;
-
-    // Logo. A fixed scale rather than one derived from the window width — the
-    // splash is centred content, not a stretched layout, so widening the window
-    // should leave more space around it instead of inflating it.
+    // A fixed scale rather than one from the window's width: the splash is
+    // centred content, and a wider window leaves more room around it.
     constexpr float LOGO_SCALE = 1.6f;
-    float logo_top = 80.0f;
-    draw_logo(cx, logo_top, LOGO_SCALE);
+    constexpr float LOGO_TOP = 80.0f;
+    ui::draw_logo(dl, {cx, LOGO_TOP}, LOGO_SCALE);
+    const float word_y = LOGO_TOP + ui::logo_size(LOGO_SCALE).y + 30.0f;
+    ui::wordmark(dl, {cx, word_y}, 24.0f);
 
-    float logo_bottom = logo_top + (275.0f - 48.0f) * LOGO_SCALE;
-
-    // "FJELL" title
-    ImGui::SetCursorPosY(logo_bottom + 15.0f);
-    auto title_size = ImGui::CalcTextSize("F J E L L");
-    ImGui::SetCursorPosX((window_w - title_size.x) * 0.5f);
-    ImGui::TextColored({0.878f, 0.878f, 0.878f, 0.7f}, "F J E L L");
-
-    // Spinning circle
-    float spinner_y = ImGui::GetCursorPosY() + 40.0f;
-    float spinner_radius = 14.0f;
-    float angle = splash_timer_ * 4.0f; // radians per second
-
-    auto* dl = ImGui::GetWindowDrawList();
-    ImVec2 center = {cx, spinner_y + spinner_radius};
-
-    constexpr float pi = std::numbers::pi_v<float>;
-    float arc_start = angle;
-    float arc_end = angle + pi * 1.4f;
-    dl->PathArcTo(center, spinner_radius, arc_start, arc_end, 20);
-    dl->PathStroke(IM_COL32(212, 160, 84, 200), ImDrawFlags_None, 2.5f); // amber
-
-    // Loading text
-    ImGui::SetCursorPosY(spinner_y + spinner_radius * 2.0f + 20.0f);
-    std::string loading = "Loading " + launch_name_ + "...";
-    auto text_size = ImGui::CalcTextSize(loading.c_str());
-    ImGui::SetCursorPosX((window_w - text_size.x) * 0.5f);
-    ImGui::TextDisabled("%s", loading.c_str());
-
+    const float spin_y = word_y + 56.0f;
+    ui::spinner(dl, {cx, spin_y}, 14.0f, splash_timer_);
+    const std::string opening = "Opening " + launch_name_ + "\xe2\x80\xa6";
+    const ImVec2 ts = ImGui::CalcTextSize(opening.c_str());
+    dl->AddText({cx - ts.x * 0.5f, spin_y + 14.0f + theme::GAP_L}, ImGui::GetColorU32(theme::text_secondary()),
+                opening.c_str());
     ImGui::End();
 }
 

@@ -94,4 +94,9 @@ void RecentProjects::add(const std::string& path, const std::string& name) {
     save();
 }
 
+void RecentProjects::remove(const std::string& path) {
+    std::erase_if(projects_, [&](const RecentProject& p) { return p.path == path; });
+    save();
+}
+
 } // namespace fjell::hub

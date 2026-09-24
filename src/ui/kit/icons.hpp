@@ -86,6 +86,8 @@ inline constexpr const char* file         = ICON_LC_FILE;
 
 // Menu actions
 inline constexpr const char* open_file     = ICON_LC_FOLDER_OPEN;
+inline constexpr const char* recent        = ICON_LC_FOLDER_CLOCK;  // projects or folders used lately
+inline constexpr const char* forget        = ICON_LC_LIST_X;        // off a list, left on disk
 inline constexpr const char* new_file      = ICON_LC_FILE_PLUS;
 inline constexpr const char* new_folder    = ICON_LC_FOLDER_PLUS;
 inline constexpr const char* import        = ICON_LC_IMPORT;

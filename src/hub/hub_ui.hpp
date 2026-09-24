@@ -37,8 +37,9 @@ public:
     RecentProjects& recent() { return recent_; }
 
 private:
-    void draw_logo(float cx, float y, float scale);
     void draw_hub(float window_w, float window_h);
+    void draw_sidebar();
+    void draw_projects();
     void draw_splash(float window_w, float window_h);
     void setup_style();
 
@@ -46,6 +47,7 @@ private:
                         const std::string& create_name = {});
 
     RecentProjects recent_;
+    std::string search_;
     bool splash_active_{false};
     float splash_timer_{0.0f};
     std::string launch_path_;

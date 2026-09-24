@@ -18,6 +18,8 @@ public:
     void load();
     void save() const;
     void add(const std::string& path, const std::string& name);
+    /// Takes a project off the list; its folder is left alone.
+    void remove(const std::string& path);
 
     [[nodiscard]] const std::vector<RecentProject>& list() const { return projects_; }
 

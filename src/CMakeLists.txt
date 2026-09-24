@@ -342,6 +342,7 @@ add_executable(fjell
     ui/kit/asset_header.cpp
     ui/kit/asset_kind.cpp
     ui/kit/asset_tile.cpp
+    ui/kit/brand.cpp
     ui/kit/button.cpp
     ui/kit/canvas.cpp
     ui/kit/curve_editor.cpp
@@ -357,6 +358,7 @@ add_executable(fjell
     ui/kit/key_cap.cpp
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
+    ui/kit/pane.cpp
     ui/kit/pages.cpp
     ui/kit/row.cpp
     ui/kit/save_bar.cpp
@@ -623,10 +625,17 @@ add_executable(fjell-hub
     core/log.cpp
     core/window.cpp
     ui/console.cpp
+    ui/kit/brand.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp
     ui/kit/edit_record.cpp
+    ui/kit/feedback.cpp
+    ui/kit/menu.cpp
+    ui/kit/pane.cpp
+    ui/kit/row.cpp
     ui/kit/search.cpp
+    ui/kit/section.cpp
+    ui/kit/viewport_toolbar.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
     renderer/gpu/upload_context.cpp

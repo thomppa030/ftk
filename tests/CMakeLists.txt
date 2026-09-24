@@ -77,6 +77,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_header.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_tile.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/brand.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/canvas.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/curve_editor.cpp
@@ -91,6 +92,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/pane.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/pages.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/save_bar.cpp
