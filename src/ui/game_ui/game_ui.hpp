@@ -55,6 +55,8 @@ struct PassResources;
 ///
 class GameUi {
 public:
+    GameUi();
+
     /// fjsl_pipelines compiles the `shader_type ui;` materials nodes may
     /// name; the deleter retires the pipelines built from them.
     void create(Device& device, VmaAllocator allocator,
@@ -187,6 +189,13 @@ private:
     // frame, so the lookup is cached.
     std::unordered_map<std::string, const FontAtlas*> font_cache_;
     std::unordered_set<std::string> unknown_families_;
+    // Layout measures text in its font. A face asked for while its atlas was
+    // still loading measured in the default font instead, and an atlas can
+    // be reloaded in place with other metrics; either way layout runs again.
+    bool font_pending_{false};
+    uint64_t font_generation_{0};
+    // The generations of the default font and every face in use, summed.
+    [[nodiscard]] uint64_t font_generation() const;
     bool dirty_{true};
     bool layout_dirty_{true};
     bool needs_redraw_{true};

@@ -8,6 +8,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <cmath>
+
 using namespace fjell;
 
 static struct LogInit {
@@ -169,4 +171,95 @@ TEST_CASE("An element hidden by if= takes no space", "[layout]") {
     hidden->hidden_by_if = false;
     layout.compute(*root, 400.0f, 300.0f);
     REQUIRE(third->layout_rect.x == Catch::Approx(100.0f));
+}
+
+// Stands in for the font: every character 6 wide, a line one font size tall,
+// wrapped at max_width when there is one.
+static UiTextSize fake_measure(const UiNode& text, float max_width) {
+    float width = 6.0f * static_cast<float>(text.text_content.size());
+    float line = text.style.font_size;
+    if (max_width > 0.0f && width > max_width) {
+        float lines = std::ceil(width / max_width);
+        return {max_width, lines * line};
+    }
+    return {width, line};
+}
+
+static UiNode* add_text(UiNode& parent, const std::string& cls, const std::string& content) {
+    auto* element = add_child(parent, make_node("text", {cls}));
+    auto run = std::make_unique<UiNode>();
+    run->type = UiNodeType::text;
+    run->text_content = content;
+    add_child(*element, std::move(run));
+    return element;
+}
+
+TEST_CASE("A text element is as wide as its text", "[layout][text]") {
+    auto root = make_node("panel", {"root"});
+    auto* row = add_child(*root, make_node("div", {"row"}));
+    auto* label = add_text(*row, "label", "Health");
+    auto* after = add_child(*row, make_node("div", {"after"}));
+
+    auto sheet = FjssParser::parse(".root { font-size: 10; } .row { flex-direction: row; gap: 4; }"
+                                   " .after { width: 10; height: 10; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    layout.set_text_measure(fake_measure);
+    layout.compute(*root, 400.0f, 300.0f);
+
+    REQUIRE(label->layout_rect.w == Catch::Approx(36.0f));
+    REQUIRE(label->layout_rect.h == Catch::Approx(10.0f));
+    REQUIRE(after->layout_rect.x == Catch::Approx(40.0f));
+}
+
+TEST_CASE("A centred label is centred on its text", "[layout][text]") {
+    auto root = make_node("panel", {"root"});
+    auto* column = add_child(*root, make_node("div", {"column"}));
+    auto* label = add_text(*column, "label", "Hand Axe");
+
+    auto sheet = FjssParser::parse(".root { font-size: 10; } .column { width: 400; align-items: center; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    layout.set_text_measure(fake_measure);
+    layout.compute(*root, 400.0f, 300.0f);
+
+    REQUIRE(label->layout_rect.w == Catch::Approx(48.0f));
+    REQUIRE(label->layout_rect.x == Catch::Approx(176.0f));
+}
+
+TEST_CASE("Text wraps at a bounded width and grows in height", "[layout][text]") {
+    auto root = make_node("panel", {"root"});
+    auto* column = add_child(*root, make_node("div", {"column"}));
+    auto* label = add_text(*column, "label", "abcdefghij"); // 60 wide unwrapped
+
+    auto sheet = FjssParser::parse(".root { font-size: 10; } .column { align-items: flex-start; }"
+                                   " .label { width: 30; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    layout.set_text_measure(fake_measure);
+    layout.compute(*root, 400.0f, 300.0f);
+
+    REQUIRE(label->layout_rect.w == Catch::Approx(30.0f));
+    REQUIRE(label->layout_rect.h == Catch::Approx(20.0f));
+}
+
+TEST_CASE("A text element is never narrower than its text wherever it lands", "[layout][text]") {
+    auto root = make_node("panel", {"root"});
+    auto* column = add_child(*root, make_node("div", {"column"}));
+    auto* label = add_text(*column, "label", "Nails x24");
+
+    auto sheet = FjssParser::parse(".root { font-size: 10; } .column { width: 400; align-items: center; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    // A fractional width, centred so the element's edges fall between pixels:
+    // rounding each edge to the nearest pixel would leave it 36 wide.
+    layout.set_text_measure([](const UiNode&, float) { return UiTextSize{36.4f, 12.3f}; });
+    layout.compute(*root, 400.0f, 300.0f, 1.0f);
+
+    REQUIRE(label->layout_rect.w >= 36.4f);
+    REQUIRE(label->layout_rect.h >= 12.3f);
 }

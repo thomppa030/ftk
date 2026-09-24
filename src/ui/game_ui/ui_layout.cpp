@@ -3,6 +3,8 @@
 
 #include <yoga/Yoga.h>
 
+#include <cmath>
+
 namespace fjell {
 
 namespace {
@@ -61,9 +63,34 @@ void apply_gap(YGNodeRef yg, YGGutter gutter, UiLength length, const UiLengthCon
 
 } // namespace
 
+namespace {
+
+// Yoga's measure callback for a text node: the node rides along as the Yoga
+// node's context and the layout that measures it as the config's.
+YGSize measure_text(YGNodeConstRef yg, float width, YGMeasureMode width_mode,
+                    float /*height*/, YGMeasureMode /*height_mode*/) {
+    const auto* node = static_cast<const UiNode*>(YGNodeGetContext(yg));
+    // YGNodeGetConfig takes a mutable node although it only reads it.
+    YGConfigConstRef config = YGNodeGetConfig(const_cast<YGNodeRef>(yg));
+    const auto* measure = static_cast<const UiTextMeasure*>(YGConfigGetContext(config));
+    float max_width = width_mode == YGMeasureModeUndefined ? 0.0f : width;
+    UiTextSize size = (*measure)(*node, max_width);
+
+    // Whole pixels of the grid layout rounds to, and never fewer than the
+    // text needs. Yoga rounds this leaf up, but the <text> element around it
+    // rounds its edges to the nearest pixel, and the text is drawn wrapped at
+    // that element's width: a hair short of it and the word drops a line.
+    float scale = YGConfigGetPointScaleFactor(config);
+    auto whole = [scale](float v) { return scale > 0.0f ? std::ceil(v * scale) / scale : v; };
+    return {whole(size.width), whole(size.height)};
+}
+
+} // namespace
+
 UiLayout::UiLayout() {
     config_ = YGConfigNew();
     YGConfigSetPointScaleFactor(config_, 1.0f);
+    YGConfigSetContext(config_, &text_measure_);
 }
 
 UiLayout::~UiLayout() {
@@ -121,6 +148,13 @@ void UiLayout::build_yoga_tree(UiNode& node, YGNode* parent) {
     // template, which binding hides the same way; otherwise every list
     // would start one invisible item in.
     if (node.hidden_by_if) YGNodeStyleSetDisplay(yg, YGDisplayNone);
+
+    // Text is a leaf Yoga asks for its size, so the <text> element around it
+    // grows to fit what it shows.
+    if (node.type == UiNodeType::text && text_measure_) {
+        YGNodeSetContext(yg, &node);
+        YGNodeSetMeasureFunc(yg, &measure_text);
+    }
 
     auto index = YGNodeGetChildCount(parent);
     YGNodeInsertChild(parent, yg, index);

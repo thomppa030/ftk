@@ -138,6 +138,24 @@ void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_
     FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
 }
 
+GameUi::GameUi() {
+    // Text takes the room it is drawn in: the <text> element's font, size
+    // and width, as shape_text_nodes draws it.
+    layout_.set_text_measure([this](const UiNode& text, float max_width) -> UiTextSize {
+        if (!fonts_ || !fonts_->fallback().valid()) return {};
+        const auto& style = text.parent ? text.parent->style : text.style;
+        auto shaped = TextShaper::shape(text.text_content, font_for(style), style.font_size,
+                                        max_width, style.line_height);
+        return {shaped.width, shaped.height};
+    });
+}
+
+uint64_t GameUi::font_generation() const {
+    uint64_t sum = fonts_ ? fonts_->fallback().generation() : 0;
+    for (const auto& [key, atlas] : font_cache_) sum += atlas->generation();
+    return sum;
+}
+
 void GameUi::discard_tree_state() {
     data_bind_.forget_tree();
     ui_input_.forget_tree();
@@ -185,7 +203,16 @@ const FontAtlas& GameUi::font_for(const UiComputedStyle& style) {
     // draw in the fallback for now and ask again next frame, so the text
     // switches the frame the atlas arrives.
     const FontAtlas* atlas = fonts_->get(best->resolved_src);
-    if (!atlas) return fallback;
+    if (!atlas) {
+        // A face that failed stays in the default font for good; one still
+        // loading lays the text out again once it lands.
+        if (fonts_->status(best->resolved_src) == FontLibrary::Status::failed) {
+            font_cache_.emplace(std::move(key), &fallback);
+        } else {
+            font_pending_ = true;
+        }
+        return fallback;
+    }
     font_cache_.emplace(std::move(key), atlas);
     return *atlas;
 }
@@ -308,6 +335,18 @@ void GameUi::update(float viewport_width, float viewport_height,
     if (animating) {
         needs_redraw_ = true;
         layout_dirty_ = true;
+    }
+
+    // A face that was still loading, or an atlas reloaded in place, changes
+    // what text measures, so the layout that measured it runs again.
+    if (fonts_) {
+        uint64_t generation = font_generation();
+        if (font_pending_ || generation != font_generation_) {
+            font_pending_ = false;
+            font_generation_ = generation;
+            layout_dirty_ = true;
+            needs_redraw_ = true;
+        }
     }
 
     // When something changes, flush all in-flight SSBO slots
