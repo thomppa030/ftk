@@ -9,6 +9,9 @@ namespace fjell {
 class CommandHistory {
 public:
     void execute(CommandPtr cmd);
+    /// Adds a step that has already been carried out, without carrying it
+    /// out again: an edit made directly and recorded after the fact.
+    void record(CommandPtr cmd);
     void undo();
     void redo();
     void clear();
