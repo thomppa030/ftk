@@ -14,7 +14,6 @@ other than empty or `0` turns the knob on.
 | Variable | What it does |
 |---|---|
 | `FJELL_LOG_LEVEL` | The lowest level that reaches the log, for one run and without a rebuild. One of `trace`, `debug`, `info`, `warn`, `error`; anything else is ignored and the default `info` stands. Debug and trace lines are off by default because they are for chasing one specific problem. |
-| `FJELL_DISABLE_ASYNC` | Forces every pass back onto the graphics queue instead of the async compute queue. An A/B knob for measuring what async compute is worth on a given machine. |
 | `FJELL_TRACE_LAYOUT` | Logs every image barrier the framegraph emits, with the image's handle and name, the layouts it moved between, and the queue. The first thing to reach for on a layout-mismatch validation error. |
 | `FJELL_LOG_LIFETIMES` | Logs each framegraph image's first and last use, and the alias groups derived from them. Tells you why two images did or did not share memory. |
 | `FJELL_VALIDATE_ALIASING` | Re-derives the lifetimes and checks that no two images sharing memory are ever live at once. Off by default because it costs work every frame; on when changing the aliasing code. |

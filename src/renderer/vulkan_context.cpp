@@ -250,6 +250,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
 
     // Frame graph
     render_pipeline_.set_aliasing_enabled(s.frame_graph_aliasing);
+    async_compute_enabled_ = s.async_compute;
 }
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
@@ -561,15 +562,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
             gpu_.meshlet_buffer()->bounds_buffer_size()});
     }
 
-    // FJELL_DISABLE_ASYNC=1 forces every pass back onto the graphics queue.
-    // Tracy A/B knob: with vs. without async compute. Re-evaluated per
-    // frame because `getenv` is cheap and this is gated by a debug-only
-    // workflow.
-    static const bool kAsyncDisabled = []() {
-        const char* v = std::getenv("FJELL_DISABLE_ASYNC");
-        return v != nullptr && v[0] != '0' && v[0] != '\0';
-    }();
-    const bool async_available = !kAsyncDisabled
+    // The project decides whether compute-hinted passes leave the graphics
+    // queue (Project Settings, Frame graph); the device decides whether
+    // they can.
+    const bool async_available = async_compute_enabled_
                               && gpu_.device_ref().async_compute_supported();
     bool any_async = render_pipeline_.execute(
         cmd, target, target.sample_count(), active_sources_,
@@ -1377,8 +1373,8 @@ void VulkanContext::submit_and_present() {
         // consuming the wrong graphics pre-output.
         //
         // Status (2026-04-27 Tracy session, showcase scene):
-        // FJELL_DISABLE_ASYNC=1 measures ~5% *faster* (344 → 327 FPS) than
-        // the async path. CPU work is identical; the regression is
+        // the single-submit path measures ~5% *faster* (344 → 327 FPS)
+        // than the async path. CPU work is identical; the regression is
         // GPU-side serialization plus 3× submit overhead. Suspect the
         // chain is effectively serial in practice — graphics_post waits
         // at FRAGMENT_SHADER for v2, so vertex/early fragment can run
@@ -1389,9 +1385,9 @@ void VulkanContext::submit_and_present() {
         // delta is ~130µs. To make this pay we'd need either bigger
         // overlap candidates (DDGI probe update, bloom downsample) or
         // a deeper graphics tail to hide compute behind. Both deferred
-        // until the workload supports them. FJELL_DISABLE_ASYNC=1 is
-        // the A/B knob; the async-hint flags on GTAO/HiZ/LightCull stay
-        // (the infrastructure is correct, just dormant on this scene).
+        // until the workload supports them, which is why the project
+        // setting defaults to off; the async-hint flags on GTAO/HiZ/
+        // LightCull stay (the infrastructure is correct, just dormant).
         async_timeline_values_[recorded_frame_] += 2;
         uint64_t v1 = async_timeline_values_[recorded_frame_] - 1;
         uint64_t v2 = async_timeline_values_[recorded_frame_];

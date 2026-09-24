@@ -159,6 +159,10 @@ public:
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
   [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
+  [[nodiscard]] bool async_compute_supported() const { return gpu_.async_compute_supported(); }
+  /// The project's choice; whether a frame actually uses the compute queue
+  /// also needs the device to have one.
+  [[nodiscard]] bool async_compute_enabled() const { return async_compute_enabled_; }
 
   // Apply a project's RenderSettings blob in one shot — called by
   // Engine::init_project after passes are up. Walks the struct and
@@ -478,6 +482,7 @@ private:
   // into the async compute CB this frame — drives whether submit_and_
   // present fires the compute queue submit + timeline wait.
   bool recorded_async_this_frame_{false};
+  bool async_compute_enabled_{false};
   // Per-frame-slot monotonic counter for timeline semaphore values.
   // Compute submit signals `next`, graphics waits on `next`, then we
   // advance. Separate per slot so MAX_FRAMES_IN_FLIGHT concurrent frames

@@ -16,7 +16,7 @@ The DAG-based frame builder. Passes declare reads/writes; the framegraph schedul
 - Async compute
   - When a pass goes on the compute queue
   - Sync via timeline semaphores
-  - `FJELL_DISABLE_ASYNC=1` A/B knob
+  - Off by default; the project's Frame graph settings turn it on
 - `.fjgraph` — declarative frame layout, hot-reloadable
   - Parser: `fjgraph_parser`
   - Asset: `fjgraph_asset`

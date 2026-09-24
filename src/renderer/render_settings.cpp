@@ -69,6 +69,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"adaptation_speed",  s.tonemap.adaptation_speed},
         }},
         {"frame_graph_aliasing", s.frame_graph_aliasing},
+        {"async_compute",        s.async_compute},
     };
 }
 
@@ -144,6 +145,7 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         s.tonemap.adaptation_speed = t.value("adaptation_speed", s.tonemap.adaptation_speed);
     }
     s.frame_graph_aliasing = j.value("frame_graph_aliasing", s.frame_graph_aliasing);
+    s.async_compute        = j.value("async_compute",        s.async_compute);
 }
 
 void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
@@ -192,6 +194,7 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
 
     // Frame graph
     out.frame_graph_aliasing = ctx.render_pipeline().aliasing_enabled();
+    out.async_compute        = ctx.async_compute_enabled();
 }
 
 } // namespace fjell

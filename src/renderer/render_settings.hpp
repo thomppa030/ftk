@@ -119,6 +119,11 @@ struct RenderSettings {
 
     // ── Frame graph ──
     bool frame_graph_aliasing{true};
+    /// Record compute-hinted passes on the async compute queue. Off unless a
+    /// scene has enough compute to hide behind its graphics tail: the three
+    /// submits and the timeline wait cost more than the overlap recovers on
+    /// a small frame. Ignored on a device without a compute queue family.
+    bool async_compute{false};
 
     bool operator==(const RenderSettings&) const = default;
 };

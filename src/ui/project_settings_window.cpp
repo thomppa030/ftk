@@ -389,6 +389,12 @@ void ProjectSettingsWindow::draw_rendering() {
                     "When off, each transient image gets its own VkImage. Use to isolate "
                     "regressions caused by aliasing reuse.",
                     [&] { edit |= ui::checkbox("##aliasing", s.frame_graph_aliasing); });
+            ui::row("Async compute",
+                    "Record compute passes on the compute queue so they overlap the "
+                    "graphics work. Costs three submits a frame; only pays off when "
+                    "there is enough compute to hide.",
+                    [&] { edit |= ui::checkbox("##async_compute", s.async_compute); });
+            if (!vk_->async_compute_supported()) ui::hint("This GPU has no compute queue");
 
             const auto& st = vk_->render_pipeline().aliasing_stats();
             const double ratio = st.logical_count == 0 ? 0.0
