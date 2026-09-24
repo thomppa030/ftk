@@ -121,8 +121,7 @@ void print_usage() {
         "Usage: fjterraingen <output.fjterrain> [options]\n"
         "\n"
         "  --samples N     height samples per side (default 1024 = 93 patches)\n"
-        "                  must be one greater than a multiple of --patch-quads\n"
-        "  --patch-quads N quads per patch side (default 11)\n"
+        "                  must be one greater than a multiple of the patch size\n"
         "  --world-size M  terrain extent in metres (default 512)\n"
         "  --height M      world height of a normalized 1.0 sample (default 60)\n"
         "  --offset M      world height of a normalized 0.0 sample (default 0)\n"
@@ -143,7 +142,10 @@ int main(int argc, char** argv) {
     // 1023 quads = 93 patches of 11. A power-of-two sample count would leave a
     // remainder, since patches tile the *quads*, not the samples.
     uint32_t samples = 1024;
-    uint32_t patch_quads = 11;
+    // Not an option: the mesh shaders declare their output at compile time, so
+    // the renderer draws this size and no other. A file written with anything
+    // else is refused at load.
+    const uint32_t patch_quads = fjell::FJTERRAIN_PATCH_QUADS;
     float world_size = 512.0F;
     float height_scale = 60.0F;
     float height_offset = 0.0F;
@@ -157,7 +159,14 @@ int main(int argc, char** argv) {
         if (arg == "--samples" && has_value) {
             samples = static_cast<uint32_t>(std::atoi(argv[++i]));
         } else if (arg == "--patch-quads" && has_value) {
-            patch_quads = static_cast<uint32_t>(std::atoi(argv[++i]));
+            const auto requested = static_cast<uint32_t>(std::atoi(argv[++i]));
+            if (requested != patch_quads) {
+                std::fprintf(stderr,
+                             "--patch-quads %u: the renderer only draws %u, and a file "
+                             "written with another value is refused at load\n",
+                             requested, patch_quads);
+                return 1;
+            }
         } else if (arg == "--world-size" && has_value) {
             world_size = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--height" && has_value) {
@@ -176,11 +185,13 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (samples < 2 || patch_quads == 0 || ((samples - 1) % patch_quads) != 0) {
+    if (samples < 2 || ((samples - 1) % patch_quads) != 0) {
         std::fprintf(stderr,
-                     "samples (%u) must be one greater than a multiple of "
-                     "patch-quads (%u)\n",
-                     samples, patch_quads);
+                     "samples (%u) must be one greater than a multiple of the patch "
+                     "size (%u): try %u or %u\n",
+                     samples, patch_quads,
+                     ((samples - 1) / patch_quads) * patch_quads + 1,
+                     (((samples - 1) / patch_quads) + 1) * patch_quads + 1);
         return 1;
     }
 

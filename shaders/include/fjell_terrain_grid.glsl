@@ -13,6 +13,11 @@
 // vertices and PATCH_QUADS^2*2 triangles; primitives bind first, so 11 quads
 // (144 verts, 242 prims) is the largest square patch that fits the 256/256
 // floor every mesh-shader device guarantees.
+//
+// Must equal FJTERRAIN_PATCH_QUADS in renderer/resources/fjterrain.hpp, which
+// rejects a .fjterrain written for any other patch size. A mesh shader's
+// output declaration is compile-time, so this cannot read the file's value:
+// the two are kept equal by hand and the loader is what enforces it.
 #define PATCH_QUADS 11
 #define PATCH_VERTS (PATCH_QUADS + 1)
 #define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)

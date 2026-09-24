@@ -19,18 +19,22 @@ fs::path temp_terrain(const char* name) {
     return dir / name;
 }
 
-// A 5x5 field of 2-quad patches with a ramp for heights.
+// A field of one patch-row with a ramp for heights. The patch size is fixed
+// by the renderer, so a test field is sized from it rather than choosing a
+// convenient small number.
 FjTerrainData small_field() {
     FjTerrainData data;
-    data.header.sample_count = 5;
-    data.header.patch_quads = 2;
+    data.header.sample_count = (FJTERRAIN_PATCH_QUADS * 2) + 1;
+    data.header.patch_quads = FJTERRAIN_PATCH_QUADS;
     data.header.world_size = 40.0F;
     data.header.height_scale = 10.0F;
     data.header.height_offset = -2.0F;
     data.header.height_format = FjTerrainHeightFormat::unorm16;
-    data.heights.resize(25);
-    for (size_t i = 0; i < data.heights.size(); ++i) {
-        data.heights[i] = static_cast<float>(i) / 24.0F;
+    const size_t count = static_cast<size_t>(data.header.sample_count) *
+                         data.header.sample_count;
+    data.heights.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+        data.heights[i] = static_cast<float>(i) / static_cast<float>(count - 1);
     }
     return data;
 }
@@ -50,8 +54,8 @@ TEST_CASE("Terrain with no layers round-trips", "[fjterrain]") {
     REQUIRE(loaded->layers.empty());
     REQUIRE(loaded->names.empty());
     REQUIRE(loaded->weights.empty());
-    REQUIRE(loaded->heights.size() == 25);
-    REQUIRE(loaded->heights[24] == Catch::Approx(1.0F).margin(1.0F / 65535.0F));
+    REQUIRE(loaded->heights.size() == data.heights.size());
+    REQUIRE(loaded->heights.back() == Catch::Approx(1.0F).margin(1.0F / 65535.0F));
 }
 
 TEST_CASE("Layer table and names survive without painted weights", "[fjterrain]") {
@@ -130,7 +134,7 @@ TEST_CASE("Version 1 files load when they carry no layers", "[fjterrain]") {
     auto loaded = load_fjterrain(path.string());
     REQUIRE(loaded);
     REQUIRE(loaded->header.version == 1);
-    REQUIRE(loaded->heights.size() == 25);
+    REQUIRE(loaded->heights.size() == data.heights.size());
 }
 
 TEST_CASE("Version 2 layer records load with no surface", "[fjterrain]") {
@@ -178,4 +182,39 @@ TEST_CASE("Version 2 layer records load with no surface", "[fjterrain]") {
     REQUIRE(again);
     REQUIRE(again->header.version == FJTERRAIN_VERSION);
     REQUIRE(again->names[again->layers[1].material_path] == "rock.fjmat");
+}
+
+TEST_CASE("A terrain written for another patch size is refused", "[fjterrain]") {
+    // The mesh shaders declare their output at compile time and step the grid
+    // at FJTERRAIN_PATCH_QUADS whatever the file says, while physics and the
+    // CPU queries use the file's value. Such a file used to load clean and
+    // render silently corrupt, with collision where nothing was drawn.
+    auto path = temp_terrain("wrong_patch.fjterrain");
+    auto good = small_field();
+    REQUIRE(save_fjterrain(path.string(), good));
+
+    auto bad = good;
+    bad.header.patch_quads = FJTERRAIN_PATCH_QUADS - 1;
+    bad.header.sample_count = (bad.header.patch_quads * 2) + 1;
+    const size_t count = static_cast<size_t>(bad.header.sample_count) *
+                         bad.header.sample_count;
+    bad.heights.assign(count, 0.5F);
+
+    // Refused on the way out, so no tool writes one by accident.
+    auto bad_path = temp_terrain("wrong_patch_out.fjterrain");
+    REQUIRE_FALSE(save_fjterrain(bad_path.string(), bad));
+
+    // And refused on the way in, for a file that predates the check or came
+    // from elsewhere. Rewrite just the header field of the good file.
+    {
+        std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
+        REQUIRE(f.is_open());
+        const uint32_t wrong = FJTERRAIN_PATCH_QUADS - 1;
+        f.seekp(static_cast<std::streamoff>(offsetof(FjTerrainHeader, patch_quads)));
+        f.write(reinterpret_cast<const char*>(&wrong), sizeof(wrong));
+    }
+    auto loaded = load_fjterrain(path.string());
+    REQUIRE_FALSE(loaded);
+    // The message must name the problem, not the tiling rule it also breaks.
+    REQUIRE(loaded.error().find("patch_quads") != std::string::npos);
 }

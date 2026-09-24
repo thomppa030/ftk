@@ -28,6 +28,21 @@ static constexpr float FJTERRAIN_DEFAULT_LAYER_UV_SCALE = 4.0F;
 // blend without a shader branch.
 static constexpr uint32_t FJTERRAIN_MAX_LAYERS = 4;
 
+// Quads per patch side, and the only value the renderer can draw.
+//
+// A mesh shader's output declaration is compile-time, so the patch size is
+// baked into shaders/include/fjell_terrain_grid.glsl as PATCH_QUADS and the
+// two must agree. An N-quad patch emits (N+1)^2 vertices and 2N^2 primitives;
+// primitives bind first, so 11 (144 verts, 242 prims) is the largest square
+// patch that fits the 256/256 floor every mesh-shader device guarantees.
+//
+// The field stays in the header because the format describes itself, and
+// because a later renderer tier could read another value. Today anything else
+// is rejected at load rather than drawn wrongly: the shaders would keep
+// stepping at 11 while physics and every CPU query used the file's number,
+// so the ground would collide where nothing is drawn.
+static constexpr uint32_t FJTERRAIN_PATCH_QUADS = 11;
+
 // Heights are stored normalized to [0,1] and scaled by `height_scale` at load,
 // which keeps the on-disk representation independent of world units.
 enum class FjTerrainHeightFormat : uint32_t {
@@ -51,9 +66,9 @@ struct FjTerrainHeader {
     // Lowest world-space height, corresponding to a sample value of 0.0.
     float height_offset;
 
-    // Quads per patch side. Bounds the mesh shader's per-workgroup output:
-    // an N-quad patch emits (N+1)^2 vertices and 2N^2 primitives, and both
-    // must fit the device's mesh shader limits.
+    // Quads per patch side. Must equal FJTERRAIN_PATCH_QUADS: the mesh
+    // shaders declare their output at compile time and cannot honour any
+    // other value. Validated on load.
     uint32_t patch_quads;
 
     uint32_t layer_count;   // <= FJTERRAIN_MAX_LAYERS

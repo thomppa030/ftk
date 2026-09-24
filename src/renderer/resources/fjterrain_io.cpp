@@ -58,6 +58,18 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
         return make_error("fjterrain: version 1 file carries layers but no name table in " +
                           path);
     }
+    // Before the tiling test, because a wrong patch_quads makes that message
+    // describe the wrong problem. The mesh shaders declare their output at
+    // compile time and step the grid at FJTERRAIN_PATCH_QUADS whatever the
+    // file says, while physics and every CPU query use the file's value: a
+    // mismatch renders one surface and collides against another. Refusing the
+    // file is the only honest answer.
+    if (data.header.patch_quads != FJTERRAIN_PATCH_QUADS) {
+        return make_error("fjterrain: patch_quads is " +
+                          std::to_string(data.header.patch_quads) + " but the renderer only "
+                          "draws " + std::to_string(FJTERRAIN_PATCH_QUADS) +
+                          "; regenerate the terrain with that patch size, in " + path);
+    }
     if (!patches_tile_evenly(data.header)) {
         return make_error("fjterrain: sample_count " +
                           std::to_string(data.header.sample_count) +
@@ -160,6 +172,11 @@ Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
         return make_error("fjterrain: height array holds " +
                           std::to_string(data.heights.size()) + " entries, expected " +
                           std::to_string(samples));
+    }
+    if (data.header.patch_quads != FJTERRAIN_PATCH_QUADS) {
+        return make_error("fjterrain: patch_quads is " +
+                          std::to_string(data.header.patch_quads) + " but the renderer only "
+                          "draws " + std::to_string(FJTERRAIN_PATCH_QUADS));
     }
     if (!patches_tile_evenly(data.header)) {
         return make_error("fjterrain: sample_count is not one greater than a multiple "
