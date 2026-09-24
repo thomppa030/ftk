@@ -24,6 +24,8 @@ enum class ImageUsage : uint8_t {
     compute_read,           // sample in a compute shader
     compute_storage_read,   // read as a storage image in a compute shader (GENERAL)
     compute_write,          // write as a storage image in a compute shader
+    compute_read_write,     // load and store a storage image in a compute shader
+    depth_read_sampled,     // depth-test against an image the fragment shader also samples
     raytracing_read,        // sample in a ray tracing shader
     raytracing_write,       // write as a storage image in a ray tracing shader
     transfer_src,           // source of a copy/blit operation

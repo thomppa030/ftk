@@ -16,6 +16,9 @@ enum class ResourceAccess : uint8_t {
 
     // Graphics attachment uses (read-only)
     depth_attachment_read,
+    /// Depth bound read-only for the depth test while the fragment shader
+    /// also samples it: one layout serves both.
+    depth_read_sampled,
     input_attachment,
 
     // Shader reads
