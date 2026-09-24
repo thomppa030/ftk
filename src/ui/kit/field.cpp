@@ -293,6 +293,30 @@ void readout(const char* text) {
     ImGui::PopStyleColor();
 }
 
+Edit on_off(const char* id, bool& on, const char* tooltip) {
+    constexpr float W = 28.0f;
+    constexpr float H = 16.0f;
+    const bool before = on;
+    // Centred on the frame line the widgets around it sit on.
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float lead = std::floor((ImGui::GetFrameHeight() - H) * 0.5f);
+    const bool clicked = ImGui::InvisibleButton(id, {W, ImGui::GetFrameHeight()});
+    const bool hovered = ImGui::IsItemHovered();
+    if (clicked) on = !on;
+    if (tooltip != nullptr) ImGui::SetItemTooltip("%s", tooltip);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p{start.x, start.y + lead};
+    const ImVec4 track = on ? theme::toggle_on() : hovered ? theme::surface_highest() : theme::surface_active();
+    dl->AddRectFilled(p, {p.x + W, p.y + H}, ImGui::GetColorU32(track), H * 0.5f);
+    const float knob = H - 4.0f;
+    const float knob_x = on ? p.x + W - 2.0f - knob : p.x + 2.0f;
+    dl->AddCircleFilled({knob_x + knob * 0.5f, p.y + H * 0.5f}, knob * 0.5f,
+                        ImGui::GetColorU32(on ? theme::text() : theme::text_secondary()));
+    const Edit edit{clicked, clicked};
+    fjell::ui::track(before ? "On" : "Off", on ? "On" : "Off", edit);
+    return edit;
+}
+
 Edit stepper(const char* id, int& value, int min, int max, Unit unit) {
     const std::string before = std::to_string(value);
     ImGui::PushID(id);

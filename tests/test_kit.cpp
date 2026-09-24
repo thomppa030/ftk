@@ -9,6 +9,7 @@
 #include "ui/kit/menu.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
+#include "ui/kit/tabs.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>
@@ -384,4 +385,66 @@ TEST_CASE("A marked row's label makes room for the dot, marked or not, and only 
     CHECK(set_here > plain);
     CHECK(not_set == set_here);
     CHECK(after_skipped == plain);
+}
+
+TEST_CASE("An on/off switch flips its value, each flip a finished edit", "[ui][kit]") {
+    ImGuiHarness h;
+    bool on = true;
+    int commits = 0;
+    h.set_ui([&] {
+        if (ui::on_off("##switch", on).committed) ++commits;
+        h.mark("switch");
+    });
+    h.step(2);
+    h.click("switch");
+    CHECK_FALSE(on);
+    h.click("switch");
+    CHECK(on);
+    CHECK(commits == 2);
+}
+
+TEST_CASE("A block with a switch turns off without folding or removing", "[ui][kit]") {
+    ImGuiHarness h;
+    bool enabled = true;
+    bool removed = false;
+    bool open = false;
+    ImVec2 header_max{};
+    h.set_ui([&] {
+        open = ui::component_block("Gravity", fjell::theme::Category::Vfx, removed, enabled);
+        header_max = ImGui::GetItemRectMax();  // the trash icon, last in the header
+    });
+    h.step(2);
+    // The switch sits just before the trash icon.
+    const float h_frame = ImGui::GetFrameHeight();
+    const ImVec2 at{header_max.x - h_frame - fjell::theme::GAP_S - 14.0f, header_max.y - h_frame * 0.5f};
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(at.x, at.y);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    h.step(2);
+    CHECK_FALSE(enabled);
+    CHECK(open);
+    CHECK_FALSE(removed);
+}
+
+TEST_CASE("A tab strip reports only the user's picks, not a selection the caller moved", "[ui][kit]") {
+    ImGuiHarness h;
+    const std::string names[] = {"embers", "smoke", "sparks"};
+    int selected = 0;
+    int picks = 0;
+    h.set_ui([&] {
+        const auto tabs = ui::tab_strip("##emitters", {.names = names, .selected = selected, .add_label = "Add emitter"});
+        if (tabs.selected) {
+            ++picks;
+            selected = *tabs.selected;
+        }
+    });
+    h.step(3);
+    // An emitter added or removed moves the selection from outside.
+    selected = 2;
+    h.step(4);
+    CHECK(picks == 0);
+    CHECK(selected == 2);
 }

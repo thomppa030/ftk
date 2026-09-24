@@ -15,4 +15,24 @@ namespace fjell::ui {
 /// kept under the current ID, so each block needs its own ID scope.
 bool component_block(const char* name, theme::Category category, bool& remove);
 
+/// The same with an on/off switch before the trash icon, for something that
+/// can be switched off and keep its settings (a VFX module). Off, the bar
+/// goes grey and the name dims; draw the body in a FadedBody.
+bool component_block(const char* name, theme::Category category, bool& remove, bool& enabled);
+
+/// While it lives, what is drawn is faded: the body of a block switched off,
+/// still editable so it can be set up before it is switched on.
+class FadedBody {
+public:
+    explicit FadedBody(bool faded);
+    ~FadedBody();
+    FadedBody(const FadedBody&) = delete;
+    FadedBody& operator=(const FadedBody&) = delete;
+    FadedBody(FadedBody&&) = delete;
+    FadedBody& operator=(FadedBody&&) = delete;
+
+private:
+    bool faded_;
+};
+
 } // namespace fjell::ui
