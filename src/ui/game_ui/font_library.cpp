@@ -125,8 +125,20 @@ void FontLibrary::prebake(const std::string& recipe_path) {
 void FontLibrary::reload(const std::string& recipe_path) {
     auto it = entries_.find(key_for(recipe_path));
     if (it == entries_.end()) return;
+    it->second.preview.reset();
     it->second.changed = true;
     it->second.expect_events = true;
+}
+
+void FontLibrary::preview(const std::string& recipe_path, const FjFontRecipe& recipe) {
+    auto key = key_for(recipe_path);
+    auto it = entries_.find(key);
+    if (it == entries_.end()) {
+        Entry entry;
+        entry.path = key;
+        it = entries_.emplace(key, std::move(entry)).first;
+    }
+    it->second.preview = recipe;
 }
 
 void FontLibrary::start_load(Entry& entry) {
@@ -214,6 +226,23 @@ void FontLibrary::poll() {
             entry.changed = false;
             entry.queued = true;
             start_load(entry);
+        }
+        // An unsaved recipe is baked once the atlas it replaces is there;
+        // only the newest one asked for gets baked.
+        if (entry.preview && entry.atlas && !entry.pending.valid()) {
+            auto path = entry.path;
+            auto recipe = std::move(*entry.preview);
+            entry.preview.reset();
+            auto bake = [path, recipe] {
+                auto data = FontAtlas::bake_data(path, recipe);
+                if (!data) FJELL_CORE_ERROR("FontLibrary: preview of {}: {}", path, data.error());
+                return std::make_unique<Result<FontAtlasData>>(std::move(data));
+            };
+            if (pool_) {
+                entry.pending = pool_->submit(std::move(bake));
+            } else {
+                finish_load(entry, std::move(*bake()));
+            }
         }
     }
 #ifndef NDEBUG

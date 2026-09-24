@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/game_ui/fjfont.hpp"
 #include "ui/game_ui/font_atlas.hpp"
 
 #ifndef NDEBUG
@@ -8,6 +9,7 @@
 
 #include <future>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -63,6 +65,13 @@ public:
     /// debug builds also do this on their own when a watched file changes.
     void reload(const std::string& recipe_path);
 
+    /// Bakes `recipe`, an editor's unsaved version of the recipe at
+    /// `recipe_path`, on the pool and swaps it into that font's atlas in
+    /// place, so everything drawing in the font shows the edit. Nothing is
+    /// written. A newer preview asked for while one bakes replaces it;
+    /// reload() goes back to what the file holds.
+    void preview(const std::string& recipe_path, const FjFontRecipe& recipe);
+
     /// Bakes a recipe's atlas ahead of any use, on the pool, when it is
     /// missing or stale. Nothing reaches the GPU; a later get() reads the
     /// cache instead of baking. For a project's fonts on open and a recipe
@@ -91,6 +100,8 @@ private:
         // events for that write are swallowed rather than reloading twice.
         bool expect_events{false};
         bool events_seen{false};
+        // An unsaved recipe to bake next, from preview().
+        std::optional<FjFontRecipe> preview;
         LoadFuture pending;
     };
     [[nodiscard]] static std::string key_for(const std::string& path);

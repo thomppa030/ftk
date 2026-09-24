@@ -13,6 +13,8 @@
 
 namespace fjell {
 
+struct FjFontRecipe;
+
 class Texture;
 class BindlessTextures;
 class DeferredDeleter;
@@ -86,6 +88,12 @@ public:
     /// logged and returned.
     [[nodiscard]] static Result<FontAtlasData> load_data(const std::string& recipe_path);
 
+    /// Bakes `recipe` as it is, not as its file holds it, and writes no
+    /// cache: an editor's unsaved recipe, previewed. `recipe_path` places
+    /// the font file the recipe names. CPU only, safe on a worker thread.
+    [[nodiscard]] static Result<FontAtlasData> bake_data(const std::string& recipe_path,
+                                                         const FjFontRecipe& recipe);
+
     /// Takes the loaded data to the GPU. Main thread, between frames.
     void create(const std::string& recipe_path, const FontAtlasGpu& gpu, FontAtlasData data);
 
@@ -118,6 +126,9 @@ public:
     [[nodiscard]] uint32_t atlas_height() const { return atlas_height_; }
     [[nodiscard]] float pixel_range() const { return pixel_range_; }
     [[nodiscard]] bool valid() const { return atlas_texture_ != nullptr; }
+    /// Moves on every reload: whatever was drawn from the atlas before is
+    /// out of date once it has.
+    [[nodiscard]] uint32_t generation() const { return generation_; }
 
 private:
     struct PairHash {
@@ -142,6 +153,7 @@ private:
     uint32_t atlas_width_{0};
     uint32_t atlas_height_{0};
     float pixel_range_{0.0f};
+    uint32_t generation_{0};
 };
 
 } // namespace fjell

@@ -45,6 +45,45 @@ VkDescriptorSet FontAtlas::imgui_texture() {
     return imgui_descriptor_;
 }
 
+namespace {
+
+// A baked atlas as the renderer takes it: glyph metrics by codepoint, the
+// kerning pairs and the pixels.
+FontAtlasData to_data(BakedFontAtlas atlas, const std::filesystem::path& source_path) {
+    FontAtlasData data;
+    data.source_path = source_path.string();
+    const auto& header = atlas.header;
+    data.metrics.ascender = header.ascender;
+    data.metrics.descender = header.descender;
+    data.metrics.line_height = header.line_height;
+    data.pixel_range = header.px_range;
+    data.width = header.atlas_width;
+    data.height = header.atlas_height;
+
+    data.glyphs.reserve(atlas.glyphs.size());
+    for (const auto& g : atlas.glyphs) {
+        GlyphInfo gi{};
+        gi.uv_x0 = g.uv_x0;
+        gi.uv_y0 = g.uv_y0;
+        gi.uv_x1 = g.uv_x1;
+        gi.uv_y1 = g.uv_y1;
+        gi.quad_x = g.quad_x;
+        gi.quad_y = g.quad_y;
+        gi.quad_w = g.quad_w;
+        gi.quad_h = g.quad_h;
+        gi.advance = g.advance;
+        data.glyphs[g.codepoint] = gi;
+    }
+    data.kerning.reserve(atlas.kerning.size());
+    for (const auto& k : atlas.kerning) {
+        data.kerning.push_back({{k.left, k.right}, k.value});
+    }
+    data.pixels = std::move(atlas.pixels);
+    return data;
+}
+
+} // namespace
+
 Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
     // The bake reports recipe warnings too, but a fresh cache skips it, so
     // they are read here where every load passes.
@@ -100,36 +139,7 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
 #endif
     }
 
-    FontAtlasData data;
-    data.source_path = source_path.string();
-    const auto& header = atlas.header;
-    data.metrics.ascender = header.ascender;
-    data.metrics.descender = header.descender;
-    data.metrics.line_height = header.line_height;
-    data.pixel_range = header.px_range;
-    data.width = header.atlas_width;
-    data.height = header.atlas_height;
-
-    data.glyphs.reserve(atlas.glyphs.size());
-    for (const auto& g : atlas.glyphs) {
-        GlyphInfo gi{};
-        gi.uv_x0 = g.uv_x0;
-        gi.uv_y0 = g.uv_y0;
-        gi.uv_x1 = g.uv_x1;
-        gi.uv_y1 = g.uv_y1;
-        gi.quad_x = g.quad_x;
-        gi.quad_y = g.quad_y;
-        gi.quad_w = g.quad_w;
-        gi.quad_h = g.quad_h;
-        gi.advance = g.advance;
-        data.glyphs[g.codepoint] = gi;
-    }
-    data.kerning.reserve(atlas.kerning.size());
-    for (const auto& k : atlas.kerning) {
-        data.kerning.push_back({{k.left, k.right}, k.value});
-    }
-    data.pixels = std::move(atlas.pixels);
-    return data;
+    return to_data(std::move(atlas), source_path);
 }
 
 void FontAtlas::adopt(FontAtlasData& data) {
@@ -168,6 +178,7 @@ void FontAtlas::reload(FontAtlasData data) {
         return;
     }
     adopt(data);
+    ++generation_;
 
     auto fresh = std::make_unique<Texture>(
         gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.upload,
@@ -198,6 +209,20 @@ const GlyphInfo* FontAtlas::glyph(uint32_t codepoint) const {
 float FontAtlas::kerning(uint32_t left, uint32_t right) const {
     auto it = kerning_.find({left, right});
     return it != kerning_.end() ? it->second : 0.0f;
+}
+
+Result<FontAtlasData> FontAtlas::bake_data(const std::string& recipe_path, const FjFontRecipe& recipe) {
+#if FJELL_FONT_BAKE
+    auto source_path = font_source_path(recipe_path, recipe);
+    auto hash = font_source_hash(recipe_path, source_path);
+    if (!hash) return make_error(hash.error());
+    auto baked = bake_font_atlas(recipe, source_path, *hash);
+    if (!baked) return make_error(baked.error());
+    return to_data(std::move(*baked), source_path);
+#else
+    (void)recipe;
+    return make_error(recipe_path + ": this build can't bake a font, so it can't preview one");
+#endif
 }
 
 } // namespace fjell
