@@ -49,6 +49,8 @@ inline constexpr const char* network           = ICON_LC_NETWORK;
 inline constexpr const char* bandwidth         = ICON_LC_ACTIVITY;
 inline constexpr const char* peers             = ICON_LC_USERS;
 inline constexpr const char* simulated         = ICON_LC_FLASK_CONICAL;  // made up for testing
+inline constexpr const char* collision         = ICON_LC_BOX_SELECT;
+inline constexpr const char* info              = ICON_LC_INFO;
 inline constexpr const char* rendering         = ICON_LC_MONITOR;
 inline constexpr const char* frame_graph       = ICON_LC_WORKFLOW;
 
