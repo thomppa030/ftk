@@ -342,6 +342,15 @@ void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                  ResourceAccess::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
                  ResourceAccess::indirect_read);
+    // The vertex path draws the camera batch's commands, and its instanced
+    // draws read the transforms the instance cull kept. The mesh path reads
+    // the uploaded transforms instead.
+    if (!ctx.mesh_shader_supported) {
+        builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
+                     ResourceAccess::storage_buffer_read_vertex);
+        builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
+                     ResourceAccess::indirect_read);
+    }
 }
 
 } // namespace fjell

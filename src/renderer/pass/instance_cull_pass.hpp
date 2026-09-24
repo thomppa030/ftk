@@ -27,8 +27,16 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
+    void collect_exports(DeclareContext& ctx) override;
 
 private:
+    /// This frame slot's compacted transforms and the camera batch's indirect
+    /// commands whose instance counts the pass patches. Empty when the frame
+    /// has no instanced draws, which is also when the pass writes nothing.
+    BufferImport transforms_{};
+    BufferImport commands_{};
+
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};

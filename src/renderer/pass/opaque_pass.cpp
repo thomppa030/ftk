@@ -86,6 +86,10 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                  ResourceAccess::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
                  ResourceAccess::indirect_read);
+    // The selection outline is drawn through the vertex path, which reads
+    // the transforms the instance cull kept.
+    builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
+                 ResourceAccess::storage_buffer_read_vertex);
 }
 
 void OpaquePass::record(const FrameContext& ctx) {

@@ -455,6 +455,14 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
+    // Draws the camera batch's commands through the vertex path, whose
+    // instanced draws read the transforms the instance cull keeps. It runs
+    // before the cull, so these reads are what the cull has to wait for
+    // before overwriting either buffer.
+    builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
+                 ResourceAccess::storage_buffer_read_vertex);
+    builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
+                 ResourceAccess::indirect_read);
 }
 
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {

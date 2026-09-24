@@ -121,6 +121,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
     decl_ctx.active_sources  = active_sources;
+    // A barrier may name the task and mesh stages only on a device that has
+    // them, so passes with a mesh and a vertex path declare by this.
+    decl_ctx.mesh_shader_supported = ctx.draw_mesh_tasks_indirect_fn != nullptr;
     // Feature flags sourced from pass enable state — let passes that need
     // to cross-check (e.g. tonemap declaring a read on bloom_mip0) see
     // the canonical toggle without reaching into the PassRegistry.

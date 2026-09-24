@@ -103,10 +103,36 @@ PassSetup InstanceCullPass::setup() const {
     };
 }
 
-void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
-    // Writes compacted instance transforms + patched indirect draw
-    // commands the vertex path reads through its own descriptor set.
-    builder.has_side_effects();
+void InstanceCullPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    transforms_ = {};
+    commands_ = {};
+    if (ctx.indirect_batch == nullptr
+        || ctx.indirect_batch->instanced_draw_count(ctx.frame_index) == 0) {
+        return;
+    }
+    transforms_ = {ctx.indirect_batch->visible_instance_buffer(ctx.frame_index),
+                   ctx.indirect_batch->visible_instance_size(ctx.frame_index), false};
+    commands_ = {ctx.indirect_batch->indirect_buffer(ctx.frame_index), 0, false};
+}
+
+void InstanceCullPass::collect_exports(DeclareContext& ctx) {
+    // What the vertex path draws instanced geometry from: the transforms
+    // that survived the cull, and the commands whose instance counts say
+    // how many did.
+    if (transforms_.buffer != VK_NULL_HANDLE) {
+        ctx.buffer_imports.emplace(fg_name_hash("instance_transforms"), transforms_);
+    }
+    if (commands_.buffer != VK_NULL_HANDLE) {
+        ctx.buffer_imports.emplace(fg_name_hash("batch_indirect"), commands_);
+    }
+}
+
+void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    builder.write(builder.import_named_buffer(ctx, "instance_transforms"),
+                  ResourceAccess::storage_buffer_write_compute);
+    // The instance counts are patched in place in commands the CPU wrote.
+    builder.read_write(builder.import_named_buffer(ctx, "batch_indirect"),
+                       ResourceAccess::storage_buffer_read_write_compute);
 }
 
 void InstanceCullPass::record(const FrameContext& ctx) {
@@ -157,21 +183,6 @@ void InstanceCullPass::record(const FrameContext& ctx) {
                             desc_sets.data(), 0, nullptr);
 
     vkCmdDispatch(cb, draw_count, 1, 1);
-
-    VkMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                           VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cb, &dep);
 }
 
 } // namespace fjell
