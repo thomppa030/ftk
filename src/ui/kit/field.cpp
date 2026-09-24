@@ -269,6 +269,15 @@ Edit vec4(const char* id, glm::vec4& value, const DragSpec& spec) {
     return vec_n(id, &value.x, 4, spec);
 }
 
+InsetFields::InsetFields() {
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, theme::surface_inset());
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, theme::surface_base());
+}
+
+InsetFields::~InsetFields() {
+    ImGui::PopStyleColor(2);
+}
+
 void readout(const char* text) {
     ImGui::AlignTextToFramePadding();
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
