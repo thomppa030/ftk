@@ -80,8 +80,10 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     const ImVec2 max{min.x + width, min.y + theme::TREE_ROW};
     const bool renaming = spec.rename != nullptr && spec.rename->editing(spec.key);
 
-    // The whole row is the click target; the rename field sits over it.
-    ImGui::SetNextItemAllowOverlap();
+    // The whole row is the click target. Only the rename field may sit over
+    // it: allowing overlap otherwise would let something drawn behind the
+    // tree take the row's mouse.
+    if (renaming) ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##row", {width, theme::TREE_ROW});
     const bool hovered = ImGui::IsItemHovered();
     const float twisty_x = min.x + ROW_PAD + static_cast<float>(spec.depth) * theme::TREE_INDENT;
@@ -157,7 +159,10 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
         ImGui::PushStyleColor(ImGuiCol_Text, spec.dimmed ? theme::text_disabled() : theme::text());
         ImGui::RenderTextEllipsis(dl, {x, text_y}, {name_right, max.y}, name_right, name, name_end, nullptr);
         ImGui::PopStyleColor();
-        if (hovered) ImGui::SetItemTooltip("%.*s", static_cast<int>(spec.name.size()), name);
+        // Not during a drag, whose preview is a tooltip this would replace.
+        if (hovered && ImGui::GetDragDropPayload() == nullptr) {
+            ImGui::SetItemTooltip("%.*s", static_cast<int>(spec.name.size()), name);
+        }
     }
 
     // Nothing but the rename field is an item after the row's button, so the
