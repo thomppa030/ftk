@@ -997,6 +997,15 @@ void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.has_side_effects();  // writes a persistent cross-frame volume
 
     // What the light variant samples through the global set.
+    if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
+        builder.read(atlas, ResourceAccess::sampled_compute);
+    }
+    if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
+        builder.read(atlas, ResourceAccess::sampled_compute);
+    }
+    if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
+        builder.read(sky, ResourceAccess::sampled_compute);
+    }
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
         builder.read(clouds, ResourceAccess::sampled_compute);
     }
