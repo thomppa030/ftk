@@ -1,5 +1,7 @@
 #include "ui/console.hpp"
-#include "ui/icons_lc.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
@@ -10,6 +12,27 @@
 #include <cstring>
 
 namespace fjell {
+
+namespace {
+
+// A line in its level's colour: trace and debug dimmed, warnings and
+// errors in the theme's own.
+ImVec4 level_colour(spdlog::level::level_enum level) {
+    switch (level) {
+        case spdlog::level::trace:
+        case spdlog::level::debug:
+            return theme::text_disabled();
+        case spdlog::level::warn:
+            return theme::warning();
+        case spdlog::level::err:
+        case spdlog::level::critical:
+            return theme::error();
+        default:
+            return theme::text();
+    }
+}
+
+} // namespace
 
 void ConsoleSink::sink_it_(const spdlog::details::log_msg& msg) {
     spdlog::memory_buf_t formatted;
@@ -38,19 +61,21 @@ void ConsoleSink::clear() {
 void ConsoleSink::draw(const char* title) {
     std::lock_guard lock(mutex_);
 
-    if (auto p = Panel(ICON_LC_TERMINAL, title)) {
+    if (auto p = Panel(ui::icon::console, title)) {
         // Toolbar
-        if (ImGui::SmallButton(ICON_LC_TRASH_2 "  Clear")) {
+        if (ui::action(ui::icon::remove, "Clear", ui::ButtonKind::Ghost)) {
             entries_.clear();
             selected_.clear();
             last_clicked_ = -1;
         }
         ImGui::SameLine();
-        ImGui::Checkbox("Auto-scroll", &auto_scroll_);
+        if (ui::toggle_button("##follow", ui::icon::follow, auto_scroll_, "Follow the newest line")) {
+            auto_scroll_ = !auto_scroll_;
+        }
         ImGui::SameLine();
         ImGui::SetNextItemWidth(100);
-        const char* filters[] = {"All", "Info+", "Warn+", "Error+"};
-        ImGui::Combo("##filter", &level_filter_, filters, 4);
+        static constexpr const char* FILTERS[] = {"All", "Info+", "Warn+", "Error+"};
+        (void)ui::choice("##filter", level_filter_, FILTERS);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
         ui::search_field("##search", search_text_);
@@ -79,28 +104,7 @@ void ConsoleSink::draw(const char* title) {
             int idx = visible[vi];
             const auto& entry = entries_[idx];
 
-            ImVec4 color;
-            switch (entry.level) {
-                case spdlog::level::trace:
-                case spdlog::level::debug:
-                    color = theme::srgb(0.447f, 0.455f, 0.486f); // dim
-                    break;
-                case spdlog::level::info:
-                    color = theme::srgb(0.898f, 0.902f, 0.918f); // normal text
-                    break;
-                case spdlog::level::warn:
-                    color = theme::srgb(0.831f, 0.627f, 0.329f); // amber
-                    break;
-                case spdlog::level::err:
-                case spdlog::level::critical:
-                    color = theme::srgb(0.890f, 0.320f, 0.320f); // red
-                    break;
-                default:
-                    color = theme::srgb(0.898f, 0.902f, 0.918f);
-                    break;
-            }
-
-            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::PushStyleColor(ImGuiCol_Text, level_colour(entry.level));
             ImGui::PushID(idx);
             bool is_sel = selected_.contains(idx);
             if (ImGui::Selectable(entry.message.c_str(), is_sel,
