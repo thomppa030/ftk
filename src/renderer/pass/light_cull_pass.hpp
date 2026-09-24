@@ -17,6 +17,7 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void register_resources(ResourceRegistry& registry) override;
+    void collect_exports(DeclareContext& ctx) override;
 
 private:
     VkDevice device_{VK_NULL_HANDLE};

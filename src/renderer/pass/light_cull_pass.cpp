@@ -113,16 +113,22 @@ void LightCullPass::register_resources(ResourceRegistry& registry) {
     }
 }
 
+void LightCullPass::collect_exports(DeclareContext& ctx) {
+    // This frame slot's tile lists, which pre_record() picked. Every surface
+    // shader reads them through the global set; the passes that draw those
+    // surfaces import them by this name so the graph sees them wait.
+    if (output_buffer_ == VK_NULL_HANDLE) { return; }
+    ctx.buffer_imports.emplace(fg_name_hash("tile_light_ssbo"),
+                               BufferImport{output_buffer_, output_buffer_size_, false});
+}
+
 void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // Writes the forward+ tile SSBO. Consumers (opaque/transparent
-    // fragment shaders) reach it via the global descriptor (binding 3),
-    // not via declared accesses — that edge is invisible to the DAG.
-    // Step 6 wires buffer accesses for internal producer/consumer pairs;
-    // global-descriptor fanout stays on has_side_effects() until consumer
-    // passes are migrated too.
-    builder.has_side_effects();
+    // No reader, no reason to run: the opaque and transparent passes read
+    // the tile lists, and a viewport without them culls this pass.
+    auto tiles = builder.import_named_buffer(ctx, "tile_light_ssbo");
+    builder.write(tiles, ResourceAccess::storage_buffer_write_compute);
 }
 
 } // namespace fjell

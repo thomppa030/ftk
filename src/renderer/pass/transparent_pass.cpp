@@ -425,6 +425,10 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
         builder.read(cubemap, ResourceAccess::sampled_fragment);
     }
+    // The forward+ tile lists, read by the lit surfaces drawn here: glass,
+    // water, lit particles and sprites.
+    builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
+                 ResourceAccess::storage_buffer_read_fragment);
 }
 
 } // namespace fjell
