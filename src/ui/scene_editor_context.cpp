@@ -983,8 +983,6 @@ void SceneEditorContext::draw_play_toolbar() {
 
     draw_play_pill(min, max);
 
-    if (deps_.vulkan_context != nullptr) viewport_manager_.draw_view_pill(*vp, *deps_.vulkan_context);
-
     ImGui::End();
 }
 

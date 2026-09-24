@@ -360,7 +360,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                             ui::Corner::BottomRight, {.icon = ui::icon::debug, .line = line, .ink = theme::warning()});
         }
 
-        if (preview_toolbar_ && img_w > 0 && img_h > 0) draw_preview_toolbar(panel, ctx);
+        if (img_w > 0 && img_h > 0) {
+            if (preview_toolbar_) draw_preview_toolbar(panel);
+            draw_view_pill(panel, ctx);
+        }
 
         // Camera input — only the active viewport drives the render, and not
         // while the mouse is on its toolbar.
@@ -376,7 +379,7 @@ void ViewportManager::frame(const glm::vec3& center, float radius) {
     for (auto& panel : panels_) panel.camera.focus(center, radius);
 }
 
-void ViewportManager::draw_preview_toolbar(ViewportPanel& panel, VulkanContext& ctx) {
+void ViewportManager::draw_preview_toolbar(ViewportPanel& panel) {
     const ImVec2 min{panel.img_pos.x, panel.img_pos.y};
     const ImVec2 max{panel.img_pos.x + panel.img_size.x, panel.img_pos.y + panel.img_size.y};
 
@@ -393,8 +396,6 @@ void ViewportManager::draw_preview_toolbar(ViewportPanel& panel, VulkanContext& 
     if (framing_ && panel.hovered && !ImGui::IsAnyItemActive() && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
         panel.camera.focus(framing_->center, framing_->radius);
     }
-
-    draw_view_pill(panel, ctx);
 }
 
 void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {

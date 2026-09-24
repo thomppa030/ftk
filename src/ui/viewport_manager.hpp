@@ -51,12 +51,10 @@ public:
     // caller's responsibility.
     void draw(VulkanContext& ctx, const Input& input, float dt);
 
-    /// Off for a viewport that draws a toolbar of its own (the Scene's).
+    /// Off for viewports whose owner draws the rest of their toolbar (the
+    /// Scene's tools and Play, on the focused viewport only). The view pill
+    /// is drawn on every viewport either way: what each shows is its own.
     void set_preview_toolbar(bool on) { preview_toolbar_ = on; }
-
-    /// The toolbar's right-hand pill over `panel`: what it shows and its
-    /// projection. Every viewport has it, the Scene's too.
-    void draw_view_pill(ViewportPanel& panel, VulkanContext& ctx);
 
     /// Points the viewports at what is edited, a sphere at `center` of
     /// `radius`, and remembers it for the toolbar's Frame button and F.
@@ -90,6 +88,9 @@ public:
     [[nodiscard]] uint32_t active_source_mask() const;
 
 private:
+    /// The toolbar's right-hand pill over `panel`: what it shows and its
+    /// projection.
+    void draw_view_pill(ViewportPanel& panel, VulkanContext& ctx);
     void draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                              const Input& input, float dt);
 
@@ -107,7 +108,7 @@ private:
     };
     std::optional<Framing> framing_;
 
-    void draw_preview_toolbar(ViewportPanel& panel, VulkanContext& ctx);
+    void draw_preview_toolbar(ViewportPanel& panel);
 };
 
 } // namespace fjell
