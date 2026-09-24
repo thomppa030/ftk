@@ -27,8 +27,8 @@ namespace fjell {
 //   • SsrCore          — abstract base. Owns both samplers, both
 //                        descriptor layouts, both pipelines, the SSR
 //                        parameters, and the cross-frame prev_frame
-//                        history buffer (plus its ensure/copy helpers
-//                        that run in pre_record/post_record).
+//                        history buffer (sized in pre_record, filled by
+//                        SsrHistoryPass).
 //   • SsrTracePass     — concrete SsrCore. Registered as "ssr_trace".
 //                        Records the trace dispatch or, when SSR is
 //                        disabled, clears ssr_output to black so down-
@@ -40,9 +40,9 @@ namespace fjell {
 // Resource flow:
 //   • ssr_output is a graph transient — trace create()s it, composite
 //     create()s it again for the dedup-by-name read.
-//   • prev_frame_color stays pass-private (persistent cross-frame
-//     history) and is exposed through ResourceRegistry::register_image
-//     at frame start, same as today.
+//   • prev_frame_color is SsrCore's own image, exported to the graph.
+//     SsrHistoryPass copies the scene colour into it once the last pass
+//     that writes the colour has run; the next frame's trace reads it.
 //
 // Barrier contract: nodes declare only the accesses they perform. The
 // graph emits the trace→composite layout transition and the disabled-
@@ -54,13 +54,17 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void register_resources(ResourceRegistry& registry) override;
+    void collect_exports(DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
-    void post_record(const FrameContext& ctx) override;
 
     // Previous-frame color buffer management (for SSR history).
     void ensure_prev_frame(VkDevice device, VmaAllocator allocator,
                             VkCommandPool command_pool, VkQueue queue,
                             uint32_t width, uint32_t height);
+    /// Copy the scene colour, in TRANSFER_SRC_OPTIMAL, into the history, in
+    /// TRANSFER_DST_OPTIMAL, and leave the history where the trace samples
+    /// it. Skips the copy, but not the transition, while the history does
+    /// not have `extent`.
     void copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent);
     [[nodiscard]] VkImageView prev_frame_view() const { return prev_frame_view_; }
 
@@ -127,6 +131,23 @@ public:
 };
 
 class SsrCompositePass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+
+private:
+    SsrCore* core_{nullptr};
+};
+
+/// Copies the finished scene colour into the SSR history for the next
+/// frame's trace. A node of its own, placed after the last pass that
+/// writes the colour, so the graph orders the copy after that write and
+/// moves the colour into the copy's layout and out again.
+class SsrHistoryPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;

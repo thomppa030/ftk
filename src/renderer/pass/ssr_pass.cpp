@@ -314,39 +314,21 @@ void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
 }
 
 void SsrCore::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent) {
-    if (!screen_space_active() || prev_frame_image_ == VK_NULL_HANDLE) { return; }
-
-    emit_transition(cmd, src_color,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-
-    emit_transition(cmd, prev_frame_image_,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-
-    VkImageCopy region{};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.extent = {extent.width, extent.height, 1};
-    vkCmdCopyImage(cmd,
-        src_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        prev_frame_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &region);
+    if (prev_frame_extent_.width == extent.width && prev_frame_extent_.height == extent.height) {
+        VkImageCopy region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.extent = {extent.width, extent.height, 1};
+        vkCmdCopyImage(cmd,
+            src_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            prev_frame_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &region);
+    }
 
     emit_transition(cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-    // The colour goes back to the layout the graph last left it in, so the
-    // next run's first barrier on it starts from a layout the image is
-    // really in.
-    emit_transition(cmd, src_color,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
@@ -359,16 +341,20 @@ void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
     }
 }
 
-void SsrCore::post_record(const FrameContext& ctx) {
-    bool in_graph = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
-    if (in_graph && screen_space_active() && ctx.target != nullptr) {
-        copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
-    }
-}
-
 void SsrCore::register_resources(ResourceRegistry& registry) {
     registry.register_image("prev_frame_color",
         {.frame_graph_id = 0, .image = prev_frame_image_, .view = prev_frame_view_});
+}
+
+void SsrCore::collect_exports(DeclareContext& ctx) {
+    if (prev_frame_image_ == VK_NULL_HANDLE) { return; }
+    ImportedImage img{};
+    img.image = prev_frame_image_;
+    img.view = prev_frame_view_;
+    img.persistent = true;   // read by the next frame's trace
+    // Cleared when created, and every copy leaves it there.
+    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    ctx.imports.emplace(fg_name_hash("prev_frame_color"), img);
 }
 
 // ── SsrTracePass ────────────────────────────────────────────────────────────
@@ -392,9 +378,14 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     if (screen_space_active()) {
         builder.write(ssr_out, ResourceAccess::storage_write_compute);
-        // The trace steps through the Hi-Z pyramid.
+        // The trace steps through the Hi-Z pyramid and takes the colour it
+        // hits from the last frame's.
         if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
             builder.read(hiz, ResourceAccess::sampled_compute);
+        }
+        if (auto history = builder.import_named_optional(ctx, "prev_frame_color");
+            history.valid()) {
+            builder.read(history, ResourceAccess::sampled_compute);
         }
     } else {
         // Off / RayTraced path clears ssr_output via vkCmdClearColorImage
@@ -607,6 +598,46 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     vkCmdPushConstants(cmd, core_->composite_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
+}
+
+// ── SsrHistoryPass ──────────────────────────────────────────────────────────
+
+Result<> SsrHistoryPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void SsrHistoryPass::destroy() {}
+
+void SsrHistoryPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    core_ = &passes.get<SsrCore>("ssr_trace");
+}
+
+PassSetup SsrHistoryPass::setup() const {
+    return {
+        .name = "ssr_history",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 125,   // the colour is final once the shafts composite (122) has run
+    };
+}
+
+void SsrHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (core_ == nullptr || !core_->screen_space_active()) { return; }
+    auto history = builder.import_named_optional(ctx, "prev_frame_color");
+    if (!history.valid()) { return; }
+    builder.read(builder.import_named(ctx, "color"), ResourceAccess::transfer_src);
+    builder.write(history, ResourceAccess::transfer_dst);
+    // record() leaves the history where the next frame's trace samples it.
+    builder.final_layout(history, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+void SsrHistoryPass::record(const FrameContext& ctx) {
+    if (core_ == nullptr || !core_->screen_space_active() || ctx.target == nullptr) { return; }
+    FJELL_PROFILE_SCOPE_N("record_ssr_history");
+    FJELL_GPU_ZONE(ctx, "SSR History");
+    core_->copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
 }
 
 } // namespace fjell

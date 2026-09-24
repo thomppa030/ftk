@@ -79,6 +79,7 @@
         { "class": "SsrTracePass",     "name": "ssr_trace" },
         { "class": "RtReflectionPass", "name": "rt_reflection" },
         { "class": "SsrCompositePass", "name": "ssr_composite" },
+        { "class": "SsrHistoryPass",   "name": "ssr_history" },
         { "class": "FogMediumPass",    "name": "fog_medium" },
         { "class": "FogLightPass",     "name": "fog_light" },
         { "class": "FogTemporalPass",  "name": "fog_temporal" },
