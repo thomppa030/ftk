@@ -251,7 +251,6 @@ void ContactShadowPass::create_image(uint32_t w, uint32_t h) {
     }
 
     extent_ = {w, h};
-    first_record_ = true;
 
     update_descriptor();
 }
@@ -313,8 +312,6 @@ void ContactShadowPass::seed_layout() {
     vkQueueSubmit(graphics_queue_, 1, &submit, VK_NULL_HANDLE);
     vkQueueWaitIdle(graphics_queue_);
     vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-
-    first_record_ = false;  // the image is now SHADER_READ_ONLY
 }
 
 void ContactShadowPass::ensure_size(uint32_t w, uint32_t h) {
@@ -356,12 +353,35 @@ PassSetup ContactShadowPass::setup() const {
 }
 
 void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_compute);
-    // Output is a pass-private texture bound through the global
-    // descriptor — consumers (opaque/transparent fragment shaders)
-    // reach it outside the catalog.
-    builder.has_side_effects();
+    // The graph moves the image into the layout the write needs; record()
+    // moves it back to where the surfaces sample it, which final_layout
+    // reports.
+    auto shadow = builder.import_named(ctx, "contact_shadow");
+    if (!enabled_) {
+        builder.write(shadow, ResourceAccess::transfer_dst);
+        builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        return;
+    }
+    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_compute);
+    builder.write(shadow, ResourceAccess::storage_write_compute);
+    builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+void ContactShadowPass::collect_exports(DeclareContext& ctx) {
+    if (shadow_image_ == VK_NULL_HANDLE) { return; }
+    ImportedImage img{};
+    img.image = shadow_image_;
+    img.view = shadow_view_;
+    // Seeded when created or regrown, and every record leaves it there.
+    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    ctx.imports.emplace(fg_name_hash("contact_shadow"), img);
 }
 
 void ContactShadowPass::record(const FrameContext& ctx) {
@@ -373,16 +393,9 @@ void ContactShadowPass::record(const FrameContext& ctx) {
     auto extent = ctx.target->extent();
     VkCommandBuffer cmd = ctx.cmd;
 
-    // If disabled, fill with 1.0 (no occlusion) and return so mesh.frag
-    // can still sample the image safely.
+    // Disabled: hold 1.0, no occlusion, for the surfaces that still sample
+    // it. The graph has the image in TRANSFER_DST_OPTIMAL.
     if (!enabled_) {
-        auto to_transfer = make_barrier(shadow_image_,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-            VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            first_record_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        batch_barriers(cmd, &to_transfer, 1);
-
         VkClearColorValue clear{};
         clear.float32[0] = 1.0f;
         VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -395,18 +408,11 @@ void ContactShadowPass::record(const FrameContext& ctx) {
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         batch_barriers(cmd, &to_sampled, 1);
 
-        first_record_ = false;
         ++frame_counter_;
         return;
     }
 
-    auto to_general = make_barrier(shadow_image_,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        first_record_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_GENERAL);
-    batch_barriers(cmd, &to_general, 1);
-
+    // The graph has the image in GENERAL for the storage write.
     ContactShadowPush push{};
     push.viewport_size = glm::uvec2(extent.width, extent.height);
     push.max_distance = max_distance_;
@@ -432,7 +438,6 @@ void ContactShadowPass::record(const FrameContext& ctx) {
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     batch_barriers(cmd, &to_sampled, 1);
 
-    first_record_ = false;
     ++frame_counter_;
 }
 

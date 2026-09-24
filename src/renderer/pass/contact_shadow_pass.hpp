@@ -29,6 +29,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     [[nodiscard]] bool enabled() const { return enabled_; }
@@ -66,7 +67,6 @@ private:
     VkImageView shadow_view_{VK_NULL_HANDLE};
     VkSampler sampler_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
-    bool first_record_{true};
 
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};

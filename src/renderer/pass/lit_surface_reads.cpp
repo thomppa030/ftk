@@ -20,6 +20,10 @@ void declare_lit_surface_reads(PassBuilder& builder, const DeclareContext& ctx) 
     if (auto ao = builder.import_named_optional(ctx, "gtao_ao"); ao.valid()) {
         builder.read(ao, ResourceAccess::sampled_fragment);
     }
+    // Absent when the project's graph leaves the pass out.
+    if (auto shadow = builder.import_named_optional(ctx, "contact_shadow"); shadow.valid()) {
+        builder.read(shadow, ResourceAccess::sampled_fragment);
+    }
 }
 
 } // namespace fjell
