@@ -181,6 +181,7 @@ std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
         req.view = panel.camera.view_matrix();
         req.projection = panel.camera.projection_matrix(aspect);
         req.camera_position = panel.camera.position();
+        req.show_grid = panel.show_grid;
         requests.push_back(req);
     }
     return requests;

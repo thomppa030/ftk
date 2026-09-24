@@ -11,6 +11,8 @@ struct GridSettings {
     float thickness{1.0f};
     float fade_distance{80.0f};
     float opacity{1.0f};
+    /// The Scene viewport's grid. Every other viewport keeps its own, on its
+    /// render request.
     bool visible{true};
 
     // Snapping applies to every way an object is moved: the viewport gizmo and

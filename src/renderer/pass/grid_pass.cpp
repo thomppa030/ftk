@@ -183,7 +183,7 @@ void GridPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void GridPass::record(const FrameContext& ctx) {
-    if (!settings_.visible || !ctx.target) return;
+    if (!ctx.show_grid || !ctx.target) return;
 
     FJELL_PROFILE_SCOPE_N("record_grid");
     FJELL_GPU_ZONE(ctx, "Grid");

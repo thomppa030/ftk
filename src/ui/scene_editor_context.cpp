@@ -1490,8 +1490,15 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
 // --- Viewport ---
 
 std::vector<ViewportRenderRequest> SceneEditorContext::build_render_requests() {
-    // Preview is rendered separately via render_previews() — not included here
-    return viewport_manager_.build_render_requests();
+    // Preview is rendered separately via render_previews() — not included here.
+    // The Scene's viewports take their grid from the Scene's own setting,
+    // which the toolbar and the View menu switch.
+    auto requests = viewport_manager_.build_render_requests();
+    if (deps_.vulkan_context != nullptr) {
+        const bool grid = deps_.vulkan_context->grid_pass().settings().visible;
+        for (auto& request : requests) request.show_grid = grid;
+    }
+    return requests;
 }
 
 void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float dt,

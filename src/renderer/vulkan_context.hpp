@@ -402,13 +402,11 @@ private:
                         const std::vector<ViewportRenderRequest> &viewports,
                         const EnvironmentState &environment, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool);
-  void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
-                       float dt, uint32_t selected_id, ThreadPool &pool,
-                       PostProcessResources *pp, bool skip_shadows = false,
-                       bool flip_tonemap_y = false,
-                       const FjGraph *viewport_graph = nullptr,
-                       VkDescriptorSet global_set = VK_NULL_HANDLE,
-                       const SkyBackdrop *backdrop = nullptr);
+  /// Renders `view` into its target: what it carries besides the camera
+  /// (shadows, graph, private global set, backdrop, grid) decides how.
+  void render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest &view,
+                       Scene *scene, float dt, uint32_t selected_id,
+                       ThreadPool &pool, PostProcessResources *pp);
   /// `pp` is the viewport being rendered: its config decides which temporal
   /// effects the UBO enables (TAA jitter, GI intensities) and its ViewHistory
   /// supplies and receives the previous-frame camera.
@@ -418,18 +416,14 @@ private:
                              const EnvironmentState &environment, Scene *scene,
                              VkExtent2D extent, PostProcessResources &pp);
 
-  // `global_set` overrides the per-frame global descriptor set bound for the
-  // frame (used by previews that own a private set); null = per-frame set.
-  /// `viewport_graph` decides which passes this call runs, and so whether the
-  /// GPU-driven meshlet buffers may be handed to the color passes; null = the
-  /// global pass state governs.
-  FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
+  // `view.global_set` overrides the per-frame global descriptor set bound for
+  // the frame (used by previews that own a private set); null = per-frame set.
+  /// `view.viewport_graph` decides which passes this call runs, and so
+  /// whether the GPU-driven meshlet buffers may be handed to the color
+  /// passes; null = the global pass state governs.
+  FrameContext build_frame_context(VkCommandBuffer cmd, const ViewportRenderRequest &view,
                                    Scene *scene, float dt, uint32_t selected_id,
-                                   PostProcessResources *pp, bool skip_shadows,
-                                   bool flip_tonemap_y,
-                                   const FjGraph *viewport_graph = nullptr,
-                                   VkDescriptorSet global_set = VK_NULL_HANDLE,
-                                   const SkyBackdrop *backdrop = nullptr);
+                                   PostProcessResources *pp);
 
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;

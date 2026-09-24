@@ -81,6 +81,10 @@ struct ViewportRenderRequest {
 
     /// Drawn in place of the sky when set; null shows the scene's sky.
     const SkyBackdrop* backdrop{nullptr};
+
+    /// The editor's ground grid over this viewport. Each viewport has its
+    /// own: a preview's toggle leaves the Scene's alone.
+    bool show_grid{false};
 };
 
 } // namespace fjell

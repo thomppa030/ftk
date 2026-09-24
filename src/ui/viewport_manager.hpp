@@ -29,6 +29,8 @@ struct ViewportPanel {
     bool hovered{false};
     bool focused{false};
     bool open{true};
+    /// The editor's ground grid over this viewport, its own.
+    bool show_grid{true};
     bool needs_offscreen{false}; // deferred creation — apply_resize creates it
     std::unique_ptr<OffscreenPass> offscreen;
 

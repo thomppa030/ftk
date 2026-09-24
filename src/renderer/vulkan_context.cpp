@@ -356,13 +356,10 @@ void VulkanContext::reload_fjgraph(const std::string& path) {
 
 // ── Command buffer recording ────────────────────────────────────────────
 
-FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPass& target,
+FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const ViewportRenderRequest& view,
                                                  Scene* scene, float dt, uint32_t selected_id,
-                                                 PostProcessResources* pp, bool skip_shadows,
-                                                 bool flip_tonemap_y,
-                                                 const FjGraph* viewport_graph,
-                                                 VkDescriptorSet global_set,
-                                                 const SkyBackdrop* backdrop) {
+                                                 PostProcessResources* pp) {
+    OffscreenPass& target = *view.target;
     FrameContext ctx{};
     ctx.cmd = cmd;
     // Async compute CB is set on the main-viewport path in render_frame
@@ -378,8 +375,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.view = gatherer_.view_matrix();
     ctx.projection = gatherer_.projection_matrix();
     // Previews bind their own private global set; everyone else the per-frame set.
-    ctx.global_descriptor_set = global_set != VK_NULL_HANDLE
-        ? global_set : gpu_.global_descriptor_set(current_frame_);
+    ctx.global_descriptor_set = view.global_set != VK_NULL_HANDLE
+        ? view.global_set : gpu_.global_descriptor_set(current_frame_);
     ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();
@@ -398,7 +395,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     // fill them. A viewport graph that leaves the cull passes out would
     // otherwise dispatch mesh tasks off whatever the buffers last held, which
     // faults the device rather than drawing nothing.
-    if (passes_.has("meshlet_cull") && runs_pass(viewport_graph, "meshlet_cull")) {
+    if (passes_.has("meshlet_cull") && runs_pass(view.viewport_graph, "meshlet_cull")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
@@ -407,9 +404,10 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.descriptor_cache = &gpu_.descriptor_cache();
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
-    ctx.skip_shadows = skip_shadows;
-    ctx.flip_tonemap_y = flip_tonemap_y;
-    ctx.backdrop = backdrop;
+    ctx.skip_shadows = view.skip_shadows;
+    ctx.flip_tonemap_y = view.flip_tonemap_y;
+    ctx.backdrop = view.backdrop;
+    ctx.show_grid = view.show_grid;
     ctx.target_pool = &target_pool_;
 
     // Read inv_view_proj from the already-written GlobalUbo
@@ -440,14 +438,12 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     return ctx;
 }
 
-void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
+void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest& view,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool, PostProcessResources* pp,
-                                    bool skip_shadows, bool flip_tonemap_y,
-                                    const FjGraph* viewport_graph,
-                                    VkDescriptorSet global_set,
-                                    const SkyBackdrop* backdrop) {
+                                    ThreadPool& pool, PostProcessResources* pp) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
+    OffscreenPass& target = *view.target;
+    const FjGraph* viewport_graph = view.viewport_graph;
 
     // Gather scene: frustum cull, build render queue and indirect batches
     {
@@ -509,9 +505,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     meshlet_instance_pass()->visible_buffer_size(current_frame_));
     }
 
-    current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
-                                        pp, skip_shadows, flip_tonemap_y,
-                                        viewport_graph, global_set, backdrop);
+    current_ctx_ = build_frame_context(cmd, view, scene, dt, selected_id, pp);
     // Hand the async CB + post-compute graphics CB to the graph, but
     // only for the main frame CB — preview viewports get their own
     // one-shot CBs from render_preview and have no paired compute/post
@@ -696,9 +690,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                           req.camera_position, environment, scene, req.target->extent(), *pp);
     update_light_ssbo(current_frame_, scene);
     update_fog_volume_ssbo(current_frame_);
-    render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
-                    req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
-                    req.global_set, req.backdrop);
+    render_scene_to(cmd, req, scene, dt, selected_id, pool, pp);
 
     vkEndCommandBuffer(cmd);
 
@@ -798,9 +790,12 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                               vp.camera_position, environment, scene, vp.target->extent(), *pp);
         update_light_ssbo(current_frame_, scene);
         update_fog_volume_ssbo(current_frame_);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
-                        vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph,
-                        VK_NULL_HANDLE, vp.backdrop);
+        // The frame's own viewports bind the per-frame set and are shown the
+        // right way up, whatever a request says.
+        ViewportRenderRequest view = vp;
+        view.global_set = VK_NULL_HANDLE;
+        view.flip_tonemap_y = false;
+        render_scene_to(cmd, view, scene, dt, selected_id, pool, pp);
     }
 
     // --- UI editor preview offscreen pass ---

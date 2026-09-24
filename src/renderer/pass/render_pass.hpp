@@ -91,6 +91,8 @@ struct FrameContext {
     float elapsed_time{0.0f};
     uint32_t selected_id{0};
     bool show_colliders{false};
+    /// The viewport being drawn asks for the editor's ground grid.
+    bool show_grid{false};
     uint32_t frame_index{0};
     IndirectBatch* indirect_batch{nullptr};
     MegaBuffer* mega_buffer{nullptr};
