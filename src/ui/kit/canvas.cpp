@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <string_view>
 #include <unordered_map>
 
 namespace fjell::ui {
@@ -441,6 +442,132 @@ void canvas_plot_axes(ImDrawList* dl, const CanvasView& view, const PlotAxes& ax
         }
     }
     ImGui::PopFont();
+}
+
+namespace {
+
+// One number field inside a canvas, whatever it holds: `get` and `set` move
+// it through a double so floats and counts share the dragging and typing.
+template <typename T>
+Edit canvas_number_of(const char* id, ImVec2 min, ImVec2 max, float text_size, T& value, const NumberSpec& spec,
+                      ImGuiDataType data_type) {
+    Edit edit;
+    ImGui::PushID(id);
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    const ImGuiID typing_slot = ImGui::GetID("##typing");
+    const ImGuiID start_slot = ImGui::GetID("##start");
+    const ImGuiID from_slot = ImGui::GetID("##from");
+    const ImVec2 size{std::max(max.x - min.x, 4.0f), std::max(max.y - min.y, 4.0f)};
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = std::min(3.0f, size.y * 0.2f);
+
+    if (st->GetInt(typing_slot, 0) != 0) {
+        // Typing: an input the field's size, in its face, over it.
+        const bool first = st->GetInt(typing_slot) == 1;
+        st->SetInt(typing_slot, 2);
+        ImGui::SetCursorScreenPos(min);
+        ImGui::SetNextItemWidth(size.x);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, std::max((size.y - text_size) * 0.5f, 0.0f)});
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, rounding);
+        ImGui::PushFont(theme::mono_font(), text_size);
+        if (first) ImGui::SetKeyboardFocusHere();
+        T typed = value;
+        if (ImGui::InputScalar("##type", data_type, &typed, nullptr, nullptr, spec.format,
+                               ImGuiInputTextFlags_AutoSelectAll)) {
+            value = static_cast<T>(std::clamp(static_cast<double>(typed), static_cast<double>(spec.lo),
+                                              static_cast<double>(spec.hi)));
+            edit.changed = true;
+        }
+        const bool done = ImGui::IsItemDeactivated() && !first;
+        edit.committed = ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::PopFont();
+        ImGui::PopStyleVar(2);
+        dl->AddRect(min, max, colour(theme::accent()), rounding, 0, 1.2f);
+        if (done) st->SetInt(typing_slot, 0);
+        ImGui::PopID();
+        return edit;
+    }
+
+    ImGui::SetCursorScreenPos(min);
+    ImGui::InvisibleButton("##field", size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active = ImGui::IsItemActive();
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    if (ImGui::IsItemActivated()) {
+        st->SetFloat(start_slot, static_cast<float>(value));
+        st->SetFloat(from_slot, mouse.x);
+    }
+    bool dragging = false;
+    if (active && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
+        dragging = true;
+        const float fine = ImGui::GetIO().KeyShift ? 0.1f : 1.0f;
+        const double moved = static_cast<double>(st->GetFloat(start_slot)) +
+                             static_cast<double>((mouse.x - st->GetFloat(from_slot)) * spec.speed * fine);
+        const T next = static_cast<T>(std::clamp(moved, static_cast<double>(spec.lo), static_cast<double>(spec.hi)));
+        if (next != value) {
+            value = next;
+            edit.changed = true;
+        }
+    }
+    if (ImGui::IsItemDeactivated() && static_cast<float>(value) != st->GetFloat(start_slot)) edit.committed = true;
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) st->SetInt(typing_slot, 1);
+    if (hovered || active) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+    dl->AddRectFilled(min, max, colour(hovered || active ? theme::surface_base() : theme::surface_sunken()), rounding);
+    if (active) {
+        dl->AddRect(min, max, colour(theme::accent()), rounding, 0, 1.2f);
+    } else if (hovered) {
+        dl->AddRect(min, max, colour(theme::surface_highest()), rounding, 0, 1.2f);
+    }
+    char text[48];
+    std::snprintf(text, sizeof(text), spec.format, value);
+    ImGui::PushFont(theme::mono_font(), text_size);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    dl->PushClipRect(min, max, true);
+    dl->AddText({max.x - ts.x - 4.0f, min.y + (size.y - ts.y) * 0.5f}, colour(theme::text()), text);
+    dl->PopClipRect();
+    ImGui::PopFont();
+    if (dragging) canvas_readout(dl, {max.x, (min.y + max.y) * 0.5f}, text, {-1e9f, -1e9f}, {1e9f, 1e9f});
+    ImGui::PopID();
+    return edit;
+}
+
+} // namespace
+
+Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, float& value, const NumberSpec& spec) {
+    return canvas_number_of(id, min, max, text_size, value, spec, ImGuiDataType_Float);
+}
+
+Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, uint32_t& value, const NumberSpec& spec) {
+    NumberSpec whole = spec;
+    whole.lo = std::max(spec.lo, 0.0f);
+    if (std::string_view(whole.format).find('f') != std::string_view::npos) whole.format = "%u";
+    return canvas_number_of(id, min, max, text_size, value, whole, ImGuiDataType_U32);
+}
+
+Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb) {
+    Edit edit;
+    ImGui::PushID(id);
+    const ImVec2 size{std::max(max.x - min.x, 4.0f), std::max(max.y - min.y, 4.0f)};
+    const float rounding = std::min(3.0f, size.y * 0.2f);
+    ImGui::SetCursorScreenPos(min);
+    if (ImGui::InvisibleButton("##swatch", size)) ImGui::OpenPopup("##picker");
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(min, max, colour(theme::surface_sunken()), rounding);
+    const float inset = std::max(size.y * 0.16f, 1.5f);
+    dl->AddRectFilled({min.x + inset, min.y + inset}, {max.x - inset, max.y - inset},
+                      ImGui::GetColorU32(ImVec4(srgb.r, srgb.g, srgb.b, 1.0f)), rounding * 0.6f);
+    if (hovered) dl->AddRect(min, max, colour(theme::surface_highest()), rounding, 0, 1.2f);
+    if (ImGui::BeginPopup("##picker")) {
+        const ImGuiColorEditFlags flags = ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_DisplayHSV |
+                                          ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_AlphaBar;
+        edit.changed = ImGui::ColorPicker4("##pick", &srgb.x, flags);
+        edit.committed = ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return edit;
 }
 
 } // namespace fjell::ui

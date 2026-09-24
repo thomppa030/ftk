@@ -2,8 +2,12 @@
 
 #include <glm/common.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
 #include <imgui.h>
 
+#include "ui/kit/edit.hpp"
+
+#include <cstdint>
 #include <limits>
 #include <string>
 
@@ -163,6 +167,23 @@ struct HandleLook {
 /// A point the mouse can take: at rest in the secondary text colour,
 /// brighter with a ring under the mouse, the accent when selected.
 void canvas_handle(ImDrawList* dl, ImVec2 at, bool hot, bool selected, HandleLook look = {});
+
+/// A number drawn inside a canvas, at `min`..`max` on screen with its text
+/// at `text_size` (sheet 31): dragged sideways it changes by `speed` a
+/// pixel (Shift finer), a double-click types one; brighter under the mouse,
+/// amber while edited. Kept within `lo`..`hi`.
+struct NumberSpec {
+    float speed{0.01f};
+    float lo{-1e9f};
+    float hi{1e9f};
+    const char* format{"%.2f"};
+};
+Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, float& value, const NumberSpec& spec = {});
+Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, uint32_t& value, const NumberSpec& spec = {});
+
+/// A colour drawn inside a canvas as a swatch that opens the kit's picker.
+/// The colour is sRGB, alpha included.
+Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb);
 
 /// What a handle being dragged is at, in a small box beside it, kept inside
 /// `clip_min`..`clip_max`.
