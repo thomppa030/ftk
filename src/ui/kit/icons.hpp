@@ -77,6 +77,10 @@ inline constexpr const char* water        = ICON_LC_WAVES_HORIZONTAL;
 inline constexpr const char* scene        = ICON_LC_CLAPPERBOARD;
 inline constexpr const char* preset       = ICON_LC_BOXES;
 inline constexpr const char* input        = ICON_LC_GAMEPAD_2;
+// Input devices, on a key or a binding
+inline constexpr const char* keyboard     = ICON_LC_KEYBOARD;
+inline constexpr const char* mouse        = ICON_LC_MOUSE;
+inline constexpr const char* gamepad      = ICON_LC_GAMEPAD_2;
 inline constexpr const char* file         = ICON_LC_FILE;
 
 // Menu actions

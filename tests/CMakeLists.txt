@@ -82,6 +82,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/pages.cpp
@@ -90,6 +91,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/status_bar.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/strip.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tabs.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp

@@ -353,6 +353,7 @@ add_executable(fjell
     ui/kit/field.cpp
     ui/kit/gallery.cpp
     ui/kit/inset_group.cpp
+    ui/kit/key_cap.cpp
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
     ui/kit/pages.cpp
@@ -361,6 +362,7 @@ add_executable(fjell
     ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/status_bar.cpp
+    ui/kit/strip.cpp
     ui/kit/tabs.cpp
     ui/kit/text_field.cpp
     ui/kit/tree.cpp

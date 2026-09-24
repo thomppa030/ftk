@@ -6,6 +6,7 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
+#include "ui/kit/key_cap.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
@@ -447,4 +448,64 @@ TEST_CASE("A tab strip reports only the user's picks, not a selection the caller
     h.step(4);
     CHECK(picks == 0);
     CHECK(selected == 2);
+}
+
+TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][kit]") {
+    ImGuiHarness h;
+    int listens = 0;
+    int lists = 0;
+    ImVec2 start{};
+    float short_end = 0.0f;
+    float long_end = 0.0f;
+    float long_start = 0.0f;
+    h.set_ui([&] {
+        start = ImGui::GetCursorScreenPos();
+        const auto cap = ui::key_cap({.id = "##w", .device_icon = ui::icon::keyboard, .label = "W"});
+        h.mark("chevron");  // the last item: the chevron
+        short_end = ImGui::GetItemRectMax().x;
+        if (cap.listen) ++listens;
+        if (cap.list) ++lists;
+        long_start = ImGui::GetCursorScreenPos().x;
+        (void)ui::key_cap({.id = "##shift", .device_icon = ui::icon::keyboard, .label = "Left Shift"});
+        long_end = ImGui::GetItemRectMax().x;
+    });
+    h.step(2);
+    h.click("chevron");
+    CHECK(lists == 1);
+    CHECK(listens == 0);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(start.x + 6.0f, start.y + ImGui::GetFrameHeight() * 0.5f);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    h.step(2);
+    CHECK(listens == 1);
+    CHECK(long_end - long_start > short_end - start.x);
+}
+
+TEST_CASE("A named box's remove icon removes without folding it", "[ui][kit]") {
+    ImGuiHarness h;
+    bool remove = false;
+    bool open = false;
+    float right = 0.0f;
+    float top = 0.0f;
+    h.set_ui([&] {
+        top = ImGui::GetCursorScreenPos().y;
+        right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        auto box = ui::InsetGroup("##jump", {.text = "jump", .named = true, .remove = &remove});
+        open = static_cast<bool>(box);
+    });
+    h.step(2);
+    // The remove icon: a frame-height square at the heading's right end.
+    const float side = ImGui::GetFrameHeight();
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(right - side * 0.5f - 4.0f, top + 3.0f + side * 0.5f);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    h.step(2);
+    CHECK(remove);
+    CHECK(open);
 }

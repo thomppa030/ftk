@@ -49,13 +49,18 @@ private:
     enum class RebindTarget { source, up, down, left, right };
 
     void draw_mappings();
+    void draw_header_actions() override;
     void draw_action_section(const std::string& action_name, ActionType type);
-    void draw_binding_row(int binding_idx);
-    bool draw_source_button(const char* label, InputSource source, int binding_idx,
-                            RebindTarget target);
-    void draw_modifier_chips(int binding_idx);
+    void draw_binding_row(int binding_idx, int number, ActionType type);
+    bool draw_source_button(const char* id, InputSource source, int binding_idx, RebindTarget target,
+                            bool compact);
+    void draw_source_picker(int binding_idx, RebindTarget target);
+    [[nodiscard]] static std::string picker_id(int binding_idx, RebindTarget target);
+    void draw_modifier_chips(int binding_idx, ActionType type);
     void draw_add_action_popup();
     void accept_action_drop();
+    void set_source(int binding_idx, RebindTarget target, InputSource source);
+    [[nodiscard]] ActionType action_type(const std::string& action) const;
 
     void scan_actions();
 
