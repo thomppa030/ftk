@@ -591,6 +591,10 @@ PassSetup SsGiPass::setup() const {
 void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     auto normal = builder.import_named(ctx, "normal");
+    // The trace reads both in the ray tracing stages, the resolve and the
+    // upsample in compute.
+    builder.read(depth, ResourceAccess::sampled_raytracing);
+    builder.read(normal, ResourceAccess::sampled_raytracing);
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.read(normal, ResourceAccess::sampled_compute);
     // The emissive light the surfaces sample, kept for them into the next
