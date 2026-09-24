@@ -109,6 +109,13 @@ inline constexpr const char* design_scale  = ICON_LC_SCAN;  // fit a design fram
 inline constexpr const char* frame_view    = ICON_LC_SCAN;  // bring what is edited into view
 inline constexpr const char* perspective   = ICON_LC_CAMERA;
 inline constexpr const char* orthographic  = ICON_LC_SQUARE;
+// The Scene viewport's tools and play controls
+inline constexpr const char* move_tool      = ICON_LC_MOVE;
+inline constexpr const char* rotate_tool    = ICON_LC_ROTATE_3D;
+inline constexpr const char* scale_tool     = ICON_LC_SCALE_3D;
+inline constexpr const char* step_frame     = ICON_LC_SKIP_FORWARD;
+inline constexpr const char* eject_camera   = ICON_LC_CHEVRON_UP;    // leave the game's camera
+inline constexpr const char* possess_camera = ICON_LC_CHEVRON_DOWN;  // return to it
 inline constexpr const char* checked       = ICON_LC_CHECK;
 inline constexpr const char* plane         = ICON_LC_SQUARE;
 inline constexpr const char* sphere        = ICON_LC_CIRCLE;
