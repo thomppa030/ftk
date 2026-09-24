@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/kit/dialog.hpp"
 #include "ui/kit/tree.hpp"
 
 #include "core/delegate.hpp"
@@ -121,6 +122,9 @@ private:
 
     // Delete confirmation popup
     bool show_delete_popup_{false};
+    // The bottom of the content browser's bar, centred across it, where a
+    // question about a file hangs from.
+    ui::DialogAnchor bar_anchor_{};
     int delete_index_{-1};
 
     // Files referencing the entry the delete prompt is about. Looked up once

@@ -147,6 +147,7 @@ void MenuBar::draw_layout_menu() {
     }
     if (ui::menu_item({.icon = ui::icon::save, .label = "Save layout as..."})) {
         show_save_layout_popup_ = true;
+        menu_anchor_ = {ImGui::GetWindowPos(), 0.0f};
         layout_name_.clear();
     }
     ImGui::Separator();
@@ -170,6 +171,7 @@ void MenuBar::draw_scripts_menu() {
 
     if (ui::menu_item({.icon = ui::icon::new_file, .label = "New script..."})) {
         show_new_script_popup_ = true;
+        menu_anchor_ = {ImGui::GetWindowPos(), 0.0f};
         new_script_name_.clear();
     }
     ImGui::Separator();
@@ -185,7 +187,7 @@ void MenuBar::draw_popups() {
     static constexpr const char* NEW_SCRIPT = "##new_script";
 
     if (show_save_layout_popup_) {
-        ui::open_dialog(SAVE_LAYOUT);
+        ui::open_dialog(SAVE_LAYOUT, menu_anchor_);
         show_save_layout_popup_ = false;
     }
     if (ui::prompt_dialog(SAVE_LAYOUT, {.title = "Save layout as", .hint = "Layout name", .confirm = "Save layout"},
@@ -194,7 +196,7 @@ void MenuBar::draw_popups() {
     }
 
     if (show_new_script_popup_) {
-        ui::open_dialog(NEW_SCRIPT);
+        ui::open_dialog(NEW_SCRIPT, menu_anchor_);
         show_new_script_popup_ = false;
     }
     if (ui::prompt_dialog(NEW_SCRIPT, {.title = "New script", .hint = "Class name", .confirm = "Create script"},

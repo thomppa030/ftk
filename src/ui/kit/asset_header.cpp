@@ -16,7 +16,7 @@ namespace {
 constexpr float STRIP_HEIGHT = 36.0f;
 constexpr float NAME_SIZE = 14.0f;
 
-constexpr const char* WINDOW = "##AssetHeader";
+constexpr const char* WINDOW = ASSET_HEADER_WINDOW;
 
 // What the strip measured the frame before, kept in its own window: the
 // right-hand group's width and the callout's height.

@@ -243,6 +243,8 @@ void ContentBrowser::draw() {
             draw_breadcrumb();
 
             ImGui::Separator();
+            bar_anchor_ = {{ImGui::GetWindowPos().x + ImGui::GetWindowWidth() * 0.5f,
+                            ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y}, 0.5f};
 
             // Dual pane: directory tree left, file grid right
             float tree_width = 200.0f;
@@ -297,7 +299,7 @@ void ContentBrowser::draw() {
     // A file delete can't be undone, so it asks first, in a modal.
     if (show_delete_popup_ && delete_index_ >= 0 &&
         delete_index_ < static_cast<int>(entries_.size())) {
-        ui::open_dialog(DELETE_DIALOG);
+        ui::open_dialog(DELETE_DIALOG, bar_anchor_);
         show_delete_popup_ = false;
     }
     if (delete_index_ < 0 || delete_index_ >= static_cast<int>(entries_.size())) return;

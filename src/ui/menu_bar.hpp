@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/kit/dialog.hpp"
 #include "core/delegate.hpp"
 #include "ui/file_browser.hpp"
 
@@ -74,6 +75,9 @@ private:
     FileBrowser open_browser_;
     FileBrowser new_browser_;
     std::vector<Connection> browser_connections_;
+    // Where the menu's dialog hangs: the menu's own top-left, under the
+    // menu bar at that menu.
+    ui::DialogAnchor menu_anchor_{};
     bool show_new_script_popup_{false};
     std::string new_script_name_;
     bool show_save_layout_popup_{false};
