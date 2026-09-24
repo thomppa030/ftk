@@ -66,6 +66,10 @@ void Window::request_close() {
     glfwSetWindowShouldClose(window_, GLFW_TRUE);
 }
 
+void Window::cancel_close() {
+    glfwSetWindowShouldClose(window_, GLFW_FALSE);
+}
+
 void Window::poll_events() {
     glfwPollEvents();
 }
