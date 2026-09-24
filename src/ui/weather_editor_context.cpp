@@ -5,7 +5,7 @@
 #include "renderer/resources/asset_shader_type.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "ui/asset_ref_widget.hpp"
-#include "ui/imgui_curve_editor.hpp"
+#include "ui/kit/curve_editor.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
@@ -309,8 +309,9 @@ void WeatherEditorContext::draw_properties() {
             });
             if (l.flash.keyframes.empty()) ui::hint("A single pulse until a curve shapes the stutter");
         }
-        if (!l.flash.keyframes.empty() && CurveEditor("##flash", l.flash, ImVec2(-1, 110), 0.0f, 1.0f)) {
-            edit.committed = true;
+        if (!l.flash.keyframes.empty()) {
+            edit |= ui::curve_editor("##flash", l.flash,
+                                     {.size = {-1.0f, 110.0f}, .category = theme::Category::Environment});
         }
         if (deps_.environment != nullptr && is_playing_here()) {
             if (ui::action(ui::icon::play, "Strike now")) deps_.environment->strike_lightning();

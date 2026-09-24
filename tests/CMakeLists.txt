@@ -76,6 +76,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_tile.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/canvas.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/curve_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
@@ -98,7 +99,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/viewport_toolbar.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/state_graph.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/track_lanes.cpp
 )

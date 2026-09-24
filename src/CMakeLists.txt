@@ -327,7 +327,6 @@ add_executable(fjell
     ui/font_editor_context.cpp
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
-    ui/imgui_curve_editor.cpp
     ui/inspectors/animation_inspectors.cpp
     ui/inspectors/asset_rows.cpp
     ui/inspectors/collision_shape_fields.cpp
@@ -345,6 +344,7 @@ add_executable(fjell
     ui/kit/asset_tile.cpp
     ui/kit/button.cpp
     ui/kit/canvas.cpp
+    ui/kit/curve_editor.cpp
     ui/kit/choice.cpp
     ui/kit/color_field.cpp
     ui/kit/component_block.cpp

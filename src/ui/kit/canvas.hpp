@@ -78,6 +78,15 @@ public:
     /// kept there before. False when nothing was: the caller frames.
     bool recall(const std::string& key);
 
+    /// For a canvas drawn by a function rather than kept by an object (a
+    /// curve in an inspector): the view ImGui keeps under `id` in the
+    /// current window, which is per asset since every editor's windows are.
+    /// False when there is none yet: the caller frames.
+    bool load(ImGuiID id);
+    /// Keeps the view, and where it was last placed, under `id` for the
+    /// next frame's load().
+    void store(ImGuiID id) const;
+
     [[nodiscard]] ImVec2 to_screen(glm::vec2 world) const;
     [[nodiscard]] glm::vec2 to_world(ImVec2 screen) const;
     [[nodiscard]] float to_screen_x(float world) const;

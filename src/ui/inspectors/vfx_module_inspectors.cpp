@@ -2,7 +2,7 @@
 
 #include "renderer/systems/vfx_module.hpp"
 #include "ui/asset_ref_widget.hpp"
-#include "ui/imgui_curve_editor.hpp"
+#include "ui/kit/curve_editor.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
@@ -76,7 +76,7 @@ ui::Edit degrees(const char* id, float& radians, const ui::DragSpec& spec) {
 template <typename... Presets>
 ui::Edit curve_with_presets(const char* id, Curve& curve, Presets&&... presets) {
     ui::Edit edit;
-    if (CurveEditor(id, curve, {-1, 120}, 0.0f, 1.0f)) edit = {true, true};
+    edit |= ui::curve_editor(id, curve);
     auto apply = [&](const char* label, Curve shape) {
         if (ui::button(label, ui::ButtonKind::Ghost)) {
             curve = shape;
@@ -424,7 +424,7 @@ ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) 
         for (const auto& channel : channels) {
             if (ui::subheading_foldable(channel.label, false)) {
                 ImGui::PushID(channel.label);
-                if (CurveEditor("##curve", *channel.curve, {-1, 120}, 0.0f, 1.0f)) edit = {true, true};
+                edit |= ui::curve_editor("##curve", *channel.curve);
                 ImGui::PopID();
             }
         }

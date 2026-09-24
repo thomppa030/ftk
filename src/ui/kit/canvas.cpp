@@ -2,6 +2,8 @@
 
 #include "ui/theme.hpp"
 
+#include <imgui_internal.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -139,6 +141,35 @@ bool CanvasView::recall(const std::string& key) {
     scale_ = it->second.scale;
     span_ = it->second.span;
     return true;
+}
+
+bool CanvasView::load(ImGuiID id) {
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    if (!st->GetBool(ImHashStr("has", 0, id))) return false;
+    min_ = {st->GetFloat(ImHashStr("min_x", 0, id)), st->GetFloat(ImHashStr("min_y", 0, id))};
+    span_ = {st->GetFloat(ImHashStr("span_x", 0, id)), st->GetFloat(ImHashStr("span_y", 0, id))};
+    scale_ = st->GetFloat(ImHashStr("scale", 0, id));
+    panning_ = st->GetBool(ImHashStr("panning", 0, id));
+    panned_frame_ = st->GetInt(ImHashStr("panned", 0, id));
+    origin_ = {st->GetFloat(ImHashStr("origin_x", 0, id)), st->GetFloat(ImHashStr("origin_y", 0, id))};
+    size_ = {st->GetFloat(ImHashStr("size_x", 0, id), 1.0f), st->GetFloat(ImHashStr("size_y", 0, id), 1.0f)};
+    return true;
+}
+
+void CanvasView::store(ImGuiID id) const {
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    st->SetBool(ImHashStr("has", 0, id), true);
+    st->SetFloat(ImHashStr("min_x", 0, id), min_.x);
+    st->SetFloat(ImHashStr("min_y", 0, id), min_.y);
+    st->SetFloat(ImHashStr("span_x", 0, id), span_.x);
+    st->SetFloat(ImHashStr("span_y", 0, id), span_.y);
+    st->SetFloat(ImHashStr("scale", 0, id), scale_);
+    st->SetBool(ImHashStr("panning", 0, id), panning_);
+    st->SetInt(ImHashStr("panned", 0, id), panned_frame_);
+    st->SetFloat(ImHashStr("origin_x", 0, id), origin_.x);
+    st->SetFloat(ImHashStr("origin_y", 0, id), origin_.y);
+    st->SetFloat(ImHashStr("size_x", 0, id), size_.x);
+    st->SetFloat(ImHashStr("size_y", 0, id), size_.y);
 }
 
 void CanvasView::keep() {
