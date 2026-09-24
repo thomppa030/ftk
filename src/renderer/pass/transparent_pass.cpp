@@ -434,7 +434,7 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
                  ResourceAccess::storage_buffer_read_fragment);
     // The lit surfaces drawn here sample the ambient occlusion too.
-    if (auto ao = builder.import_named(ctx, "gtao_ao"); ao.valid()) {
+    if (auto ao = builder.import_named_optional(ctx, "gtao_ao"); ao.valid()) {
         builder.read(ao, ResourceAccess::sampled_fragment);
     }
     // What the subsystems' compute step wrote for the draws their hooks

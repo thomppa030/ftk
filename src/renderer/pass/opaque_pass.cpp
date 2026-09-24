@@ -86,7 +86,7 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
                  ResourceAccess::storage_buffer_read_fragment);
     // Every surface shader samples the ambient occlusion.
-    if (auto ao = builder.import_named(ctx, "gtao_ao"); ao.valid()) {
+    if (auto ao = builder.import_named_optional(ctx, "gtao_ao"); ao.valid()) {
         builder.read(ao, ResourceAccess::sampled_fragment);
     }
     // The GPU-driven draws: every meshlet both culls found visible.

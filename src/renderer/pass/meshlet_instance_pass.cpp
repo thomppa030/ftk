@@ -578,9 +578,7 @@ void MeshletInstancePass::collect_exports(DeclareContext& ctx) {
 }
 
 void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto it = ctx.imports.find(fg_name_hash("hiz_pyramid"));
-    if (it != ctx.imports.end()) {
-        auto hiz = builder.import_named(ctx, "hiz_pyramid");
+    if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
         builder.read(hiz, ResourceAccess::sampled_compute);
     }
 
