@@ -50,9 +50,12 @@ public:
     [[nodiscard]] ImVec2 rect_min(const std::string& name) const;
     [[nodiscard]] ImVec2 rect_max(const std::string& name) const;
 
-    /// Presses the left button at `from`, moves to `to` over a few frames
+    /// Presses a mouse button at `from`, moves to `to` over a few frames
     /// and releases there.
-    void drag(ImVec2 from, ImVec2 to);
+    void drag(ImVec2 from, ImVec2 to, ImGuiMouseButton button = ImGuiMouseButton_Left);
+
+    /// Turns the mouse wheel by `notches` (up is positive) with the mouse at `at`.
+    void wheel(ImVec2 at, float notches);
 
     /// Types UTF-8 text into whatever has keyboard focus.
     void type(std::string_view text);
