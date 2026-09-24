@@ -595,9 +595,10 @@ void ContentBrowser::draw_file_grid() {
 
     int col = (current_dir_ != root_) ? 1 : 0;
     bool open_context_menu = false;
-    // A rename re-reads the folder, which replaces entries_, so it waits
-    // until the grid has been drawn.
+    // A rename or move re-reads the folder, which replaces entries_, so it
+    // waits until the grid has been drawn.
     std::optional<std::pair<int, std::string>> pending_rename;
+    std::optional<std::pair<Entry, std::filesystem::path>> pending_move;
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         auto& entry = entries_[i];
@@ -689,29 +690,9 @@ void ContentBrowser::draw_file_grid() {
                     if (rel == dropped_path) { src_idx = si; break; }
                 }
                 if (src_idx >= 0 && src_idx < static_cast<int>(entries_.size()) && src_idx != i) {
-                    auto& src = entries_[src_idx];
-                    auto dest = entry.path / src.path.filename();
-                    std::error_code ec;
-                    std::filesystem::rename(src.path, dest, ec);
-                    if (!ec) {
-                        FJELL_CORE_INFO("Moved: {} -> {}", src.name, dest.string());
-                        if (src.is_directory) {
-                            folder_colors_.moved(src.path, dest);
-                            save_folder_colors();
-                        }
-                        if (src.type == FileType::texture && pool_) {
-                            auto dest_str = dest.string();
-                            (void)pool_->submit([dest_str]() {
-                                IconCache::ensure_thumbnail_cache(dest_str);
-                            });
-                        }
-                        if (asset_thumbnails_ && asset_thumbnails_->supports(src.path)) {
-                            asset_thumbnails_->invalidate(src.path.string());
-                        }
-                        refresh_current_dir();
-                    } else {
-                        FJELL_CORE_ERROR("Failed to move: {}", ec.message());
-                    }
+                    // Moved the way a rename is: sidecar along, references updated.
+                    const Entry& src = entries_[static_cast<std::size_t>(src_idx)];
+                    pending_move.emplace(src, entry.path / src.path.filename());
                 }
             }
             ImGui::EndDragDropTarget();
@@ -729,6 +710,7 @@ void ContentBrowser::draw_file_grid() {
     }
 
     if (pending_rename) rename_entry(pending_rename->first, pending_rename->second);
+    if (pending_move) move_entry(pending_move->first, pending_move->second);
 
     // Deferred popup open — must happen outside PushID(i) so the ID matches BeginPopup
     if (open_context_menu) {
@@ -798,7 +780,10 @@ void ContentBrowser::rename_entry(int index, const std::string& name) {
     if (!orig_ext.empty() && std::filesystem::path(new_name).extension().empty()) {
         new_name += orig_ext;
     }
-    auto new_path = entry.path.parent_path() / new_name;
+    move_entry(entry, entry.path.parent_path() / new_name);
+}
+
+void ContentBrowser::move_entry(const Entry& entry, const std::filesystem::path& new_path) {
     std::error_code ec;
     std::filesystem::rename(entry.path, new_path, ec);
     if (!ec) {
@@ -822,6 +807,10 @@ void ContentBrowser::rename_entry(int index, const std::string& name) {
             write_action_file(def, new_path.string());
         }
 
+        if (entry.type == FileType::texture && pool_) {
+            const auto dest = new_path.string();
+            (void)pool_->submit([dest]() { IconCache::ensure_thumbnail_cache(dest); });
+        }
         if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
             asset_thumbnails_->invalidate(entry.path.string());
         }
@@ -830,10 +819,10 @@ void ContentBrowser::rename_entry(int index, const std::string& name) {
         auto new_rel = std::filesystem::relative(new_path, root_);
         on_asset_moved.broadcast(old_rel.string(), new_rel.string());
 
-        FJELL_CORE_INFO("Renamed: {} -> {}", entry.name, name);
+        FJELL_CORE_INFO("Moved: {} -> {}", old_rel.string(), new_rel.string());
         refresh_current_dir();
     } else {
-        FJELL_CORE_ERROR("Failed to rename: {}", ec.message());
+        FJELL_CORE_ERROR("Failed to move {}: {}", entry.name, ec.message());
     }
 }
 

@@ -116,6 +116,9 @@ private:
     // Renames the entry on disk, taking its sidecar along, and tells the
     // project the asset moved.
     void rename_entry(int index, const std::string& new_name);
+    // Moves an entry to `new_path` (a rename, or into a folder): the file,
+    // its sidecar and its folder colour, then tells the project.
+    void move_entry(const Entry& entry, const std::filesystem::path& new_path);
 
     // Delete confirmation popup
     bool show_delete_popup_{false};
