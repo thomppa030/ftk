@@ -20,6 +20,8 @@ inline constexpr const char* more         = ICON_LC_MORE_HORIZONTAL;
 inline constexpr const char* search       = ICON_LC_SEARCH;
 inline constexpr const char* reorder      = ICON_LC_GRIP_VERTICAL;
 inline constexpr const char* play         = ICON_LC_PLAY;
+inline constexpr const char* pause        = ICON_LC_PAUSE;
+inline constexpr const char* editing      = ICON_LC_PENCIL;  // the editor is not playing
 inline constexpr const char* follow       = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep the newest line in view
 
 // What a section or panel is about
@@ -40,6 +42,7 @@ inline constexpr const char* source            = ICON_LC_LINK;
 inline constexpr const char* snap              = ICON_LC_MAGNET;
 inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
 inline constexpr const char* console           = ICON_LC_TERMINAL;
+inline constexpr const char* content_browser   = ICON_LC_FOLDER_OPEN;
 inline constexpr const char* stats             = ICON_LC_GAUGE;
 inline constexpr const char* history           = ICON_LC_HISTORY;
 inline constexpr const char* network           = ICON_LC_NETWORK;

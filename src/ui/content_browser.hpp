@@ -66,7 +66,6 @@ private:
 
     void navigate_to(const std::filesystem::path& dir);
     void apply_pending_navigation();
-    void draw_collapsed_tab();
     void draw_directory_tree();
     void draw_directory_tree_node(const std::filesystem::path& dir);
     void draw_file_grid();

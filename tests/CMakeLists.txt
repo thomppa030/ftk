@@ -84,6 +84,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/status_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
@@ -193,6 +194,7 @@ add_executable(fjell-tests
     test_edit_record.cpp
     test_scene_order.cpp
     test_search.cpp
+    test_status_bar.cpp
     test_tree.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp

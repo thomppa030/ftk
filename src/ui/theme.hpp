@@ -151,6 +151,9 @@ inline constexpr float TOOL_ICON = 20.0f;
 inline constexpr float TREE_ROW = 24.0f;
 inline constexpr float TREE_INDENT = 16.0f;
 
+/// Height of the status bar along the bottom of the editor.
+inline constexpr float STATUS_BAR = 24.0f;
+
 /// Height of the category bar over a component block.
 inline constexpr float CATEGORY_BAR = 3.0f;
 

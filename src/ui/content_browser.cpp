@@ -14,7 +14,6 @@
 #include "ui/icon_cache.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/icons_lc.hpp"
-#include "ui/status_bar.hpp"
 #include "ui/theme.hpp"
 #include "ui/panel_widget.hpp"
 #include "core/thread_pool.hpp"
@@ -179,81 +178,6 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     return FileType::unknown;
 }
 
-void ContentBrowser::draw_collapsed_tab() {
-    ImGuiViewport* vp = ImGui::GetMainViewport();
-
-    const char* label = ICON_LC_FOLDER_OPEN "  Content Browser";
-    const char* hint = "Ctrl+Space";
-
-    const ImVec2 label_size = ImGui::CalcTextSize(label);
-    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-    const float pad_x = 12.0f;
-    const float gap = 10.0f;
-    const float tab_w = pad_x * 2.0f + label_size.x + gap + hint_size.x;
-    const float tab_h = ImGui::GetFrameHeight();
-
-    // Sit on the bottom edge, above the status bar, left-aligned with the
-    // panel it opens.
-    const float x = vp->WorkPos.x + 12.0f;
-    const float y = vp->WorkPos.y + vp->WorkSize.y - StatusBar::HEIGHT - tab_h;
-
-    ImGui::SetNextWindowPos({x, y}, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({tab_w, tab_h}, ImGuiCond_Always);
-    ImGui::SetNextWindowViewport(vp->ID);
-
-    ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoFocusOnAppearing;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
-
-    if (ImGui::Begin("##CBCollapsedTab", nullptr, flags)) {
-        const ImVec2 p0 = ImGui::GetWindowPos();
-        const ImVec2 p1 = {p0.x + tab_w, p0.y + tab_h};
-
-        // The whole tab is the button, so the shortcut is discoverable without
-        // being the only way in.
-        const bool clicked = ImGui::InvisibleButton("##toggle", {tab_w, tab_h});
-        const bool hovered = ImGui::IsItemHovered();
-        if (clicked) toggle_visibility();
-
-        // The dockspace host covers this strip and its docked panels paint over
-        // any ordinary overlay window, so the tab is drawn into the foreground
-        // list to stay visible. The window above still handles the click.
-        auto* dl = ImGui::GetForegroundDrawList(vp);
-        const float rounding = 6.0f;
-
-        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_TitleBg);
-        if (hovered) bg = ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive);
-        dl->AddRectFilled(p0, p1, ImGui::GetColorU32(bg), rounding,
-                          ImDrawFlags_RoundCornersTop);
-        dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Separator), rounding,
-                    ImDrawFlags_RoundCornersTop, 1.0f);
-
-        // Accent strip along the top edge draws the eye to an otherwise quiet
-        // strip of chrome.
-        dl->AddLine({p0.x + rounding, p0.y}, {p1.x - rounding, p0.y},
-                    ImGui::GetColorU32(hovered ? theme::accent()
-                                               : theme::accent_dim()),
-                    2.0f);
-
-        const float text_y = p0.y + (tab_h - label_size.y) * 0.5f;
-        dl->AddText({p0.x + pad_x, text_y},
-                    ImGui::GetColorU32(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled),
-                    label);
-        dl->AddText({p1.x - pad_x - hint_size.x, text_y},
-                    ImGui::GetColorU32(theme::accent()), hint);
-    }
-    ImGui::End();
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
-}
-
 void ContentBrowser::draw() {
     // Apply a directory switch requested during the previous frame's draw.
     apply_pending_navigation();
@@ -278,10 +202,9 @@ void ContentBrowser::draw() {
         anim_t_ = std::max(anim_t_ - dt * speed, target);
     }
 
-    // Nothing to draw when fully closed — except the handle that tells a new
-    // user the panel is there at all.
+    // Nothing to draw when fully closed: the status bar's Content button
+    // and Ctrl Space open it.
     if (anim_t_ <= 0.0f) {
-        draw_collapsed_tab();
         return;
     }
 
@@ -298,12 +221,13 @@ void ContentBrowser::draw() {
         {vp->WorkSize.x, 100.0f},
         {vp->WorkSize.x, vp->WorkSize.y * 0.80f});
 
-    // Read back current window size to pin to bottom edge, offset by animation
+    // Read back current window size to pin it on the status bar, offset by
+    // the animation, so the bar's Content button stays in view.
     ImGuiWindow* win = ImGui::FindWindowByName("Content Browser");
     float panel_height = win ? win->Size.y : vp->WorkSize.y * 0.30f;
     float visible_height = panel_height * t;
     ImGui::SetNextWindowPos(
-        {vp->WorkPos.x, vp->WorkPos.y + vp->WorkSize.y - visible_height},
+        {vp->WorkPos.x, vp->WorkPos.y + vp->WorkSize.y - theme::STATUS_BAR - visible_height},
         ImGuiCond_Always);
 
     ImGuiWindowFlags flags =
