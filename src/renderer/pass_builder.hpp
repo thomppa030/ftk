@@ -27,6 +27,12 @@ struct ImportedImage {
     // whose state at the start of frame N depends on frame N-1's exit
     // state.
     bool persistent{false};
+    // The layout the owner keeps the image in outside the graph: where its
+    // creation seeded it, or where every writer's closing barrier leaves it.
+    // The graph starts from here when it has no memory of the image, so a
+    // first read keeps what the owner put there instead of discarding it.
+    // UNDEFINED for an image no pass reads before one writes it.
+    VkImageLayout initial_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
 
 /// A named buffer made available to pass declare() bodies, the buffer
@@ -170,14 +176,12 @@ public:
     /// pipeline-provided DeclareContext catalog. Returns an invalid
     /// handle and warns if the name isn't present — typo-safe without
     /// crashing the frame.
-    FgTexture import_named(const DeclareContext& ctx, std::string_view name,
-                           VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+    FgTexture import_named(const DeclareContext& ctx, std::string_view name);
 
     /// import_named() for an image some viewports do not have by design (a
     /// preview without GTAO or TAA): an invalid handle, and nothing logged,
     /// when the name is absent.
-    FgTexture import_named_optional(const DeclareContext& ctx, std::string_view name,
-                                    VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+    FgTexture import_named_optional(const DeclareContext& ctx, std::string_view name);
 
     /// Import a buffer by the name a producer exported it under. Returns an
     /// invalid handle when no pass exported it this frame, which a consumer

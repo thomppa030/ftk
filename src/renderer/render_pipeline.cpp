@@ -149,7 +149,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         auto add_import = [&](std::string_view name, VkImage img, VkImageView view,
                                VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
             decl_ctx.imports.emplace(fg_name_hash(name),
-                ImportedImage{img, view, aspect, 0, 1, 1, false});
+                ImportedImage{.image = img, .view = view, .aspect = aspect});
         };
         add_import("color",        target.color_image(),        target.color_view());
         add_import("depth",        target.depth_image(),        target.depth_view(),

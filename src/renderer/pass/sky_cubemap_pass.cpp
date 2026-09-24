@@ -1001,6 +1001,9 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = 6;
     img.mip_count = mips;
     img.persistent = true;
+    // Both cubemaps are generated once at creation, and an HDRI is never
+    // written again in the frame, so a reader can come first.
+    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     ctx.imports.emplace(fg_name_hash("sky_cubemap"), img);
 }
 
