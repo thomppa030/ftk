@@ -160,6 +160,9 @@ inline constexpr float BODY_TEXT = 14.0f;
 /// Text size of hints and status lines, a step under the body text.
 inline constexpr float SMALL_TEXT = 13.0f;
 
+/// Text size of the values along a canvas's axes, in the mono face.
+inline constexpr float AXIS_TEXT = 12.0f;
+
 /// Width at which tooltips wrap.
 inline constexpr float TOOLTIP_WRAP = 320.0f;
 

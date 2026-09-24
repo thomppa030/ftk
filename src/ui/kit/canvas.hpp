@@ -30,6 +30,9 @@ enum class CanvasZoom {
     Uniform,
     /// Across the width only, the span kept when it is resized: a timeline.
     Horizontal,
+    /// Each axis on its own, what is in view kept when it is resized: a
+    /// plot of two values. Shift and the wheel zoom across only.
+    Both,
 };
 
 /// The part of the world a canvas shows. Belongs to the canvas instance;
@@ -47,6 +50,8 @@ public:
         float bound_min{-std::numeric_limits<float>::infinity()};
         float bound_max{std::numeric_limits<float>::infinity()};
         float min_span{1e-3f};
+        /// Both: values grow upward, the way a plot reads.
+        bool y_up{false};
     };
 
     CanvasView() = default;
@@ -66,7 +71,7 @@ public:
 
     /// Shows the world from `lo` to `hi`. Uniform fits it in the canvas
     /// without enlarging past one pixel per unit; Horizontal shows lo.x to
-    /// hi.x within its bounds.
+    /// hi.x within its bounds; Both shows exactly that rectangle.
     void frame(glm::vec2 lo, glm::vec2 hi);
 
     /// Keeps the view under `key` for the session and brings back what was
@@ -77,8 +82,9 @@ public:
     [[nodiscard]] glm::vec2 to_world(ImVec2 screen) const;
     [[nodiscard]] float to_screen_x(float world) const;
     [[nodiscard]] float to_world_x(float screen) const;
-    /// Screen pixels per world unit across.
+    /// Screen pixels per world unit across and down.
     [[nodiscard]] float scale_x() const;
+    [[nodiscard]] float scale_y() const;
     [[nodiscard]] ImVec2 origin() const { return origin_; }
     [[nodiscard]] ImVec2 size() const { return size_; }
 
@@ -92,7 +98,7 @@ private:
     ImVec2 size_{1.0f, 1.0f};
     glm::vec2 min_{0.0f};   // the world at the canvas's top-left
     float scale_{1.0f};     // Uniform
-    float span_{1.0f};      // Horizontal: the world across the width
+    glm::vec2 span_{1.0f};  // Horizontal and Both: the world across the canvas
     bool panning_{false};
     int panned_frame_{-1};
     std::string key_;
@@ -105,6 +111,23 @@ private:
 /// Lines every `step` world units across the visible canvas, both ways,
 /// on whole pixels; none when they would come closer than `min_px`.
 void canvas_grid(ImDrawList* dl, const CanvasView& view, float step, const ImVec4& colour, float min_px = 6.0f);
+
+/// A plot's axes (sheet 8): lines at round values in the plot, the major
+/// ones brighter and zero brighter still, and their values in gutters
+/// outside it, each axis named beside its values. Without `y_axis` (one
+/// value along a line) there is no left gutter and no lines across.
+struct PlotAxes {
+    const char* x_name{nullptr};
+    const char* y_name{nullptr};
+    bool y_axis{true};
+};
+
+/// Where the plot sits in `origin`..`origin + size` once its gutters are
+/// taken: place the plot's view there.
+void plot_area(ImVec2 origin, ImVec2 size, const PlotAxes& axes, ImVec2* plot_origin, ImVec2* plot_size);
+
+/// Draws the plot (the view's area) with its grid, and the gutters around it.
+void canvas_plot_axes(ImDrawList* dl, const CanvasView& view, const PlotAxes& axes);
 
 enum class HandleShape { Circle, Diamond };
 

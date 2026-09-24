@@ -13,6 +13,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/kit/canvas.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
@@ -41,11 +42,10 @@ namespace fjell {
 
 namespace {
 
-// The canvas's metrics (sheet 8): a handle, the radius a click finds it
-// within, the 1D canvas's height and the cursor's size.
+// The canvas's metrics (sheet 8): a handle, the 1D canvas's height and the
+// cursor's size.
 constexpr float HANDLE_RADIUS = 5.0f;
-constexpr float HIT_RADIUS = 8.0f;
-constexpr float LINE_HEIGHT = 72.0f;
+constexpr float LINE_HEIGHT = 94.0f;
 constexpr float CURSOR = 6.0f;
 
 ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
@@ -91,6 +91,9 @@ void BlendSpaceEditorContext::open(const std::string& path) {
         }
         blend_space_ = std::move(*loaded);
     }
+    view_ = two_d() ? ui::CanvasView({.zoom = ui::CanvasZoom::Both, .y_up = true})
+                    : ui::CanvasView({.zoom = ui::CanvasZoom::Horizontal});
+    frame_pending_ = !view_.recall("blend_space|" + path);
     reload_clips();
     const std::string skeleton = std::visit([](const auto& bs) { return bs.skeleton_path(); }, blend_space_);
     if (!skeleton.empty()) {
@@ -216,95 +219,65 @@ void BlendSpaceEditorContext::draw_canvas_panel() {
                 [&] { ui::readout(text.empty() ? "Nothing: no points yet" : text.c_str()); });
     }
 
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImVec2 size = ImGui::GetContentRegionAvail();
-    size.x = std::max(size.x, 50.0f);
+    const ImVec2 outer = ImGui::GetCursorScreenPos();
+    ImVec2 outer_size = ImGui::GetContentRegionAvail();
+    outer_size.x = std::max(outer_size.x, 80.0f);
+    outer_size.y = two_d() ? std::max(outer_size.y, 80.0f) : LINE_HEIGHT;
+    ImVec2 origin;
+    ImVec2 size;
+    ui::plot_area(outer, outer_size, plot_axes(), &origin, &size);
+    view_.place(origin, size);
+    if (frame_pending_) {
+        frame_points();
+        frame_pending_ = false;
+    }
+    ui::canvas_plot_axes(ImGui::GetWindowDrawList(), view_, plot_axes());
     if (two_d()) {
-        size.y = std::max(size.y, 50.0f);
         draw_canvas_2d(origin, size);
     } else {
-        size.y = LINE_HEIGHT;
         draw_canvas_1d(origin, size);
     }
+    ImGui::SetCursorScreenPos({outer.x, outer.y + outer_size.y});
+    ImGui::Dummy({outer_size.x, 0.0f});
     if (point_count() == 0) {
         ui::hint("Drop a clip on the canvas, or double-click it for an empty point");
     }
 }
 
+ui::PlotAxes BlendSpaceEditorContext::plot_axes() const {
+    if (const auto* bs = std::get_if<BlendSpace2D>(&blend_space_)) {
+        return {.x_name = bs->parameter_x().c_str(), .y_name = bs->parameter_y().c_str()};
+    }
+    return {.x_name = std::get<BlendSpace1D>(blend_space_).parameter().c_str(), .y_axis = false};
+}
+
+void BlendSpaceEditorContext::frame_points() {
+    glm::vec2 lo{-1.0f};
+    glm::vec2 hi{1.0f};
+    for (std::size_t i = 0; i < point_count(); ++i) {
+        lo = glm::min(lo, point_position(i) - 0.5f);
+        hi = glm::max(hi, point_position(i) + 0.5f);
+    }
+    view_.frame(lo, hi);
+}
+
 void BlendSpaceEditorContext::draw_canvas_1d(ImVec2 origin, ImVec2 size) {
-    const auto& bs = std::get<BlendSpace1D>(blend_space_);
-    // The range the points span, with room either side.
-    float lo = bs.empty() ? -1.0f : bs.points().front().position - 0.5f;
-    float hi = bs.empty() ? 1.0f : bs.points().back().position + 0.5f;
-    if (lo >= hi) hi = lo + 1.0f;
     const float axis_y = origin.y + size.y * 0.5f;
-    const auto to_screen = [&](glm::vec2 p) { return ImVec2{origin.x + (p.x - lo) / (hi - lo) * size.x, axis_y}; };
-    const auto from_screen = [&](ImVec2 s) { return glm::vec2{(s.x - origin.x) / size.x * (hi - lo) + lo, 0.0f}; };
+    const auto to_screen = [&](glm::vec2 p) { return ImVec2{view_.to_screen_x(p.x), axis_y}; };
+    const auto from_screen = [&](ImVec2 s) { return glm::vec2{view_.to_world_x(s.x), 0.0f}; };
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, colour(theme::surface_sunken()),
-                      ImGui::GetStyle().FrameRounding);
     dl->AddLine({origin.x, std::floor(axis_y) + 0.5f}, {origin.x + size.x, std::floor(axis_y) + 0.5f},
                 colour(theme::grid_major()));
-    for (int i = 0; i <= 10; ++i) {
-        const float x = std::floor(origin.x + size.x * static_cast<float>(i) / 10.0f) + 0.5f;
-        dl->AddLine({x, axis_y - 3.0f}, {x, axis_y + 3.0f}, colour(theme::grid_major()));
-    }
-    if (lo < 0.0f && hi > 0.0f) {
-        const float zero = std::floor(to_screen({0.0f, 0.0f}).x) + 0.5f;
-        dl->AddLine({zero, origin.y}, {zero, origin.y + size.y}, colour(theme::grid_zero()));
-    }
-    const std::string& axis = bs.parameter();
-    dl->AddText({origin.x + size.x - ImGui::CalcTextSize(axis.c_str()).x - 6.0f, origin.y + 4.0f},
-                colour(theme::text_disabled()), axis.c_str());
 
     canvas_input(origin, size, to_screen, from_screen);
 }
 
 void BlendSpaceEditorContext::draw_canvas_2d(ImVec2 origin, ImVec2 size) {
     const auto& bs = std::get<BlendSpace2D>(blend_space_);
-    // At least -1..1 each way, grown to the points with room around them.
-    float min_x = -1.0f;
-    float max_x = 1.0f;
-    float min_y = -1.0f;
-    float max_y = 1.0f;
-    for (const auto& p : bs.points()) {
-        min_x = std::min(min_x, p.position.x - 0.5f);
-        max_x = std::max(max_x, p.position.x + 0.5f);
-        min_y = std::min(min_y, p.position.y - 0.5f);
-        max_y = std::max(max_y, p.position.y + 0.5f);
-    }
-    const auto to_screen = [&](glm::vec2 p) {
-        return ImVec2{origin.x + (p.x - min_x) / (max_x - min_x) * size.x,
-                      origin.y + (1.0f - (p.y - min_y) / (max_y - min_y)) * size.y};
-    };
-    const auto from_screen = [&](ImVec2 s) {
-        return glm::vec2{(s.x - origin.x) / size.x * (max_x - min_x) + min_x,
-                         (1.0f - (s.y - origin.y) / size.y) * (max_y - min_y) + min_y};
-    };
-
+    const auto to_screen = [&](glm::vec2 p) { return view_.to_screen(p); };
+    const auto from_screen = [&](ImVec2 s) { return view_.to_world(s); };
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 end{origin.x + size.x, origin.y + size.y};
-    dl->AddRectFilled(origin, end, colour(theme::surface_sunken()), ImGui::GetStyle().FrameRounding);
-    for (int i = 1; i < 8; ++i) {
-        const float t = static_cast<float>(i) / 8.0f;
-        const float gx = std::floor(origin.x + t * size.x) + 0.5f;
-        const float gy = std::floor(origin.y + t * size.y) + 0.5f;
-        dl->AddLine({gx, origin.y}, {gx, end.y}, colour(theme::grid_minor()));
-        dl->AddLine({origin.x, gy}, {end.x, gy}, colour(theme::grid_minor()));
-    }
-    const ImVec2 zero = to_screen({0.0f, 0.0f});
-    if (zero.x > origin.x && zero.x < end.x) {
-        dl->AddLine({std::floor(zero.x) + 0.5f, origin.y}, {std::floor(zero.x) + 0.5f, end.y}, colour(theme::grid_zero()));
-    }
-    if (zero.y > origin.y && zero.y < end.y) {
-        dl->AddLine({origin.x, std::floor(zero.y) + 0.5f}, {end.x, std::floor(zero.y) + 0.5f}, colour(theme::grid_zero()));
-    }
-    const std::string& axis_x = bs.parameter_x();
-    const std::string& axis_y = bs.parameter_y();
-    dl->AddText({end.x - ImGui::CalcTextSize(axis_x.c_str()).x - 6.0f, end.y - ImGui::GetTextLineHeight() - 4.0f},
-                colour(theme::text_disabled()), axis_x.c_str());
-    dl->AddText({origin.x + 6.0f, origin.y + 4.0f}, colour(theme::text_disabled()), axis_y.c_str());
 
     // The triangles the blend is read from, in the animation colour.
     ImVec4 fill = theme::category(theme::Category::Animation);
@@ -332,6 +305,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
     // on a point.
     const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
     const bool active = ImGui::IsItemActive();
+    view_.input(ImGui::IsItemHovered());
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
     hovered_point_ = -1;
@@ -340,7 +314,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
             const ImVec2 p = to_screen(point_position(i));
             const float dx = mouse.x - p.x;
             const float dy = mouse.y - p.y;
-            if (dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS) hovered_point_ = static_cast<int>(i);
+            if (dx * dx + dy * dy <= ui::CANVAS_HIT_RADIUS * ui::CANVAS_HIT_RADIUS) hovered_point_ = static_cast<int>(i);
         }
     }
 
@@ -363,7 +337,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
     }
 
     // Pressing picks a point to drag, or moves the cursor there.
-    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !view_.panning()) {
         if (hovered_point_ >= 0) {
             dragging_point_ = hovered_point_;
             selected_point_ = hovered_point_;
@@ -386,7 +360,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         dragging_point_ = -1;
         dragging_cursor_ = false;
     }
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hovered_point_ < 0) {
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hovered_point_ < 0 && !view_.panning()) {
         selected_point_ = add_point({}, from_screen(mouse));
         points_changed();
     }
@@ -413,12 +387,12 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         }
         ImGui::EndPopup();
     }
-    if (selected_point_ >= 0 && selected_point_ < static_cast<int>(point_count()) && !ImGui::IsAnyItemActive() &&
-        ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+    if (selected_point_ >= 0 && selected_point_ < static_cast<int>(point_count()) && ui::canvas_has_keys() &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         remove_point(static_cast<std::size_t>(selected_point_));
         points_changed();
     }
-
+    if (ui::canvas_has_keys() && ImGui::IsKeyPressed(ImGuiKey_F, false)) frame_points();
 
     // Points: handles at rest in the secondary text, brighter with a ring
     // under the mouse, the selected one in the accent, each named.
@@ -427,8 +401,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         const ImVec2 p = to_screen(point_position(i));
         const bool sel = static_cast<int>(i) == selected_point_;
         const bool hot = static_cast<int>(i) == hovered_point_;
-        dl->AddCircleFilled(p, HANDLE_RADIUS, colour(sel ? theme::accent() : hot ? theme::text() : theme::text_secondary()));
-        if (hot && !sel) dl->AddCircle(p, HANDLE_RADIUS + 3.0f, colour(theme::text_secondary()));
+        ui::canvas_handle(dl, p, hot, sel, {.radius = HANDLE_RADIUS});
         const std::string name = clip_name(point_clip(i));
         const ImVec2 text = ImGui::CalcTextSize(name.c_str());
         const ImVec2 at = two_d() ? ImVec2{p.x + HANDLE_RADIUS + 5.0f, p.y - text.y * 0.5f}
@@ -444,8 +417,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         } else {
             std::snprintf(readout, sizeof(readout), "%.2f", at.x);
         }
-        const ImVec2 p = to_screen(at);
-        dl->AddText({p.x + HANDLE_RADIUS + 5.0f, p.y + 4.0f}, colour(theme::text()), readout);
+        ui::canvas_readout(dl, to_screen(at), readout, origin, {origin.x + size.x, origin.y + size.y});
     }
     // The cursor: what the preview plays, in the playhead's white.
     const ImVec2 c = two_d() ? to_screen(cursor_) : ImVec2{to_screen(cursor_).x, to_screen(cursor_).y + 20.0f};

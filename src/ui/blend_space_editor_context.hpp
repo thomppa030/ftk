@@ -3,6 +3,7 @@
 #include "animation/blend_space.hpp"
 #include "scene/scene.hpp"
 #include "ui/editor_context.hpp"
+#include "ui/kit/canvas.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <glm/glm.hpp>
@@ -79,6 +80,10 @@ private:
     [[nodiscard]] std::vector<std::pair<std::size_t, float>> blend_at_cursor() const;
 
     void draw_canvas_panel();
+    /// The canvas's axes, named after the space's parameters.
+    [[nodiscard]] ui::PlotAxes plot_axes() const;
+    /// Shows every point with room around it, and at least -1..1.
+    void frame_points();
     void draw_canvas_1d(ImVec2 origin, ImVec2 size);
     void draw_canvas_2d(ImVec2 origin, ImVec2 size);
     /// What happens under the canvas's mouse, both kinds alike: picking,
@@ -113,7 +118,9 @@ private:
     std::vector<std::string> available_clip_paths_;
     std::vector<std::string> available_clip_names_;
 
-    // Canvas
+    // Canvas: a line along the parameter for 1D, a plot of both for 2D.
+    ui::CanvasView view_;
+    bool frame_pending_{true};
     glm::vec2 cursor_{0.0f, 0.0f};
     int selected_point_{-1};
     int hovered_point_{-1};
