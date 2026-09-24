@@ -103,33 +103,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     menu_bar_.set_gpu(gpu_core);
     import_file_browser_.set_gpu(gpu_core);
 
-    // Icon provider for standalone file browsers (uses IconCache from the editor's context)
-    auto icon_provider = [](const FileBrowser::Entry& entry) -> ImTextureID {
-        auto* icons = IconCache::instance();
-        if (!icons) return 0;
-        const char* name = "node";
-        if (entry.is_directory) {
-            name = "folder";
-        } else {
-            auto ext = std::filesystem::path(entry.name).extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-            if (ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".fjmesh" || ext == ".fjskel")
-                name = "mesh";
-            else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
-                name = "texture";
-            else if (ext == ".fjsl" || ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".glsl")
-                name = "shader";
-            else if (ext == ".fjmat")
-                name = "material";
-            else if (ext == ".cpp" || ext == ".cc" || ext == ".cxx")
-                name = "cpp";
-            else if (ext == ".hpp" || ext == ".h" || ext == ".hxx")
-                name = "header";
-        }
-        return icons->icon_for_current_context(name);
-    };
-    import_file_browser_.set_icon_provider(icon_provider);
-
     init_subsystems();
     init_project(project_path, create_name);
     init_ui();
@@ -1585,8 +1558,8 @@ void Engine::prebake_project_fonts(const std::filesystem::path& root) {
 
 void Engine::open_import_browser(const std::filesystem::path& output_dir) {
     import_output_dir_ = output_dir;
-    import_file_browser_.open("Import Model", FileBrowser::Mode::select_file,
-                              {".glb", ".gltf", ".fbx"});
+    import_file_browser_.set_project(project_mgr_.active() ? project_mgr_.active()->root() : std::filesystem::path{});
+    import_file_browser_.open("Import model", FileBrowser::Mode::select_file, "Import", {".glb", ".gltf", ".fbx"});
 }
 
 void Engine::save_layout(const std::string& name) {

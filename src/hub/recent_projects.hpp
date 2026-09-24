@@ -24,8 +24,6 @@ public:
     [[nodiscard]] const std::vector<RecentProject>& list() const { return projects_; }
 
 private:
-    [[nodiscard]] static std::filesystem::path config_path();
-
     std::vector<RecentProject> projects_;
 };
 

@@ -114,11 +114,11 @@ void HubUI::draw_sidebar() {
 
     constexpr float BUTTON_H = 32.0f;
     if (ui::action(ui::icon::add, "New project", ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
-        new_browser_.open("New project", FileBrowser::Mode::select_location);
+        new_browser_.open("New project", FileBrowser::Mode::select_location, "Create");
     }
     ImGui::Dummy({0.0f, theme::GAP_XS});
     if (ui::action(ui::icon::open_file, "Open project", ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
-        open_browser_.open("Open project", FileBrowser::Mode::select_directory);
+        open_browser_.open("Open project", FileBrowser::Mode::select_directory, "Open");
     }
 }
 

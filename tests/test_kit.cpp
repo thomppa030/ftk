@@ -3,6 +3,7 @@
 #include "ui/kit/brand.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/component_block.hpp"
+#include "ui/kit/dialog.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
@@ -17,6 +18,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -632,4 +634,37 @@ TEST_CASE("A pane and the brand's marks leave ImGui's stacks as they found them"
     CHECK(style_vars == 0);
     CHECK(colours == 0);
     CHECK(fonts == 0);
+}
+
+TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless something is typed", "[ui][kit]") {
+    ImGuiHarness h;
+    ui::DialogAnswer answer = ui::DialogAnswer::None;
+    bool can_confirm = true;
+    std::string typed;
+    h.set_ui([&] {
+        ImGui::InputText("##field", &typed);
+        h.mark("field");
+        const auto a = ui::window_bar({.title = "Import model", .confirm = "Import"}, {.can_confirm = can_confirm});
+        if (a != ui::DialogAnswer::None) answer = a;
+    });
+    h.step(2);
+
+    h.press(ImGuiKey_Enter);
+    CHECK(answer == ui::DialogAnswer::Confirm);
+
+    answer = ui::DialogAnswer::None;
+    h.press(ImGuiKey_Escape);
+    CHECK(answer == ui::DialogAnswer::Cancel);
+
+    // Greyed out, Enter does nothing.
+    answer = ui::DialogAnswer::None;
+    can_confirm = false;
+    h.press(ImGuiKey_Enter);
+    CHECK(answer == ui::DialogAnswer::None);
+
+    // Typing in a field, Enter and Esc are the field's.
+    can_confirm = true;
+    h.click("field");
+    h.press(ImGuiKey_Enter);
+    CHECK(answer == ui::DialogAnswer::None);
 }

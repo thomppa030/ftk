@@ -98,30 +98,67 @@ DialogAnswer detail::end_dialog(const DialogSpec& spec, const DialogButtons& but
     ImGui::PopStyleColor();
     ImGui::Dummy({0.0f, theme::GAP_M});
 
-    // Cancel, then the verb, on the right.
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float confirm_w = std::max(BUTTON_MIN, ImGui::CalcTextSize(spec.confirm).x + style.FramePadding.x * 2.0f);
-    const float cancel_w = BUTTON_MIN;
-    const float total = cancel_w + style.ItemSpacing.x + confirm_w;
-    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - total));
-
-    DialogAnswer answer = DialogAnswer::None;
-    if (ImGui::IsWindowAppearing() && spec.destructive) ImGui::SetKeyboardFocusHere();
-    if (button("Cancel", ButtonKind::Secondary, {cancel_w, 0.0f})) answer = DialogAnswer::Cancel;
-    ImGui::SameLine();
-    if (ImGui::IsWindowAppearing() && !spec.destructive && buttons.focus_confirm) ImGui::SetKeyboardFocusHere();
-    ImGui::BeginDisabled(!buttons.can_confirm);
-    if (button(spec.confirm, spec.destructive ? ButtonKind::Danger : ButtonKind::Primary, {confirm_w, 0.0f})) {
-        answer = DialogAnswer::Confirm;
-    }
-    ImGui::EndDisabled();
-    if (!buttons.can_confirm && buttons.why_not != nullptr) {
-        ImGui::SetItemTooltip("%s", buttons.why_not);
-    }
-    if (buttons.confirmed && buttons.can_confirm) answer = DialogAnswer::Confirm;
+    DialogAnswer answer = dialog_buttons(spec, buttons, ImGui::IsWindowAppearing());
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) answer = DialogAnswer::Cancel;
     if (answer != DialogAnswer::None) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
+    return answer;
+}
+
+namespace {
+
+float confirm_width(const DialogSpec& spec) {
+    return std::max(BUTTON_MIN, ImGui::CalcTextSize(spec.confirm).x + ImGui::GetStyle().FramePadding.x * 2.0f);
+}
+
+float buttons_width(const DialogSpec& spec) {
+    return BUTTON_MIN + ImGui::GetStyle().ItemSpacing.x + confirm_width(spec);
+}
+
+} // namespace
+
+DialogAnswer detail::dialog_buttons(const DialogSpec& spec, const DialogButtons& buttons, bool appearing,
+                                    float inset) {
+    ImGui::SetCursorPosX(
+        std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - inset - buttons_width(spec)));
+    DialogAnswer answer = DialogAnswer::None;
+    if (appearing && spec.destructive) ImGui::SetKeyboardFocusHere();
+    if (button("Cancel", ButtonKind::Secondary, {BUTTON_MIN, 0.0f})) answer = DialogAnswer::Cancel;
+    ImGui::SameLine();
+    if (appearing && !spec.destructive && buttons.focus_confirm) ImGui::SetKeyboardFocusHere();
+    ImGui::BeginDisabled(!buttons.can_confirm);
+    if (button(spec.confirm, spec.destructive ? ButtonKind::Danger : ButtonKind::Primary,
+               {confirm_width(spec), 0.0f})) {
+        answer = DialogAnswer::Confirm;
+    }
+    ImGui::EndDisabled();
+    if (!buttons.can_confirm && buttons.why_not != nullptr) ImGui::SetItemTooltip("%s", buttons.why_not);
+    if (buttons.confirmed && buttons.can_confirm) answer = DialogAnswer::Confirm;
+    return answer;
+}
+
+DialogAnswer window_bar(const DialogSpec& spec, const detail::DialogButtons& buttons,
+                        const std::function<void(float width)>& left) {
+    // As far in on the right as the bar starts on the left.
+    const float inset = ImGui::GetCursorPosX() - ImGui::GetWindowContentRegionMin().x;
+    // The rule across the window, then the bar's own padding.
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float x0 = ImGui::GetWindowPos().x;
+    const float x1 = x0 + ImGui::GetWindowSize().x;
+    dl->AddLine({x0, at.y + 0.5f}, {x1, at.y + 0.5f}, ImGui::GetColorU32(theme::border()));
+    ImGui::Dummy({0.0f, theme::GAP_M});
+
+    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMin().x + inset);
+    if (left) {
+        const float room = ImGui::GetContentRegionAvail().x - inset - buttons_width(spec) - theme::GAP_M;
+        left(std::max(room, 0.0f));
+        ImGui::SameLine();
+    }
+    DialogAnswer answer = detail::dialog_buttons(spec, buttons, false, inset);
+    const bool typing = ImGui::GetIO().WantTextInput;
+    if (!typing && buttons.can_confirm && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) answer = DialogAnswer::Confirm;
+    if (!typing && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) answer = DialogAnswer::Cancel;
     return answer;
 }
 

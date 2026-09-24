@@ -1,13 +1,25 @@
 #include "ui/file_browser.hpp"
-#include "core/log.hpp"
-#include "ui/standalone_window.hpp"
-#include "ui/kit/search.hpp"
 
+#include "core/hub_settings.hpp"
+#include "core/log.hpp"
+#include "ui/kit/asset_kind.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/dialog.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/pane.hpp"
+#include "ui/kit/search.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
+#include "ui/standalone_window.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 
@@ -15,9 +27,35 @@ namespace fjell {
 
 namespace fs = std::filesystem;
 
-static constexpr int BROWSER_WIDTH = 720;
-static constexpr int BROWSER_HEIGHT = 520;
+namespace {
 
+constexpr int BROWSER_WIDTH = 760;
+constexpr int BROWSER_HEIGHT = 520;
+constexpr float PLACES_W = 170.0f;
+constexpr float PLACE_H = 26.0f;
+constexpr float SEARCH_W = 150.0f;
+constexpr std::size_t RECENT_FOLDERS = 8;
+constexpr const char* RECENT_KEY = "recent_folders";
+
+fs::path home_dir() {
+    const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (home == nullptr) home = std::getenv("USERPROFILE");
+#endif
+    return home != nullptr ? fs::path(home) : fs::current_path();
+}
+
+// A folder as it reads: the home folder as "~".
+std::string shown(const fs::path& dir) {
+    const std::string home = home_dir().string();
+    const std::string path = dir.string();
+    if (!home.empty() && path.starts_with(home)) return "~" + path.substr(home.size());
+    return path;
+}
+
+ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
+
+} // namespace
 
 FileBrowser::~FileBrowser() {
     close();
@@ -41,34 +79,40 @@ std::string FileBrowser::format_time(fs::file_time_type time) {
 
 // ── Window lifecycle ────────────────────────────────────────────────────
 
-void FileBrowser::open(const std::string& title, Mode mode,
+void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
                        const std::vector<std::string>& extensions) {
     if (!gpu_) {
         FJELL_CORE_ERROR("FileBrowser::open() called without set_gpu()");
         return;
     }
-
-    if (is_open()) {
-        close();
-    }
+    if (is_open()) close();
 
     title_ = title;
     mode_ = mode;
+    verb_ = verb;
     extensions_ = extensions;
     selected_index_ = -1;
     search_.clear();
-    name_buf_[0] = '\0';
+    name_.clear();
+    back_.clear();
+    typing_path_ = false;
 
-    // Start in home directory
-    const char* home = std::getenv("HOME");
-#ifdef _WIN32
-    if (!home) home = std::getenv("USERPROFILE");
-#endif
-    if (home) {
-        navigate(fs::path(home));
-    } else {
-        navigate(fs::current_path());
+    recent_folders_.clear();
+    if (const nlohmann::json list = read_hub_setting(RECENT_KEY); list.is_array()) {
+        for (const auto& folder : list) {
+            if (folder.is_string()) recent_folders_.push_back(folder.get<std::string>());
+        }
     }
+
+    // Where the user last picked from, else the project, else home.
+    std::error_code ec;
+    fs::path start = home_dir();
+    if (!recent_folders_.empty() && fs::is_directory(recent_folders_.front(), ec)) {
+        start = recent_folders_.front();
+    } else if (!project_root_.empty() && fs::is_directory(project_root_, ec)) {
+        start = project_root_;
+    }
+    navigate(start, false);
 
     window_ = std::make_unique<StandaloneWindow>(*gpu_, title, BROWSER_WIDTH, BROWSER_HEIGHT);
 }
@@ -90,14 +134,12 @@ void FileBrowser::close() {
 
 // ── Directory operations ────────────────────────────────────────────────
 
-void FileBrowser::navigate(const fs::path& dir) {
-    try {
-        current_dir_ = fs::canonical(dir);
-    } catch (...) {
-        current_dir_ = dir;
-    }
-    std::strncpy(path_buf_, current_dir_.string().c_str(), sizeof(path_buf_) - 1);
-    path_buf_[sizeof(path_buf_) - 1] = '\0';
+void FileBrowser::navigate(const fs::path& dir, bool remember) {
+    std::error_code ec;
+    fs::path to = fs::canonical(dir, ec);
+    if (ec) to = dir;
+    if (remember && !current_dir_.empty() && to != current_dir_) back_.push_back(current_dir_);
+    current_dir_ = to;
     selected_index_ = -1;
     refresh();
 }
@@ -166,30 +208,42 @@ void FileBrowser::refilter() {
     }
 }
 
+bool FileBrowser::can_confirm() const {
+    switch (mode_) {
+        case Mode::select_location: return !name_.empty();
+        case Mode::select_file:
+            return selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_indices_.size()) &&
+                   !entries_[filtered_indices_[static_cast<size_t>(selected_index_)]].is_directory;
+        case Mode::select_directory: return true;
+    }
+    return false;
+}
+
+void FileBrowser::remember_folder() {
+    const std::string folder = current_dir_.string();
+    std::erase(recent_folders_, folder);
+    recent_folders_.insert(recent_folders_.begin(), folder);
+    if (recent_folders_.size() > RECENT_FOLDERS) recent_folders_.resize(RECENT_FOLDERS);
+    write_hub_setting(RECENT_KEY, recent_folders_);
+}
+
 void FileBrowser::confirm_selection() {
+    if (!can_confirm()) return;
     if (mode_ == Mode::select_file) {
-        // Must have a file selected
-        if (selected_index_ < 0 || selected_index_ >= static_cast<int>(filtered_indices_.size()))
-            return;
-        const auto& entry = entries_[filtered_indices_[selected_index_]];
-        if (entry.is_directory) return;
-        auto path = (current_dir_ / entry.name).string();
-        on_selected.broadcast(path);
+        const auto& entry = entries_[filtered_indices_[static_cast<size_t>(selected_index_)]];
+        on_selected.broadcast((current_dir_ / entry.name).string());
     } else if (mode_ == Mode::select_directory) {
-        // Use the selected directory, or current directory if none selected
+        // The folder selected in the list, or the one being shown.
         std::string path = current_dir_.string();
         if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_indices_.size())) {
-            const auto& entry = entries_[filtered_indices_[selected_index_]];
-            if (entry.is_directory) {
-                path = (current_dir_ / entry.name).string();
-            }
+            const auto& entry = entries_[filtered_indices_[static_cast<size_t>(selected_index_)]];
+            if (entry.is_directory) path = (current_dir_ / entry.name).string();
         }
         on_selected.broadcast(path);
-    } else if (mode_ == Mode::select_location) {
-        if (name_buf_[0] == '\0') return;
-        on_location_selected.broadcast(current_dir_.string(), std::string(name_buf_));
+    } else {
+        on_location_selected.broadcast(current_dir_.string(), name_);
     }
-
+    remember_folder();
     window_->request_close();
 }
 
@@ -198,169 +252,296 @@ void FileBrowser::confirm_selection() {
 bool FileBrowser::draw_ui(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    ImGui::Begin("##FileBrowser", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    (void)ui::begin_host_window("##FileBrowser", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                                     ImGuiWindowFlags_NoScrollbar);
+    draw_top_bar();
+    // The bar at the bottom: a rule, its padding, a line of buttons.
+    const float bar_h = ImGui::GetFrameHeight() + theme::GAP_M * 2.0f + 1.0f;
+    const float body_h = std::max(ImGui::GetContentRegionAvail().y - bar_h, 1.0f);
+    if (auto places = ui::Pane("##places", {PLACES_W, body_h}, ui::PaneSurface::Sunken)) draw_places();
+    ImGui::SameLine(0.0f, 0.0f);
+    if (auto files = ui::Pane("##entries", {0.0f, body_h})) draw_file_list();
 
-    draw_path_bar();
-    draw_search_bar();
-    ImGui::Separator();
-    draw_file_list();
-    ImGui::Separator();
-    draw_bottom_bar();
-
+    ImGui::SetCursorPosX(theme::GAP_M);
+    const bool close = draw_bottom_bar();
     ImGui::End();
-    return false;  // closing goes through request_close()
+    return close;
 }
 
-void FileBrowser::draw_path_bar() {
-    // Up button
-    if (ImGui::Button("^", {24, 0})) {
-        auto parent = current_dir_.parent_path();
-        if (parent != current_dir_) {
-            navigate(parent);
-        }
+void FileBrowser::draw_top_bar() {
+    ImGui::SetCursorPos({theme::GAP_M, theme::GAP_M});
+    ImGui::BeginDisabled(back_.empty());
+    if (ui::icon_button("##back", ui::icon::back, "Back")) {
+        const fs::path to = back_.back();
+        back_.pop_back();
+        navigate(to, false);
     }
-    ImGui::SameLine();
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.0f, theme::GAP_XS);
+    const fs::path parent = current_dir_.parent_path();
+    ImGui::BeginDisabled(parent == current_dir_);
+    if (ui::icon_button("##up", ui::icon::up_folder, "Up to the folder this one is in")) navigate(parent);
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.0f, theme::GAP_S);
 
-    // Editable path
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputText("##path", path_buf_, sizeof(path_buf_),
-                         ImGuiInputTextFlags_EnterReturnsTrue)) {
-        fs::path typed(path_buf_);
-        if (fs::is_directory(typed)) {
-            navigate(typed);
-        }
-    }
-}
-
-void FileBrowser::draw_search_bar() {
-    ImGui::SetNextItemWidth(-1);
+    const float crumbs_w = ImGui::GetContentRegionAvail().x - SEARCH_W - theme::GAP_S - theme::GAP_M;
+    draw_breadcrumbs(std::max(crumbs_w, 40.0f));
+    ImGui::SameLine(0.0f, theme::GAP_S);
+    ImGui::SetNextItemWidth(SEARCH_W);
     if (ui::search_field("##search", search_)) {
         refilter();
         selected_index_ = -1;
     }
+
+    // A rule under the bar, across the window.
+    const float y = ImGui::GetCursorScreenPos().y + theme::GAP_M - ImGui::GetStyle().ItemSpacing.y;
+    ImGui::GetWindowDrawList()->AddLine({ImGui::GetWindowPos().x, y + 0.5f},
+                                        {ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, y + 0.5f},
+                                        colour(theme::border()));
+    ImGui::SetCursorScreenPos({ImGui::GetWindowPos().x, y + 1.0f});
+}
+
+void FileBrowser::draw_breadcrumbs(float width) {
+    if (typing_path_) {
+        // A path typed or pasted: Enter goes there, leaving the field keeps
+        // the folder as it was.
+        ImGui::SetNextItemWidth(width);
+        if (focus_path_) {
+            ImGui::SetKeyboardFocusHere();
+            focus_path_ = false;
+        }
+        if (ImGui::InputText("##path", &typed_path_, ImGuiInputTextFlags_EnterReturnsTrue)) {
+            std::error_code ec;
+            if (fs::is_directory(typed_path_, ec)) navigate(typed_path_);
+            typing_path_ = false;
+        } else if (ImGui::IsItemDeactivated()) {
+            typing_path_ = false;
+        }
+        return;
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    const ImVec2 p1{p0.x + width, p0.y + h};
+    dl->AddRectFilled(p0, p1, colour(theme::surface_sunken()), ImGui::GetStyle().FrameRounding);
+
+    // The folders from the root (or home) down to this one; the leading ones
+    // go when they don't fit.
+    const fs::path home = home_dir();
+    std::vector<std::pair<std::string, fs::path>> crumbs;
+    for (fs::path at = current_dir_;; at = at.parent_path()) {
+        if (at == home) {
+            crumbs.emplace_back(ui::icon::home, at);
+            break;
+        }
+        const std::string name = at.filename().string();
+        crumbs.emplace_back(name.empty() ? at.string() : name, at);
+        if (at.parent_path() == at) break;
+    }
+    std::reverse(crumbs.begin(), crumbs.end());
+
+    const float pad = 6.0f;
+    const float sep_w = ImGui::CalcTextSize("/").x + pad;
+    const auto crumb_w = [&](const std::string& text) { return ImGui::CalcTextSize(text.c_str()).x + pad * 2.0f; };
+    float total = 0.0f;
+    for (const auto& c : crumbs) total += crumb_w(c.first) + sep_w;
+    std::size_t first = 0;
+    const float room = width - 40.0f;   // room left for the empty end
+    while (total > room && first + 1 < crumbs.size()) total -= crumb_w(crumbs[first++].first) + sep_w;
+
+    float x = p0.x + theme::GAP_XS;
+    ImGui::PushID("##crumbs");
+    for (std::size_t i = first; i < crumbs.size(); ++i) {
+        const auto& [text, path] = crumbs[i];
+        const bool last = i + 1 == crumbs.size();
+        const float w = crumb_w(text);
+        ImGui::SetCursorScreenPos({x, p0.y});
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::InvisibleButton("##crumb", {w, h}) && !last) navigate(path);
+        const bool hot = ImGui::IsItemHovered();
+        ImGui::PopID();
+        if (hot) {
+            dl->AddRectFilled({x, p0.y + 2.0f}, {x + w, p1.y - 2.0f}, colour(theme::surface_hover()),
+                              ImGui::GetStyle().FrameRounding);
+        }
+        dl->AddText({x + pad, p0.y + (h - ImGui::GetTextLineHeight()) * 0.5f},
+                    colour(last || hot ? theme::text() : theme::text_secondary()), text.c_str());
+        x += w;
+        if (!last) {
+            dl->AddText({x, p0.y + (h - ImGui::GetTextLineHeight()) * 0.5f}, colour(theme::text_disabled()), "/");
+            x += sep_w;
+        }
+    }
+    ImGui::PopID();
+
+    // The empty end: a click there types a path.
+    const float rest = p1.x - x;
+    if (rest > 1.0f) {
+        ImGui::SetCursorScreenPos({x, p0.y});
+        if (ImGui::InvisibleButton("##type_path", {rest, h})) {
+            typing_path_ = true;
+            focus_path_ = true;
+            typed_path_ = current_dir_.string();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+        ImGui::SetItemTooltip("Type or paste a path");
+    }
+    ImGui::SetCursorScreenPos({p1.x, p0.y});
+    ImGui::Dummy({0.0f, h});
+}
+
+void FileBrowser::draw_places() {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const auto heading = [&](const char* text) {
+        ImGui::PushFont(theme::bold_font(), theme::SMALL_TEXT - 1.0f);
+        ImGui::TextColored(theme::text_secondary(), "%s", text);
+        ImGui::PopFont();
+    };
+    const auto place = [&](const char* icon, const std::string& label, const fs::path& dir) {
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 p1{p0.x + width, p0.y + PLACE_H};
+        ImGui::PushID(dir.string().c_str());
+        if (ImGui::InvisibleButton("##place", {width, PLACE_H})) navigate(dir);
+        const bool hot = ImGui::IsItemHovered();
+        ImGui::SetItemTooltip("%s", dir.string().c_str());
+        ImGui::PopID();
+        const bool here = dir == current_dir_;
+        if (here || hot) {
+            dl->AddRectFilled(p0, p1, colour(here ? theme::selection() : theme::surface_hover()),
+                              ImGui::GetStyle().FrameRounding);
+        }
+        const float ty = p0.y + (PLACE_H - ImGui::GetTextLineHeight()) * 0.5f;
+        dl->AddText({p0.x + theme::GAP_M, ty}, colour(theme::text_secondary()), icon);
+        dl->PushClipRect({p0.x, p0.y}, {p1.x - theme::GAP_S, p1.y}, true);
+        dl->AddText({p0.x + theme::GAP_M + 22.0f, ty}, colour(here || hot ? theme::text() : theme::text_secondary()),
+                    label.c_str());
+        dl->PopClipRect();
+    };
+
+    std::error_code ec;
+    heading("Places");
+    if (!project_root_.empty() && fs::is_directory(project_root_, ec)) {
+        place(ui::icon::project, project_root_.filename().string(), fs::canonical(project_root_, ec));
+    }
+    const fs::path home = home_dir();
+    place(ui::icon::home, "Home", home);
+    if (fs::is_directory(home / "Downloads", ec)) place(ui::icon::downloads, "Downloads", home / "Downloads");
+
+    if (!recent_folders_.empty()) {
+        ImGui::Dummy({0.0f, theme::GAP_S});
+        heading("Recent");
+        for (const auto& folder : recent_folders_) {
+            if (fs::is_directory(folder, ec)) place(ui::icon::folder, shown(folder), folder);
+        }
+    }
 }
 
 void FileBrowser::draw_file_list() {
-    float bottom_height = (mode_ == Mode::select_location) ? 64.0f : 36.0f;
-    float list_h = ImGui::GetContentRegionAvail().y - bottom_height - 8.0f;
+    const ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_BordersInnerV;
+    const bool show_size = mode_ == Mode::select_file;
+    if (!ImGui::BeginTable("##files", show_size ? 3 : 2, flags)) return;
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthStretch);
+    if (show_size) ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+    ImGui::TableHeadersRow();
+    ImGui::PopStyleColor();
 
-    ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable |
-                            ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
-                            ImGuiTableFlags_BordersInnerV;
-
-    bool show_size = (mode_ == Mode::select_file);
-    int col_count = show_size ? 3 : 2;
-
-    if (ImGui::BeginTable("##files", col_count, flags, {0, list_h})) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthStretch);
-        if (show_size) {
-            ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    if (auto* sort_specs = ImGui::TableGetSortSpecs(); sort_specs != nullptr && sort_specs->SpecsDirty &&
+                                                        sort_specs->SpecsCount > 0) {
+        const auto& spec = sort_specs->Specs[0];
+        if (spec.ColumnIndex == 0) {
+            sort_column_ = SortColumn::name;
+        } else if (show_size && spec.ColumnIndex == 1) {
+            sort_column_ = SortColumn::size;
+        } else {
+            sort_column_ = SortColumn::date;
         }
-        ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        // Handle sorting
-        if (auto* sort_specs = ImGui::TableGetSortSpecs()) {
-            if (sort_specs->SpecsDirty && sort_specs->SpecsCount > 0) {
-                auto& spec = sort_specs->Specs[0];
-                if (spec.ColumnIndex == 0) sort_column_ = SortColumn::name;
-                else if (show_size && spec.ColumnIndex == 1) sort_column_ = SortColumn::size;
-                else sort_column_ = SortColumn::date;
-                sort_ascending_ = (spec.SortDirection == ImGuiSortDirection_Ascending);
-                sort_specs->SpecsDirty = false;
-                refresh();
-            }
-        }
-
-        for (int fi = 0; fi < static_cast<int>(filtered_indices_.size()); ++fi) {
-            const auto& entry = entries_[filtered_indices_[fi]];
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-
-            // Icon: use provider callback if available, colored text fallback otherwise
-            if (icon_provider_) {
-                auto tex = icon_provider_(entry);
-                if (tex) {
-                    float icon_size = ImGui::GetTextLineHeight();
-                    ImGui::Image(tex, {icon_size, icon_size});
-                    ImGui::SameLine();
-                }
-            } else {
-                if (entry.is_directory) {
-                    ImGui::TextColored({0.831f, 0.627f, 0.329f, 1.0f}, "D");
-                } else {
-                    ImGui::TextDisabled("F");
-                }
-                ImGui::SameLine();
-            }
-
-            bool selected = (fi == selected_index_);
-            ImGui::PushID(fi);
-            if (ImGui::Selectable(entry.name.c_str(), selected,
-                                  ImGuiSelectableFlags_SpanAllColumns |
-                                  ImGuiSelectableFlags_AllowDoubleClick)) {
-                selected_index_ = fi;
-
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (entry.is_directory) {
-                        navigate(current_dir_ / entry.name);
-                    } else if (mode_ == Mode::select_file) {
-                        confirm_selection();
-                    }
-                }
-            }
-            ImGui::PopID();
-
-            // Size column
-            if (show_size) {
-                ImGui::TableNextColumn();
-                if (!entry.is_directory) {
-                    ImGui::TextDisabled("%s", format_size(entry.size).c_str());
-                }
-            }
-
-            // Date column
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled("%s", format_time(entry.modified).c_str());
-        }
-
-        ImGui::EndTable();
+        sort_ascending_ = spec.SortDirection == ImGuiSortDirection_Ascending;
+        sort_specs->SpecsDirty = false;
+        refresh();
     }
+
+    for (int fi = 0; fi < static_cast<int>(filtered_indices_.size()); ++fi) {
+        const auto& entry = entries_[filtered_indices_[static_cast<size_t>(fi)]];
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+
+        // Its icon in its kind's colour: a folder in the structure grey.
+        const ui::AssetKind& kind = ui::asset_kind(fs::path(entry.name).extension().string());
+        const char* icon = entry.is_directory ? ui::icon::folder : kind.icon;
+        const ImVec4 tint = theme::category(entry.is_directory ? theme::Category::Structure : kind.category);
+
+        ImGui::PushID(fi);
+        const ImVec2 row = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##entry", fi == selected_index_,
+                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+            selected_index_ = fi;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (entry.is_directory) {
+                    navigate(current_dir_ / entry.name);
+                } else if (mode_ == Mode::select_file) {
+                    confirm_selection();
+                }
+            }
+        }
+        ImGui::PopID();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddText(row, colour(tint), icon);
+        ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, colour(theme::text()));
+
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        if (show_size) {
+            ImGui::TableNextColumn();
+            if (!entry.is_directory) {
+                const std::string size = format_size(entry.size);
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+                                     ImGui::CalcTextSize(size.c_str()).x);
+                ImGui::TextUnformatted(size.c_str());
+            }
+        }
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(format_time(entry.modified).c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndTable();
 }
 
-void FileBrowser::draw_bottom_bar() {
-    if (mode_ == Mode::select_location) {
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 180.0f);
-        ImGui::InputTextWithHint("##name", "Project name", name_buf_, sizeof(name_buf_));
-        ImGui::SameLine();
-    }
-
-    bool can_confirm = true;
-    if (mode_ == Mode::select_location && name_buf_[0] == '\0') {
-        can_confirm = false;
-    }
-    if (mode_ == Mode::select_file) {
-        // Need a file selected
-        if (selected_index_ < 0 || selected_index_ >= static_cast<int>(filtered_indices_.size()) ||
-            entries_[filtered_indices_[selected_index_]].is_directory) {
-            can_confirm = false;
-        }
-    }
-
-    if (!can_confirm) ImGui::BeginDisabled();
-    if (ImGui::Button("Select", {80, 0})) {
-        confirm_selection();
-    }
-    if (!can_confirm) ImGui::EndDisabled();
-
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", {80, 0})) {
-        window_->request_close();
-    }
+bool FileBrowser::draw_bottom_bar() {
+    const auto answer = ui::window_bar(
+        {.title = title_.c_str(), .confirm = verb_.c_str()},
+        {.can_confirm = can_confirm(),
+         .why_not = mode_ == Mode::select_location ? "Give it a name first" : "Pick a file first",
+         .focus_confirm = false},
+        [&](float width) {
+            ImGui::AlignTextToFramePadding();
+            const char* label = mode_ == Mode::select_location ? "Name" : mode_ == Mode::select_file ? "File" : "Folder";
+            ImGui::TextColored(theme::text_secondary(), "%s", label);
+            ImGui::SameLine();
+            const float field_w = std::max(width - ImGui::CalcTextSize(label).x - ImGui::GetStyle().ItemSpacing.x, 40.0f);
+            ImGui::SetNextItemWidth(field_w);
+            if (mode_ == Mode::select_location) {
+                if (ImGui::InputTextWithHint("##name", "Project name", &name_, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    confirm_selection();
+                }
+                return;
+            }
+            // What the verb would take: the selected entry, or this folder.
+            std::string what = current_dir_.filename().string();
+            if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_indices_.size())) {
+                what = entries_[filtered_indices_[static_cast<size_t>(selected_index_)]].name;
+            } else if (mode_ == Mode::select_file) {
+                what.clear();
+            }
+            ui::readout(what.c_str());
+        });
+    if (answer == ui::DialogAnswer::Confirm) confirm_selection();
+    return answer == ui::DialogAnswer::Cancel;
 }
 
 } // namespace fjell

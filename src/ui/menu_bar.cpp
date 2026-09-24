@@ -55,10 +55,10 @@ void MenuBar::draw_project_menu() {
     if (!ImGui::BeginMenu("Project")) return;
 
     if (ui::menu_item({.icon = ui::icon::new_file, .label = "New project..."})) {
-        new_browser_.open("New Project", FileBrowser::Mode::select_location);
+        new_browser_.open("New project", FileBrowser::Mode::select_location, "Create");
     }
     if (ui::menu_item({.icon = ui::icon::open_file, .label = "Open project..."})) {
-        open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
+        open_browser_.open("Open project", FileBrowser::Mode::select_directory, "Open");
     }
     if (project_) {
         if (ui::menu_item({.icon = ui::icon::save, .label = "Save project", .shortcut = "Ctrl Shift S"})) {

@@ -70,6 +70,7 @@ add_executable(fjell
     core/play_snapshot.cpp
     core/project.cpp
     core/thread_pool.cpp
+    core/hub_settings.cpp
     core/log.cpp
     core/window.cpp
     import/import_job.cpp
@@ -622,14 +623,18 @@ add_executable(fjell-hub
     hub/recent_projects.cpp
     ui/file_browser.cpp
     ui/standalone_window.cpp
+    core/hub_settings.cpp
     core/log.cpp
     core/window.cpp
     ui/console.cpp
+    ui/kit/asset_kind.cpp
     ui/kit/brand.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp
+    ui/kit/dialog.cpp
     ui/kit/edit_record.cpp
     ui/kit/feedback.cpp
+    ui/kit/field.cpp
     ui/kit/menu.cpp
     ui/kit/pane.cpp
     ui/kit/row.cpp

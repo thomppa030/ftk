@@ -15,6 +15,7 @@ target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR
 add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
@@ -247,6 +248,7 @@ add_executable(fjell-tests
     test_vfx_expression.cpp
     test_vfx_pin.cpp
     test_vfx_graph.cpp
+    test_hub_settings.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
