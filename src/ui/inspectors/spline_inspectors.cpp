@@ -102,7 +102,7 @@ ui::Edit spline_points(Spline<glm::vec3>& spline, int& selected) {
     std::optional<int> select;
     ui::subheading("Points");
     {
-        ui::ListEditor list("##points", points.size(), {.reorder = false, .max_cards = MAX_CARDS});
+        ui::ListEditor list("##points", points.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
         for (std::size_t i = 0; i < points.size(); ++i) {
             const bool open = selected == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;
@@ -340,7 +340,7 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
     std::optional<std::size_t> remove;
     std::optional<int> select;
     {
-        ui::ListEditor list("##instances", inst.instances.size(), {.reorder = false, .max_cards = MAX_CARDS});
+        ui::ListEditor list("##instances", inst.instances.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
         for (std::size_t i = 0; i < inst.instances.size(); ++i) {
             const bool open = open_instance == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;

@@ -1,6 +1,7 @@
 #include "imgui_harness.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/list_editor.hpp"
+#include "ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -228,4 +229,29 @@ TEST_CASE("A card whose first line is text centres it on the number's line", "[u
     const float text_middle = (h.rect_min("text").y + h.rect_max("text").y) * 0.5f;
     const float line_middle = list_top + 4.0f + ImGui::GetFrameHeight() * 0.5f;
     CHECK(std::abs(text_middle - line_middle) <= 1.0f);
+}
+
+TEST_CASE("A closed card that opens reads dim, and in full text under the mouse", "[ui][kit]") {
+    ImGuiHarness h;
+    std::vector<int> items{10, 20};
+    int selected = 0;
+    ImVec4 summary_colour{};
+    h.set_ui([&] {
+        (void)ui::selectable_list_editor(
+            "##points", items, selected, "Add", "Nothing", {},
+            [&](int&, std::size_t) {
+                ImGui::TextUnformatted("Point");
+                summary_colour = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+                h.mark("summary");
+            },
+            [&](int&, std::size_t) { return ui::Edit{}; }, [] { return 0; });
+    });
+    h.step(3);
+    const auto same = [](ImVec4 a, ImVec4 b) { return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w; };
+    CHECK(same(summary_colour, fjell::theme::text_secondary()));
+
+    const ImVec2 min = h.rect_min("summary");
+    ImGui::GetIO().AddMousePosEvent(min.x + 2.0f, min.y + 2.0f);
+    h.step(2);
+    CHECK(same(summary_colour, fjell::theme::text()));
 }

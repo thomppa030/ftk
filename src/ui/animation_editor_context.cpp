@@ -568,7 +568,7 @@ void AnimationEditorContext::draw_collider_panel() {
         ui::row("Show in preview", [&] { (void)ui::checkbox("##show", show_colliders_); });
     }
 
-    auto list = ui::ListEditor("##bone_colliders", colliders_.size(), {.reorder = false});
+    auto list = ui::ListEditor("##bone_colliders", colliders_.size(), {.reorder = false, .opens = true});
     if (colliders_.empty()) {
         list.empty("No shapes: the skeleton collides only as its node's collider. Add shapes for "
                    "hits per bone");

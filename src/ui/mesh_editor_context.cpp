@@ -419,7 +419,7 @@ void MeshEditorContext::draw_primitive_list() {
         return;
     }
 
-    auto list = ui::ListEditor("##shapes", collision_primitives_.size(), {.reorder = false});
+    auto list = ui::ListEditor("##shapes", collision_primitives_.size(), {.reorder = false, .opens = true});
     if (collision_primitives_.empty()) {
         list.empty("No shapes: the mesh collides as its geometry above. Add one to collide as something "
                    "simpler, or as convex pieces so it can move");

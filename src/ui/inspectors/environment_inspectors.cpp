@@ -112,7 +112,7 @@ void terrain_layers(TerrainAsset& asset, const InspectorContext& ctx) {
     ui::subheading("Layers");
     int& open = *ImGui::GetStateStorage()->GetIntRef(ImGui::GetID("##open_layer"), 0);
     std::optional<int> select;
-    ui::ListEditor list("##layers", asset.layer_count(), {.reorder = false, .remove = false});
+    ui::ListEditor list("##layers", asset.layer_count(), {.reorder = false, .remove = false, .opens = true});
     for (uint32_t i = 0; i < asset.layer_count(); ++i) {
         const bool is_open = open == static_cast<int>(i);
         if (!list.begin_item(i, is_open)) continue;
