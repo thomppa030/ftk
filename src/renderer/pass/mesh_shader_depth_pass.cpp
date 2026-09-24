@@ -2,6 +2,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/pass/terrain_pass.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -502,6 +503,13 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
                 idx++;
             }
         }
+    }
+
+    // Subsystem depth contributions (lit-opaque sprites, tilemaps, …).
+    // Each subsystem owns its pipeline + descriptor binding; they share the
+    // depth attachment bound above.
+    for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
+        ctx.subsystems[i]->record_depth(ctx);
     }
 
     // Terrain generates its geometry in a mesh shader from a height texture, so
