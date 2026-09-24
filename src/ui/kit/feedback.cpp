@@ -202,4 +202,8 @@ void corner_note(ImVec2 corner, const char* icon, const char* text) {
     dl->AddText({min.x + pad_x + icon_size.x + gap, min.y + pad_y}, ink, text);
 }
 
+void unsaved_dot(ImDrawList* draw_list, ImVec2 centre) {
+    draw_list->AddCircleFilled(centre, UNSAVED_DOT_RADIUS, ImGui::GetColorU32(theme::text()));
+}
+
 } // namespace fjell::ui

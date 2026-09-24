@@ -1,6 +1,7 @@
 #include "ui/kit/save_bar.hpp"
 
 #include "ui/kit/button.hpp"
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
@@ -13,7 +14,6 @@ namespace fjell::ui {
 namespace {
 
 constexpr float BAR_HEIGHT = 36.0f;
-constexpr float DOT_RADIUS = 3.5f;
 
 } // namespace
 
@@ -30,9 +30,9 @@ SaveAction save_bar(bool unsaved, const char* saves) {
     const float mid = min.y + BAR_HEIGHT * 0.5f;
     if (unsaved) {
         const float x = min.x + theme::GAP_L;
-        dl->AddCircleFilled({x + DOT_RADIUS, mid}, DOT_RADIUS, ImGui::GetColorU32(theme::accent()));
+        unsaved_dot(dl, {x + UNSAVED_DOT_RADIUS, mid});
         const char* text = "Unsaved changes";
-        dl->AddText({x + DOT_RADIUS * 2.0f + theme::GAP_M, mid - ImGui::GetTextLineHeight() * 0.5f},
+        dl->AddText({x + UNSAVED_DOT_RADIUS * 2.0f + theme::GAP_M, mid - ImGui::GetTextLineHeight() * 0.5f},
                     ImGui::GetColorU32(theme::text_secondary()), text);
     }
 

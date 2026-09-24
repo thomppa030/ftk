@@ -24,6 +24,13 @@ void status(Severity severity, const char* text);
 bool callout(Severity severity, const char* title, const char* text,
              const char* action_icon = nullptr, const char* action = nullptr);
 
+/// The unsaved mark: a small dot in the text colour, centred on `centre`,
+/// the same on the tab, the header, the status bar and a footer.
+void unsaved_dot(ImDrawList* draw_list, ImVec2 centre);
+
+/// Its radius, to leave room for it.
+inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;
+
 /// A short note pinned over a picture (a viewport showing a debug view:
 /// "Showing DDGI indirect"), in the warning colour on a dark plate, its
 /// bottom-right corner at `corner`. Drawn over whatever is there; takes no
