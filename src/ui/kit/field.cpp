@@ -171,6 +171,7 @@ const char* unit_symbol(Unit unit) {
         case Unit::SquareMetres:    return "m\xc2\xb2";
         case Unit::MetresPerSecond: return "m/s";
         case Unit::Degrees:         return "\xc2\xb0";
+        case Unit::Milliseconds:    return "ms";
         case Unit::Seconds:         return "s";
         case Unit::Minutes:         return "min";
         case Unit::Kilograms:       return "kg";

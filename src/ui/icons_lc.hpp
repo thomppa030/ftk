@@ -158,4 +158,8 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_CHEVRONS_DOWN_UP   "\xee\x88\xa8"  // U+E228
 #define ICON_LC_AUDIO_WAVEFORM     "\xee\x95\x9b"  // U+E55B
 #define ICON_LC_ARROW_DOWN_WIDE_NARROW "\xee\x81\x87"  // U+E047
+#define ICON_LC_NETWORK            "\xee\x84\xa5"  // U+E125
+#define ICON_LC_ACTIVITY           "\xee\x80\xb8"  // U+E038
+#define ICON_LC_USERS              "\xee\x86\xa4"  // U+E1A4
+#define ICON_LC_FLASK_CONICAL      "\xee\x83\x95"  // U+E0D5
 // NOLINTEND(cppcoreguidelines-macro-usage)

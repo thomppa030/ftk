@@ -1,8 +1,17 @@
 #include "ui/net_panel.hpp"
 
 #include "net/net_manager.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
+
+#include <format>
+#include <string>
 
 namespace fjell {
 namespace {
@@ -15,28 +24,23 @@ const char* role_label(NetRole role) {
     }
 }
 
+// One measurement: its name in the label column, the value read out beside it.
+void metric(const char* label, const std::string& value) {
+    ui::row(label, [&] { ui::readout(value.c_str()); });
+}
+
 } // namespace
 
 void NetPanel::draw(float dt, const char* title) {
-    if (!ImGui::Begin(title)) {
-        ImGui::End();
-        return;
-    }
+    auto p = Panel(ui::icon::network, title);
+    if (!p) return;
 
     if (!net_) {
-        ImGui::TextDisabled("No network manager.");
-        ImGui::End();
+        ui::empty_state(ui::icon::network, "No network manager", "This editor was started without networking");
         return;
     }
 
-    const NetRole role = net_->role();
-    ImGui::Text("Role: %s", role_label(role));
-    if (net_->is_connected()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(peer %u)", net_->local_peer());
-    }
-
-    // ── Per-second rates (diff the cumulative counters once a second) ────
+    // Per-second rates: the cumulative counters diffed once a second.
     sample_timer_ += dt;
     if (sample_timer_ >= 1.0f) {
         const TransportStats cur = net_->stats();
@@ -52,46 +56,63 @@ void NetPanel::draw(float dt, const char* title) {
         history_index_ = (history_index_ + 1) % BANDWIDTH_HISTORY;
     }
 
-    ImGui::SeparatorText("Bandwidth");
-    ImGui::Text("Out: %.1f KB/s  (%.0f pkt/s)", send_bps_ / 1024.0f, send_pps_);
-    ImGui::Text("In:  %.1f KB/s  (%.0f pkt/s)", recv_bps_ / 1024.0f, recv_pps_);
-    ImGui::PlotLines("##bw", send_history_.data(), BANDWIDTH_HISTORY, history_index_,
-                     "out B/s", 0.0f, FLT_MAX, ImVec2(0, 40));
+    if (auto t = ui::PropertyTable("##session")) {
+        const NetRole role = net_->role();
+        metric("Role", net_->is_connected()
+                           ? std::format("{} · peer {}", role_label(role), net_->local_peer())
+                           : std::string(role_label(role)));
+    }
 
-    // ── Connected peers + link quality ──────────────────────────────────
-    ImGui::SeparatorText("Peers");
-    const auto peers = net_->peers();
-    if (peers.empty()) {
-        ImGui::TextDisabled("No connected peers.");
-    } else if (ImGui::BeginTable("##peers", 3,
-                                 ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Peer");
-        ImGui::TableSetupColumn("RTT");
-        ImGui::TableSetupColumn("Loss");
-        ImGui::TableHeadersRow();
-        for (const auto& p : peers) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%u", p.id);
-            ImGui::TableNextColumn(); ImGui::Text("%u ms", p.rtt_ms);
-            ImGui::TableNextColumn(); ImGui::Text("%.1f%%", p.loss_pct);
+    if (ui::section_foldable("Bandwidth", ui::icon::bandwidth)) {
+        if (auto t = ui::PropertyTable("##bandwidth")) {
+            metric("Out", std::format("{:.1f} KB/s ({:.0f} pkt/s)", send_bps_ / 1024.0f, send_pps_));
+            metric("In", std::format("{:.1f} KB/s ({:.0f} pkt/s)", recv_bps_ / 1024.0f, recv_pps_));
         }
-        ImGui::EndTable();
+        ImGui::PlotLines("##bw", send_history_.data(), BANDWIDTH_HISTORY, history_index_,
+                         "out B/s", 0.0f, FLT_MAX, {ImGui::GetContentRegionAvail().x, 40});
     }
 
-    // ── Network conditioning (testing) ──────────────────────────────────
-    ImGui::SeparatorText("Conditioning (simulated)");
-    bool changed = false;
-    changed |= ImGui::SliderFloat("Latency", &sim_latency_ms_, 0.0f, 300.0f, "%.0f ms");
-    changed |= ImGui::SliderFloat("Jitter",  &sim_jitter_ms_,  0.0f, 100.0f, "%.0f ms");
-    changed |= ImGui::SliderFloat("Loss",    &sim_loss_pct_,   0.0f, 30.0f,  "%.1f %%");
-    if (changed) {
-        net_->set_conditioning(sim_latency_ms_, sim_jitter_ms_, sim_loss_pct_);
-    }
-    if (!net_->is_connected()) {
-        ImGui::TextDisabled("Connect first; conditioning applies to the live session.");
+    if (ui::section_foldable("Peers", ui::icon::peers)) {
+        const auto peers = net_->peers();
+        if (peers.empty()) {
+            ImGui::TextDisabled("No peers connected");
+        } else if (ImGui::BeginTable("##peers", 3, ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Peer");
+            ImGui::TableSetupColumn("RTT");
+            ImGui::TableSetupColumn("Loss");
+            ImGui::TableHeadersRow();
+            for (const auto& peer : peers) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::Text("%u", peer.id);
+                ImGui::TableNextColumn(); ImGui::Text("%u ms", peer.rtt_ms);
+                ImGui::TableNextColumn(); ImGui::Text("%.1f %%", static_cast<double>(peer.loss_pct));
+            }
+            ImGui::EndTable();
+        }
     }
 
-    ImGui::End();
+    // Artificial link degradation, so interpolation and prediction can be
+    // tried from one machine.
+    if (ui::section_foldable("Simulated link", ui::icon::simulated)) {
+        if (auto t = ui::PropertyTable("##conditioning")) {
+            ui::Edit edit;
+            ui::row("Latency", [&] {
+                edit |= ui::slider("##latency", sim_latency_ms_, 0.0f, 300.0f, ui::Unit::Milliseconds, "%.0f");
+            });
+            ui::row("Jitter", [&] {
+                edit |= ui::slider("##jitter", sim_jitter_ms_, 0.0f, 100.0f, ui::Unit::Milliseconds, "%.0f");
+            });
+            ui::row("Loss", [&] {
+                edit |= ui::slider("##loss", sim_loss_pct_, 0.0f, 30.0f, ui::Unit::Percent, "%.1f");
+            });
+            if (!net_->is_connected()) {
+                ui::hint("Applies to the live session once connected");
+            }
+            if (edit.changed) {
+                net_->set_conditioning(sim_latency_ms_, sim_jitter_ms_, sim_loss_pct_);
+            }
+        }
+    }
 }
 
 } // namespace fjell
