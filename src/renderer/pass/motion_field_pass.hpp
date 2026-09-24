@@ -65,6 +65,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the map holds anything worth reading: something has moved
     /// recently enough not to have faded. A still scene pays nothing.

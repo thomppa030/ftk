@@ -274,10 +274,45 @@ PassSetup MotionFieldPass::setup() const {
     };
 }
 
-void MotionFieldPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
-    // Pass-private images bound through the global descriptor; consumers
-    // reach them outside the catalog.
-    builder.has_side_effects();
+// Where the map is read: the surfaces and the editor's debug view in the
+// fragment shader, the fog in compute. A reader at any other stage declares
+// its read and gets its own barrier from the graph.
+constexpr VkPipelineStageFlags2 READER_STAGES =
+    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+
+void MotionFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Nothing moves and the marks have faded: the map is left as it is.
+    if (moving_count_ == 0 && settled_) { return; }
+    // Last frame's map carried forward into this frame's. The graph moves
+    // the one written into GENERAL; record() moves it to where its readers
+    // sample it, which final_layout reports.
+    builder.read(builder.import_named(ctx, "motion_field_prev"),
+                 ResourceAccess::sampled_compute);
+    auto map = builder.import_named(ctx, "motion_field");
+    builder.write(map, ResourceAccess::storage_write_compute);
+    builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         READER_STAGES, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+void MotionFieldPass::collect_exports(DeclareContext& ctx) {
+    if (maps_[cur_].image == VK_NULL_HANDLE) { return; }
+    // Neither map holds anything before the pass first runs; after that
+    // both rest where their readers sample them.
+    const VkImageLayout rest = first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED
+                                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    auto add = [&](std::string_view name, const Map& map) {
+        ImportedImage img{};
+        img.image = map.image;
+        img.view = map.view;
+        img.persistent = true;   // carried into the next frame's map
+        img.initial_layout = rest;
+        ctx.imports.emplace(fg_name_hash(name), img);
+    };
+    // The map this frame writes is the one the global set binds.
+    add("motion_field", maps_[cur_]);
+    add("motion_field_prev", maps_[prev_index()]);
 }
 
 void MotionFieldPass::record(const FrameContext& ctx) {
@@ -298,19 +333,8 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     // rather than between two.
     const glm::vec2 scroll = (origin_ - prev_origin_) / texel;
 
-    std::array<VkImageMemoryBarrier2, 2> to_use{
-        make_barrier(maps_[write].image,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL),
-        make_barrier(maps_[read].image,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
-    };
-    batch_barriers(cmd, to_use.data(), static_cast<uint32_t>(to_use.size()));
-
+    // The graph has the map written in GENERAL and the one read in
+    // SHADER_READ_ONLY_OPTIMAL.
     FrameCacheBinding b[3]{};
     b[0].binding = 0;
     b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -347,7 +371,7 @@ void MotionFieldPass::record(const FrameContext& ctx) {
 
     auto to_read = make_barrier(maps_[write].image,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        READER_STAGES, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     batch_barriers(cmd, &to_read, 1);
 

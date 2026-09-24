@@ -791,6 +791,10 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_compute);
     auto scene_depth = builder.import_named(ctx, "depth");
     builder.read(scene_depth, ResourceAccess::sampled_compute);
+    // What stirs the fog, through the global set.
+    if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
+        builder.read(motion, ResourceAccess::sampled_compute);
+    }
     // The waterline mask, written by the water pass's dispatch at the start
     // of this node's recording and read by every medium dispatch after it.
     // One texel per froxel column.
