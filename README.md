@@ -84,7 +84,7 @@ by CMake:
 | GLM 1.0.1 | Math |
 | spdlog 1.15.0 | Logging |
 | Dear ImGui (docking) | Editor UI |
-| ImGuizmo / imnodes / imgui-node-editor | Gizmos and node graphs |
+| ImGuizmo / imgui-node-editor | Gizmos and node graphs |
 | nlohmann/json 3.11.3 | Serialization |
 | fastgltf 0.8.0 | glTF loading |
 | stb_image | Textures |

@@ -414,9 +414,6 @@ add_executable(fjell
     # ImGuizmo
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 
-    # imnodes
-    ${imnodes_SOURCE_DIR}/imnodes.cpp
-
     # imgui-node-editor
     ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
     ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
@@ -434,7 +431,6 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
-    ${imnodes_SOURCE_DIR}
     ${imgui_node_editor_SOURCE_DIR}
     ${miniaudio_SOURCE_DIR}
 )

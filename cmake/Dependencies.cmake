@@ -77,14 +77,6 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    imnodes
-    GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
-    SOURCE_SUBDIR  no-cmake-here
-)
-
-FetchContent_Declare(
     imgui_node_editor
     GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
     GIT_TAG        master
@@ -317,7 +309,7 @@ FetchContent_MakeAvailable(msdfgen)
 # Consumed as plain sources — these either ship no CMakeLists or have their
 # files compiled straight into our targets, so they are fetched but never
 # added as subdirectories.
-FetchContent_MakeAvailable(miniaudio imgui imguizmo imnodes imgui_node_editor)
+FetchContent_MakeAvailable(miniaudio imgui imguizmo imgui_node_editor)
 
 block()
     # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
