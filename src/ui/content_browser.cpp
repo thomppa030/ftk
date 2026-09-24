@@ -1219,10 +1219,8 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
                 on_open_asset.broadcast(rel.string(), "animation");
             } else if (ext == ".fjanimset") {
                 on_open_asset.broadcast(rel.string(), "animset");
-            } else if (ext == ".fjblend1D") {
-                on_open_asset.broadcast(rel.string(), "blend1d");
-            } else if (ext == ".fjblend2D") {
-                on_open_asset.broadcast(rel.string(), "blend2d");
+            } else if (ext == ".fjblend1D" || ext == ".fjblend2D") {
+                on_open_asset.broadcast(rel.string(), "blend_space");
             }
             break;
         }

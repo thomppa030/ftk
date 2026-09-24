@@ -8,8 +8,6 @@ src/core/engine.cpp
 src/hub/hub_ui.cpp
 src/import/import_dialog.cpp
 src/ui/animation_editor_context.cpp
-src/ui/blend_space_1d_editor_context.cpp
-src/ui/blend_space_2d_editor_context.cpp
 src/ui/content_browser.cpp
 src/ui/file_browser.cpp
 src/ui/grouped_picker.cpp

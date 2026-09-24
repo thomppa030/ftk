@@ -318,8 +318,7 @@ add_executable(fjell
     ui/document_history.cpp
     ui/editor_context.cpp
     ui/animation_editor_context.cpp
-    ui/blend_space_1d_editor_context.cpp
-    ui/blend_space_2d_editor_context.cpp
+    ui/blend_space_editor_context.cpp
     ui/context_registry.cpp
     ui/input_mapping_editor_context.cpp
     ui/material_editor_context.cpp
