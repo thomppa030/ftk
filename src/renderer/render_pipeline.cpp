@@ -6,7 +6,6 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/transient_image_pool.hpp"
@@ -17,7 +16,6 @@
 
 #include <algorithm>
 #include <queue>
-#include <unordered_set>
 
 namespace fjell {
 
@@ -41,8 +39,13 @@ RenderPipeline::~RenderPipeline() {
 
 void RenderPipeline::register_pass(PassEntry entry) {
     pass_state_.try_emplace(entry.name); // create default state if not exists
+    entry.name_hash = fg_name_hash(entry.name);
     entries_.push_back(std::move(entry));
     sorted_ = false;
+}
+
+void RenderPipeline::begin_frame() {
+    graph_.new_frame();
 }
 
 void RenderPipeline::remove_pass(const std::string& name) {
@@ -86,18 +89,18 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // this frame. This is how a SceneViewport with `editor_preview.fjgraph`
     // skips DDGI/SSR/etc on a per-call basis without touching the global
     // pass_state_ that the main viewport uses.
-    std::unordered_set<std::string> viewport_enabled;
+    auto& viewport_enabled = viewport_enabled_;
+    viewport_enabled.clear();
     if (viewport_graph != nullptr) {
-        viewport_enabled.reserve(viewport_graph->passes.size());
         for (const auto& entry : viewport_graph->passes) {
-            if (entry.enabled) { viewport_enabled.insert(entry.name); }
+            if (entry.enabled) { viewport_enabled.insert(fg_name_hash(entry.name)); }
         }
     }
-    auto pass_enabled_for_viewport = [&](const std::string& name) {
+    auto pass_enabled_for_viewport = [&](const PassEntry& entry) {
         if (viewport_graph == nullptr) {
-            return state_for(name).enabled;
+            return state_for(entry.name).enabled;
         }
-        return viewport_enabled.contains(name);
+        return viewport_enabled.contains(entry.name_hash);
     };
 
     // One-shot ordering pass by entry.order. The real topological sort
@@ -237,7 +240,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // and only for a viewport that runs the shafts, or a thumbnail
         // rendering between two frames would resize them twice over.
         if (auto* shafts = passes.try_get<SunShaftsPass>("sun_shafts");
-            shafts != nullptr && shafts->enabled() && pass_enabled_for_viewport("sun_shafts")) {
+            shafts != nullptr && shafts->enabled()
+            && (viewport_graph == nullptr ? state_for("sun_shafts").enabled
+                                          : viewport_enabled.contains(fg_name_hash("sun_shafts")))) {
             auto& imgs = shafts->frame_images(
                 {decl_ctx.viewport_extent.x, decl_ctx.viewport_extent.y});
             auto add_history = [&](std::string_view name, uint32_t idx) {
@@ -259,80 +264,46 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     // ── Collect declared passes + run DAG sort ────────────────────────
-    struct PendingPass {
-        size_t entry_index{0};
-        PassBuilder builder;
-        RenderPass* pass{nullptr};
-    };
-    std::vector<PendingPass> pending;
-    pending.reserve(entries_.size());
+    auto& pending = pending_;
+    pending.clear();
 
     {
         FJELL_PROFILE_SCOPE_N("rp_declare_loop");
         for (size_t i = 0; i < entries_.size(); ++i) {
             auto* p = entries_[i].pass;
             if (p == nullptr) { continue; }
-            if (!pass_enabled_for_viewport(entries_[i].name)) { continue; }
+            if (!pass_enabled_for_viewport(entries_[i])) { continue; }
+            if (pending.size() == builders_.size()) { builders_.emplace_back(); }
             PendingPass pp;
             pp.entry_index = i;
+            pp.builder = pending.size();
             pp.pass = p;
+            auto& builder = builders_[pp.builder];
+            builder.reset();
             // Seed the builder's queue from the pass's async hint. Declare
             // can override if it wants (unusual), but the default is what
             // setup() advertised. Without an async-capable device, fall
             // through to graphics unconditionally.
             auto setup = p->setup();
             if (async_compute_available && setup.async_hint == AsyncComputeHint::Prefer) {
-                pp.builder.queue(QueueType::async_compute);
+                builder.queue(QueueType::async_compute);
             } else {
-                pp.builder.queue(QueueType::graphics);
+                builder.queue(QueueType::graphics);
             }
             {
                 FJELL_PROFILE_SCOPE_DYNAMIC(entries_[i].name.c_str());
-                p->declare(pp.builder, decl_ctx);
+                p->declare(builder, decl_ctx);
             }
-            pending.push_back(std::move(pp));
+            pending.push_back(pp);
         }
     }
 
-    // Resource identity for topological sort. Imported images are keyed by
-    // (VkImage, base_layer, layer_count); imported buffers by VkBuffer;
-    // both stable across passes for the same physical resource. Created
-    // (transient) resources are keyed by the FNV-1a hash of the name they
-    // were declared with, so two passes referencing the same logical
-    // transient resolve to the same key and the DAG sort / liveness walk
-    // sees the edge.
-    //
-    // The hash is computed once in PassBuilder::create(). The DAG sort +
-    // cull hit this map hundreds of times per frame; before the hash was
-    // pre-computed string hashing + comparison showed ~13µs/frame in
-    // Tracy.
-    struct ResKey {
-        VkImage  image{VK_NULL_HANDLE};
-        VkBuffer buffer{VK_NULL_HANDLE};
-        uint32_t base_layer{0};
-        uint32_t layer_count{0};
-        uint64_t virtual_name_hash{0};  // non-zero iff image == buffer == NULL
-        bool operator==(const ResKey& o) const noexcept {
-            return image == o.image && buffer == o.buffer
-                && base_layer == o.base_layer
-                && layer_count == o.layer_count
-                && virtual_name_hash == o.virtual_name_hash;
-        }
-    };
-    struct ResKeyHash {
-        size_t operator()(const ResKey& k) const noexcept {
-            auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
-            auto h2 = std::hash<uint32_t>{}(k.base_layer);
-            auto h3 = std::hash<uint32_t>{}(k.layer_count);
-            auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
-            auto h5 = std::hash<void*>{}(static_cast<void*>(k.buffer));
-            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
-        }
-    };
-
     const size_t n = pending.size();
-    std::vector<std::vector<size_t>> adj(n);
-    std::vector<uint32_t> in_degree(n, 0);
+    auto& adj = adj_;
+    for (auto& edges : adj) { edges.clear(); }
+    adj.resize(n);
+    auto& in_degree = in_degree_;
+    in_degree.assign(n, 0);
 
     auto resolve_texture_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
@@ -373,11 +344,12 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             || k.virtual_name_hash != 0;
     };
 
-    std::vector<size_t> dag_order;
-    dag_order.reserve(n);
+    auto& dag_order = dag_order_;
+    dag_order.clear();
     {
         FJELL_PROFILE_SCOPE_N("rp_dag_sort");
-        std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
+        auto& last_writer = last_writer_;
+        last_writer.clear();
         // Add an edge from `last_writer[k]` to pass `j` for every read
         // access whose key has been written earlier this frame. Update
         // `last_writer[k]` for every write. Buffers and textures share
@@ -397,7 +369,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         };
 
         for (size_t j = 0; j < n; ++j) {
-            const auto& b = pending[j].builder;
+            const auto& b = builders_[pending[j].builder];
             for (const auto& acc : b.texture_accesses()) {
                 record_access(j, resolve_texture_key(b, acc.handle), acc.access);
             }
@@ -445,16 +417,18 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // pass-private textures or buffers bound through the global
     // descriptor set still need has_side_effects() — those consumer
     // edges live outside the DAG.
-    std::vector<bool> alive(n, false);
+    auto& alive = alive_;
+    alive.assign(n, 0);
     {
         FJELL_PROFILE_SCOPE_N("rp_pass_cull");
-        std::vector<size_t> work;
-        work.reserve(n);
+        auto& work = work_;
+        work.clear();
 
         // Collect writers of each resource for the backward walk.
-        std::unordered_map<ResKey, std::vector<size_t>, ResKeyHash> writers_of;
+        auto& writers_of = writers_of_;
+        writers_of.clear();
         for (size_t j = 0; j < n; ++j) {
-            const auto& b = pending[j].builder;
+            const auto& b = builders_[pending[j].builder];
             for (const auto& acc : b.texture_accesses()) {
                 if (!access_is_write(acc.access)) { continue; }
                 ResKey k = resolve_texture_key(b, acc.handle);
@@ -491,11 +465,11 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         };
 
         for (size_t j = 0; j < n; ++j) {
-            const auto& b = pending[j].builder;
+            const auto& b = builders_[pending[j].builder];
             bool root = b.is_never_cull() || b.has_side_effects_flag()
                      || pass_writes_persistent(b);
             if (root) {
-                alive[j] = true;
+                alive[j] = 1;
                 work.push_back(j);
             }
         }
@@ -503,14 +477,14 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         while (!work.empty()) {
             size_t j = work.back();
             work.pop_back();
-            const auto& b = pending[j].builder;
+            const auto& b = builders_[pending[j].builder];
             auto walk_back = [&](const ResKey& k) {
                 if (!key_valid(k)) { return; }
                 auto it = writers_of.find(k);
                 if (it == writers_of.end()) { return; }
                 for (size_t w : it->second) {
                     if (alive[w]) { continue; }
-                    alive[w] = true;
+                    alive[w] = 1;
                     work.push_back(w);
                 }
             };
@@ -526,7 +500,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     size_t culled = 0;
-    for (bool a : alive) { if (!a) { ++culled; } }
+    for (uint8_t a : alive) { if (!a) { ++culled; } }
 
     if (!dag_order_logged_) {
         FJELL_GFX_INFO("RenderPipeline driven by declare(): {} passes ({} culled).",
@@ -535,10 +509,11 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     // ── Dispatch to the FrameGraph ────────────────────────────────────
-    FrameGraph graph;
+    auto& graph = graph_;
     graph.set_aliasing_enabled(aliasing_enabled_);
     {
     FJELL_PROFILE_SCOPE_N("rp_graph_submit");
+    graph.begin_frame();
     auto color_id        = graph.register_image(target.color_image());
     auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_image()) : color_id;
     auto depth_id        = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -552,8 +527,6 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto msaa_velocity_id = has_msaa ? graph.register_image(target.msaa_velocity_image()) : velocity_id;
     auto screen_color_id = graph.register_image(target.screen_color_image());
     auto distortion_id   = graph.register_image(target.distortion_image());
-
-    graph.begin_frame();
 
     registry.register_image("color",         {.frame_graph_id = color_id,         .image = target.color_image(),         .view = target.color_view()});
     registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
@@ -576,7 +549,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         auto& pp = pending[idx];
         graph.submit_declared_pass(
             entries_[pp.entry_index].name,
-            pp.builder,
+            builders_[pp.builder],
             [p = pp.pass, &ctx](VkCommandBuffer cb) {
                 FrameContext local = ctx;
                 local.cmd = cb;
@@ -592,8 +565,10 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     if (ctx.transient_pool != nullptr) {
         FJELL_PROFILE_SCOPE_N("rp_alias_bind");
         ctx.transient_pool->begin_frame(target.extent());
-        const auto groups = graph.compute_alias_groups();
-        const auto lifetimes = graph.compute_lifetimes();
+        auto& lifetimes = lifetimes_;
+        auto& groups = groups_;
+        graph.compute_lifetimes(lifetimes);
+        graph.compute_alias_groups(lifetimes, groups);
         const auto& imgs = graph.images();
 
         // Snapshot + peak tracking for debug UI and shutdown summary.

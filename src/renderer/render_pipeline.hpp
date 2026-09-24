@@ -1,10 +1,13 @@
 #pragma once
 
+#include "renderer/frame_graph.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
 
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -32,6 +35,7 @@ enum class RenderPhase : uint32_t {
 /// and a pointer to the RenderPass for declare()/record() dispatch.
 struct PassEntry {
     std::string name;
+    uint64_t name_hash{0};   ///< fg_name_hash(name), set by register_pass()
     uint32_t order{0};
 
     /// Non-owning pointer to the RenderPass the registry holds. The
@@ -89,6 +93,10 @@ public:
     [[nodiscard]] uint64_t peak_live_bytes()  const noexcept { return peak_live_bytes_; }
     [[nodiscard]] uint64_t peak_bytes_saved() const noexcept { return peak_bytes_saved_; }
 
+    /// Once per frame, before any execute(): lets the graph forget images
+    /// no run touched last frame.
+    void begin_frame();
+
     /// Build the frame graph from registered passes and execute it.
     /// `ctx` is captured by reference into per-pass record lambdas; the
     /// caller must keep it alive until this function returns.
@@ -121,6 +129,55 @@ private:
     std::vector<PassEntry> entries_;
     std::unordered_map<std::string, PassState> pass_state_;
     bool sorted_{false};
+
+    /// The one graph every run goes through; it keeps what it learned
+    /// about image layouts from one run to the next.
+    FrameGraph graph_;
+
+    // ── Per-run scratch, kept so a run allocates nothing on its hot path ──
+
+    /// Resource identity for the DAG sort and the cull walk. Imported
+    /// images key by (VkImage, layer range), imported buffers by VkBuffer;
+    /// transients by the FNV-1a hash of the name they were declared with,
+    /// so two passes naming the same transient resolve to the same key.
+    struct ResKey {
+        VkImage  image{VK_NULL_HANDLE};
+        VkBuffer buffer{VK_NULL_HANDLE};
+        uint32_t base_layer{0};
+        uint32_t layer_count{0};
+        uint64_t virtual_name_hash{0};  // non-zero iff image == buffer == NULL
+        bool operator==(const ResKey& o) const noexcept = default;
+    };
+    struct ResKeyHash {
+        size_t operator()(const ResKey& k) const noexcept {
+            auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
+            auto h2 = std::hash<uint32_t>{}(k.base_layer);
+            auto h3 = std::hash<uint32_t>{}(k.layer_count);
+            auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
+            auto h5 = std::hash<void*>{}(static_cast<void*>(k.buffer));
+            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
+        }
+    };
+    struct PendingPass {
+        size_t entry_index{0};
+        size_t builder{0};      ///< index into builders_
+        RenderPass* pass{nullptr};
+    };
+
+    /// One builder per enabled pass, reset rather than rebuilt each run:
+    /// each holds seven vectors whose capacity is worth keeping.
+    std::vector<PassBuilder> builders_;
+    std::vector<PendingPass> pending_;
+    std::unordered_set<uint64_t> viewport_enabled_;
+    std::vector<std::vector<size_t>> adj_;
+    std::vector<uint32_t> in_degree_;
+    std::vector<size_t> dag_order_;
+    std::vector<uint8_t> alive_;
+    std::vector<size_t> work_;
+    std::unordered_map<ResKey, size_t, ResKeyHash> last_writer_;
+    std::unordered_map<ResKey, std::vector<size_t>, ResKeyHash> writers_of_;
+    std::vector<ResourceLifetime> lifetimes_;
+    std::vector<AliasGroup> groups_;
 
     /// Log the declared-DAG pass count and culled-pass count once per
     /// session instead of every frame.

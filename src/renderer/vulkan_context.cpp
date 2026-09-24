@@ -1537,6 +1537,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
                     std::numeric_limits<uint64_t>::max());
 
     // GPU is now done with this frame slot — safe to destroy/resize resources.
+    render_pipeline_.begin_frame();
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
     apply_ddgi_settle_rebuild();
