@@ -5,8 +5,10 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "ui/inspectors/inspector_registry.hpp"
+#include "ui/editor_view_settings.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
+#include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/search.hpp"
@@ -213,6 +215,31 @@ void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
     history_ = history;
 }
 
+void HierarchyPanel::draw_settings_menu() {
+    if (!ImGui::BeginPopup("##hierarchy_settings")) return;
+    ui::menu_heading("View");
+    // A line of the menu holding a field rather than an entry: the icon
+    // column, the label, and the stepper at the right, on the menu's inset
+    // field colour. The menu stays open so the tree can be watched change.
+    {
+        // Its colours are popped before the menu ends.
+        ui::InsetFields inset;
+        auto& settings = editor_view_settings();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
+        ImGui::TextUnformatted(ui::icon::ui_text);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Text size");
+        ImGui::SameLine(0.0f, theme::GAP_L);
+        if (ui::stepper("##text_size", settings.hierarchy_text_size, HIERARCHY_TEXT_MIN, HIERARCHY_TEXT_MAX,
+                        ui::Unit::Pixels).changed) {
+            editor_view_settings_changed();
+        }
+    }
+    ImGui::EndPopup();
+}
+
 void HierarchyPanel::draw() {
     if (auto p = Panel(ui::icon::hierarchy, "Hierarchy")) {
         delete_pending_ = false;
@@ -247,15 +274,22 @@ void HierarchyPanel::draw() {
             ImGui::OpenPopup("##HierarchyAdd");
         }
         ImGui::SameLine();
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        const float settings_w = ImGui::GetFrameHeight();
         const float type_w = TYPE_FILTER_WIDTH;
-        const float search_w = std::max(ImGui::GetContentRegionAvail().x - type_w - ImGui::GetStyle().ItemSpacing.x,
+        const float search_w = std::max(ImGui::GetContentRegionAvail().x - type_w - settings_w - spacing * 2.0f,
                                         MIN_SEARCH_WIDTH);
         ImGui::SetNextItemWidth(search_w);
         ui::search_field("##filter", filter_text_);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SetNextItemWidth(type_w);
         static constexpr const char* TYPE_NAMES[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
         (void)ui::choice("##type", type_filter_, TYPE_NAMES);
+        ImGui::SameLine();
+        if (ui::icon_button("##settings", ui::icon::view_options, "Hierarchy settings")) {
+            ImGui::OpenPopup("##hierarchy_settings");
+        }
+        draw_settings_menu();
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
             add_object(draw_add_object_menu());
@@ -273,7 +307,7 @@ void HierarchyPanel::draw() {
         // A rename outlives its row only until the node is gone.
         if (rename_.editing() && *selected_id_ == 0) rename_.cancel();
 
-        if (auto tree = ui::Tree("##scene")) {
+        if (auto tree = ui::Tree("##scene", static_cast<float>(editor_view_settings().hierarchy_text_size))) {
             auto it = children_map_.find(-1);
             if (it != children_map_.end()) {
                 for (auto* obj : it->second) draw_node(*obj, 0);

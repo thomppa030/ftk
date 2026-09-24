@@ -301,6 +301,7 @@ add_executable(fjell
     ui/menu_bar.cpp
     ui/file_browser.cpp
     ui/imgui_layer.cpp
+    ui/editor_view_settings.cpp
     core/project_manager.cpp
     core/command_history.cpp
     ui/content_browser.cpp
@@ -652,6 +653,7 @@ add_executable(fjell-hub
     renderer/gpu/image.cpp
     renderer/gpu/buffer.cpp
     ui/imgui_layer.cpp
+    ui/editor_view_settings.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp

@@ -173,3 +173,20 @@ TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") 
     CHECK(h.rect_min("field").x >= label);
     CHECK(field_width > window_width - label - 40.0f);
 }
+
+TEST_CASE("A stepper steps one at a time and stops at its end", "[ui][kit]") {
+    ImGuiHarness h;
+    int size = 19;
+    int commits = 0;
+    h.set_ui([&] {
+        if (ui::stepper("##size", size, 11, 20, ui::Unit::Pixels).committed) ++commits;
+        h.mark("plus");  // the last item drawn: the plus button
+    });
+    h.step(2);
+    h.click("plus");
+    CHECK(size == 20);
+    CHECK(commits == 1);
+    h.click("plus");
+    CHECK(size == 20);
+    CHECK(commits == 1);
+}

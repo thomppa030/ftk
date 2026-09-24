@@ -154,6 +154,9 @@ inline constexpr float STATUS_BAR = 24.0f;
 /// Height of the category bar over a component block.
 inline constexpr float CATEGORY_BAR = 3.0f;
 
+/// Text size of the editor's body text, which its metrics are drawn for.
+inline constexpr float BODY_TEXT = 14.0f;
+
 /// Text size of hints and status lines, a step under the body text.
 inline constexpr float SMALL_TEXT = 13.0f;
 
@@ -192,7 +195,7 @@ inline bool load_font(const std::string& font_dir) {
 
     // Geist renders slightly smaller than Inter at the same point size; 14px
     // is the Geist sweet spot, matches Vercel's own UI cadence.
-    constexpr float UI_FONT_SIZE = 14.0f;
+    constexpr float UI_FONT_SIZE = BODY_TEXT;
     constexpr float MONO_FONT_SIZE = 13.0f;
 
     // Try Geist first, fall back to Inter so the editor still works in

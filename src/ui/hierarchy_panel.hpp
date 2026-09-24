@@ -34,6 +34,8 @@ public:
     void clear_selection();
 
 private:
+    /// The settings button's menu: the tree's text size.
+    void draw_settings_menu();
     void draw_node(Node& obj, int depth);
     // Adds a node of `type` from the add menu (empty when nothing was
     // picked); a new empty opens in rename.
