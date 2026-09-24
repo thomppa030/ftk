@@ -141,6 +141,7 @@ ImGuiLayer::~ImGuiLayer() {
   on_context_destroyed.broadcast(static_cast<void*>(context_));
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplGlfw_Shutdown();
+  theme::forget_fonts(context_);
   ImGui::DestroyContext(context_);
   context_ = nullptr;
 

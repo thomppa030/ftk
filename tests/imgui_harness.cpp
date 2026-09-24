@@ -1,5 +1,7 @@
 #include "imgui_harness.hpp"
 
+#include "ui/theme.hpp"
+
 #include <stdexcept>
 
 namespace fjell::test {
@@ -21,6 +23,7 @@ ImGuiHarness::ImGuiHarness() {
 }
 
 ImGuiHarness::~ImGuiHarness() {
+    fjell::theme::forget_fonts(context_);
     ImGui::DestroyContext(context_);
 }
 

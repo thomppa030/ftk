@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 
 namespace fjell::theme {
 
@@ -191,20 +192,40 @@ inline float label_column(float width) {
 }
 
 // ── Fonts ───────────────────────────────────────────────────────────────
-// The faces load_font() found. Either is null when its file was missing,
+// The faces load_font() found, for each ImGui context: a font belongs to
+// its context's atlas, and the editor, the hub and every standalone window
+// have their own, so one window's face drawn in another names a texture
+// that window never uploaded. Either is null when its file was missing,
 // and the accessors then fall back to the current font.
 
 namespace detail {
-inline ImFont*& bold_face() { static ImFont* face = nullptr; return face; }
-inline ImFont*& mono_face() { static ImFont* face = nullptr; return face; }
+struct Faces {
+    ImFont* bold{nullptr};
+    ImFont* mono{nullptr};
+};
+inline std::unordered_map<const ImGuiContext*, Faces>& faces() {
+    static std::unordered_map<const ImGuiContext*, Faces> by_context;
+    return by_context;
+}
+inline Faces& current_faces() {
+    return faces()[ImGui::GetCurrentContext()];
+}
 } // namespace detail
 
 inline ImFont* bold_font() {
-    return detail::bold_face() != nullptr ? detail::bold_face() : ImGui::GetFont();
+    ImFont* face = detail::current_faces().bold;
+    return face != nullptr ? face : ImGui::GetFont();
 }
 
 inline ImFont* mono_font() {
-    return detail::mono_face() != nullptr ? detail::mono_face() : ImGui::GetFont();
+    ImFont* face = detail::current_faces().mono;
+    return face != nullptr ? face : ImGui::GetFont();
+}
+
+/// Forgets the faces of a context about to be destroyed, so a new context
+/// at the same address doesn't find them.
+inline void forget_fonts(const ImGuiContext* context) {
+    detail::faces().erase(context);
 }
 
 /// Load editor fonts (Geist preferred, Inter as fallback) with Lucide icons
@@ -267,7 +288,7 @@ inline bool load_font(const std::string& font_dir) {
 
     // Bold for headings, through bold_font().
     if (!bold.empty()) {
-        detail::bold_face() = io.Fonts->AddFontFromFileTTF(bold.c_str(), UI_FONT_SIZE, &cfg);
+        detail::current_faces().bold = io.Fonts->AddFontFromFileTTF(bold.c_str(), UI_FONT_SIZE, &cfg);
         merge_icons();
     }
 
@@ -281,7 +302,7 @@ inline bool load_font(const std::string& font_dir) {
         mono_cfg.OversampleH = 2;
         mono_cfg.OversampleV = 1;
         mono_cfg.PixelSnapH = true;
-        detail::mono_face() = io.Fonts->AddFontFromFileTTF(mono.c_str(), MONO_FONT_SIZE, &mono_cfg);
+        detail::current_faces().mono = io.Fonts->AddFontFromFileTTF(mono.c_str(), MONO_FONT_SIZE, &mono_cfg);
     }
 
     return true;

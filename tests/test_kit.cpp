@@ -580,3 +580,27 @@ TEST_CASE("The context tab bar and a host window leave ImGui's stacks as they fo
     CHECK(style_vars == 0);
     CHECK(colours == 0);
 }
+
+TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
+    // Two windows, each with its own context and atlas: the second loading
+    // its faces must not hand them to the first.
+    ImGuiContext* editor = ImGui::CreateContext();
+    ImGuiContext* browser = ImGui::CreateContext();
+    ImFont editor_bold;
+    ImFont browser_bold;
+
+    ImGui::SetCurrentContext(editor);
+    fjell::theme::detail::current_faces().bold = &editor_bold;
+    ImGui::SetCurrentContext(browser);
+    fjell::theme::detail::current_faces().bold = &browser_bold;
+
+    ImGui::SetCurrentContext(editor);
+    CHECK(fjell::theme::bold_font() == &editor_bold);
+    ImGui::SetCurrentContext(browser);
+    CHECK(fjell::theme::bold_font() == &browser_bold);
+
+    fjell::theme::forget_fonts(browser);
+    fjell::theme::forget_fonts(editor);
+    ImGui::DestroyContext(browser);
+    ImGui::DestroyContext(editor);
+}
