@@ -1,12 +1,15 @@
 #include "ui/kit/dialog.hpp"
 
+#include "ui/kit/asset_header.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace fjell::ui {
 
@@ -20,20 +23,63 @@ constexpr float PADDING_Y = 14.0f;
 
 } // namespace
 
+namespace {
+
+// Where each open dialog hangs, by its popup ID.
+std::unordered_map<ImGuiID, DialogAnchor>& anchors() {
+    static std::unordered_map<ImGuiID, DialogAnchor> by_id;
+    return by_id;
+}
+
+// Under the editor header, or the top of the editor area without one.
+DialogAnchor header_anchor() {
+    if (auto under = anchor_under(ASSET_HEADER_WINDOW)) return *under;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    return {{viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y}, 0.5f};
+}
+
+} // namespace
+
+std::optional<DialogAnchor> anchor_under(const char* window) {
+    const ImGuiWindow* found = ImGui::FindWindowByName(window);
+    if (found == nullptr || !found->WasActive) return std::nullopt;
+    return DialogAnchor{{found->Pos.x + found->Size.x * 0.5f, found->Pos.y + found->Size.y}, 0.5f};
+}
+
 void open_dialog(const char* id) {
+    open_dialog(id, header_anchor());
+}
+
+void open_dialog(const char* id, DialogAnchor anchor) {
+    anchors()[ImGui::GetID(id)] = anchor;
     ImGui::OpenPopup(id);
 }
 
 bool detail::begin_dialog(const char* id, const DialogSpec& spec) {
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+    const ImGuiID popup = ImGui::GetID(id);
+    const auto found = anchors().find(popup);
+    const DialogAnchor anchor = found != anchors().end() ? found->second : header_anchor();
+    ImGui::SetNextWindowPos(anchor.at, ImGuiCond_Appearing, {anchor.align, 0.0f});
     ImGui::SetNextWindowSize({DIALOG_WIDTH, 0.0f});
+    // It hangs from an edge: square at the top, rounded below, drawn here
+    // rather than by ImGui, whose rounding is all corners or none.
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {PADDING_X, PADDING_Y});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     const bool open = ImGui::BeginPopupModal(id, nullptr,
                                              ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
-                                                 | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::PopStyleVar();
+                                                 | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
+                                                 | ImGuiWindowFlags_NoBackground);
+    ImGui::PopStyleVar(2);
     if (!open) return false;
+    {
+        const ImVec2 min = ImGui::GetWindowPos();
+        const ImVec2 max{min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetWindowHeight()};
+        const float rounding = ImGui::GetStyle().PopupRounding + 2.0f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::surface_sunken()), rounding,
+                          ImDrawFlags_RoundCornersBottom);
+        dl->AddRect(min, max, ImGui::GetColorU32(theme::border()), rounding, ImDrawFlags_RoundCornersBottom);
+    }
     ImGui::PushFont(theme::bold_font(), 0.0f);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(spec.title);

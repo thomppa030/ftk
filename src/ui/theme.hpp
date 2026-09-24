@@ -291,6 +291,8 @@ inline void apply(ImGuiStyle& style) {
     c[ImGuiCol_WindowBg]     = surface_base();
     c[ImGuiCol_ChildBg]      = surface_base();
     c[ImGuiCol_PopupBg]      = hex(0x111214, 0.98f);  // surface_sunken, nearly opaque
+    // Behind a dialog the editor darkens; ImGui's default grey washes it out.
+    c[ImGuiCol_ModalWindowDimBg] = hex(0x000000, 0.45f);
     c[ImGuiCol_Border]       = border();
     c[ImGuiCol_BorderShadow] = {0.0f, 0.0f, 0.0f, 0.0f};
 

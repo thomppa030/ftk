@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -41,8 +42,24 @@ struct PromptSpec {
     const char* confirm{"OK"};
 };
 
-/// Opens the dialog `id` on its next draw.
+/// Where a dialog hangs (sheet 18): the middle of its top edge, or its left
+/// end with `align` 0, flush with the bottom of the surface that asked.
+struct DialogAnchor {
+    ImVec2 at{};
+    float align{0.5f};
+};
+
+/// Opens the dialog `id` on its next draw, hanging from under the editor
+/// header: a question about the asset in the tab, or about the editor.
 void open_dialog(const char* id);
+
+/// Opens the dialog `id` hanging from `anchor`: from the content browser's
+/// bar for a file there, from under the menu bar at its menu.
+void open_dialog(const char* id, DialogAnchor anchor);
+
+/// Hanging from the bottom edge of the window called `window`, centred
+/// across it; none when that window isn't there.
+[[nodiscard]] std::optional<DialogAnchor> anchor_under(const char* window);
 
 namespace detail {
 /// How a dialog's buttons behave, from what its body holds.

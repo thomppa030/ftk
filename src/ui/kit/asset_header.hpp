@@ -20,6 +20,9 @@
 
 namespace fjell::ui {
 
+/// The header strip's window, for placing what hangs from it.
+inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
+
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon
     ImVec4 icon_colour{};       ///< its category colour
