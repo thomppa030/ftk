@@ -1,58 +1,44 @@
 #include "ui/history_panel.hpp"
 #include "core/command_history.hpp"
-#include "ui/icons_lc.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/panel_widget.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
 
-#include <cstring>
 #include <string>
 
 namespace fjell {
 
 namespace {
 
-// Render text with embedded color markers:
-// \x01...\x02 = old value (red-ish)
-// \x03...\x04 = new value (green-ish)
-void draw_colored_text(const std::string& text) {
-    const ImVec4 col_old = {0.9f, 0.5f, 0.4f, 1.0f};
-    const ImVec4 col_new = {0.4f, 0.85f, 0.5f, 1.0f};
+// Draws a description at `pos`, the values it marks in colour:
+// \x01...\x02 is the value before the change, \x03...\x04 the value after.
+void draw_marked_text(ImVec2 pos, const std::string& text) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 plain = ImGui::GetColorU32(theme::text());
+    const ImU32 before = ImGui::GetColorU32(theme::error());
+    const ImU32 after = ImGui::GetColorU32(theme::success());
 
     const char* p = text.c_str();
     const char* end = p + text.size();
-    bool first = true;
-
-    while (p < end) {
-        // Find next marker
-        const char* marker = p;
-        while (marker < end && *marker != '\x01' && *marker != '\x03') ++marker;
-
-        // Draw plain text before marker
-        if (marker > p) {
-            if (!first) ImGui::SameLine(0.0f, 0.0f);
-            ImGui::TextUnformatted(p, marker);
-            first = false;
+    ImU32 colour = plain;
+    const char* run = p;
+    auto flush = [&](const char* stop) {
+        if (stop > run) {
+            dl->AddText(pos, colour, run, stop);
+            pos.x += ImGui::CalcTextSize(run, stop).x;
         }
-        if (marker >= end) break;
-
-        // Determine color and find closing marker
-        char open = *marker;
-        char close = (open == '\x01') ? '\x02' : '\x04';
-        const ImVec4& col = (open == '\x01') ? col_old : col_new;
-        const char* start = marker + 1;
-        const char* stop = start;
-        while (stop < end && *stop != close) ++stop;
-
-        if (stop > start) {
-            if (!first) ImGui::SameLine(0.0f, 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, col);
-            ImGui::TextUnformatted(start, stop);
-            ImGui::PopStyleColor();
-            first = false;
-        }
-        p = (stop < end) ? stop + 1 : stop;
+    };
+    for (; p < end; ++p) {
+        const char c = *p;
+        if (c < '\x01' || c > '\x04') continue;
+        flush(p);
+        colour = c == '\x01' ? before : c == '\x03' ? after : plain;
+        run = p + 1;
     }
+    flush(end);
 }
 
 // The description without its colour markers, for an entry drawn in one
@@ -73,60 +59,45 @@ void HistoryPanel::init(CommandHistory* history) {
 }
 
 void HistoryPanel::draw(const char* title) {
-    if (auto p = Panel(ICON_LC_HISTORY, title)) {
+    if (auto p = Panel(ui::icon::history, title)) {
         if (!history_ || history_->commands().empty()) {
-            ImGui::TextDisabled("No history");
+            ui::empty_state(ui::icon::history, "No history", "Changes you make show up here");
             return;
         }
 
-        int current = history_->current_index();
+        const int current = history_->current_index();
         const auto& cmds = history_->commands();
 
-        // "Initial state" entry — click to undo everything
-        bool is_initial = (current == -1);
-        if (is_initial) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        }
-        if (ImGui::Selectable("Initial State", is_initial)) {
+        // "Initial state" entry: click to undo everything
+        const bool is_initial = current == -1;
+        ImGui::PushStyleColor(ImGuiCol_Text, is_initial ? theme::text() : theme::text_disabled());
+        if (ImGui::Selectable("Initial state", is_initial)) {
             history_->jump_to(-1);
         }
         ImGui::PopStyleColor();
 
-        // Command entries
+        // Command entries. An undone step is drawn plain and dimmed; a done
+        // one shows its before and after values in colour.
         for (int i = 0; i < static_cast<int>(cmds.size()); ++i) {
             ImGui::PushID(i);
 
-            bool is_current = (i == current);
-            bool is_undone = (i > current);
-
+            const bool is_current = i == current;
+            const bool is_undone = i > current;
             const auto& desc = cmds[i]->description();
-            bool has_markers = desc.find('\x01') != std::string::npos;
-
-            if (is_undone) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            }
+            const bool has_markers = desc.find('\x01') != std::string::npos;
 
             if (has_markers && !is_undone) {
-                // Use an invisible selectable for click, then draw colored text
-                if (ImGui::Selectable("##cmd", is_current)) {
+                const ImVec2 size{0.0f, ImGui::GetTextLineHeight()};
+                if (ImGui::Selectable("##cmd", is_current, ImGuiSelectableFlags_None, size)) {
                     history_->jump_to(i);
                 }
-                ImGui::SameLine(0.0f, 0.0f);
-                // Reset cursor to start of the selectable
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX());
-                // Dummy to start the line, then draw_colored_text uses SameLine
-                ImGui::SetCursorPosX(ImGui::GetTreeNodeToLabelSpacing());
-                draw_colored_text(desc);
+                draw_marked_text(ImGui::GetItemRectMin(), desc);
             } else {
+                if (is_undone) ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
                 if (ImGui::Selectable(plain_text(desc).c_str(), is_current)) {
                     history_->jump_to(i);
                 }
-            }
-
-            if (is_undone) {
-                ImGui::PopStyleColor();
+                if (is_undone) ImGui::PopStyleColor();
             }
 
             ImGui::PopID();
