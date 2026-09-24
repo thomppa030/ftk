@@ -146,3 +146,27 @@ TEST_CASE("Layout rounds to whole screen pixels at the frame scale", "[frame]") 
     layout.compute(*root, 400.0f, 300.0f, 2.0f);
     REQUIRE(child->layout_rect.w == Catch::Approx(10.5f));
 }
+
+TEST_CASE("An element hidden by if= takes no space", "[layout]") {
+    auto root = make_node("panel", {"root"});
+    auto* row = add_child(*root, make_node("div", {"row"}));
+    auto* first = add_child(*row, make_node("div", {"cell"}));
+    auto* hidden = add_child(*row, make_node("div", {"cell"}));
+    auto* third = add_child(*row, make_node("div", {"cell"}));
+    hidden->hidden_by_if = true; // what binding sets for if= and for a foreach template
+
+    auto sheet = FjssParser::parse(".row { flex-direction: row; gap: 10; } .cell { width: 40; height: 40; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    layout.compute(*root, 400.0f, 300.0f);
+
+    REQUIRE(first->layout_rect.x == Catch::Approx(0.0f));
+    REQUIRE(third->layout_rect.x == Catch::Approx(50.0f));
+    REQUIRE(row->layout_rect.w == Catch::Approx(400.0f));
+
+    // Shown again, it takes its place back.
+    hidden->hidden_by_if = false;
+    layout.compute(*root, 400.0f, 300.0f);
+    REQUIRE(third->layout_rect.x == Catch::Approx(100.0f));
+}

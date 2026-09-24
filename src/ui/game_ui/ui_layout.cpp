@@ -117,6 +117,10 @@ void UiLayout::build_yoga_tree(UiNode& node, YGNode* parent) {
     node.yg_node = yg;
 
     apply_style(yg, node.style);
+    // An element an if= hides takes no space, and neither does a foreach
+    // template, which binding hides the same way; otherwise every list
+    // would start one invisible item in.
+    if (node.hidden_by_if) YGNodeStyleSetDisplay(yg, YGDisplayNone);
 
     auto index = YGNodeGetChildCount(parent);
     YGNodeInsertChild(parent, yg, index);
