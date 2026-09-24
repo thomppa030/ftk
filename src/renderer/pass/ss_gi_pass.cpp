@@ -4,6 +4,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/accel_structure.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -524,7 +525,17 @@ void SsGiPass::record(const FrameContext& ctx) {
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ss_gi");
     FJELL_GPU_ZONE(ctx, "SS-GI");
-    record_into(ctx, *imgs);
+    if (!record_into(ctx, *imgs) && imgs->indirect_image != VK_NULL_HANDLE) {
+        // Stopped before the upsample. The graph moved the output to GENERAL
+        // for the write declare() promised; it goes back to where the
+        // surfaces read it, holding what it held.
+        transition_image(ctx.cmd, imgs->indirect_image,
+                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
 }
 
 PassSetup SsGiPass::setup() const {
@@ -540,23 +551,34 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.read(normal, ResourceAccess::sampled_compute);
-    // Writes pass-private gi_indirect / ss_gi_emissive bound through
-    // the global descriptor — consumer edge lives outside the catalog.
-    builder.has_side_effects();
+    // The emissive light the surfaces sample, kept for them into the next
+    // frame, which is also what keeps the pass alive. The graph moves it
+    // into GENERAL; record() leaves it back where the surfaces read it on
+    // every way out, which final_layout reports.
+    if (config_.enabled && trace_pipeline_ != VK_NULL_HANDLE) {
+        if (auto out = builder.import_named_optional(ctx, "ss_gi_output"); out.valid()) {
+            builder.write(out, ResourceAccess::storage_write_compute);
+            builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_WRITE_BIT,
+                                 VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        }
+    }
 }
 
 // ── Record ──────────────────────────────────────────────────────────────
 
-void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (trace_pipeline_ == VK_NULL_HANDLE) return;
-    if (imgs.raw_radiance_image == VK_NULL_HANDLE) return;
-    if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return;
-    if (!ctx.target) return;
+bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
+    if (trace_pipeline_ == VK_NULL_HANDLE) return false;
+    if (imgs.raw_radiance_image == VK_NULL_HANDLE) return false;
+    if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return false;
+    if (!ctx.target) return false;
 
     // All required views must be valid before we can dispatch
     auto depth_view = ctx.target->depth_view();
     auto normal_view = ctx.target->normal_view();
-    if (depth_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE) return;
+    if (depth_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE) return false;
 
     auto cmd = ctx.cmd;
 
@@ -953,10 +975,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-    barrier_image(imgs.indirect_image,
-                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+    // The graph has the indirect output in GENERAL.
 
     // ── 8. Dispatch upsample ──
     {
@@ -983,6 +1002,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     frame_counter_++;
+    return true;
 }
 
 } // namespace fjell

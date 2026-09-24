@@ -136,7 +136,10 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    void record_into(const FrameContext& ctx, Images& imgs);
+    /// Returns whether it upsampled into the indirect output; where it stops
+    /// before that, the output is left in GENERAL, where the graph put it
+    /// for the write.
+    bool record_into(const FrameContext& ctx, Images& imgs);
 
     void set_config(const SsGiConfig& config) { config_ = config; }
     [[nodiscard]] SsGiConfig& config() { return config_; }
