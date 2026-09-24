@@ -65,6 +65,8 @@ struct TreeRowSpec {
     /// plain node (an empty, a mesh) is in the secondary text colour.
     const char* icon{nullptr};
     std::optional<theme::Category> category{};
+    /// Colours the icon in place of the category's (a preset).
+    std::optional<ImVec4> tint{};
     /// One dot per category composed onto the node, in this order.
     std::span<const theme::Category> dots{};
     RowSelection selection{RowSelection::None};
