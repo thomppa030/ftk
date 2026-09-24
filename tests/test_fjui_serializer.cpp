@@ -7,9 +7,11 @@
 #include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 using namespace fjell;
 namespace fs = std::filesystem;
@@ -124,4 +126,47 @@ TEST_CASE("A widget file is written with header, props and markup", "[fjui-seria
     REQUIRE(loaded->markup_root);
     REQUIRE(loaded->markup_root->id == "root");
     REQUIRE(FjuiSerializer::serialize(*loaded->markup_root) == FjuiSerializer::serialize(*markup));
+}
+
+// The widget loader reports an undeclared {key} through the log, which is
+// also how fjlint counts it; this captures what one load logs.
+static std::string warnings_from_loading(const fs::path& path) {
+    std::ostringstream logged;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(logged);
+    auto& sinks = log::core()->sinks();
+    sinks.push_back(sink);
+    auto asset = load_widget_asset(path.string());
+    sinks.pop_back();
+    REQUIRE(asset);
+    return logged.str();
+}
+
+TEST_CASE("A {key} no prop declares is reported", "[widget-props]") {
+    WidgetDir dir;
+    auto path = dir.base / "widgets/undeclared.fjwidget";
+    std::ofstream(path) <<
+        "<widget>\n"
+        "    <prop name=\"title\" type=\"string\"/>\n"
+        "    <div><text>{title} {subtitle}</text></div>\n"
+        "</widget>\n";
+    auto logged = warnings_from_loading(path);
+    REQUIRE(logged.find("{subtitle} does not match") != std::string::npos);
+    REQUIRE(logged.find("{title}") == std::string::npos);
+}
+
+TEST_CASE("Keys inside a foreach belong to the list items", "[widget-props]") {
+    WidgetDir dir;
+    auto path = dir.base / "widgets/effects.fjwidget";
+    std::ofstream(path) <<
+        "<widget>\n"
+        "    <prop name=\"title\" type=\"string\"/>\n"
+        "    <div>\n"
+        "        <text>{title}</text>\n"
+        "        <div foreach=\"effects\" src=\"{icon}\">\n"
+        "            <text>{__index}: {name}</text>\n"
+        "            <bar value=\"{left}\" max=\"{duration}\"/>\n"
+        "        </div>\n"
+        "    </div>\n"
+        "</widget>\n";
+    REQUIRE(warnings_from_loading(path).empty());
 }

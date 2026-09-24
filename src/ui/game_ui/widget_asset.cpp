@@ -13,6 +13,10 @@ namespace fjell {
 
 /// Collect all {key} references from text content and attributes in a subtree.
 static void collect_key_references(const UiNode& node, std::vector<std::string>& keys) {
+    // A repeat and everything inside it read the values of its list item,
+    // `{__index}` among them, which the widget's props do not describe.
+    if (node.attributes.contains("foreach")) return;
+
     auto extract = [&](const std::string& s) {
         size_t i = 0;
         while (i < s.size()) {
@@ -124,7 +128,6 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
         collect_key_references(*asset.markup_root, keys);
 
         for (const auto& key : keys) {
-            if (key == "__index") continue; // reserved foreach key
             bool found = false;
             for (const auto& prop : asset.props) {
                 if (prop.name == key) { found = true; break; }
