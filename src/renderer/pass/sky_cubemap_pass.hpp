@@ -94,6 +94,9 @@ private:
     // Move mip 0 of the cubemap into GENERAL for a compute write.
     void begin_cubemap_write(VkCommandBuffer cmd);
     void ensure_fjsl_pipeline();
+    /// Hand the pipeline and layout to the deferred deleter: a frame still in
+    /// flight may have rendered the cubemap with them.
+    void retire_fjsl_pipeline();
     void destroy_fjsl_pipeline();
     void create_brdf_pipeline();
     void create_hdri_pipelines();

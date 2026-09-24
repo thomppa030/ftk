@@ -5,6 +5,7 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/resource_registry.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/pass_builder.hpp"
@@ -168,6 +169,11 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
         // Back to a built-in sky: the cubemap holds the FJSL result.
         fjsl_rendered_ = false;
         dirty_ = true;
+    }
+    // Build (or rebuild after the sky shader changed) the cubemap variant
+    // here, before anything records, rather than in the middle of record().
+    if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
+        ensure_fjsl_pipeline();
     }
     set_colors(sky.top_color, sky.bottom_color);
     set_atmosphere(sky.atmosphere_enabled, sun.direction, sun.color,
@@ -855,7 +861,7 @@ void SkyCubemapPass::ensure_fjsl_pipeline() {
     if (fjsl_pipeline_ != VK_NULL_HANDLE && fjsl_pipeline_id_ == pid && fjsl_generation_ == generation) {
         return;
     }
-    destroy_fjsl_pipeline();
+    retire_fjsl_pipeline();
 
     auto* cache = sky_pass_ != nullptr ? sky_pass_->pipeline_cache() : nullptr;
     if (cache == nullptr) return;
@@ -895,6 +901,22 @@ void SkyCubemapPass::ensure_fjsl_pipeline() {
 
     fjsl_pipeline_id_ = pid;
     fjsl_generation_ = generation;
+}
+
+void SkyCubemapPass::retire_fjsl_pipeline() {
+    if (fjsl_pipeline_ == VK_NULL_HANDLE && fjsl_layout_ == VK_NULL_HANDLE) return;
+    if (resources_.deferred_deleter != nullptr) {
+        resources_.deferred_deleter->defer(
+            [device = device_, pipeline = fjsl_pipeline_, layout = fjsl_layout_] {
+                if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
+                if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
+            });
+        fjsl_pipeline_ = VK_NULL_HANDLE;
+        fjsl_layout_ = VK_NULL_HANDLE;
+        return;
+    }
+    vkDeviceWaitIdle(device_);
+    destroy_fjsl_pipeline();
 }
 
 void SkyCubemapPass::destroy_fjsl_pipeline() {
