@@ -1001,14 +1001,20 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
         // A source stage the recording queue does not have means the last
         // access happened on the other queue, and the timeline semaphore
         // between the submits orders the work. The barrier is still needed
-        // for a layout change, with an empty source scope; without one it
-        // would carry nothing.
+        // for a layout change, and its source scope has to reach the
+        // semaphore wait for the transition to be ordered after it: an
+        // empty one would let the transition run before the wait. Every
+        // stage covers whichever stage the submit waits at; the semaphore
+        // has already made the memory available, so no access is named.
+        // Without a layout change the barrier would carry nothing.
         const VkPipelineStageFlags2 translated_src = stages_for_queue(src_stage, queue);
         const bool cross_queue = translated_src != src_stage;
         if (layout_change || !cross_queue) {
             VkImageMemoryBarrier2 barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = (cross_queue || src_stage == 0) ? VK_PIPELINE_STAGE_2_NONE : src_stage;
+            barrier.srcStageMask = cross_queue      ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+                                 : src_stage == 0   ? VK_PIPELINE_STAGE_2_NONE
+                                                    : src_stage;
             barrier.srcAccessMask = cross_queue ? 0 : src_access;
             barrier.dstStageMask = barrier_dst;
             barrier.dstAccessMask = barrier_dst_access;
