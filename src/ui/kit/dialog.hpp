@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -76,7 +77,17 @@ struct DialogButtons {
 
 bool begin_dialog(const char* id, const DialogSpec& spec);
 DialogAnswer end_dialog(const DialogSpec& spec, const DialogButtons& buttons = {});
+/// Cancel, then the verb, at the right of the current line, `inset` in
+/// from the window's content edge.
+DialogAnswer dialog_buttons(const DialogSpec& spec, const DialogButtons& buttons, bool appearing, float inset = 0.0f);
 } // namespace detail
+
+/// The bar along the bottom of a standalone window (sheet 9): a rule across
+/// it, `left` drawn first in the space left of the buttons (a name field, a
+/// status line) given that space's width, then Cancel and the verb. Enter
+/// confirms and Esc cancels unless something is being typed.
+DialogAnswer window_bar(const DialogSpec& spec, const detail::DialogButtons& buttons,
+                        const std::function<void(float width)>& left = {});
 
 /// Draws the dialog `id` while it is open, `body` between its title and its
 /// buttons. Returns the answer on the frame it is given; Esc cancels.
