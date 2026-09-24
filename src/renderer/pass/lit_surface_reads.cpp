@@ -24,6 +24,9 @@ void declare_lit_surface_reads(PassBuilder& builder, const DeclareContext& ctx) 
     if (auto shadow = builder.import_named_optional(ctx, "contact_shadow"); shadow.valid()) {
         builder.read(shadow, ResourceAccess::sampled_fragment);
     }
+    if (auto shadow = builder.import_named_optional(ctx, "cloud_shadow"); shadow.valid()) {
+        builder.read(shadow, ResourceAccess::sampled_fragment);
+    }
 }
 
 } // namespace fjell

@@ -385,10 +385,10 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
         builder.read(atlas, ResourceAccess::sampled_compute);
     }
-    // The cloud shadow map is not here because it is not in the catalog:
-    // CloudShadowPass keeps it private and binds it through the global
-    // descriptor set, so there is no handle to import. Its ordering rests on
-    // that pass's own barrier.
+    // Clouds shade the shafts too.
+    if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
+        builder.read(clouds, ResourceAccess::sampled_compute);
+    }
 
     auto raw = builder.create(RAW_NAME, raw_desc());
     builder.write(raw, ResourceAccess::storage_write_compute);

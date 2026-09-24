@@ -31,6 +31,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the map holds shadows this frame: there is cloud to cast them
     /// and a body above the horizon to cast them from.
@@ -51,7 +52,6 @@ private:
     VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
     VkSampler sampler_{VK_NULL_HANDLE};
-    bool first_record_{true};
 
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};

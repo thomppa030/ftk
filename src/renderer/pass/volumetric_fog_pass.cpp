@@ -988,6 +988,11 @@ void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
     builder.write(scatter_cur, ResourceAccess::storage_write_compute);
     builder.has_side_effects();  // writes a persistent cross-frame volume
+
+    // What the light variant samples through the global set.
+    if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
+        builder.read(clouds, ResourceAccess::sampled_compute);
+    }
 }
 
 void FogLightPass::record(const FrameContext& ctx) {
