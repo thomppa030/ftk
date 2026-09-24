@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <span>
 #include <string>
 #include <utility>
 
@@ -74,5 +75,28 @@ DialogAnswer confirm_dialog(const char* id, const DialogSpec& spec, Body&& body)
 /// while the name is empty. `text` is the field's text, kept by the caller
 /// and emptied before opening. Returns the answer on the frame it is given.
 DialogAnswer prompt_dialog(const char* id, const PromptSpec& spec, std::string& text);
+
+/// What to do with unsaved changes before something closes.
+enum class UnsavedAnswer { None, Save, DontSave, Cancel };
+
+/// Asks before closing one thing with unsaved changes (sheet 7): `title`
+/// ("Save changes to crate_wood.fjmat?"), `text` saying what is lost, then
+/// Don't save set apart on the left, Cancel, and Save with the focus.
+/// Enter saves, Esc cancels. Returns the answer on the frame it is given.
+UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text);
+
+/// One unsaved thing in the list quitting asks about.
+struct UnsavedItem {
+    const char* icon{nullptr};
+    ImVec4 icon_colour{};
+    std::string name{};    ///< "crate_wood.fjmat"
+    std::string detail{};  ///< what else saving it writes, dimmed after the name
+    bool save{true};       ///< ticked: saved when the answer is Save
+};
+
+/// Asks before quitting with several unsaved things: one list, a checkbox
+/// each, Don't save on the left, Cancel, and "Save N and quit" counting the
+/// ticked ones. Returns the answer on the frame it is given.
+UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items);
 
 } // namespace fjell::ui

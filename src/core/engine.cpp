@@ -28,6 +28,7 @@
 #include "platform/shared_library.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "ui/kit/asset_kind.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/status_bar.hpp"
 #include "ui/theme.hpp"
@@ -781,8 +782,10 @@ void Engine::init_editor() {
         ctx->init();
         return ctx;
     };
-    auto anim_matches = [](const EditorContext& ctx, const std::string&) {
-        return dynamic_cast<const AnimationEditorContext*>(&ctx) != nullptr;
+    // Each skeleton and animset has its own tab; opening one that is open
+    // shows its tab, and a clip opens in the tab of the skeleton it belongs to.
+    auto anim_matches = [](const EditorContext& ctx, const std::string& path) {
+        return dynamic_cast<const AnimationEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
     };
 
     context_registry_.register_type("skeleton", {
@@ -791,9 +794,7 @@ void Engine::init_editor() {
             static_cast<AnimationEditorContext&>(*ctx).open_skeleton(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<AnimationEditorContext&>(ctx).open_skeleton(path);
-        },
+        .open = [](EditorContext&, const std::string&) {},
         .matches = anim_matches
     });
 
@@ -804,9 +805,12 @@ void Engine::init_editor() {
             return ctx;
         },
         .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<AnimationEditorContext&>(ctx).open_clip(path);
+            static_cast<AnimationEditorContext&>(ctx).select_clip(path);
         },
-        .matches = anim_matches
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            const auto* anim = dynamic_cast<const AnimationEditorContext*>(&ctx);
+            return anim != nullptr && anim->has_clip(path);
+        }
     });
 
     context_registry_.register_type("animset", {
@@ -815,9 +819,7 @@ void Engine::init_editor() {
             static_cast<AnimationEditorContext&>(*ctx).open_animset(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<AnimationEditorContext&>(ctx).open_animset(path);
-        },
+        .open = [](EditorContext&, const std::string&) {},
         .matches = anim_matches
     });
 
@@ -837,11 +839,9 @@ void Engine::init_editor() {
             ctx->open(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<BlendSpace1DEditorContext&>(ctx).open(path);
-        },
-        .matches = [](const EditorContext& ctx, const std::string&) {
-            return dynamic_cast<const BlendSpace1DEditorContext*>(&ctx) != nullptr;
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return dynamic_cast<const BlendSpace1DEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
         }
     });
 
@@ -861,11 +861,9 @@ void Engine::init_editor() {
             ctx->open(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<BlendSpace2DEditorContext&>(ctx).open(path);
-        },
-        .matches = [](const EditorContext& ctx, const std::string&) {
-            return dynamic_cast<const BlendSpace2DEditorContext*>(&ctx) != nullptr;
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return dynamic_cast<const BlendSpace2DEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
         }
     });
 
@@ -880,8 +878,8 @@ void Engine::init_editor() {
         ctx->init();
         return ctx;
     };
-    auto input_matches = [](const EditorContext& ctx, const std::string&) {
-        return dynamic_cast<const InputMappingEditorContext*>(&ctx) != nullptr;
+    auto input_matches = [](const EditorContext& ctx, const std::string& path) {
+        return dynamic_cast<const InputMappingEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
     };
 
     context_registry_.register_type("input_mapping", {
@@ -890,9 +888,7 @@ void Engine::init_editor() {
             static_cast<InputMappingEditorContext&>(*ctx).open_context(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<InputMappingEditorContext&>(ctx).open_context(path);
-        },
+        .open = [](EditorContext&, const std::string&) {},
         .matches = input_matches
     });
 }
@@ -1673,11 +1669,8 @@ void Engine::draw_ui() {
     // Global shortcuts (Ctrl+S, Ctrl+Shift+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        if (auto saved = active_context().save(); !saved) {
+        if (auto saved = save_context(active_context()); !saved) {
             FJELL_CORE_ERROR("Couldn't save {}: {}", active_context().name(), saved.error());
-        }
-        if (&active_context() == scene_context_) {
-            save_scene();
         }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
@@ -1727,6 +1720,7 @@ void Engine::draw_ui() {
     menu_bar_.draw();
 
     capture_popup_.draw(capture_service_, scene_context_->viewport_manager());
+    draw_unsaved_dialogs();
 
     draw_context_tabs();
     active_context().draw_header();
@@ -1992,7 +1986,14 @@ void Engine::run() {
         play_controller_.start();
     }
 
-    while (!window_.should_close()) {
+    while (true) {
+        // Closing with unsaved work asks first; the answer closes the window.
+        if (window_.should_close()) {
+            if (game_mode_ || quit_confirmed_ || !anything_unsaved()) break;
+            window_.cancel_close();
+            quit_asking_ = true;
+        }
+
         // Phase 1: Submit previous frame to GPU (non-blocking)
         vulkan_context_->submit_and_present();
 
@@ -2376,7 +2377,11 @@ void Engine::draw_context_tabs() {
         // Record the close; applied at the start of the next frame so no draw
         // command still references the closing context's viewport textures.
         if (close_idx >= 0) {
-            pending_context_close_ = close_idx;
+            if (contexts_[static_cast<size_t>(close_idx)]->has_unsaved_changes()) {
+                close_asking_ = close_idx;
+            } else {
+                pending_context_close_ = close_idx;
+            }
         }
     }
 
@@ -2435,6 +2440,96 @@ void Engine::save_project() {
     if (project_mgr_.active() == nullptr) return;
     snapshot_render_settings(*vulkan_context_, project_mgr_.active()->config().render);
     project_mgr_.active()->save();
+}
+
+Result<> Engine::save_context(EditorContext& ctx) {
+    if (&ctx != scene_context_) return ctx.save();
+    save_scene();
+    if (scene_.is_dirty()) return make_error("the scene couldn't be written; the log says why");
+    return {};
+}
+
+bool Engine::anything_unsaved() const {
+    return std::any_of(contexts_.begin(), contexts_.end(),
+                       [](const auto& ctx) { return ctx->has_unsaved_changes(); });
+}
+
+void Engine::draw_unsaved_dialogs() {
+    static constexpr const char* CLOSE_DIALOG = "##close_unsaved";
+    static constexpr const char* QUIT_DIALOG = "##quit_unsaved";
+
+    // Closing a tab with unsaved changes.
+    if (close_asking_ >= 0 && close_asking_ < static_cast<int>(contexts_.size())) {
+        if (!ImGui::IsPopupOpen(CLOSE_DIALOG)) ui::open_dialog(CLOSE_DIALOG);
+        EditorContext& ctx = *contexts_[static_cast<size_t>(close_asking_)];
+        const std::string file = std::filesystem::path(ctx.asset_path()).filename().string();
+        const std::string title = "Save changes to " + file + "?";
+        switch (ui::unsaved_dialog(CLOSE_DIALOG, title.c_str(),
+                                   "Closing the tab without saving loses the changes since you last saved.")) {
+            case ui::UnsavedAnswer::Save:
+                if (auto saved = save_context(ctx); saved) {
+                    pending_context_close_ = close_asking_;
+                } else {
+                    FJELL_CORE_ERROR("Couldn't save {}: {}", file, saved.error());
+                }
+                close_asking_ = -1;
+                break;
+            case ui::UnsavedAnswer::DontSave:
+                pending_context_close_ = close_asking_;
+                close_asking_ = -1;
+                break;
+            case ui::UnsavedAnswer::Cancel: close_asking_ = -1; break;
+            case ui::UnsavedAnswer::None: break;
+        }
+    }
+
+    // Quitting with unsaved changes: one list of everything.
+    if (!quit_asking_) return;
+    if (!ImGui::IsPopupOpen(QUIT_DIALOG)) {
+        quit_items_.clear();
+        quit_contexts_.clear();
+        for (const auto& ctx : contexts_) {
+            if (!ctx->has_unsaved_changes()) continue;
+            const std::filesystem::path path = ctx.get() == scene_context_ ? current_scene_path_ : ctx->asset_path();
+            const auto& kind = ui::asset_kind(path.extension().string());
+            quit_items_.push_back({.icon = kind.icon, .icon_colour = theme::category(kind.category),
+                                   .name = path.filename().string(), .detail = {}, .save = true});
+            const std::string files = ctx->saved_files();
+            if (ctx.get() != scene_context_ && files != quit_items_.back().name) {
+                quit_items_.back().detail = files;
+            }
+            quit_contexts_.push_back(ctx.get());
+        }
+        ui::open_dialog(QUIT_DIALOG);
+    }
+    const std::string title = quit_items_.size() == 1 ? std::string("1 asset has unsaved changes")
+        : std::to_string(quit_items_.size()) + " assets have unsaved changes";
+    switch (ui::unsaved_list_dialog(QUIT_DIALOG, title.c_str(), quit_items_)) {
+        case ui::UnsavedAnswer::Save: {
+            bool all_saved = true;
+            for (std::size_t i = 0; i < quit_items_.size(); ++i) {
+                if (!quit_items_[i].save) continue;
+                if (auto saved = save_context(*quit_contexts_[i]); !saved) {
+                    FJELL_CORE_ERROR("Couldn't save {}: {}", quit_items_[i].name, saved.error());
+                    all_saved = false;
+                }
+            }
+            quit_asking_ = false;
+            // A save that failed keeps the editor open, its header saying why.
+            if (all_saved) {
+                quit_confirmed_ = true;
+                window_.request_close();
+            }
+            break;
+        }
+        case ui::UnsavedAnswer::DontSave:
+            quit_asking_ = false;
+            quit_confirmed_ = true;
+            window_.request_close();
+            break;
+        case ui::UnsavedAnswer::Cancel: quit_asking_ = false; break;
+        case ui::UnsavedAnswer::None: break;
+    }
 }
 
 void Engine::draw_status_bar() {

@@ -28,6 +28,9 @@ public:
     /// Ask for the main loop to end, as closing the window does. For a run
     /// that ends on its own, such as a scenario reaching its last step.
     void request_close();
+    /// Takes back a close the user asked for (the window's close button),
+    /// so the editor can ask about unsaved work first.
+    void cancel_close();
     void poll_events();
     void set_title(std::string_view title);
 

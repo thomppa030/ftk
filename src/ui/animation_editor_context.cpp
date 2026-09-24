@@ -512,6 +512,18 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
                     static_cast<int>(state_machine_.params_mutable().size()));
 }
 
+bool AnimationEditorContext::has_clip(const std::string& anim_path) const {
+    return std::find(available_clip_paths_.begin(), available_clip_paths_.end(), anim_path) !=
+           available_clip_paths_.end();
+}
+
+void AnimationEditorContext::select_clip(const std::string& anim_path) {
+    const auto it = std::find(available_clip_paths_.begin(), available_clip_paths_.end(), anim_path);
+    if (it != available_clip_paths_.end()) {
+        load_clip(static_cast<int>(it - available_clip_paths_.begin()));
+    }
+}
+
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,

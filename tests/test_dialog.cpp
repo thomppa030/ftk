@@ -5,6 +5,7 @@
 #include <imgui_internal.h>
 
 #include <string>
+#include <vector>
 
 using fjell::test::ImGuiHarness;
 namespace ui = fjell::ui;
@@ -57,4 +58,50 @@ TEST_CASE("A name prompt won't confirm without a name, and Esc cancels it", "[ui
 
     h.press(ImGuiKey_Escape);
     CHECK(prompt.answer == ui::DialogAnswer::Cancel);
+}
+
+TEST_CASE("Closing with unsaved changes: Enter saves, Esc cancels", "[ui][kit]") {
+    ImGuiHarness h;
+    bool open_now = true;
+    ui::UnsavedAnswer answer = ui::UnsavedAnswer::None;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##unsaved");
+            open_now = false;
+        }
+        const auto given = ui::unsaved_dialog("##unsaved", "Save changes to crate_wood.fjmat?",
+                                              "Closing the tab without saving loses the changes.");
+        if (given != ui::UnsavedAnswer::None) answer = given;
+    });
+    h.step(3);
+    h.press(ImGuiKey_Enter);
+    CHECK(answer == ui::UnsavedAnswer::Save);
+
+    open_now = true;
+    answer = ui::UnsavedAnswer::None;
+    h.step(3);
+    h.press(ImGuiKey_Escape);
+    CHECK(answer == ui::UnsavedAnswer::Cancel);
+}
+
+TEST_CASE("Quitting lists everything unsaved and saves only what stays ticked", "[ui][kit]") {
+    ImGuiHarness h;
+    std::vector<ui::UnsavedItem> items{{.name = "crate_wood.fjmat"}, {.name = "hero.fjanimset"}};
+    bool open_now = true;
+    ui::UnsavedAnswer answer = ui::UnsavedAnswer::None;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##quit");
+            open_now = false;
+        }
+        const auto given = ui::unsaved_list_dialog("##quit", "2 assets have unsaved changes", items);
+        if (given != ui::UnsavedAnswer::None) answer = given;
+    });
+    h.step(3);
+    items[1].save = false;
+    h.step();
+    h.press(ImGuiKey_Enter);
+    CHECK(answer == ui::UnsavedAnswer::Save);
+    CHECK(items[0].save);
+    CHECK_FALSE(items[1].save);
 }

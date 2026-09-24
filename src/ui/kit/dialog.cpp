@@ -1,6 +1,7 @@
 #include "ui/kit/dialog.hpp"
 
 #include "ui/kit/button.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
 #include <misc/cpp/imgui_stdlib.h>
@@ -98,6 +99,82 @@ DialogAnswer prompt_dialog(const char* id, const PromptSpec& spec, std::string& 
                                        .why_not = "Needs a name",
                                        .focus_confirm = false,
                                        .confirmed = enter});
+}
+
+namespace {
+
+// Don't save on the left, set apart as the choice that loses work; Cancel
+// and the verb on the right, the verb with the focus.
+UnsavedAnswer unsaved_buttons(const char* verb) {
+    ImGui::Dummy({0.0f, theme::GAP_M});
+    const ImGuiStyle& style = ImGui::GetStyle();
+    UnsavedAnswer answer = UnsavedAnswer::None;
+    if (button("Don't save", ButtonKind::GhostDanger)) answer = UnsavedAnswer::DontSave;
+    ImGui::SameLine();
+
+    const float verb_w = std::max(BUTTON_MIN, ImGui::CalcTextSize(verb).x + ImGui::CalcTextSize(icon::save).x
+                                                  + ImGui::CalcTextSize("  ").x + style.FramePadding.x * 2.0f);
+    const float total = BUTTON_MIN + style.ItemSpacing.x + verb_w;
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - total));
+    if (button("Cancel", ButtonKind::Secondary, {BUTTON_MIN, 0.0f})) answer = UnsavedAnswer::Cancel;
+    ImGui::SameLine();
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+        ImGui::SetNavCursorVisible(false);
+    }
+    if (action(icon::save, verb, ButtonKind::Primary, {verb_w, 0.0f})) answer = UnsavedAnswer::Save;
+
+    // Enter saves and Esc cancels, whether or not keyboard navigation is on.
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+        answer = UnsavedAnswer::Save;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) answer = UnsavedAnswer::Cancel;
+    if (answer != UnsavedAnswer::None) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return answer;
+}
+
+} // namespace
+
+UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text) {
+    if (!detail::begin_dialog(id, {.title = title})) return UnsavedAnswer::None;
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    return unsaved_buttons("Save");
+}
+
+UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items) {
+    if (!detail::begin_dialog(id, {.title = title})) return UnsavedAnswer::None;
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+
+    int ticked = 0;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        UnsavedItem& item = items[i];
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::Checkbox("##save", &item.save);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        if (item.icon != nullptr) {
+            ImGui::PushStyleColor(ImGuiCol_Text, item.icon_colour);
+            ImGui::TextUnformatted(item.icon);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0.0f, theme::GAP_S + 2.0f);
+        }
+        ImGui::TextUnformatted(item.name.c_str());
+        if (!item.detail.empty()) {
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+            ImGui::TextUnformatted(item.detail.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::PopID();
+        if (item.save) ++ticked;
+    }
+    const std::string verb = ticked == 0 ? std::string("Quit")
+                                         : "Save " + std::to_string(ticked) + " and quit";
+    return unsaved_buttons(verb.c_str());
 }
 
 } // namespace fjell::ui

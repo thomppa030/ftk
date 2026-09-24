@@ -73,6 +73,11 @@ public:
     void open_clip(const std::string& anim_path);
     void open_animset(const std::string& animset_path);
 
+    /// Whether `anim_path` is one of the clips of the skeleton open here.
+    [[nodiscard]] bool has_clip(const std::string& anim_path) const;
+    /// Shows that clip, keeping everything else as it is.
+    void select_clip(const std::string& anim_path);
+
     [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
 
 private:

@@ -21,6 +21,7 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
+#include "ui/kit/dialog.hpp"
 #include "ui/project_settings_window.hpp"
 #include "ui/context_registry.hpp"
 #include "ui/icon_cache.hpp"
@@ -119,6 +120,13 @@ private:
     void save_scene();
     // Writes project.fjell with the render settings the renderer is using.
     void save_project();
+    // Saves what a context edits: the scene for the scene context, its asset
+    // for the others.
+    Result<> save_context(EditorContext& ctx);
+    // The questions before unsaved work is lost: closing a tab, quitting.
+    void draw_unsaved_dialogs();
+    // Whether any context holds unsaved changes.
+    [[nodiscard]] bool anything_unsaved() const;
     void save_material_assets();
     void save_terrain_assets();
 
@@ -267,6 +275,14 @@ private:
     // Closing a context frees its viewport descriptor sets, which this frame's
     // draw list still references — so the close is applied on the next frame.
     int pending_context_close_{-1};
+    // A tab asked to close with unsaved changes, waiting on its answer.
+    int close_asking_{-1};
+    // Quitting with unsaved changes: the list asked about, one per context in
+    // quit_contexts_, and whether the answer has let the window close.
+    bool quit_asking_{false};
+    bool quit_confirmed_{false};
+    std::vector<ui::UnsavedItem> quit_items_;
+    std::vector<EditorContext*> quit_contexts_;
     SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
 
     // Per-type dockspace layout templates (context_type -> dockspace ID of last instance)
