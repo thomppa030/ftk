@@ -7,6 +7,7 @@ add_executable(fjimport
     log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/glyph_outline.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_build.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/meshlet.cpp

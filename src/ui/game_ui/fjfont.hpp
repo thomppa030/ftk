@@ -102,7 +102,7 @@ struct FjFontRecipe {
 /// Raised whenever the baker makes different pixels from the same recipe
 /// and font. The source hash includes it, so atlases baked before go stale
 /// and are baked again.
-static constexpr uint32_t FJFONT_BAKE_REVISION = 4;
+static constexpr uint32_t FJFONT_BAKE_REVISION = 5;
 
 /// FNV-1a over the bake revision, the recipe text and the font bytes: what
 /// the atlas records, so a rebuild happens when any of them changes and not

@@ -1,4 +1,5 @@
 #include "ui/game_ui/font_atlas_build.hpp"
+#include "ui/game_ui/font_kerning.hpp"
 #include "ui/game_ui/glyph_outline.hpp"
 
 #include <msdfgen.h>
@@ -7,6 +8,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 namespace fjell {
@@ -272,14 +275,41 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     }
 
     // Kerning for every pair that has any, over the glyphs that loaded.
+    // OpenType fonts keep it in GPOS, which FreeType does not read; only a
+    // font without GPOS kerning is asked for the older 'kern' table.
     if (recipe.kerning) {
-        for (const auto& a : atlas.glyphs) {
-            for (const auto& b : atlas.glyphs) {
-                double kern = 0.0;
-                if (msdfgen::getKerning(kern, font, static_cast<msdfgen::unicode_t>(a.codepoint),
-                                        static_cast<msdfgen::unicode_t>(b.codepoint),
-                                        msdfgen::FONT_SCALING_EM_NORMALIZED) && kern != 0.0) {
-                    atlas.kerning.push_back({a.codepoint, b.codepoint, static_cast<float>(kern)});
+        std::ifstream file(source_path, std::ios::binary);
+        const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        const FontKerning gpos = FontKerning::read(bytes);
+        if (gpos.has_pairs() && gpos.units_per_em() > 0) {
+            struct Indexed {
+                uint32_t codepoint;
+                uint16_t glyph;
+            };
+            std::vector<Indexed> indexed;
+            for (const auto& glyph : atlas.glyphs) {
+                msdfgen::GlyphIndex index;
+                if (msdfgen::getGlyphIndex(index, font, static_cast<msdfgen::unicode_t>(glyph.codepoint))) {
+                    indexed.push_back({glyph.codepoint, static_cast<uint16_t>(index.getIndex())});
+                }
+            }
+            const double em_per_unit = 1.0 / gpos.units_per_em();
+            for (const auto& a : indexed) {
+                for (const auto& b : indexed) {
+                    if (const int units = gpos.pair(a.glyph, b.glyph); units != 0) {
+                        atlas.kerning.push_back({a.codepoint, b.codepoint, static_cast<float>(units * em_per_unit)});
+                    }
+                }
+            }
+        } else {
+            for (const auto& a : atlas.glyphs) {
+                for (const auto& b : atlas.glyphs) {
+                    double kern = 0.0;
+                    if (msdfgen::getKerning(kern, font, static_cast<msdfgen::unicode_t>(a.codepoint),
+                                            static_cast<msdfgen::unicode_t>(b.codepoint),
+                                            msdfgen::FONT_SCALING_EM_NORMALIZED) && kern != 0.0) {
+                        atlas.kerning.push_back({a.codepoint, b.codepoint, static_cast<float>(kern)});
+                    }
                 }
             }
         }

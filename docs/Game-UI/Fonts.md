@@ -29,7 +29,10 @@ Stylesheets name recipes with `@font-face` (see [FJSS](FJSS.md#fonts-font-face-f
   under two atlas pixels wide loses its shape.
 - `px_range` — the distance range in atlas pixels, less than half the em size. 6
   is right for 48.
-- `kerning` — bake the font's kerning pairs.
+- `kerning` — bake the font's kerning pairs: the pair adjustments of its GPOS
+  `kern` feature, where OpenType fonts keep them, or the older `kern` table of a
+  font that has no GPOS kerning. Kerning that depends on the letters around a
+  pair (contextual kerning) is not read.
 
 Every glyph is drawn at the em size, so stroke weight is identical across the set
 and adding glyphs to the charset leaves the others as they were. Each glyph takes

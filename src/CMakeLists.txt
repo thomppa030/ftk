@@ -580,7 +580,7 @@ else()
 endif()
 option(FJELL_FONT_BAKE "Bake font atlases in the engine (links FreeType and msdfgen)" ${_font_bake_default})
 if(FJELL_FONT_BAKE)
-    target_sources(fjell PRIVATE ui/game_ui/font_atlas_build.cpp ui/game_ui/glyph_outline.cpp)
+    target_sources(fjell PRIVATE ui/game_ui/font_atlas_build.cpp ui/game_ui/font_kerning.cpp ui/game_ui/glyph_outline.cpp)
     target_compile_definitions(fjell PRIVATE FJELL_FONT_BAKE=1)
     target_link_libraries(fjell PRIVATE msdfgen::msdfgen-core msdfgen::msdfgen-ext Freetype::Freetype)
     # Treat msdfgen headers as system headers to suppress warnings from them

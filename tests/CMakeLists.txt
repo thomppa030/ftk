@@ -28,6 +28,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/glyph_outline.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_gi_params.cpp
@@ -190,6 +191,7 @@ add_executable(fjell-tests
     test_fjss_loader.cpp
     test_fjfont.cpp
     test_font_atlas_build.cpp
+    test_font_kerning.cpp
     test_glyph_outline.cpp
     test_utf8.cpp
     test_fjreflect_parser.cpp
