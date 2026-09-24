@@ -837,6 +837,8 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 3. Dispatch RT trace ──
     {
+        FJELL_PROFILE_SCOPE_N("ss_gi_trace");
+        FJELL_GPU_ZONE(ctx, "SS-GI Trace");
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, trace_pipeline_);
         std::array rt_sets = {imgs.trace_set[ctx.frame_index], ctx.bindless_set};
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -888,6 +890,8 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 5. Dispatch resolve (temporal accumulation) ──
     {
+        FJELL_PROFILE_SCOPE_N("ss_gi_resolve");
+        FJELL_GPU_ZONE(ctx, "SS-GI Resolve");
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, resolve_pipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 resolve_pipeline_layout_, 0, 1, &imgs.resolve_set[ctx.frame_index], 0, nullptr);
@@ -909,59 +913,63 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     }
 
     // ── 6. Copy resolved → history for next frame ──
-    barrier_image(imgs.resolved_image,
-                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-    barrier_image(imgs.history_image,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    {
+        FJELL_PROFILE_SCOPE_N("ss_gi_copies");
+        FJELL_GPU_ZONE(ctx, "SS-GI Copies");
+        barrier_image(imgs.resolved_image,
+                      VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        barrier_image(imgs.history_image,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-    VkImageCopy copy_region{};
-    copy_region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy_region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy_region.extent = {imgs.probe_count.x, imgs.probe_count.y, 1};
-    vkCmdCopyImage(cmd,
-                   imgs.resolved_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   imgs.history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1, &copy_region);
+        VkImageCopy copy_region{};
+        copy_region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy_region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy_region.extent = {imgs.probe_count.x, imgs.probe_count.y, 1};
+        vkCmdCopyImage(cmd,
+                       imgs.resolved_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       imgs.history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &copy_region);
 
-    // ── 6b. Copy this frame's depth into prev_depth for next frame ──
-    // The resolve above has already read prev_depth (last frame's copy), so it
-    // is now safe to overwrite. Next frame's resolve compares against this.
-    barrier_image(ctx.target->depth_image(),
-                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-                  VK_IMAGE_ASPECT_DEPTH_BIT);
-    barrier_image(imgs.prev_depth_image,
-                  imgs.prev_depth_valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
-                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                  VK_IMAGE_ASPECT_DEPTH_BIT);
+        // ── 6b. Copy this frame's depth into prev_depth for next frame ──
+        // The resolve above has already read prev_depth (last frame's copy), so it
+        // is now safe to overwrite. Next frame's resolve compares against this.
+        barrier_image(ctx.target->depth_image(),
+                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                      VK_IMAGE_ASPECT_DEPTH_BIT);
+        barrier_image(imgs.prev_depth_image,
+                      imgs.prev_depth_valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_IMAGE_ASPECT_DEPTH_BIT);
 
-    VkImageCopy depth_copy{};
-    depth_copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-    depth_copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-    depth_copy.extent = {imgs.depth_extent.width, imgs.depth_extent.height, 1};
-    vkCmdCopyImage(cmd,
-                   ctx.target->depth_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   imgs.prev_depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1, &depth_copy);
+        VkImageCopy depth_copy{};
+        depth_copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        depth_copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        depth_copy.extent = {imgs.depth_extent.width, imgs.depth_extent.height, 1};
+        vkCmdCopyImage(cmd,
+                       ctx.target->depth_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       imgs.prev_depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &depth_copy);
 
-    // Restore both depth images to their sampled layout.
-    barrier_image(ctx.target->depth_image(),
-                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_IMAGE_ASPECT_DEPTH_BIT);
-    barrier_image(imgs.prev_depth_image,
-                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_IMAGE_ASPECT_DEPTH_BIT);
+        // Restore both depth images to their sampled layout.
+        barrier_image(ctx.target->depth_image(),
+                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_IMAGE_ASPECT_DEPTH_BIT);
+        barrier_image(imgs.prev_depth_image,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_IMAGE_ASPECT_DEPTH_BIT);
+    }
     imgs.prev_depth_valid = true;
 
     // The resolve has consumed prev_view_proj; the history it just wrote
@@ -979,6 +987,8 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 8. Dispatch upsample ──
     {
+        FJELL_PROFILE_SCOPE_N("ss_gi_upsample");
+        FJELL_GPU_ZONE(ctx, "SS-GI Upsample");
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, upsample_pipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 upsample_pipeline_layout_, 0, 1, &imgs.upsample_set[ctx.frame_index], 0, nullptr);

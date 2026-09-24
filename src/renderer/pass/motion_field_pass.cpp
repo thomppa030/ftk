@@ -7,6 +7,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -320,6 +321,7 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     VkCommandBuffer cmd = ctx.cmd;
 
     if (moving_count_ == 0 && settled_) return;
+    FJELL_GPU_ZONE(ctx, "Motion Field");
 
     // prepare_frame chose which map this frame writes, so that readers could
     // be pointed at the other one before any of this was recorded.

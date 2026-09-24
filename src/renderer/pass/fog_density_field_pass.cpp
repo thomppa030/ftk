@@ -6,6 +6,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -347,6 +348,7 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     stepped_this_frame_ = true;
 
     FJELL_PROFILE_SCOPE_N("record_fog_density_field");
+    FJELL_GPU_ZONE(ctx, "Fog Density Field");
     VkCommandBuffer cmd = ctx.cmd;
 
     const uint32_t write = cur_;

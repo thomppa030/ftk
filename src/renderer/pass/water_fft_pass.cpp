@@ -497,6 +497,8 @@ void WaterFftPass::record(const FrameContext& ctx) {
 
     // Turn the drawn sea to now.
     {
+        FJELL_PROFILE_SCOPE_N("water_fft_evolve");
+        FJELL_GPU_ZONE(ctx, "WaterFft Evolve");
         FrameCacheBinding b[3]{};
         b[0].binding = 0;
         b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -516,31 +518,38 @@ void WaterFftPass::record(const FrameContext& ctx) {
 
     // Transform: every stage along x, then every stage along z.
     std::uint32_t source = 0;
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, butterfly_.pipeline);
-    for (std::uint32_t vertical = 0; vertical < 2; ++vertical) {
-        for (std::uint32_t stage = 1; stage <= log2_resolution; ++stage) {
-            compute_to_compute(cmd);
+    {
+        FJELL_PROFILE_SCOPE_N("water_fft_butterflies");
+        FJELL_GPU_ZONE(ctx, "WaterFft Butterflies");
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, butterfly_.pipeline);
+        for (std::uint32_t vertical = 0; vertical < 2; ++vertical) {
+            for (std::uint32_t stage = 1; stage <= log2_resolution; ++stage) {
+                compute_to_compute(cmd);
 
-            const FrameCacheBinding b[4]{
-                storage_image(0, spectra_a_[source].top),
-                storage_image(1, spectra_b_[source].top),
-                storage_image(2, spectra_a_[1 - source].top),
-                storage_image(3, spectra_b_[1 - source].top),
-            };
-            VkDescriptorSet set = ctx.descriptor_cache->acquire(butterfly_.set_layout, {b, 4});
+                const FrameCacheBinding b[4]{
+                    storage_image(0, spectra_a_[source].top),
+                    storage_image(1, spectra_b_[source].top),
+                    storage_image(2, spectra_a_[1 - source].top),
+                    storage_image(3, spectra_b_[1 - source].top),
+                };
+                VkDescriptorSet set =
+                    ctx.descriptor_cache->acquire(butterfly_.set_layout, {b, 4});
 
-            const ButterflyPush push{resolution_, stage, vertical};
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, butterfly_.layout, 0, 1,
-                                    &set, 0, nullptr);
-            vkCmdPushConstants(cmd, butterfly_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                               sizeof(push), &push);
-            vkCmdDispatch(cmd, groups, groups, 1);
-            source = 1 - source;
+                const ButterflyPush push{resolution_, stage, vertical};
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, butterfly_.layout,
+                                        0, 1, &set, 0, nullptr);
+                vkCmdPushConstants(cmd, butterfly_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                   sizeof(push), &push);
+                vkCmdDispatch(cmd, groups, groups, 1);
+                source = 1 - source;
+            }
         }
     }
 
     // Gather the surface and how it changes across the patch.
     {
+        FJELL_PROFILE_SCOPE_N("water_fft_assemble");
+        FJELL_GPU_ZONE(ctx, "WaterFft Assemble");
         compute_to_compute(cmd);
         const FrameCacheBinding b[4]{
             storage_image(0, spectra_a_[source].top),
@@ -563,8 +572,12 @@ void WaterFftPass::record(const FrameContext& ctx) {
         record_verification_copy(cmd);
     }
 
-    generate_mips(cmd, displacement_[cur_]);
-    generate_mips(cmd, derivatives_);
+    {
+        FJELL_PROFILE_SCOPE_N("water_fft_mips");
+        FJELL_GPU_ZONE(ctx, "WaterFft Mips");
+        generate_mips(cmd, displacement_[cur_]);
+        generate_mips(cmd, derivatives_);
+    }
 }
 
 void WaterFftPass::begin_verification() {
