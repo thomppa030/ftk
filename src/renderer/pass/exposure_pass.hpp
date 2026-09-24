@@ -24,7 +24,8 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
-    /// Read back the computed average luminance (from previous frame's buffer).
+    /// The average luminance the frame that last used `frame_index`'s slot
+    /// computed. Complete once that slot's fence has been waited on.
     [[nodiscard]] float average_luminance(uint32_t frame_index) const;
 
     void set_enabled(bool e) { enabled_ = e; }

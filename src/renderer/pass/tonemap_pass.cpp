@@ -198,9 +198,11 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 
     if (!auto_exposure_ || !exposure_pass || !exposure_pass->enabled()) return;
 
-    // Read average luminance from the previous frame's buffer
-    uint32_t prev_frame = (ctx.frame_index + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
-    float avg_lum = exposure_pass->average_luminance(prev_frame);
+    // Read the average luminance from this slot's buffer: the frame that
+    // wrote it is the one whose fence begin_frame just waited on, so it is
+    // complete. The previous frame's buffer would be one frame fresher and
+    // may still be in flight.
+    float avg_lum = exposure_pass->average_luminance(ctx.frame_index);
 
     // EV100 from average luminance (ISO 100 standard)
     // EV100 = log2(avg_luminance / 0.125)  (where 0.125 = 12.5% middle grey)
