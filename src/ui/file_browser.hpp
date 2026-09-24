@@ -1,14 +1,9 @@
 #pragma once
 
 #include "core/delegate.hpp"
-#include "renderer/gpu/swapchain.hpp"
-#include "renderer/renderer_constants.hpp"
+#include "ui/standalone_window.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
-#include "core/window.hpp"
-#include "ui/imgui_layer.hpp"
 
 #include <imgui.h>
 
@@ -93,19 +88,8 @@ private:
     static std::string format_size(uintmax_t bytes);
     static std::string format_time(std::filesystem::file_time_type time);
 
-    // ── Shared Vulkan device ────────────────────────────────────────────
     GpuCore* gpu_{nullptr};
-
-    // ── Owned per-window resources ──────────────────────────────────────
-    std::unique_ptr<Window> window_;
-    VkSurfaceKHR surface_{VK_NULL_HANDLE};
-    std::unique_ptr<Swapchain> swapchain_;
-    std::unique_ptr<ImGuiLayer> imgui_;
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
-    std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> command_buffers_{};
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
-    uint32_t frame_index_{0};
+    std::unique_ptr<StandaloneWindow> window_;
 
     // ── Browser state ───────────────────────────────────────────────────
     Mode mode_{Mode::select_directory};

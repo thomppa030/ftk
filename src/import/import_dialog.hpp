@@ -3,13 +3,9 @@
 #include "import/import_types.hpp"
 #include "import/import_job.hpp"
 #include "core/delegate.hpp"
-#include "renderer/gpu/swapchain.hpp"
-#include "renderer/renderer_constants.hpp"
+#include "ui/standalone_window.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
-#include <array>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -78,21 +74,12 @@ private:
     std::filesystem::path project_root_;
     std::string project_texture_dir_{"assets/textures"};
 
-    // Owned per-dialog: window + surface + swapchain + command pool + sync
-    std::unique_ptr<Window> window_;
-    VkSurfaceKHR surface_{VK_NULL_HANDLE};
-    std::unique_ptr<Swapchain> swapchain_;
-    std::unique_ptr<ImGuiLayer> imgui_;
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
-    std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> command_buffers_{};
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
+    std::unique_ptr<StandaloneWindow> window_;
 
     // Import state
     MeshImportSettings settings_;
     ImportJob job_;
     Connection job_connection_;
-    uint32_t frame_index_{0};
 
     // Source file info (detected on open)
     std::string source_filename_;
