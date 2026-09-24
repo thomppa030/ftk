@@ -45,7 +45,7 @@ void draw_tag(const std::string& text, ImU32 color) {
 
     auto* draw_list = ImGui::GetWindowDrawList();
     draw_list->AddRectFilled(p0, p1, color, 4.0F);
-    draw_list->AddText({p0.x + pad.x, p0.y + pad.y}, IM_COL32(20, 22, 26, 255),
+    draw_list->AddText({p0.x + pad.x, p0.y + pad.y}, ImGui::GetColorU32(theme::text_on_accent()),
                        text.c_str());
     ImGui::Dummy({p1.x - p0.x, p1.y - p0.y});
 }

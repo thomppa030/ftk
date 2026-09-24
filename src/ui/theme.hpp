@@ -131,6 +131,17 @@ inline ImVec4 grid_minor() { return hex(0x24262B); }
 inline ImVec4 grid_major() { return hex(0x383A40); }
 inline ImVec4 grid_zero()  { return hex(0x4A4D55); }
 
+/// The colours a folder can be given in the content browser: muted enough
+/// to sit beside the amber an uncoloured folder is drawn in.
+struct NamedColour {
+    const char* name;
+    uint32_t rgb;
+};
+inline constexpr NamedColour FOLDER_COLOURS[] = {
+    {"Red", 0xD9695F},  {"Orange", 0xE08A4F}, {"Yellow", 0xD9C25B}, {"Green", 0x7EBF8E}, {"Teal", 0x5FB8B0},
+    {"Blue", 0x5E9BD9}, {"Purple", 0x9A7FD1}, {"Pink", 0xD47FAE},   {"Grey", 0x9A9CA3},
+};
+
 // The UI editor's layout overlay, in the colours a browser's inspector uses
 // so they read at once: an element's margin, its padding and its box.
 inline ImVec4 layout_margin()  { return hex(0xFFA500, 0.22f); }

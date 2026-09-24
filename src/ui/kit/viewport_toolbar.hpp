@@ -38,6 +38,11 @@ namespace fjell::ui {
 /// A window that shows a picture edge to edge, a viewport: no padding and
 /// no background of its own, so the image is all there is. Ends the window
 /// when it goes out of scope, whether or not it was visible.
+/// Begins a window that fills its place edge to edge, with no rounding,
+/// border or padding: the host of a dockspace. Its style is its own, so
+/// nothing drawn in it inherits it. End it with ImGui::End().
+bool begin_host_window(const char* name, ImGuiWindowFlags flags);
+
 class ViewportWindow {
 public:
     ViewportWindow(const char* title, bool* open = nullptr, ImGuiWindowFlags flags = 0);
