@@ -854,7 +854,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
         // DDGI UBO (binding 0) — share buffer with DdgiPass so the layout
         // matches the rchit's struct without us replicating the data.
-        VkDescriptorBufferInfo ddgi_ubo_info{ddgi_imgs->constants_ubo->handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo ddgi_ubo_info{ddgi_imgs->constants_ubo[ctx.frame_index]->handle(), 0, VK_WHOLE_SIZE};
 
         // Probe status SSBO.
         VkDescriptorBufferInfo probe_status_info{ddgi_imgs->probe_status_buffer->handle(), 0, VK_WHOLE_SIZE};

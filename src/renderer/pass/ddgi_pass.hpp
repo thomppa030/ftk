@@ -215,7 +215,7 @@ public:
         VmaAllocation irradiance_filtered_memory{VK_NULL_HANDLE};
         VkImageView irradiance_filtered_view{VK_NULL_HANDLE};
 
-        VkDescriptorSet filter_set{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> filter_set{};
 
         /// Which atlas the consumers are currently bound to. The sample and
         /// RT sets are written once at init, so toggling the filter has to
@@ -262,8 +262,10 @@ public:
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
 
-        // Constants UBO (host-mapped, updated each frame)
-        std::unique_ptr<Buffer> constants_ubo;
+        // Constants UBO, host-mapped and written every frame, so one per
+        // frame in flight: a frame still tracing must not see the next
+        // frame's grid origin or batch cursor.
+        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> constants_ubo;
 
         // Indirect output: screen-res or half-res, R16G16B16A16_SFLOAT
         VkImage indirect_image{VK_NULL_HANDLE};
@@ -314,17 +316,19 @@ public:
         [[nodiscard]] VkDescriptorSet indirect_imgui_texture(VkSampler sampler);
         [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(VkSampler sampler);
 
-        // Descriptor sets — written by DdgiPass after Images::create().
-        // The RT trace set binds the frame slot's TLAS and per-instance table
-        // and is update-after-bind, so it exists once per frame in flight:
-        // rewriting one shared set would hand a still-pending frame this
-        // frame's slot, a TLAS built three frames ago against an instance
-        // table just overwritten with a different layout.
+        // Descriptor sets — written by DdgiPass after Images::create(). One
+        // of each per frame in flight: every set binds that slot's constants
+        // UBO, and the RT trace set also binds the slot's TLAS and
+        // per-instance table. Rewriting one shared set would hand a
+        // still-pending frame this frame's slot, a TLAS built three frames
+        // ago against an instance table just overwritten with a different
+        // layout. Bindings that are the same for every slot are written into
+        // all of them together.
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        VkDescriptorSet trace_set{VK_NULL_HANDLE};     // SDF trace
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rt_trace_set{};  // RT trace, per slot
-        VkDescriptorSet update_set{VK_NULL_HANDLE};
-        VkDescriptorSet sample_set{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};     // SDF trace
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rt_trace_set{};  // RT trace
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> update_set{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sample_set{};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,

@@ -194,13 +194,15 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_AUTO);
 
-    // Constants UBO
-    constants_ubo = std::make_unique<Buffer>(
-        allocator, sizeof(GpuDdgiConstants),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    constants_ubo->map();
+    // Constants UBO, one per frame in flight
+    for (auto& ubo : constants_ubo) {
+        ubo = std::make_unique<Buffer>(
+            allocator, sizeof(GpuDdgiConstants),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        ubo->map();
+    }
 
     // Indirect output (screen-res or half-res)
     uint32_t out_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
@@ -227,8 +229,11 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     if (desc_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, desc_pool, nullptr);
         desc_pool = VK_NULL_HANDLE;
-        trace_set = VK_NULL_HANDLE;
+        trace_set.fill(VK_NULL_HANDLE);
         rt_trace_set.fill(VK_NULL_HANDLE);
+        update_set.fill(VK_NULL_HANDLE);
+        sample_set.fill(VK_NULL_HANDLE);
+        filter_set.fill(VK_NULL_HANDLE);
     }
 
     destroy_img(radiance_view, radiance_image, radiance_memory);
@@ -244,7 +249,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     slot_grid_buffer.reset();
     free_list_buffer.reset();
     probe_status_buffer.reset();
-    constants_ubo.reset();
+    for (auto& ubo : constants_ubo) ubo.reset();
 }
 
 void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
@@ -926,14 +931,14 @@ void DdgiPass::record(const FrameContext& ctx) {
     record_into(ctx, *imgs);
 }
 
-static void write_trace_descriptors(VkDevice device, VkDescriptorSet set,
+static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32_t slot,
                                      DdgiPass::Images& imgs,
                                      VkImageView sdf_view, VkSampler sdf_sampler,
                                      VkImageView sky_view, VkSampler sky_sampler,
                                      VkSampler linear_sampler) {
     // 0: constants UBO
     VkDescriptorBufferInfo ubo_info{};
-    ubo_info.buffer = imgs.constants_ubo->handle();
+    ubo_info.buffer = imgs.constants_ubo[slot]->handle();
     ubo_info.offset = 0;
     ubo_info.range = sizeof(GpuDdgiConstants);
 
@@ -1067,7 +1072,7 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.resolution = glm::vec2(ctx.target ? ctx.target->extent().width : 1920,
                                      ctx.target ? ctx.target->extent().height : 1080);
 
-    std::memcpy(imgs.constants_ubo->mapped(), &constants, sizeof(constants));
+    std::memcpy(imgs.constants_ubo[ctx.frame_index]->mapped(), &constants, sizeof(constants));
 }
 
 void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -1180,17 +1185,19 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
-        // Four sets without RT (trace, update, sample, filter). With RT, one
-        // RT trace set per frame slot on top; each adds 1 UBO, 5 samplers,
-        // 1 storage image, 4 storage buffers and 1 acceleration structure.
+        // Four sets per frame slot without RT (trace, update, sample,
+        // filter). With RT, one RT trace set per slot on top; each adds
+        // 1 UBO, 5 samplers, 1 storage image, 4 storage buffers and 1
+        // acceleration structure.
+        constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
         constexpr uint32_t RT_SLOTS = MAX_FRAMES_IN_FLIGHT;
-        uint32_t max_sets = has_rt ? 4u + RT_SLOTS : 4u;
+        uint32_t max_sets = has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS;
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u + RT_SLOTS : 4u};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u + 5u * RT_SLOTS : 11u};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u + RT_SLOTS : 6u};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u + 4u * RT_SLOTS : 4u};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u * SLOTS + RT_SLOTS : 6u * SLOTS};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u * SLOTS + 4u * RT_SLOTS : 4u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -1203,43 +1210,32 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
+        // Slot s owns layouts[4s..4s+3]; the RT sets follow.
+        std::array<VkDescriptorSetLayout, 4 * SLOTS + RT_SLOTS> layouts{};
+        for (uint32_t s = 0; s < SLOTS; ++s) {
+            layouts[4 * s + 0] = trace_set_layout_;
+            layouts[4 * s + 1] = update_set_layout_;
+            layouts[4 * s + 2] = sample_set_layout_;
+            layouts[4 * s + 3] = filter_set_layout_;
+        }
+        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[4 * SLOTS + s] = rt_trace_set_layout_;
+        std::array<VkDescriptorSet, 4 * SLOTS + RT_SLOTS> sets{};
+
+        VkDescriptorSetAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc_info.descriptorPool = imgs.desc_pool;
+        alloc_info.descriptorSetCount = max_sets;
+        alloc_info.pSetLayouts = layouts.data();
+
+        vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
+        for (uint32_t s = 0; s < SLOTS; ++s) {
+            imgs.trace_set[s] = sets[4 * s + 0];
+            imgs.update_set[s] = sets[4 * s + 1];
+            imgs.sample_set[s] = sets[4 * s + 2];
+            imgs.filter_set[s] = sets[4 * s + 3];
+        }
         if (has_rt) {
-            std::array<VkDescriptorSetLayout, 4 + RT_SLOTS> layouts{};
-            layouts[0] = trace_set_layout_;
-            layouts[1] = update_set_layout_;
-            layouts[2] = sample_set_layout_;
-            layouts[3] = filter_set_layout_;
-            for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[4 + s] = rt_trace_set_layout_;
-            std::array<VkDescriptorSet, 4 + RT_SLOTS> sets{};
-
-            VkDescriptorSetAllocateInfo alloc_info{};
-            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            alloc_info.descriptorPool = imgs.desc_pool;
-            alloc_info.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-            alloc_info.pSetLayouts = layouts.data();
-
-            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
-            imgs.trace_set = sets[0];
-            imgs.update_set = sets[1];
-            imgs.sample_set = sets[2];
-            imgs.filter_set = sets[3];
-            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[4 + s];
-        } else {
-            std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_,
-                                  filter_set_layout_};
-            std::array<VkDescriptorSet, 4> sets{};
-
-            VkDescriptorSetAllocateInfo alloc_info{};
-            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            alloc_info.descriptorPool = imgs.desc_pool;
-            alloc_info.descriptorSetCount = 4;
-            alloc_info.pSetLayouts = layouts.data();
-
-            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
-            imgs.trace_set = sets[0];
-            imgs.update_set = sets[1];
-            imgs.sample_set = sets[2];
-            imgs.filter_set = sets[3];
+            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[4 * SLOTS + s];
         }
         imgs.images_need_init = true;
     }
@@ -1262,14 +1258,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
     if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && sky_cubemap_view != VK_NULL_HANDLE) {
-        write_trace_descriptors(vk_device_, imgs.trace_set, imgs,
-                                sdf_view, sdf_sampler,
-                                sky_cubemap_view, sky_cubemap_sampler,
-                                linear_sampler_);
+        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+            write_trace_descriptors(vk_device_, imgs.trace_set[s], s, imgs,
+                                    sdf_view, sdf_sampler,
+                                    sky_cubemap_view, sky_cubemap_sampler,
+                                    linear_sampler_);
+        }
 
-        // Write update set descriptors
+        // Write update set descriptors, the same into every slot's set but
+        // for that slot's UBO
         VkDescriptorBufferInfo ubo_info{};
-        ubo_info.buffer = imgs.constants_ubo->handle();
         ubo_info.range = sizeof(GpuDdgiConstants);
 
         VkDescriptorImageInfo radiance_info{};
@@ -1293,26 +1291,28 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         status_info.buffer = imgs.probe_status_buffer->handle();
         status_info.range = VK_WHOLE_SIZE;
 
-        std::array<VkWriteDescriptorSet, 6> writes{};
-        for (auto& w : writes) {
-            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w.dstSet = imgs.update_set;
-            w.descriptorCount = 1;
-        }
-        writes[0].dstBinding = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[0].pBufferInfo = &ubo_info;
-        writes[1].dstBinding = 1; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[1].pImageInfo = &radiance_info;
-        writes[2].dstBinding = 2; writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[2].pImageInfo = &irr_info;
-        writes[3].dstBinding = 3; writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[3].pImageInfo = &vis_info;
-        writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[4].pImageInfo = &offset_info;
-        writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[5].pBufferInfo = &status_info;
+        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+            ubo_info.buffer = imgs.constants_ubo[s]->handle();
+            std::array<VkWriteDescriptorSet, 6> writes{};
+            for (auto& w : writes) {
+                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                w.dstSet = imgs.update_set[s];
+                w.descriptorCount = 1;
+            }
+            writes[0].dstBinding = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[0].pBufferInfo = &ubo_info;
+            writes[1].dstBinding = 1; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[1].pImageInfo = &radiance_info;
+            writes[2].dstBinding = 2; writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[2].pImageInfo = &irr_info;
+            writes[3].dstBinding = 3; writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[3].pImageInfo = &vis_info;
+            writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[4].pImageInfo = &offset_info;
+            writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[5].pBufferInfo = &status_info;
 
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        }
 
         // Write sample set static descriptors (irradiance, visibility, offset, status, indirect)
         // Depth + normal are written every frame since they change with viewport resize
         {
             VkDescriptorBufferInfo s_ubo{};
-            s_ubo.buffer = imgs.constants_ubo->handle();
             s_ubo.range = sizeof(GpuDdgiConstants);
 
             // Consumers read the FILTERED atlas; the update pass keeps
@@ -1342,23 +1342,25 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             s_indirect.imageView = imgs.indirect_view;
             s_indirect.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            std::array<VkWriteDescriptorSet, 6> sw{};
-            for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
-            sw[0].dstBinding = 0; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; sw[0].pBufferInfo = &s_ubo;
-            sw[1].dstBinding = 3; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_irr;
-            sw[2].dstBinding = 4; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_vis;
-            sw[3].dstBinding = 5; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_offset;
-            sw[4].dstBinding = 6; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[4].pBufferInfo = &s_status;
-            sw[5].dstBinding = 7; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[5].pImageInfo = &s_indirect;
+            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+                s_ubo.buffer = imgs.constants_ubo[s]->handle();
+                std::array<VkWriteDescriptorSet, 6> sw{};
+                for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set[s]; w.descriptorCount = 1; }
+                sw[0].dstBinding = 0; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; sw[0].pBufferInfo = &s_ubo;
+                sw[1].dstBinding = 3; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_irr;
+                sw[2].dstBinding = 4; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_vis;
+                sw[3].dstBinding = 5; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_offset;
+                sw[4].dstBinding = 6; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[4].pBufferInfo = &s_status;
+                sw[5].dstBinding = 7; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[5].pImageInfo = &s_indirect;
 
-            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+            }
         }
 
         // Write RT trace descriptors (static bindings only — TLAS updated
         // per-frame), the same into every slot's set.
         if (imgs.rt_trace_set[0] != VK_NULL_HANDLE) {
             VkDescriptorBufferInfo rt_ubo{};
-            rt_ubo.buffer = imgs.constants_ubo->handle();
             rt_ubo.range = sizeof(GpuDdgiConstants);
 
             VkDescriptorImageInfo rt_radiance{};
@@ -1398,7 +1400,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_sdf.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             // Write bindings 0, 2-5, 9-11 (skip 1=TLAS, 6-8=buffers, updated per-frame)
-            for (VkDescriptorSet rt_set : imgs.rt_trace_set) {
+            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+            VkDescriptorSet rt_set = imgs.rt_trace_set[s];
+            rt_ubo.buffer = imgs.constants_ubo[s]->handle();
             std::array<VkWriteDescriptorSet, 8> rtw{};
             for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = rt_set; w.descriptorCount = 1; }
             rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
@@ -1418,7 +1422,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // always reads the update pass's atlas and writes the filtered one.
         {
             VkDescriptorBufferInfo f_ubo{};
-            f_ubo.buffer = imgs.constants_ubo->handle();
             f_ubo.range = sizeof(GpuDdgiConstants);
 
             VkDescriptorImageInfo f_src{};
@@ -1439,15 +1442,18 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             f_status.buffer = imgs.probe_status_buffer->handle();
             f_status.range = VK_WHOLE_SIZE;
 
-            std::array<VkWriteDescriptorSet, 5> fw{};
-            for (auto& w : fw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.filter_set; w.descriptorCount = 1; }
-            fw[0].dstBinding = 0; fw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; fw[0].pBufferInfo = &f_ubo;
-            fw[1].dstBinding = 1; fw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[1].pImageInfo = &f_src;
-            fw[2].dstBinding = 2; fw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[2].pImageInfo = &f_vis;
-            fw[3].dstBinding = 3; fw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; fw[3].pImageInfo = &f_dst;
-            fw[4].dstBinding = 5; fw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; fw[4].pBufferInfo = &f_status;
+            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+                f_ubo.buffer = imgs.constants_ubo[s]->handle();
+                std::array<VkWriteDescriptorSet, 5> fw{};
+                for (auto& w : fw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.filter_set[s]; w.descriptorCount = 1; }
+                fw[0].dstBinding = 0; fw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; fw[0].pBufferInfo = &f_ubo;
+                fw[1].dstBinding = 1; fw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[1].pImageInfo = &f_src;
+                fw[2].dstBinding = 2; fw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[2].pImageInfo = &f_vis;
+                fw[3].dstBinding = 3; fw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; fw[3].pImageInfo = &f_dst;
+                fw[4].dstBinding = 5; fw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; fw[4].pBufferInfo = &f_status;
 
-            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(fw.size()), fw.data(), 0, nullptr);
+                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(fw.size()), fw.data(), 0, nullptr);
+            }
         }
 
         // A rewrite triggered by a screen resize leaves the atlases intact —
@@ -1496,7 +1502,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdPipelineBarrier2(ctx.cmd, &d);
     };
 
-    GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
+    GpuDdgiConstants* constants =
+        static_cast<GpuDdgiConstants*>(imgs.constants_ubo[ctx.frame_index]->mapped());
 
     // ── 0. Initialize probe status buffer on first use ──
     bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
@@ -1752,7 +1759,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // SDF fallback trace (only when explicitly configured for SDF)
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
+                                trace_pipeline_layout_, 0, 1, &imgs.trace_set[ctx.frame_index], 0, nullptr);
 
         TracePushConstants push{};
         push.light_direction = light_direction_;
@@ -1827,7 +1834,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI Update Irradiance");
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(update_push), &update_push);
         vkCmdDispatch(ctx.cmd,
@@ -1841,7 +1848,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI Update Visibility");
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, visibility_update_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(update_push), &update_push);
         vkCmdDispatch(ctx.cmd,
@@ -1852,7 +1859,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // The sample and RT sets bind the irradiance atlas once at init, so a
     // runtime toggle of the filter has to re-point them; otherwise the
     // setting changes and nothing observable does.
-    if (imgs.sample_set != VK_NULL_HANDLE
+    if (imgs.sample_set[0] != VK_NULL_HANDLE
         && imgs.bound_to_filtered != config_.spatial_filter) {
         VkDescriptorImageInfo irr{};
         irr.sampler = linear_sampler_;
@@ -1860,17 +1867,19 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                                : imgs.irradiance_view;
         irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // The sample set plus every slot's RT trace set: this binding is
-        // static per set, so all slots move together.
-        std::array<VkWriteDescriptorSet, 1 + MAX_FRAMES_IN_FLIGHT> w{};
+        // Every slot's sample set and RT trace set: this binding is static
+        // per set, so all slots move together.
+        std::array<VkWriteDescriptorSet, 2 * MAX_FRAMES_IN_FLIGHT> w{};
         uint32_t count = 0;
-        w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        w[count].dstSet = imgs.sample_set;
-        w[count].dstBinding = 3;
-        w[count].descriptorCount = 1;
-        w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w[count].pImageInfo = &irr;
-        ++count;
+        for (VkDescriptorSet sample_set : imgs.sample_set) {
+            w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w[count].dstSet = sample_set;
+            w[count].dstBinding = 3;
+            w[count].descriptorCount = 1;
+            w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w[count].pImageInfo = &irr;
+            ++count;
+        }
 
         for (VkDescriptorSet rt_set : imgs.rt_trace_set) {
             if (rt_set == VK_NULL_HANDLE) continue;
@@ -1903,7 +1912,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_filter_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                filter_pipeline_layout_, 0, 1, &imgs.filter_set, 0, nullptr);
+                                filter_pipeline_layout_, 0, 1, &imgs.filter_set[ctx.frame_index], 0, nullptr);
 
         uint32_t gx = (static_cast<uint32_t>(imgs.irr_width) + 7) / 8;
         uint32_t gy = (static_cast<uint32_t>(imgs.irr_height) + 7) / 8;
@@ -1939,7 +1948,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI Probe Offsets");
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_offset_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(update_push), &update_push);
         vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
@@ -1951,7 +1960,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI Probe Status");
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_status_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(update_push), &update_push);
         vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
@@ -1986,12 +1995,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             s_normal.imageView = normal_view;
             s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            std::array<VkWriteDescriptorSet, 2> sw{};
-            for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
-            sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
-            sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
+            for (VkDescriptorSet sample_set : imgs.sample_set) {
+                std::array<VkWriteDescriptorSet, 2> sw{};
+                for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = sample_set; w.descriptorCount = 1; }
+                sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
+                sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
 
-            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+            }
             imgs.last_depth_view = depth_view;
             imgs.last_normal_view = normal_view;
         }
@@ -1999,7 +2010,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                sample_pipeline_layout_, 0, 1, &imgs.sample_set, 0, nullptr);
+                                sample_pipeline_layout_, 0, 1, &imgs.sample_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, sample_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(uint32_t), &half_res_val);
         vkCmdDispatch(ctx.cmd,
