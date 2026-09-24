@@ -173,6 +173,12 @@ public:
     FgTexture import_named(const DeclareContext& ctx, std::string_view name,
                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
 
+    /// import_named() for an image some viewports do not have by design (a
+    /// preview without GTAO or TAA): an invalid handle, and nothing logged,
+    /// when the name is absent.
+    FgTexture import_named_optional(const DeclareContext& ctx, std::string_view name,
+                                    VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+
     /// Import a buffer by the name a producer exported it under. Returns an
     /// invalid handle when no pass exported it this frame, which a consumer
     /// takes as "nothing to wait for": the producer is absent from this

@@ -50,10 +50,18 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
 
 FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name,
                                      VkImageLayout initial_layout) {
-    auto it = ctx.imports.find(fg_name_hash(name));
-    if (it == ctx.imports.end()) {
+    if (!ctx.imports.contains(fg_name_hash(name))) {
         FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
                        std::string(name));
+        return FgTexture{};
+    }
+    return import_named_optional(ctx, name, initial_layout);
+}
+
+FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::string_view name,
+                                              VkImageLayout initial_layout) {
+    auto it = ctx.imports.find(fg_name_hash(name));
+    if (it == ctx.imports.end()) {
         return FgTexture{};
     }
     FgTexture h{next_texture_id_++};
