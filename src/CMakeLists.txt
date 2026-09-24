@@ -311,6 +311,8 @@ add_executable(fjell
     ui/hierarchy_panel.cpp
     ui/history_panel.cpp
     ui/icon_cache.cpp
+    ui/texture_channels.cpp
+    ui/texture_preview.cpp
     ui/properties_node_sections.cpp
     ui/properties_panel.cpp
     ui/shader_error_callout.cpp

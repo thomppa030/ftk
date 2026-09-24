@@ -20,13 +20,11 @@
 #include "core/thread_pool.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
-#include "renderer/vulkan_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
-#include <stb_image.h>
 
 #include <nlohmann/json.hpp>
 
@@ -51,11 +49,10 @@ constexpr size_t MAX_REFS_SHOWN = 8;
 } // namespace
 
 void ContentBrowser::init(IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
-                          VulkanContext* vk_ctx, ResourceManager* resources,
-                          ThreadPool* pool) {
+                          ResourceManager* resources, ThreadPool* pool) {
     icons_ = icons;
+    texture_preview_.init(icons);
     asset_thumbnails_ = asset_thumbnails;
-    vk_ctx_ = vk_ctx;
     resources_ = resources;
     pool_ = pool;
 }
@@ -183,15 +180,8 @@ void ContentBrowser::draw() {
     // Apply a directory switch requested during the previous frame's draw.
     apply_pending_navigation();
 
-    // Process deferred texture preview release/load (must happen before ImGui draws referencing it)
-    if (preview_pending_release_) {
-        release_preview_texture();
-        preview_pending_release_ = false;
-    }
-    if (preview_pending_load_) {
-        load_preview_texture();
-        preview_pending_load_ = false;
-    }
+    // Before anything draws, so no draw list can still hold the picture it replaces.
+    texture_preview_.update();
 
     // Animate open/close
     float dt = ImGui::GetIO().DeltaTime;
@@ -261,41 +251,7 @@ void ContentBrowser::draw() {
         }
     }
 
-    // Texture preview popup
-    if (show_texture_preview_ && !preview_texture_path_.empty()) {
-        // Request load for next frame (avoids freeing descriptors mid-frame)
-        if (loaded_preview_path_ != preview_texture_path_ && !preview_pending_load_) {
-            preview_pending_load_ = true;
-        }
-
-        ImGui::SetNextWindowSize({400, 440}, ImGuiCond_FirstUseEver);
-        if (auto pv = Panel(ui::icon::texture, "Texture Preview", &show_texture_preview_)) {
-            auto filename = std::filesystem::path(preview_texture_path_).filename().string();
-            ImGui::Text("%s", filename.c_str());
-            if (preview_width_ > 0) {
-                ImGui::TextDisabled("%dx%d", preview_width_, preview_height_);
-            }
-            ImGui::Separator();
-
-            if (preview_descriptor_) {
-                // Fit image to available space while preserving aspect ratio
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float aspect = static_cast<float>(preview_width_) / static_cast<float>(preview_height_);
-                float w = avail.x;
-                float h = w / aspect;
-                if (h > avail.y) {
-                    h = avail.y;
-                    w = h * aspect;
-                }
-                ImGui::Image(reinterpret_cast<ImTextureID>(preview_descriptor_), {w, h});
-            } else {
-                ImGui::TextDisabled("Failed to load texture");
-            }
-        }
-    }
-    if (!show_texture_preview_ && preview_descriptor_) {
-        preview_pending_release_ = true;
-    }
+    texture_preview_.draw();
 
     // A file delete can't be undone, so it asks first, in a modal.
     if (show_delete_popup_ && delete_index_ >= 0 &&
@@ -798,8 +754,7 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::texture:
                     if (ui::menu_item({.icon = ui::icon::preview, .label = "Preview"})) {
-                        show_texture_preview_ = true;
-                        preview_texture_path_ = entry.path.string();
+                        texture_preview_.open(entry.path.string());
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -1148,8 +1103,7 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         }
 
         case FileType::texture:
-            show_texture_preview_ = true;
-            preview_texture_path_ = entry.path.string();
+            texture_preview_.open(entry.path.string());
             break;
 
         case FileType::scene:
@@ -1284,202 +1238,6 @@ void ContentBrowser::create_font_recipe(const std::filesystem::path& font_file) 
 }
 
 // ── Material base_color resolution ───────────────────────────────────────
-
-// ── Texture preview ─────────────────────────────────────────────────────
-
-void ContentBrowser::load_preview_texture() {
-    release_preview_texture();
-    loaded_preview_path_ = preview_texture_path_;
-
-    if (!vk_ctx_) return;
-    auto device = vk_ctx_->device();
-    auto physical_device = vk_ctx_->physical_device();
-
-    int w, h, channels;
-    auto* pixels = stbi_load(preview_texture_path_.c_str(), &w, &h, &channels, 4);
-    if (!pixels) {
-        FJELL_CORE_WARN("Failed to load texture preview: {}", preview_texture_path_);
-        return;
-    }
-
-    preview_width_ = w;
-    preview_height_ = h;
-    VkDeviceSize image_size = static_cast<VkDeviceSize>(w) * h * 4;
-
-    // Staging buffer
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_memory;
-
-    VkBufferCreateInfo buf_info{};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size = image_size;
-    buf_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    vk_check(vkCreateBuffer(device, &buf_info, nullptr, &staging_buffer),
-             "create preview staging buffer");
-
-    VkMemoryRequirements mem_req;
-    vkGetBufferMemoryRequirements(device, staging_buffer, &mem_req);
-
-    // Find host-visible memory type
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-    uint32_t mem_type = 0;
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((mem_req.memoryTypeBits & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags &
-             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-            mem_type = i;
-            break;
-        }
-    }
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_req.size;
-    alloc_info.memoryTypeIndex = mem_type;
-    vk_check(vkAllocateMemory(device, &alloc_info, nullptr, &staging_memory),
-             "allocate preview staging memory");
-    vk_check(vkBindBufferMemory(device, staging_buffer, staging_memory, 0),
-             "bind preview staging memory");
-
-    void* data;
-    vk_check(vkMapMemory(device, staging_memory, 0, image_size, 0, &data),
-             "map preview staging memory");
-    std::memcpy(data, pixels, image_size);
-    vkUnmapMemory(device, staging_memory);
-    stbi_image_free(pixels);
-
-    // Image
-    VkImageCreateInfo img_info{};
-    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    img_info.imageType = VK_IMAGE_TYPE_2D;
-    img_info.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
-    img_info.mipLevels = 1;
-    img_info.arrayLayers = 1;
-    // Decoded PNG pixels are sRGB, see IconCache for why the format is too.
-    img_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    vk_check(vkCreateImage(device, &img_info, nullptr, &preview_image_),
-             "create preview image");
-
-    vkGetImageMemoryRequirements(device, preview_image_, &mem_req);
-
-    // Find device-local memory type
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((mem_req.memoryTypeBits & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-            mem_type = i;
-            break;
-        }
-    }
-    alloc_info.allocationSize = mem_req.size;
-    alloc_info.memoryTypeIndex = mem_type;
-    vk_check(vkAllocateMemory(device, &alloc_info, nullptr, &preview_memory_),
-             "allocate preview image memory");
-    vk_check(vkBindImageMemory(device, preview_image_, preview_memory_, 0),
-             "bind preview image memory");
-
-    // Upload via one-shot command buffer
-    auto cmd_pool = vk_ctx_->command_pool();
-    auto queue = vk_ctx_->graphics_queue();
-
-    VkCommandBufferAllocateInfo cmd_alloc{};
-    cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmd_alloc.commandPool = cmd_pool;
-    cmd_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmd_alloc.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vk_check(vkAllocateCommandBuffers(device, &cmd_alloc, &cmd), "allocate preview cmd");
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin), "begin preview cmd");
-
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = preview_image_;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
-    vkCmdCopyBufferToImage(cmd, staging_buffer, preview_image_,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    vk_check(vkEndCommandBuffer(cmd), "end preview cmd");
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE), "submit preview cmd");
-    vk_check(vkQueueWaitIdle(queue), "wait preview upload");
-
-    vkFreeCommandBuffers(device, cmd_pool, 1, &cmd);
-    vkDestroyBuffer(device, staging_buffer, nullptr);
-    vkFreeMemory(device, staging_memory, nullptr);
-
-    // Image view
-    VkImageViewCreateInfo view_info{};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = preview_image_;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vk_check(vkCreateImageView(device, &view_info, nullptr, &preview_view_),
-             "create preview image view");
-
-    // Sampler
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    vk_check(vkCreateSampler(device, &sampler_info, nullptr, &preview_sampler_),
-             "create preview sampler");
-
-    preview_descriptor_ = ImGui_ImplVulkan_AddTexture(
-        preview_sampler_, preview_view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-}
-
-void ContentBrowser::release_preview_texture() {
-    if (!vk_ctx_) return;
-    auto device = vk_ctx_->device();
-
-    if (preview_descriptor_) {
-        vkDeviceWaitIdle(device);
-        ImGui_ImplVulkan_RemoveTexture(preview_descriptor_);
-        preview_descriptor_ = VK_NULL_HANDLE;
-    }
-    if (preview_sampler_) { vkDestroySampler(device, preview_sampler_, nullptr); preview_sampler_ = VK_NULL_HANDLE; }
-    if (preview_view_) { vkDestroyImageView(device, preview_view_, nullptr); preview_view_ = VK_NULL_HANDLE; }
-    if (preview_image_) { vkDestroyImage(device, preview_image_, nullptr); preview_image_ = VK_NULL_HANDLE; }
-    if (preview_memory_) { vkFreeMemory(device, preview_memory_, nullptr); preview_memory_ = VK_NULL_HANDLE; }
-    loaded_preview_path_.clear();
-    preview_width_ = 0;
-    preview_height_ = 0;
-}
 
 std::string ContentBrowser::selected_asset_path() const {
     if (selected_index_ < 0 || selected_index_ >= static_cast<int>(entries_.size())) {

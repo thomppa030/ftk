@@ -5,6 +5,7 @@
 
 #include "core/delegate.hpp"
 #include "ui/folder_colors.hpp"
+#include "ui/texture_preview.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -18,14 +19,15 @@ namespace fjell {
 class IconCache;
 class AssetThumbnailRenderer;
 class ThreadPool;
-class VulkanContext;
 class ResourceManager;
 
 class ContentBrowser {
 public:
     void init(IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
-              VulkanContext* vk_ctx, ResourceManager* resources,
-              ThreadPool* pool = nullptr);
+              ResourceManager* resources, ThreadPool* pool = nullptr);
+
+    /// Lets go of what it holds on the GPU; before the icon cache goes away.
+    void shutdown() { texture_preview_.shutdown(); }
 
     void set_root(const std::filesystem::path& root);
     /// Shows the folder `dir` in the grid, from the next frame.
@@ -91,7 +93,6 @@ private:
 
     IconCache* icons_{nullptr};
     AssetThumbnailRenderer* asset_thumbnails_{nullptr};
-    VulkanContext* vk_ctx_{nullptr};
     ResourceManager* resources_{nullptr};
     ThreadPool* pool_{nullptr};
 
@@ -131,25 +132,11 @@ private:
     std::vector<std::string> delete_refs_;
 
 
-    // Texture preview (full-size popup)
-    bool show_texture_preview_{false};
-    std::string preview_texture_path_;
-    std::string loaded_preview_path_;
-    bool preview_pending_load_{false};
-    bool preview_pending_release_{false};
-    VkDescriptorSet preview_descriptor_{VK_NULL_HANDLE};
-    VkImage preview_image_{VK_NULL_HANDLE};
-    VkDeviceMemory preview_memory_{VK_NULL_HANDLE};
-    VkImageView preview_view_{VK_NULL_HANDLE};
-    VkSampler preview_sampler_{VK_NULL_HANDLE};
-    int preview_width_{0};
-    int preview_height_{0};
+    TexturePreview texture_preview_;
     // Directory changes free every thumbnail descriptor, so they are applied
     // between frames — never while draw commands still reference them.
     std::filesystem::path pending_dir_;
     bool has_pending_dir_{false};
-    void load_preview_texture();
-    void release_preview_texture();
 
 
 public:

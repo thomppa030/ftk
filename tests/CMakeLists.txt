@@ -95,6 +95,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/overlay.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/texture_channels.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/pane.cpp
@@ -245,6 +246,7 @@ add_executable(fjell-tests
     test_grouped_picker.cpp
     test_fields.cpp
     test_kit.cpp
+    test_texture_channels.cpp
     test_list_editor.cpp
     test_track_lanes.cpp
     test_state_graph.cpp

@@ -369,8 +369,7 @@ void Engine::init_content_browser() {
 
     AssetThumbnailRenderer::set_instance(&asset_thumbnails_);
     asset_picker::set_thread_pool(&thread_pool_);
-    content_browser_.init(icon_cache_.get(), &asset_thumbnails_,
-                          vulkan_context_.get(), resource_manager_.get());
+    content_browser_.init(icon_cache_.get(), &asset_thumbnails_, resource_manager_.get());
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
             scene_context_->add_model(path);
@@ -889,6 +888,7 @@ Engine::~Engine() {
     subsystems_.clear();
     asset_loader_.reset();
     resource_manager_.reset();
+    content_browser_.shutdown();
     IconCache::set_instance(nullptr);
     icon_cache_.reset();
     // Release ImGui descriptor sets before ImGui shuts down. hud_target_ is

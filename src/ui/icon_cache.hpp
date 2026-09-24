@@ -21,6 +21,10 @@ public:
         VkImageView view{VK_NULL_HANDLE};
         VkSampler sampler{VK_NULL_HANDLE};
         VkDescriptorSet descriptor{VK_NULL_HANDLE};
+        /// The same image sampled without filtering, for showing it
+        /// enlarged pixel by pixel; only after add_pixel_view().
+        VkSampler pixel_sampler{VK_NULL_HANDLE};
+        VkDescriptorSet pixel_descriptor{VK_NULL_HANDLE};
     };
 
     IconCache(VkDevice device, VkPhysicalDevice physical_device,
@@ -93,6 +97,9 @@ public:
     /// labels the image for validation messages and captures, so a leaked
     /// or misused entry names the file it came from.
     IconEntry upload_rgba(const uint8_t* pixels, int w, int h, const std::string& debug_name);
+
+    /// Gives an entry from upload_rgba() its pixel_descriptor, freed with it.
+    void add_pixel_view(IconEntry& entry);
 
     /// Hand an entry from upload_rgba() back for destruction at the next
     /// frame boundary, with the same lifetime rule as clear_thumbnails():
