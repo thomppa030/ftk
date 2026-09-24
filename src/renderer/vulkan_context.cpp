@@ -564,9 +564,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
 
     // The project decides whether compute-hinted passes leave the graphics
     // queue (Project Settings, Frame graph); the device decides whether
-    // they can.
+    // they can; and only the main frame has a compute command buffer to put
+    // them in. A preview's are graphics passes, and the graph must sync them
+    // as such.
     const bool async_available = async_compute_enabled_
-                              && gpu_.device_ref().async_compute_supported();
+                              && gpu_.device_ref().async_compute_supported()
+                              && current_ctx_.async_compute_cmd != VK_NULL_HANDLE;
     bool any_async = render_pipeline_.execute(
         cmd, target, target.sample_count(), active_sources_,
         pool, gpu_.secondary_pools(), current_frame_,
