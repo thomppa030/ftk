@@ -25,6 +25,17 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage) — must be macros for string-literal
 // concatenation with adjacent text, e.g. ICON_LC_PLAY " Play".
+#define ICON_LC_APP_WINDOW           "\xee\x90\xa6"  // U+E426
+#define ICON_LC_CLIPBOARD_COPY       "\xee\x88\xa5"  // U+E225
+#define ICON_LC_EXTERNAL_LINK        "\xee\x82\xb9"  // U+E0B9
+#define ICON_LC_FILE_PLUS            "\xee\x83\x89"  // U+E0C9
+#define ICON_LC_FOLDER_PLUS          "\xee\x83\x99"  // U+E0D9
+#define ICON_LC_HAMMER               "\xee\x83\xac"  // U+E0EC
+#define ICON_LC_IMAGES               "\xee\x97\x84"  // U+E5C4
+#define ICON_LC_IMPORT               "\xee\x88\xaf"  // U+E22F
+#define ICON_LC_LAYOUT_GRID          "\xee\x83\xbf"  // U+E0FF
+#define ICON_LC_SCAN                 "\xee\x89\x97"  // U+E257
+#define ICON_LC_SHAPES               "\xee\x92\xb3"  // U+E4B3
 #define ICON_LC_SLIDERS_HORIZONTAL "\xee\x8a\x9a"  // U+E29A
 #define ICON_LC_LIST_TREE          "\xee\x90\x88"  // U+E408
 #define ICON_LC_FOLDER             "\xee\x83\x97"  // U+E0D7

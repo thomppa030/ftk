@@ -61,6 +61,31 @@ inline constexpr const char* preset       = ICON_LC_BOXES;
 inline constexpr const char* input        = ICON_LC_GAMEPAD_2;
 inline constexpr const char* file         = ICON_LC_FILE;
 
+// Menu actions
+inline constexpr const char* open_file     = ICON_LC_FOLDER_OPEN;
+inline constexpr const char* new_file      = ICON_LC_FILE_PLUS;
+inline constexpr const char* new_folder    = ICON_LC_FOLDER_PLUS;
+inline constexpr const char* import        = ICON_LC_IMPORT;
+inline constexpr const char* close         = ICON_LC_LOG_OUT;
+inline constexpr const char* settings      = ICON_LC_SETTINGS;
+inline constexpr const char* build         = ICON_LC_HAMMER;
+inline constexpr const char* reload        = ICON_LC_REFRESH_CW;
+inline constexpr const char* open_in       = ICON_LC_EXTERNAL_LINK;
+inline constexpr const char* copy_path     = ICON_LC_CLIPBOARD_COPY;
+inline constexpr const char* show_in_files = ICON_LC_FOLDER;
+inline constexpr const char* colour        = ICON_LC_PALETTE;
+inline constexpr const char* preview       = ICON_LC_EYE;
+inline constexpr const char* thumbnails    = ICON_LC_IMAGES;
+inline constexpr const char* viewport      = ICON_LC_APP_WINDOW;
+inline constexpr const char* grid          = ICON_LC_GRID_3X3;
+inline constexpr const char* debug         = ICON_LC_BUG;
+inline constexpr const char* gallery       = ICON_LC_SHAPES;
+inline constexpr const char* capture       = ICON_LC_SCAN;
+inline constexpr const char* layout        = ICON_LC_LAYOUT_GRID;
+inline constexpr const char* checked       = ICON_LC_CHECK;
+inline constexpr const char* plane         = ICON_LC_SQUARE;
+inline constexpr const char* sphere        = ICON_LC_CIRCLE;
+
 // Game UI nodes, in the UI editor's element tree
 inline constexpr const char* ui_element = ICON_LC_SQUARE;
 inline constexpr const char* ui_text    = ICON_LC_TYPE;

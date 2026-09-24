@@ -4,6 +4,8 @@
 // has no icon, the label, and the real shortcut on the right in the mono
 // face. A destructive entry is drawn in the error colour and goes last.
 
+#include <optional>
+
 namespace fjell::ui {
 
 struct MenuItem {
@@ -13,9 +15,17 @@ struct MenuItem {
     bool enabled{true};
     const char* disabled_reason{nullptr};  ///< the tooltip while disabled
     bool destructive{false};
+    /// A setting that is on or off ("Show grid"): a check in the icon
+    /// column while on, in place of an icon.
+    std::optional<bool> checked{};
 };
 
 /// One entry. Returns true when chosen; the menu then closes.
 bool menu_item(const MenuItem& item);
+
+/// An entry that opens a submenu ("Create new"), led by its icon. Returns
+/// true while the submenu is open; the caller then draws its entries and
+/// calls ImGui::EndMenu().
+bool begin_menu(const char* icon, const char* label, bool enabled = true);
 
 } // namespace fjell::ui
