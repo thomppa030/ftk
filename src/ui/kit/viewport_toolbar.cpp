@@ -45,4 +45,16 @@ ViewportPill::~ViewportPill() {
     ImGui::PopID();
 }
 
+ViewportWindow::ViewportWindow(const char* title, bool* open, ImGuiWindowFlags flags) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
+    visible_ = ImGui::Begin(title, open, flags);
+}
+
+ViewportWindow::~ViewportWindow() {
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+}
+
 } // namespace fjell::ui

@@ -538,3 +538,20 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     CHECK(right_edge < image_max.x);
     CHECK(right_edge > image_max.x - 16.0f);
 }
+
+TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") {
+    ImGuiHarness h;
+    ImVec2 window_pos{};
+    ImVec2 first{};
+    h.set_ui([&] {
+        ImGui::SetNextWindowPos({50.0f, 60.0f});
+        ImGui::SetNextWindowSize({200.0f, 150.0f});
+        if (auto window = ui::ViewportWindow("##viewport", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+            window_pos = ImGui::GetWindowPos();
+            first = ImGui::GetCursorScreenPos();
+        }
+    });
+    h.step(2);
+    CHECK(first.x == window_pos.x);
+    CHECK(first.y == window_pos.y);
+}

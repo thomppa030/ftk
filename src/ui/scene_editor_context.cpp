@@ -1,6 +1,11 @@
 #include "ui/scene_editor_context.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/text_field.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
+#include "ui/theme.hpp"
 #include "ui/viewport_view.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "ui/dockspace_layout.hpp"
@@ -336,15 +341,18 @@ void SceneEditorContext::draw(float dt) {
                     float x = vp->img_pos.x + vp->img_size.x - preview_w - pad;
                     float y = vp->img_pos.y + vp->img_size.y - preview_h - pad;
 
+                    // Framed like the toolbar's pills: a dark plate, a black edge.
                     ImDrawList* dl = ImGui::GetWindowDrawList();
+                    ImVec4 plate = theme::surface_sunken();
+                    plate.w = 0.86f;
                     dl->AddRectFilled(
                         {x - border, y - border},
                         {x + preview_w + border, y + preview_h + border},
-                        IM_COL32(30, 30, 30, 220), 4.0f);
+                        ImGui::GetColorU32(plate), 4.0f);
                     dl->AddRect(
                         {x - border, y - border},
                         {x + preview_w + border, y + preview_h + border},
-                        IM_COL32(80, 80, 80, 200), 4.0f);
+                        ImGui::GetColorU32(theme::border()), 4.0f);
                     dl->AddImage(tex, {x, y}, {x + preview_w, y + preview_h});
 
                     // Label
@@ -353,7 +361,7 @@ void SceneEditorContext::draw(float dt) {
                     if (cam_node) {
                         const char* label = cam_node->name.c_str();
                         dl->AddText({x + 4.0f, y + 2.0f},
-                                    IM_COL32(200, 200, 200, 200), label);
+                                    ImGui::GetColorU32(theme::text_secondary()), label);
                     }
                 }
                 ImGui::End();
@@ -852,160 +860,61 @@ void SceneEditorContext::draw_spline_visuals() {
     }
 }
 
-namespace {
-
-} // namespace
-
-SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
-    ImDrawList* dl, const glm::vec2& origin, const glm::vec2& size) {
-    auto* icons = IconCache::instance();
-    if (!icons) return {};
-
-    float icon_size = ImGui::GetFrameHeight() + 4.0f;
-    float pad = 6.0f;
-    float inner_spacing = 4.0f;
-
+void SceneEditorContext::draw_play_pill(ImVec2 image_min, ImVec2 image_max) {
     const bool playing = deps_.play->playing();
     const bool paused = deps_.play->paused();
+    auto pill = ui::ViewportPill("##play", image_min, image_max, ui::PillPlace::TopCenter);
 
-    // Play/stop always shows; pause, step, eject and the time-scale row
-    // only make sense once playing — showing them disabled while stopped
-    // would invite clicking a control that can't do anything yet.
-    const int button_count = playing ? 4 : 1;
-    const float scale_row_h = playing ? ImGui::GetFrameHeight() + pad : 0.0f;
-    float box_w = pad * 2.0f + static_cast<float>(button_count) * icon_size
-                + static_cast<float>(button_count - 1) * inner_spacing;
-    box_w = std::max(box_w, playing ? 140.0f : 0.0f); // room for the scale drag
-    float box_h = icon_size + pad * 2.0f + scale_row_h;
-    float box_x = origin.x + (size.x - box_w) * 0.5f;
-    float box_y = origin.y + pad;
-
-    dl->AddRectFilled(
-        {box_x, box_y}, {box_x + box_w, box_y + box_h},
-        IM_COL32(0, 0, 0, 128), 6.0f);
-
-    // Icons are centered within the box: it can be wider than the icon
-    // cluster once the time-scale row forces a minimum width.
-    const float icons_w = static_cast<float>(button_count) * icon_size
-                        + static_cast<float>(button_count - 1) * inner_spacing;
-    const float icons_x0 = box_x + (box_w - icons_w) * 0.5f;
-
-    // Bindless-texture icon button drawn at a fixed slot in the box, sharing
-    // the invisible-button-then-AddImage pattern the play button established
-    // (so a click still registers even though there's no ImGui::Button glyph
-    // to hit-test against under the custom tint).
-    auto icon_button = [&](int slot, const char* icon_name, bool active,
-                           const ImVec4& idle_tint, const ImVec4& active_tint,
-                           const char* tooltip) -> bool {
-        float x = icons_x0 + static_cast<float>(slot) * (icon_size + inner_spacing);
-        ImGui::SetCursorScreenPos({x, box_y + pad});
-        ImGui::PushID(slot);
-        bool clicked = ImGui::InvisibleButton("##toolbar_icon", {icon_size, icon_size});
-        bool hovered = ImGui::IsItemHovered();
-        ImGui::PopID();
-
-        ImVec4 tint = active ? active_tint : idle_tint;
-        if (hovered) {
-            tint.x = std::min(tint.x + 0.2f, 1.0f);
-            tint.y = std::min(tint.y + 0.2f, 1.0f);
-            tint.z = std::min(tint.z + 0.2f, 1.0f);
+    // Before Play, how the game starts: offline, hosting or joining. The
+    // engine never acts on it; the game's script reads it in begin_play.
+    if (!playing && deps_.net_manager != nullptr) {
+        static constexpr const char* MODES[] = {"Offline", "Host", "Join"};
+        int mode = static_cast<int>(deps_.net_manager->launch_mode());
+        ImGui::SetNextItemWidth(90.0f);
+        if (ui::choice("##net_mode", mode, MODES).changed) {
+            deps_.net_manager->set_launch_mode(static_cast<NetLaunchMode>(mode));
         }
-
-        auto desc = icons->icon(icon_name);
-        if (desc) {
-            dl->AddImage(reinterpret_cast<ImTextureID>(desc),
-                {x, box_y + pad}, {x + icon_size, box_y + pad + icon_size},
-                {0, 0}, {1, 1}, ImGui::ColorConvertFloat4ToU32(tint));
+        ImGui::SetItemTooltip("How the game starts: offline, as the host, or joining one");
+        if (deps_.net_manager->launch_mode() == NetLaunchMode::join) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            std::string address = deps_.net_manager->join_address();
+            if (ui::text_field("##net_address", address).committed) deps_.net_manager->set_join_address(address);
+            ImGui::SetItemTooltip("The host's address");
         }
-        if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
-        return clicked;
-    };
+        ImGui::SameLine();
+    }
 
-    // Same slot layout as icon_button above, but for a Lucide font glyph
-    // instead of an IconCache PNG — there is no PNG for camera eject/possess.
-    auto glyph_button = [&](int slot, const char* glyph, bool active,
-                            const ImVec4& idle_tint, const ImVec4& active_tint,
-                            const char* tooltip) -> bool {
-        float x = icons_x0 + static_cast<float>(slot) * (icon_size + inner_spacing);
-        ImGui::SetCursorScreenPos({x, box_y + pad});
-        ImGui::PushID(slot + 100);
-        bool clicked = ImGui::InvisibleButton("##toolbar_glyph", {icon_size, icon_size});
-        bool hovered = ImGui::IsItemHovered();
-        ImGui::PopID();
-
-        ImVec4 tint = active ? active_tint : idle_tint;
-        if (hovered) {
-            tint.x = std::min(tint.x + 0.2f, 1.0f);
-            tint.y = std::min(tint.y + 0.2f, 1.0f);
-            tint.z = std::min(tint.z + 0.2f, 1.0f);
-        }
-
-        // The Lucide glyphs are packed into the atlas at a fixed 14px (see
-        // theme::load_font) — everywhere else they sit inline with body
-        // text at that native size, but play/pause/step here are PNG
-        // images stretched to fill icon_size, so drawing this one at its
-        // packed size would leave it looking tiny next to them. Draw it
-        // explicitly at icon_size instead, same as an image would fill it;
-        // softer than a glyph purpose-packed at that size, but matches
-        // their visual weight rather than getting lost next to them.
-        ImFont* font = ImGui::GetFont();
-        auto text_size = font->CalcTextSizeA(icon_size, 1e9f, 0.0f, glyph);
-        ImVec2 text_pos{x + (icon_size - text_size.x) * 0.5f,
-                        box_y + pad + (icon_size - text_size.y) * 0.5f};
-        dl->AddText(font, icon_size, text_pos, ImGui::ColorConvertFloat4ToU32(tint), glyph);
-        if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
-        return clicked;
-    };
-
-    if (icon_button(0, playing ? "stop" : "play", playing,
-                    {0.4f, 1.0f, 0.5f, 1.0f}, {1.0f, 0.4f, 0.4f, 1.0f},
-                    playing ? "Stop (Ctrl+P)" : "Play (Ctrl+P)")) {
+    if (ui::icon_button("##play", playing ? ui::icon::stop : ui::icon::play, playing ? "Stop (Ctrl P)" : "Play (Ctrl P)",
+                        playing ? ui::ButtonKind::Ghost : ui::ButtonKind::Secondary)) {
         deps_.play->toggle();
     }
+    if (!playing) return;
 
-    if (playing) {
-        if (icon_button(1, "pause", paused,
-                        {0.85f, 0.85f, 0.85f, 1.0f}, {1.0f, 0.85f, 0.3f, 1.0f},
-                        paused ? "Resume (Ctrl+Shift+P)" : "Pause (Ctrl+Shift+P)")) {
-            deps_.play->toggle_pause();
-        }
-        if (icon_button(2, "step", false,
-                        {0.85f, 0.85f, 0.85f, 1.0f}, {0.85f, 0.85f, 0.85f, 1.0f},
-                        "Step one frame (Ctrl+Alt+P)")) {
-            deps_.play->step();
-        }
-
-        bool ejected = deps_.play->ejected();
-        if (glyph_button(3, ejected ? ICON_LC_CHEVRON_DOWN : ICON_LC_CHEVRON_UP, ejected,
-                         {0.85f, 0.85f, 0.85f, 1.0f}, {0.4f, 0.75f, 1.0f, 1.0f},
-                         ejected ? "Possess camera (F10)" : "Eject camera (F10)")) {
-            deps_.play->toggle_eject();
-        }
-
-        // Time-scale row: a narrow drag field centered under the icons.
-        float scale = deps_.play->time_scale();
-        float drag_w = box_w - pad * 2.0f;
-        ImGui::SetCursorScreenPos({box_x + pad, box_y + icon_size + pad * 2.0f});
-        ImGui::SetNextItemWidth(drag_w);
-        ImGui::PushID("play_time_scale");
-        if (ImGui::DragFloat("##scale", &scale, 0.01f, 0.1f, 4.0f, "%.2fx")) {
-            deps_.play->set_time_scale(scale);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Time scale");
-        }
-        ImGui::PopID();
+    ImGui::SameLine();
+    if (ui::toggle_button("##pause", ui::icon::pause, paused, paused ? "Resume (Ctrl Shift P)" : "Pause (Ctrl Shift P)")) {
+        deps_.play->toggle_pause();
     }
-
-    return {box_x, box_y, box_w, box_h};
+    ImGui::SameLine();
+    if (ui::icon_button("##step", ui::icon::step_frame, "Step one frame (Ctrl Alt P)")) deps_.play->step();
+    ImGui::SameLine();
+    const bool ejected = deps_.play->ejected();
+    if (ui::toggle_button("##eject", ejected ? ui::icon::possess_camera : ui::icon::eject_camera, ejected,
+                          ejected ? "Back to the game's camera (F10)" : "Leave the game's camera (F10)")) {
+        deps_.play->toggle_eject();
+    }
+    ImGui::SameLine();
+    float scale = deps_.play->time_scale();
+    ImGui::SetNextItemWidth(72.0f);
+    if (ui::drag("##time_scale", scale, {.speed = 0.01f, .min = 0.1f, .max = 4.0f, .unit = ui::Unit::Times}).changed) {
+        deps_.play->set_time_scale(scale);
+    }
+    ImGui::SetItemTooltip("Time scale");
 }
 
 void SceneEditorContext::draw_play_toolbar() {
     auto* vp = viewport_manager_.active_panel();
     if (!vp) return;
-
-    auto* icons = IconCache::instance();
-    if (!icons) return;
 
     // Must draw inside the viewport window's Begin/End
     if (!ImGui::Begin(vp->title.c_str())) {
@@ -1014,7 +923,8 @@ void SceneEditorContext::draw_play_toolbar() {
     }
 
     const bool playing = deps_.play->playing();
-    const float pad = 6.0f;
+    const ImVec2 min{vp->img_pos.x, vp->img_pos.y};
+    const ImVec2 max{vp->img_pos.x + vp->img_size.x, vp->img_pos.y + vp->img_size.y};
 
     if (playing) {
         scene_image_rect_.pos = vp->img_pos;
@@ -1025,7 +935,7 @@ void SceneEditorContext::draw_play_toolbar() {
         // see draw_play_overlay for the fullscreen equivalent.
         auto hud_tex = deps_.play->hud_texture();
         if (hud_tex) {
-            ImGui::SetCursorScreenPos({vp->img_pos.x, vp->img_pos.y});
+            ImGui::SetCursorScreenPos(min);
             ImGui::Image(hud_tex, {vp->img_size.x, vp->img_size.y});
         }
 
@@ -1034,182 +944,49 @@ void SceneEditorContext::draw_play_toolbar() {
         // before this function runs, so picking/gizmo see the new focus
         // state on the same frame as the click that caused it.
 
-        // Status hint, bottom-left of the image — out of the play controls'
-        // way (top-center) and the net selector's (top-left).
-        const char* hint = deps_.play->input_focused()
-            ? "Shift+Esc to release input"
-            : "Click to give the game input focus";
-        ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + vp->img_size.y - ImGui::GetTextLineHeight() - pad});
-        ImGui::TextColored({1.0f, 1.0f, 1.0f, 0.6f}, "%s", hint);
+        // How input reaches the game, bottom-left of the image, out of the
+        // toolbar's way.
+        const char* hint = deps_.play->input_focused() ? "Shift+Esc to release input"
+                                                       : "Click to give the game input focus";
+        ImGui::SetCursorScreenPos({min.x + theme::GAP_M, max.y - ImGui::GetTextLineHeight() - theme::GAP_M});
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::TextUnformatted(hint);
+        ImGui::PopStyleColor();
     }
 
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    auto box = draw_play_controls(draw_list, vp->img_pos, vp->img_size);
-    const float box_x = box.x, box_y = box.y, box_w = box.w, box_h = box.h;
-
-    // Net mode selector — sits just left of the play button. The engine never
-    // acts on this; it sets NetManager's launch mode, which the running game
-    // script reads in begin_play to host/join/stay offline. Hidden while playing
-    // (mode is latched for the session) and when there's no NetManager.
-    // Room for the selector between the viewport's left edge and the play box?
-    // If not it is skipped rather than sliding off or overlapping.
-    const float kNetComboW = 78.0f;
-    const bool net_selector_fits =
-        (box_x - kNetComboW - pad) >= (vp->img_pos.x + pad);
-
-    if (deps_.net_manager && !playing && net_selector_fits) {
-        static const char* const kModeLabels[] = {"Offline", "Host", "Join"};
-        auto mode = deps_.net_manager->launch_mode();
-        int mode_idx = static_cast<int>(mode);
-
-        const char* label = kModeLabels[mode_idx];
-        float combo_w = kNetComboW;
-        float combo_h = ImGui::GetFrameHeight();
-        float combo_x = box_x - combo_w - pad;
-        float combo_y = box_y + (box_h - combo_h) * 0.5f;
-
-        ImGui::SetCursorScreenPos({combo_x, combo_y});
-        ImGui::SetNextItemWidth(combo_w);
-        if (ImGui::BeginCombo("##net_mode", label, ImGuiComboFlags_None)) {
-            for (int i = 0; i < 3; ++i) {
-                bool selected = (mode_idx == i);
-                if (ImGui::Selectable(kModeLabels[i], selected)) {
-                    deps_.net_manager->set_launch_mode(static_cast<NetLaunchMode>(i));
-                }
-                if (selected) ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
+    // Left: the gizmo's tool, then what is drawn over the scene and how
+    // things snap (sheet 28).
+    if (auto pill = ui::ViewportPill("##tools", min, max, ui::PillPlace::TopLeft)) {
+        if (ui::toggle_button("##move", ui::icon::move_tool, tool_ == ViewportTool::move, "Move (W)")) {
+            tool_ = ViewportTool::move;
         }
-
-        // Join address field, shown only in Join mode.
-        if (mode == NetLaunchMode::join) {
-            char addr_buf[64];
-            const std::string& addr = deps_.net_manager->join_address();
-            std::snprintf(addr_buf, sizeof(addr_buf), "%s", addr.c_str());
-
-            ImGui::SetCursorScreenPos({combo_x, combo_y + combo_h + 4.0f});
-            ImGui::SetNextItemWidth(combo_w);
-            if (ImGui::InputText("##net_addr", addr_buf, sizeof(addr_buf))) {
-                deps_.net_manager->set_join_address(addr_buf);
-            }
+        ImGui::SameLine();
+        if (ui::toggle_button("##rotate", ui::icon::rotate_tool, tool_ == ViewportTool::rotate, "Rotate (E)")) {
+            tool_ = ViewportTool::rotate;
         }
-    }
-
-    // Left cluster: gizmo mode, then the view toggles. Both act on the
-    // viewport, so they live over it rather than in a panel or a menu.
-    //
-    // The play box is centered, so the space a left-aligned cluster can use is
-    // the gap before it. Buttons are dropped from the right (lowest priority
-    // first) rather than being allowed to slide under the play button.
-    {
-        const float spacing = 2.0f;
-        const float btn_w = ImGui::CalcTextSize(ICON_LC_MOVE).x
-                          + ImGui::GetStyle().FramePadding.x * 2.0f;
-        const float sep_w = ImGui::CalcTextSize("|").x + spacing;
-        const float budget = (box_x - pad) - (vp->img_pos.x + pad);
-
-        auto fits = [&](int buttons, bool separator) {
-            float w = static_cast<float>(buttons) * (btn_w + spacing);
-            if (separator) { w += sep_w; }
-            return w <= budget;
-        };
-
-        const bool has_vk = deps_.vulkan_context != nullptr;
-        // 3 gizmo + separator + 3 view toggles, shed in that order.
-        const bool show_views = has_vk && fits(6, true);
-        const bool show_gizmo = fits(3, false);
-
-        if (show_gizmo) {
-            ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + pad});
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {spacing, 0.0f});
-
-            if (toggle_button("gizmo_move", ICON_LC_MOVE, tool_ == ViewportTool::move, "Move (W)")) {
-                tool_ = ViewportTool::move;
-            }
-            ImGui::SameLine();
-            if (toggle_button("gizmo_rotate", ICON_LC_ROTATE_3D, tool_ == ViewportTool::rotate, "Rotate (E)")) {
-                tool_ = ViewportTool::rotate;
-            }
-            ImGui::SameLine();
-            if (toggle_button("gizmo_scale", ICON_LC_SCALE_3D, tool_ == ViewportTool::scale, "Scale (R)")) {
-                tool_ = ViewportTool::scale;
-            }
-
-            if (show_views) {
-                auto& grid = deps_.vulkan_context->grid_pass().settings();
-
-                ImGui::SameLine();
-                ImGui::TextDisabled("|");
-
-                ImGui::SameLine();
-                bool colliders = deps_.vulkan_context->show_colliders();
-                if (toggle_button("show_colliders", ICON_LC_BOX, colliders,
-                                   "Show colliders")) {
-                    deps_.vulkan_context->set_show_colliders(!colliders);
-                }
-                ImGui::SameLine();
-                if (toggle_button("show_grid", ICON_LC_GRID_3X3, grid.visible,
-                                   "Show grid")) {
-                    grid.visible = !grid.visible;
-                }
-                ImGui::SameLine();
-                if (toggle_button("snap_grid", ICON_LC_MAGNET, grid.snap_enabled,
-                                   "Snap to grid")) {
-                    grid.snap_enabled = !grid.snap_enabled;
-                }
-            }
-
-            ImGui::PopStyleVar();
+        ImGui::SameLine();
+        if (ui::toggle_button("##scale", ui::icon::scale_tool, tool_ == ViewportTool::scale, "Scale (R)")) {
+            tool_ = ViewportTool::scale;
         }
-    }
-
-    // Right cluster: what the viewport shows, then perspective /
-    // orthographic, against the top-right corner.
-    {
-        bool persp = vp->camera.mode() == EditorCameraMode::perspective;
-        const char* label = persp ? ICON_LC_CAMERA : ICON_LC_SQUARE;
-        const char* tip = persp ? "Perspective — click for orthographic"
-                                : "Orthographic — click for perspective";
-        ImVec2 label_size = ImGui::CalcTextSize(label);
-        float btn_w = label_size.x + 12.0f;
-        float btn_h = ImGui::GetFrameHeight();
-        float btn_x = vp->img_pos.x + vp->img_size.x - btn_w - pad;
-        float btn_y = vp->img_pos.y + pad;
-
-        // Only draw when it clears the play box.
-        if (btn_x < box_x + box_w + pad) {
-            ImGui::End();
-            return;
-        }
-
         if (deps_.vulkan_context != nullptr) {
-            VulkanContext& vk = *deps_.vulkan_context;
-            const bool lit = view_is_lit(vp->source, vk);
-            const char* view = view_name(vp->source, vk);
-            const char* view_icon = lit ? ui::icon::directional_light : ui::icon::debug;
-            const float view_x = btn_x - theme::GAP_S - ui::mode_button_width(view_icon, view);
-            if (view_x >= box_x + box_w + pad) {
-                ImGui::SetCursorScreenPos({view_x, btn_y});
-                if (ui::mode_button("##view", view_icon, view, !lit)) {
-                    ImGui::OpenPopup("##view_menu");
-                }
-                ImGui::SetItemTooltip("What this viewport shows");
-                if (ImGui::BeginPopup("##view_menu")) {
-                    view_menu(vp->source, vk);
-                    ImGui::EndPopup();
-                }
+            auto& grid = deps_.vulkan_context->grid_pass().settings();
+            ImGui::SameLine(0.0f, theme::GAP_M);
+            if (ui::toggle_button("##grid", ui::icon::grid, grid.visible, "Grid")) grid.visible = !grid.visible;
+            ImGui::SameLine();
+            if (ui::toggle_button("##snap", ui::icon::snap, grid.snap_enabled, "Snap to grid (Ctrl inverts)")) {
+                grid.snap_enabled = !grid.snap_enabled;
+            }
+            ImGui::SameLine();
+            const bool colliders = deps_.vulkan_context->show_colliders();
+            if (ui::toggle_button("##colliders", ui::icon::collision, colliders, "Colliders")) {
+                deps_.vulkan_context->set_show_colliders(!colliders);
             }
         }
-
-        ImGui::SetCursorScreenPos({btn_x, btn_y});
-        if (ImGui::Button(label, {btn_w, btn_h})) {
-            vp->camera.set_mode(persp ? EditorCameraMode::orthographic
-                                      : EditorCameraMode::perspective);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", tip);
-        }
     }
+
+    draw_play_pill(min, max);
+
+    if (deps_.vulkan_context != nullptr) viewport_manager_.draw_view_pill(*vp, *deps_.vulkan_context);
 
     ImGui::End();
 }
@@ -1307,74 +1084,71 @@ void SceneEditorContext::draw_play_overlay() {
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoScrollbar;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGui::Begin("##PlayView", nullptr, flags);
-    ImGui::PopStyleVar();
-
-    scene_image_rect_.pos = {viewport->WorkPos.x, viewport->WorkPos.y};
-    scene_image_rect_.size = {viewport->WorkSize.x, viewport->WorkSize.y};
-
-    // Scene image fills the window — use active viewport's offscreen
-    auto tex_id = viewport_manager_.active_texture(*deps_.vulkan_context);
-    if (tex_id) {
-        ImGui::Image(tex_id, viewport->WorkSize);
-    }
-
-    // HUD composited on top: a transparent texture PlayController rendered
-    // separately (see PlayController::record_hud), not baked into the scene
-    // image, so it can be resized and hit-tested independently of it.
-    auto hud_tex = deps_.play->hud_texture();
-    if (hud_tex) {
-        ImGui::SetCursorScreenPos(viewport->WorkPos);
-        ImGui::Image(hud_tex, viewport->WorkSize);
-    }
-
-    // Play/stop/pause/step/time-scale box, top center. Same control drawn
-    // over the docked viewport panel while editing — see draw_play_toolbar.
-    draw_play_controls(ImGui::GetWindowDrawList(),
-                       {viewport->WorkPos.x, viewport->WorkPos.y},
-                       {viewport->WorkSize.x, viewport->WorkSize.y});
-
-    // FPS overlay: top-right corner, updates every 0.5s. Kept as an ImGui
-    // draw instead of a {fps} game-UI binding so the player-facing HUD
-    // doesn't rebuild its layout twice per second just to show a dev stat.
     {
-        double dt = ImGui::GetIO().DeltaTime;
-        play_fps_accum_s_ += dt;
-        ++play_fps_count_;
-        if (play_fps_accum_s_ >= 0.5) {
-            play_fps_value_ = static_cast<float>(
-                static_cast<double>(play_fps_count_) / play_fps_accum_s_);
-            play_fps_accum_s_ = 0.0;
-            play_fps_count_ = 0;
+        ui::ViewportWindow play_view("##PlayView", nullptr, flags);
+
+        scene_image_rect_.pos = {viewport->WorkPos.x, viewport->WorkPos.y};
+        scene_image_rect_.size = {viewport->WorkSize.x, viewport->WorkSize.y};
+
+        // Scene image fills the window — use active viewport's offscreen
+        auto tex_id = viewport_manager_.active_texture(*deps_.vulkan_context);
+        if (tex_id) {
+            ImGui::Image(tex_id, viewport->WorkSize);
         }
 
-        float fps_w = 96.0f;
-        float fps_h = 28.0f;
-        float fps_x = viewport->WorkPos.x + viewport->WorkSize.x - fps_w - 8.0f;
-        float fps_y = viewport->WorkPos.y + 8.0f;
-        ImGui::SetNextWindowPos({fps_x, fps_y});
-        ImGui::SetNextWindowSize({fps_w, fps_h});
-        ImGui::SetNextWindowBgAlpha(0.6f);
-        ImGui::Begin("##PlayFps", nullptr,
-                     ImGuiWindowFlags_NoTitleBar |
-                     ImGuiWindowFlags_NoResize |
-                     ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoScrollbar |
-                     ImGuiWindowFlags_NoDocking |
-                     ImGuiWindowFlags_NoFocusOnAppearing |
-                     ImGuiWindowFlags_NoInputs);
-        ImGui::Text("FPS: %.0f", play_fps_value_);
-        ImGui::End();
+        // HUD composited on top: a transparent texture PlayController rendered
+        // separately (see PlayController::record_hud), not baked into the scene
+        // image, so it can be resized and hit-tested independently of it.
+        auto hud_tex = deps_.play->hud_texture();
+        if (hud_tex) {
+            ImGui::SetCursorScreenPos(viewport->WorkPos);
+            ImGui::Image(hud_tex, viewport->WorkSize);
+        }
+
+        // Play, pause, step and time scale, top centre: the same pill drawn
+        // over the docked viewport panel while editing — see draw_play_toolbar.
+        draw_play_pill({viewport->WorkPos.x, viewport->WorkPos.y},
+                       {viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y});
+
+        // FPS overlay: top-right corner, updates every 0.5s. Kept as an ImGui
+        // draw instead of a {fps} game-UI binding so the player-facing HUD
+        // doesn't rebuild its layout twice per second just to show a dev stat.
+        {
+            double dt = ImGui::GetIO().DeltaTime;
+            play_fps_accum_s_ += dt;
+            ++play_fps_count_;
+            if (play_fps_accum_s_ >= 0.5) {
+                play_fps_value_ = static_cast<float>(
+                    static_cast<double>(play_fps_count_) / play_fps_accum_s_);
+                play_fps_accum_s_ = 0.0;
+                play_fps_count_ = 0;
+            }
+
+            float fps_w = 96.0f;
+            float fps_h = 28.0f;
+            float fps_x = viewport->WorkPos.x + viewport->WorkSize.x - fps_w - 8.0f;
+            float fps_y = viewport->WorkPos.y + 8.0f;
+            ImGui::SetNextWindowPos({fps_x, fps_y});
+            ImGui::SetNextWindowSize({fps_w, fps_h});
+            ImGui::SetNextWindowBgAlpha(0.6f);
+            ImGui::Begin("##PlayFps", nullptr,
+                         ImGuiWindowFlags_NoTitleBar |
+                         ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_NoScrollbar |
+                         ImGuiWindowFlags_NoDocking |
+                         ImGuiWindowFlags_NoFocusOnAppearing |
+                         ImGuiWindowFlags_NoInputs);
+            ImGui::Text("FPS: %.0f", play_fps_value_);
+            ImGui::End();
+        }
+
+        // Script-submitted debug text, over the whole play view. Still inside
+        // ##PlayView's Begin/End, so this uses that window's draw list.
+        draw_screen_debug(ImGui::GetWindowDrawList(),
+                          {viewport->WorkPos.x, viewport->WorkPos.y},
+                          {viewport->WorkSize.x, viewport->WorkSize.y});
     }
-
-    // Script-submitted debug text, over the whole play view. Still inside
-    // ##PlayView's Begin/End, so this uses that window's draw list.
-    draw_screen_debug(ImGui::GetWindowDrawList(),
-                      {viewport->WorkPos.x, viewport->WorkPos.y},
-                      {viewport->WorkSize.x, viewport->WorkSize.y});
-
-    ImGui::End(); // ##PlayView
 
     // The network panel is a debug/testing tool whose whole point is to be used
     // *during* play — that's when conditioning sliders and live RTT/bandwidth
@@ -1421,7 +1195,9 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
     // busy scene without needing a filled panel behind the whole block.
     auto draw_text_outlined = [&](const ImVec2& pos, const glm::vec4& color,
                                   const char* text) {
-        ImU32 shadow = IM_COL32(0, 0, 0, static_cast<int>(color.a * 200.0f));
+        ImVec4 outline = theme::border();
+        outline.w = color.a * 0.8f;
+        const ImU32 shadow = ImGui::GetColorU32(outline);
         dl->AddText({pos.x + 1.0f, pos.y + 1.0f}, shadow, text);
         dl->AddText(pos, ImGui::ColorConvertFloat4ToU32({color.r, color.g, color.b, color.a}), text);
     };

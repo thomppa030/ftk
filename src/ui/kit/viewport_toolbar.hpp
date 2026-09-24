@@ -32,3 +32,25 @@ private:
 };
 
 } // namespace fjell::ui
+
+namespace fjell::ui {
+
+/// A window that shows a picture edge to edge, a viewport: no padding and
+/// no background of its own, so the image is all there is. Ends the window
+/// when it goes out of scope, whether or not it was visible.
+class ViewportWindow {
+public:
+    ViewportWindow(const char* title, bool* open = nullptr, ImGuiWindowFlags flags = 0);
+    ~ViewportWindow();
+    ViewportWindow(const ViewportWindow&) = delete;
+    ViewportWindow& operator=(const ViewportWindow&) = delete;
+    ViewportWindow(ViewportWindow&&) = delete;
+    ViewportWindow& operator=(ViewportWindow&&) = delete;
+
+    explicit operator bool() const { return visible_; }
+
+private:
+    bool visible_{false};
+};
+
+} // namespace fjell::ui

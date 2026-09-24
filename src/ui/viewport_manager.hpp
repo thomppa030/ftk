@@ -54,6 +54,10 @@ public:
     /// Off for a viewport that draws a toolbar of its own (the Scene's).
     void set_preview_toolbar(bool on) { preview_toolbar_ = on; }
 
+    /// The toolbar's right-hand pill over `panel`: what it shows and its
+    /// projection. Every viewport has it, the Scene's too.
+    void draw_view_pill(ViewportPanel& panel, VulkanContext& ctx);
+
     /// Points the viewports at what is edited, a sphere at `center` of
     /// `radius`, and remembers it for the toolbar's Frame button and F.
     void frame(const glm::vec3& center, float radius);

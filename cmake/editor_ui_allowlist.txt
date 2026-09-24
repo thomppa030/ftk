@@ -13,8 +13,6 @@ src/ui/file_browser.cpp
 src/ui/grouped_picker.cpp
 src/ui/imgui_curve_editor.cpp
 src/ui/panel_widget.hpp
-src/ui/scene_editor_context.cpp
 src/ui/timeline_widget.cpp
 src/ui/ui_editor_context.cpp
 src/ui/vfx_editor_context.cpp
-src/ui/viewport_manager.cpp

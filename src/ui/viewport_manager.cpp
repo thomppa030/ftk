@@ -258,10 +258,7 @@ uint32_t ViewportManager::active_source_mask() const {
 
 void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                                            const Input& input, float dt) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
-
-    if (ImGui::Begin(panel.title.c_str(), &panel.open)) {
+    if (auto window = ui::ViewportWindow(panel.title.c_str(), &panel.open)) {
         panel.hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
         panel.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 
@@ -370,9 +367,6 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             panel.camera.update(input, dt);
         }
     }
-    ImGui::End();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 
 void ViewportManager::frame(const glm::vec3& center, float radius) {
@@ -398,7 +392,13 @@ void ViewportManager::draw_preview_toolbar(ViewportPanel& panel, VulkanContext& 
         panel.camera.focus(framing_->center, framing_->radius);
     }
 
-    // Right: what the viewport shows, and the projection.
+    draw_view_pill(panel, ctx);
+}
+
+void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {
+    const ImVec2 min{panel.img_pos.x, panel.img_pos.y};
+    const ImVec2 max{panel.img_pos.x + panel.img_size.x, panel.img_pos.y + panel.img_size.y};
+    // What the viewport shows, and the projection.
     if (auto pill = ui::ViewportPill("##view_right", min, max, ui::PillPlace::TopRight)) {
         const bool lit = view_is_lit(panel.source, ctx);
         if (ui::mode_button("##view", lit ? ui::icon::directional_light : ui::icon::debug,
