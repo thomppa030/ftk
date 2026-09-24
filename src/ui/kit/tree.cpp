@@ -125,7 +125,9 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
 
     float x = twisty_x + TWISTY + PART_GAP;
     if (spec.icon != nullptr) {
-        const ImVec4 tint = spec.category ? theme::category(*spec.category) : theme::text_secondary();
+        const ImVec4 tint = spec.tint ? *spec.tint
+                          : spec.category ? theme::category(*spec.category)
+                                          : theme::text_secondary();
         dl->AddText({x, text_y}, ImGui::GetColorU32(tint), spec.icon);
         x += ImGui::CalcTextSize(spec.icon).x + PART_GAP;
     }

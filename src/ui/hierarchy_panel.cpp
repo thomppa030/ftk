@@ -43,6 +43,7 @@ constexpr float MIN_SEARCH_WIDTH = 60.0f;
 struct NodeVisuals {
     const char* icon;
     std::optional<theme::Category> category;
+    std::optional<ImVec4> tint{};
 };
 
 NodeVisuals node_visuals(const Node& obj) {
@@ -54,7 +55,7 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const FogVolumeNode*>(&obj)) return {ui::icon::fog_volume, C::Environment};
     if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) return {ui::icon::world_environment, C::Environment};
     if (dynamic_cast<const CameraNode*>(&obj)) return {ui::icon::camera, C::Camera};
-    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure};
+    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure, theme::preset()};
     if (!obj.is_spatial()) return {ui::icon::folder, C::Structure};
     if (obj.components.get<MeshComponent>() != nullptr) return {ui::icon::mesh, std::nullopt};
     return {ui::icon::transform, std::nullopt};
@@ -342,6 +343,7 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         .has_children = has_children,
         .icon = visuals.icon,
         .category = visuals.category,
+        .tint = visuals.tint,
         .dots = dots,
         .selection = selection,
         .query = filter_text_,

@@ -626,6 +626,8 @@ void ContentBrowser::draw_file_grid() {
         std::optional<ImVec4> tint;
         if (entry.type == FileType::folder) {
             if (auto color = folder_colors_.find(entry.path)) tint = ImVec4{color->r, color->g, color->b, 1.0f};
+        } else if (entry.type == FileType::preset && picture == 0) {
+            tint = theme::preset();
         }
         const std::string id = std::to_string(i);
         const auto result = ui::asset_tile({

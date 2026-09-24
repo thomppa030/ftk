@@ -68,6 +68,9 @@ inline ImVec4 toggle_on() { return srgb(0.26f, 0.59f, 0.98f, 0.65f); }
 // Status. The warning is yellow to stay apart from the amber accent, and
 // there is no info colour: an informational line is plain text.
 inline ImVec4 success()    { return hex(0x7EBF8E); }
+// A preset's icon, wherever one is shown (content browser, hierarchy): a
+// yellow-green apart from success and from the camera's teal.
+inline ImVec4 preset()     { return hex(0xA3C46E); }
 inline ImVec4 warning()    { return hex(0xDEC358); }
 inline ImVec4 error()      { return hex(0xE66E68); }
 inline ImVec4 danger()     { return hex(0xAB413E); }  // destructive fill
