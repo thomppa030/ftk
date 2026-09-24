@@ -375,7 +375,9 @@ void GameUi::update(float viewport_width, float viewport_height,
 
 void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
                                uint32_t frame_index) {
-    if (node.hidden_by_if) return;
+    // What is not laid out is not drawn, text included, as collect_quads
+    // skips the quads of the same subtree.
+    if (node.hidden_by_if || node.style.display == UiDisplay::none) return;
 
     if (!node.text_content.empty() && node.type == UiNodeType::text) {
         UiNode* layout_node = node.parent ? node.parent : &node;
