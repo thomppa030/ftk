@@ -7,6 +7,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cctype>
 #include <string>
 
 namespace fjell::ui {
@@ -91,6 +92,21 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     if (icon != nullptr) dl->AddText({min.x + pad, y}, ImGui::GetColorU32(colour), icon);
     dl->AddText({min.x + pad + ICON_COLUMN + pad, y}, ImGui::GetColorU32(colour), label);
     return open;
+}
+
+void menu_heading(const char* label) {
+    std::string upper(label);
+    std::transform(upper.begin(), upper.end(), upper.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    const float pad = theme::GAP_M;
+    ImGui::Dummy({0.0f, theme::GAP_XS});
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    ImGui::PushFont(theme::bold_font(), theme::SMALL_TEXT - 1.5f);
+    const ImVec2 size = ImGui::CalcTextSize(upper.c_str());
+    ImGui::GetWindowDrawList()->AddText({min.x + pad + ICON_COLUMN + pad, min.y},
+                                        ImGui::GetColorU32(theme::text_disabled()), upper.c_str());
+    ImGui::PopFont();
+    ImGui::Dummy({pad + ICON_COLUMN + pad + size.x + pad, size.y + theme::GAP_XS});
 }
 
 } // namespace fjell::ui

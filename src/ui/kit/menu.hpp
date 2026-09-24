@@ -23,6 +23,10 @@ struct MenuItem {
 /// One entry. Returns true when chosen; the menu then closes.
 bool menu_item(const MenuItem& item);
 
+/// A heading over a group of entries ("Lighting", "Buffers"): uppercase,
+/// small and dim, lined up with the entries' labels. Not an entry.
+void menu_heading(const char* label);
+
 /// An entry that opens a submenu ("Create new"), led by its icon. Returns
 /// true while the submenu is open; the caller then draws its entries and
 /// calls ImGui::EndMenu().
