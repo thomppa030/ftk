@@ -10,6 +10,7 @@
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/key_cap.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/overlay.hpp"
 #include "ui/kit/pane.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
@@ -667,4 +668,33 @@ TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless so
     h.click("field");
     h.press(ImGuiKey_Enter);
     CHECK(answer == ui::DialogAnswer::None);
+}
+
+TEST_CASE("A corner note hangs from its corner, and a key makes its line taller", "[ui][kit]") {
+    ImGuiHarness h;
+    ImVec2 words{};
+    ImVec2 with_key{};
+    ImVec2 longer{};
+    int vertices_before = 0;
+    int vertices_after = 0;
+    h.set_ui([&] {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const fjell::ui::OverlayPiece plain[] = {{"releases input"}};
+        const fjell::ui::OverlayPiece keyed[] = {{"Esc", true}, {"releases input"}};
+        const fjell::ui::OverlayPiece more[] = {{"releases input, and more"}};
+        vertices_before = dl->VtxBuffer.Size;
+        words = ui::corner_note(dl, {400.0f, 300.0f}, ui::Corner::BottomRight,
+                                {.line = plain, .ink = fjell::theme::text_secondary()});
+        vertices_after = dl->VtxBuffer.Size;
+        with_key = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
+                                   {.line = keyed, .ink = fjell::theme::text_secondary()});
+        longer = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
+                                 {.line = more, .ink = fjell::theme::text_secondary()});
+    });
+    h.step(2);
+    CHECK(vertices_after > vertices_before);
+    CHECK(with_key.y > words.y);
+    CHECK(with_key.x > words.x);
+    CHECK(longer.x > words.x);
+    CHECK(longer.y == words.y);
 }
