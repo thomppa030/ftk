@@ -50,6 +50,8 @@ ImageUsage image_usage_for(ResourceAccess a) {
             return ImageUsage::color_attachment;
         case ResourceAccess::depth_attachment:
             return ImageUsage::depth_attachment;
+        case ResourceAccess::depth_resolve:
+            return ImageUsage::depth_resolve;
         case ResourceAccess::depth_attachment_read:
         case ResourceAccess::input_attachment:
             return ImageUsage::depth_attachment_read;
@@ -85,6 +87,7 @@ ImageUsage image_usage_for(ResourceAccess a) {
     switch (a) {
         case ResourceAccess::color_attachment:
         case ResourceAccess::depth_attachment:
+        case ResourceAccess::depth_resolve:
         case ResourceAccess::depth_attachment_read:
         case ResourceAccess::depth_read_sampled:
         case ResourceAccess::input_attachment:
@@ -481,6 +484,7 @@ VkImageUsageFlags usage_flag_for(ImageUsage u) {
     switch (u) {
         case ImageUsage::color_attachment:       return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         case ImageUsage::depth_attachment:
+        case ImageUsage::depth_resolve:
         case ImageUsage::depth_attachment_read:  return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         case ImageUsage::shader_read:
         case ImageUsage::compute_read:
@@ -721,6 +725,7 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
         case ImageUsage::color_attachment:
             return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         case ImageUsage::depth_attachment:
+        case ImageUsage::depth_resolve:
             return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         case ImageUsage::depth_attachment_read:
             return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
@@ -749,6 +754,8 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
 VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
     switch (usage) {
         case ImageUsage::color_attachment:
+        // Multisample resolves, depth ones included, happen in this stage.
+        case ImageUsage::depth_resolve:
             return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         case ImageUsage::depth_attachment:
         case ImageUsage::depth_attachment_read:
@@ -814,6 +821,9 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
         case ImageUsage::depth_attachment:
             return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
                  | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        // A resolve write, depth or colour, is a colour attachment write.
+        case ImageUsage::depth_resolve:
+            return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         case ImageUsage::depth_attachment_read:
             return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         case ImageUsage::shader_read:
@@ -1182,6 +1192,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         auto access = access_for(acc.usage);
         bool is_write = acc.usage == ImageUsage::color_attachment
                      || acc.usage == ImageUsage::depth_attachment
+                     || acc.usage == ImageUsage::depth_resolve
                      || acc.usage == ImageUsage::compute_write
                      || acc.usage == ImageUsage::compute_read_write
                      || acc.usage == ImageUsage::raytracing_write
