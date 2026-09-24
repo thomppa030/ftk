@@ -40,6 +40,7 @@ add_executable(fjell
     core/game_builder.cpp
     core/capture_service.cpp
     core/engine.cpp
+    core/subsystem.cpp
     environment/environment_resolver.cpp
     environment/fog_track.cpp
     environment/fog_track_scene.cpp

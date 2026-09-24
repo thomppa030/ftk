@@ -2089,14 +2089,14 @@ void Engine::run() {
 
             // Animation before everything: scripts read the current pose, and
             // physics collides against it.
-            animation_subsystem_->tick(ctx);
+            animation_subsystem_->run(ctx);
 
             // Phase 0: Scripts
-            for (auto* s : play_phase_0_) s->tick(ctx);
+            for (auto* s : play_phase_0_) s->run(ctx);
             flush_pending();
 
             // Phase 1: Physics + collision dispatch
-            for (auto* s : play_phase_1_) s->tick(ctx);
+            for (auto* s : play_phase_1_) s->run(ctx);
             if (physics_subsystem_->world()) {
                 script_subsystem_->manager().dispatch_collision_events(
                     scene_, *physics_subsystem_->world());
@@ -2104,7 +2104,7 @@ void Engine::run() {
             flush_pending();
 
             // Phase 2: VFX
-            for (auto* s : play_phase_2_) s->tick(ctx);
+            for (auto* s : play_phase_2_) s->run(ctx);
         }
 
         // After the play phases, so a test that reached its verdict this frame
@@ -2128,9 +2128,9 @@ void Engine::run() {
 
         // Always-tick subsystems (before world matrices)
         if (!play_controller_.playing()) {
-            animation_subsystem_->tick(ctx);
+            animation_subsystem_->run(ctx);
         }
-        for (auto* s : early_always_) s->tick(ctx);
+        for (auto* s : early_always_) s->run(ctx);
         scene_.compute_world_matrices(&thread_pool_);
 
         // World-space UI reads node transforms to place its billboards, so it
@@ -2144,11 +2144,11 @@ void Engine::run() {
         }
 
         // Always-tick subsystems (after world matrices)
-        for (auto* s : late_always_) s->tick(ctx);
+        for (auto* s : late_always_) s->run(ctx);
 
         // Play-only subsystems that need world matrices (e.g. audio listener)
         if (play_controller_.playing()) {
-            for (auto* s : late_play_) s->tick(ctx);
+            for (auto* s : late_play_) s->run(ctx);
         }
 
         // Phase 3: Wait for frame slot — GPU is done with this slot after this

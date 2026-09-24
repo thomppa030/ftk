@@ -16,9 +16,12 @@ public:
 
     [[nodiscard]] virtual std::string_view name() const = 0;
 
-    virtual void tick(const TickContext& /*ctx*/) {}
+    // Engine calls run() and the notify_ wrappers; subclasses override tick()
+    // and the on_play_ virtuals.
 
-    // Engine calls notify_ wrappers, subclasses override on_play_ virtuals.
+    /// Tick once, inside a profiler zone named after the subsystem.
+    void run(const TickContext& ctx);
+
     void notify_play_start(const TickContext& ctx) { playing_ = true; on_play_start(ctx); }
     void notify_play_stop(const TickContext& ctx)  { on_play_stop(ctx); playing_ = false; }
 
@@ -31,6 +34,7 @@ public:
     Subsystem& operator=(Subsystem&&) = delete;
 
 protected:
+    virtual void tick(const TickContext& /*ctx*/) {}
     virtual void on_play_start(const TickContext& /*ctx*/) {}
     virtual void on_play_stop(const TickContext& /*ctx*/) {}
 
