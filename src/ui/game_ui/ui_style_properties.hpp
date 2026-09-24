@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace fjell {
 
@@ -31,15 +32,18 @@ enum class UiEdgeSide : uint8_t { top, right, bottom, left };
 [[nodiscard]] UiLength& ui_edge(UiEdges& edges, UiEdgeSide side);
 [[nodiscard]] const UiLength& ui_edge(const UiEdges& edges, UiEdgeSide side);
 
-/// The UiComputedStyle member a property writes. monostate for composites
-/// and keywords, which reach their members through their own functions.
+/// The UiComputedStyle member a property writes. monostate for keywords,
+/// which reach their members through their own functions, and for
+/// composites spread over several members. A composite that writes one
+/// member names it, so it can be inherited like any other property.
 using UiStyleMember = std::variant<std::monostate,
                                    float UiComputedStyle::*,
                                    UiLength UiComputedStyle::*,
                                    UiColor UiComputedStyle::*,
                                    UiEdges UiComputedStyle::*,
                                    UiCorners UiComputedStyle::*,
-                                   std::string UiComputedStyle::*>;
+                                   std::string UiComputedStyle::*,
+                                   UiTextShadow UiComputedStyle::*>;
 
 /// One row of the property table: the authored name, the member it
 /// targets and what the cascade, the transition system and the editor
@@ -79,6 +83,14 @@ struct UiPropertyDescriptor {
 
 /// The text of a string property with surrounding quotes removed.
 [[nodiscard]] std::string ui_style_unquote(std::string_view value);
+
+/// A shadow value (`box-shadow`, `text-shadow`) split on whitespace, with an
+/// rgb()/rgba() colour kept whole although it contains spaces.
+[[nodiscard]] std::vector<std::string> ui_style_shadow_tokens(std::string_view value);
+
+/// Whether a token of a shadow value is a length rather than a colour: it
+/// starts like a number (`2`, `-1.5`, `.5px`).
+[[nodiscard]] bool ui_style_is_length_token(std::string_view token);
 
 /// Scalar channels a transition interpolates for the property: one for a
 /// number or edge, four for a color or corners, none when not animatable.

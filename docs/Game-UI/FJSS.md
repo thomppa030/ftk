@@ -95,8 +95,15 @@ Visual: `background`, `background-color`, `border` (`2 solid #555`), `border-col
 `border-width`, `border-radius` (one, two or four values), `box-shadow`
 (`x y blur spread color`), `opacity`.
 
-Text: `color`, `font-size`, `line-height`, `font-family`, `font-weight`. `color`,
-`font-size`, `line-height`, `font-family`, `font-weight` and `opacity` inherit.
+Text: `color`, `font-size`, `line-height`, `font-family`, `font-weight`,
+`text-shadow`. `color`, `font-size`, `line-height`, `font-family`, `font-weight`,
+`text-shadow` and `opacity` inherit.
+
+`text-shadow` is `x y [blur] color`, the colour first or last, or `none`: a copy of
+the text drawn under it, offset and blurred as CSS blurs a shadow, at any text size.
+Set it once on a HUD's root and every label below it stays legible over a bright
+sky. A blurred shadow costs sixteen atlas reads per pixel it covers, so it suits
+labels rather than pages of text.
 
 Every property the engine knows is listed once, in `ui_style_properties.cpp`; the
 parser, the cascade, the transition system and the inspector all read that table.
@@ -222,6 +229,7 @@ controllers recreated.
 - Pixels are bare numbers; `px` is optional.
 - `border` takes `width style color` in any order; only `solid` draws.
 - `box-shadow` is `x y blur spread color`, one shadow.
+- `text-shadow` is one shadow.
 - No `text-align`, `z-index`, `transform`, `@keyframes`, `!important` (parsed
   and kept, not weighed), or pseudo-elements yet. Each is reported when used
   rather than silently ignored.

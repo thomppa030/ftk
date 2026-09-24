@@ -90,8 +90,12 @@ TEST_CASE("Non-composite members are typed for their kind", "[props]") {
             REQUIRE(std::holds_alternative<std::string UiComputedStyle::*>(desc.member));
             break;
         case UiPropertyKind::keyword:
-        case UiPropertyKind::composite:
             REQUIRE(std::holds_alternative<std::monostate>(desc.member));
+            break;
+        case UiPropertyKind::composite:
+            // Inheritance copies the member, so an inherited composite
+            // has to name one or it would silently not inherit.
+            if (desc.inherited) REQUIRE_FALSE(std::holds_alternative<std::monostate>(desc.member));
             break;
         }
     }
@@ -123,13 +127,26 @@ TEST_CASE("Inherited properties copy across", "[props]") {
     parent.color = {0.1f, 0.2f, 0.3f, 1.0f};
     parent.font_size = 33.0f;
     parent.width = UiLength::pixels(500.0f);
+    parent.text_shadow = {0.0f, 2.0f, 4.0f, {0.0f, 0.0f, 0.0f, 0.5f}};
+    parent.box_shadow = {0.0f, 2.0f, 4.0f, 0.0f, {0.0f, 0.0f, 0.0f, 0.5f}};
     UiComputedStyle child;
     for (const auto& desc : ui_style_properties()) {
         if (desc.inherited) ui_style_copy(child, parent, desc);
     }
     REQUIRE(child.font_size == Catch::Approx(33.0f));
     REQUIRE(child.color.g == Catch::Approx(0.2f));
+    REQUIRE(child.text_shadow.blur == Catch::Approx(4.0f));
     REQUIRE(child.width.is_auto()); // not inherited
+    REQUIRE_FALSE(child.box_shadow.active()); // not inherited
+}
+
+TEST_CASE("Shadow values split on spaces but keep rgba() whole", "[props]") {
+    auto tokens = ui_style_shadow_tokens("  0 2   rgba(0, 0, 0, 0.5)  4 ");
+    REQUIRE(tokens == std::vector<std::string>{"0", "2", "rgba(0, 0, 0, 0.5)", "4"});
+    REQUIRE(ui_style_is_length_token("-1.5px"));
+    REQUIRE(ui_style_is_length_token(".5"));
+    REQUIRE_FALSE(ui_style_is_length_token("#000"));
+    REQUIRE_FALSE(ui_style_is_length_token("black"));
 }
 
 TEST_CASE("find returns null for unknown names", "[props]") {

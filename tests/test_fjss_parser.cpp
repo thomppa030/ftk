@@ -531,6 +531,29 @@ TEST_CASE("Clean stylesheet has no diagnostics", "[fjss][diag]") {
     REQUIRE(sheet.diagnostics.empty());
 }
 
+TEST_CASE("text-shadow in every accepted form has no diagnostics", "[fjss][diag]") {
+    for (const char* value : {"0 1 4 #000", "0 2px #000000", "rgba(0, 0, 0, 0.5) 0 1 3",
+                              "-1 -1 black", "none", "var(--legible)"}) {
+        auto sheet = FjssParser::parse(std::string(".a { text-shadow: ") + value + "; }");
+        INFO(value);
+        REQUIRE(sheet.diagnostics.empty());
+    }
+}
+
+TEST_CASE("A text-shadow that is not x y [blur] color is a warning", "[fjss][diag]") {
+    for (const char* value : {"1 #000", "0 1 2 3 #000", "0 1 4", "0 1 #000 #fff"}) {
+        auto sheet = FjssParser::parse(std::string(".a {\n  text-shadow: ") + value + ";\n}");
+        INFO(value);
+        REQUIRE(sheet.diagnostics.size() == 1);
+        const auto& d = sheet.diagnostics[0];
+        REQUIRE(d.severity == FjssSeverity::warning);
+        REQUIRE(d.message.find("text shadow") != std::string::npos);
+        REQUIRE(d.line == 2);
+        // Kept as authored, so the file saves back unchanged
+        REQUIRE(prop(sheet.rules[0], "text-shadow") == value);
+    }
+}
+
 TEST_CASE("Missing '{' is an error at the position it was expected", "[fjss][diag]") {
     auto sheet = FjssParser::parse("\n\n.a\n  width: 1;\n");
     REQUIRE(sheet.diagnostics.size() == 1);

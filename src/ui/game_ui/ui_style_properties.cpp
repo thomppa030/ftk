@@ -107,6 +107,14 @@ constexpr UiPropertyDescriptor composite(std::string_view name) {
     return {.name = name, .kind = Kind::composite};
 }
 
+// A composite with bespoke syntax that still writes a single member, named
+// here so inheritance can copy it.
+template <typename T>
+constexpr UiPropertyDescriptor composite(std::string_view name, T Style::* member,
+                                         bool inherited) {
+    return {.name = name, .kind = Kind::composite, .member = member, .inherited = inherited};
+}
+
 constexpr UiPropertyDescriptor string(std::string_view name, std::string Style::* member,
                                       bool inherited = false) {
     return {.name = name, .kind = Kind::string, .member = member, .inherited = inherited};
@@ -177,6 +185,7 @@ const UiPropertyDescriptor PROPERTIES[] = {
     number("line-height", &Style::line_height, true, true),
     string("font-family", &Style::font_family, true),
     number("font-weight", &Style::font_weight, false, true),
+    composite("text-shadow", &Style::text_shadow, true),
 
     composite("transition"),
 };
@@ -256,6 +265,30 @@ std::string ui_style_unquote(std::string_view value) {
     return std::string(value);
 }
 
+std::vector<std::string> ui_style_shadow_tokens(std::string_view value) {
+    std::vector<std::string> tokens;
+    size_t i = 0;
+    while (i < value.size()) {
+        while (i < value.size() && (value[i] == ' ' || value[i] == '\t')) ++i;
+        if (i == value.size()) break;
+        size_t start = i;
+        int depth = 0;
+        while (i < value.size() && (depth > 0 || (value[i] != ' ' && value[i] != '\t'))) {
+            if (value[i] == '(') ++depth;
+            if (value[i] == ')') --depth;
+            ++i;
+        }
+        tokens.emplace_back(value.substr(start, i - start));
+    }
+    return tokens;
+}
+
+bool ui_style_is_length_token(std::string_view token) {
+    if (token.empty()) return false;
+    char c = token.front();
+    return (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.';
+}
+
 uint8_t ui_style_channel_count(const UiPropertyDescriptor& desc) {
     if (!desc.animatable) return 0;
     switch (desc.kind) {
@@ -315,8 +348,7 @@ void ui_style_copy(UiComputedStyle& into, const UiComputedStyle& from,
     case Kind::keyword:
         desc.set_keyword(into, desc.get_keyword(from));
         return;
-    case Kind::composite:
-        return;
+    case Kind::composite: // copies the member it names, if any
     case Kind::number:
     case Kind::length:
     case Kind::color:

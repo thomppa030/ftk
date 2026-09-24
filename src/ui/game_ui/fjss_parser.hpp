@@ -201,6 +201,8 @@ private:
     /// takes it. Other units have no meaning to the layout engine yet.
     void validate_lengths(size_t offset, const struct UiPropertyDescriptor& desc,
                           const std::string& value);
+    /// Two or three lengths and one colour, in any order, or `none`.
+    void validate_text_shadow(size_t offset, const std::string& value);
 
     void skip_whitespace();
     void skip_comment();

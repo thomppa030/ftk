@@ -865,6 +865,86 @@ TEST_CASE("Box shadow none resets", "[style][edge]") {
     REQUIRE(root->style.box_shadow.blur == Catch::Approx(0.0f));
 }
 
+// --- Text shadow ---
+
+TEST_CASE("Text shadow reads offsets, blur and colour", "[style][text-shadow]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { text-shadow: 1 2 6 rgba(0, 0, 0, 0.5); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    const auto& s = root->style.text_shadow;
+    REQUIRE(s.offset_x == Catch::Approx(1.0f));
+    REQUIRE(s.offset_y == Catch::Approx(2.0f));
+    REQUIRE(s.blur == Catch::Approx(6.0f));
+    REQUIRE(s.color.a == Catch::Approx(0.5f));
+    REQUIRE(s.active());
+}
+
+TEST_CASE("Text shadow without a blur is a hard shadow", "[style][text-shadow]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { text-shadow: 0 2px #000000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.text_shadow.offset_y == Catch::Approx(2.0f));
+    REQUIRE(root->style.text_shadow.blur == Catch::Approx(0.0f));
+    REQUIRE(root->style.text_shadow.active());
+}
+
+TEST_CASE("Text shadow takes its colour first as well as last", "[style][text-shadow]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { text-shadow: #ff0000 3 4 5; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    const auto& s = root->style.text_shadow;
+    REQUIRE(s.color.r == Catch::Approx(1.0f));
+    REQUIRE(s.offset_x == Catch::Approx(3.0f));
+    REQUIRE(s.offset_y == Catch::Approx(4.0f));
+    REQUIRE(s.blur == Catch::Approx(5.0f));
+}
+
+TEST_CASE("Text shadow inherits, and none clears it for a subtree", "[style][text-shadow]") {
+    auto root = make_node("div");
+    auto* panel = add_child(*root, make_node("div", "", {"panel"}));
+    auto* label = add_child(*panel, make_node("span"));
+    auto* plain = add_child(*root, make_node("div", "", {"plain"}));
+    auto* inner = add_child(*plain, make_node("span"));
+
+    auto sheet = FjssParser::parse(R"(
+        div { text-shadow: 0 1 4 rgba(0, 0, 0, 0.6); }
+        .plain { text-shadow: none; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    REQUIRE(label->style.text_shadow.blur == Catch::Approx(4.0f));
+    REQUIRE(label->style.text_shadow.color.a == Catch::Approx(0.6f));
+    REQUIRE_FALSE(inner->style.text_shadow.active());
+}
+
+TEST_CASE("Text shadow reads a custom property", "[style][text-shadow][vars]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse(R"(
+        :root { --legible: 0 1 3 #000000cc; }
+        div { text-shadow: var(--legible); }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.text_shadow.blur == Catch::Approx(3.0f));
+    REQUIRE(root->style.text_shadow.color.a == Catch::Approx(0xcc / 255.0f));
+}
+
+TEST_CASE("A malformed text shadow leaves the inherited one", "[style][text-shadow]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+    auto sheet = FjssParser::parse(R"(
+        div { text-shadow: 0 1 4 #000000; }
+        span { text-shadow: 1 #000000; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.text_shadow.blur == Catch::Approx(4.0f));
+}
+
 // --- Color parsing edge cases ---
 
 TEST_CASE("rgba() color parsing", "[style][edge]") {

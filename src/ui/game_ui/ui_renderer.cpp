@@ -408,32 +408,43 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
                               uint32_t frame_index) {
     if (glyphs.empty()) return;
 
-    uint32_t existing = text_counts_[frame_index];
-    uint32_t count = std::min(static_cast<uint32_t>(glyphs.size()),
-                              MAX_TEXT_GLYPHS - existing);
-    if (count == 0) return;
+    auto* base = static_cast<GpuUiGlyph*>(text_ssbos_[frame_index]->mapped());
+    const auto& style = source_node.style;
 
-    auto* dst = static_cast<GpuUiGlyph*>(text_ssbos_[frame_index]->mapped()) + existing;
+    // One instance per glyph, moved by the offset and drawn in the colour
+    // given; a blur of zero is the glyph's own fill. A blurred shadow
+    // reaches past the glyph by its blur, so its quad grows by that margin
+    // and its atlas coordinates run on past the glyph's cell at the same
+    // scale; the shader keeps its samples inside the cell.
+    auto emit = [&](UiColor color, float offset_x, float offset_y, float blur) {
+        uint32_t existing = text_counts_[frame_index];
+        uint32_t count = std::min(static_cast<uint32_t>(glyphs.size()),
+                                  MAX_TEXT_GLYPHS - existing);
+        GpuUiGlyph* dst = base + existing;
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& pg = glyphs[i];
+            float du = pg.w > 0.0f ? (pg.uv_x1 - pg.uv_x0) / pg.w * blur : 0.0f;
+            float dv = pg.h > 0.0f ? (pg.uv_y1 - pg.uv_y0) / pg.h * blur : 0.0f;
+            GpuUiGlyph gg{};
+            gg.rect = {source_node.layout_rect.x + pg.x + offset_x - blur,
+                       source_node.layout_rect.y + pg.y + offset_y - blur,
+                       pg.w + 2.0f * blur, pg.h + 2.0f * blur};
+            gg.uv_rect = {pg.uv_x0 - du, pg.uv_y0 - dv, pg.uv_x1 + du, pg.uv_y1 + dv};
+            gg.color = {color.r, color.g, color.b, color.a};
+            gg.params = {style.opacity, static_cast<float>(atlas_index), pixel_range, blur};
+            gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
+                            source_node.clip_rect.w, source_node.clip_rect.h};
+            gg.viewport_size = {viewport_width, viewport_height};
+            dst[i] = gg;
+        }
+        text_counts_[frame_index] = existing + count;
+    };
 
-    const auto& tc = source_node.style.color;
-
-    for (uint32_t i = 0; i < count; ++i) {
-        const auto& pg = glyphs[i];
-        GpuUiGlyph gg{};
-        gg.rect = {source_node.layout_rect.x + pg.x,
-                   source_node.layout_rect.y + pg.y,
-                   pg.w, pg.h};
-        gg.uv_rect = {pg.uv_x0, pg.uv_y0, pg.uv_x1, pg.uv_y1};
-        gg.color = {tc.r, tc.g, tc.b, tc.a};
-        gg.params = {source_node.style.opacity,
-                     static_cast<float>(atlas_index), pixel_range, 0.0f};
-        gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
-                        source_node.clip_rect.w, source_node.clip_rect.h};
-        gg.viewport_size = {viewport_width, viewport_height};
-        dst[i] = gg;
-    }
-
-    text_counts_[frame_index] = existing + count;
+    // Glyphs draw in buffer order, so every shadow of the node goes down
+    // before any of its fills and none lands on a neighbouring letter.
+    const auto& shadow = style.text_shadow;
+    if (shadow.active()) emit(shadow.color, shadow.offset_x, shadow.offset_y, shadow.blur);
+    emit(style.color, 0.0f, 0.0f, 0.0f);
 }
 
 void UiRenderer::collect_quads(const UiNode& node, std::vector<CollectedQuad>& quads,

@@ -148,6 +148,18 @@ struct UiBoxShadow {
     [[nodiscard]] bool active() const { return color.a > 0.0f && (blur > 0.0f || spread > 0.0f); }
 };
 
+/// A copy of the text drawn under it: offset, softened over `blur` layout
+/// pixels centred on the glyph outline, in its own colour. A zero blur is
+/// a hard shadow, so any visible colour makes it active.
+struct UiTextShadow {
+    float offset_x{0.0f};
+    float offset_y{0.0f};
+    float blur{0.0f};
+    UiColor color{0.0f, 0.0f, 0.0f, 0.0f};
+
+    [[nodiscard]] bool active() const { return color.a > 0.0f; }
+};
+
 struct UiGradient {
     UiColor from{0.0f, 0.0f, 0.0f, 0.0f};
     UiColor to{0.0f, 0.0f, 0.0f, 0.0f};

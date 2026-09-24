@@ -372,26 +372,7 @@ void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDesc
     // e.g. "0 4 8 0 rgba(0, 0, 0, 0.3)" or "2 2 6 #00000080"
     if (desc.name == "box-shadow") {
         if (value == "none") { style.box_shadow = {}; return; }
-        std::istringstream iss(value);
-        std::string token;
-        std::vector<std::string> tokens;
-        while (iss >> token) tokens.push_back(token);
-
-        // Rejoin rgba(...) tokens that got split
-        std::vector<std::string> merged;
-        for (size_t i = 0; i < tokens.size(); ++i) {
-            if (tokens[i].find("rgba(") == 0 || tokens[i].find("rgb(") == 0) {
-                std::string joined = tokens[i];
-                while (i + 1 < tokens.size() && joined.back() != ')') {
-                    ++i;
-                    joined += " " + tokens[i];
-                }
-                merged.push_back(joined);
-            } else {
-                merged.push_back(tokens[i]);
-            }
-        }
-
+        auto merged = ui_style_shadow_tokens(value);
         if (merged.size() >= 4) {
             style.box_shadow.offset_x = parse_px(merged[0]);
             style.box_shadow.offset_y = parse_px(merged[1]);
@@ -403,6 +384,30 @@ void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDesc
                 style.box_shadow.color = parse_color(merged[3]);
             }
         }
+        return;
+    }
+
+    // Text shadow: "offset_x offset_y [blur] color", the colour first or
+    // last as CSS allows. A value that does not fit leaves the shadow as it
+    // was; the parser has reported it.
+    if (desc.name == "text-shadow") {
+        if (value == "none") { style.text_shadow = {}; return; }
+        UiTextShadow shadow;
+        std::vector<float> lengths;
+        int colors = 0;
+        for (const auto& token : ui_style_shadow_tokens(value)) {
+            if (ui_style_is_length_token(token)) {
+                lengths.push_back(parse_px(token));
+            } else {
+                shadow.color = parse_color(token);
+                ++colors;
+            }
+        }
+        if (lengths.size() < 2 || lengths.size() > 3 || colors != 1) return;
+        shadow.offset_x = lengths[0];
+        shadow.offset_y = lengths[1];
+        if (lengths.size() == 3) shadow.blur = std::max(lengths[2], 0.0f);
+        style.text_shadow = shadow;
         return;
     }
 }

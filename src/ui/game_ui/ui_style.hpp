@@ -59,6 +59,7 @@ struct UiComputedStyle {
     // engine's default font. The weight picks the nearest declared face.
     std::string font_family;
     float font_weight{400.0f};
+    UiTextShadow text_shadow{};
 
     // Effects
     UiBoxShadow box_shadow{};

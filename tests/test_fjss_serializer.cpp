@@ -91,6 +91,16 @@ TEST_CASE("The real HUD stylesheet round-trips", "[serialize]") {
     REQUIRE(FjssParser::parse(text).diagnostics.empty());
 }
 
+TEST_CASE("text-shadow round-trips with its rgba() colour intact", "[serialize]") {
+    auto [text, again] = round_trip(R"(
+        #hud { text-shadow: 0 1 4 rgba(0, 0, 0, 0.6); }
+        .plain { text-shadow: none; }
+    )");
+    REQUIRE(text == again);
+    REQUIRE(text.find("text-shadow: 0 1 4 rgba(0, 0, 0, 0.6);") != std::string::npos);
+    REQUIRE(FjssParser::parse(text).diagnostics.empty());
+}
+
 TEST_CASE("@media blocks are written back grouped and round-trip", "[serialize]") {
     auto [text, again] = round_trip(R"(
         .a { width: 1; }

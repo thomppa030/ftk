@@ -476,6 +476,7 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
         return;
     case UiPropertyKind::composite:
         if (name == "gap") validate_lengths(offset, *desc, value);
+        if (name == "text-shadow") validate_text_shadow(offset, value);
         return;
     case UiPropertyKind::keyword:
         break;
@@ -502,6 +503,23 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
     }
     diagnose(offset, FjssSeverity::warning,
              "'" + value + "' is not a value for '" + name + "', expected one of: " + expected);
+}
+
+void FjssParser::validate_text_shadow(size_t offset, const std::string& value) {
+    if (value == "none") return;
+    size_t lengths = 0;
+    size_t colors = 0;
+    for (const auto& token : ui_style_shadow_tokens(value)) {
+        if (ui_style_is_length_token(token)) {
+            ++lengths;
+        } else {
+            ++colors;
+        }
+    }
+    if (lengths < 2 || lengths > 3 || colors != 1) {
+        diagnose(offset, FjssSeverity::warning,
+                 "'" + value + "' is not a text shadow, expected 'x y [blur] color' or none");
+    }
 }
 
 void FjssParser::validate_lengths(size_t offset, const UiPropertyDescriptor& desc,

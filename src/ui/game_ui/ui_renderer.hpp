@@ -102,7 +102,7 @@ private:
         glm::vec4 rect;          // x, y, w, h (pixels)
         glm::vec4 uv_rect;       // uv_x0, uv_y0, uv_x1, uv_y1
         glm::vec4 color;         // text color RGBA
-        glm::vec4 params;        // opacity, atlas_index, px_range, reserved
+        glm::vec4 params;        // opacity, atlas_index, px_range, shadow blur (0 = the fill)
         glm::vec4 clip_rect;     // overflow:hidden scissor
         glm::vec2 viewport_size; // for px->NDC
         glm::vec2 _pad;
