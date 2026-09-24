@@ -149,19 +149,21 @@ Result<> MotionFieldPass::create(Device& device, const PassResources& resources)
         }
     }
 
-    source_buffer_ = std::make_unique<Buffer>(
-        allocator_, MAX_SOURCES * sizeof(GpuSource),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    source_buffer_->map();
+    for (auto& buffer : source_buffers_) {
+        buffer = std::make_unique<Buffer>(
+            allocator_, MAX_SOURCES * sizeof(GpuSource),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        buffer->map();
+    }
 
     return {};
 }
 
 void MotionFieldPass::destroy() {
     if (device_ == VK_NULL_HANDLE) return;
-    source_buffer_.reset();
+    for (auto& buffer : source_buffers_) buffer.reset();
     for (auto& map : maps_) {
         if (map.view != VK_NULL_HANDLE) vkDestroyImageView(device_, map.view, nullptr);
         destroy_vma_image(allocator_, map.image, map.memory);
@@ -197,7 +199,7 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     if (ctx.environment != nullptr) {
         const auto& sources = ctx.environment->motion_sources;
         source_count_ = std::min(static_cast<uint32_t>(sources.size()), MAX_SOURCES);
-        auto* dst = static_cast<GpuSource*>(source_buffer_->mapped());
+        auto* dst = static_cast<GpuSource*>(source_buffers_[ctx.frame_index]->mapped());
         for (uint32_t i = 0; i < source_count_; ++i) {
             const auto& s = sources[i];
             dst[i] = GpuSource{
@@ -312,7 +314,7 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     FrameCacheBinding b[3]{};
     b[0].binding = 0;
     b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    b[0].buffer.buffer = source_buffer_->handle();
+    b[0].buffer.buffer = source_buffers_[ctx.frame_index]->handle();
     b[0].buffer.range = MAX_SOURCES * sizeof(GpuSource);
     b[1].binding = 1;
     b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

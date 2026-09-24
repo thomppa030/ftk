@@ -4,11 +4,13 @@
 
 #include <memory>
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 
 namespace fjell {
@@ -121,7 +123,10 @@ private:
 
     [[nodiscard]] uint32_t prev_index() const { return 1 - cur_; }
 
-    std::unique_ptr<Buffer> source_buffer_;
+    /// What moved this frame, one buffer per frame in flight: rewritten
+    /// every frame, and a frame still stamping must not see the next one's
+    /// sources.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> source_buffers_;
     uint32_t source_count_{0};
     /// How many of those are actually moving. A still scene settles; a scene
     /// of standing characters is still a still scene.
