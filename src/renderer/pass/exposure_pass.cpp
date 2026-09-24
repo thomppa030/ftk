@@ -260,6 +260,26 @@ void ExposurePass::record(const FrameContext& ctx) {
         region.size = sizeof(float);
         vkCmdCopyBuffer(cmd, buffers_[ctx.frame_index]->handle(),
                         readback_buffers_[ctx.frame_index]->handle(), 1, &region);
+
+        // The reader is the CPU, once this slot's fence has been waited on;
+        // the fence alone does not make a device write visible to the host.
+        VkBufferMemoryBarrier2 host_barrier{};
+        host_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        host_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        host_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        host_barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        host_barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+        host_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        host_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        host_barrier.buffer = readback_buffers_[ctx.frame_index]->handle();
+        host_barrier.offset = 0;
+        host_barrier.size = VK_WHOLE_SIZE;
+
+        VkDependencyInfo host_dep{};
+        host_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        host_dep.bufferMemoryBarrierCount = 1;
+        host_dep.pBufferMemoryBarriers = &host_barrier;
+        vkCmdPipelineBarrier2(cmd, &host_dep);
     }
 }
 
@@ -279,11 +299,26 @@ PassSetup ExposurePass::setup() const {
 }
 
 void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Off without auto-exposure: nothing declared, and the graph culls it.
+    if (!enabled_) { return; }
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_compute);
-    // Writes histogram + readback buffers the graph doesn't track; the
-    // readback feeds tonemap's exposure on the next frame. Mark as
-    // side-effecting so culling keeps it alive.
+
+    // The histogram is counted into and reduced in place, then copied from.
+    // Every viewport in the frame uses this slot's, so declaring it orders
+    // one viewport's count after the last one's copy.
+    const uint32_t slot = ctx.frame_index;
+    if (buffers_[slot] && readback_buffers_[slot]) {
+        auto histogram = builder.import("exposure_histogram", buffers_[slot]->handle(),
+                                        buffers_[slot]->size());
+        builder.read_write(histogram, ResourceAccess::storage_buffer_read_write_compute);
+        builder.read(histogram, ResourceAccess::transfer_src);
+        auto readback = builder.import("exposure_readback", readback_buffers_[slot]->handle(),
+                                       readback_buffers_[slot]->size());
+        builder.write(readback, ResourceAccess::transfer_dst);
+    }
+    // The average's only reader is the CPU, on a later frame, which the
+    // graph cannot see.
     builder.has_side_effects();
 }
 
