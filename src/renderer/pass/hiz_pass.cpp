@@ -403,10 +403,12 @@ void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // post-state so downstream consumers (MeshletCullPass2, SSR)
         // don't need any additional barrier before sampling.
         builder.write(hiz, ResourceAccess::storage_write_compute);
+        // Each mip is written by compute and handed to the next mip's
+        // reduction, a compute read.
         builder.final_layout(hiz,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
     // Keep Hi-Z alive independently of whether the declared write
     // is wired this frame — MeshletCullPass2 / cull viz / SSR reach

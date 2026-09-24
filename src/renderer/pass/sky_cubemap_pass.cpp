@@ -948,16 +948,17 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // graph culls it. On a dirty frame the declared write is what brings
     // the whole image (every mip, all six faces) to GENERAL before the
     // dispatch; the mip chain then blits through TRANSFER layouts and
-    // leaves everything readable by fragment shaders, which the
-    // final_layout reports so a reader's barrier is skipped.
+    // leaves everything readable by fragment shaders. The final_layout
+    // reports the blit write and that scope, so a fragment reader needs
+    // nothing more and a compute or ray tracing reader gets its barrier.
     if (!generates_this_frame()) { return; }
     auto cubemap = builder.import_named(ctx, "sky_cubemap");
     if (!cubemap.valid()) { return; }
     builder.write(cubemap, ResourceAccess::storage_write_compute);
     builder.final_layout(cubemap,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     // BRDF LUT is a static pass-private texture — not in the catalog.
 }
 

@@ -196,16 +196,14 @@ public:
     FgBuffer read_write(FgBuffer, ResourceAccess);
 
     /// Promise that, after record() returns, the named texture is in
-    /// the stated layout. The graph trusts this hint and updates its
-    /// tracked state without emitting a barrier. Use this when a pass
-    /// performs inline layout choreography inside record() and needs
-    /// the graph to know the post-state so downstream passes see the
-    /// right source layout. Defaults cover the common "finished, ready
-    /// to sample" case.
+    /// the stated layout, for a pass that transitions it inline. The pass
+    /// names its last write to the texture and the scope its own closing
+    /// barrier made that write visible to; the graph records both without
+    /// emitting a barrier, and puts one before any later reader outside
+    /// that scope.
     FgTexture final_layout(FgTexture, VkImageLayout layout,
-                            VkPipelineStageFlags2 last_stage
-                                = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                            VkAccessFlags2 last_access = 0);
+                           VkPipelineStageFlags2 written_stage, VkAccessFlags2 written_access,
+                           VkPipelineStageFlags2 visible_stage, VkAccessFlags2 visible_access);
 
     // ── Pass-level flags ───────────────────────────────────────────────
 
@@ -273,8 +271,10 @@ public:
     struct FinalLayout {
         FgTexture handle{};
         VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-        VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
-        VkAccessFlags2 last_access{0};
+        VkPipelineStageFlags2 written_stage{0};
+        VkAccessFlags2 written_access{0};
+        VkPipelineStageFlags2 visible_stage{0};
+        VkAccessFlags2 visible_access{0};
     };
 
     [[nodiscard]] const std::vector<TextureAccess>& texture_accesses() const noexcept { return texture_accesses_; }

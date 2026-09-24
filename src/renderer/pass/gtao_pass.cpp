@@ -346,7 +346,8 @@ void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // TRANSFER_DST → SHADER_READ transition inline.
         builder.write(ao, ResourceAccess::transfer_dst);
         builder.final_layout(ao, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 
@@ -659,7 +660,9 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // SHADER_READ). record() emits the matching GENERAL → SHADER_READ
     // transition inline after its dispatch.
     builder.final_layout(ao, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                          VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 

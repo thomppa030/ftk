@@ -400,6 +400,7 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // SHADER_READ promise inline after the clear.
         builder.write(ssr_out, ResourceAccess::transfer_dst);
         builder.final_layout(ssr_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
