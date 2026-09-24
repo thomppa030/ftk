@@ -14,6 +14,7 @@
 #include "renderer/resources/asset_shader_type.hpp"
 
 #include <imgui.h>
+#include <stb_image.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -28,6 +29,30 @@ static std::string s_refused_id;
 static std::string s_refused_text;
 static double      s_refused_until{0.0};
 constexpr double REFUSAL_SECONDS = 4.0;
+
+// A texture's picture in its field, and on hover (sheet 19, P3).
+constexpr float FIELD_THUMB = 18.0f;
+constexpr float HOVER_THUMB = 128.0f;
+
+static bool is_image(const std::filesystem::path& path) {
+    const std::string ext = path.extension().string();
+    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga";
+}
+
+// An image's size in pixels, read from its header once per file.
+static ImVec2 image_size(const std::string& path) {
+    static std::unordered_map<std::string, ImVec2> sizes;
+    if (auto it = sizes.find(path); it != sizes.end()) return it->second;
+    int w = 0;
+    int h = 0;
+    int channels = 0;
+    ImVec2 size{0.0f, 0.0f};
+    if (stbi_info(path.c_str(), &w, &h, &channels) != 0) {
+        size = {static_cast<float>(w), static_cast<float>(h)};
+    }
+    sizes.emplace(path, size);
+    return size;
+}
 
 // ── Acceptance ──────────────────────────────────────────────────────────
 
@@ -158,8 +183,29 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
         asset_picker::open(config.id);
     }
     const bool hovered = ImGui::IsItemHovered();
+
+    // A texture shows its picture: in the field, and bigger when hovered.
+    VkDescriptorSet thumb = VK_NULL_HANDLE;
+    std::string resolved;
+    if (has_value && !shown_path.empty() && is_image(shown_path) && config.ctx && config.ctx->icons) {
+        resolved = base_path::resolve_asset(path, project);
+        if (std::filesystem::exists(resolved)) thumb = config.ctx->icons->thumbnail(resolved);
+    }
     if (hovered && !shown_path.empty()) {
-        ImGui::SetItemTooltip("%s", shown_path.c_str());
+        if (thumb != VK_NULL_HANDLE) {
+            if (ImGui::BeginItemTooltip()) {
+                ImGui::Image(reinterpret_cast<ImTextureID>(thumb), {HOVER_THUMB, HOVER_THUMB});
+                ImGui::TextUnformatted(shown_path.c_str());
+                if (const ImVec2 px = image_size(resolved); px.x > 0.0f) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+                    ImGui::Text("%.0f \xc3\x97 %.0f", static_cast<double>(px.x), static_cast<double>(px.y));
+                    ImGui::PopStyleColor();
+                }
+                ImGui::EndTooltip();
+            }
+        } else {
+            ImGui::SetItemTooltip("%s", shown_path.c_str());
+        }
     }
 
     // A dragged asset is judged while it is still over the field: one that
@@ -243,8 +289,14 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     }
     const float text_y = min.y + style.FramePadding.y;
     float x = min.x + style.FramePadding.x;
-    dl->AddText({x, text_y}, ImGui::GetColorU32(icon_colour), glyph);
-    x += ImGui::CalcTextSize(glyph).x + theme::GAP_S + theme::GAP_XS;
+    if (thumb != VK_NULL_HANDLE && !missing) {
+        const float top = min.y + (height - FIELD_THUMB) * 0.5f;
+        dl->AddImage(reinterpret_cast<ImTextureID>(thumb), {x, top}, {x + FIELD_THUMB, top + FIELD_THUMB});
+        x += FIELD_THUMB + theme::GAP_S + theme::GAP_XS;
+    } else {
+        dl->AddText({x, text_y}, ImGui::GetColorU32(icon_colour), glyph);
+        x += ImGui::CalcTextSize(glyph).x + theme::GAP_S + theme::GAP_XS;
+    }
     const float chevron = height;
     dl->PushClipRect({x, min.y}, {max.x - chevron, max.y}, true);
     dl->AddText({x, text_y}, ImGui::GetColorU32(text_colour), text.c_str());
