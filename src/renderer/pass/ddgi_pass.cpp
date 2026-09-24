@@ -935,7 +935,18 @@ void DdgiPass::record(const FrameContext& ctx) {
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ddgi");
     FJELL_GPU_ZONE(ctx, "DDGI");
-    record_into(ctx, *imgs);
+    if (!record_into(ctx, *imgs) && imgs->indirect_image != VK_NULL_HANDLE) {
+        // Stopped before sampling. The graph moved the indirect output to
+        // GENERAL for the write declare() promised; it goes back to where
+        // the surfaces read it, holding what it held.
+        transition_image(ctx.cmd, imgs->indirect_image,
+                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
+    imgs->indirect_needs_init = false;
 }
 
 static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32_t slot,
@@ -1173,10 +1184,10 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     }
 }
 
-void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (trace_pipeline_ == VK_NULL_HANDLE) return;
-    if (imgs.radiance_image == VK_NULL_HANDLE) return;
-    if (ctx.registry == nullptr) return;
+bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
+    if (trace_pipeline_ == VK_NULL_HANDLE) return false;
+    if (imgs.radiance_image == VK_NULL_HANDLE) return false;
+    if (ctx.registry == nullptr) return false;
 
     const auto* sdf_res = ctx.registry->find_image("scene_sdf");
     const auto* sky_res = ctx.registry->find_image("sky_cubemap");
@@ -1267,12 +1278,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         if (sdf_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
             frame_counter_++;
-            return;
+            return false;
         }
         if (sky_cubemap_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: Sky cubemap view not available, skipping");
             frame_counter_++;
-            return;
+            return false;
         }
         // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
@@ -1485,7 +1496,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // SDF backend requires the SDF view
     if (backend_ == DdgiBackend::sdf_fallback && sdf_view == VK_NULL_HANDLE) {
         frame_counter_++;
-        return;
+        return false;
     }
 
     auto barrier_image = [&](VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
@@ -1802,18 +1813,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
         vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
     } else {
-        // RT backend but TLAS not ready — skip trace this frame, keep previous radiance.
-        // The indirect image still has to reach SHADER_READ_ONLY: the global
-        // gi_indirect descriptor already points at it, and after a resize
-        // recreated it there is nothing else to move it out of UNDEFINED.
-        if (imgs.indirect_needs_init) {
-            barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                          VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-            imgs.indirect_needs_init = false;
-        }
+        // RT backend but TLAS not ready — skip trace this frame, keep previous
+        // radiance and the previous indirect output.
         frame_counter_++;
-        return;
+        return false;
     }
 
     // ── 3. Barrier: radiance write → read ──
@@ -1992,13 +1995,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
     }
 
-    // ── 10. Transition indirect image to GENERAL for sample output ──
-    barrier_image(imgs.indirect_image,
-                  imgs.indirect_needs_init ? VK_IMAGE_LAYOUT_UNDEFINED
-                                           : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-    imgs.indirect_needs_init = false;
+    // ── 10. The graph has the indirect image in GENERAL for sample output ──
 
     // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!imgs.first_frame_) {
@@ -2056,6 +2053,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     imgs.first_frame_ = false;
     imgs.reset_generation_ = grid_generation_;
     frame_counter_++;
+    return true;
 }
 
 PassSetup DdgiPass::setup() const {
@@ -2080,6 +2078,19 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         const bool traced = backend_ == DdgiBackend::ray_traced && rt_pipeline_ != VK_NULL_HANDLE;
         builder.read(sky, traced ? ResourceAccess::sampled_raytracing
                                  : ResourceAccess::sampled_compute);
+    }
+    // The per-pixel indirect light the surfaces sample. The graph moves it
+    // into GENERAL; record() leaves it back where the surfaces read it on
+    // every way out, which final_layout reports.
+    if (config_.enabled) {
+        if (auto out = builder.import_named_optional(ctx, "ddgi_indirect"); out.valid()) {
+            builder.write(out, ResourceAccess::storage_write_compute);
+            builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_WRITE_BIT,
+                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        }
     }
     // Writes pass-private probe atlases (irradiance, visibility,
     // probe_offset) bound through the global descriptor. Graph can't
