@@ -392,6 +392,10 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     if (screen_space_active()) {
         builder.write(ssr_out, ResourceAccess::storage_write_compute);
+        // The trace steps through the Hi-Z pyramid.
+        if (auto hiz = builder.import_named(ctx, "hiz_pyramid"); hiz.valid()) {
+            builder.read(hiz, ResourceAccess::sampled_compute);
+        }
     } else {
         // Off / RayTraced path clears ssr_output via vkCmdClearColorImage
         // so the composite reads zero from this resource. (When RayTraced,

@@ -708,6 +708,10 @@ void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) 
         builder.read(depth, ResourceAccess::sampled_raytracing);
         builder.read(normal, ResourceAccess::sampled_raytracing);
         builder.read(mr, ResourceAccess::sampled_raytracing);
+        // A reflection ray that misses reads the sky.
+        if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
+            builder.read(sky, ResourceAccess::sampled_raytracing);
+        }
     }
 }
 

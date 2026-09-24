@@ -2074,6 +2074,13 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // The particle TLAS build reads the simulated particles.
     builder.read(builder.import_named_buffer(ctx, "particle_state"),
                  ResourceAccess::storage_buffer_read_compute);
+    // Probe rays that miss read the sky, in the ray tracing stages or in the
+    // SDF trace's compute shader.
+    if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
+        const bool traced = backend_ == DdgiBackend::ray_traced && rt_pipeline_ != VK_NULL_HANDLE;
+        builder.read(sky, traced ? ResourceAccess::sampled_raytracing
+                                 : ResourceAccess::sampled_compute);
+    }
     // Writes pass-private probe atlases (irradiance, visibility,
     // probe_offset) bound through the global descriptor. Graph can't
     // see that consumer edge.
