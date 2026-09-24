@@ -41,6 +41,8 @@ struct RenderSettings {
         /// every probe atlas is resized when it changes, discarding
         /// accumulated irradiance.
         int probe_count{16};
+
+        bool operator==(const Ddgi&) const = default;
     } ddgi;
 
     struct SsGi {
@@ -48,11 +50,19 @@ struct RenderSettings {
         float intensity{1.0f};
         float max_trace_dist{50.0f};
         float hysteresis{0.90f};
+
+        bool operator==(const SsGi&) const = default;
     } ss_gi;
 
     // ── Post-processing ──
-    struct Gtao { bool enabled{true}; } gtao;
-    struct Bloom { bool enabled{true}; } bloom;
+    struct Gtao {
+        bool enabled{true};
+        bool operator==(const Gtao&) const = default;
+    } gtao;
+    struct Bloom {
+        bool enabled{true};
+        bool operator==(const Bloom&) const = default;
+    } bloom;
     struct SunShafts {
         /// How far a half-res tap's surface may sit from a pixel's own, as a
         /// share of that pixel's distance, before the tap stops counting when
@@ -69,6 +79,8 @@ struct RenderSettings {
         /// permanent place in the settings; fold it back into a constant in
         /// the shader once a second scene has agreed.
         float upsample_depth_tolerance{0.05f};
+
+        bool operator==(const SunShafts&) const = default;
     } sun_shafts;
     struct Ssr {
         // Reflection backend selection. RayTraced requires VK_KHR_ray_tracing_pipeline;
@@ -83,6 +95,8 @@ struct RenderSettings {
         /// further. Unused by the ScreenSpace backend, which is bounded by
         /// the screen rather than by a distance.
         float max_trace_dist{50.0f};
+
+        bool operator==(const Ssr&) const = default;
     } ssr;
 
     struct Tonemap {
@@ -99,10 +113,14 @@ struct RenderSettings {
         bool auto_exposure{false};
         float exposure_ev{0.0f};
         float adaptation_speed{1.5f};
+
+        bool operator==(const Tonemap&) const = default;
     } tonemap;
 
     // ── Frame graph ──
     bool frame_graph_aliasing{true};
+
+    bool operator==(const RenderSettings&) const = default;
 };
 
 // JSON round-trip. Missing keys fall back to the defaults in the struct.

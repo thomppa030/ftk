@@ -81,7 +81,9 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/pages.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/save_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/status_bar.cpp
@@ -196,6 +198,7 @@ add_executable(fjell-tests
     test_search.cpp
     test_status_bar.cpp
     test_dialog.cpp
+    test_pages.cpp
     test_tree.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp

@@ -533,6 +533,9 @@ void Engine::init_content_browser() {
 void Engine::init_editor() {
     bind_menu_bar();
 
+    settings_window_.init(vulkan_context_.get(), &project_mgr_);
+    connections_.push_back(settings_window_.on_save.bind([this]() { save_project(); }));
+
     if (project_mgr_.active()) {
         auto& layout = project_mgr_.active()->config().layout;
         if (!layout.empty()) {
@@ -1420,20 +1423,10 @@ void Engine::bind_menu_bar() {
         [this]() { save_scene(); }));
     connections_.push_back(menu_bar_.on_load_scene.bind(
         [this]() { load_scene(current_scene_path_); }));
-    connections_.push_back(menu_bar_.on_save_project.bind(
-        [this]() {
-            if (project_mgr_.active()) {
-                snapshot_render_settings(*vulkan_context_,
-                                          project_mgr_.active()->config().render);
-                project_mgr_.active()->save();
-            }
-        }));
+    connections_.push_back(menu_bar_.on_save_project.bind([this]() { save_project(); }));
     connections_.push_back(menu_bar_.on_close_project.bind(
         [this]() { project_mgr_.close(); }));
-    connections_.push_back(menu_bar_.on_open_settings.bind(
-        [this]() {
-            active_context().project_settings_panel().toggle();
-        }));
+    connections_.push_back(menu_bar_.on_open_settings.bind([this]() { settings_window_.toggle(); }));
     connections_.push_back(menu_bar_.on_build_game.bind(
         [this]() {
             if (project_mgr_.active()) {
@@ -1687,11 +1680,11 @@ void Engine::draw_ui() {
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        if (project_mgr_.active()) {
-            snapshot_render_settings(*vulkan_context_,
-                                      project_mgr_.active()->config().render);
-            project_mgr_.active()->save();
-        }
+        save_project();
+    }
+    if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl &&
+        ImGui::IsKeyPressed(ImGuiKey_Comma)) {
+        settings_window_.toggle();
     }
     if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl &&
         ImGui::IsKeyPressed(ImGuiKey_Space)) {
@@ -1740,6 +1733,7 @@ void Engine::draw_ui() {
     active_context().draw(clock_.delta_time());
 
     content_browser_.draw();
+    settings_window_.draw();
 
     vulkan_context_->draw_sdf_debug_window();
     if (show_kit_gallery_) kit_gallery_.draw(&show_kit_gallery_);
@@ -2432,6 +2426,12 @@ void Engine::apply_pending_context_close() {
     if (close_idx < active_context_idx_) {
         active_context_idx_--;
     }
+}
+
+void Engine::save_project() {
+    if (project_mgr_.active() == nullptr) return;
+    snapshot_render_settings(*vulkan_context_, project_mgr_.active()->config().render);
+    project_mgr_.active()->save();
 }
 
 void Engine::draw_status_bar() {

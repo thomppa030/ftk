@@ -1,6 +1,7 @@
 #include "ui/kit/section.hpp"
 
 #include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -32,6 +33,8 @@ std::string uppercase(const char* label) {
 bool heading(const char* label, const char* icon, float size, bool rule,
              bool foldable, bool default_open,
              std::optional<theme::Category> dot = std::nullopt) {
+    // Under a search the matching rows stand on their own, every group open.
+    if (detail::filtering()) return true;
     ImGui::PushID(label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");

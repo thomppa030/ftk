@@ -53,6 +53,8 @@ struct ProjectConfig {
         float drying_seconds{600.0f};
         float snowing_seconds{300.0f};
         float melting_seconds{1200.0f};
+
+        bool operator==(const EnvironmentConfig&) const = default;
     } environment;
 
     struct UiConfig {
@@ -63,6 +65,8 @@ struct ProjectConfig {
         // without writing a single relative unit.
         uint32_t design_width{1920};
         uint32_t design_height{1080};
+
+        bool operator==(const UiConfig&) const = default;
     } ui;
 };
 
@@ -93,7 +97,12 @@ public:
     /// For display — resolve() gives the absolute path for loading.
     [[nodiscard]] std::string path_of(const AssetId& id) const;
 
-    void save() const;
+    /// Writes project.fjell, which then matches config().
+    void save();
+
+    /// The config as project.fjell holds it: as opened or last saved. What
+    /// config() differs from it by is unsaved.
+    [[nodiscard]] const ProjectConfig& saved_config() const { return saved_config_; }
 
     // Re-copy engine scripting headers into the project's include/ dir
     static void refresh_headers(const Project& project);
@@ -116,6 +125,7 @@ private:
 
     std::filesystem::path root_;
     ProjectConfig config_;
+    ProjectConfig saved_config_;
     std::unique_ptr<AssetDatabase> asset_db_;
     std::unique_ptr<AssetRemap> asset_remap_;
 };

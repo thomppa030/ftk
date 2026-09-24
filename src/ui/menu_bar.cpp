@@ -68,7 +68,7 @@ void MenuBar::draw_project_menu() {
             on_close_project.broadcast();
         }
         ImGui::Separator();
-        if (ui::menu_item({.icon = ui::icon::settings, .label = "Settings"})) {
+        if (ui::menu_item({.icon = ui::icon::settings, .label = "Settings...", .shortcut = "Ctrl ,"})) {
             on_open_settings.broadcast();
         }
         ImGui::Separator();

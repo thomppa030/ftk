@@ -217,7 +217,7 @@ void VfxEditorContext::init() {
     style.Colors[ne::StyleColor_SelNodeBorder] = ImColor(212, 160, 84, 255);
     ne::SetCurrentEditor(nullptr);
 
-    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
+    init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
 

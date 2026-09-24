@@ -291,7 +291,7 @@ void SceneEditorContext::init() {
             selected_id_ = root_id;
         }));
 
-    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
+    init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
     net_panel_.init(deps_.net_manager);
 }

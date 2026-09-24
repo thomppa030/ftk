@@ -1,4 +1,4 @@
-#include "ui/project_settings_panel.hpp"
+#include "ui/project_settings_window.hpp"
 
 #include "core/project_manager.hpp"
 #include "core/project.hpp"
@@ -11,7 +11,10 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
+#include "ui/kit/pages.hpp"
+#include "ui/kit/save_bar.hpp"
+#include "ui/kit/search.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
 
@@ -58,33 +61,115 @@ void readout_row(const char* label, const std::string& value) {
 
 } // namespace
 
-void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
+void ProjectSettingsWindow::init(VulkanContext* vk, ProjectManager* projects) {
     vk_ = vk;
     projects_ = projects;
 }
 
-void ProjectSettingsPanel::draw(const char* title) {
+namespace {
+
+// A page as the list shows it.
+struct PageInfo {
+    const char* icon;
+    const char* name;
+};
+
+} // namespace
+
+void ProjectSettingsWindow::draw() {
     if (!visible_) { return; }
-    ImGui::SetNextWindowSize(ImVec2(340, 480), ImGuiCond_FirstUseEver);
-    if (auto p = Panel(ui::icon::settings, title, &visible_)) {
-        if (projects_ == nullptr || projects_->active() == nullptr) {
-            ui::empty_state(ui::icon::settings, "No project open",
-                            "Open or create one from the Project menu");
-            return;
+
+    static constexpr PageInfo PAGES[PAGE_COUNT] = {
+        {ui::icon::rendering, "Rendering"},
+        {ui::icon::ui_layout, "Game UI"},
+        {ui::icon::world_environment, "Environment"},
+    };
+
+    Project* project = projects_ != nullptr ? projects_->active() : nullptr;
+    std::string title = std::string(ui::icon::settings) + "  Project settings";
+    if (project != nullptr) title += " \xc2\xb7 " + project->config().name;
+    title += "###project_settings";
+
+    auto window = ui::PagedWindow(title.c_str(), &visible_, {720.0f, 520.0f});
+    if (!window) return;
+    if (project == nullptr) {
+        ui::empty_state(ui::icon::settings, "No project open", "Open or create one from the Project menu");
+        return;
+    }
+
+    const float footer = ui::save_bar_height();
+    const bool searching = !search_.empty();
+    if (auto list = ui::PageList("##pages", footer)) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ui::search_field("##search", search_);
+        ImGui::Dummy({0.0f, theme::GAP_XS});
+        for (std::size_t i = 0; i < PAGE_COUNT; ++i) {
+            const auto page = static_cast<Page>(i);
+            const bool dimmed = searching && found_[i] == 0;
+            if (ui::page_entry(PAGES[i].icon, PAGES[i].name, !searching && page == page_, dimmed)) {
+                page_ = page;
+                search_.clear();
+            }
         }
-        if (auto t = ui::PropertyTable("##project")) {
-            readout_row("Project", projects_->active()->config().name);
-            ui::hint("Saved to project.fjell with the project (Ctrl Shift S)");
+    }
+
+    if (auto body = ui::PageBody("##page", footer)) {
+        if (!searching) {
+            ui::page_title(PAGES[static_cast<std::size_t>(page_)].icon, PAGES[static_cast<std::size_t>(page_)].name);
+            draw_page(page_);
+        } else {
+            // Every page's matching settings, each under its title. A title
+            // goes by what its page found the frame before: the rows only
+            // count as they are drawn.
+            int total = 0;
+            for (std::size_t i = 0; i < PAGE_COUNT; ++i) {
+                ImGui::PushID(static_cast<int>(i));
+                if (found_[i] > 0) ui::page_title(PAGES[i].icon, PAGES[i].name);
+                const ui::RowFilter filter(search_);
+                draw_page(static_cast<Page>(i));
+                found_[i] = filter.matches();
+                total += found_[i];
+                ImGui::PopID();
+            }
+            if (total == 0) {
+                ui::empty_state(ui::icon::search, "No settings match", "Try another word");
+            }
         }
-        draw_render_section();
-        draw_ui_section();
-        draw_environment_section();
+    }
+
+    switch (ui::save_bar(unsaved(), "project.fjell")) {
+        case ui::SaveAction::Save: on_save.broadcast(); break;
+        case ui::SaveAction::Revert: revert(); break;
+        case ui::SaveAction::None: break;
     }
 }
 
-void ProjectSettingsPanel::draw_ui_section() {
-    if (!ui::section_foldable("Game UI", ui::icon::ui_layout)) { return; }
+void ProjectSettingsWindow::draw_page(Page page) {
+    switch (page) {
+        case Page::Rendering: draw_rendering(); break;
+        case Page::GameUi: draw_game_ui(); break;
+        case Page::Environment: draw_environment(); break;
+    }
+}
 
+bool ProjectSettingsWindow::unsaved() const {
+    const Project* project = projects_->active();
+    const ProjectConfig& now = project->config();
+    const ProjectConfig& saved = project->saved_config();
+    return now.render != saved.render || now.ui != saved.ui || now.environment != saved.environment;
+}
+
+void ProjectSettingsWindow::revert() {
+    Project* project = projects_->active();
+    ProjectConfig& config = project->config();
+    const ProjectConfig& saved = project->saved_config();
+    config.render = saved.render;
+    config.ui = saved.ui;
+    config.environment = saved.environment;
+    vk_->set_render_settings(config.render);
+}
+
+void ProjectSettingsWindow::draw_game_ui() {
     auto& ui_config = projects_->active()->config().ui;
     if (auto t = ui::PropertyTable("##game_ui")) {
         ui::row("Design resolution",
@@ -118,9 +203,7 @@ void ProjectSettingsPanel::draw_ui_section() {
     }
 }
 
-void ProjectSettingsPanel::draw_environment_section() {
-    if (!ui::section_foldable("Environment", ui::icon::world_environment)) { return; }
-
+void ProjectSettingsWindow::draw_environment() {
     auto& env = projects_->active()->config().environment;
     if (auto t = ui::PropertyTable("##environment")) {
         ui::row("Wetting", [&] {
@@ -146,9 +229,7 @@ void ProjectSettingsPanel::draw_environment_section() {
 // Any edit in this section writes to the project's RenderSettings AND
 // re-applies the whole blob through VulkanContext — cheap, keeps the
 // live pipeline in sync with what the project will save.
-void ProjectSettingsPanel::draw_render_section() {
-    if (!ui::section_foldable("Rendering", ui::icon::rendering)) { return; }
-
+void ProjectSettingsWindow::draw_rendering() {
     auto& s = projects_->active()->config().render;
     const bool rt_ok = vk_->ray_tracing_supported();
     ui::Edit edit;

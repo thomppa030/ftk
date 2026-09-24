@@ -21,6 +21,7 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
+#include "ui/project_settings_window.hpp"
 #include "ui/context_registry.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
@@ -116,6 +117,8 @@ private:
     void create_project(const std::filesystem::path& parent, const std::string& name);
     void create_default_scene();
     void save_scene();
+    // Writes project.fjell with the render settings the renderer is using.
+    void save_project();
     void save_material_assets();
     void save_terrain_assets();
 
@@ -195,6 +198,7 @@ private:
 
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
+    ProjectSettingsWindow settings_window_;
 
 #ifndef NDEBUG
     std::optional<ShaderWatcher> shader_watcher_;

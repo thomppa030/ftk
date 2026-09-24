@@ -117,7 +117,7 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
 }
 
 Project::Project(std::filesystem::path root, ProjectConfig config)
-    : root_{std::move(root)}, config_{std::move(config)} {}
+    : root_{std::move(root)}, config_{std::move(config)}, saved_config_{config_} {}
 
 std::string Project::resolve(const std::string& relative) const {
     return (root_ / relative).string();
@@ -155,7 +155,7 @@ AssetId Project::id_of(const std::string& relative_path) const {
     return entry ? entry->id : AssetId{};
 }
 
-void Project::save() const {
+void Project::save() {
     auto path = root_ / MANIFEST_NAME;
     nlohmann::json j;
     j["name"] = config_.name;
@@ -193,6 +193,7 @@ void Project::save() const {
     }
     file << j.dump(2);
     FJELL_CORE_INFO("Project saved: {}", path.string());
+    saved_config_ = config_;
 }
 
 void Project::refresh_headers(const Project& /*project*/) {

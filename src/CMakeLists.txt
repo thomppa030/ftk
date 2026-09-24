@@ -311,7 +311,7 @@ add_executable(fjell
     ui/shader_error_callout.cpp
     ui/stats_panel.cpp
     ui/net_panel.cpp
-    ui/project_settings_panel.cpp
+    ui/project_settings_window.cpp
     ui/editor_context.cpp
     ui/animation_editor_context.cpp
     ui/blend_space_1d_editor_context.cpp
@@ -349,7 +349,9 @@ add_executable(fjell
     ui/kit/inset_group.cpp
     ui/kit/list_editor.cpp
     ui/kit/menu.cpp
+    ui/kit/pages.cpp
     ui/kit/row.cpp
+    ui/kit/save_bar.cpp
     ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/status_bar.cpp

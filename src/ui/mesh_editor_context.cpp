@@ -47,7 +47,7 @@ void MeshEditorContext::init() {
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Mesh Preview");
-    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
+    init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
 

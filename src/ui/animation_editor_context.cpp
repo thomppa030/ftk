@@ -111,7 +111,7 @@ void AnimationEditorContext::init() {
         current_clip_->notifies()[idx].time = new_time;
     }));
 
-    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
+    init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
 
