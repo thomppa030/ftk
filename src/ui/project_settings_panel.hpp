@@ -25,7 +25,6 @@ public:
 
 private:
     void draw_render_section();
-    void draw_debug_section();
     void draw_ui_section();
     void draw_environment_section();
 

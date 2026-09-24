@@ -1,4 +1,7 @@
 #include "ui/scene_editor_context.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/viewport_view.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "ui/icons_lc.hpp"
@@ -1158,7 +1161,8 @@ void SceneEditorContext::draw_play_toolbar() {
         }
     }
 
-    // Perspective / Orthographic toggle (top-right of viewport)
+    // Right cluster: what the viewport shows, then perspective /
+    // orthographic, against the top-right corner.
     {
         bool persp = vp->camera.mode() == EditorCameraMode::perspective;
         const char* label = persp ? ICON_LC_CAMERA : ICON_LC_SQUARE;
@@ -1174,6 +1178,25 @@ void SceneEditorContext::draw_play_toolbar() {
         if (btn_x < box_x + box_w + pad) {
             ImGui::End();
             return;
+        }
+
+        if (deps_.vulkan_context != nullptr) {
+            VulkanContext& vk = *deps_.vulkan_context;
+            const bool lit = view_is_lit(vp->source, vk);
+            const char* view = view_name(vp->source, vk);
+            const char* view_icon = lit ? ui::icon::directional_light : ui::icon::debug;
+            const float view_x = btn_x - theme::GAP_S - ui::mode_button_width(view_icon, view);
+            if (view_x >= box_x + box_w + pad) {
+                ImGui::SetCursorScreenPos({view_x, btn_y});
+                if (ui::mode_button("##view", view_icon, view, !lit)) {
+                    ImGui::OpenPopup("##view_menu");
+                }
+                ImGui::SetItemTooltip("What this viewport shows");
+                if (ImGui::BeginPopup("##view_menu")) {
+                    view_menu(vp->source, vk);
+                    ImGui::EndPopup();
+                }
+            }
         }
 
         ImGui::SetCursorScreenPos({btn_x, btn_y});

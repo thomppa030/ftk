@@ -1,5 +1,6 @@
 #include "ui/kit/button.hpp"
 
+#include "ui/kit/icons.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -140,6 +141,48 @@ bool toggle(const char* label, bool on, const char* tooltip) {
     if (tooltip != nullptr) {
         ImGui::SetItemTooltip("%s", tooltip);
     }
+    return clicked;
+}
+
+namespace {
+// The space between a mode button's icon, label and chevron.
+constexpr float MODE_GAP = theme::GAP_S + 2.0f;
+} // namespace
+
+float mode_button_width(const char* icon, const char* label) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    return style.FramePadding.x + ImGui::CalcTextSize(icon).x + MODE_GAP + ImGui::CalcTextSize(label).x
+         + MODE_GAP + ImGui::CalcTextSize(icon::dropdown).x + style.FramePadding.x * 0.75f;
+}
+
+bool mode_button(const char* id, const char* icon, const char* label, bool alert) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float icon_w = ImGui::CalcTextSize(icon).x;
+    const float label_w = ImGui::CalcTextSize(label).x;
+    const float gap = MODE_GAP;
+    const ImVec2 size{mode_button_width(icon, label), ImGui::GetFrameHeight()};
+
+    const bool clicked = ImGui::InvisibleButton(id, size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    const Look look = look_of(ButtonKind::Secondary);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(held ? look.active : hovered ? look.hover : look.fill),
+                      style.FrameRounding);
+    if (alert) {
+        dl->AddRect(min, max, ImGui::GetColorU32(theme::warning()), style.FrameRounding);
+    }
+    const ImU32 ink = ImGui::GetColorU32(alert ? theme::warning() : theme::text());
+    const float y = min.y + style.FramePadding.y;
+    float x = min.x + style.FramePadding.x;
+    dl->AddText({x, y}, ink, icon);
+    x += icon_w + gap;
+    dl->AddText({x, y}, ink, label);
+    x += label_w + gap;
+    dl->AddText({x, y}, ImGui::GetColorU32(alert ? theme::warning() : theme::text_secondary()), icon::dropdown);
     return clicked;
 }
 

@@ -184,4 +184,22 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
     return clicked;
 }
 
+void corner_note(ImVec2 corner, const char* icon, const char* text) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float pad_x = theme::GAP_M;
+    const float pad_y = 3.0f;
+    const float gap = theme::GAP_S + 2.0f;
+    const ImVec2 icon_size = ImGui::CalcTextSize(icon);
+    const ImVec2 text_size = ImGui::CalcTextSize(text);
+    const ImVec2 max = corner;
+    const ImVec2 min{max.x - (pad_x + icon_size.x + gap + text_size.x + pad_x),
+                     max.y - (pad_y + text_size.y + pad_y)};
+    ImVec4 plate = theme::surface_sunken();
+    plate.w = 0.85f;
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(plate), ImGui::GetStyle().FrameRounding);
+    const ImU32 ink = ImGui::GetColorU32(theme::warning());
+    dl->AddText({min.x + pad_x, min.y + pad_y}, ink, icon);
+    dl->AddText({min.x + pad_x + icon_size.x + gap, min.y + pad_y}, ink, text);
+}
+
 } // namespace fjell::ui

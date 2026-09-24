@@ -4,6 +4,7 @@
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/section.hpp"
@@ -340,4 +341,16 @@ TEST_CASE("An inset group folds from its heading and keeps its contents inside i
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     h.step(2);
     CHECK_FALSE(drawn);
+}
+
+TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by it", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        (void)ui::mode_button("##view", ui::icon::debug, "DDGI indirect", true);
+        h.mark("view");
+    });
+    h.step(2);
+    const float drawn = h.rect_max("view").x - h.rect_min("view").x;
+    CHECK(drawn == ui::mode_button_width(ui::icon::debug, "DDGI indirect"));
+    CHECK(drawn > ui::mode_button_width(ui::icon::debug, "Lit"));
 }

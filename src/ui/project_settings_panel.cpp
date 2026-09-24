@@ -79,7 +79,6 @@ void ProjectSettingsPanel::draw(const char* title) {
         draw_render_section();
         draw_ui_section();
         draw_environment_section();
-        draw_debug_section();
     }
 }
 
@@ -324,79 +323,6 @@ void ProjectSettingsPanel::draw_render_section() {
 
     if (edit.changed) {
         vk_->set_render_settings(s);
-    }
-}
-
-// Runtime-only diagnostic — deliberately NOT part of RenderSettings, never
-// written to project.fjell. Replaces the final pixel color with one
-// isolated lighting term so each additive contribution (direct light, IBL
-// diffuse/specular, DDGI, SS-GI, emissive) can be inspected on its own.
-void ProjectSettingsPanel::draw_debug_section() {
-    if (!ui::section_foldable("Lighting channels", ui::icon::debug)) { return; }
-
-    static constexpr const char* CHANNEL_NAMES[] = {
-        "Off (normal shading)",
-        "Direct light (sun + tile lights)",
-        "IBL diffuse",
-        "IBL specular",
-        "DDGI indirect",
-        "SS-GI indirect",
-        "Emissive",
-        "AO: raw (screen-space AO)",
-        "AO: lookup UV (red/green ramp)",
-        "AO: texel grid (checker per AO texel)",
-        "AO: depth input (banded)",
-        "AO: surface normal",
-        "AO: applied to ambient",
-        "Sun shafts",
-        "Water: simulated tiles",
-    };
-    static constexpr const char* DDGI_VIEW_NAMES[] = {
-        "Off",
-        "Grid cell (hashed per cage cell)",
-        "Probe status (green active, red buried, blue asleep)",
-        "Cage weight (dark = weights collapsed)",
-        "No visibility test (dark = probe data, not occlusion)",
-        "Probe lattice (bright at probe positions)",
-        "Trace reach (magenta outside grid, red at edge)",
-        "Raw probe irradiance (no interpolation)",
-        "Chebyshev reject (red = floored, green = tested)",
-    };
-
-    if (auto t = ui::PropertyTable("##debug")) {
-        ui::row("Channel", [&] {
-            int channel = vk_->debug_light_channel();
-            if (ui::choice("##channel", channel, CHANNEL_NAMES).changed) {
-                vk_->set_debug_light_channel(channel);
-            }
-        });
-        if (vk_->debug_light_channel() >= static_cast<int>(DebugLightChannel::AoRaw)) {
-            ui::hint("AO chain, in pipeline order. Step through these to find the first stage "
-                     "where an artifact appears: depth input -> surface normal -> raw AO -> "
-                     "lookup UV / texel grid -> applied to ambient.");
-        } else {
-            ui::hint("Replaces the final pixel colour with one isolated lighting term. "
-                     "Diagnostic only, not saved.");
-        }
-
-        ui::row("DDGI view", [&] {
-            auto& ddgi_cfg = vk_->ddgi_pass().config();
-            int ddgi_mode = static_cast<int>(ddgi_cfg.debug_mode);
-            if (!ui::choice("##ddgi_view", ddgi_mode, DDGI_VIEW_NAMES).changed) return;
-            ddgi_cfg.debug_mode = static_cast<DdgiDebugMode>(ddgi_mode);
-            // These colors mean nothing once the surface composite multiplies
-            // them by albedo and kD — a dark surface reads as "no data" when
-            // the lookup actually succeeded. Switching the channel with the
-            // view keeps the two in step instead of leaving it to be
-            // remembered.
-            if (ddgi_cfg.debug_mode != DdgiDebugMode::Off) {
-                vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::DdgiIndirect));
-            } else if (vk_->debug_light_channel()
-                       == static_cast<int>(DebugLightChannel::DdgiIndirect)) {
-                vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::Off));
-            }
-        });
-        ui::hint("Replaces the indirect output with what the probe cage resolved for each pixel");
     }
 }
 

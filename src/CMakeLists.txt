@@ -362,6 +362,7 @@ add_executable(fjell
     ui/dockspace_layout.cpp
     ui/timeline_widget.cpp
     ui/viewport_manager.cpp
+    ui/viewport_view.cpp
     ui/game_ui/fjui_parser.cpp
     ui/game_ui/fjss_parser.cpp
     ui/game_ui/fjui_serializer.cpp

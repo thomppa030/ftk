@@ -41,6 +41,16 @@ bool toggle_button(const char* id, const char* icon, bool on, const char* toolti
 /// says what it does.
 bool tool_button(const char* id, const char* icon, bool on, const char* tooltip);
 
+/// A drop-down naming the mode something is in (a viewport's view, "Lit"):
+/// its icon, the label and a chevron, sized to fit. `alert` draws it in the
+/// warning colour with a warning edge, for a mode that must not be left on
+/// unnoticed. Returns true when clicked; the caller opens the menu.
+bool mode_button(const char* id, const char* icon, const char* label, bool alert);
+
+/// How wide mode_button() draws for `icon` and `label`, to place it
+/// against something to its right.
+[[nodiscard]] float mode_button_width(const char* icon, const char* label);
+
 /// The same toggle with a text label, sized to fit it.
 bool toggle(const char* label, bool on, const char* tooltip);
 

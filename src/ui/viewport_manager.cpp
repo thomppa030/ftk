@@ -1,11 +1,16 @@
 #include "ui/viewport_manager.hpp"
 #include "core/profiler.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/theme.hpp"
+#include "ui/viewport_view.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
 #include <cmath>
+#include <format>
 
 namespace fjell {
 
@@ -261,23 +266,8 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             active_id_ = panel.id;
         }
 
-        // Source selector overlay (top-left corner)
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 4.0f});
-        const char* current_name = viewport_source_name(panel.source);
-        ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::BeginCombo("##Source", current_name)) {
-            for (int i = 0; i < VIEWPORT_SOURCE_COUNT; ++i) {
-                auto src = static_cast<ViewportSource>(i);
-                bool selected = (panel.source == src);
-                if (ImGui::Selectable(viewport_source_name(src), selected)) {
-                    panel.source = src;
-                }
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::PopStyleVar();
-
-        // Viewport area (after source selector)
+        // Viewport area: the whole panel. What it shows is picked on the
+        // toolbar drawn over it.
         auto cursor = ImGui::GetCursorScreenPos();
         auto vp_max = ImGui::GetWindowContentRegionMax();
         auto vp_pos = ImGui::GetWindowPos();
@@ -358,6 +348,14 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 ImGui::SetCursorScreenPos({panel.img_pos.x, panel.img_pos.y});
             }
             ImGui::Image(tex, {img_w, img_h});
+        }
+
+        // A debug view is named in the corner, on every viewport it
+        // replaces the picture of, so it is never left on unseen.
+        if (!view_is_lit(panel.source, ctx) && img_w > 0 && img_h > 0) {
+            const float inset = theme::GAP_M;
+            ui::corner_note({panel.img_pos.x + img_w - inset, panel.img_pos.y + img_h - inset},
+                            ui::icon::debug, std::format("Showing {}", view_name(panel.source, ctx)).c_str());
         }
 
         // Camera input — only the active viewport drives the render

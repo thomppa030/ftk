@@ -30,29 +30,10 @@ enum class ViewportSource : uint8_t {
     motion_field,
 };
 
-inline const char* viewport_source_name(ViewportSource source) {
-    switch (source) {
-        case ViewportSource::final_color:    return "Final Color";
-        case ViewportSource::depth:          return "Depth";
-        case ViewportSource::wireframe:      return "Wireframe";
-        case ViewportSource::normals:        return "Normals";
-        case ViewportSource::overdraw:       return "Overdraw";
-        case ViewportSource::uv:             return "UV";
-        case ViewportSource::light_heatmap:  return "Light Heatmap";
-        case ViewportSource::light_grid:     return "Light Grid";
-        case ViewportSource::meshlet_viz:    return "Meshlet Viz";
-        case ViewportSource::ao:             return "Ambient Occlusion";
-        case ViewportSource::gpu_cull:       return "GPU Cull";
-        case ViewportSource::gi_indirect:    return "GI Indirect";
-        case ViewportSource::gi_irradiance:  return "GI Irradiance";
-        case ViewportSource::motion_field:   return "Motion Field";
-    }
-    return "Unknown";
-}
-
-// How many sources the picker offers. Hand-kept, because a `count` sentinel
-// in the enum would have to be handled by every switch over it. The assert
-// below is what catches it falling behind: bump both together.
+// How many sources there are. Hand-kept, because a `count` sentinel in the
+// enum would have to be handled by every switch over it. The assert below
+// is what catches it falling behind: bump both together, and the view menu
+// (ui/viewport_view.cpp) then asks for the new source's entry.
 constexpr int VIEWPORT_SOURCE_COUNT = 14;
 static_assert(static_cast<int>(ViewportSource::motion_field) == VIEWPORT_SOURCE_COUNT - 1,
               "VIEWPORT_SOURCE_COUNT must match the last ViewportSource");
