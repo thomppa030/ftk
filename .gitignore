@@ -31,3 +31,4 @@ imgui.ini
 ui_plan.md
 
 website/
+__pycache__/

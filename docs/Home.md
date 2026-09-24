@@ -6,6 +6,7 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 
 ### Getting Started
 - [Building & Running](Building-and-Running.md)
+- [Profiling](Profiling.md) — Tracy captures from the shell and the `fjtrace` report
 - [Project Structure](Project-Structure.md)
 - [Creating a Project](Creating-a-Project.md)
 
