@@ -2,6 +2,7 @@
 
 #include "ui/editor_context.hpp"
 #include "ui/timeline_widget.hpp"
+#include "ui/vfx_graph.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
 #include "renderer/systems/vfx_pin.hpp"
@@ -13,8 +14,6 @@
 
 #include <string>
 #include <vector>
-
-namespace ax::NodeEditor { struct EditorContext; }
 
 namespace fjell {
 
@@ -71,32 +70,17 @@ public:
     [[nodiscard]] const std::string& effect_path() const { return fjvfx_path_; }
 
 private:
-    void draw_node_editor();
+    void draw_graph();
+    /// Shows the selected emitter in the graph, as it was left this session.
+    void show_emitter();
     /// Re-resolve a module's asset references to their runtime handles.
     void resolve_module_assets(VfxModule& mod);
     void draw_module_stack();
-    void draw_context_menu();
-    void draw_expression_nodes();
-    void draw_links();
-    void handle_link_creation();
-    void handle_deletion();
     void setup_preview();
-    void rebuild_node_positions();
-    void sync_node_positions();
-    [[nodiscard]] PinDataType resolve_pin_type(uint64_t pin_id) const;
 
     /// The Add menu's entries for one stack (0 spawn, 1 update, 2 render).
     void draw_add_module_items(VfxEmitter& emitter, int stack);
     [[nodiscard]] static std::vector<std::unique_ptr<VfxModule>>& stack_of(VfxEmitter& emitter, int stack);
-
-    // Node/pin ID encoding
-    static constexpr int kSpawnBase  = 10000;
-    static constexpr int kUpdateBase = 20000;
-    static constexpr int kRenderBase = 30000;
-    [[nodiscard]] static int module_node_id(int stack, int index);
-    [[nodiscard]] static int input_pin_id(int node_id, int pin_index);
-    [[nodiscard]] static int output_pin_id(int node_id);
-    void decode_node_id(int node_id, int& stack, int& index) const;
 
     VfxEditorDeps deps_;
     std::string name_{"VFX"};
@@ -111,14 +95,11 @@ private:
     uint32_t preview_node_id_{0};
     ViewportManager viewport_manager_;
 
-    // Node editor
-    ax::NodeEditor::EditorContext* node_editor_ctx_{nullptr};
-    bool needs_initial_layout_{false};
+    // Graph
+    VfxGraph graph_;
 
     // Selection
     int selected_emitter_{-1};
-    int selected_module_stack_{-1};   // 0=spawn, 1=update, 2=render
-    int selected_module_index_{-1};
     // The emitter a tab's double-click is renaming, and its new name.
     int renaming_emitter_{-1};
     std::string rename_text_;
@@ -130,10 +111,6 @@ private:
     // Playback
     float time_scale_{1.0f};
     float prev_timeline_time_{0.0f};
-
-    // Context menu spawn position (canvas coords)
-    float context_menu_canvas_x_{0.0f};
-    float context_menu_canvas_y_{0.0f};
 
     // Hot-reload
 #ifndef NDEBUG

@@ -102,6 +102,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/viewport_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/state_graph.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/timeline_widget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/vfx_graph.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/track_lanes.cpp
 )
 
@@ -230,6 +231,7 @@ add_executable(fjell-tests
     test_timeline.cpp
     test_vfx_expression.cpp
     test_vfx_pin.cpp
+    test_vfx_graph.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

@@ -374,6 +374,7 @@ add_executable(fjell
     ui/terrain_sculpt.cpp
     ui/dockspace_layout.cpp
     ui/state_graph.cpp
+    ui/vfx_graph.cpp
     ui/timeline_widget.cpp
     ui/viewport_manager.cpp
     ui/viewport_view.cpp
