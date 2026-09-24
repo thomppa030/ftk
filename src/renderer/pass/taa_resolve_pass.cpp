@@ -225,15 +225,21 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(color, ResourceAccess::sampled_compute);
     builder.read(velocity, ResourceAccess::sampled_compute);
     builder.read(depth, ResourceAccess::sampled_compute);
-    // History is pass-private; tonemap samples it through a non-catalog
-    // view. Flag side-effecting so culling keeps this alive.
-    builder.has_side_effects();
+    // Blends into this frame's history slot from last frame's. The slots
+    // are persistent, which keeps the pass alive for the frame after even
+    // when nothing reads its output now.
+    builder.read(builder.import_named(ctx, "taa_history_read"), ResourceAccess::sampled_compute);
+    builder.write(builder.import_named(ctx, "taa_history_write"),
+                  ResourceAccess::storage_write_compute);
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_taa");
+    // Only a viewport's own history is declared to the graph, which is what
+    // moves it between layouts; without one there is nothing to write into.
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->taa() : nullptr;
-    record_into(ctx, imgs ? *imgs : default_images_);
+    if (imgs == nullptr) { return; }
+    record_into(ctx, *imgs);
 }
 
 void TaaResolvePass::record_into(const FrameContext& ctx, Images& imgs) {
@@ -247,26 +253,12 @@ void TaaResolvePass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t write_idx = imgs.write_index;
     uint32_t read_idx = 1 - write_idx;
 
-    // On first frame, initialize history layout and use full passthrough
+    // The first frame after the history is made has nothing to blend
+    // from: the read slot holds nothing yet, so the output is this frame's
+    // colour alone. The graph has already moved both slots into the layouts
+    // declared for them.
     bool first_frame = imgs.needs_init;
-    if (imgs.needs_init) {
-        for (int i = 0; i < 2; ++i) {
-            vk_utils::transition_image(cmd, imgs.history[i],
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        }
-        imgs.needs_init = false;
-    }
-
-    // Transition write target to GENERAL for storage write
-    vk_utils::transition_image(cmd, imgs.history[write_idx],
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    imgs.needs_init = false;
 
     // Update descriptors:
     // binding 0 = current color (scene color view)
@@ -323,14 +315,6 @@ void TaaResolvePass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t groups_x = (imgs.extent.width + 7) / 8;
     uint32_t groups_y = (imgs.extent.height + 7) / 8;
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
-
-    // Transition write target back to SHADER_READ_ONLY for downstream sampling
-    vk_utils::transition_image(cmd, imgs.history[write_idx],
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
     // Flip ping-pong
     imgs.write_index = read_idx;

@@ -273,7 +273,6 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     VkDescriptorSet input_set = ctx.descriptor_cache->acquire(set_layout_, bindings);
 
     // Transition output to writable
-    vk_utils::prepare_color_attachment(cmd, imgs.image);
 
     // Render
     VkRenderingAttachmentInfo color_attachment{};
@@ -342,11 +341,20 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
 
-    TextureDesc out_desc{};
-    out_desc.format = VK_FORMAT_R8G8B8A8_SRGB;
-    out_desc.size_class = SizeClass::viewport;
-    auto output = builder.create("tonemap_output", out_desc);
-    builder.write(output, ResourceAccess::color_attachment);
+    // What the viewport shows. The pass hands it to ImGui itself, after
+    // the graph, with a transition to a fragment-shader read.
+    if (auto output = builder.import_named_optional(ctx, "tonemap_output"); output.valid()) {
+        builder.write(output, ResourceAccess::color_attachment);
+        builder.final_layout(output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
+    // With TAA on, what gets tonemapped is the history slot TAA just wrote.
+    if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {
+        builder.read(taa, ResourceAccess::sampled_fragment);
+    }
 
     // Declared read on bloom_mip0 so the DAG sees the tonemap ← bloom_us_0
     // edge. Resolving the view happens at record time through the
@@ -368,8 +376,6 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // image) goes to the present/ImGui step outside the graph, so
     // mark never_cull so it anchors the backward walk.
     builder.never_cull();
-    // Alternate color sources (TAA history) live on pass-private
-    // resources and are resolved inside record().
 }
 
 } // namespace fjell

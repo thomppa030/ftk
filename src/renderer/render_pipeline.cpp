@@ -5,6 +5,8 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
+#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -236,6 +238,30 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 add_scatter("fog_scatter_cur", fog->cur_index());
                 add_scatter("fog_scatter_prev", fog->prev_index());
             }
+        }
+        // TAA's history ping-pong: the slot it writes this frame, which the
+        // tonemap then reads, and the one it reads back from the frame
+        // before. Persistent: each slot is next frame's read.
+        if (auto* taa = pp_resources->taa();
+            taa != nullptr && taa->history[0] != VK_NULL_HANDLE && taa->history[1] != VK_NULL_HANDLE) {
+            auto add_history_slot = [&](std::string_view name, uint32_t idx) {
+                ImportedImage img{};
+                img.image = taa->history[idx];
+                img.view = taa->history_view[idx];
+                img.persistent = true;
+                decl_ctx.imports.emplace(fg_name_hash(name), img);
+            };
+            add_history_slot("taa_history_write", taa->write_index);
+            add_history_slot("taa_history_read", 1 - taa->write_index);
+        }
+        // The tonemap's output, what the viewport shows: written as a colour
+        // attachment and left for ImGui to sample after the graph.
+        if (auto* tonemap = pp_resources->tonemap();
+            tonemap != nullptr && tonemap->image != VK_NULL_HANDLE) {
+            ImportedImage img{};
+            img.image = tonemap->image;
+            img.view = tonemap->view;
+            decl_ctx.imports.emplace(fg_name_hash("tonemap_output"), img);
         }
     }
 
