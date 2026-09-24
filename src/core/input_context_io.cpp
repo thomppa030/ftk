@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -18,17 +19,21 @@ static ModifierType parse_modifier_type(const std::string& s) {
 }
 
 InputMappingContext parse_input_context(const std::string& path) {
-    InputMappingContext ctx;
-
     std::ifstream f(path);
     if (!f.is_open()) {
         FJELL_CORE_WARN("parse_input_context: failed to open {}", path);
-        return ctx;
+        return {};
     }
+    std::stringstream text;
+    text << f.rdbuf();
+    return input_context_from_text(text.str(), path);
+}
 
-    auto j = nlohmann::json::parse(f, nullptr, false);
+InputMappingContext input_context_from_text(std::string_view text, const std::string& where) {
+    InputMappingContext ctx;
+    auto j = nlohmann::json::parse(text, nullptr, false);
     if (!j.is_object()) {
-        FJELL_CORE_WARN("parse_input_context: invalid JSON in {}", path);
+        FJELL_CORE_WARN("parse_input_context: invalid JSON in {}", where);
         return ctx;
     }
 
@@ -79,7 +84,7 @@ static const char* modifier_type_string(ModifierType type) {
     return "scale";
 }
 
-void write_input_context(const InputMappingContext& ctx, const std::string& path) {
+std::string input_context_text(const InputMappingContext& ctx) {
     nlohmann::json j;
     j["name"] = ctx.name;
     j["consume"] = ctx.consume;
@@ -115,9 +120,12 @@ void write_input_context(const InputMappingContext& ctx, const std::string& path
 
         bindings_arr.push_back(bj);
     }
+    return j.dump(4) + "\n";
+}
 
+void write_input_context(const InputMappingContext& ctx, const std::string& path) {
     std::ofstream out(path);
-    out << j.dump(4) << "\n";
+    out << input_context_text(ctx);
 }
 
 InputActionDef parse_action_file(const std::string& path) {

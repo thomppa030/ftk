@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -91,9 +92,15 @@ Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
     if (!f.is_open()) {
         return make_error("Failed to open .fjweather file: " + path);
     }
+    std::stringstream text;
+    text << f.rdbuf();
+    return weather_asset_from_text(text.str(), path);
+}
+
+Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path) {
     nlohmann::json j;
     try {
-        f >> j;
+        j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
         return make_error("Malformed .fjweather file " + path + ": " + e.what());
     }
@@ -167,7 +174,7 @@ Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
     return asset;
 }
 
-Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset) {
+std::string weather_asset_text(const WeatherAsset& asset) {
     nlohmann::json j;
     j["name"] = asset.name;
     auto& jp = j["phases"] = nlohmann::json::object();
@@ -211,12 +218,15 @@ Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& as
     if (!asset.audio.thunder.empty()) ja["thunder"] = asset.audio.thunder;
     if (!ja.empty()) j["audio"] = std::move(ja);
     asset.tracks.to_json(j["tracks"]);
+    return j.dump(4) + "\n";
+}
 
+Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset) {
     std::ofstream f(path);
     if (!f.is_open()) {
         return make_error("Failed to write .fjweather file: " + path);
     }
-    f << j.dump(4) << "\n";
+    f << weather_asset_text(asset);
     return {};
 }
 

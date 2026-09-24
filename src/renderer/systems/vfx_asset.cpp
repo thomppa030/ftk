@@ -237,7 +237,7 @@ VfxEffect load_vfx_effect(const std::string& path) {
     return load_vfx_effect_from_json(j);
 }
 
-void save_vfx_effect(const std::string& path, const VfxEffect& effect) {
+std::string vfx_effect_text(const VfxEffect& effect) {
     nlohmann::json j;
     j["version"] = 2;
     j["name"] = effect.name;
@@ -247,12 +247,15 @@ void save_vfx_effect(const std::string& path, const VfxEffect& effect) {
         emitters_arr.push_back(save_emitter_v2(emitter));
     }
     j["emitters"] = emitters_arr;
+    return j.dump(4) + "\n";
+}
 
+void save_vfx_effect(const std::string& path, const VfxEffect& effect) {
     std::ofstream f(path);
     if (!f.is_open()) {
         throw std::runtime_error("Failed to write .fjvfx file: " + path);
     }
-    f << j.dump(4) << "\n";
+    f << vfx_effect_text(effect);
 }
 
 void resolve_vfx_textures(VfxEffect& effect, ResourceManager& resources,

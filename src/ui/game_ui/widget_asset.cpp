@@ -152,13 +152,8 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     return asset;
 }
 
-Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
-                           const UiNode* markup) {
-    std::ofstream file(path);
-    if (!file.is_open()) {
-        return make_error("Failed to save widget asset: " + path);
-    }
-
+std::string widget_asset_text(const WidgetAsset& asset, const UiNode* markup) {
+    std::ostringstream file;
     file << "<widget";
     if (!asset.class_name.empty()) {
         file << " class=\"" << asset.class_name << "\"";
@@ -189,6 +184,16 @@ Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
     }
 
     file << "</widget>\n";
+    return file.str();
+}
+
+Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
+                           const UiNode* markup) {
+    std::ofstream file(path);
+    if (!file.is_open()) {
+        return make_error("Failed to save widget asset: " + path);
+    }
+    file << widget_asset_text(asset, markup);
     return {};
 }
 

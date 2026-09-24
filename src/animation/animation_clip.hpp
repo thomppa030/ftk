@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -27,6 +28,10 @@ class AnimationClip {
 public:
     [[nodiscard]] static Result<AnimationClip> load(const std::string& path);
     [[nodiscard]] Result<> save(const std::string& path) const;
+    /// The clip's notifies as its file holds them, without the tracks.
+    [[nodiscard]] std::string notifies_text() const;
+    /// Replaces the notifies with ones read back from notifies_text().
+    [[nodiscard]] Result<> set_notifies_from_text(std::string_view text);
 
     [[nodiscard]] const ozz::animation::Animation& raw() const { return animation_; }
     [[nodiscard]] float duration() const { return animation_.duration(); }

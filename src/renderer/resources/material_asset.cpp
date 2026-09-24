@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 
 namespace fjell {
@@ -14,9 +15,13 @@ MaterialAsset load_material_asset(const std::string& path) {
     if (!f.is_open()) {
         throw std::runtime_error("Failed to open .fjmat file: " + path);
     }
+    std::stringstream text;
+    text << f.rdbuf();
+    return material_asset_from_text(text.str());
+}
 
-    nlohmann::json j;
-    f >> j;
+MaterialAsset material_asset_from_text(std::string_view text) {
+    nlohmann::json j = nlohmann::json::parse(text);
 
     MaterialAsset asset;
     asset.shader = j.value("shader", "shaders/standard.fjsl");
@@ -44,7 +49,7 @@ MaterialAsset load_material_asset(const std::string& path) {
     return asset;
 }
 
-void save_material_asset(const std::string& path, const MaterialAsset& asset) {
+std::string material_asset_text(const MaterialAsset& asset) {
     nlohmann::json j;
     j["shader"] = asset.shader;
 
@@ -63,12 +68,15 @@ void save_material_asset(const std::string& path, const MaterialAsset& asset) {
         }
     }
     j["params"] = params_obj;
+    return j.dump(4) + "\n";
+}
 
+void save_material_asset(const std::string& path, const MaterialAsset& asset) {
     std::ofstream f(path);
     if (!f.is_open()) {
         throw std::runtime_error("Failed to write .fjmat file: " + path);
     }
-    f << j.dump(4) << "\n";
+    f << material_asset_text(asset);
 }
 
 namespace {

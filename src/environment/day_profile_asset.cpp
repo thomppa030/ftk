@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -98,9 +99,15 @@ Result<DayProfileAsset> load_day_profile_file(const std::string& path) {
     if (!f.is_open()) {
         return make_error("Failed to open .fjday file: " + path);
     }
+    std::stringstream text;
+    text << f.rdbuf();
+    return day_profile_from_text(text.str(), path);
+}
+
+Result<DayProfileAsset> day_profile_from_text(std::string_view text, const std::string& path) {
     nlohmann::json j;
     try {
-        f >> j;
+        j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
         return make_error("Malformed .fjday file " + path + ": " + e.what());
     }
@@ -118,15 +125,19 @@ Result<DayProfileAsset> load_day_profile_file(const std::string& path) {
     return asset;
 }
 
-Result<> save_day_profile_file(const std::string& path, const DayProfileAsset& asset) {
+std::string day_profile_text(const DayProfileAsset& asset) {
     nlohmann::json j;
     j["name"] = asset.name;
     asset.tracks.to_json(j["tracks"]);
+    return j.dump(4) + "\n";
+}
+
+Result<> save_day_profile_file(const std::string& path, const DayProfileAsset& asset) {
     std::ofstream f(path);
     if (!f.is_open()) {
         return make_error("Failed to write .fjday file: " + path);
     }
-    f << j.dump(4) << "\n";
+    f << day_profile_text(asset);
     return {};
 }
 

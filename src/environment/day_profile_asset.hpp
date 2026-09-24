@@ -63,6 +63,12 @@ struct DayProfileAsset {
 };
 
 [[nodiscard]] Result<DayProfileAsset> load_day_profile_file(const std::string& path);
+
+/// A day profile read back from its text, as day_profile_text() writes it. `path` names it in errors and gives the default name.
+[[nodiscard]] Result<DayProfileAsset> day_profile_from_text(std::string_view text, const std::string& path);
 [[nodiscard]] Result<> save_day_profile_file(const std::string& path, const DayProfileAsset& asset);
+
+/// The .fjday text save_day_profile_file() writes, without writing it.
+[[nodiscard]] std::string day_profile_text(const DayProfileAsset& asset);
 
 } // namespace fjell

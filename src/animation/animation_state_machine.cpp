@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -26,9 +27,14 @@ Result<> AnimationStateMachine::load(const std::string& path) {
     if (!f.is_open()) {
         return make_error("Failed to open .fjanimset: " + path);
     }
+    std::stringstream text;
+    text << f.rdbuf();
+    return load_text(text.str(), path);
+}
 
-    nlohmann::json j;
-    f >> j;
+Result<> AnimationStateMachine::load_text(std::string_view text, const std::string& path) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return make_error("Malformed .fjanimset: " + path);
 
     states_.clear();
     state_index_.clear();
@@ -104,7 +110,7 @@ static std::string format_op(CompareOp op) {
     return "==";
 }
 
-Result<> AnimationStateMachine::save(const std::string& path) const {
+std::string AnimationStateMachine::text() const {
     nlohmann::json j;
 
     if (!skeleton_path_.empty()) {
@@ -153,11 +159,15 @@ Result<> AnimationStateMachine::save(const std::string& path) const {
         j["states"].push_back(std::move(js));
     }
 
+    return j.dump(2);
+}
+
+Result<> AnimationStateMachine::save(const std::string& path) const {
     std::ofstream file(path);
     if (!file) {
         return make_error("Failed to save .fjanimset: " + path);
     }
-    file << j.dump(2);
+    file << text();
     return {};
 }
 

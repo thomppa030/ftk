@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -18,8 +19,15 @@ struct MaterialAsset {
 // Load a .fjmat JSON file from disk.
 [[nodiscard]] MaterialAsset load_material_asset(const std::string& path);
 
+/// A .fjmat's text read back, as material_asset_text() writes it. Throws on
+/// text that isn't JSON.
+[[nodiscard]] MaterialAsset material_asset_from_text(std::string_view text);
+
 // Save a .fjmat JSON file to disk.
 void save_material_asset(const std::string& path, const MaterialAsset& asset);
+
+/// The .fjmat text save_material_asset() writes, without writing it.
+[[nodiscard]] std::string material_asset_text(const MaterialAsset& asset);
 
 /// Factors every material carries regardless of its shader: the base PBR
 /// multipliers and the UV scale. They live in `params` under these reserved

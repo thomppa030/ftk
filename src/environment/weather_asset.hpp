@@ -150,6 +150,12 @@ struct WeatherAsset {
 /// typo rather than silently becoming the approach.
 [[nodiscard]] std::optional<WeatherPhase> weather_phase_from_name(std::string_view name);
 [[nodiscard]] Result<WeatherAsset> load_weather_asset_file(const std::string& path);
+
+/// A weather event read back from its text, as weather_asset_text() writes it. `path` names it in errors and gives the default name.
+[[nodiscard]] Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path);
 [[nodiscard]] Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset);
+
+/// The .fjweather text save_weather_asset_file() writes, without writing it.
+[[nodiscard]] std::string weather_asset_text(const WeatherAsset& asset);
 
 } // namespace fjell

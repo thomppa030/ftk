@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -51,7 +52,11 @@ class AnimationStateMachine {
 public:
     // Load/save state machine definition from/to a .fjanimset JSON file.
     [[nodiscard]] Result<> load(const std::string& path);
+    /// Replaces the definition with one read back from text().
+    [[nodiscard]] Result<> load_text(std::string_view text, const std::string& path);
     [[nodiscard]] Result<> save(const std::string& path) const;
+    /// The .fjanimset text save() writes, without writing it.
+    [[nodiscard]] std::string text() const;
 
     // Evaluate transitions and advance crossfade. Call once per frame.
     // Returns true if a transition occurred this frame.

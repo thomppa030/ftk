@@ -61,6 +61,11 @@ struct FjFontRecipe {
 [[nodiscard]] Result<FjFontRecipe> load_font_recipe(const std::filesystem::path& path,
                                                     std::vector<std::string>* warnings = nullptr);
 
+/// A recipe read back from its text, as font_recipe_text() writes it.
+/// `where` names it in errors and warnings (the file it came from).
+[[nodiscard]] Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
+                                                         std::vector<std::string>* warnings);
+
 /// Parses one charset entry: a named set or `U+XXXX` / `U+XXXX-YYYY`.
 [[nodiscard]] Result<CharsetRange> parse_charset_entry(std::string_view entry);
 
@@ -72,6 +77,9 @@ struct FjFontRecipe {
 /// ranges by their names where they have one. Fails when the file cannot
 /// be written.
 [[nodiscard]] Result<> save_font_recipe(const std::filesystem::path& path, const FjFontRecipe& recipe);
+
+/// The text save_font_recipe() writes, without writing it.
+[[nodiscard]] std::string font_recipe_text(const FjFontRecipe& recipe);
 
 /// The recipe's charset as sorted, unique codepoints.
 [[nodiscard]] std::vector<uint32_t> charset_codepoints(const FjFontRecipe& recipe);

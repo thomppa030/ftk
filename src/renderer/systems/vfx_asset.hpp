@@ -19,6 +19,9 @@ struct VfxEffect;
 /// Save a VfxEffect as .fjvfx v2.
 void save_vfx_effect(const std::string& path, const VfxEffect& effect);
 
+/// The .fjvfx text save_vfx_effect() writes, without writing it.
+[[nodiscard]] std::string vfx_effect_text(const VfxEffect& effect);
+
 /// Resolve texture paths in all InitialTextureModules to bindless indices.
 void resolve_vfx_textures(VfxEffect& effect, ResourceManager& resources,
                           const Project* project = nullptr);

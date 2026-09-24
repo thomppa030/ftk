@@ -111,7 +111,7 @@ std::string charset_entry_text(CharsetRange range) {
     return buf;
 }
 
-Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
+std::string font_recipe_text(const FjFontRecipe& recipe) {
     nlohmann::ordered_json j;
     j["source"] = recipe.source;
     auto charset = nlohmann::ordered_json::array();
@@ -125,10 +125,13 @@ Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
         j["px_range"] = recipe.px_range;
     }
     j["kerning"] = recipe.kerning;
+    return j.dump(4) + "\n";
+}
 
+Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
     std::ofstream file(path);
     if (!file) return make_error("cannot write " + path.string());
-    file << j.dump(4) << "\n";
+    file << font_recipe_text(recipe);
     if (!file) return make_error("write failed for " + path.string());
     return {};
 }
@@ -138,28 +141,32 @@ Result<FjFontRecipe> load_font_recipe(const fs::path& path, std::vector<std::str
     if (!file) return make_error("cannot open " + path.string());
     std::stringstream buffer;
     buffer << file.rdbuf();
+    return font_recipe_from_text(buffer.str(), path.string(), warnings);
+}
 
+Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
+                                           std::vector<std::string>* warnings) {
     nlohmann::json j;
     try {
-        j = nlohmann::json::parse(buffer.str());
+        j = nlohmann::json::parse(text);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error(path.string() + ": " + e.what());
+        return make_error(where + ": " + e.what());
     }
-    if (!j.is_object()) return make_error(path.string() + ": recipe is not a JSON object");
+    if (!j.is_object()) return make_error(where + ": recipe is not a JSON object");
 
     auto warn = [&](const std::string& message) {
-        if (warnings) warnings->push_back(path.string() + ": " + message);
+        if (warnings) warnings->push_back(where + ": " + message);
     };
 
     FjFontRecipe recipe;
     if (!j.contains("source") || !j["source"].is_string() || j["source"].get<std::string>().empty()) {
-        return make_error(path.string() + ": 'source' must name a font file");
+        return make_error(where + ": 'source' must name a font file");
     }
     recipe.source = j["source"].get<std::string>();
 
     if (j.contains("charset")) {
         if (!j["charset"].is_array()) {
-            return make_error(path.string() + ": 'charset' must be a list of names or U+ ranges");
+            return make_error(where + ": 'charset' must be a list of names or U+ ranges");
         }
         for (const auto& entry : j["charset"]) {
             if (!entry.is_string()) {
@@ -180,20 +187,20 @@ Result<FjFontRecipe> load_font_recipe(const fs::path& path, std::vector<std::str
     if (j.contains("cell_size")) {
         if (!j["cell_size"].is_number_unsigned() || j["cell_size"].get<uint32_t>() < 8 ||
             j["cell_size"].get<uint32_t>() > 512) {
-            return make_error(path.string() + ": 'cell_size' must be a whole number of pixels from 8 to 512");
+            return make_error(where + ": 'cell_size' must be a whole number of pixels from 8 to 512");
         }
         recipe.cell_size = j["cell_size"].get<uint32_t>();
     }
     if (j.contains("px_range")) {
         if (!j["px_range"].is_number() || j["px_range"].get<float>() <= 0.0f ||
             j["px_range"].get<float>() * 2.0f >= static_cast<float>(recipe.cell_size)) {
-            return make_error(path.string() + ": 'px_range' must be positive and less than half the cell size");
+            return make_error(where + ": 'px_range' must be positive and less than half the cell size");
         }
         recipe.px_range = j["px_range"].get<float>();
     }
     if (j.contains("kerning")) {
         if (!j["kerning"].is_boolean()) {
-            return make_error(path.string() + ": 'kerning' must be true or false");
+            return make_error(where + ": 'kerning' must be true or false");
         }
         recipe.kerning = j["kerning"].get<bool>();
     }

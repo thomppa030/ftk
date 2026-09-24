@@ -70,6 +70,39 @@ Result<ozz::animation::Animation> build_ozz_animation(
 
 } // anonymous namespace
 
+namespace {
+
+// Notifies from their JSON, as the clip file holds them; a type that isn't
+// loaded keeps its properties so saving writes them back unchanged.
+std::vector<AnimNotifyInstance> notifies_from_json(const nlohmann::json& notifies, const std::string& where) {
+    std::vector<AnimNotifyInstance> out;
+    auto& registry = AnimNotifyRegistry::instance();
+    for (const auto& jn : notifies) {
+        AnimNotifyInstance ni;
+        ni.time = jn.value("time", 0.0f);
+        ni.end_time = jn.value("end_time", 0.0f);
+        ni.type_name = jn.value("type", "");
+        ni.properties = jn; // keep full JSON for re-serialization
+
+        if (!ni.type_name.empty()) {
+            ni.instance = registry.create(ni.type_name);
+            if (ni.instance) {
+                const auto* info = registry.find(ni.type_name);
+                if (info && !info->fields.empty()) {
+                    deserialize_reflected_fields(info->fields, ni.instance.get(), jn);
+                }
+            } else {
+                FJELL_CORE_WARN("Animation {}: unknown notify type '{}' at t={:.2f}",
+                                where, ni.type_name, ni.time);
+            }
+        }
+        out.push_back(std::move(ni));
+    }
+    return out;
+}
+
+} // namespace
+
 Result<AnimationClip> AnimationClip::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) {
@@ -132,28 +165,7 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
 
     // Parse notifies (typed AnimNotify instances)
     if (j.contains("notifies") && j["notifies"].is_array()) {
-        auto& registry = AnimNotifyRegistry::instance();
-        for (const auto& jn : j["notifies"]) {
-            AnimNotifyInstance ni;
-            ni.time = jn.value("time", 0.0f);
-            ni.end_time = jn.value("end_time", 0.0f);
-            ni.type_name = jn.value("type", "");
-            ni.properties = jn; // keep full JSON for re-serialization
-
-            if (!ni.type_name.empty()) {
-                ni.instance = registry.create(ni.type_name);
-                if (ni.instance) {
-                    const auto* info = registry.find(ni.type_name);
-                    if (info && !info->fields.empty()) {
-                        deserialize_reflected_fields(info->fields, ni.instance.get(), jn);
-                    }
-                } else {
-                    FJELL_CORE_WARN("Animation {}: unknown notify type '{}' at t={:.2f}",
-                                    path, ni.type_name, ni.time);
-                }
-            }
-            clip.notifies_.push_back(std::move(ni));
-        }
+        clip.notifies_ = notifies_from_json(j["notifies"], path);
     }
 
     // Backward compat: load old "events" as untyped notifies (properties only)
@@ -188,6 +200,51 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
     return clip;
 }
 
+namespace {
+
+// The notifies as the clip file holds them: the reflected fields of each
+// live instance, or the stored properties of a type that isn't loaded.
+nlohmann::json notifies_json(const std::vector<AnimNotifyInstance>& notifies) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& ni : notifies) {
+        nlohmann::json jn;
+        jn["time"] = ni.time;
+        if (ni.end_time > 0.0f) jn["end_time"] = ni.end_time;
+        jn["type"] = ni.type_name;
+
+        // Serialize reflected fields from live instance, or fall back to stored properties
+        if (ni.instance) {
+            const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
+            if (info && !info->fields.empty()) {
+                serialize_reflected_fields(info->fields, ni.instance.get(), jn);
+            }
+        } else if (!ni.properties.empty()) {
+            // Type not loaded — preserve original properties
+            for (auto it = ni.properties.begin(); it != ni.properties.end(); ++it) {
+                if (it.key() != "time" && it.key() != "end_time" && it.key() != "type") {
+                    jn[it.key()] = it.value();
+                }
+            }
+        }
+        out.push_back(jn);
+    }
+
+    return out;
+}
+
+} // namespace
+
+std::string AnimationClip::notifies_text() const {
+    return notifies_json(notifies_).dump(2);
+}
+
+Result<> AnimationClip::set_notifies_from_text(std::string_view text) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_array()) return make_error("notifies aren't a JSON list");
+    notifies_ = notifies_from_json(j, name_);
+    return {};
+}
+
 Result<> AnimationClip::save(const std::string& path) const {
     nlohmann::json j;
     j["name"] = name_;
@@ -215,29 +272,7 @@ Result<> AnimationClip::save(const std::string& path) const {
         j["tracks"].push_back(jt);
     }
 
-    j["notifies"] = nlohmann::json::array();
-    for (const auto& ni : notifies_) {
-        nlohmann::json jn;
-        jn["time"] = ni.time;
-        if (ni.end_time > 0.0f) jn["end_time"] = ni.end_time;
-        jn["type"] = ni.type_name;
-
-        // Serialize reflected fields from live instance, or fall back to stored properties
-        if (ni.instance) {
-            const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
-            if (info && !info->fields.empty()) {
-                serialize_reflected_fields(info->fields, ni.instance.get(), jn);
-            }
-        } else if (!ni.properties.empty()) {
-            // Type not loaded — preserve original properties
-            for (auto it = ni.properties.begin(); it != ni.properties.end(); ++it) {
-                if (it.key() != "time" && it.key() != "end_time" && it.key() != "type") {
-                    jn[it.key()] = it.value();
-                }
-            }
-        }
-        j["notifies"].push_back(jn);
-    }
+    j["notifies"] = notifies_json(notifies_);
 
     std::ofstream file(path);
     if (!file.is_open()) {

@@ -40,4 +40,7 @@ struct WidgetAsset {
 [[nodiscard]] Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
                                          const UiNode* markup);
 
+/// The text save_widget_asset() writes, without writing it.
+[[nodiscard]] std::string widget_asset_text(const WidgetAsset& asset, const UiNode* markup);
+
 } // namespace fjell

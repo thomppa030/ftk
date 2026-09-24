@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -36,7 +37,11 @@ public:
     [[nodiscard]] BlendResult evaluate(float param) const;
 
     [[nodiscard]] static Result<BlendSpace1D> load(const std::string& path);
+    /// A blend space read back from its text, as text() writes it.
+    [[nodiscard]] static Result<BlendSpace1D> from_text(std::string_view text, const std::string& path);
     [[nodiscard]] Result<> save(const std::string& path) const;
+    /// The text save() writes, without writing it.
+    [[nodiscard]] std::string text() const;
 
     [[nodiscard]] const std::string& parameter() const { return parameter_; }
     void set_parameter(const std::string& name) { parameter_ = name; }
@@ -87,7 +92,11 @@ public:
     [[nodiscard]] BlendResult2D evaluate(glm::vec2 param) const;
 
     [[nodiscard]] static Result<BlendSpace2D> load(const std::string& path);
+    /// A blend space read back from its text, as text() writes it.
+    [[nodiscard]] static Result<BlendSpace2D> from_text(std::string_view text, const std::string& path);
     [[nodiscard]] Result<> save(const std::string& path) const;
+    /// The text save() writes, without writing it.
+    [[nodiscard]] std::string text() const;
 
     [[nodiscard]] const std::string& parameter_x() const { return parameter_x_; }
     [[nodiscard]] const std::string& parameter_y() const { return parameter_y_; }

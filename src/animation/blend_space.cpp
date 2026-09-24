@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -46,8 +47,14 @@ BlendResult BlendSpace1D::evaluate(float param) const {
 Result<BlendSpace1D> BlendSpace1D::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) return make_error("Failed to open .fjblend1D: " + path);
+    std::stringstream text;
+    text << file.rdbuf();
+    return from_text(text.str(), path);
+}
 
-    auto j = nlohmann::json::parse(file);
+Result<BlendSpace1D> BlendSpace1D::from_text(std::string_view text, const std::string& path) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return make_error("Malformed .fjblend1D: " + path);
     BlendSpace1D bs;
     bs.parameter_ = j.value("parameter", "");
     bs.skeleton_path_ = j.value("skeleton", "");
@@ -68,7 +75,7 @@ Result<BlendSpace1D> BlendSpace1D::load(const std::string& path) {
     return bs;
 }
 
-Result<> BlendSpace1D::save(const std::string& path) const {
+std::string BlendSpace1D::text() const {
     nlohmann::json j;
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter"] = parameter_;
@@ -79,10 +86,13 @@ Result<> BlendSpace1D::save(const std::string& path) const {
     for (const auto& pt : points_) {
         j["points"].push_back({{"clip", pt.clip}, {"position", pt.position}});
     }
+    return j.dump(2);
+}
 
+Result<> BlendSpace1D::save(const std::string& path) const {
     std::ofstream file(path);
     if (!file) return make_error("Failed to save .fjblend1D: " + path);
-    file << j.dump(2);
+    file << text();
     return {};
 }
 
@@ -294,8 +304,14 @@ BlendResult2D BlendSpace2D::evaluate(glm::vec2 param) const {
 Result<BlendSpace2D> BlendSpace2D::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) return make_error("Failed to open .fjblend2D: " + path);
+    std::stringstream text;
+    text << file.rdbuf();
+    return from_text(text.str(), path);
+}
 
-    auto j = nlohmann::json::parse(file);
+Result<BlendSpace2D> BlendSpace2D::from_text(std::string_view text, const std::string& path) {
+    auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return make_error("Malformed .fjblend2D: " + path);
     BlendSpace2D bs;
     bs.parameter_x_ = j.value("parameter_x", "");
     bs.parameter_y_ = j.value("parameter_y", "");
@@ -322,7 +338,7 @@ Result<BlendSpace2D> BlendSpace2D::load(const std::string& path) {
     return bs;
 }
 
-Result<> BlendSpace2D::save(const std::string& path) const {
+std::string BlendSpace2D::text() const {
     nlohmann::json j;
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter_x"] = parameter_x_;
@@ -337,10 +353,13 @@ Result<> BlendSpace2D::save(const std::string& path) const {
             {"position", {pt.position.x, pt.position.y}}
         });
     }
+    return j.dump(2);
+}
 
+Result<> BlendSpace2D::save(const std::string& path) const {
     std::ofstream file(path);
     if (!file) return make_error("Failed to save .fjblend2D: " + path);
-    file << j.dump(2);
+    file << text();
     return {};
 }
 
