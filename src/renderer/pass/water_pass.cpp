@@ -21,8 +21,10 @@
 #include "renderer/uniform_types.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <span>
 #include <vector>
@@ -95,27 +97,36 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create water set layout");
     }
 
-    field_buffer_ = std::make_unique<Buffer>(
-        allocator_, sizeof(GpuWaterField), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-            VMA_ALLOCATION_CREATE_MAPPED_BIT);
-    clipmap_buffer_ = std::make_unique<Buffer>(
-        allocator_, sizeof(GpuWaterClipmap), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-            VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    // Each node's field is bound at its own offset into the frame's buffer,
+    // so the records sit at the alignment the device asks of a uniform
+    // buffer offset.
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(device.physical_device(), &props);
+    const VkDeviceSize alignment = std::max<VkDeviceSize>(
+        props.limits.minUniformBufferOffsetAlignment, 1);
+    field_stride_ = (sizeof(GpuWaterField) + alignment - 1) / alignment * alignment;
 
-    // A field of flat water until a node supplies one, so the buffer is never
-    // read as uninitialised memory. write() maps on first use and keeps the
-    // mapping; the buffer is host-visible and rewritten whenever a sea is
-    // edited, so it stays mapped for the pass's life.
-    GpuWaterField empty{};
-    field_buffer_->write(&empty, sizeof(empty));
-    bound_field_ = empty;
-
-    bound_clipmap_ = clipmap_.gpu();
-    clipmap_buffer_->write(&bound_clipmap_, sizeof(bound_clipmap_));
+    for (auto& buffer : field_buffers_) {
+        buffer = std::make_unique<Buffer>(
+            allocator_, field_stride_ * WATER_NODES_PER_FRAME,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                VMA_ALLOCATION_CREATE_MAPPED_BIT);
+        // A field of flat water in the first record, so the waterline
+        // dispatch that runs with no water in reach never binds
+        // uninitialised memory.
+        GpuWaterField empty{};
+        buffer->write(&empty, sizeof(empty));
+    }
+    for (auto& buffer : clipmap_buffers_) {
+        buffer = std::make_unique<Buffer>(
+            allocator_, sizeof(GpuWaterClipmap), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                VMA_ALLOCATION_CREATE_MAPPED_BIT);
+        const GpuWaterClipmap table = clipmap_.gpu();
+        buffer->write(&table, sizeof(table));
+    }
 
     for (auto& buffer : wake_buffers_) {
         buffer = std::make_unique<Buffer>(
@@ -214,8 +225,8 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
 
 void WaterPass::destroy() {
     destroy_material_pipelines();
-    field_buffer_.reset();
-    clipmap_buffer_.reset();
+    for (auto& buffer : field_buffers_) buffer.reset();
+    for (auto& buffer : clipmap_buffers_) buffer.reset();
     for (auto& buffer : wake_buffers_) buffer.reset();
     if (line_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, line_pipeline_, nullptr);
@@ -249,7 +260,7 @@ void WaterPass::destroy() {
         vkDestroyDescriptorSetLayout(device_, water_set_layout_, nullptr);
         water_set_layout_ = VK_NULL_HANDLE;
     }
-    bound_water_ = nullptr;
+    field_slots_.clear();
 }
 
 void WaterPass::destroy_material_pipelines() {
@@ -338,6 +349,8 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         simulation_->set_sea(running);
     }
 
+    upload_fields(ctx);
+    upload_clipmap(ctx);
     upload_wakes(ctx);
 
     // Pipelines are built here rather than in record(): a first sighting of a
@@ -589,27 +602,30 @@ void WaterPass::resolve_node_material(const WaterComponent& comp, VkPipeline& ou
     }
 }
 
-void WaterPass::bind_water_field(const WaterComponent& comp) {
-    // The editor rewrites a field as it is dragged, so comparing the pointer
-    // is not enough to know nothing changed — compare what the shader will
-    // actually read. Kept as a copy rather than read back out of the mapped
-    // buffer: that memory is write-combined, and reading it is slow.
-    GpuWaterField field = to_gpu_field(comp.effective_water);
-    // A field with a simulated contributor is drawn with the sea the world is
-    // running, which is its own unless another body of water asked first. The
-    // textures tile at the running sea's patch whoever samples them, so that
-    // is the scale the shader is given — not the one this field would have
-    // had. None running yet means none to sample.
-    if (field.simulated_patch_size > 0.0f) {
-        field.simulated_patch_size = simulation_->active() ? simulation_->patch_size() : 0.0f;
+void WaterPass::upload_fields(const FrameContext& ctx) {
+    field_slots_.clear();
+    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
+    auto* records = static_cast<std::byte*>(field_buffers_[slot]->mapped());
+    std::uint32_t used = 0;
+    for (const auto& node : ctx.scene->objects()) {
+        const auto* wc = node->components.get<WaterComponent>();
+        if (wc == nullptr) continue;
+        if (used >= WATER_NODES_PER_FRAME) break;
+        GpuWaterField field = to_gpu_field(wc->effective_water);
+        // A field with a simulated contributor is drawn with the sea the
+        // world is running, which is its own unless another body of water
+        // asked first. The textures tile at the running sea's patch whoever
+        // samples them, so that is the scale the shader is given — not the
+        // one this field would have had. None running yet means none to
+        // sample.
+        if (field.simulated_patch_size > 0.0f) {
+            field.simulated_patch_size = simulation_->active() ? simulation_->patch_size() : 0.0f;
+        }
+        const VkDeviceSize offset = used * field_stride_;
+        std::memcpy(records + offset, &field, sizeof(field));
+        field_slots_[wc] = FieldSlot{offset, field.simulated_patch_size};
+        ++used;
     }
-    if (bound_water_ == &comp &&
-        std::memcmp(&bound_field_, &field, sizeof(field)) == 0) {
-        return;
-    }
-    field_buffer_->write(&field, sizeof(field));
-    bound_field_ = field;
-    bound_water_ = &comp;
 }
 
 void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkExtent2D size) {
@@ -631,11 +647,13 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
     }
 
     WaterPushConstants push{};
-    if (water != nullptr) {
-        bind_water_field(*water);
+    VkDeviceSize field_offset = 0;
+    const auto field = water != nullptr ? field_slots_.find(water) : field_slots_.end();
+    if (field != field_slots_.end()) {
+        field_offset = field->second.offset;
         const auto* spatial = nearest->as_spatial();
         push.surface_height = spatial != nullptr ? spatial->world_matrix_[3].y : 0.0F;
-        push.simulated_patch_size = bound_field_.simulated_patch_size;
+        push.simulated_patch_size = field->second.simulated_patch_size;
         if (const auto range = wake_ranges_.find(water); range != wake_ranges_.end()) {
             push.wake_first = range->second.first;
             push.wake_count = range->second.count;
@@ -653,7 +671,7 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
         ctx.descriptor_cache->acquire(line_set_layout_, std::span{&mask_binding, 1});
 
     std::array<VkDescriptorSet, 4> sets = {ctx.global_descriptor_set, ctx.bindless_set,
-                                          acquire_water_set(ctx), mask_set};
+                                          acquire_water_set(ctx, field_offset), mask_set};
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_layout_, 0,
                             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
@@ -679,7 +697,8 @@ void WaterPass::upload_wakes(const FrameContext& ctx) {
     }
 }
 
-VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
+VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
+                                             VkDeviceSize field_offset) const {
     auto sampled = [this](std::uint32_t binding, VkImageView view) {
         FrameCacheBinding b{};
         b.binding = binding;
@@ -689,11 +708,13 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
         b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return b;
     };
-    auto uniform = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize range) {
+    auto uniform = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
+                      VkDeviceSize range) {
         FrameCacheBinding b{};
         b.binding = binding;
         b.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         b.buffer.buffer = buffer;
+        b.buffer.offset = offset;
         b.buffer.range = range;
         return b;
     };
@@ -707,8 +728,8 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
     };
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
     const FrameCacheBinding bindings[6]{
-        uniform(0, field_buffer_->handle(), sizeof(GpuWaterField)),
-        uniform(1, clipmap_buffer_->handle(), sizeof(GpuWaterClipmap)),
+        uniform(0, field_buffers_[slot]->handle(), field_offset, sizeof(GpuWaterField)),
+        uniform(1, clipmap_buffers_[slot]->handle(), 0, sizeof(GpuWaterClipmap)),
         sampled(2, simulation_->displacement_view()),
         sampled(3, simulation_->previous_displacement_view()),
         sampled(4, simulation_->derivatives_view()),
@@ -717,17 +738,10 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx) const {
     return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 6});
 }
 
-void WaterPass::bind_clipmap() {
-    // Most frames move the inner levels and leave the outer ones alone, and
-    // a camera standing still moves none of them. Compared against a copy
-    // rather than read back from the buffer: that memory is write-combined,
-    // and reading it is slow.
+void WaterPass::upload_clipmap(const FrameContext& ctx) {
+    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
     const GpuWaterClipmap& table = clipmap_.gpu();
-    if (std::memcmp(&bound_clipmap_, &table, sizeof(table)) == 0) {
-        return;
-    }
-    clipmap_buffer_->write(&table, sizeof(table));
-    bound_clipmap_ = table;
+    std::memcpy(clipmap_buffers_[slot]->mapped(), &table, sizeof(table));
 }
 
 bool WaterPass::scene_has_water(const FrameContext& ctx) {
@@ -904,29 +918,26 @@ void WaterPass::record(const FrameContext& ctx) {
     sc.extent = target->extent();
     vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
 
-    bool bound_sets = false;
     VkPipeline current = VK_NULL_HANDLE;
 
     for (const auto& node : ctx.scene->objects()) {
         const auto* wc = node->components.get<WaterComponent>();
         if (wc == nullptr) continue;
+        // Absent when the frame's field buffer was full.
+        const auto field = field_slots_.find(wc);
+        if (field == field_slots_.end()) continue;
 
         VkPipeline pipeline = VK_NULL_HANDLE;
         uint32_t material_id = 0;
         resolve_node_material(*wc, pipeline, material_id);
         if (pipeline == VK_NULL_HANDLE) continue;
 
-        bind_water_field(*wc);
-        bind_clipmap();
-
-        if (!bound_sets) {
-            std::array<VkDescriptorSet, 3> sets = {ctx.global_descriptor_set,
-                                                  ctx.bindless_set, acquire_water_set(ctx)};
-            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
-                                    static_cast<uint32_t>(sets.size()), sets.data(), 0,
-                                    nullptr);
-            bound_sets = true;
-        }
+        // Each node reads its own field record, so the set is per node.
+        std::array<VkDescriptorSet, 3> sets = {
+            ctx.global_descriptor_set, ctx.bindless_set,
+            acquire_water_set(ctx, field->second.offset)};
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
+                                static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
         if (pipeline != current) {
             vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             current = pipeline;
@@ -952,7 +963,7 @@ void WaterPass::record(const FrameContext& ctx) {
         push.delta_time = ctx.delta_time;
         push.wave_direction = water::dominant_direction(wc->effective_water);
         push.infinite = infinite ? 1U : 0U;
-        push.simulated_patch_size = bound_field_.simulated_patch_size;
+        push.simulated_patch_size = field->second.simulated_patch_size;
         push.sdf_volume_min = sdf_volume_min_;
         push.sdf_volume_max = sdf_volume_max_;
         if (const auto range = wake_ranges_.find(wc); range != wake_ranges_.end()) {

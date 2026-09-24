@@ -135,18 +135,19 @@ private:
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
-    /// Upload a node's wave field to the uniform buffer the mesh shader
-    /// reads. Cheap to call every frame: it early-outs unless the field
-    /// changed, which is what lets the editor drive it live.
-    void bind_water_field(const WaterComponent& comp);
+    /// Write every water node's wave field into this frame's field buffer,
+    /// one record per node, and note where each landed. A node past the
+    /// buffer's capacity is not drawn that frame.
+    void upload_fields(const FrameContext& ctx);
 
-    /// Upload the clipmap level table for this frame. Early-outs unless a
-    /// level moved, which for the outer levels is most frames.
-    void bind_clipmap();
-    /// The water's own set for this frame: the field, the clipmap, the
-    /// simulated sea's textures and the wakes. Per frame because those
-    /// textures swap every frame, which a set written once could not follow.
-    [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx) const;
+    /// Write the clipmap level table into this frame's clipmap buffer.
+    void upload_clipmap(const FrameContext& ctx);
+    /// The water's own set for one node this frame: its field, the clipmap,
+    /// the simulated sea's textures and the wakes. Per frame because those
+    /// textures swap every frame, which a set written once could not
+    /// follow; per node because each reads its own field record.
+    [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx,
+                                                    VkDeviceSize field_offset) const;
 
     /// Pack every water node's wakes into this frame's wake buffer and note
     /// where each node's begin.
@@ -223,22 +224,32 @@ private:
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};
-    /// The wave field the mesh shader reads. Host-visible and mapped: it is
-    /// half a kilobyte rewritten when a sea is edited, which is not worth a
-    /// staging copy.
-    std::unique_ptr<Buffer> field_buffer_;
-    /// Which node's field is in the buffer, and what it holds, so an
-    /// unchanged one is not re-uploaded. The copy exists because the buffer's
-    /// memory is write-combined and reading it back to compare is slow.
-    const WaterComponent* bound_water_{nullptr};
-    GpuWaterField bound_field_{};
+    /// How many water nodes a frame's field buffer holds. Past it a node is
+    /// not drawn that frame.
+    static constexpr uint32_t WATER_NODES_PER_FRAME = 16;
+    /// The wave fields the mesh shader reads, one record per water node at
+    /// `field_stride_`, one buffer per frame in flight: a frame still
+    /// drawing must not see the next one's field, and two nodes drawn in
+    /// one frame must each read their own. Host-visible and mapped; a
+    /// couple of kilobytes per node is not worth a staging copy.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> field_buffers_;
+    /// The distance between records: the field's size rounded up to the
+    /// device's uniform buffer offset alignment.
+    VkDeviceSize field_stride_{0};
+    /// Where this frame's record for each node sits, and the one value of
+    /// it the push constants also need.
+    struct FieldSlot {
+        VkDeviceSize offset{0};
+        float simulated_patch_size{0.0F};
+    };
+    std::unordered_map<const WaterComponent*, FieldSlot> field_slots_;
     /// The levels an infinite surface is drawn from, recentered on the camera
     /// once per frame. One set of levels for the scene rather than one per
     /// node: they follow the camera, not the water, so two infinite seas at
-    /// different heights share them.
+    /// different heights share them. One buffer per frame in flight for the
+    /// same reason as the fields.
     WaterClipmap clipmap_;
-    std::unique_ptr<Buffer> clipmap_buffer_;
-    GpuWaterClipmap bound_clipmap_{};
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> clipmap_buffers_;
 
     /// How many wake records a frame's buffer holds across every water node.
     /// Past it a node's remaining wakes are not drawn that frame.
