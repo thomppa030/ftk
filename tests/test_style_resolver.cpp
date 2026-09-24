@@ -852,6 +852,43 @@ TEST_CASE("Linear gradient with two colors only (no angle)", "[style][edge]") {
 
 // --- Box shadow parsing ---
 
+TEST_CASE("Border shorthand keeps an rgba() colour whole", "[style][border]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { border: 1.5 solid rgba(255, 255, 255, 0.14); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_width == Catch::Approx(1.5f));
+    REQUIRE(root->style.border_color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_color.g == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_color.a == Catch::Approx(0.14f));
+}
+
+TEST_CASE("Border shorthand takes its colour from a custom property", "[style][border][vars]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse(R"(
+        :root { --hairline: rgba(245, 241, 232, 0.5); }
+        div { border: 1 solid var(--hairline); }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_width == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_color.a == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Border shorthand knows every named colour and none", "[style][border]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { border: 2 solid orange; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_width == Catch::Approx(2.0f));
+    REQUIRE(root->style.border_color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_color.g == Catch::Approx(0.647f));
+
+    auto none = FjssParser::parse("div { border: none; }");
+    resolver.resolve(*root, none);
+    REQUIRE(root->style.border_width == Catch::Approx(0.0f));
+}
+
 TEST_CASE("Box shadow with hex color", "[style][edge]") {
     auto root = make_node("div");
     auto sheet = FjssParser::parse("div { box-shadow: 2 4 8 #000000; }");

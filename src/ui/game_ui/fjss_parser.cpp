@@ -509,7 +509,7 @@ void FjssParser::validate_text_shadow(size_t offset, const std::string& value) {
     if (value == "none") return;
     size_t lengths = 0;
     size_t colors = 0;
-    for (const auto& token : ui_style_shadow_tokens(value)) {
+    for (const auto& token : ui_style_value_tokens(value)) {
         if (ui_style_is_length_token(token)) {
             ++lengths;
         } else {

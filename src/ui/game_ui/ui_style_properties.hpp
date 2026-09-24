@@ -84,12 +84,13 @@ struct UiPropertyDescriptor {
 /// The text of a string property with surrounding quotes removed.
 [[nodiscard]] std::string ui_style_unquote(std::string_view value);
 
-/// A shadow value (`box-shadow`, `text-shadow`) split on whitespace, with an
-/// rgb()/rgba() colour kept whole although it contains spaces.
-[[nodiscard]] std::vector<std::string> ui_style_shadow_tokens(std::string_view value);
+/// A composite value (`border`, `box-shadow`, `text-shadow`) split on
+/// whitespace, with an rgb()/rgba() colour kept whole although it contains
+/// spaces.
+[[nodiscard]] std::vector<std::string> ui_style_value_tokens(std::string_view value);
 
-/// Whether a token of a shadow value is a length rather than a colour: it
-/// starts like a number (`2`, `-1.5`, `.5px`).
+/// Whether a token of such a value is a length rather than a colour or a
+/// keyword: it starts like a number (`2`, `-1.5`, `.5px`).
 [[nodiscard]] bool ui_style_is_length_token(std::string_view token);
 
 /// Scalar channels a transition interpolates for the property: one for a

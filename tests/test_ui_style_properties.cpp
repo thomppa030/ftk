@@ -140,8 +140,8 @@ TEST_CASE("Inherited properties copy across", "[props]") {
     REQUIRE_FALSE(child.box_shadow.active()); // not inherited
 }
 
-TEST_CASE("Shadow values split on spaces but keep rgba() whole", "[props]") {
-    auto tokens = ui_style_shadow_tokens("  0 2   rgba(0, 0, 0, 0.5)  4 ");
+TEST_CASE("Composite values split on spaces but keep rgba() whole", "[props]") {
+    auto tokens = ui_style_value_tokens("  0 2   rgba(0, 0, 0, 0.5)  4 ");
     REQUIRE(tokens == std::vector<std::string>{"0", "2", "rgba(0, 0, 0, 0.5)", "4"});
     REQUIRE(ui_style_is_length_token("-1.5px"));
     REQUIRE(ui_style_is_length_token(".5"));

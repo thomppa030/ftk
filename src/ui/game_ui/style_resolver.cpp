@@ -345,18 +345,21 @@ void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDesc
         return;
     }
 
-    // Border shorthand: "2px solid #333" or "1 #666"
+    // Border shorthand: "2px solid #333", "1 #666" or "1.5 solid rgba(255, 255,
+    // 255, 0.14)". Split so an rgb()/rgba() colour stays whole: a number is
+    // the width, a line style is skipped (only solid draws), `none` takes the
+    // border away, and anything else is the colour.
     if (desc.name == "border") {
-        std::istringstream iss(value);
-        std::string token;
-        while (iss >> token) {
-            if (token == "solid" || token == "none" || token == "dashed") continue;
-            if (token[0] == '#' || token.find("rgb") == 0 ||
-                token == "transparent" || token == "white" || token == "black" ||
-                token == "red" || token == "green" || token == "blue") {
-                style.border_color = parse_color(token);
-            } else {
+        for (const auto& token : ui_style_value_tokens(value)) {
+            if (token == "none") {
+                style.border_width = 0.0f;
+            } else if (token == "solid" || token == "dashed" || token == "dotted" ||
+                       token == "double") {
+                continue;
+            } else if (ui_style_is_length_token(token)) {
                 style.border_width = parse_px(token);
+            } else {
+                style.border_color = parse_color(token);
             }
         }
         return;
@@ -372,7 +375,7 @@ void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDesc
     // e.g. "0 4 8 0 rgba(0, 0, 0, 0.3)" or "2 2 6 #00000080"
     if (desc.name == "box-shadow") {
         if (value == "none") { style.box_shadow = {}; return; }
-        auto merged = ui_style_shadow_tokens(value);
+        auto merged = ui_style_value_tokens(value);
         if (merged.size() >= 4) {
             style.box_shadow.offset_x = parse_px(merged[0]);
             style.box_shadow.offset_y = parse_px(merged[1]);
@@ -395,7 +398,7 @@ void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDesc
         UiTextShadow shadow;
         std::vector<float> lengths;
         int colors = 0;
-        for (const auto& token : ui_style_shadow_tokens(value)) {
+        for (const auto& token : ui_style_value_tokens(value)) {
             if (ui_style_is_length_token(token)) {
                 lengths.push_back(parse_px(token));
             } else {

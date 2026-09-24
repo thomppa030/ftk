@@ -265,7 +265,7 @@ std::string ui_style_unquote(std::string_view value) {
     return std::string(value);
 }
 
-std::vector<std::string> ui_style_shadow_tokens(std::string_view value) {
+std::vector<std::string> ui_style_value_tokens(std::string_view value) {
     std::vector<std::string> tokens;
     size_t i = 0;
     while (i < value.size()) {
