@@ -93,6 +93,7 @@
         { "class": "WaterFftPass",     "name": "water_fft" },
         { "class": "DdgiPass",         "name": "ddgi" },
         { "class": "SsGiPass",         "name": "ss_gi" },
+        { "class": "SsGiDepthHistoryPass", "name": "ss_gi_depth_history" },
 
         // ── Forward+ lighting ──────────────────────────────────────────
         { "class": "LightCullPass",    "name": "light_cull" },

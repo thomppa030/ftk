@@ -6,6 +6,7 @@
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -519,8 +520,49 @@ void SsGiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     prev_view_proj_ = glm::inverse(ctx.inv_view_proj);
 }
 
+void SsGiPass::record_depth_history(const FrameContext& ctx, Images& imgs) {
+    // Nothing to copy into before the first resolve has created the image,
+    // nor while it keeps the old size after a resize.
+    const VkExtent2D extent = ctx.target->extent();
+    if (imgs.prev_depth_image == VK_NULL_HANDLE
+        || imgs.depth_extent.width != extent.width
+        || imgs.depth_extent.height != extent.height) {
+        return;
+    }
+    FJELL_PROFILE_SCOPE_N("record_ss_gi_depth_history");
+    FJELL_GPU_ZONE(ctx, "SS-GI Depth History");
+    VkCommandBuffer cmd = ctx.cmd;
+
+    // This frame's resolve has read the last copy, so it can be overwritten.
+    transition_image(cmd, imgs.prev_depth_image,
+                     imgs.prev_depth_valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                           : VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                     VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    VkImageCopy depth_copy{};
+    depth_copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    depth_copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    depth_copy.extent = {extent.width, extent.height, 1};
+    vkCmdCopyImage(cmd,
+                   ctx.target->depth_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   imgs.prev_depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &depth_copy);
+
+    // Where the next frame's resolve samples it.
+    transition_image(cmd, imgs.prev_depth_image,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                     VK_IMAGE_ASPECT_DEPTH_BIT);
+    imgs.prev_depth_valid = true;
+}
+
 void SsGiPass::record(const FrameContext& ctx) {
-    if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) { return; }
+    if (!active()) { return; }
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->ss_gi() : nullptr;
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ss_gi");
@@ -555,7 +597,7 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // frame, which is also what keeps the pass alive. The graph moves it
     // into GENERAL; record() leaves it back where the surfaces read it on
     // every way out, which final_layout reports.
-    if (config_.enabled && trace_pipeline_ != VK_NULL_HANDLE) {
+    if (active()) {
         if (auto out = builder.import_named_optional(ctx, "ss_gi_output"); out.valid()) {
             builder.write(out, ResourceAccess::storage_write_compute);
             builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -914,8 +956,8 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 6. Copy resolved → history for next frame ──
     {
-        FJELL_PROFILE_SCOPE_N("ss_gi_copies");
-        FJELL_GPU_ZONE(ctx, "SS-GI Copies");
+        FJELL_PROFILE_SCOPE_N("ss_gi_history_copy");
+        FJELL_GPU_ZONE(ctx, "SS-GI History Copy");
         barrier_image(imgs.resolved_image,
                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
@@ -933,44 +975,7 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                        imgs.resolved_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        imgs.history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        1, &copy_region);
-
-        // ── 6b. Copy this frame's depth into prev_depth for next frame ──
-        // The resolve above has already read prev_depth (last frame's copy), so it
-        // is now safe to overwrite. Next frame's resolve compares against this.
-        barrier_image(ctx.target->depth_image(),
-                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-                      VK_IMAGE_ASPECT_DEPTH_BIT);
-        barrier_image(imgs.prev_depth_image,
-                      imgs.prev_depth_valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
-                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                      VK_IMAGE_ASPECT_DEPTH_BIT);
-
-        VkImageCopy depth_copy{};
-        depth_copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-        depth_copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-        depth_copy.extent = {imgs.depth_extent.width, imgs.depth_extent.height, 1};
-        vkCmdCopyImage(cmd,
-                       ctx.target->depth_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       imgs.prev_depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1, &depth_copy);
-
-        // Restore both depth images to their sampled layout.
-        barrier_image(ctx.target->depth_image(),
-                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                      VK_IMAGE_ASPECT_DEPTH_BIT);
-        barrier_image(imgs.prev_depth_image,
-                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                      VK_IMAGE_ASPECT_DEPTH_BIT);
     }
-    imgs.prev_depth_valid = true;
 
     // The resolve has consumed prev_view_proj; the history it just wrote
     // belongs to this frame's camera, so that becomes next frame's reference.
@@ -1013,6 +1018,40 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     frame_counter_++;
     return true;
+}
+
+// ── SsGiDepthHistoryPass ────────────────────────────────────────────────────
+
+Result<> SsGiDepthHistoryPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void SsGiDepthHistoryPass::destroy() {}
+
+void SsGiDepthHistoryPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    core_ = &passes.get<SsGiPass>("ss_gi");
+}
+
+PassSetup SsGiDepthHistoryPass::setup() const {
+    return {
+        .name = "ss_gi_depth_history",
+        .phase = RenderPhase::Color,
+        .sub_order = 7,   // right after SS-GI (6) has read the last copy
+    };
+}
+
+void SsGiDepthHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (core_ == nullptr || !core_->active()) { return; }
+    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::transfer_src);
+    // What it writes is SS-GI's private history, for the next frame.
+    builder.has_side_effects();
+}
+
+void SsGiDepthHistoryPass::record(const FrameContext& ctx) {
+    if (core_ == nullptr || !core_->active() || ctx.target == nullptr) { return; }
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->ss_gi() : nullptr;
+    if (imgs == nullptr) { return; }
+    core_->record_depth_history(ctx, *imgs);
 }
 
 } // namespace fjell

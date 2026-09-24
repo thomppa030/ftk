@@ -141,6 +141,16 @@ public:
     /// for the write.
     bool record_into(const FrameContext& ctx, Images& imgs);
 
+    /// Copy the scene depth into `imgs.prev_depth_image` for the next frame's
+    /// resolve, once this frame's resolve has read the last copy. The scene
+    /// depth must be in TRANSFER_SRC_OPTIMAL; SsGiDepthHistoryPass declares it.
+    void record_depth_history(const FrameContext& ctx, Images& imgs);
+
+    /// Whether the pass records at all: enabled, with its trace pipeline.
+    [[nodiscard]] bool active() const {
+        return config_.enabled && trace_pipeline_ != VK_NULL_HANDLE;
+    }
+
     void set_config(const SsGiConfig& config) { config_ = config; }
     [[nodiscard]] SsGiConfig& config() { return config_; }
     [[nodiscard]] const SsGiConfig& config() const { return config_; }
@@ -226,6 +236,22 @@ private:
     VkStridedDeviceAddressRegionKHR sbt_miss_{};
     VkStridedDeviceAddressRegionKHR sbt_hit_{};
     VkStridedDeviceAddressRegionKHR sbt_callable_{};
+};
+
+/// Copies the scene depth into SS-GI's private history after SS-GI has
+/// read the last copy. A node of its own so the graph moves the scene
+/// depth into the copy's layout and back to where its next reader wants it.
+class SsGiDepthHistoryPass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+
+private:
+    SsGiPass* core_{nullptr};
 };
 
 } // namespace fjell
