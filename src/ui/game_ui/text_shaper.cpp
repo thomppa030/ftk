@@ -1,5 +1,6 @@
 #include "ui/game_ui/text_shaper.hpp"
 #include "ui/game_ui/font_atlas.hpp"
+#include "core/utf8.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -28,13 +29,15 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
     const auto* space_gi = font.glyph(' ');
     float space_adv = space_gi ? space_gi->advance * scale : font_size * 0.25f;
 
-    for (size_t i = 0; i < text.size(); ++i) {
-        char c = text[i];
+    // Markup and scripts hand over UTF-8, so a character may span several
+    // bytes; the atlas is keyed by codepoint.
+    for (size_t i = 0; i < text.size();) {
+        const uint32_t cp = utf8::next(text, i);
 
         // Carriage return: skip (handle \r\n as just \n)
-        if (c == '\r') continue;
+        if (cp == '\r') continue;
 
-        if (c == '\n') {
+        if (cp == '\n') {
             cursor_x = 0.0f;
             baseline_y += line_height;
             word_start_glyph = result.glyphs.size();
@@ -43,7 +46,7 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
             continue;
         }
 
-        if (c == '\t') {
+        if (cp == '\t') {
             float tab_width = space_adv * TAB_STOP_SPACES;
             cursor_x = std::ceil(cursor_x / tab_width + 1.0f) * tab_width;
             max_x = std::max(max_x, cursor_x);
@@ -53,7 +56,6 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
             continue;
         }
 
-        auto cp = static_cast<uint32_t>(static_cast<unsigned char>(c));
         const auto* gi = font.glyph(cp);
         if (!gi) {
             gi = font.glyph('?');
@@ -68,7 +70,7 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
         float adv = gi->advance * scale;
 
         // Space: advance cursor, track word boundary, don't emit glyph
-        if (c == ' ') {
+        if (cp == ' ') {
             cursor_x += adv;
             max_x = std::max(max_x, cursor_x);
             word_start_glyph = result.glyphs.size();

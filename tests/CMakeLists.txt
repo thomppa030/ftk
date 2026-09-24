@@ -169,6 +169,7 @@ add_executable(fjell-tests
     test_fjss_serializer.cpp
     test_fjss_loader.cpp
     test_fjfont.cpp
+    test_utf8.cpp
     test_fjterrain_io.cpp
     test_fjinst_io.cpp
     test_fjwater.cpp
