@@ -348,8 +348,10 @@ void ContactShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu
 PassSetup ContactShadowPass::setup() const {
     return {
         .name = "contact_shadow",
-        .phase = RenderPhase::GpuDriven,   // before Color so mesh.frag reads it
-        .sub_order = 500,                  // after GTAO (400), before color (600)
+        // Traces the prepass depth, so it runs once that is resolved and
+        // before the colour passes whose surfaces sample the result.
+        .phase = RenderPhase::GpuDriven,
+        .sub_order = 105,   // after GTAO (100-102)
     };
 }
 
