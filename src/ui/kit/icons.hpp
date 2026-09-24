@@ -42,6 +42,10 @@ inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
 inline constexpr const char* console           = ICON_LC_TERMINAL;
 inline constexpr const char* stats             = ICON_LC_GAUGE;
 inline constexpr const char* history           = ICON_LC_HISTORY;
+inline constexpr const char* network           = ICON_LC_NETWORK;
+inline constexpr const char* bandwidth         = ICON_LC_ACTIVITY;
+inline constexpr const char* peers             = ICON_LC_USERS;
+inline constexpr const char* simulated         = ICON_LC_FLASK_CONICAL;  // made up for testing
 inline constexpr const char* rendering         = ICON_LC_MONITOR;
 inline constexpr const char* frame_graph       = ICON_LC_WORKFLOW;
 
