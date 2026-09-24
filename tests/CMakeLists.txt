@@ -93,6 +93,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/track_lanes.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -211,6 +212,7 @@ add_executable(fjell-tests
     test_fields.cpp
     test_kit.cpp
     test_list_editor.cpp
+    test_track_lanes.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

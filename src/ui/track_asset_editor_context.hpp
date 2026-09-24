@@ -1,11 +1,9 @@
 #pragma once
 
 #include "ui/editor_context.hpp"
-#include "ui/timeline_widget.hpp"
-#include "ui/track_timeline_editor.hpp"
+#include "ui/track_lanes.hpp"
 #include "ui/viewport_manager.hpp"
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -32,10 +30,10 @@ struct TrackAssetEditorDeps {
 
 /// The editor of an environment asset keyed by tracks over a timeline (a
 /// day profile over 24 hours, a weather event over its four phases). The
-/// preview renders the open scene, the timeline sits under it, and the
-/// Properties panel holds the asset's own settings and its tracks. Every
-/// edit reaches the loaded asset at once, so the scene shows it before a
-/// save.
+/// preview renders the open scene, the timeline under it holds the tracks
+/// as lanes, and the Properties panel the selected track and the asset's
+/// own settings. Every edit reaches the loaded asset at once, so the scene
+/// shows it before a save.
 class TrackAssetEditorContext : public EditorContext {
 public:
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
@@ -54,40 +52,40 @@ public:
     void open(const std::string& path);
 
 protected:
-    TrackAssetEditorContext(TrackAssetEditorDeps deps, std::vector<TrackTimelineEditor::Preset> presets);
+    /// `presets` are the tracks the asset is expected to have, each under the
+    /// group its lane is listed in.
+    TrackAssetEditorContext(TrackAssetEditorDeps deps, std::vector<TrackLanes::Preset> presets);
 
     /// Reads the asset at `abs_path()`. False when it can't be read; the
     /// reason is logged.
     [[nodiscard]] virtual bool load() = 0;
+    /// The asset's tracks.
+    [[nodiscard]] virtual TrackSet& tracks() = 0;
     /// Before the timeline draws: where its playhead should be.
     virtual void sync_timeline() = 0;
     /// The timeline was scrubbed or played to `t`.
     virtual void scrubbed(float t) = 0;
-    /// The Properties panel's contents for a loaded asset.
-    virtual void draw_properties() = 0;
+    /// What stands between the asset and its preview, at the top of
+    /// Properties, over the selected track.
+    virtual void draw_status() {}
+    /// The asset's own settings in Properties, under the selected track.
+    virtual void draw_properties() {}
     /// Copies the edited asset into the loaded one the scene reads.
     virtual void push_live() = 0;
-
-    /// The track list and the selected track's editor. The presets on offer
-    /// are the asset's own plus whatever uniforms the scene's fog materials
-    /// declare right now, so they follow a material swap or a shader edit.
-    /// Pushes the asset live when a track changed.
-    void draw_tracks(TrackSet& tracks, float cursor, const std::function<std::string(float)>& format_time);
 
     [[nodiscard]] const std::string& path() const { return path_; }
     [[nodiscard]] const std::string& abs_path() const { return abs_path_; }
     [[nodiscard]] bool loaded() const { return loaded_; }
 
     TrackAssetEditorDeps deps_;
-    TimelineWidget timeline_;
+    TrackLanes lanes_;
 
 private:
     std::string name_;
     std::string path_;      // as opened, project-relative
     std::string abs_path_;
     bool loaded_{false};
-    std::vector<TrackTimelineEditor::Preset> presets_;
-    TrackTimelineEditor tracks_;
+    std::vector<TrackLanes::Preset> presets_;
     ViewportManager viewport_manager_;
 };
 

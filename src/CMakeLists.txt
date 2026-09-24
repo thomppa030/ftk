@@ -54,7 +54,7 @@ add_executable(fjell
     environment/weather_player.cpp
     environment/climate_asset.cpp
     environment/climate_director.cpp
-    ui/track_timeline_editor.cpp
+    ui/track_lanes.cpp
     ui/day_profile_editor_context.cpp
     ui/water_editor_context.cpp
     ui/weather_editor_context.cpp

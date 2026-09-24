@@ -23,9 +23,10 @@ public:
 
 private:
     [[nodiscard]] bool load() override;
+    [[nodiscard]] TrackSet& tracks() override { return profile_.tracks; }
     void sync_timeline() override;
     void scrubbed(float t) override;
-    void draw_properties() override;
+    void draw_status() override;
     void push_live() override;
 
     [[nodiscard]] float scene_hour() const;

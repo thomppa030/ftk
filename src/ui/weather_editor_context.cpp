@@ -35,21 +35,21 @@ std::string format_phase_time(float units) {
     return buf;
 }
 
-std::vector<TrackTimelineEditor::Preset> weather_presets() {
+std::vector<TrackLanes::Preset> weather_presets() {
     using namespace weather_track;
-    using P = TrackTimelineEditor::Preset;
+    using P = TrackLanes::Preset;
     return {
-        P{std::string(CLOUD_COVERAGE), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
-        P{std::string(CLOUD_DENSITY), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
-        P{std::string(PRECIPITATION), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
-        P{std::string(WIND_SPEED), TrackKind::Float, TrackMode::Override, 0.0f, 30.0f},
-        P{std::string(WIND_GUST), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
-        P{std::string(WIND_VEER), TrackKind::Float, TrackMode::Override, -180.0f, 180.0f},
-        P{std::string(SUN_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
-        P{std::string(AMBIENT_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
-        P{std::string(SKY_TINT), TrackKind::Color, TrackMode::Multiply},
-        P{std::string(LIGHTNING_RATE), TrackKind::Float, TrackMode::Override, 0.0f, 10.0f},
-        P{std::string(SKY_BLEND), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(CLOUD_COVERAGE), "Clouds", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(CLOUD_DENSITY), "Clouds", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(PRECIPITATION), "Precipitation", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(WIND_SPEED), "Wind", TrackKind::Float, TrackMode::Override, 0.0f, 30.0f},
+        P{std::string(WIND_GUST), "Wind", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(WIND_VEER), "Wind", TrackKind::Float, TrackMode::Override, -180.0f, 180.0f},
+        P{std::string(SUN_INTENSITY), "Light", TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
+        P{std::string(AMBIENT_INTENSITY), "Light", TrackKind::Float, TrackMode::Multiply, 0.0f, 1.5f},
+        P{std::string(SKY_TINT), "Sky", TrackKind::Color, TrackMode::Multiply},
+        P{std::string(SKY_BLEND), "Sky", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(LIGHTNING_RATE), "Lightning", TrackKind::Float, TrackMode::Override, 0.0f, 10.0f},
     };
 }
 
@@ -63,10 +63,10 @@ inline constexpr ui::Choice<PrecipitationType> PRECIPITATION_TYPES[] = {
 
 WeatherEditorContext::WeatherEditorContext(TrackAssetEditorDeps deps)
     : TrackAssetEditorContext(deps, weather_presets()) {
-    timeline_.set_duration(static_cast<float>(WEATHER_PHASE_COUNT));
-    timeline_.set_looping(false);
-    timeline_.set_speed(0.25f);
-    timeline_.set_markers({{0.0f, "approach"}, {1.0f, "onset"}, {2.0f, "sustain"}, {3.0f, "tail"}});
+    lanes_.set_format(format_phase_time);
+    lanes_.set_looping(false);
+    lanes_.set_speed(0.25f);
+    lanes_.set_markers({{0.0f, "approach"}, {1.0f, "onset"}, {2.0f, "sustain"}, {3.0f, "tail"}});
 }
 
 bool WeatherEditorContext::load() {
@@ -77,7 +77,7 @@ bool WeatherEditorContext::load() {
     }
     event_ = std::move(*loaded);
     cursor_ = 0.0f;
-    timeline_.set_time(0.0f);
+    lanes_.set_time(0.0f);
     return true;
 }
 
@@ -134,8 +134,8 @@ void WeatherEditorContext::sync_timeline() {
     // otherwise it is the cursor the tracks are edited at.
     if (!is_playing_here()) return;
     cursor_ = deps_.environment->weather().active()->phase_units();
-    timeline_.set_time(cursor_);
-    timeline_.set_playing(false);
+    lanes_.set_time(cursor_);
+    lanes_.set_playing(false);
 }
 
 void WeatherEditorContext::scrubbed(float t) {
@@ -349,10 +349,6 @@ void WeatherEditorContext::draw_properties() {
     }
 
     if (edit.changed || edit.committed) push_live();
-
-    if (ui::section_foldable("Tracks", ui::icon::weather)) {
-        draw_tracks(e.tracks, cursor_, format_phase_time);
-    }
 }
 
 } // namespace fjell

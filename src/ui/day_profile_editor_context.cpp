@@ -8,7 +8,6 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
-#include "ui/kit/section.hpp"
 
 #include <imgui.h>
 
@@ -26,20 +25,20 @@ std::string format_hour(float hour) {
     return buf;
 }
 
-std::vector<TrackTimelineEditor::Preset> day_presets() {
+std::vector<TrackLanes::Preset> day_presets() {
     using namespace day_track;
-    using P = TrackTimelineEditor::Preset;
+    using P = TrackLanes::Preset;
     return {
-        P{std::string(SUN_COLOR), TrackKind::Color, TrackMode::Multiply},
-        P{std::string(SUN_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
-        P{std::string(AMBIENT_COLOR), TrackKind::Color, TrackMode::Multiply},
-        P{std::string(AMBIENT_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
-        P{std::string(SKY_TOP), TrackKind::Color, TrackMode::Override},
-        P{std::string(SKY_BOTTOM), TrackKind::Color, TrackMode::Override},
-        P{std::string(EXPOSURE_BIAS), TrackKind::Float, TrackMode::Override, -4.0f, 4.0f},
-        P{std::string(MOON_COLOR), TrackKind::Color, TrackMode::Multiply},
-        P{std::string(MOON_INTENSITY), TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
-        P{std::string(STAR_INTENSITY), TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(SUN_COLOR), "Sun", TrackKind::Color, TrackMode::Multiply},
+        P{std::string(SUN_INTENSITY), "Sun", TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
+        P{std::string(MOON_COLOR), "Moon and stars", TrackKind::Color, TrackMode::Multiply},
+        P{std::string(MOON_INTENSITY), "Moon and stars", TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
+        P{std::string(STAR_INTENSITY), "Moon and stars", TrackKind::Float, TrackMode::Override, 0.0f, 1.0f},
+        P{std::string(SKY_TOP), "Sky", TrackKind::Color, TrackMode::Override},
+        P{std::string(SKY_BOTTOM), "Sky", TrackKind::Color, TrackMode::Override},
+        P{std::string(AMBIENT_COLOR), "Light", TrackKind::Color, TrackMode::Multiply},
+        P{std::string(AMBIENT_INTENSITY), "Light", TrackKind::Float, TrackMode::Multiply, 0.0f, 2.0f},
+        P{std::string(EXPOSURE_BIAS), "Light", TrackKind::Float, TrackMode::Override, -4.0f, 4.0f},
     };
 }
 
@@ -47,11 +46,11 @@ std::vector<TrackTimelineEditor::Preset> day_presets() {
 
 DayProfileEditorContext::DayProfileEditorContext(TrackAssetEditorDeps deps)
     : TrackAssetEditorContext(deps, day_presets()) {
-    timeline_.set_duration(24.0f);
-    timeline_.set_looping(true);
+    lanes_.set_format(format_hour);
+    lanes_.set_looping(true);
     // The transport runs in hours per second; one hour a second reads well.
-    timeline_.set_speed(1.0f);
-    timeline_.set_markers({{0.0f, "00:00"}, {6.0f, "06:00"}, {12.0f, "12:00"}, {18.0f, "18:00"}});
+    lanes_.set_speed(1.0f);
+    lanes_.set_markers({{0.0f, "00:00"}, {6.0f, "06:00"}, {12.0f, "12:00"}, {18.0f, "18:00"}});
 }
 
 bool DayProfileEditorContext::load() {
@@ -62,7 +61,7 @@ bool DayProfileEditorContext::load() {
     }
     profile_ = std::move(*loaded);
     cursor_hour_ = scene_hour();
-    timeline_.set_time(cursor_hour_);
+    lanes_.set_time(cursor_hour_);
     return true;
 }
 
@@ -109,11 +108,11 @@ float DayProfileEditorContext::scene_hour() const {
 void DayProfileEditorContext::sync_timeline() {
     // The transport writes the hour it lands on into the scene; a scrub in
     // the scene's inspector is picked up here when the transport is idle.
-    if (timeline_.playing()) return;
+    if (lanes_.playing()) return;
     const float hour = scene_hour();
     if (hour != cursor_hour_) {
         cursor_hour_ = hour;
-        timeline_.set_time(hour);
+        lanes_.set_time(hour);
     }
 }
 
@@ -137,22 +136,18 @@ void DayProfileEditorContext::draw_header_actions() {
     ImGui::SetItemTooltip("Set the World Environment's day profile to this file so the preview shows it");
 }
 
-void DayProfileEditorContext::draw_properties() {
+void DayProfileEditorContext::draw_status() {
     // How the open scene relates to the profile: the preview only shows it
     // through the scene's World Environment and its clock.
-    if (deps_.scene != nullptr) {
-        const auto* env = find_world_environment(*deps_.scene);
-        if (env == nullptr) {
-            ui::status(ui::Severity::Warning, "The open scene has no World Environment to preview in");
-        } else if (env->day_profile != path()) {
-            ui::status(ui::Severity::Warning, "The open scene uses another day profile");
-        } else if (!env->time_of_day_enabled) {
-            ui::status(ui::Severity::Warning, "Time of Day is off, so the scene reads the profile at noon");
-        }
+    if (deps_.scene == nullptr) return;
+    const auto* env = find_world_environment(*deps_.scene);
+    if (env == nullptr) {
+        ui::status(ui::Severity::Warning, "The open scene has no World Environment to preview in");
+    } else if (env->day_profile != path()) {
+        ui::status(ui::Severity::Warning, "The open scene uses another day profile");
+    } else if (!env->time_of_day_enabled) {
+        ui::status(ui::Severity::Warning, "Time of Day is off, so the scene reads the profile at noon");
     }
-
-    ui::section("Tracks", ui::icon::day_profile);
-    draw_tracks(profile_.tracks, cursor_hour_, format_hour);
 }
 
 } // namespace fjell

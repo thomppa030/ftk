@@ -25,6 +25,7 @@ public:
 
 private:
     [[nodiscard]] bool load() override;
+    [[nodiscard]] TrackSet& tracks() override { return event_.tracks; }
     void sync_timeline() override;
     void scrubbed(float t) override;
     void draw_properties() override;
