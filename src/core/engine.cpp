@@ -479,6 +479,8 @@ void Engine::init_content_browser() {
         }));
 
     // Import completion — refresh content browser
+    connections_.push_back(import_dialog_.on_show_result.bind(
+        [this](const std::filesystem::path& file) { content_browser_.navigate_to(file.parent_path()); }));
     connections_.push_back(import_dialog_.on_import_complete.bind(
         [this](bool success, const std::vector<std::string>& /*files*/) {
             if (success) {

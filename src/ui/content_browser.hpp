@@ -28,6 +28,8 @@ public:
               ThreadPool* pool = nullptr);
 
     void set_root(const std::filesystem::path& root);
+    /// Shows the folder `dir` in the grid, from the next frame.
+    void navigate_to(const std::filesystem::path& dir);
 
     void draw();
     void toggle_visibility() { visible_ = !visible_; }
@@ -65,7 +67,6 @@ private:
         bool is_directory;
     };
 
-    void navigate_to(const std::filesystem::path& dir);
     void apply_pending_navigation();
     void draw_directory_tree();
     void draw_directory_tree_node(const std::filesystem::path& dir, int depth);

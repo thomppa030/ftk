@@ -2,6 +2,7 @@
 
 #include "import/import_types.hpp"
 #include "import/import_job.hpp"
+#include "import/source_inspection.hpp"
 #include "core/delegate.hpp"
 #include "ui/standalone_window.hpp"
 
@@ -55,19 +56,16 @@ public:
     /// Fired on the main thread when an import finishes.
     Delegate<void(bool success, const std::vector<std::string>& output_files)> on_import_complete;
 
+    /// Fired when the user asks to see an imported file in the content browser.
+    Delegate<void(const std::filesystem::path& file)> on_show_result;
+
 private:
     /// Draw the ImGui UI. Returns true if the window should close.
     bool draw_ui(float window_w, float window_h);
-
-    void draw_source_info();
-    void draw_output_settings();
-    void draw_lod_settings();
-    void draw_sdf_settings();
-    void draw_animation_settings();
-    void draw_texture_settings();
-    void draw_action_buttons();
-    void draw_progress();
-
+    void draw_form();
+    void draw_summary();
+    /// The bottom bar; true when the window should close.
+    bool draw_bottom_bar();
 
     // Shared from the editor (not owned)
     GpuCore* gpu_{nullptr};
@@ -80,15 +78,11 @@ private:
     MeshImportSettings settings_;
     ImportJob job_;
     Connection job_connection_;
+    SourceInspection inspection_;
 
-    // Source file info (detected on open)
     std::string source_filename_;
-    std::string source_info_;
-    bool detected_skinned_{false};
-
-    // Output dir as editable char buffer
-    char output_dir_buf_[512]{};
-    char texture_dir_buf_[128]{};
+    std::string output_dir_;
+    std::string texture_dir_;
 };
 
 } // namespace fjell
