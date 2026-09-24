@@ -69,15 +69,15 @@ private:
     bool loaded_{false};
 
     // Field buffers, committed on Enter or when the field loses focus.
-    char source_buf_[256]{};
-    char ranges_buf_[256]{};
     int cell_size_edit_{48};
     float px_range_edit_{6.0f};
 
     // Sample line
-    char sample_buf_[128]{};
+    std::string sample_text_{"The quick brown fox jumps over 13 lazy dogs"};
     float sample_size_{64.0f};
     bool sample_dirty_{true};
+    /// The atlas generation the sample was drawn with.
+    uint32_t sample_generation_{0};
     std::unique_ptr<GameUi> preview_ui_;
     std::unique_ptr<OffscreenPass> preview_target_;
     // The target matches the panel so the sample draws at its real size;

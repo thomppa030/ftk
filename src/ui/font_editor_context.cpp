@@ -1,21 +1,29 @@
 #include "ui/font_editor_context.hpp"
-#include "ui/asset_thumbnail_renderer.hpp"
-#include "ui/game_ui/font_atlas.hpp"
-#include "ui/game_ui/font_library.hpp"
-#include "ui/game_ui/font_sample.hpp"
-#include "ui/game_ui/game_ui.hpp"
 #include "core/commands.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
+#include "ui/game_ui/font_atlas.hpp"
+#include "ui/game_ui/font_library.hpp"
+#include "ui/game_ui/font_sample.hpp"
+#include "ui/game_ui/game_ui.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/text_field.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <sstream>
 
 namespace fjell {
@@ -63,16 +71,9 @@ std::string custom_ranges_text(const FjFontRecipe& recipe) {
     return out;
 }
 
-void copy_to(char* buf, size_t size, const std::string& text) {
-    std::strncpy(buf, text.c_str(), size - 1);
-    buf[size - 1] = '\0';
-}
-
 } // namespace
 
-FontEditorContext::FontEditorContext(FontEditorDeps deps) : deps_{deps} {
-    copy_to(sample_buf_, sizeof(sample_buf_), "The quick brown fox jumps over 13 lazy dogs");
-}
+FontEditorContext::FontEditorContext(FontEditorDeps deps) : deps_{deps} {}
 
 EditorContext::DockPreset FontEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .inspector = {"Properties"}};
@@ -84,6 +85,9 @@ void FontEditorContext::init() {
 }
 
 void FontEditorContext::shutdown() {
+    // Edits never saved were only ever previewed: the font goes back to
+    // what its file holds.
+    if (loaded_ && has_unsaved_changes()) deps_.vulkan_context->font_library().reload(recipe_abs_path_);
     if (preview_ui_) {
         preview_ui_->destroy();
         preview_ui_.reset();
@@ -108,8 +112,6 @@ void FontEditorContext::open_font(const std::string& recipe_path) {
     }
     recipe_ = *recipe;
     loaded_ = true;
-    copy_to(source_buf_, sizeof(source_buf_), recipe_.source);
-    copy_to(ranges_buf_, sizeof(ranges_buf_), custom_ranges_text(recipe_));
     cell_size_edit_ = static_cast<int>(recipe_.cell_size);
     px_range_edit_ = recipe_.px_range;
     sample_dirty_ = true;
@@ -125,7 +127,12 @@ std::string FontEditorContext::document() const {
 
 Result<> FontEditorContext::write() {
     if (!loaded_) return make_error("no font is open");
-    return save_font_recipe(recipe_abs_path_, recipe_);
+    if (auto written = save_font_recipe(recipe_abs_path_, recipe_); !written) return written;
+    // The atlas is baked again from the file, into the cache everything
+    // else reads; the thumbnail follows the recipe's timestamp.
+    deps_.vulkan_context->font_library().reload(recipe_abs_path_);
+    if (deps_.asset_thumbnails) deps_.asset_thumbnails->invalidate(recipe_abs_path_);
+    return {};
 }
 
 Result<> FontEditorContext::restore(const std::string& text) {
@@ -137,18 +144,11 @@ Result<> FontEditorContext::restore(const std::string& text) {
 
 void FontEditorContext::apply_recipe(const FjFontRecipe& recipe) {
     recipe_ = recipe;
-    copy_to(source_buf_, sizeof(source_buf_), recipe_.source);
-    copy_to(ranges_buf_, sizeof(ranges_buf_), custom_ranges_text(recipe_));
     cell_size_edit_ = static_cast<int>(recipe_.cell_size);
     px_range_edit_ = recipe_.px_range;
-    if (auto saved = save(); !saved) {
-        FJELL_CORE_ERROR("Font editor: {}", saved.error());
-        return;
-    }
-    // The library rebuilds the atlas from the file just written; the
-    // thumbnail follows the recipe's timestamp on its own.
-    deps_.vulkan_context->font_library().reload(recipe_abs_path_);
-    if (deps_.asset_thumbnails) deps_.asset_thumbnails->invalidate(recipe_abs_path_);
+    // Previewed, not saved: the font shows the edit everywhere it draws,
+    // and the file changes on Save.
+    deps_.vulkan_context->font_library().preview(recipe_abs_path_, recipe_);
     sample_dirty_ = true;
 }
 
@@ -164,164 +164,148 @@ void FontEditorContext::draw(float dt) {
 }
 
 void FontEditorContext::draw_recipe_panel() {
-    if (!ImGui::Begin(ctx_title("Properties").c_str())) {
-        ImGui::End();
-        return;
-    }
+    auto panel = Panel(ui::icon::font, ctx_title("Properties").c_str());
+    if (!panel) return;
     if (!loaded_) {
-        ImGui::TextDisabled("Recipe could not be read, see the console");
-        ImGui::End();
+        ui::empty_state(ui::icon::font, "The recipe couldn't be read", "The console says why");
         return;
     }
-    ImGui::TextDisabled("%s", recipe_path_.c_str());
-    ImGui::Separator();
 
-    // Source font file, relative to the recipe
-    ImGui::TextUnformatted("Source");
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputText("##source", source_buf_, sizeof(source_buf_));
-    if (ImGui::IsItemDeactivatedAfterEdit() && recipe_.source != source_buf_) {
-        auto next = recipe_;
-        next.source = source_buf_;
-        commit(std::move(next), "source");
-    }
-    {
-        auto source = font_source_path(recipe_abs_path_, recipe_);
-        if (!std::filesystem::exists(source)) {
-            ImGui::TextColored({0.95f, 0.5f, 0.3f, 1.0f}, "File not found beside the recipe");
-        }
-    }
-
-    ImGui::Spacing();
-    ImGui::TextUnformatted("Charset");
-    for (const auto& set : named_charsets()) {
-        bool on = has_range(recipe_, set.range);
-        std::string label(set.name);
-        char range_text[48];
-        std::snprintf(range_text, sizeof(range_text), "  (U+%04X-%04X)", set.range.first, set.range.last);
-        label += range_text;
-        if (ImGui::Checkbox(label.c_str(), &on)) {
-            auto next = recipe_;
-            if (on) {
-                next.charset.push_back(set.range);
-            } else {
-                std::erase_if(next.charset, [&](const CharsetRange& r) {
-                    return r.first == set.range.first && r.last == set.range.last;
-                });
+    if (auto t = ui::PropertyTable("##font")) {
+        ui::row("Font file", "The .ttf or .otf the atlas is baked from, next to the recipe.", [&] {
+            std::string source = recipe_.source;
+            if (ui::text_field("##source", source).committed && source != recipe_.source) {
+                auto next = recipe_;
+                next.source = source;
+                commit(std::move(next), "font file");
             }
-            commit(std::move(next), on ? "add charset" : "remove charset");
-        }
-    }
-    ImGui::TextUnformatted("Ranges");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Extra codepoints as U+XXXX or U+XXXX-YYYY, separated by spaces");
-    }
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputText("##ranges", ranges_buf_, sizeof(ranges_buf_));
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        auto next = recipe_;
-        std::erase_if(next.charset, [](const CharsetRange& r) {
-            for (const auto& set : named_charsets()) {
-                if (set.range.first == r.first && set.range.last == r.last) return true;
-            }
-            return false;
         });
-        std::istringstream tokens(ranges_buf_);
-        std::string token;
-        bool ok = true;
-        while (tokens >> token) {
-            auto parsed = parse_charset_entry(token);
-            if (!parsed) {
-                FJELL_CORE_WARN("Font editor: charset {}", parsed.error());
-                ok = false;
-                continue;
+        if (!std::filesystem::exists(font_source_path(recipe_abs_path_, recipe_))) {
+            ui::status(ui::Severity::Warning, "No such file beside the recipe");
+        }
+    }
+
+    ui::subheading("Characters");
+    if (auto t = ui::PropertyTable("##charset")) {
+        for (const auto& set : named_charsets()) {
+            char range_text[48];
+            std::snprintf(range_text, sizeof(range_text), "U+%04X to U+%04X", set.range.first, set.range.last);
+            const std::string name(set.name);
+            ui::row(name.c_str(), range_text, [&] {
+                bool on = has_range(recipe_, set.range);
+                if (ui::checkbox("##set", on).changed) {
+                    auto next = recipe_;
+                    if (on) {
+                        next.charset.push_back(set.range);
+                    } else {
+                        std::erase_if(next.charset, [&](const CharsetRange& r) {
+                            return r.first == set.range.first && r.last == set.range.last;
+                        });
+                    }
+                    commit(std::move(next), on ? "add characters" : "remove characters");
+                }
+            });
+        }
+        ui::row("More ranges", "Extra codepoints as U+XXXX or U+XXXX-YYYY, separated by spaces.", [&] {
+            std::string ranges = custom_ranges_text(recipe_);
+            if (!ui::text_field("##ranges", ranges).committed) return;
+            auto next = recipe_;
+            std::erase_if(next.charset, [](const CharsetRange& r) {
+                for (const auto& set : named_charsets()) {
+                    if (set.range.first == r.first && set.range.last == r.last) return true;
+                }
+                return false;
+            });
+            std::istringstream tokens(ranges);
+            std::string token;
+            bool ok = true;
+            while (tokens >> token) {
+                auto parsed = parse_charset_entry(token);
+                if (!parsed) {
+                    FJELL_CORE_WARN("Font editor: characters {}", parsed.error());
+                    ok = false;
+                    continue;
+                }
+                next.charset.push_back(*parsed);
             }
-            next.charset.push_back(*parsed);
-        }
-        if (ok) {
-            commit(std::move(next), "ranges");
-        } else {
-            copy_to(ranges_buf_, sizeof(ranges_buf_), custom_ranges_text(recipe_));
-        }
+            if (ok) commit(std::move(next), "ranges");
+        });
     }
 
-    ImGui::Spacing();
-    ImGui::TextUnformatted("Cell size (px)");
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputInt("##cell", &cell_size_edit_, 0, 0);
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        int clamped = std::clamp(cell_size_edit_, 8, 512);
-        if (static_cast<uint32_t>(clamped) != recipe_.cell_size) {
-            auto next = recipe_;
-            next.cell_size = static_cast<uint32_t>(clamped);
-            next.px_range = std::min(next.px_range, static_cast<float>(clamped) * 0.5f - 0.5f);
-            commit(std::move(next), "cell size");
-        } else {
-            cell_size_edit_ = clamped;
-        }
-    }
-    ImGui::TextUnformatted("Distance range (px)");
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputFloat("##range", &px_range_edit_, 0.0f, 0.0f, "%.1f");
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        float clamped = std::clamp(px_range_edit_, 1.0f, static_cast<float>(recipe_.cell_size) * 0.5f - 0.5f);
-        if (clamped != recipe_.px_range) {
-            auto next = recipe_;
-            next.px_range = clamped;
-            commit(std::move(next), "distance range");
-        } else {
-            px_range_edit_ = clamped;
-        }
-    }
-    bool kerning = recipe_.kerning;
-    if (ImGui::Checkbox("Bake kerning", &kerning)) {
-        auto next = recipe_;
-        next.kerning = kerning;
-        commit(std::move(next), "kerning");
-    }
+    ui::subheading("Atlas");
+    if (auto t = ui::PropertyTable("##atlas")) {
+        ui::row("Cell size", [&] {
+            if (ui::drag_int("##cell", cell_size_edit_, 0.5f, 8, 512, ui::Unit::Pixels).committed &&
+                static_cast<uint32_t>(cell_size_edit_) != recipe_.cell_size) {
+                auto next = recipe_;
+                next.cell_size = static_cast<uint32_t>(cell_size_edit_);
+                next.px_range = std::min(next.px_range, static_cast<float>(cell_size_edit_) * 0.5f - 0.5f);
+                commit(std::move(next), "cell size");
+            }
+        });
+        ui::row("Distance range", "How far the edge's distance is kept, in pixels of a cell.", [&] {
+            const float limit = static_cast<float>(recipe_.cell_size) * 0.5f - 0.5f;
+            if (ui::drag("##range", px_range_edit_,
+                         {.speed = 0.1f, .min = 1.0f, .max = limit, .unit = ui::Unit::Pixels, .format = "%.1f"})
+                    .committed &&
+                px_range_edit_ != recipe_.px_range) {
+                auto next = recipe_;
+                next.px_range = px_range_edit_;
+                commit(std::move(next), "distance range");
+            }
+        });
+        ui::row("Kerning", [&] {
+            bool kerning = recipe_.kerning;
+            if (ui::checkbox("##kerning", kerning).changed) {
+                auto next = recipe_;
+                next.kerning = kerning;
+                commit(std::move(next), "kerning");
+            }
+        });
 
-    ImGui::Separator();
-    auto& fonts = deps_.vulkan_context->font_library();
-    const FontAtlas* atlas = fonts.get(recipe_abs_path_);
-    switch (fonts.status(recipe_abs_path_)) {
-        case FontLibrary::Status::unknown:
-        case FontLibrary::Status::pending:
-            ImGui::TextDisabled("Baking...");
-            break;
-        case FontLibrary::Status::failed:
-            ImGui::TextColored({0.95f, 0.5f, 0.3f, 1.0f}, "Bake failed, see the console");
-            break;
-        case FontLibrary::Status::ready:
-            break;
+        auto& fonts = deps_.vulkan_context->font_library();
+        const FontAtlas* atlas = fonts.get(recipe_abs_path_);
+        const FontLibrary::Status status = fonts.status(recipe_abs_path_);
+        ui::row("Baked", [&] {
+            if (status == FontLibrary::Status::ready && atlas != nullptr) {
+                const std::string text = std::format("{} \xc3\x97 {} px, {} glyphs", atlas->atlas_width(),
+                                                     atlas->atlas_height(), atlas->glyph_count());
+                ui::readout(text.c_str());
+            } else if (status == FontLibrary::Status::failed) {
+                ui::readout("No");
+            } else {
+                ui::readout("Baking");
+            }
+        });
+        if (status == FontLibrary::Status::failed) {
+            ui::status(ui::Severity::Error, "The bake failed; the console says why");
+        }
     }
-    if (atlas) {
-        ImGui::Text("Atlas %ux%u, %zu glyphs", atlas->atlas_width(), atlas->atlas_height(),
-                    atlas->glyph_count());
-        auto tex = const_cast<FontAtlas*>(atlas)->imgui_texture();
-        if (tex) {
-            float avail = ImGui::GetContentRegionAvail().x;
-            float scale = avail / static_cast<float>(std::max(atlas->atlas_width(), 1u));
+    const FontAtlas* atlas = deps_.vulkan_context->font_library().get(recipe_abs_path_);
+    if (atlas != nullptr) {
+        if (auto tex = const_cast<FontAtlas*>(atlas)->imgui_texture()) {
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float scale = avail / static_cast<float>(std::max(atlas->atlas_width(), 1u));
             ImGui::Image(reinterpret_cast<ImTextureID>(tex),
                          {avail, static_cast<float>(atlas->atlas_height()) * scale});
         }
     }
-    ImGui::End();
 }
 
 void FontEditorContext::draw_preview_panel() {
-    if (!ImGui::Begin(ctx_title("Preview").c_str())) {
-        ImGui::End();
-        return;
-    }
-    ImGui::SetNextItemWidth(-140.0f);
-    ImGui::InputText("##sample", sample_buf_, sizeof(sample_buf_));
-    if (ImGui::IsItemDeactivatedAfterEdit()) sample_dirty_ = true;
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::DragFloat("##size", &sample_size_, 1.0f, 8.0f, 200.0f, "%.0f px")) {
-        sample_dirty_ = true;
+    auto panel = Panel(ui::icon::preview, ctx_title("Preview").c_str());
+    if (!panel) return;
+    if (auto t = ui::PropertyTable("##sample")) {
+        ui::row("Sample", [&] {
+            if (ui::text_field("##sample", sample_text_).committed) sample_dirty_ = true;
+        });
+        ui::row("Size", [&] {
+            if (ui::drag("##size", sample_size_,
+                         {.speed = 1.0f, .min = 8.0f, .max = 200.0f, .unit = ui::Unit::Pixels, .format = "%.0f"})
+                    .changed) {
+                sample_dirty_ = true;
+            }
+        });
     }
 
     // What the next render should be sized to.
@@ -330,15 +314,13 @@ void FontEditorContext::draw_preview_panel() {
     wanted_height_ = static_cast<uint32_t>(std::max(avail.y, 64.0f));
 
     if (preview_target_) {
-        auto tex = preview_target_->imgui_texture();
-        if (tex) {
+        if (auto tex = preview_target_->imgui_texture()) {
             ImGui::Image(reinterpret_cast<ImTextureID>(tex),
                          {static_cast<float>(preview_width_), static_cast<float>(preview_height_)});
         }
     } else {
-        ImGui::TextDisabled("Waiting for the atlas");
+        ui::empty_state(ui::icon::font, "Baking", "The sample draws once the atlas is ready");
     }
-    ImGui::End();
 }
 
 void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, float /*dt*/,
@@ -352,6 +334,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
         return;
     }
     if (wanted_width_ == 0 || wanted_height_ == 0) return;
+    const FontAtlas* atlas = fonts.get(recipe_abs_path_);
+    if (atlas != nullptr && atlas->generation() != sample_generation_) sample_dirty_ = true;
     bool resized = wanted_width_ != preview_width_ || wanted_height_ != preview_height_;
     if (!sample_dirty_ && !resized) return;
     sample_dirty_ = false;
@@ -371,8 +355,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
                                                           preview_width_, preview_height_,
                                                           VK_SAMPLE_COUNT_1_BIT);
     }
-    load_font_sample(*preview_ui_, recipe_abs_path_, sample_buf_, sample_size_,
-                     fonts.get(recipe_abs_path_));
+    if (atlas != nullptr) sample_generation_ = atlas->generation();
+    load_font_sample(*preview_ui_, recipe_abs_path_, sample_text_, sample_size_, atlas);
     preview_ui_->set_design_frame({static_cast<float>(preview_width_),
                                    static_cast<float>(preview_height_)});
     preview_ui_->update(static_cast<float>(preview_width_), static_cast<float>(preview_height_),

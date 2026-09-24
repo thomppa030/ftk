@@ -12,7 +12,6 @@ src/ui/blend_space_1d_editor_context.cpp
 src/ui/blend_space_2d_editor_context.cpp
 src/ui/content_browser.cpp
 src/ui/file_browser.cpp
-src/ui/font_editor_context.cpp
 src/ui/grouped_picker.cpp
 src/ui/imgui_curve_editor.cpp
 src/ui/input_mapping_editor_context.cpp
