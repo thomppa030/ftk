@@ -71,7 +71,9 @@ class health_bar_controller : public fjell::UiWidget {
 
 `[[fj::bind]]` fields publish themselves into the widget's context every tick;
 `[[fj::action]]` methods and `ui().bind_action()` answer `on:click` and parameterized
-actions such as `on:activate="select_slot(3)"`. Find scene components by type with
+actions such as `on:activate="select_slot(3)"`. Lists for `foreach` are published
+with `ui().set_list_size()` and `ui().set_item()` (see [UiContext](UiContext.md)),
+cheap enough to call every tick. Find scene components by type with
 `SceneAPI::find_node_with<PlayerStats>()` rather than by node name.
 
 ## Slot projection

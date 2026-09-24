@@ -31,18 +31,26 @@ the connection for you and releases it with the widget.
 Lists, for `foreach`:
 
 ```cpp
-std::vector<fjell::UiContext> items;
-for (const auto& entry : inventory) {
-    items.emplace_back();
-    items.back().set("name", entry.name);
-    items.back().set("count", entry.count);
+ctx.set_list_size("effects", effects.size());      // grow or shrink at the end
+for (size_t i = 0; i < effects.size(); ++i) {
+    ctx.set_item("effects", i, "icon", effects[i].icon);
+    ctx.set_item("effects", i, "left", format_seconds(effects[i].left));
 }
-ctx.set_list("inventory", std::move(items));
 ```
 
 Each item is a full context of its own, parented to the list's owner, and the
-markup element carrying `foreach="inventory"` is cloned once per item. `{__index}`
-is the item's position.
+markup element carrying `foreach="effects"` is cloned once per item. `{__index}`
+is the item's position, and a key the item lacks reads through to the owner.
+
+Items stay where they are: resizing keeps the surviving items and their values,
+and `set_list(key, items)` (the whole list at once, from engine code) refills the
+existing items in place. A clone keeps a pointer to its item, so this is what lets
+a list change every tick without a clone ever reading a freed item. Resizing to the
+same size, or setting a value an item already has, changes nothing and triggers no
+re-resolve, so a countdown can call `set_item` every tick.
+
+A widget's controller reaches the same calls through `ui()`: `ui().set_list_size()`
+and `ui().set_item()`.
 
 ## Scoping
 

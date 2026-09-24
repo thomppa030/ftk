@@ -5,6 +5,7 @@
 #include "fjell/delegate.hpp"
 #include "fjell/world.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -26,11 +27,30 @@ public:
     /// test against it. Setting an unchanged value is cheap — safe from `tick()`.
     /// @param key   Matches the name used in the markup.
     /// @param value Everything is stringly-typed here; format numbers yourself.
-    void set(const std::string& key, const std::string& value);
+    FJELL_SDK_EXPORT void set(const std::string& key, const std::string& value);
 
     /// Read back a value previously published with `set()`.
     /// @return The value, or "" if the key was never set.
-    [[nodiscard]] std::string get(const std::string& key) const;
+    [[nodiscard]] FJELL_SDK_EXPORT std::string get(const std::string& key) const;
+
+    /// Size the list a `foreach="key"` element repeats over: the element is
+    /// stamped out once per item. Items keep their values when the list
+    /// grows or shrinks at its end, and resizing to the current size does
+    /// nothing, so this is cheap to call from `tick()`.
+    /// @param key   The list's name, as written in `foreach="key"`.
+    /// @param count How many items; 0 shows no repeats.
+    FJELL_SDK_EXPORT void set_list_size(const std::string& key, std::size_t count);
+
+    /// Publish a value on one item of a list. Inside that item's repeat,
+    /// `{field}` reads it; a field the item lacks falls back to the widget's
+    /// own values. An unchanged value is cheap, so this is safe from `tick()`.
+    /// @param key   The list's name, as written in `foreach="key"`.
+    /// @param index The item, from 0. Ignored past the end of the list, or
+    ///              when `set_list_size()` never created it.
+    /// @param field The name the markup reads, as in `{field}`.
+    /// @param value Stringly-typed like `set()`; format numbers yourself.
+    FJELL_SDK_EXPORT void set_item(const std::string& key, std::size_t index,
+                                   const std::string& field, const std::string& value);
 
     /// Bind a callback to an `on:click="name"` in the markup.
     /// @param name     Action name as spelled in the `.fjui` file.

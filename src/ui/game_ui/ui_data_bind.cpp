@@ -210,7 +210,7 @@ void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, DataBindRes
         }
 
         // Get list from context (mutable — we need to set __index on items)
-        std::vector<UiContext>* list = context.get_list(list_key);
+        UiList* list = context.get_list(list_key);
         size_t list_count = list ? list->size() : 0;
 
         // Count existing foreach clones after the template

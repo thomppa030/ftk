@@ -3,6 +3,7 @@
 #include "core/delegate.hpp"
 
 #include <charconv>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -10,6 +11,13 @@
 #include <vector>
 
 namespace fjell {
+
+class UiContext;
+
+/// The items of a list, for `foreach`. A deque, because each repeat the
+/// markup stamps out keeps a pointer to its item: a deque grown or shrunk at
+/// the back leaves every surviving item where it was.
+using UiList = std::deque<UiContext>;
 
 /// Bridge between game logic and UI. Game code sets values and registers
 /// action callbacks; the UI reads values via {key} and dispatches actions.
@@ -140,22 +148,51 @@ public:
         if (parent_) parent_->dispatch(action, args);
     }
 
-    /// Set a list of item contexts for foreach directives.
-    /// Each item is a UiContext whose parent is this context.
+    /// Replace a list's items for foreach directives. Each item becomes a
+    /// context whose parent is this one. The items are moved into the slots
+    /// the list already has, so a repeat pointing at an item that survives
+    /// the change still points at a live context.
     void set_list(const std::string& key, std::vector<UiContext> items) {
-        for (auto& item : items) {
-            item.set_parent(this);
+        auto& list = lists_[key];
+        list.resize(items.size());
+        for (size_t i = 0; i < items.size(); ++i) {
+            list[i] = std::move(items[i]);
+            list[i].set_parent(this);
         }
-        lists_[key] = std::move(items);
+        ++generation_;
+    }
+
+    /// Grow or shrink a list at its end. Surviving items keep their values
+    /// and their place; new ones start empty, reading through to this
+    /// context. Resizing to the current size changes nothing.
+    void set_list_size(const std::string& key, size_t count) {
+        auto& list = lists_[key];
+        if (list.size() == count) return;
+        while (list.size() > count) list.pop_back();
+        while (list.size() < count) list.emplace_back(this);
+        ++generation_;
+    }
+
+    /// Set a value on one item of a list. Ignored when the list does not
+    /// exist or the index is past its end; an unchanged value changes
+    /// nothing, here or on the item.
+    void set_item(const std::string& key, size_t index, const std::string& field,
+                  const std::string& value) {
+        auto it = lists_.find(key);
+        if (it == lists_.end() || index >= it->second.size()) return;
+        auto& item = it->second[index];
+        uint64_t before = item.generation();
+        item.set(field, value);
+        if (item.generation() != before) ++generation_;
     }
 
     /// Get a list by key, or nullptr if not found.
-    [[nodiscard]] std::vector<UiContext>* get_list(const std::string& key) {
+    [[nodiscard]] UiList* get_list(const std::string& key) {
         auto it = lists_.find(key);
         return it != lists_.end() ? &it->second : nullptr;
     }
 
-    [[nodiscard]] const std::vector<UiContext>* get_list(const std::string& key) const {
+    [[nodiscard]] const UiList* get_list(const std::string& key) const {
         auto it = lists_.find(key);
         return it != lists_.end() ? &it->second : nullptr;
     }
@@ -179,7 +216,7 @@ private:
     std::unordered_map<std::string, bool> typed_bools_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
-    std::unordered_map<std::string, std::vector<UiContext>> lists_;
+    std::unordered_map<std::string, UiList> lists_;
 };
 
 } // namespace fjell

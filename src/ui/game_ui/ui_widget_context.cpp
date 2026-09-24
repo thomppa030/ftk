@@ -8,13 +8,22 @@ UiContext::~UiContext() = default;
 UiContext::UiContext(UiContext&&) noexcept = default;
 UiContext& UiContext::operator=(UiContext&&) noexcept = default;
 
-void UiWidgetContext::set(const std::string& key, const std::string& value) {
+FJELL_SDK_EXPORT void UiWidgetContext::set(const std::string& key, const std::string& value) {
     if (ctx_) ctx_->set(key, value);
 }
 
-std::string UiWidgetContext::get(const std::string& key) const {
+FJELL_SDK_EXPORT std::string UiWidgetContext::get(const std::string& key) const {
     if (ctx_) return ctx_->get(key);
     return "";
+}
+
+FJELL_SDK_EXPORT void UiWidgetContext::set_list_size(const std::string& key, std::size_t count) {
+    if (ctx_) ctx_->set_list_size(key, count);
+}
+
+FJELL_SDK_EXPORT void UiWidgetContext::set_item(const std::string& key, std::size_t index,
+                                                const std::string& field, const std::string& value) {
+    if (ctx_) ctx_->set_item(key, index, field, value);
 }
 
 FJELL_SDK_EXPORT void UiWidgetContext::bind_action(const std::string& name,

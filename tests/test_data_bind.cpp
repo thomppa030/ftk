@@ -795,8 +795,8 @@ TEST_CASE("clone_node is a deep copy", "[databind]") {
 
 // --- foreach ---
 
-// set_list() does not bump the context generation, so a test that changes only
-// a list must nudge the generation the way UiSubsystem::tick does each frame.
+// Forces the next resolve to run when nothing changed, the way
+// UiSubsystem::tick nudges each instance every frame.
 static void bump(UiContext& ctx) {
     static int n = 0;
     ctx.set("__tick", std::to_string(++n));
@@ -885,14 +885,12 @@ TEST_CASE("foreach grows and shrinks with the list", "[databind]") {
     REQUIRE(root->children.size() == 3);
 
     ctx.set_list("items", make_items({"a", "b", "c", "d"}));
-    bump(ctx);
     auto grew = bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 5);
     REQUIRE(grew.layout_changed == true);
     REQUIRE(root->children[4]->children[0]->text_content == "d");
 
     ctx.set_list("items", make_items({"a"}));
-    bump(ctx);
     auto shrank = bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 2);
     REQUIRE(shrank.layout_changed == true);
@@ -957,10 +955,62 @@ TEST_CASE("foreach clones pick up item value changes", "[databind]") {
     bind.resolve(*root, ctx);
     REQUIRE(root->children[1]->children[0]->text_content == "before");
 
-    ctx.get_list("items")->at(0).set("name", "after");
-    bump(ctx);
+    ctx.set_item("items", 0, "name", "after");
     bind.resolve(*root, ctx);
     REQUIRE(root->children[1]->children[0]->text_content == "after");
+}
+
+TEST_CASE("foreach follows set_list_size and set_item", "[databind][lists]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "effects";
+    add_child(*tmpl, make_text("{name} {left}"));
+
+    UiContext ctx;
+    ctx.set_list_size("effects", 3);
+    const char* names[] = {"wet", "tailwind", "burning"};
+    for (size_t i = 0; i < 3; ++i) {
+        ctx.set_item("effects", i, "name", names[i]);
+        ctx.set_item("effects", i, "left", "10");
+    }
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 4);
+    REQUIRE(root->children[3]->children[0]->text_content == "burning 10");
+
+    // A countdown touches one field per item and nothing structural.
+    ctx.set_item("effects", 2, "left", "9");
+    auto ticked = bind.resolve(*root, ctx);
+    REQUIRE(root->children[3]->children[0]->text_content == "burning 9");
+    REQUIRE(ticked.layout_changed == false);
+
+    ctx.set_list_size("effects", 1);
+    auto shrank = bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 2);
+    REQUIRE(shrank.layout_changed == true);
+    REQUIRE(root->children[1]->children[0]->text_content == "wet 10");
+}
+
+TEST_CASE("A repeat keeps pointing at its item while the list grows", "[databind][lists]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    UiContext* first = root->children[1]->foreach_context;
+    REQUIRE(first == &ctx.get_list("items")->at(0));
+
+    // Growing adds at the end without moving the first item, so the repeat
+    // stamped for it never holds a stale pointer, even before a resolve.
+    ctx.set_list_size("items", 64);
+    REQUIRE(&ctx.get_list("items")->at(0) == first);
+    REQUIRE(first->get("name") == "a");
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children[1]->foreach_context == first);
 }
 
 TEST_CASE("foreach honours if directives inside the template", "[databind]") {
@@ -1044,3 +1094,84 @@ TEST_CASE("style-* attributes resolve their {key} templates into inline styles",
     auto third = bind.resolve(*root, ctx);
     REQUIRE_FALSE(third.layout_changed);
 }
+
+// --- Lists on the context ---
+
+TEST_CASE("set_list bumps the generation", "[lists]") {
+    UiContext ctx;
+    auto before = ctx.generation();
+    ctx.set_list("items", make_items({"a"}));
+    REQUIRE(ctx.generation() != before);
+}
+
+TEST_CASE("set_list refills the items where they are", "[lists]") {
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a", "b"}));
+    UiContext* first = &ctx.get_list("items")->at(0);
+
+    ctx.set_list("items", make_items({"x", "y", "z"}));
+    REQUIRE(&ctx.get_list("items")->at(0) == first);
+    REQUIRE(first->get("name") == "x");
+    REQUIRE(first->parent() == &ctx);
+    REQUIRE(ctx.get_list("items")->at(2).parent() == &ctx);
+}
+
+TEST_CASE("set_list_size grows with empty items that read through to the owner", "[lists]") {
+    UiContext ctx;
+    ctx.set("prefix", ">");
+    ctx.set_list_size("items", 2);
+    const auto* list = ctx.get_list("items");
+    REQUIRE(list != nullptr);
+    REQUIRE(list->size() == 2);
+    REQUIRE(list->at(1).get("prefix") == ">");
+    REQUIRE(list->at(1).get("name").empty());
+}
+
+TEST_CASE("set_list_size shrinks from the end and keeps the rest", "[lists]") {
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a", "b", "c"}));
+    UiContext* first = &ctx.get_list("items")->at(0);
+
+    auto before = ctx.generation();
+    ctx.set_list_size("items", 1);
+    REQUIRE(ctx.generation() != before);
+    REQUIRE(ctx.get_list("items")->size() == 1);
+    REQUIRE(&ctx.get_list("items")->at(0) == first);
+    REQUIRE(first->get("name") == "a");
+}
+
+TEST_CASE("set_list_size to the current size changes nothing", "[lists]") {
+    UiContext ctx;
+    ctx.set_list_size("items", 3);
+    auto before = ctx.generation();
+    ctx.set_list_size("items", 3);
+    REQUIRE(ctx.generation() == before);
+}
+
+TEST_CASE("set_item bumps the owner only when a value changes", "[lists]") {
+    UiContext ctx;
+    ctx.set_list_size("items", 1);
+    auto start = ctx.generation();
+
+    ctx.set_item("items", 0, "name", "a");
+    auto after_set = ctx.generation();
+    REQUIRE(after_set != start);
+
+    ctx.set_item("items", 0, "name", "a");
+    REQUIRE(ctx.generation() == after_set);
+}
+
+TEST_CASE("set_item ignores a missing list and an index past the end", "[lists]") {
+    UiContext ctx;
+    auto start = ctx.generation();
+    ctx.set_item("nothing", 0, "name", "a");
+    REQUIRE(ctx.get_list("nothing") == nullptr);
+
+    ctx.set_list_size("items", 1);
+    auto sized = ctx.generation();
+    ctx.set_item("items", 1, "name", "a");
+    REQUIRE(ctx.get_list("items")->size() == 1);
+    REQUIRE(ctx.generation() == sized);
+    REQUIRE(sized != start);
+}
+
