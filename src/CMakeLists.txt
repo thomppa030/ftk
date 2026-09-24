@@ -632,6 +632,9 @@ add_executable(fjell-hub
     core/log.cpp
     core/window.cpp
     ui/console.cpp
+    ui/kit/button.cpp
+    ui/kit/choice.cpp
+    ui/kit/edit_record.cpp
     ui/kit/search.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp

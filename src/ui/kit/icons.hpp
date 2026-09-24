@@ -20,6 +20,7 @@ inline constexpr const char* more         = ICON_LC_MORE_HORIZONTAL;
 inline constexpr const char* search       = ICON_LC_SEARCH;
 inline constexpr const char* reorder      = ICON_LC_GRIP_VERTICAL;
 inline constexpr const char* play         = ICON_LC_PLAY;
+inline constexpr const char* follow       = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep the newest line in view
 
 // What a section or panel is about
 inline constexpr const char* properties        = ICON_LC_SLIDERS_HORIZONTAL;
@@ -38,6 +39,7 @@ inline constexpr const char* folder            = ICON_LC_FOLDER;
 inline constexpr const char* source            = ICON_LC_LINK;
 inline constexpr const char* snap              = ICON_LC_MAGNET;
 inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
+inline constexpr const char* console           = ICON_LC_TERMINAL;
 
 // Kinds of asset (ui/kit/asset_kind.hpp says which file is which)
 inline constexpr const char* mesh         = ICON_LC_BOX;
