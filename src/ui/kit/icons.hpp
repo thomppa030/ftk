@@ -99,6 +99,7 @@ inline constexpr const char* debug         = ICON_LC_BUG;
 inline constexpr const char* gallery       = ICON_LC_SHAPES;
 inline constexpr const char* capture       = ICON_LC_SCAN;
 inline constexpr const char* layout        = ICON_LC_LAYOUT_GRID;
+inline constexpr const char* design_scale  = ICON_LC_SCAN;  // fit a design frame to the view
 inline constexpr const char* checked       = ICON_LC_CHECK;
 inline constexpr const char* plane         = ICON_LC_SQUARE;
 inline constexpr const char* sphere        = ICON_LC_CIRCLE;

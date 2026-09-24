@@ -4,6 +4,7 @@
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
+#include "ui/kit/field.hpp"
 #include "core/delegate.hpp"
 
 #include <imgui.h>
@@ -74,12 +75,17 @@ private:
     /// props, or plain .fjui.
     [[nodiscard]] std::string markup_text() const;
     void draw_preview(float dt);
+    /// Edit / Play, the layout overlay, and the preview's size (sheet 22).
+    void draw_preview_toolbar();
     void draw_element_tree();
     void draw_inspector();
     void draw_stylesheet_problems();
     void draw_style_editor(UiNode& node);
     void draw_node_material_editor(UiNode& node);
     void draw_mock_data();
+    void draw_mock_values();
+    void draw_mock_lists();
+    void draw_action_bindings();
     void draw_action_log();
 
     // Style editor helpers: read the explicit value for `property` from
@@ -88,22 +94,26 @@ private:
     // when nothing has been explicitly authored yet.
     [[nodiscard]] std::string style_prop_string(const UiNode& node, const char* property,
                                                 const std::string& fallback) const;
-    void style_edit_float(UiNode& node, const char* property, const char* label,
-                          float resolved_value, float speed = 1.0f, float min = 0.0f,
-                          float max = 0.0f);
-    void style_edit_color(UiNode& node, const char* property, const char* label,
-                          const UiColor& resolved_value);
-    // A length with its unit: drag the number, right-click to switch
-    // between px, % and auto (where the property accepts it).
+    // Each style row leads with the kit's dot when its value is set on this
+    // element (its #id rule, which is what an edit writes), names where the
+    // value comes from on hover, and offers Unset on a right-click.
+    void style_edit_float(UiNode& node, const char* property, float resolved_value,
+                          const ui::DragSpec& spec);
+    void style_edit_color(UiNode& node, const char* property, const UiColor& resolved_value);
+    // A length: the number, and a unit choice beside it (px, %, em, rem, vw,
+    // vh and auto where the property accepts it).
     void style_edit_length(UiNode& node, const char* property, UiLength resolved_value,
                            float speed, float max);
-    // `resolved_index` is the current enum value already cast to int by
-    // the caller; `names[resolved_index]` must be the CSS value FjssParser
-    // expects to read back (see StyleResolver::apply_property).
     void style_edit_keyword(UiNode& node, const char* property);
     // A string property such as font-family: a text field that commits on
     // Enter or blur, an empty value unsetting it.
     void style_edit_text(UiNode& node, const char* property, const std::string& resolved_value);
+    // Sets `property` on the node's #id rule from `before` to `after` as one
+    // undo step; an empty `after` unsets it.
+    void set_style(UiNode& node, const char* property, const std::string& before,
+                   const std::string& after);
+    // Right-click on the row being drawn offers Unset while it is set here.
+    void style_row_menu(UiNode& node, const char* property, const std::string& explicit_str);
     // Hover text for the style row just drawn: which rule in which file set
     // the property, or that it is inherited or a default. Uses the origins
     // computed for the selected node at the top of draw_style_editor.
@@ -120,7 +130,6 @@ private:
     // never move the value, which reads as an instant snap-back.
     std::unordered_map<ImGuiID, float> active_float_edits_;
     std::unordered_map<ImGuiID, std::array<float, 4>> active_color_edits_;
-    std::unordered_map<ImGuiID, std::string> active_text_edits_;
 
     // Element tree helpers
     void draw_node_tree(UiNode* node, int depth);
@@ -168,8 +177,6 @@ private:
 
     // Mock data: user-editable key/value pairs
     std::vector<std::pair<std::string, std::string>> mock_entries_;
-    char new_key_buf_[128]{};
-    char new_value_buf_[256]{};
 
     // Mock list data for foreach directives
     struct MockListItem {
@@ -180,7 +187,7 @@ private:
         std::vector<MockListItem> items;
     };
     std::vector<MockList> mock_lists_;
-    char new_list_key_buf_[128]{};
+    int open_list_{-1};         // the list card showing its items
 
     void sync_mock_lists();
 
@@ -192,9 +199,15 @@ private:
     };
     std::vector<ActionBinding> action_bindings_;
     std::vector<std::string> discovered_actions_; // scanned from on:click attributes
-    int bind_action_idx_{0};
-    char bind_key_buf_[128]{};
-    char bind_value_buf_[256]{};
+    int open_binding_{-1};      // the binding card showing its fields
+
+    // The name the mock data's prompt dialog asks for, and what it is for:
+    // a value, a list, or a field of item `prompt_item_` in `prompt_list_`.
+    enum class MockPrompt { Value, List, Field };
+    MockPrompt prompt_for_{MockPrompt::Value};
+    std::size_t prompt_list_{0};
+    std::size_t prompt_item_{0};
+    std::string prompt_text_;
 
     // Widget isolation: true when editing a file from widgets/ directory
     bool is_widget_file_{false};

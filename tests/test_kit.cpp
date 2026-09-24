@@ -7,6 +7,7 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -353,4 +354,34 @@ TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by i
     const float drawn = h.rect_max("view").x - h.rect_min("view").x;
     CHECK(drawn == ui::mode_button_width(ui::icon::debug, "DDGI indirect"));
     CHECK(drawn > ui::mode_button_width(ui::icon::debug, "Lit"));
+}
+
+TEST_CASE("A marked row's label makes room for the dot, marked or not, and only that row", "[ui][kit]") {
+    ImGuiHarness h;
+    float plain = 0.0f;
+    float set_here = 0.0f;
+    float not_set = 0.0f;
+    float after_skipped = 0.0f;
+    h.set_ui([&] {
+        if (auto t = ui::PropertyTable("##rows")) {
+            // In the value column the last item is still the row's label.
+            ui::row("Plain", [&] { plain = ImGui::GetItemRectMin().x; });
+            ui::mark_next_row(true);
+            ui::row("Set here", [&] { set_here = ImGui::GetItemRectMin().x; });
+            ui::mark_next_row(false);
+            ui::row("Not set", [&] { not_set = ImGui::GetItemRectMin().x; });
+            {
+                // A search that leaves the marked row out doesn't hand its
+                // mark to the next row.
+                ui::RowFilter filter("Next");
+                ui::mark_next_row(true);
+                ui::row("Skipped", [] {});
+                ui::row("Next", [&] { after_skipped = ImGui::GetItemRectMin().x; });
+            }
+        }
+    });
+    h.step(2);
+    CHECK(set_here > plain);
+    CHECK(not_set == set_here);
+    CHECK(after_skipped == plain);
 }

@@ -7,8 +7,19 @@
 #include "ui/game_ui/ui_style_properties.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/color_field.hpp"
+#include "ui/kit/dialog.hpp"
+#include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/list_editor.hpp"
+#include "ui/kit/menu.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
+#include "ui/kit/text_field.hpp"
 #include "ui/kit/tree.hpp"
+#include "ui/panel_widget.hpp"
 #include "ui/material_params_widget.hpp"
 #include "scripting/script_manager.hpp"
 #include "renderer/bindless.hpp"
@@ -37,6 +48,8 @@
 #include <filesystem>
 #include <iterator>
 #include <optional>
+#include <span>
+#include <tuple>
 #include <fstream>
 
 namespace fjell {
@@ -409,246 +422,237 @@ void UiEditorContext::open_ui(const std::string& path) {
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    if (ImGui::Begin(ctx_title("Preview").c_str())) {
-        if (!preview_ui_ || !preview_ui_->loaded()) {
-            ImGui::TextDisabled("No .fjui loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::preview, ctx_title("Preview").c_str());
+    if (!panel) return;
+    if (!preview_ui_ || !preview_ui_->loaded()) {
+        ui::empty_state(ui::icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
+        return;
+    }
 
-        // Resolution controls
-        ImGui::Text("Resolution:");
-        ImGui::SameLine();
-        if (deps_.project_mgr && deps_.project_mgr->active()) {
-            const auto& ui = deps_.project_mgr->active()->config().ui;
-            std::string design = std::to_string(ui.design_width) + "x" + std::to_string(ui.design_height);
-            if (ImGui::SmallButton(design.c_str())) {
-                preview_width_ = static_cast<float>(ui.design_width);
-                preview_height_ = static_cast<float>(ui.design_height);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The project's design resolution");
-            ImGui::SameLine();
-            ImGui::Checkbox("Design scale", &design_scale_);
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Scale the preview by the design height, as a screen-space\n"
-                                  "placement does in game. Turn off for world-space widgets.");
-            }
-            ImGui::SameLine();
+    draw_preview_toolbar();
+
+    // Resolution changed — resize all offscreen passes
+    uint32_t new_w = static_cast<uint32_t>(preview_width_);
+    uint32_t new_h = static_cast<uint32_t>(preview_height_);
+    if ((new_w != offscreen_width_ || new_h != offscreen_height_) && new_w > 0 && new_h > 0) {
+        for (auto& pass : offscreen_) {
+            if (pass) pass->resize(new_w, new_h);
         }
-        // Aspect presets keep the height and derive the width: with design
-        // scaling the aspect is what changes how a HUD holds up, and a
-        // portrait or ultrawide window is one click away.
-        struct AspectPreset {
-            const char* label;
-            float ratio;
-        };
-        static constexpr AspectPreset ASPECTS[] = {
-            {"16:9", 16.0f / 9.0f}, {"16:10", 16.0f / 10.0f}, {"21:9", 21.0f / 9.0f},
-            {"32:9", 32.0f / 9.0f}, {"4:3", 4.0f / 3.0f}, {"3:2", 3.0f / 2.0f},
-            {"9:16 portrait", 9.0f / 16.0f},
-        };
-        int current_aspect = -1;
-        for (int i = 0; i < static_cast<int>(std::size(ASPECTS)); ++i) {
-            if (std::abs(preview_width_ / preview_height_ - ASPECTS[i].ratio) < 0.01f) {
-                current_aspect = i;
-            }
+        offscreen_width_ = new_w;
+        offscreen_height_ = new_h;
+        preview_ui_->mark_dirty();
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x < 1.0f || avail.y < 1.0f) return;
+
+    // Re-apply mock data each frame (ensures values persist after hot-reload)
+    for (const auto& [key, value] : mock_entries_) {
+        preview_ui_->context().set(key, value);
+    }
+    sync_mock_lists();
+
+    // Update the preview UI (layout, data bind, input in play mode)
+    const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
+    // Must match the frame_index record_game_ui_offscreen() will use
+    // for this same GameUi later this frame (via ui_preview_callback_)
+    // — a fixed index here would only ever flatten fresh quad data
+    // into one of the PREVIEW_FRAMES SSBO slots, leaving the other
+    // slots (and the offscreen images tied to them) permanently
+    // stale, which reads as "edits don't show up in the preview."
+    UiDesignFrame design_frame{};
+    if (design_scale_ && deps_.project_mgr && deps_.project_mgr->active()) {
+        const auto& ui = deps_.project_mgr->active()->config().ui;
+        design_frame = {static_cast<float>(ui.design_width), static_cast<float>(ui.design_height)};
+    }
+    preview_ui_->set_design_frame(design_frame);
+    preview_ui_->update(preview_width_, preview_height_,
+                        deps_.vulkan_context->current_frame_index(), dt, input_ptr);
+
+    // Scale to fit available area
+    float scale_x = avail.x / preview_width_;
+    float scale_y = avail.y / preview_height_;
+    float scale = std::min(scale_x, scale_y);
+    // Overlays and picking work on layout rects, which are in design-frame
+    // pixels; the preview image is in preview pixels. Two scales apart.
+    float layout_scale = scale * preview_ui_->frame_scale();
+
+    float scaled_w = preview_width_ * scale;
+    float scaled_h = preview_height_ * scale;
+
+    // Center in available area
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    float offset_x = (avail.x - scaled_w) * 0.5f;
+    float offset_y = (avail.y - scaled_h) * 0.5f;
+    ImVec2 origin = {cursor.x + offset_x, cursor.y + offset_y};
+
+    // Display offscreen render as ImGui image — the slot the
+    // ui_preview_callback_ most recently finished rendering into
+    // (latest_rendered_offscreen_), not a fixed index. Each slot's
+    // pixels only update once every PREVIEW_FRAMES real frames (on
+    // the frame its own index comes up in current_frame_'s cycle),
+    // so always displaying slot 0 meant up to 2 of every 3 renders
+    // — including every render triggered by a live material-param
+    // edit that happened to land while slot 0 wasn't due — were
+    // silently discarded in favor of stale content from 1-2 frames
+    // earlier, with no guarantee that stale content ever became
+    // current again while continuously re-editing.
+    {
+        VkDescriptorSet tex = VK_NULL_HANDLE;
+        uint32_t latest = latest_rendered_offscreen_.load(std::memory_order_acquire);
+        if (latest < PREVIEW_FRAMES && offscreen_[latest]) {
+            tex = offscreen_[latest]->imgui_texture();
         }
-        ImGui::SetNextItemWidth(110);
-        const char* aspect_label = current_aspect >= 0 ? ASPECTS[current_aspect].label : "custom";
-        if (ImGui::BeginCombo("##aspect", aspect_label)) {
-            for (int i = 0; i < static_cast<int>(std::size(ASPECTS)); ++i) {
-                if (ImGui::Selectable(ASPECTS[i].label, i == current_aspect)) {
-                    preview_width_ = std::round(preview_height_ * ASPECTS[i].ratio);
+        if (!tex) {
+            // Fall back to any valid texture before the first real
+            // render has completed (e.g. the very first frame).
+            for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
+                if (offscreen_[i]) {
+                    tex = offscreen_[i]->imgui_texture();
+                    if (tex) break;
                 }
             }
-            ImGui::EndCombo();
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Aspect ratio at the current height");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(60);
-        ImGui::DragFloat("##pw", &preview_width_, 1.0f, 100.0f, 3840.0f, "%.0f");
-        ImGui::SameLine();
-        ImGui::Text("x");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(60);
-        ImGui::DragFloat("##ph", &preview_height_, 1.0f, 100.0f, 2160.0f, "%.0f");
-
-        ImGui::SameLine();
-        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-        ImGui::SameLine();
-
-        // Edit / Play mode toggle
-        bool was_play = play_mode_;
-        if (was_play) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.2f, 0.5f, 0.2f, 1.0f});
-        }
-        if (ImGui::SmallButton(play_mode_ ? "Play" : "Edit")) {
-            play_mode_ = !play_mode_;
-        }
-        if (was_play) {
-            ImGui::PopStyleColor();
-        }
-
-        if (!play_mode_) {
-            ImGui::SameLine();
-            ImGui::Checkbox("Layout", &show_layout_overlay_);
-        }
-
-        // Resolution changed — resize all offscreen passes
-        uint32_t new_w = static_cast<uint32_t>(preview_width_);
-        uint32_t new_h = static_cast<uint32_t>(preview_height_);
-        if ((new_w != offscreen_width_ || new_h != offscreen_height_) &&
-            new_w > 0 && new_h > 0) {
-            for (auto& pass : offscreen_) {
-                if (pass) pass->resize(new_w, new_h);
-            }
-            offscreen_width_ = new_w;
-            offscreen_height_ = new_h;
-            preview_ui_->mark_dirty();
-        }
-
-        ImGui::Separator();
-
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        if (avail.x < 1.0f || avail.y < 1.0f) {
-            ImGui::End();
-            return;
-        }
-
-        // Re-apply mock data each frame (ensures values persist after hot-reload)
-        for (const auto& [key, value] : mock_entries_) {
-            preview_ui_->context().set(key, value);
-        }
-        sync_mock_lists();
-
-        // Update the preview UI (layout, data bind, input in play mode)
-        const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
-        // Must match the frame_index record_game_ui_offscreen() will use
-        // for this same GameUi later this frame (via ui_preview_callback_)
-        // — a fixed index here would only ever flatten fresh quad data
-        // into one of the PREVIEW_FRAMES SSBO slots, leaving the other
-        // slots (and the offscreen images tied to them) permanently
-        // stale, which reads as "edits don't show up in the preview."
-        UiDesignFrame design_frame{};
-        if (design_scale_ && deps_.project_mgr && deps_.project_mgr->active()) {
-            const auto& ui = deps_.project_mgr->active()->config().ui;
-            design_frame = {static_cast<float>(ui.design_width), static_cast<float>(ui.design_height)};
-        }
-        preview_ui_->set_design_frame(design_frame);
-        preview_ui_->update(preview_width_, preview_height_,
-                            deps_.vulkan_context->current_frame_index(), dt, input_ptr);
-
-        // Scale to fit available area
-        float scale_x = avail.x / preview_width_;
-        float scale_y = avail.y / preview_height_;
-        float scale = std::min(scale_x, scale_y);
-        // Overlays and picking work on layout rects, which are in design-frame
-        // pixels; the preview image is in preview pixels. Two scales apart.
-        float layout_scale = scale * preview_ui_->frame_scale();
-
-        float scaled_w = preview_width_ * scale;
-        float scaled_h = preview_height_ * scale;
-
-        // Center in available area
-        ImVec2 cursor = ImGui::GetCursorScreenPos();
-        float offset_x = (avail.x - scaled_w) * 0.5f;
-        float offset_y = (avail.y - scaled_h) * 0.5f;
-        ImVec2 origin = {cursor.x + offset_x, cursor.y + offset_y};
-
-        // Display offscreen render as ImGui image — the slot the
-        // ui_preview_callback_ most recently finished rendering into
-        // (latest_rendered_offscreen_), not a fixed index. Each slot's
-        // pixels only update once every PREVIEW_FRAMES real frames (on
-        // the frame its own index comes up in current_frame_'s cycle),
-        // so always displaying slot 0 meant up to 2 of every 3 renders
-        // — including every render triggered by a live material-param
-        // edit that happened to land while slot 0 wasn't due — were
-        // silently discarded in favor of stale content from 1-2 frames
-        // earlier, with no guarantee that stale content ever became
-        // current again while continuously re-editing.
-        {
-            VkDescriptorSet tex = VK_NULL_HANDLE;
-            uint32_t latest = latest_rendered_offscreen_.load(std::memory_order_acquire);
-            if (latest < PREVIEW_FRAMES && offscreen_[latest]) {
-                tex = offscreen_[latest]->imgui_texture();
-            }
-            if (!tex) {
-                // Fall back to any valid texture before the first real
-                // render has completed (e.g. the very first frame).
-                for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
-                    if (offscreen_[i]) {
-                        tex = offscreen_[i]->imgui_texture();
-                        if (tex) break;
-                    }
-                }
-            }
-            if (tex) {
-                ImGui::SetCursorScreenPos(origin);
-                ImGui::Image(reinterpret_cast<ImTextureID>(tex),
-                             {scaled_w, scaled_h});
-            }
-        }
-
-        // Overlay: layout debug (Edit mode only, drawn via ImGui DrawList on top)
-        auto* root = preview_ui_->root();
-        if (!play_mode_ && show_layout_overlay_ && root) {
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            draw_layout_overlay(root, draw_list, origin, layout_scale);
-        }
-
-        // Invisible button for interaction (placed over the image)
-        ImGui::SetCursorScreenPos(origin);
-        ImGui::InvisibleButton("##preview_area", {scaled_w, scaled_h});
-
-        if (play_mode_) {
-            // Play mode: forward mouse events to GameUi for interaction
-            if (root) {
-                process_play_input(root, origin, layout_scale);
-            }
-        } else {
-            // Edit mode: click-to-select elements
-            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                ImVec2 mouse = ImGui::GetMousePos();
-                float local_x = (mouse.x - origin.x) / layout_scale;
-                float local_y = (mouse.y - origin.y) / layout_scale;
-
-                UiNode* hit = nullptr;
-                std::function<void(UiNode*)> hit_test = [&](UiNode* node) {
-                    if (node->hidden_by_if) return;
-                    if (node->style.display == UiDisplay::none) return;
-
-                    auto& r = node->layout_rect;
-                    if (local_x >= r.x && local_x <= r.x + r.w &&
-                        local_y >= r.y && local_y <= r.y + r.h) {
-                        hit = node;
-                        for (auto& child : node->children) {
-                            hit_test(child.get());
-                        }
-                    }
-                };
-                if (root) hit_test(root);
-                selected_node_ = hit;
-            }
+        if (tex) {
+            ImGui::SetCursorScreenPos(origin);
+            ImGui::Image(reinterpret_cast<ImTextureID>(tex), {scaled_w, scaled_h});
         }
     }
-    ImGui::End();
+
+    // Overlay: layout debug (Edit mode only, drawn via ImGui DrawList on top)
+    auto* root = preview_ui_->root();
+    if (!play_mode_ && show_layout_overlay_ && root) {
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        draw_layout_overlay(root, draw_list, origin, layout_scale);
+    }
+
+    // Invisible button for interaction (placed over the image)
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::InvisibleButton("##preview_area", {scaled_w, scaled_h});
+
+    if (play_mode_) {
+        // Play mode: forward mouse events to GameUi for interaction
+        if (root) {
+            process_play_input(root, origin, layout_scale);
+        }
+    } else if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        // Edit mode: click-to-select elements
+        ImVec2 mouse = ImGui::GetMousePos();
+        float local_x = (mouse.x - origin.x) / layout_scale;
+        float local_y = (mouse.y - origin.y) / layout_scale;
+
+        UiNode* hit = nullptr;
+        std::function<void(UiNode*)> hit_test = [&](UiNode* node) {
+            if (node->hidden_by_if) return;
+            if (node->style.display == UiDisplay::none) return;
+
+            auto& r = node->layout_rect;
+            if (local_x >= r.x && local_x <= r.x + r.w && local_y >= r.y && local_y <= r.y + r.h) {
+                hit = node;
+                for (auto& child : node->children) {
+                    hit_test(child.get());
+                }
+            }
+        };
+        if (root) hit_test(root);
+        selected_node_ = hit;
+    }
+}
+
+void UiEditorContext::draw_preview_toolbar() {
+    // Left: what a click in the preview does, and the layout overlay.
+    static constexpr const char* MODES[] = {"Edit", "Play"};
+    int mode = play_mode_ ? 1 : 0;
+    ImGui::SetNextItemWidth(120.0f);
+    if (ui::choice("##mode", mode, MODES).changed) play_mode_ = mode == 1;
+    ImGui::SetItemTooltip("Edit selects elements with a click; Play hands the mouse to the UI");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(play_mode_);
+    if (ui::toggle_button("##layout", ui::icon::layout, show_layout_overlay_, "Layout overlay")) {
+        show_layout_overlay_ = !show_layout_overlay_;
+    }
+    ImGui::EndDisabled();
+
+    // Right: the size the UI is laid out at. Aspect presets keep the height
+    // and derive the width: with design scaling the aspect is what changes
+    // how a HUD holds up, and a portrait or ultrawide window is one click
+    // away.
+    struct AspectPreset {
+        const char* label;
+        float ratio;
+    };
+    static constexpr AspectPreset ASPECTS[] = {
+        {"16:9", 16.0f / 9.0f}, {"16:10", 16.0f / 10.0f}, {"21:9", 21.0f / 9.0f},
+        {"32:9", 32.0f / 9.0f}, {"4:3", 4.0f / 3.0f}, {"3:2", 3.0f / 2.0f},
+        {"9:16 portrait", 9.0f / 16.0f},
+    };
+    static constexpr const char* ASPECT_NAMES[] = {"16:9", "16:10", "21:9", "32:9", "4:3", "3:2", "9:16 portrait",
+                                                   "Custom"};
+    constexpr int CUSTOM = static_cast<int>(std::size(ASPECTS));
+    int aspect = CUSTOM;
+    for (int i = 0; i < CUSTOM; ++i) {
+        if (std::abs(preview_width_ / preview_height_ - ASPECTS[i].ratio) < 0.01f) aspect = i;
+    }
+
+    const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active() : nullptr;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    constexpr float ASPECT_W = 120.0f;
+    constexpr float SIZE_W = 84.0f;
+    const float times_w = ImGui::CalcTextSize("\xc3\x97").x;
+    const float button = ImGui::GetFrameHeight();
+    const std::string design_label = std::string(ui::icon::revert) + "  Design size";
+    const float design_w = project != nullptr ? ImGui::CalcTextSize(design_label.c_str()).x + style.FramePadding.x * 2.0f : 0.0f;
+    const float gap = style.ItemSpacing.x;
+    const float right = ASPECT_W + SIZE_W * 2.0f + times_w + button + (project != nullptr ? design_w + gap : 0.0f) + gap * 5.0f;
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - right, 0.0f));
+
+    ImGui::SetNextItemWidth(ASPECT_W);
+    if (ui::choice("##aspect", aspect, ASPECT_NAMES).changed && aspect < CUSTOM) {
+        preview_width_ = std::round(preview_height_ * ASPECTS[aspect].ratio);
+    }
+    ImGui::SetItemTooltip("Aspect ratio at the current height");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(SIZE_W);
+    (void)ui::drag("##width", preview_width_,
+                   {.speed = 1.0f, .min = 100.0f, .max = 3840.0f, .unit = ui::Unit::Pixels, .format = "%.0f"});
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("\xc3\x97");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(SIZE_W);
+    (void)ui::drag("##height", preview_height_,
+                   {.speed = 1.0f, .min = 100.0f, .max = 2160.0f, .unit = ui::Unit::Pixels, .format = "%.0f"});
+    ImGui::SameLine();
+    if (ui::toggle_button("##design_scale", ui::icon::design_scale, design_scale_,
+                          "Design scale: fit the project's design frame to the preview, as a screen-space "
+                          "placement does in game. Off for world-space widgets")) {
+        design_scale_ = !design_scale_;
+    }
+    if (project != nullptr) {
+        ImGui::SameLine();
+        const auto& ui = project->config().ui;
+        if (ui::action(ui::icon::revert, "Design size", ui::ButtonKind::Ghost)) {
+            preview_width_ = static_cast<float>(ui.design_width);
+            preview_height_ = static_cast<float>(ui.design_height);
+        }
+        ImGui::SetItemTooltip("Back to the project's design resolution, %u \xc3\x97 %u", ui.design_width,
+                              ui.design_height);
+    }
 }
 
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    if (ImGui::Begin(ctx_title("Elements").c_str())) {
-        if (!preview_ui_ || !preview_ui_->loaded()) {
-            ImGui::TextDisabled("No .fjui loaded");
-            ImGui::End();
-            return;
-        }
-
-        if (auto* root = preview_ui_->root()) {
-            if (auto tree = ui::Tree("##elements")) draw_node_tree(root, 0);
-        }
+    auto panel = Panel(ui::icon::hierarchy, ctx_title("Elements").c_str());
+    if (!panel) return;
+    if (!preview_ui_ || !preview_ui_->loaded()) {
+        ui::empty_state(ui::icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
+        return;
     }
-    ImGui::End();
+    if (auto* root = preview_ui_->root()) {
+        if (auto tree = ui::Tree("##elements")) draw_node_tree(root, 0);
+    }
 }
 
 void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
@@ -707,179 +711,141 @@ void UiEditorContext::draw_stylesheet_problems() {
     const auto& problems = preview_ui_->stylesheet().diagnostics;
     if (problems.empty()) return;
 
-    ImGui::SeparatorText("Problems");
+    ui::section("Problems", ui::icon::warning);
     for (const auto& d : problems) {
-        ImVec4 color = d.severity == FjssSeverity::error
-            ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
-            : ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
-        auto file = fs::path(d.source).filename().string();
-        ImGui::TextColored(color, "%s:%u:%u", file.c_str(), d.line, d.column);
-        ImGui::SameLine();
-        ImGui::TextWrapped("%s", d.message.c_str());
+        const std::string text = fs::path(d.source).filename().string() + ":" + std::to_string(d.line) + ":" +
+                                 std::to_string(d.column) + "  " + d.message;
+        ui::status(d.severity == FjssSeverity::error ? ui::Severity::Error : ui::Severity::Warning, text.c_str());
     }
-    ImGui::Spacing();
 }
 
 void UiEditorContext::draw_inspector() {
-    if (ImGui::Begin(ctx_title("Properties").c_str())) {
-        // Stylesheet problems show up next to the UI they broke, even with
-        // nothing selected — a typo in a hot-reloaded sheet should be the
-        // first thing visible, not something to dig out of the console.
-        draw_stylesheet_problems();
+    auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    if (!panel) return;
+    // Stylesheet problems show up next to the UI they broke, even with
+    // nothing selected — a typo in a hot-reloaded sheet should be the
+    // first thing visible, not something to dig out of the console.
+    draw_stylesheet_problems();
 
-        if (!selected_node_) {
-            ImGui::TextDisabled("Select an element in the tree or preview");
-            ImGui::End();
-            return;
+    if (!selected_node_) {
+        ui::empty_state(ui::icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");
+        return;
+    }
+    auto* node = selected_node_;
+
+    ui::section("Element", ui::icon::ui_element);
+    if (auto t = ui::PropertyTable("##element")) {
+        const std::string tag = node->tag.empty() ? "root" : node->tag;
+        ui::row("Tag", [&] { ui::readout(tag.c_str()); });
+        if (!node->id.empty()) ui::row("ID", [&] { ui::readout(node->id.c_str()); });
+        std::string classes;
+        for (const auto& c : node->classes) {
+            if (c.starts_with("__w_")) continue;  // scope classes
+            if (!classes.empty()) classes += " ";
+            classes += "." + c;
         }
+        if (!classes.empty()) ui::row("Classes", [&] { ui::readout(classes.c_str()); });
+        if (node->type == UiNodeType::text) ui::row("Text", [&] { ui::readout(node->text_content.c_str()); });
+        if (!node->text_template.empty()) ui::row("Template", [&] { ui::readout(node->text_template.c_str()); });
+    }
+    if (node->hidden_by_if) ui::status(ui::Severity::Warning, "Hidden: its if= is false");
 
-        auto* node = selected_node_;
-
-        // Element info
-        ImGui::SeparatorText("Element");
-        ImGui::Text("Tag: %s", node->tag.empty() ? "(root)" : node->tag.c_str());
-        if (!node->id.empty()) {
-            ImGui::Text("ID: %s", node->id.c_str());
-        }
-        if (!node->classes.empty()) {
-            std::string cls_str;
-            for (const auto& c : node->classes) {
-                if (c.starts_with("__w_")) continue; // skip scope classes
-                if (!cls_str.empty()) cls_str += ", ";
-                cls_str += "." + c;
+    if (node->is_widget) {
+        ui::section("Widget", ui::icon::ui_widget);
+        if (auto t = ui::PropertyTable("##widget")) {
+            const std::string tag = "<" + node->widget_tag + "/>";
+            ui::row("Tag", [&] { ui::readout(tag.c_str()); });
+            for (const auto& [inner, outer] : node->prop_map) {
+                ui::row(inner.c_str(), "A prop of the widget and what this placement passes it.",
+                        [&] { ui::readout(outer.c_str()); });
             }
-            if (!cls_str.empty()) {
-                ImGui::Text("Classes: %s", cls_str.c_str());
+            for (const auto& [event, action] : node->event_map) {
+                const std::string label = "on:" + event;
+                ui::row(label.c_str(), [&] { ui::readout(action.c_str()); });
             }
-        }
-        if (node->type == UiNodeType::text) {
-            ImGui::TextWrapped("Text: %s", node->text_content.c_str());
-        }
-        if (!node->text_template.empty()) {
-            ImGui::TextDisabled("Template: %s", node->text_template.c_str());
-        }
-        if (node->hidden_by_if) {
-            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "Hidden by if directive");
-        }
-
-        // Widget info
-        if (node->is_widget) {
-            ImGui::SeparatorText("Widget");
-            ImGui::TextColored({0.6f, 0.45f, 0.8f, 1.0f}, "<%s/>", node->widget_tag.c_str());
-
-            if (!node->prop_map.empty()) {
-                ImGui::Text("Props:");
-                ImGui::Indent();
-                for (const auto& [inner, outer] : node->prop_map) {
-                    ImGui::Text("%s = %s", inner.c_str(), outer.c_str());
-                }
-                ImGui::Unindent();
-            }
-
-            if (!node->event_map.empty()) {
-                ImGui::Text("Events:");
-                ImGui::Indent();
-                for (const auto& [event, action] : node->event_map) {
-                    ImGui::Text("on:%s -> %s", event.c_str(), action.c_str());
-                }
-                ImGui::Unindent();
-            }
-
-            if (node->scoped_context) {
-                ImGui::TextDisabled("(scoped context active)");
-            }
-
-            // Controller info
             if (deps_.script_manager && deps_.script_manager->is_loaded()) {
                 auto* ui_type = deps_.script_manager->find_ui_type_by_tag(node->widget_tag);
-                if (ui_type) {
-                    ImGui::Spacing();
-                    ImGui::TextColored({0.4f, 0.8f, 0.4f, 1.0f}, "Controller: %s",
-                                       ui_type->name.c_str());
-                    if (!ui_type->fields.empty()) {
-                        ImGui::Text("Bind fields:");
-                        ImGui::Indent();
-                        for (const auto& f : ui_type->fields) {
-                            const char* type_name = "?";
-                            switch (f.type) {
-                                case FJELL_FIELD_FLOAT: type_name = "float"; break;
-                                case FJELL_FIELD_INT: type_name = "int"; break;
-                                case FJELL_FIELD_BOOL: type_name = "bool"; break;
-                                case FJELL_FIELD_STRING:
-                                case FJELL_FIELD_STD_STRING: type_name = "string"; break;
-                                case FJELL_FIELD_VEC2: type_name = "vec2"; break;
-                                case FJELL_FIELD_VEC3: type_name = "vec3"; break;
-                                case FJELL_FIELD_VEC4: type_name = "vec4"; break;
-                                default: break;
-                            }
-                            ImGui::Text("%s %s", type_name, f.name.c_str());
+                ui::row("Controller", [&] { ui::readout(ui_type != nullptr ? ui_type->name.c_str() : "None registered"); });
+                if (ui_type != nullptr) {
+                    for (const auto& f : ui_type->fields) {
+                        const char* type_name = "?";
+                        switch (f.type) {
+                            case FJELL_FIELD_FLOAT: type_name = "float"; break;
+                            case FJELL_FIELD_INT: type_name = "int"; break;
+                            case FJELL_FIELD_BOOL: type_name = "bool"; break;
+                            case FJELL_FIELD_STRING:
+                            case FJELL_FIELD_STD_STRING: type_name = "string"; break;
+                            case FJELL_FIELD_VEC2: type_name = "vec2"; break;
+                            case FJELL_FIELD_VEC3: type_name = "vec3"; break;
+                            case FJELL_FIELD_VEC4: type_name = "vec4"; break;
+                            default: break;
                         }
-                        ImGui::Unindent();
+                        ui::row(f.name.c_str(), "A field the controller publishes as {key}.",
+                                [&] { ui::readout(type_name); });
                     }
-                } else {
-                    ImGui::TextDisabled("No controller registered");
                 }
             }
         }
+    }
 
-        // Foreach info
-        if (node->foreach_item_index >= 0) {
-            ImGui::SeparatorText("Foreach");
-            ImGui::TextColored({0.3f, 0.75f, 0.7f, 1.0f}, "Item [%d]", node->foreach_item_index);
-            if (node->foreach_context) {
-                ImGui::TextDisabled("(item context active)");
-            }
-        }
-
-        // Attributes
-        if (!node->attributes.empty()) {
-            ImGui::SeparatorText("Attributes");
-            for (const auto& [key, value] : node->attributes) {
-                if (key.starts_with("_")) continue; // skip internal attributes
-                ImGui::Text("%s: %s", key.c_str(), value.c_str());
-            }
-        }
-
-        // Interaction state
-        {
-            ImGui::SeparatorText("State");
-            ImGui::Text("Hovered: %s", node->is_hovered() ? "yes" : "no");
-            ImGui::Text("Active: %s", node->is_active() ? "yes" : "no");
-            ImGui::Text("Focused: %s", node->is_focused() ? "yes" : "no");
-        }
-
-        // Layout rect
-        {
-            ImGui::SeparatorText("Layout");
-            auto& r = node->layout_rect;
-            ImGui::Text("Position: %.0f, %.0f", r.x, r.y);
-            ImGui::Text("Size: %.0f x %.0f", r.w, r.h);
-
-            auto& m = node->layout_margin;
-            ImGui::Text("Margin: %.0f %.0f %.0f %.0f", m.top, m.right, m.bottom, m.left);
-            auto& p = node->layout_padding;
-            ImGui::Text("Padding: %.0f %.0f %.0f %.0f", p.top, p.right, p.bottom, p.left);
-        }
-
-        // Style — editable. Edits write to the node's #id-selector rule
-        // in the stylesheet (see SetStylePropertyCommand); values shown
-        // are the resolved cascade output until something is explicitly
-        // set here, at which point the explicit value takes over.
-        ImGui::SeparatorText("Style");
-        if (node->type != UiNodeType::text) {
-            draw_style_editor(*node);
-        } else {
-            ImGui::TextDisabled("(text nodes inherit style from their parent)");
-        }
-
-        // Material — only nodes with a material="..." attribute have
-        // one (img/div slots typically). Same param widget the 3D scene
-        // properties panel uses for mesh materials.
-        if (node->attributes.contains("material")) {
-            draw_node_material_editor(*node);
+    if (node->foreach_item_index >= 0) {
+        ui::section("Foreach", ui::icon::ui_repeat);
+        if (auto t = ui::PropertyTable("##foreach")) {
+            const std::string item = std::to_string(node->foreach_item_index + 1);
+            ui::row("Item", [&] { ui::readout(item.c_str()); });
         }
     }
-    ImGui::End();
+
+    bool has_attributes = false;
+    for (const auto& [key, value] : node->attributes) has_attributes |= !key.starts_with("_");
+    if (has_attributes) {
+        ui::section("Attributes", ui::icon::ui_element);
+        if (auto t = ui::PropertyTable("##attributes")) {
+            for (const auto& [key, value] : node->attributes) {
+                if (key.starts_with("_")) continue;  // internal attributes
+                ui::row(key.c_str(), [&] { ui::readout(value.c_str()); });
+            }
+        }
+    }
+
+    ui::section("State", ui::icon::info);
+    if (auto t = ui::PropertyTable("##state")) {
+        ui::row("Hovered", [&] { ui::readout(node->is_hovered() ? "Yes" : "No"); });
+        ui::row("Active", [&] { ui::readout(node->is_active() ? "Yes" : "No"); });
+        ui::row("Focused", [&] { ui::readout(node->is_focused() ? "Yes" : "No"); });
+    }
+
+    ui::section("Layout", ui::icon::layout);
+    if (auto t = ui::PropertyTable("##layout_rect")) {
+        char text[64];
+        const auto& r = node->layout_rect;
+        std::snprintf(text, sizeof(text), "%.0f, %.0f px", r.x, r.y);
+        ui::row("Position", [&] { ui::readout(text); });
+        std::snprintf(text, sizeof(text), "%.0f \xc3\x97 %.0f px", r.w, r.h);
+        ui::row("Size", [&] { ui::readout(text); });
+        const auto& m = node->layout_margin;
+        std::snprintf(text, sizeof(text), "%.0f %.0f %.0f %.0f", m.top, m.right, m.bottom, m.left);
+        ui::row("Margin", "Top, right, bottom, left, in px as laid out.", [&] { ui::readout(text); });
+        const auto& p = node->layout_padding;
+        std::snprintf(text, sizeof(text), "%.0f %.0f %.0f %.0f", p.top, p.right, p.bottom, p.left);
+        ui::row("Padding", "Top, right, bottom, left, in px as laid out.", [&] { ui::readout(text); });
+    }
+
+    // Style — editable. Edits write to the node's #id-selector rule in the
+    // stylesheet (see SetStylePropertyCommand); values shown are the
+    // resolved cascade output until something is set here, at which point
+    // the value set here takes over.
+    ui::section("Style", ui::icon::colour);
+    if (node->type != UiNodeType::text) {
+        draw_style_editor(*node);
+    } else {
+        ui::hint("Text takes its style from its parent element");
+    }
+
+    // Material — only nodes with a material="..." attribute have one.
+    if (node->attributes.contains("material")) {
+        draw_node_material_editor(*node);
+    }
 }
 
 void UiEditorContext::draw_node_material_editor(UiNode& node) {
@@ -921,15 +887,15 @@ void UiEditorContext::draw_node_material_editor(UiNode& node) {
     auto* mat = deps_.resource_manager->get(mat_handle);
     if (!mat) return;
 
-    ImGui::SeparatorText("Material");
-
     auto* pipeline_cache = deps_.vulkan_context->pipeline_cache();
     if (!pipeline_cache) return;
     uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache->shader_count()) return;
 
-    const auto& meta = pipeline_cache->metadata(pid);
-    ImGui::TextDisabled("Shader: %s", mat->shader_path().c_str());
+    ui::section("Material", ui::icon::material);
+    if (auto t = ui::PropertyTable("##material")) {
+        ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
+    }
 
     // Param values live in the bindless SSBO and the fragment shader
     // samples them fresh every draw — but GameUi::update() stops issuing
@@ -939,6 +905,7 @@ void UiEditorContext::draw_node_material_editor(UiNode& node) {
     // else would ever trip that flag — without mark_dirty() here, the
     // change lands in the SSBO but the preview simply stops re-drawing
     // before it ever samples it.
+    const auto& meta = pipeline_cache->metadata(pid);
     if (draw_material_params(meta, deps_.vulkan_context->bindless_textures(), *mat)) {
         preview_ui_->mark_dirty();
     }
@@ -954,44 +921,60 @@ std::string UiEditorContext::style_prop_string(const UiNode& node, const char* p
     return fallback;
 }
 
-void UiEditorContext::style_edit_float(UiNode& node, const char* property, const char* label,
-                                       float resolved_value, float speed, float min, float max) {
+void UiEditorContext::set_style(UiNode& node, const char* property, const std::string& before,
+                                const std::string& after) {
+    if (before == after) return;
+    command_history().execute(std::make_unique<SetStylePropertyCommand>(
+        *preview_ui_, node, property, before, after,
+        std::string(after.empty() ? "Unset " : "Set ") + property));
+}
+
+void UiEditorContext::style_row_menu(UiNode& node, const char* property, const std::string& explicit_str) {
+    const std::string popup = std::string("##unset_") + property;
+    if (!explicit_str.empty() && ImGui::IsWindowHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+        ImGui::TableGetHoveredRow() == ImGui::TableGetRowIndex()) {
+        ImGui::OpenPopup(popup.c_str());
+    }
+    if (ImGui::BeginPopup(popup.c_str())) {
+        if (ui::menu_item({.icon = ui::icon::clear, .label = "Unset"})) {
+            set_style(node, property, explicit_str, {});
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void UiEditorContext::style_edit_float(UiNode& node, const char* property, float resolved_value,
+                                       const ui::DragSpec& spec) {
     // Empty explicit_str means "no rule sets this yet" — kept empty (not
     // defaulted to the resolved value's string form) so an undo restores
     // that exact unset state via SetStylePropertyCommand's empty-value
     // erase, rather than pinning the resolved value as a new explicit rule.
-    auto explicit_str = style_prop_string(node, property, {});
+    const auto explicit_str = style_prop_string(node, property, {});
     float source_value = resolved_value;
     if (!explicit_str.empty()) {
         try { source_value = std::stof(explicit_str); } catch (...) {}
     }
-
-    // While a drag gesture is active, the widget must keep showing (and
-    // ImGui must keep accumulating into) the buffered in-progress value
-    // — not source_value, which only reflects the last *committed* edit
-    // and would otherwise reset the field back to its starting point on
-    // literally the next frame of the same drag (mark_dirty()/resolve()
-    // don't run until the gesture ends, so source_value never moves
-    // mid-drag).
-    ImGuiID id = ImGui::GetID(label);
-    auto it = active_float_edits_.find(id);
-    bool dragging = it != active_float_edits_.end();
-    float edited = dragging ? it->second : source_value;
-
-    ImGui::DragFloat(label, &edited, speed, min, max, "%.1f");
-    style_origin_tooltip(property);
-
-    if (ImGui::IsItemActive()) {
-        active_float_edits_[id] = edited;
-    } else if (dragging) {
-        active_float_edits_.erase(it);
-    }
-
-    if (ImGui::IsItemDeactivatedAfterEdit() && edited != source_value) {
-        command_history().execute(std::make_unique<SetStylePropertyCommand>(
-            *preview_ui_, node, property, explicit_str, to_css(UiLength::pixels(edited)),
-            std::string("Set ") + property));
-    }
+    ui::mark_next_row(!explicit_str.empty());
+    ui::row(property, [&] {
+        // While a drag is in progress the field shows (and accumulates into)
+        // the buffered value, not source_value, which only reflects the last
+        // committed edit: the resolved style doesn't move until the edit
+        // commits, and re-deriving it mid-drag would snap the field back.
+        const ImGuiID id = ImGui::GetID(property);
+        auto it = active_float_edits_.find(id);
+        float edited = it != active_float_edits_.end() ? it->second : source_value;
+        const std::string field = std::string("##") + property;
+        const auto edit = ui::drag(field.c_str(), edited, spec);
+        style_origin_tooltip(property);
+        if (edit.changed) active_float_edits_[id] = edited;
+        if (edit.committed) {
+            active_float_edits_.erase(id);
+            if (edited != source_value) {
+                set_style(node, property, explicit_str, to_css(UiLength::pixels(edited)));
+            }
+        }
+        style_row_menu(node, property, explicit_str);
+    });
 }
 
 void UiEditorContext::style_edit_length(UiNode& node, const char* property,
@@ -1001,152 +984,112 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
 
     // Same empty-means-unset convention as style_edit_float: the explicit
     // string is what undo restores to.
-    auto explicit_str = style_prop_string(node, property, {});
-    UiLength source = explicit_str.empty() ? resolved_value
-                                           : StyleResolver::parse_length(explicit_str);
+    const auto explicit_str = style_prop_string(node, property, {});
+    const UiLength source = explicit_str.empty() ? resolved_value : StyleResolver::parse_length(explicit_str);
 
-    auto commit = [&](UiLength length) {
-        command_history().execute(std::make_unique<SetStylePropertyCommand>(
-            *preview_ui_, node, property, explicit_str, to_css(length),
-            std::string("Set ") + property));
-    };
+    // The units a length can take here, in the order the choice lists them.
+    static constexpr UiUnit UNITS[] = {UiUnit::px, UiUnit::percent, UiUnit::em, UiUnit::rem,
+                                       UiUnit::vw, UiUnit::vh, UiUnit::auto_};
+    static constexpr const char* NAMES[] = {"px", "%", "em", "rem", "vw", "vh", "auto"};
+    const std::span<const char* const> names(NAMES, desc->auto_allowed ? 7 : 6);
 
-    ImGui::PushID(property);
-    if (source.is_auto()) {
-        // No number to drag; the button reads as the value itself and a
-        // click starts a pixel value from whatever layout resolved.
-        if (ImGui::Button("auto", ImVec2(ImGui::CalcItemWidth(), 0.0f))) {
-            commit(UiLength::pixels(0.0f));
+    ui::mark_next_row(!explicit_str.empty());
+    ui::row(property, [&] {
+        constexpr float UNIT_W = 72.0f;
+        const float x = ImGui::GetCursorPosX();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float field_w = std::max(width - UNIT_W - theme::GAP_S, 1.0f);
+
+        if (source.is_auto()) {
+            // No number to drag: auto is the value, and the unit choice
+            // beside it goes back to a number.
+            ImGui::SetNextItemWidth(field_w);
+            ui::readout("auto");
+        } else {
+            const ImGuiID id = ImGui::GetID(property);
+            auto it = active_float_edits_.find(id);
+            float edited = it != active_float_edits_.end() ? it->second : source.value;
+            float limit = source.is_percent() ? 100.0f : source.is_relative() ? max / 16.0f : max;
+            // Insets and margins may be negative; percentages of them too.
+            const float min = desc->auto_allowed ? -limit : 0.0f;
+            const float step = source.is_relative() ? speed / 16.0f : speed;
+            ImGui::SetNextItemWidth(field_w);
+            const std::string field = std::string("##") + property;
+            const auto edit = ui::drag(field.c_str(), edited,
+                                       {.speed = step, .min = min, .max = limit,
+                                        .format = source.unit == UiUnit::px || source.is_percent() ? "%.1f" : "%.2f"});
+            style_origin_tooltip(property);
+            if (edit.changed) active_float_edits_[id] = edited;
+            if (edit.committed) {
+                active_float_edits_.erase(id);
+                if (edited != source.value) set_style(node, property, explicit_str, to_css({edited, source.unit}));
+            }
         }
-        style_origin_tooltip(property);
+
+        int unit = 0;
+        for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+            if (UNITS[i] == source.unit) unit = i;
+        }
         ImGui::SameLine();
-        ImGui::TextUnformatted(property);
-    } else {
-        ImGuiID id = ImGui::GetID(property);
-        auto it = active_float_edits_.find(id);
-        bool dragging = it != active_float_edits_.end();
-        float edited = dragging ? it->second : source.value;
+        ImGui::SetCursorPosX(x + field_w + theme::GAP_S);
+        ImGui::SetNextItemWidth(UNIT_W);
+        const std::string choice = std::string("##unit_") + property;
+        if (ui::choice(choice.c_str(), unit, names).changed) {
+            const float value = source.is_auto() ? 0.0f : source.value;
+            set_style(node, property, explicit_str,
+                      UNITS[unit] == UiUnit::auto_ ? to_css(UiLength::automatic()) : to_css({value, UNITS[unit]}));
+        }
+        style_row_menu(node, property, explicit_str);
+    });
+}
 
-        std::string format = source.unit == UiUnit::px ? "%.1f px"
-                           : source.is_percent() ? "%.1f %%"
-                           : std::string("%.2f ") + unit_suffix(source.unit);
-        float min = 0.0f;
-        float limit = source.is_percent() ? 100.0f : source.is_relative() ? max / 16.0f : max;
-        // Insets and margins may be negative; percentages of them too.
-        if (desc->auto_allowed) min = -limit;
-        float step = source.is_relative() ? speed / 16.0f : speed;
-        ImGui::DragFloat(property, &edited, step, min, limit, format.c_str());
+void UiEditorContext::style_edit_color(UiNode& node, const char* property, const UiColor& resolved_value) {
+    const auto explicit_str = style_prop_string(node, property, {});
+    const UiColor source = explicit_str.empty() ? resolved_value : StyleResolver::parse_color(explicit_str);
+
+    ui::mark_next_row(!explicit_str.empty());
+    ui::row(property, [&] {
+        // Same buffered-while-active pattern as style_edit_float — see there.
+        const ImGuiID id = ImGui::GetID(property);
+        auto it = active_color_edits_.find(id);
+        const std::array<float, 4> rgba =
+            it != active_color_edits_.end() ? it->second : std::array{source.r, source.g, source.b, source.a};
+        glm::vec4 edited{rgba[0], rgba[1], rgba[2], rgba[3]};
+        const std::string field = std::string("##") + property;
+        const auto edit = ui::color(field.c_str(), edited, ui::ColorSpace::Srgb);
         style_origin_tooltip(property);
-
-        if (ImGui::IsItemActive()) {
-            active_float_edits_[id] = edited;
-        } else if (dragging) {
-            active_float_edits_.erase(it);
+        if (edit.changed) active_color_edits_[id] = {edited.r, edited.g, edited.b, edited.a};
+        if (edit.committed) {
+            active_color_edits_.erase(id);
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "#%02x%02x%02x%02x", static_cast<int>(edited.r * 255.0f + 0.5f),
+                          static_cast<int>(edited.g * 255.0f + 0.5f), static_cast<int>(edited.b * 255.0f + 0.5f),
+                          static_cast<int>(edited.a * 255.0f + 0.5f));
+            set_style(node, property, explicit_str, buf);
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && edited != source.value) {
-            commit({edited, source.unit});
-        }
-    }
-
-    // Unit switch on the item just drawn, whichever it was.
-    if (ImGui::BeginPopupContextItem("unit")) {
-        float value = source.is_auto() ? 0.0f : source.value;
-        if (ImGui::MenuItem("px", nullptr, source.unit == UiUnit::px)) {
-            commit(UiLength::pixels(value));
-        }
-        if (ImGui::MenuItem("%", nullptr, source.is_percent())) {
-            commit(UiLength::percent(value));
-        }
-        for (UiUnit unit : {UiUnit::em, UiUnit::rem, UiUnit::vw, UiUnit::vh}) {
-            if (ImGui::MenuItem(unit_suffix(unit), nullptr, source.unit == unit)) {
-                commit({value, unit});
-            }
-        }
-        if (desc->auto_allowed && ImGui::MenuItem("auto", nullptr, source.is_auto())) {
-            commit(UiLength::automatic());
-        }
-        if (!explicit_str.empty()) {
-            ImGui::Separator();
-            if (ImGui::MenuItem("Unset")) {
-                command_history().execute(std::make_unique<SetStylePropertyCommand>(
-                    *preview_ui_, node, property, explicit_str, std::string{},
-                    std::string("Unset ") + property));
-            }
-        }
-        ImGui::EndPopup();
-    }
-    ImGui::PopID();
+        style_row_menu(node, property, explicit_str);
+    });
 }
 
-void UiEditorContext::style_edit_color(UiNode& node, const char* property, const char* label,
-                                       const UiColor& resolved_value) {
-    auto explicit_str = style_prop_string(node, property, {});
-    UiColor source = explicit_str.empty() ? resolved_value : StyleResolver::parse_color(explicit_str);
-
-    // Same buffered-while-active pattern as style_edit_float — see there.
-    ImGuiID id = ImGui::GetID(label);
-    auto it = active_color_edits_.find(id);
-    bool dragging = it != active_color_edits_.end();
-    std::array<float, 4> rgba = dragging
-        ? it->second : std::array{source.r, source.g, source.b, source.a};
-
-    ImGui::ColorEdit4(label, rgba.data(), ImGuiColorEditFlags_AlphaBar);
-    style_origin_tooltip(property);
-
-    if (ImGui::IsItemActive()) {
-        active_color_edits_[id] = rgba;
-    } else if (dragging) {
-        active_color_edits_.erase(it);
-    }
-
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "#%02x%02x%02x%02x",
-                      static_cast<int>(rgba[0] * 255), static_cast<int>(rgba[1] * 255),
-                      static_cast<int>(rgba[2] * 255), static_cast<int>(rgba[3] * 255));
-        std::string new_str = buf;
-        if (new_str != explicit_str) {
-            command_history().execute(std::make_unique<SetStylePropertyCommand>(
-                *preview_ui_, node, property, explicit_str, new_str,
-                std::string("Set ") + property));
-        }
-    }
-}
-
-void UiEditorContext::style_edit_text(UiNode& node, const char* property,
-                                      const std::string& resolved_value) {
+void UiEditorContext::style_edit_text(UiNode& node, const char* property, const std::string& resolved_value) {
     // Same empty-means-unset convention as style_edit_float: the explicit
     // string is what undo restores to.
-    auto explicit_str = style_prop_string(node, property, {});
-    std::string shown = explicit_str.empty() ? resolved_value : ui_style_unquote(explicit_str);
+    const auto explicit_str = style_prop_string(node, property, {});
+    const std::string shown = explicit_str.empty() ? resolved_value : ui_style_unquote(explicit_str);
 
-    // Buffered while the field is active, like a drag, so a resolve mid-edit
-    // cannot reset the text under the caret.
-    ImGuiID id = ImGui::GetID(property);
-    auto it = active_text_edits_.find(id);
-    bool editing = it != active_text_edits_.end();
-    char buf[128];
-    std::strncpy(buf, (editing ? it->second : shown).c_str(), sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
-
-    ImGui::InputText(property, buf, sizeof(buf));
-    style_origin_tooltip(property);
-
-    if (ImGui::IsItemActive()) {
-        active_text_edits_[id] = buf;
-    } else if (editing) {
-        active_text_edits_.erase(it);
-    }
-
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        std::string value = buf;
-        if (value == shown) return;
-        // A name with a space needs quoting to read back as one name.
-        if (value.find(' ') != std::string::npos) value = "\"" + value + "\"";
-        command_history().execute(std::make_unique<SetStylePropertyCommand>(
-            *preview_ui_, node, property, explicit_str, value,
-            std::string("Set ") + property));
-    }
+    ui::mark_next_row(!explicit_str.empty());
+    ui::row(property, [&] {
+        std::string value = shown;
+        const std::string field = std::string("##") + property;
+        const bool committed = ui::text_field(field.c_str(), value).committed;
+        style_origin_tooltip(property);
+        if (committed && value != shown) {
+            // A name with a space needs quoting to read back as one name.
+            if (value.find(' ') != std::string::npos) value = "\"" + value + "\"";
+            set_style(node, property, explicit_str, value);
+        }
+        style_row_menu(node, property, explicit_str);
+    });
 }
 
 void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
@@ -1154,30 +1097,28 @@ void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
     if (!desc || desc->kind != UiPropertyKind::keyword) return;
 
     // The keyword table's entries are string literals, so data() is a
-    // null-terminated string ImGui can list directly.
+    // null-terminated string the choice can list directly.
     std::vector<const char*> items;
     for (auto keyword : desc->keywords) items.push_back(keyword.data());
 
     int index = desc->get_keyword(node.style);
-    auto explicit_str = style_prop_string(node, property, {});
+    const auto explicit_str = style_prop_string(node, property, {});
     if (!explicit_str.empty()) {
         for (size_t i = 0; i < items.size(); ++i) {
             if (explicit_str == items[i]) { index = static_cast<int>(i); break; }
         }
     }
 
-    int edited = index;
-    ImGui::Combo(property, &edited, items.data(), static_cast<int>(items.size()));
-    style_origin_tooltip(property);
-
-    if (edited != index) {
-        // Same empty-means-unset convention as style_edit_float/color:
-        // explicit_str (not a stringified resolved fallback) is what
-        // undo restores to.
-        command_history().execute(std::make_unique<SetStylePropertyCommand>(
-            *preview_ui_, node, property, explicit_str, items[edited],
-            std::string("Set ") + property));
-    }
+    ui::mark_next_row(!explicit_str.empty());
+    ui::row(property, [&] {
+        int edited = index;
+        const std::string field = std::string("##") + property;
+        if (ui::choice(field.c_str(), edited, items).changed && edited != index) {
+            set_style(node, property, explicit_str, items[static_cast<size_t>(edited)]);
+        }
+        style_origin_tooltip(property);
+        style_row_menu(node, property, explicit_str);
+    });
 }
 
 void UiEditorContext::style_origin_tooltip(const char* property) {
@@ -1185,19 +1126,19 @@ void UiEditorContext::style_origin_tooltip(const char* property) {
     auto it = style_origins_.find(property);
     if (it == style_origins_.end()) {
         const auto* desc = find_ui_style_property(property);
-        ImGui::SetTooltip("%s", desc && desc->inherited ? "inherited from the parent (no rule sets it here)"
-                                                        : "default (no rule sets it)");
+        ImGui::SetTooltip("%s", desc && desc->inherited ? "Inherited from the parent: no rule sets it here"
+                                                        : "The default: no rule sets it");
         return;
     }
     const auto& origin = it->second;
     if (origin.inline_style) {
-        ImGui::SetTooltip("style-%s attribute on this element", property);
+        ImGui::SetTooltip("The style-%s attribute on this element", property);
         return;
     }
     auto file = fs::path(origin.rule->source).filename().string();
-    if (file.empty()) file = "(unsaved rule)";
+    if (file.empty()) file = "an unsaved rule";
     std::string media = origin.rule->media.empty() ? "" : "\n@media " + to_css(origin.rule->media);
-    ImGui::SetTooltip("%s: %s%s\n%s { %s: %s; }", file.c_str(), to_css(origin.rule->selector).c_str(),
+    ImGui::SetTooltip("Set by %s in %s%s\n%s { %s: %s; }", to_css(origin.rule->selector).c_str(), file.c_str(),
                       media.c_str(), to_css(origin.rule->selector).c_str(), property,
                       origin.declaration->value.c_str());
 }
@@ -1208,329 +1149,311 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
         ? StyleResolver::explain(node, preview_ui_->stylesheet(),
                                  preview_ui_->layout_size().x, preview_ui_->layout_size().y)
         : std::unordered_map<std::string, StyleOrigin>{};
-
-    if (ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_keyword(node, "display");
-        style_edit_keyword(node, "flex-direction");
-        style_edit_keyword(node, "justify-content");
-        style_edit_keyword(node, "align-items");
-        style_edit_keyword(node, "align-self");
-        style_edit_keyword(node, "flex-wrap");
-        style_edit_keyword(node, "position");
-        style_edit_keyword(node, "overflow");
-        style_edit_float(node, "flex-grow", "flex-grow", s.flex_grow, 0.1f, 0.0f, 100.0f);
-        style_edit_float(node, "flex-shrink", "flex-shrink", s.flex_shrink, 0.1f, 0.0f, 100.0f);
-        ImGui::TreePop();
+    // A drag or pick that ended without committing (Esc) leaves nothing
+    // buffered once nothing is being edited.
+    if (!ImGui::IsAnyItemActive()) {
+        active_float_edits_.clear();
+        active_color_edits_.clear();
     }
 
-    if (ImGui::TreeNodeEx("Dimensions", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_length(node, "width", s.width, 1.0f, 4096.0f);
-        style_edit_length(node, "height", s.height, 1.0f, 4096.0f);
-        style_edit_length(node, "min-width", s.min_width, 1.0f, 4096.0f);
-        style_edit_length(node, "min-height", s.min_height, 1.0f, 4096.0f);
-        style_edit_length(node, "max-width", s.max_width, 1.0f, 4096.0f);
-        style_edit_length(node, "max-height", s.max_height, 1.0f, 4096.0f);
-        ImGui::TreePop();
+    if (ui::subheading_foldable("Layout")) {
+        if (auto t = ui::PropertyTable("##style_layout")) {
+            style_edit_keyword(node, "display");
+            style_edit_keyword(node, "flex-direction");
+            style_edit_keyword(node, "justify-content");
+            style_edit_keyword(node, "align-items");
+            style_edit_keyword(node, "align-self");
+            style_edit_keyword(node, "flex-wrap");
+            style_edit_keyword(node, "position");
+            style_edit_keyword(node, "overflow");
+            style_edit_float(node, "flex-grow", s.flex_grow, {.speed = 0.1f, .min = 0.0f, .max = 100.0f, .format = "%.1f"});
+            style_edit_float(node, "flex-shrink", s.flex_shrink, {.speed = 0.1f, .min = 0.0f, .max = 100.0f, .format = "%.1f"});
+        }
     }
-
-    if (ImGui::TreeNodeEx("Spacing", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_length(node, "margin-top", s.margin.top, 1.0f, 512.0f);
-        style_edit_length(node, "margin-right", s.margin.right, 1.0f, 512.0f);
-        style_edit_length(node, "margin-bottom", s.margin.bottom, 1.0f, 512.0f);
-        style_edit_length(node, "margin-left", s.margin.left, 1.0f, 512.0f);
-        style_edit_length(node, "padding-top", s.padding.top, 1.0f, 512.0f);
-        style_edit_length(node, "padding-right", s.padding.right, 1.0f, 512.0f);
-        style_edit_length(node, "padding-bottom", s.padding.bottom, 1.0f, 512.0f);
-        style_edit_length(node, "padding-left", s.padding.left, 1.0f, 512.0f);
-        style_edit_length(node, "row-gap", s.row_gap, 1.0f, 256.0f);
-        style_edit_length(node, "column-gap", s.column_gap, 1.0f, 256.0f);
-        ImGui::TreePop();
+    if (ui::subheading_foldable("Dimensions")) {
+        if (auto t = ui::PropertyTable("##style_dimensions")) {
+            style_edit_length(node, "width", s.width, 1.0f, 4096.0f);
+            style_edit_length(node, "height", s.height, 1.0f, 4096.0f);
+            style_edit_length(node, "min-width", s.min_width, 1.0f, 4096.0f);
+            style_edit_length(node, "min-height", s.min_height, 1.0f, 4096.0f);
+            style_edit_length(node, "max-width", s.max_width, 1.0f, 4096.0f);
+            style_edit_length(node, "max-height", s.max_height, 1.0f, 4096.0f);
+        }
     }
-
-    if (ImGui::TreeNodeEx("Visual", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_color(node, "background-color", "background-color", s.background_color);
-        style_edit_color(node, "color", "color", s.color);
-        style_edit_float(node, "font-size", "font-size", s.font_size, 0.5f, 1.0f, 256.0f);
-        style_edit_text(node, "font-family", s.font_family);
-        style_edit_float(node, "font-weight", "font-weight", s.font_weight, 10.0f, 1.0f, 1000.0f);
-        style_edit_color(node, "border-color", "border-color", s.border_color);
-        style_edit_float(node, "border-width", "border-width", s.border_width, 0.5f, 0.0f, 64.0f);
-        style_edit_float(node, "border-radius", "border-radius",
-                         s.border_radius.top_left, 0.5f, 0.0f, 256.0f);
-        style_edit_float(node, "opacity", "opacity", s.opacity, 0.01f, 0.0f, 1.0f);
-        ImGui::TreePop();
+    if (ui::subheading_foldable("Spacing")) {
+        if (auto t = ui::PropertyTable("##style_spacing")) {
+            style_edit_length(node, "margin-top", s.margin.top, 1.0f, 512.0f);
+            style_edit_length(node, "margin-right", s.margin.right, 1.0f, 512.0f);
+            style_edit_length(node, "margin-bottom", s.margin.bottom, 1.0f, 512.0f);
+            style_edit_length(node, "margin-left", s.margin.left, 1.0f, 512.0f);
+            style_edit_length(node, "padding-top", s.padding.top, 1.0f, 512.0f);
+            style_edit_length(node, "padding-right", s.padding.right, 1.0f, 512.0f);
+            style_edit_length(node, "padding-bottom", s.padding.bottom, 1.0f, 512.0f);
+            style_edit_length(node, "padding-left", s.padding.left, 1.0f, 512.0f);
+            style_edit_length(node, "row-gap", s.row_gap, 1.0f, 256.0f);
+            style_edit_length(node, "column-gap", s.column_gap, 1.0f, 256.0f);
+        }
+    }
+    if (ui::subheading_foldable("Visual")) {
+        if (auto t = ui::PropertyTable("##style_visual")) {
+            style_edit_color(node, "background-color", s.background_color);
+            style_edit_color(node, "color", s.color);
+            style_edit_float(node, "font-size", s.font_size,
+                             {.speed = 0.5f, .min = 1.0f, .max = 256.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+            style_edit_text(node, "font-family", s.font_family);
+            style_edit_float(node, "font-weight", s.font_weight, {.speed = 10.0f, .min = 1.0f, .max = 1000.0f, .format = "%.0f"});
+            style_edit_color(node, "border-color", s.border_color);
+            style_edit_float(node, "border-width", s.border_width,
+                             {.speed = 0.5f, .min = 0.0f, .max = 64.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+            style_edit_float(node, "border-radius", s.border_radius.top_left,
+                             {.speed = 0.5f, .min = 0.0f, .max = 256.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+            style_edit_float(node, "opacity", s.opacity, {.speed = 0.01f, .min = 0.0f, .max = 1.0f});
+        }
     }
 }
 
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_mock_data() {
-    if (ImGui::Begin(ctx_title("Mock data").c_str())) {
-        if (!preview_ui_ || !preview_ui_->loaded()) {
-            ImGui::TextDisabled("No .fjui loaded");
-            ImGui::End();
-            return;
-        }
+    auto panel = Panel(ui::icon::ui_widget, ctx_title("Mock data").c_str());
+    if (!panel) return;
+    if (!preview_ui_ || !preview_ui_->loaded()) {
+        ui::empty_state(ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
+        return;
+    }
 
-        if (is_widget_file_) {
-            ImGui::TextColored({0.6f, 0.45f, 0.8f, 1.0f}, "Widget isolation mode");
-            if (!loaded_widget_.props.empty()) {
-                ImGui::TextDisabled("Props from <prop> declarations");
-            } else {
-                ImGui::TextDisabled("Props auto-discovered from {key} templates");
-            }
-        } else {
-            ImGui::TextDisabled("Key/value pairs for {key} data binding");
-        }
-        ImGui::Separator();
+    // What the values stand in for: a widget's props, or the keys a plain
+    // UI binds.
+    if (auto t = ui::PropertyTable("##mock_source")) {
+        const char* source = !is_widget_file_ ? "{key} bindings"
+                           : !loaded_widget_.props.empty() ? "The widget's <prop> declarations"
+                                                           : "The widget's {key} templates";
+        ui::row("Values for", "The preview's stand-in for what the game sets through UiContext.",
+                [&] { ui::readout(source); });
+    }
 
-        // Existing entries
-        int remove_idx = -1;
-        for (int i = 0; i < static_cast<int>(mock_entries_.size()); ++i) {
-            ImGui::PushID(i);
+    draw_mock_values();
+    draw_mock_lists();
+    draw_action_bindings();
 
-            auto& [key, value] = mock_entries_[i];
-
-            // Key label
-            ImGui::Text("%s", key.c_str());
-            ImGui::SameLine(150);
-
-            // Find prop type if declared
-            std::string prop_type;
-            for (const auto& prop : loaded_widget_.props) {
-                if (prop.name == key) { prop_type = prop.type; break; }
-            }
-
-            ImGui::SetNextItemWidth(-40);
-            bool changed = false;
-
-            if (prop_type == "float") {
-                float f = 0.0f;
-                try { f = std::stof(value); } catch (...) {}
-                if (ImGui::DragFloat("##val", &f, 0.1f)) {
-                    value = std::to_string(f);
-                    preview_ui_->context().set_float(key, f);
-                    changed = true;
-                }
-            } else if (prop_type == "int") {
-                int iv = 0;
-                try { iv = std::stoi(value); } catch (...) {}
-                if (ImGui::DragInt("##val", &iv)) {
-                    value = std::to_string(iv);
-                    preview_ui_->context().set_int(key, iv);
-                    changed = true;
-                }
-            } else if (prop_type == "bool") {
-                bool bv = (value != "0" && value != "false");
-                if (ImGui::Checkbox("##val", &bv)) {
-                    value = bv ? "1" : "0";
-                    preview_ui_->context().set_bool(key, bv);
-                    changed = true;
-                }
-            } else {
-                char buf[256];
-                std::snprintf(buf, sizeof(buf), "%s", value.c_str());
-                if (ImGui::InputText("##val", buf, sizeof(buf))) {
-                    value = buf;
-                    preview_ui_->context().set(key, value);
-                    changed = true;
-                }
-            }
-
-            if (changed) {
+    // One prompt for every name the panel asks for.
+    const char* title = prompt_for_ == MockPrompt::Value ? "New value"
+                      : prompt_for_ == MockPrompt::List  ? "New list"
+                                                         : "New field";
+    const char* hint = prompt_for_ == MockPrompt::Value ? "Its key, e.g. player.health"
+                     : prompt_for_ == MockPrompt::List  ? "The key foreach= names, e.g. inventory"
+                                                        : "Its key within the item, e.g. name";
+    if (ui::prompt_dialog("##mock_prompt", {.title = title, .hint = hint, .confirm = "Add"}, prompt_text_) ==
+        ui::DialogAnswer::Confirm) {
+        switch (prompt_for_) {
+            case MockPrompt::Value:
+                mock_entries_.emplace_back(prompt_text_, "");
+                preview_ui_->context().set(prompt_text_, "");
                 preview_ui_->mark_dirty();
-            }
-
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X")) {
-                remove_idx = i;
-            }
-
-            ImGui::PopID();
-        }
-
-        if (remove_idx >= 0) {
-            mock_entries_.erase(mock_entries_.begin() + remove_idx);
-            // Reload UI to clear the removed binding
-            if (!fjui_path_.empty()) {
-                auto abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
-                preview_ui_->load(abs_path, fjss_path_);
-                for (const auto& [key, value] : mock_entries_) {
-                    preview_ui_->context().set(key, value);
+                break;
+            case MockPrompt::List:
+                mock_lists_.push_back({prompt_text_, {}});
+                open_list_ = static_cast<int>(mock_lists_.size()) - 1;
+                sync_mock_lists();
+                break;
+            case MockPrompt::Field:
+                if (prompt_list_ < mock_lists_.size() && prompt_item_ < mock_lists_[prompt_list_].items.size()) {
+                    mock_lists_[prompt_list_].items[prompt_item_].fields.emplace_back(prompt_text_, "");
+                    sync_mock_lists();
                 }
-            }
-        }
-
-        // Add new entry
-        ImGui::Separator();
-        ImGui::SetNextItemWidth(140);
-        ImGui::InputTextWithHint("##newkey", "key", new_key_buf_, sizeof(new_key_buf_));
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-60);
-        ImGui::InputTextWithHint("##newval", "value", new_value_buf_, sizeof(new_value_buf_));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Add") && new_key_buf_[0] != '\0') {
-            mock_entries_.emplace_back(new_key_buf_, new_value_buf_);
-            preview_ui_->context().set(new_key_buf_, new_value_buf_);
-            preview_ui_->mark_dirty();
-            new_key_buf_[0] = '\0';
-            new_value_buf_[0] = '\0';
-        }
-
-        // ── List Data (for foreach) ─────────────────────────────────
-        ImGui::Spacing();
-        ImGui::SeparatorText("Lists (foreach)");
-        ImGui::TextDisabled("List data for foreach directives");
-
-        bool lists_changed = false;
-        int remove_list = -1;
-        for (int li = 0; li < static_cast<int>(mock_lists_.size()); ++li) {
-            ImGui::PushID(2000 + li);
-            auto& list = mock_lists_[li];
-
-            bool list_open = ImGui::TreeNodeEx(list.key.c_str(),
-                ImGuiTreeNodeFlags_DefaultOpen);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X##list")) { remove_list = li; }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+Item")) {
-                list.items.push_back({});
-                lists_changed = true;
-            }
-
-            if (list_open) {
-                int remove_item = -1;
-                for (int ii = 0; ii < static_cast<int>(list.items.size()); ++ii) {
-                    ImGui::PushID(ii);
-                    auto& item = list.items[ii];
-
-                    ImGui::TextDisabled("[%d]", ii);
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("X##item")) { remove_item = ii; }
-
-                    // Existing fields
-                    for (auto& [fk, fv] : item.fields) {
-                        ImGui::Indent();
-                        ImGui::Text("%s", fk.c_str());
-                        ImGui::SameLine(150);
-                        char fbuf[256];
-                        std::snprintf(fbuf, sizeof(fbuf), "%s", fv.c_str());
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::InputText("##fval", fbuf, sizeof(fbuf))) {
-                            fv = fbuf;
-                            lists_changed = true;
-                        }
-                        ImGui::Unindent();
-                    }
-
-                    // Add field button
-                    ImGui::Indent();
-                    static char field_key[64]{};
-                    static char field_val[128]{};
-                    ImGui::SetNextItemWidth(80);
-                    ImGui::InputTextWithHint("##fk", "key", field_key, sizeof(field_key));
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(80);
-                    ImGui::InputTextWithHint("##fv", "value", field_val, sizeof(field_val));
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("+") && field_key[0] != '\0') {
-                        item.fields.emplace_back(field_key, field_val);
-                        field_key[0] = '\0';
-                        field_val[0] = '\0';
-                        lists_changed = true;
-                    }
-                    ImGui::Unindent();
-
-                    ImGui::PopID();
-                }
-                if (remove_item >= 0) {
-                    list.items.erase(list.items.begin() + remove_item);
-                    lists_changed = true;
-                }
-                ImGui::TreePop();
-            }
-            ImGui::PopID();
-        }
-        if (remove_list >= 0) {
-            mock_lists_.erase(mock_lists_.begin() + remove_list);
-            lists_changed = true;
-        }
-
-        // Add new list
-        ImGui::SetNextItemWidth(120);
-        ImGui::InputTextWithHint("##newlistkey", "list key", new_list_key_buf_, sizeof(new_list_key_buf_));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Add List") && new_list_key_buf_[0] != '\0') {
-            mock_lists_.push_back({new_list_key_buf_, {}});
-            new_list_key_buf_[0] = '\0';
-            lists_changed = true;
-        }
-
-        if (lists_changed) {
-            sync_mock_lists();
-        }
-
-        // ── Action Bindings ──────────────────────────────────────────
-        ImGui::Spacing();
-        ImGui::SeparatorText("Action Bindings");
-        ImGui::TextDisabled("on:click action -> set key = value");
-
-        int remove_bind = -1;
-        for (int i = 0; i < static_cast<int>(action_bindings_.size()); ++i) {
-            ImGui::PushID(1000 + i);
-            auto& b = action_bindings_[i];
-            ImGui::Text("%s", b.action.c_str());
-            ImGui::SameLine();
-            ImGui::TextDisabled("->");
-            ImGui::SameLine();
-            ImGui::Text("%s = %s", b.key.c_str(), b.value.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X")) {
-                remove_bind = i;
-            }
-            ImGui::PopID();
-        }
-        if (remove_bind >= 0) {
-            action_bindings_.erase(action_bindings_.begin() + remove_bind);
-        }
-
-        // Add new binding — action from dropdown, key/value as text
-        if (!discovered_actions_.empty()) {
-            ImGui::SetNextItemWidth(120);
-            if (ImGui::BeginCombo("##bact",
-                    bind_action_idx_ < static_cast<int>(discovered_actions_.size())
-                        ? discovered_actions_[bind_action_idx_].c_str() : "")) {
-                for (int i = 0; i < static_cast<int>(discovered_actions_.size()); ++i) {
-                    bool selected = (i == bind_action_idx_);
-                    if (ImGui::Selectable(discovered_actions_[i].c_str(), selected)) {
-                        bind_action_idx_ = i;
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("->");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(80);
-            ImGui::InputTextWithHint("##bkey", "key", bind_key_buf_, sizeof(bind_key_buf_));
-            ImGui::SameLine();
-            ImGui::Text("=");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(60);
-            ImGui::InputTextWithHint("##bval", "value", bind_value_buf_, sizeof(bind_value_buf_));
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Bind") && bind_key_buf_[0] != '\0') {
-                action_bindings_.push_back({
-                    discovered_actions_[bind_action_idx_],
-                    bind_key_buf_, bind_value_buf_});
-                bind_key_buf_[0] = '\0';
-                bind_value_buf_[0] = '\0';
-            }
-        } else {
-            ImGui::TextDisabled("No on:click actions found in .fjui");
+                break;
         }
     }
-    ImGui::End();
+}
+
+void UiEditorContext::draw_mock_values() {
+    ui::section("Values", ui::icon::ui_text);
+    std::optional<std::size_t> remove;
+    bool add = false;
+    {
+        ui::ListEditor list("##values", mock_entries_.size(), {.reorder = false});
+        for (std::size_t i = 0; i < mock_entries_.size(); ++i) {
+            if (!list.begin_item(i)) continue;
+            auto& [key, value] = mock_entries_[i];
+            // A declared prop is edited as its type.
+            std::string type;
+            for (const auto& prop : loaded_widget_.props) {
+                if (prop.name == key) { type = prop.type; break; }
+            }
+            if (auto t = ui::PropertyTable("##value")) {
+                ui::row(key.c_str(), [&] {
+                    bool changed = false;
+                    if (type == "float") {
+                        float f = 0.0f;
+                        try { f = std::stof(value); } catch (...) {}
+                        if (ui::drag("##float", f).changed) {
+                            value = std::to_string(f);
+                            preview_ui_->context().set_float(key, f);
+                            changed = true;
+                        }
+                    } else if (type == "int") {
+                        int n = 0;
+                        try { n = std::stoi(value); } catch (...) {}
+                        if (ui::drag_int("##int", n).changed) {
+                            value = std::to_string(n);
+                            preview_ui_->context().set_int(key, n);
+                            changed = true;
+                        }
+                    } else if (type == "bool") {
+                        bool b = value != "0" && value != "false";
+                        if (ui::checkbox("##bool", b).changed) {
+                            value = b ? "1" : "0";
+                            preview_ui_->context().set_bool(key, b);
+                            changed = true;
+                        }
+                    } else if (ui::text_field("##text", value).committed) {
+                        preview_ui_->context().set(key, value);
+                        changed = true;
+                    }
+                    if (changed) preview_ui_->mark_dirty();
+                });
+            }
+            if (list.end_item()) remove = i;
+        }
+        if (mock_entries_.empty()) list.empty("No values: add one for each {key} the UI binds");
+        add = list.add_button("Add value");
+    }
+    if (add) {
+        prompt_for_ = MockPrompt::Value;
+        prompt_text_.clear();
+        ui::open_dialog("##mock_prompt");
+    }
+    if (remove) {
+        mock_entries_.erase(mock_entries_.begin() + static_cast<std::ptrdiff_t>(*remove));
+        // Reload the UI to clear the removed binding
+        if (!fjui_path_.empty()) {
+            auto abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
+            preview_ui_->load(abs_path, fjss_path_);
+            for (const auto& [key, value] : mock_entries_) {
+                preview_ui_->context().set(key, value);
+            }
+        }
+    }
+}
+
+void UiEditorContext::draw_mock_lists() {
+    ui::section("Lists", ui::icon::ui_repeat);
+    bool changed = false;
+    bool add_list = false;
+    std::optional<std::size_t> remove_list;
+    std::optional<std::pair<std::size_t, std::size_t>> add_field;
+    {
+        ui::ListEditor lists("##lists", mock_lists_.size(), {.reorder = false, .opens = true});
+        for (std::size_t li = 0; li < mock_lists_.size(); ++li) {
+            auto& list = mock_lists_[li];
+            const bool open = open_list_ == static_cast<int>(li);
+            if (!lists.begin_item(li, open)) continue;
+            char summary[160];
+            std::snprintf(summary, sizeof(summary), "%s \xc2\xb7 %zu %s", list.key.c_str(), list.items.size(),
+                          list.items.size() == 1 ? "item" : "items");
+            ImGui::TextUnformatted(summary);
+            if (open) {
+                // Each item is a card of its own fields.
+                std::optional<std::size_t> remove_item;
+                ui::ListEditor items("##items", list.items.size(), {.reorder = false});
+                for (std::size_t ii = 0; ii < list.items.size(); ++ii) {
+                    if (!items.begin_item(ii)) continue;
+                    auto& item = list.items[ii];
+                    if (auto t = ui::PropertyTable("##fields")) {
+                        for (auto& [field_key, field_value] : item.fields) {
+                            ui::row(field_key.c_str(), [&] {
+                                const std::string id = "##" + field_key;
+                                changed |= ui::text_field(id.c_str(), field_value).committed;
+                            });
+                        }
+                        ui::row("", [&] {
+                            if (ui::action(ui::icon::add, "Add field", ui::ButtonKind::Ghost)) add_field = std::pair{li, ii};
+                        });
+                    }
+                    if (items.end_item()) remove_item = ii;
+                }
+                if (list.items.empty()) items.empty("No items: each is one copy of the foreach element");
+                if (items.add_button("Add item")) {
+                    list.items.push_back({});
+                    changed = true;
+                }
+                if (remove_item) {
+                    list.items.erase(list.items.begin() + static_cast<std::ptrdiff_t>(*remove_item));
+                    changed = true;
+                }
+            }
+            if (lists.end_item()) remove_list = li;
+            if (lists.clicked()) open_list_ = open ? -1 : static_cast<int>(li);
+        }
+        if (mock_lists_.empty()) lists.empty("No lists: add one for each foreach= the UI repeats");
+        add_list = lists.add_button("Add list");
+    }
+    if (add_list || add_field) {
+        prompt_for_ = add_list ? MockPrompt::List : MockPrompt::Field;
+        if (add_field) std::tie(prompt_list_, prompt_item_) = *add_field;
+        prompt_text_.clear();
+        ui::open_dialog("##mock_prompt");
+    }
+    if (remove_list) {
+        mock_lists_.erase(mock_lists_.begin() + static_cast<std::ptrdiff_t>(*remove_list));
+        if (open_list_ == static_cast<int>(*remove_list)) open_list_ = -1;
+        else if (open_list_ > static_cast<int>(*remove_list)) --open_list_;
+        changed = true;
+    }
+    if (changed) sync_mock_lists();
+}
+
+void UiEditorContext::draw_action_bindings() {
+    ui::section("Action bindings", ui::icon::scripts);
+    if (discovered_actions_.empty()) {
+        ui::hint("No on:click actions in this UI to answer");
+        return;
+    }
+    // What the preview does when an action fires, standing in for the
+    // controller: set a key to a value.
+    std::optional<std::size_t> remove;
+    bool add = false;
+    {
+        ui::ListEditor list("##bindings", action_bindings_.size(), {.reorder = false, .opens = true});
+        for (std::size_t i = 0; i < action_bindings_.size(); ++i) {
+            auto& b = action_bindings_[i];
+            const bool open = open_binding_ == static_cast<int>(i);
+            if (!list.begin_item(i, open)) continue;
+            if (open) {
+                if (auto t = ui::PropertyTable("##binding")) {
+                    ui::row("When", "The on:click action that fires it.", [&] {
+                        std::vector<const char*> names;
+                        int index = 0;
+                        for (std::size_t a = 0; a < discovered_actions_.size(); ++a) {
+                            names.push_back(discovered_actions_[a].c_str());
+                            if (discovered_actions_[a] == b.action) index = static_cast<int>(a);
+                        }
+                        if (ui::choice("##action", index, names).changed) {
+                            b.action = discovered_actions_[static_cast<std::size_t>(index)];
+                        }
+                    });
+                    ui::row("Set", [&] { (void)ui::text_field("##key", b.key); });
+                    ui::row("To", [&] { (void)ui::text_field("##value", b.value); });
+                }
+            } else {
+                const std::string summary = b.action + "  \xe2\x86\x92  " + (b.key.empty() ? "?" : b.key) + " = " + b.value;
+                ImGui::TextUnformatted(summary.c_str());
+            }
+            if (list.end_item()) remove = i;
+            if (list.clicked()) open_binding_ = open ? -1 : static_cast<int>(i);
+        }
+        if (action_bindings_.empty()) list.empty("No bindings: the preview's actions change nothing yet");
+        add = list.add_button("Add binding");
+    }
+    if (add) {
+        action_bindings_.push_back({discovered_actions_.front(), {}, {}});
+        open_binding_ = static_cast<int>(action_bindings_.size()) - 1;
+    }
+    if (remove) {
+        action_bindings_.erase(action_bindings_.begin() + static_cast<std::ptrdiff_t>(*remove));
+        if (open_binding_ == static_cast<int>(*remove)) open_binding_ = -1;
+        else if (open_binding_ > static_cast<int>(*remove)) --open_binding_;
+    }
 }
 
 // ── List sync ────────────────────────────────────────────────────────────
@@ -1557,21 +1480,29 @@ void UiEditorContext::sync_mock_lists() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    if (ImGui::Begin(ctx_title("Action log").c_str())) {
-        if (ImGui::SmallButton("Clear")) {
-            action_log_.clear();
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%d actions)", static_cast<int>(action_log_.size()));
-        ImGui::Separator();
-
+    auto panel = Panel(ui::icon::console, ctx_title("Action log").c_str());
+    if (!panel) return;
+    if (action_log_.empty()) {
+        ui::empty_state(ui::icon::console, "No actions yet", "Actions fired in Play mode are listed here");
+        return;
+    }
+    ImGui::BeginDisabled(action_log_.empty());
+    if (ui::action(ui::icon::clear, "Clear", ui::ButtonKind::Ghost)) action_log_.clear();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    char count[32];
+    std::snprintf(count, sizeof(count), action_log_.size() == 1 ? "%zu action" : "%zu actions", action_log_.size());
+    ui::readout(count);
+    if (auto t = ui::PropertyTable("##log")) {
         for (auto it = action_log_.rbegin(); it != action_log_.rend(); ++it) {
-            ImGui::TextDisabled("[%.1fs]", it->timestamp);
-            ImGui::SameLine();
-            ImGui::Text("%s", it->action.c_str());
+            char at[32];
+            std::snprintf(at, sizeof(at), "%.1f s", it->timestamp);
+            ImGui::PushID(static_cast<int>(std::distance(action_log_.rbegin(), it)));
+            ui::row(at, [&] { ui::readout(it->action.c_str()); });
+            ImGui::PopID();
         }
     }
-    ImGui::End();
 }
 
 // ── Play Mode Input ──────────────────────────────────────────────────────

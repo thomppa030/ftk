@@ -8,6 +8,7 @@
 #include <imgui_internal.h>
 
 #include <string>
+#include <utility>
 
 namespace fjell::ui {
 
@@ -41,6 +42,27 @@ struct Filter {
 Filter& filter() {
     static Filter state;
     return state;
+}
+
+// What mark_next_row() asked of the next row: nothing, room only, or the dot.
+enum class Mark { None, Room, Dot };
+Mark& next_mark() {
+    static Mark mark = Mark::None;
+    return mark;
+}
+
+// The dot, or the room it takes, before a label.
+void draw_mark(Mark mark) {
+    constexpr float DOT = 6.0f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    if (mark == Mark::Dot) {
+        const float cy = p.y + ImGui::GetFrameHeight() * 0.5f;
+        ImGui::GetWindowDrawList()->AddCircleFilled({p.x + DOT * 0.5f, cy}, DOT * 0.5f,
+                                                    ImGui::GetColorU32(theme::accent()));
+    }
+    ImGui::Dummy({DOT, ImGui::GetFrameHeight()});
+    ImGui::SameLine(0.0f, theme::GAP_S + theme::GAP_XS);
+    ImGui::AlignTextToFramePadding();
 }
 
 } // namespace
@@ -81,12 +103,15 @@ PropertyTable::~PropertyTable() {
 }
 
 bool detail::begin_row(const char* label, const char* help) {
+    // Taken here so a row a search leaves out doesn't hand its mark on.
+    const Mark mark = std::exchange(next_mark(), Mark::None);
     Filter& search = filter();
     if (search.active && !matches(label, search.query)) return false;
     set_edit_label(label);
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
+    if (mark != Mark::None) draw_mark(mark);
     if (search.active) {
         ++search.matches;
         highlighted_text(label, search.query);
@@ -100,6 +125,10 @@ bool detail::begin_row(const char* label, const char* help) {
     ImGui::TableSetColumnIndex(1);
     ImGui::SetNextItemWidth(-FLT_MIN);
     return true;
+}
+
+void mark_next_row(bool set_here) {
+    next_mark() = set_here ? Mark::Dot : Mark::Room;
 }
 
 void hint(const char* text) {
