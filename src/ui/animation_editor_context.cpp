@@ -946,6 +946,7 @@ void AnimationEditorContext::load_clip(int index) {
 
     // Update timeline
     timeline_.set_duration(current_clip_->duration());
+    timeline_.show(current_clip_path_);
     timeline_.set_time(0.0f);
     timeline_.set_playing(true);
 

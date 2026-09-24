@@ -105,48 +105,6 @@ void VfxEditorContext::decode_node_id(int node_id, int& stack, int& index) const
     }
 }
 
-// ── VfxTimeline ─────────────────────────────────────────────────────────
-
-void VfxTimeline::draw_lanes(float bar_x, float bar_y, float bar_width,
-                              float lane_height) {
-    TimelineWidget::draw_lanes(bar_x, bar_y, bar_width, lane_height);
-
-    if (lanes_.empty() || duration() <= 0.0f) return;
-    ImVec2 mouse = ImGui::GetMousePos();
-
-    // Click to select + start drag
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        for (int i = 0; i < static_cast<int>(lanes_.size()); ++i) {
-            float y = bar_y + static_cast<float>(i) * lane_height;
-            float x0 = bar_x + (lanes_[i].start / duration()) * bar_width;
-            float x1 = bar_x + ((lanes_[i].start + lanes_[i].duration) / duration()) * bar_width;
-            if (mouse.x >= x0 && mouse.x <= x1 &&
-                mouse.y >= y && mouse.y <= y + lane_height) {
-                selected_lane_ = i;
-                dragging_lane_ = i;
-                drag_offset_ = mouse.x - x0;
-                on_lane_selected.broadcast(i);
-                break;
-            }
-        }
-    }
-
-    // Drag lane to adjust start_delay
-    if (dragging_lane_ >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        float new_x = mouse.x - drag_offset_;
-        float ratio = std::clamp((new_x - bar_x) / bar_width, 0.0f, 1.0f);
-        float new_start = ratio * duration();
-        // Clamp so lane doesn't extend past timeline
-        float max_start = duration() - lanes_[dragging_lane_].duration;
-        new_start = std::clamp(new_start, 0.0f, std::max(max_start, 0.0f));
-        on_lane_dragged.broadcast(dragging_lane_, new_start);
-    }
-
-    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        dragging_lane_ = -1;
-    }
-}
-
 VfxEditorContext::VfxEditorContext(VfxEditorDeps deps)
     : deps_{deps} {}
 
@@ -161,6 +119,7 @@ void VfxEditorContext::init() {
     viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
     timeline_.set_title("Timeline");
+    timeline_.set_category(theme::Category::Vfx);
     timeline_.set_looping(true);
     timeline_.set_duration(5.0f);
     timeline_.set_playing(true);
@@ -267,14 +226,6 @@ void VfxEditorContext::draw(float dt) {
 
     // Build timeline lanes from emitters
     if (effect_) {
-        static const uint32_t lane_colors[] = {
-            IM_COL32(220, 120, 50, 180),
-            IM_COL32(100, 180, 220, 180),
-            IM_COL32(140, 140, 140, 180),
-            IM_COL32(180, 100, 220, 180),
-            IM_COL32(100, 220, 120, 180),
-            IM_COL32(220, 200, 80, 180),
-        };
         std::vector<TimelineLane> lanes;
         for (int i = 0; i < static_cast<int>(effect_->emitters.size()); ++i) {
             auto& em = effect_->emitters[i];
@@ -282,7 +233,6 @@ void VfxEditorContext::draw(float dt) {
             lane.name = em.name;
             lane.start = em.start_delay;
             lane.duration = em.effective_duration();
-            lane.color = lane_colors[i % 6];
             lane.selected = (i == selected_emitter_);
             lanes.push_back(lane);
         }
@@ -364,6 +314,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     needs_initial_layout_ = true;
 
     timeline_.set_duration(std::max(effect_->max_lifetime() + 1.0f, 3.0f));
+    timeline_.show(fjvfx_path);
 
     setup_preview();
 

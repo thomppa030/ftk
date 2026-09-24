@@ -100,6 +100,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/viewport_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/state_graph.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/timeline_widget.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/track_lanes.cpp
 )
 
@@ -225,6 +226,7 @@ add_executable(fjell-tests
     test_track_lanes.cpp
     test_state_graph.cpp
     test_canvas.cpp
+    test_timeline.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

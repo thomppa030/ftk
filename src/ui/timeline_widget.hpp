@@ -1,8 +1,9 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "ui/kit/canvas.hpp"
+#include "ui/theme.hpp"
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,26 +14,26 @@ struct TimelineMarker {
     std::string name;
 };
 
+/// Something that runs for a stretch of the timeline (a VFX emitter).
 struct TimelineLane {
     std::string name;
     float start{0.0f};
     float duration{1.0f};
-    uint32_t color{0xB4966EFF};  // ABGR packed (default blue-ish)
     bool selected{false};
 };
 
-/// Reusable horizontal timeline with playhead, transport controls, markers, and lanes.
-/// Context-agnostic — designed for animation, VFX, and UI editors.
-/// Subclass and override draw_lanes() for context-specific lane interaction.
+/// The Timeline under a preview that plays something with a length (sheet
+/// 29): a transport, a ruler in seconds with the playhead, markers on the
+/// ruler (a clip's notifies) and lanes under it as bars (a VFX effect's
+/// emitters). A canvas like the rest: the wheel zooms time at the cursor, a
+/// middle or Alt drag pans, F shows all of it.
 class TimelineWidget {
 public:
-    virtual ~TimelineWidget() = default;
-
     void draw(float dt);
 
     // Playback state (driven externally or via transport buttons)
     void set_time(float t) { time_ = t; }
-    void set_duration(float d) { duration_ = d; }
+    void set_duration(float d);
     void set_playing(bool p) { playing_ = p; }
     void set_looping(bool l) { looping_ = l; }
     void set_speed(float s) { speed_ = s; }
@@ -47,13 +48,19 @@ public:
     void set_markers(const std::vector<TimelineMarker>& markers) { markers_ = markers; }
     [[nodiscard]] int selected_marker() const { return selected_marker_; }
 
-    // Lanes
+    // Lanes, drawn in the colour of what they are.
     void set_lanes(const std::vector<TimelineLane>& lanes) { lanes_ = lanes; }
+    void set_category(theme::Category category) { category_ = category; }
     [[nodiscard]] const std::vector<TimelineLane>& lanes() const { return lanes_; }
-    [[nodiscard]] int selected_lane() const { return selected_lane_; }
 
     // Window title (for docking)
     void set_title(std::string title) { title_ = std::move(title); }
+    /// Starts showing the asset at `path`: the view as it was left this
+    /// session, or all of the timeline.
+    void show(const std::string& path);
+    /// Where `time` is on screen as last drawn: on the ruler's marker line,
+    /// or through lane `lane`.
+    [[nodiscard]] ImVec2 screen_position(float time, int lane = -1) const;
 
     // Callbacks
     Delegate<void(float)> on_scrub;
@@ -61,21 +68,16 @@ public:
     Delegate<void()> on_pause;
     Delegate<void()> on_stop;
     Delegate<void(int)> on_marker_selected;
-    Delegate<void(float)> on_right_click;          // right-click at time position
+    Delegate<void(float)> on_right_click;          // right-click on the ruler, at that time
     Delegate<void(int, float)> on_marker_moved;    // marker index + new time
-
-protected:
-    /// Override to add custom lane interaction (dragging, clicking, etc.)
-    /// Called during draw with the bar's screen position, width, and lane height.
-    virtual void draw_lanes(float bar_x, float bar_y, float bar_width,
-                            float lane_height);
-
-    std::vector<TimelineLane> lanes_;
-    int selected_lane_{-1};
+    Delegate<void(int)> on_lane_selected;          // lane index clicked
+    Delegate<void(int, float)> on_lane_dragged;    // lane index + new start
 
 private:
+    enum class Drag { None, Scrub, Marker, Lane };
+
     void draw_transport();
-    void draw_timeline_bar();
+    void draw_canvas();
 
     std::string title_{"Timeline"};
     float time_{0.0f};
@@ -86,9 +88,16 @@ private:
 
     std::vector<TimelineMarker> markers_;
     int selected_marker_{-1};
+    std::vector<TimelineLane> lanes_;
+    theme::Category category_{theme::Category::Animation};
 
-    bool scrubbing_{false};
-    int dragging_marker_{-1};
+    ui::CanvasView view_{{.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
+                          .min_span = 0.05f}};
+    bool framed_{false};
+    float body_top_{0.0f};
+    Drag drag_{Drag::None};
+    int drag_index_{-1};
+    float drag_offset_{0.0f};   // where in a lane it was taken, in seconds
 };
 
 } // namespace fjell

@@ -62,6 +62,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_PACKAGE            "\xee\x84\xa9"  // U+E129
 
 #define ICON_LC_PLAY               "\xee\x84\xbc"  // U+E13C
+#define ICON_LC_REPEAT             "\xee\x85\x86"  // U+E146
 #define ICON_LC_PAUSE              "\xee\x84\xae"  // U+E12E
 #define ICON_LC_SQUARE_STOP        "\xee\x9a\x85"  // U+E685
 #define ICON_LC_SKIP_BACK          "\xee\x85\x9f"  // U+E15F

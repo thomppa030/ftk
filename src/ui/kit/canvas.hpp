@@ -74,6 +74,10 @@ public:
     /// hi.x within its bounds; Both shows exactly that rectangle.
     void frame(glm::vec2 lo, glm::vec2 hi);
 
+    /// Horizontal: moves the bounds (a clip got longer). A view showing all
+    /// of the old bounds goes on showing all of the new ones.
+    void set_bounds(float lo, float hi);
+
     /// Keeps the view under `key` for the session and brings back what was
     /// kept there before. False when nothing was: the caller frames.
     bool recall(const std::string& key);
@@ -137,6 +141,14 @@ void plot_area(ImVec2 origin, ImVec2 size, const PlotAxes& axes, ImVec2* plot_or
 
 /// Draws the plot (the view's area) with its grid, and the gutters around it.
 void canvas_plot_axes(ImDrawList* dl, const CanvasView& view, const PlotAxes& axes);
+
+/// A time ruler across the top of a Horizontal canvas, `height` tall:
+/// ticks at round times, the major ones valued.
+void canvas_ruler(ImDrawList* dl, const CanvasView& view, float height);
+
+/// The playhead at screen `x` from `top` to `bottom`, headed by a small
+/// triangle when it runs through a ruler.
+void canvas_playhead(ImDrawList* dl, float x, float top, float bottom, bool head);
 
 enum class HandleShape { Circle, Diamond };
 
