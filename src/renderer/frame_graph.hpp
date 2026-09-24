@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -200,12 +201,13 @@ public:
     // Register an image to track and return its id. Registering the same
     // image and layer range again in one run returns the existing id. A new
     // entry starts from what the graph remembers of the image, else from
-    // `initial_layout`.
+    // `initial_layout`. `name` is only for the layout trace.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                             uint32_t base_layer = 0, uint32_t layer_count = 1,
                             uint32_t mip_count = 1,
                             bool persistent = false,
-                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                            std::string_view name = {});
 
     // Register a buffer to track and return its id; the same buffer again
     // in one run returns the existing id. A new entry starts from what the

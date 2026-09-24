@@ -192,7 +192,8 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t base_layer, uint32_t layer_count,
                                      uint32_t mip_count,
                                      bool persistent,
-                                     VkImageLayout initial_layout) {
+                                     VkImageLayout initial_layout,
+                                     std::string_view name) {
     const ImageKey key{image, base_layer, layer_count};
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
@@ -244,8 +245,8 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
         img.slices.push_back(slice);
     }
     if (layout_trace_enabled() && image != VK_NULL_HANDLE) {
-        FJELL_GFX_INFO("[layout] register img=0x{:x} layers={}+{} mips={} start={}{}",
-                       reinterpret_cast<uintptr_t>(image), base_layer, layer_count,
+        FJELL_GFX_INFO("[layout] register img=0x{:x} '{}' layers={}+{} mips={} start={}{}",
+                       reinterpret_cast<uintptr_t>(image), name, base_layer, layer_count,
                        mip_count, layout_str(img.slices.front().layout),
                        seeded ? " (remembered)" : "");
     }
@@ -350,7 +351,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     for (const auto& imp : builder.imported_textures()) {
         handle_to_image_id[imp.handle.id] = register_image(
             imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
-            imp.persistent, imp.initial_layout);
+            imp.persistent, imp.initial_layout, imp.name);
     }
 
     // Register created textures as virtual resources. Virtual resources
