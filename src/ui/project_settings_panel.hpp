@@ -13,7 +13,7 @@ class ProjectManager;
 //
 // Render is the only section for now; future project-level settings
 // (input, scripting options, window defaults) should land here as
-// additional collapsing headers rather than their own panels.
+// additional sections rather than their own panels.
 class ProjectSettingsPanel {
 public:
     void init(VulkanContext* vk, ProjectManager* projects);

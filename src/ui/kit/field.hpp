@@ -25,12 +25,14 @@ enum class Unit {
     SquareMetres,
     MetresPerSecond,
     Degrees,
+    Radians,
     Milliseconds,
     Seconds,
     Minutes,
     Kilograms,
     Pixels,
     Percent,
+    ExposureValue,  ///< stops of exposure, "EV"
     Times,  ///< a multiplier, "1.25 ×"
 };
 

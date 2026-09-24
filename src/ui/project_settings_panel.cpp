@@ -4,17 +4,59 @@
 #include "core/project.hpp"
 #include "renderer/render_settings.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "ui/icons_lc.hpp"
+#include "ui/kit/button.hpp"
+#include "ui/kit/choice.hpp"
+#include "ui/kit/feedback.hpp"
+#include "ui/kit/field.hpp"
+#include "ui/kit/icons.hpp"
+#include "ui/kit/row.hpp"
+#include "ui/kit/section.hpp"
 #include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <format>
+#include <span>
+#include <string>
 
-#include <cstddef>
-#include <iterator>
+#include <glm/ext/vector_int2.hpp>
 
 namespace fjell {
+
+namespace {
+
+using Backend = RenderSettings::Ddgi::Backend;
+using ReflectionMode = RenderSettings::Ssr::Mode;
+using TonemapOperator = RenderSettings::Tonemap::Operator;
+
+inline constexpr ui::Choice<Backend> DDGI_BACKENDS[] = {
+    {Backend::SdfFallback, "SDF"},
+    {Backend::RayTraced, "Ray traced"},
+};
+
+// Ray traced last, so a GPU without ray tracing is offered the others.
+inline constexpr ui::Choice<ReflectionMode> REFLECTION_MODES[] = {
+    {ReflectionMode::Off, "Off"},
+    {ReflectionMode::ScreenSpace, "Screen space"},
+    {ReflectionMode::RayTraced, "Ray traced"},
+};
+
+inline constexpr ui::Choice<TonemapOperator> TONEMAP_OPERATORS[] = {
+    {TonemapOperator::Linear, "Linear (off)"},
+    {TonemapOperator::Reinhard, "Reinhard"},
+    {TonemapOperator::Aces, "ACES"},
+    {TonemapOperator::Agx, "AgX"},
+    {TonemapOperator::Hable, "Hable (Uncharted 2)"},
+    {TonemapOperator::Neutral, "Neutral (PBR)"},
+};
+
+// A value shown but not edited, on its own row.
+void readout_row(const char* label, const std::string& value) {
+    ui::row(label, [&] { ui::readout(value.c_str()); });
+}
+
+} // namespace
 
 void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
     vk_ = vk;
@@ -24,271 +66,263 @@ void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
 void ProjectSettingsPanel::draw(const char* title) {
     if (!visible_) { return; }
     ImGui::SetNextWindowSize(ImVec2(340, 480), ImGuiCond_FirstUseEver);
-    if (auto p = Panel(ICON_LC_SETTINGS, title, &visible_)) {
+    if (auto p = Panel(ui::icon::settings, title, &visible_)) {
         if (projects_ == nullptr || projects_->active() == nullptr) {
-            ImGui::TextDisabled("No project open.");
-            ImGui::TextWrapped("Open or create a project via the Project menu to edit settings.");
-        } else {
-            ImGui::TextDisabled("Project: %s", projects_->active()->config().name.c_str());
-            ImGui::TextDisabled("Ctrl+Shift+S to persist changes to project.fjell.");
-            ImGui::Separator();
-            draw_render_section();
-            draw_ui_section();
-            draw_environment_section();
-            draw_debug_section();
+            ui::empty_state(ui::icon::settings, "No project open",
+                            "Open or create one from the Project menu");
+            return;
         }
+        if (auto t = ui::PropertyTable("##project")) {
+            readout_row("Project", projects_->active()->config().name);
+            ui::hint("Saved to project.fjell with the project (Ctrl Shift S)");
+        }
+        draw_render_section();
+        draw_ui_section();
+        draw_environment_section();
+        draw_debug_section();
     }
 }
 
 void ProjectSettingsPanel::draw_ui_section() {
-    if (!ImGui::CollapsingHeader("Game UI", ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
+    if (!ui::section_foldable("Game UI", ui::icon::ui_layout)) { return; }
+
+    auto& ui_config = projects_->active()->config().ui;
+    if (auto t = ui::PropertyTable("##game_ui")) {
+        ui::row("Design resolution",
+                "The frame game UI is designed in. The UI editor previews at this size and "
+                "HUDs scale to keep these proportions at any viewport.",
+                [&] {
+                    glm::ivec2 size{static_cast<int>(ui_config.design_width),
+                                    static_cast<int>(ui_config.design_height)};
+                    if (ui::ivec2("##design", size, 1.0f, 240, 7680, ui::Unit::Pixels).changed) {
+                        ui_config.design_width = static_cast<uint32_t>(std::max(size.x, 320));
+                        ui_config.design_height = static_cast<uint32_t>(std::max(size.y, 240));
+                    }
+                });
+        ui::row("Presets", [&] {
+            struct Preset { const char* label; uint32_t width; uint32_t height; };
+            static constexpr Preset PRESETS[] = {
+                {"1920 \xc3\x97 1080", 1920, 1080},
+                {"2560 \xc3\x97 1440", 2560, 1440},
+                {"1280 \xc3\x97 720", 1280, 720},
+            };
+            bool first = true;
+            for (const Preset& preset : PRESETS) {
+                if (!first) ImGui::SameLine();
+                first = false;
+                if (ui::button(preset.label, ui::ButtonKind::Ghost)) {
+                    ui_config.design_width = preset.width;
+                    ui_config.design_height = preset.height;
+                }
+            }
+        });
     }
-    auto& ui = projects_->active()->config().ui;
-    int size[2] = {static_cast<int>(ui.design_width), static_cast<int>(ui.design_height)};
-    if (ImGui::DragInt2("Design Resolution", size, 1.0f, 320, 7680)) {
-        ui.design_width = static_cast<uint32_t>(std::max(size[0], 320));
-        ui.design_height = static_cast<uint32_t>(std::max(size[1], 240));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("The frame game UI is designed in. The UI editor previews at this\n"
-                          "size and HUDs scale to keep these proportions at any viewport.");
-    }
-    if (ImGui::SmallButton("1920x1080")) { ui.design_width = 1920; ui.design_height = 1080; }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("2560x1440")) { ui.design_width = 2560; ui.design_height = 1440; }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("1280x720")) { ui.design_width = 1280; ui.design_height = 720; }
 }
 
 void ProjectSettingsPanel::draw_environment_section() {
-    if (!ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
-    }
+    if (!ui::section_foldable("Environment", ui::icon::world_environment)) { return; }
+
     auto& env = projects_->active()->config().environment;
-    ImGui::TextDisabled("Seconds for surfaces to take on and shed the weather");
-    ImGui::DragFloat("Wetting", &env.wetting_seconds, 1.0f, 1.0f, 3600.0f, "%.0f s");
-    ImGui::DragFloat("Drying", &env.drying_seconds, 1.0f, 1.0f, 7200.0f, "%.0f s");
-    ImGui::DragFloat("Snowing", &env.snowing_seconds, 1.0f, 1.0f, 3600.0f, "%.0f s");
-    ImGui::DragFloat("Melting", &env.melting_seconds, 1.0f, 1.0f, 7200.0f, "%.0f s");
+    if (auto t = ui::PropertyTable("##environment")) {
+        ui::row("Wetting", [&] {
+            (void)ui::drag("##wetting", env.wetting_seconds,
+                           {.speed = 1.0f, .min = 1.0f, .max = 3600.0f, .unit = ui::Unit::Seconds, .format = "%.0f"});
+        });
+        ui::row("Drying", [&] {
+            (void)ui::drag("##drying", env.drying_seconds,
+                           {.speed = 1.0f, .min = 1.0f, .max = 7200.0f, .unit = ui::Unit::Seconds, .format = "%.0f"});
+        });
+        ui::row("Snowing", [&] {
+            (void)ui::drag("##snowing", env.snowing_seconds,
+                           {.speed = 1.0f, .min = 1.0f, .max = 3600.0f, .unit = ui::Unit::Seconds, .format = "%.0f"});
+        });
+        ui::row("Melting", [&] {
+            (void)ui::drag("##melting", env.melting_seconds,
+                           {.speed = 1.0f, .min = 1.0f, .max = 7200.0f, .unit = ui::Unit::Seconds, .format = "%.0f"});
+        });
+        ui::hint("How long surfaces take to take on and shed the weather");
+    }
 }
 
 // Any edit in this section writes to the project's RenderSettings AND
 // re-applies the whole blob through VulkanContext — cheap, keeps the
 // live pipeline in sync with what the project will save.
 void ProjectSettingsPanel::draw_render_section() {
-    if (!ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
-    }
+    if (!ui::section_foldable("Rendering", ui::icon::rendering)) { return; }
+
     auto& s = projects_->active()->config().render;
-    bool dirty = false;
+    const bool rt_ok = vk_->ray_tracing_supported();
+    ui::Edit edit;
 
-    // ── Quality ────────────────────────────────────────────────────────
-    if (ImGui::TreeNodeEx("Quality", ImGuiTreeNodeFlags_DefaultOpen)) {
-        // MSAA display-only: runtime changes would need swapchain + offscreen
-        // recreation we don't support yet. Stored value applies on next launch.
-        ImGui::Text("MSAA: %ux (fixed at launch)", static_cast<uint32_t>(s.msaa_samples));
-
-        if (ImGui::Checkbox("GPU Culling", &s.gpu_cull)) { dirty = true; }
-
-        ImGui::TreePop();
+    if (ui::subheading_foldable("Quality")) {
+        if (auto t = ui::PropertyTable("##quality")) {
+            // MSAA display-only: runtime changes would need swapchain + offscreen
+            // recreation we don't support yet. Stored value applies on next launch.
+            readout_row("MSAA", std::format("{}x", static_cast<uint32_t>(s.msaa_samples)));
+            ui::hint("Fixed at launch");
+            ui::row("GPU culling", [&] { edit |= ui::checkbox("##gpu_cull", s.gpu_cull); });
+        }
     }
 
-    // ── Global Illumination ────────────────────────────────────────────
-    if (ImGui::TreeNodeEx("Global Illumination", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("DDGI", &s.ddgi.enabled)) { dirty = true; }
-        if (s.ddgi.enabled) {
-            ImGui::Indent();
-            {
-                using Backend = RenderSettings::Ddgi::Backend;
-                ImGui::TextUnformatted("Backend");
-                ImGui::SameLine();
-                int backend = static_cast<int>(s.ddgi.backend);
-                if (ImGui::RadioButton("SDF##ddgibackend", &backend,
-                                       static_cast<int>(Backend::SdfFallback))) {
-                    s.ddgi.backend = Backend::SdfFallback; dirty = true;
+    if (ui::subheading_foldable("Global illumination")) {
+        if (auto t = ui::PropertyTable("##gi")) {
+            ui::row("DDGI", [&] { edit |= ui::checkbox("##ddgi", s.ddgi.enabled); });
+            if (s.ddgi.enabled) {
+                ui::row("Backend", [&] {
+                    if (rt_ok) {
+                        edit |= ui::choice("##backend", s.ddgi.backend, DDGI_BACKENDS);
+                    } else {
+                        ui::readout("SDF");
+                    }
+                });
+                if (!rt_ok) ui::hint("This GPU can't ray trace");
+                ui::row("Probe count",
+                        "Probes along each axis, cubed. The grid fits scene bounds, so more "
+                        "probes means smaller cells. Cost is cubic, and changing it rebuilds "
+                        "the probe atlases and discards accumulated lighting.",
+                        [&] { edit |= ui::slider_int("##probes", s.ddgi.probe_count, 4, 48); });
+                {
+                    const auto& cfg = vk_->ddgi_pass().config();
+                    ui::hint(std::format("{} probes, cell {:.2f} m",
+                                         cfg.probe_counts.x * cfg.probe_counts.y * cfg.probe_counts.z,
+                                         cfg.probe_spacing.x).c_str());
                 }
-                ImGui::SameLine();
-                bool rt_ok = vk_->ray_tracing_supported();
-                ImGui::BeginDisabled(!rt_ok);
-                if (ImGui::RadioButton("Ray-Traced##ddgibackend", &backend,
-                                       static_cast<int>(Backend::RayTraced))) {
-                    s.ddgi.backend = Backend::RayTraced; dirty = true;
-                }
-                ImGui::EndDisabled();
-                if (!rt_ok && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("VK_KHR_ray_tracing_pipeline not supported on this GPU");
-                }
-            }
-            if (ImGui::SliderInt("Probe Count##ddgi", &s.ddgi.probe_count, 4, 48)) { dirty = true; }
-            ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Probes along each axis, cubed. The grid fits scene\n"
-                                  "bounds, so more probes means smaller cells. Cost is\n"
-                                  "cubic, and changing it rebuilds the probe atlases\n"
-                                  "and discards accumulated lighting.");
-            }
-            {
-                const auto& cfg = vk_->ddgi_pass().config();
-                ImGui::TextDisabled("  %d probes, cell %.2fm",
-                                    cfg.probe_counts.x * cfg.probe_counts.y * cfg.probe_counts.z,
-                                    cfg.probe_spacing.x);
-            }
-            if (ImGui::SliderFloat("GI Intensity##ddgi", &s.ddgi.gi_intensity, 0.0f, 2.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Normal Bias##ddgi", &s.ddgi.normal_bias, 0.0f, 1.0f)) { dirty = true; }
-            ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Lifts the sample toward the probe. Too low and a flat\n"
-                                  "surface hits the degenerate Chebyshev case (zero\n"
-                                  "variance) and darkens at every probe.");
-            }
-            if (ImGui::SliderFloat("View Bias##ddgi", &s.ddgi.view_bias, 0.0f, 1.0f)) { dirty = true; }
-            {
-                // Not part of RenderSettings yet — drive the pass directly
+                ui::row("GI intensity", [&] {
+                    edit |= ui::slider("##gi_intensity", s.ddgi.gi_intensity, 0.0f, 2.0f);
+                });
+                ui::row("Infinite bounces", [&] {
+                    edit |= ui::slider("##bounces", s.ddgi.infinite_bounces_mult, 0.0f, 3.0f,
+                                       ui::Unit::Times);
+                });
+                ui::row("Normal bias",
+                        "Lifts the sample toward the probe. Too low and a flat surface hits "
+                        "the degenerate Chebyshev case (zero variance) and darkens at every probe.",
+                        [&] { edit |= ui::slider("##normal_bias", s.ddgi.normal_bias, 0.0f, 1.0f); });
+                ui::row("View bias", [&] {
+                    edit |= ui::slider("##view_bias", s.ddgi.view_bias, 0.0f, 1.0f);
+                });
+                // Not part of RenderSettings yet — drives the pass directly
                 // so this can be A/B'd without a project-format change.
                 auto& dcfg = vk_->ddgi_pass().config();
-                if (ImGui::Checkbox("Spatial Filter##ddgi", &dcfg.spatial_filter)) {}
-                ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Blends each probe with its neighbours before\n"
-                                      "sampling. Without it the interpolation cage\n"
-                                      "shows every probe-to-probe difference as a\n"
-                                      "visible lattice.");
-                }
+                ui::row("Spatial filter",
+                        "Blends each probe with its neighbours before sampling. Without it "
+                        "the interpolation cage shows every probe-to-probe difference as a "
+                        "visible lattice.",
+                        [&] { (void)ui::checkbox("##spatial_filter", dcfg.spatial_filter); });
                 if (dcfg.spatial_filter) {
-                    ImGui::SliderFloat("Filter Angle##ddgi", &dcfg.filter_max_hit_angle,
-                                       0.0f, 1.0f, "%.2f rad");
+                    ui::row("Filter angle", [&] {
+                        (void)ui::slider("##filter_angle", dcfg.filter_max_hit_angle, 0.0f, 1.0f,
+                                         ui::Unit::Radians);
+                    });
                 }
             }
-            ImGui::Unindent();
-        }
 
-        if (ImGui::Checkbox("SS-GI", &s.ss_gi.enabled)) { dirty = true; }
-        if (s.ss_gi.enabled) {
-            ImGui::Indent();
-            if (ImGui::SliderFloat("Intensity##ssgi", &s.ss_gi.intensity, 0.0f, 10.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Max Trace Dist##ssgi", &s.ss_gi.max_trace_dist, 1.0f, 100.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Hysteresis##ssgi", &s.ss_gi.hysteresis, 0.0f, 1.0f)) { dirty = true; }
-            ImGui::Unindent();
-        }
-
-        ImGui::TreePop();
-    }
-
-    // ── Post-Processing ────────────────────────────────────────────────
-    if (ImGui::TreeNodeEx("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("GTAO", &s.gtao.enabled)) { dirty = true; }
-        if (ImGui::Checkbox("Bloom", &s.bloom.enabled)) { dirty = true; }
-        // Reflections: Off / Screen-Space / Ray-Traced. RT requires hardware
-        // support; greyed out otherwise. Skinned meshes don't appear in RT
-        // reflections in V1 — the BLAS holds bind-pose vertices only.
-        ImGui::TextUnformatted("Reflections");
-        ImGui::Indent();
-        using Mode = RenderSettings::Ssr::Mode;
-        int mode_int = static_cast<int>(s.ssr.mode);
-        if (ImGui::RadioButton("Off##ssr", &mode_int, static_cast<int>(Mode::Off))) {
-            s.ssr.mode = Mode::Off; dirty = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Screen-Space##ssr", &mode_int, static_cast<int>(Mode::ScreenSpace))) {
-            s.ssr.mode = Mode::ScreenSpace; dirty = true;
-        }
-        ImGui::SameLine();
-        bool rt_available = vk_->ray_tracing_supported();
-        ImGui::BeginDisabled(!rt_available);
-        if (ImGui::RadioButton("Ray-Traced##ssr", &mode_int, static_cast<int>(Mode::RayTraced))) {
-            s.ssr.mode = Mode::RayTraced; dirty = true;
-        }
-        ImGui::EndDisabled();
-        if (!rt_available && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("VK_KHR_ray_tracing_pipeline not supported on this GPU");
-        } else if (rt_available && s.ssr.mode == Mode::RayTraced && ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Skinned meshes reflect in bind pose (V1 limitation)");
-        }
-        if (s.ssr.mode != Mode::Off) {
-            if (ImGui::SliderFloat("Intensity##ssr", &s.ssr.intensity, 0.0f, 2.0f)) { dirty = true; }
-            if (s.ssr.mode == Mode::ScreenSpace) {
-                if (ImGui::SliderFloat("Thickness##ssr", &s.ssr.thickness, 0.01f, 2.0f)) { dirty = true; }
+            ui::row("SS-GI", [&] { edit |= ui::checkbox("##ssgi", s.ss_gi.enabled); });
+            if (s.ss_gi.enabled) {
+                ui::row("Intensity", [&] {
+                    edit |= ui::slider("##ssgi_intensity", s.ss_gi.intensity, 0.0f, 10.0f);
+                });
+                ui::row("Trace distance", [&] {
+                    edit |= ui::slider("##ssgi_trace", s.ss_gi.max_trace_dist, 1.0f, 100.0f,
+                                       ui::Unit::Metres);
+                });
+                ui::row("Hysteresis", [&] {
+                    edit |= ui::slider("##ssgi_hysteresis", s.ss_gi.hysteresis, 0.0f, 1.0f);
+                });
             }
         }
-        ImGui::Unindent();
-        ImGui::TreePop();
     }
 
-    // ── Sun Shafts ─────────────────────────────────────────────────────
+    if (ui::subheading_foldable("Post-processing")) {
+        if (auto t = ui::PropertyTable("##post")) {
+            ui::row("GTAO", [&] { edit |= ui::checkbox("##gtao", s.gtao.enabled); });
+            ui::row("Bloom", [&] { edit |= ui::checkbox("##bloom", s.bloom.enabled); });
+            // Skinned meshes don't appear in RT reflections in V1: the BLAS
+            // holds bind-pose vertices only.
+            ui::row("Reflections", [&] {
+                const std::span<const ui::Choice<ReflectionMode>> modes(REFLECTION_MODES);
+                edit |= ui::choice("##reflections", s.ssr.mode, rt_ok ? modes : modes.first(2));
+            });
+            if (!rt_ok) {
+                ui::hint("This GPU can't ray trace");
+            } else if (s.ssr.mode == ReflectionMode::RayTraced) {
+                ui::hint("Skinned meshes reflect in their bind pose");
+            }
+            if (s.ssr.mode != ReflectionMode::Off) {
+                ui::row("Intensity", [&] {
+                    edit |= ui::slider("##ssr_intensity", s.ssr.intensity, 0.0f, 2.0f);
+                });
+                if (s.ssr.mode == ReflectionMode::ScreenSpace) {
+                    ui::row("Thickness", [&] {
+                        edit |= ui::slider("##ssr_thickness", s.ssr.thickness, 0.01f, 2.0f);
+                    });
+                }
+            }
+        }
+    }
+
     // Temporary: one dial, exposed to find a value rather than because a
     // project has anything to say about it. See RenderSettings::SunShafts.
-    if (ImGui::TreeNodeEx("Sun Shafts (temporary)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent();
-        if (ImGui::SliderFloat("Upsample Depth Tolerance##shafts",
-                               &s.sun_shafts.upsample_depth_tolerance, 0.01f, 0.5f)) {
-            dirty = true;
+    if (ui::subheading_foldable("Sun shafts (temporary)")) {
+        if (auto t = ui::PropertyTable("##shafts")) {
+            ui::row("Depth tolerance",
+                    "How far a half-res tap's surface may sit from a pixel's own, as a share "
+                    "of that pixel's distance, before it stops counting in the upsample.\n\n"
+                    "Lower keeps shaft light off the near side of a silhouette. Too low and "
+                    "taps that agreed are rejected, leaving the upsample on its nearest-tap "
+                    "fallback, which reads as blocky.\n\n"
+                    "Temporary: here to find a value. 0.05 has held so far.",
+                    [&] {
+                        edit |= ui::slider("##shaft_tolerance", s.sun_shafts.upsample_depth_tolerance,
+                                           0.01f, 0.5f);
+                    });
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(
-                "How far a half-res tap's surface may sit from a pixel's own, as a share\n"
-                "of that pixel's distance, before it stops counting in the upsample.\n\n"
-                "Lower keeps shaft light off the near side of a silhouette. Too low and\n"
-                "taps that agreed are rejected, leaving the upsample on its nearest-tap\n"
-                "fallback, which reads as blocky.\n\n"
-                "Temporary: here to find a value. 0.05 has held so far.");
-        }
-        ImGui::Unindent();
-        ImGui::TreePop();
     }
 
-    // ── Tonemap ────────────────────────────────────────────────────────
-    if (ImGui::TreeNodeEx("Tonemap", ImGuiTreeNodeFlags_DefaultOpen)) {
-        using TmOp = RenderSettings::Tonemap::Operator;
-        static constexpr const char* op_names[] = {
-            "Linear (Off)", "Reinhard", "ACES", "AgX", "Hable (Uncharted 2)", "Neutral (PBR)"
-        };
-        int op_int = static_cast<int>(s.tonemap.op);
-        if (ImGui::Combo("Operator", &op_int, op_names, IM_ARRAYSIZE(op_names))) {
-            s.tonemap.op = static_cast<TmOp>(op_int);
-            dirty = true;
+    if (ui::subheading_foldable("Tonemap")) {
+        if (auto t = ui::PropertyTable("##tonemap")) {
+            ui::row("Operator", [&] {
+                edit |= ui::choice("##operator", s.tonemap.op, TONEMAP_OPERATORS);
+            });
+            ui::row("Auto exposure", [&] {
+                edit |= ui::checkbox("##auto_exposure", s.tonemap.auto_exposure);
+            });
+            if (!s.tonemap.auto_exposure) {
+                ui::row("Exposure", [&] {
+                    edit |= ui::slider("##exposure", s.tonemap.exposure_ev, -5.0f, 5.0f,
+                                       ui::Unit::ExposureValue, "%.1f");
+                });
+            } else {
+                // Auto exposure drives the value; the panel only sets how
+                // fast it adapts, and reads the result back.
+                readout_row("Exposure", std::format("{:.2f} EV", vk_->tonemap_pass().exposure()));
+                ui::row("Adaptation speed", [&] {
+                    edit |= ui::slider("##adaptation", s.tonemap.adaptation_speed, 0.1f, 5.0f);
+                });
+            }
         }
-
-        if (ImGui::Checkbox("Auto Exposure", &s.tonemap.auto_exposure)) { dirty = true; }
-        if (!s.tonemap.auto_exposure) {
-            if (ImGui::SliderFloat("Exposure (EV)", &s.tonemap.exposure_ev, -5.0f, 5.0f, "%.1f")) { dirty = true; }
-        } else {
-            // Read current EV back from the pass for visual feedback (auto
-            // exposure drives the value — panel only controls the ceiling
-            // and the adaptation rate).
-            ImGui::Text("EV: %.2f", vk_->tonemap_pass().exposure());
-            if (ImGui::SliderFloat("Adaptation Speed", &s.tonemap.adaptation_speed, 0.1f, 5.0f)) { dirty = true; }
-        }
-        ImGui::TreePop();
     }
 
-    // ── Frame Graph ────────────────────────────────────────────────────
-    if (ImGui::TreeNodeEx("Frame Graph")) {
-        if (ImGui::Checkbox("Aliasing", &s.frame_graph_aliasing)) { dirty = true; }
-        ImGui::SameLine(0, 10);
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("When off, each transient image gets its own VkImage.\n"
-                              "Use to isolate regressions caused by aliasing reuse.");
+    if (ui::subheading_foldable("Frame graph", false)) {
+        if (auto t = ui::PropertyTable("##frame_graph")) {
+            ui::row("Aliasing",
+                    "When off, each transient image gets its own VkImage. Use to isolate "
+                    "regressions caused by aliasing reuse.",
+                    [&] { edit |= ui::checkbox("##aliasing", s.frame_graph_aliasing); });
+
+            const auto& st = vk_->render_pipeline().aliasing_stats();
+            const double ratio = st.logical_count == 0 ? 0.0
+                : 100.0 * (1.0 - (static_cast<double>(st.physical_count)
+                                   / static_cast<double>(st.logical_count)));
+            readout_row("Logical -> physical",
+                        std::format("{} -> {} ({:.1f}%)", st.logical_count, st.physical_count, ratio));
+            readout_row("Pool", std::format("{} live, {:.1f} MiB", st.live_images,
+                                            static_cast<double>(st.live_bytes) / (1024.0 * 1024.0)));
+            readout_row("Allocations", std::format("{} acquires, {} new", st.acquires, st.allocations));
         }
-
-        const auto& st = vk_->render_pipeline().aliasing_stats();
-        const float ratio = st.logical_count == 0 ? 0.0f
-            : 100.0f * (1.0f - (static_cast<float>(st.physical_count)
-                                 / static_cast<float>(st.logical_count)));
-        ImGui::Text("Logical: %u  Physical: %u  (%.1f%% reduction)",
-                    st.logical_count, st.physical_count, ratio);
-        ImGui::Text("Pool: %u live, %.1f MiB",
-                    st.live_images,
-                    static_cast<double>(st.live_bytes) / (1024.0 * 1024.0));
-        ImGui::Text("Acquires: %u  New allocs: %u",
-                    st.acquires, st.allocations);
-
-        ImGui::TreePop();
     }
 
-    if (dirty) {
+    if (edit.changed) {
         vk_->set_render_settings(s);
     }
 }
@@ -298,14 +332,9 @@ void ProjectSettingsPanel::draw_render_section() {
 // isolated lighting term so each additive contribution (direct light, IBL
 // diffuse/specular, DDGI, SS-GI, emissive) can be inspected on its own.
 void ProjectSettingsPanel::draw_debug_section() {
-    if (!ImGui::CollapsingHeader("Debug: Lighting Channels",
-                                 ImGuiTreeNodeFlags_DefaultOpen)) {
-        return;
-    }
-    ImGui::TextWrapped("Replaces the final pixel color with one isolated "
-                       "lighting term. Diagnostic only, not saved.");
+    if (!ui::section_foldable("Lighting channels", ui::icon::debug)) { return; }
 
-    static const char* kChannelNames[] = {
+    static constexpr const char* CHANNEL_NAMES[] = {
         "Off (normal shading)",
         "Direct light (sun + tile lights)",
         "IBL diffuse",
@@ -322,24 +351,7 @@ void ProjectSettingsPanel::draw_debug_section() {
         "Sun shafts",
         "Water: simulated tiles",
     };
-    int channel = vk_->debug_light_channel();
-    if (ImGui::Combo("Channel", &channel, kChannelNames,
-                     static_cast<int>(std::size(kChannelNames)))) {
-        vk_->set_debug_light_channel(channel);
-    }
-
-    if (channel >= static_cast<int>(DebugLightChannel::AoRaw)) {
-        ImGui::TextWrapped("AO chain, in pipeline order. Step through these to "
-                           "find the first stage where an artifact appears: "
-                           "depth input -> surface normal -> raw AO -> lookup "
-                           "UV / texel grid -> applied to ambient.");
-    }
-
-    ImGui::Separator();
-    ImGui::TextWrapped("DDGI: replaces the indirect output with what the "
-                       "probe cage resolved for each pixel.");
-
-    static const char* kDdgiDebugNames[] = {
+    static constexpr const char* DDGI_VIEW_NAMES[] = {
         "Off",
         "Grid cell (hashed per cage cell)",
         "Probe status (green active, red buried, blue asleep)",
@@ -350,22 +362,41 @@ void ProjectSettingsPanel::draw_debug_section() {
         "Raw probe irradiance (no interpolation)",
         "Chebyshev reject (red = floored, green = tested)",
     };
-    auto& ddgi_cfg = vk_->ddgi_pass().config();
-    int ddgi_mode = static_cast<int>(ddgi_cfg.debug_mode);
-    if (ImGui::Combo("DDGI view", &ddgi_mode, kDdgiDebugNames,
-                     static_cast<int>(std::size(kDdgiDebugNames)))) {
-        ddgi_cfg.debug_mode = static_cast<DdgiDebugMode>(ddgi_mode);
-        // These colors mean nothing once the surface composite multiplies
-        // them by albedo and kD — a dark surface reads as "no data" when
-        // the lookup actually succeeded. Switching the channel with the
-        // view keeps the two in step instead of leaving it to be
-        // remembered.
-        if (ddgi_cfg.debug_mode != DdgiDebugMode::Off) {
-            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::DdgiIndirect));
-        } else if (vk_->debug_light_channel()
-                   == static_cast<int>(DebugLightChannel::DdgiIndirect)) {
-            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::Off));
+
+    if (auto t = ui::PropertyTable("##debug")) {
+        ui::row("Channel", [&] {
+            int channel = vk_->debug_light_channel();
+            if (ui::choice("##channel", channel, CHANNEL_NAMES).changed) {
+                vk_->set_debug_light_channel(channel);
+            }
+        });
+        if (vk_->debug_light_channel() >= static_cast<int>(DebugLightChannel::AoRaw)) {
+            ui::hint("AO chain, in pipeline order. Step through these to find the first stage "
+                     "where an artifact appears: depth input -> surface normal -> raw AO -> "
+                     "lookup UV / texel grid -> applied to ambient.");
+        } else {
+            ui::hint("Replaces the final pixel colour with one isolated lighting term. "
+                     "Diagnostic only, not saved.");
         }
+
+        ui::row("DDGI view", [&] {
+            auto& ddgi_cfg = vk_->ddgi_pass().config();
+            int ddgi_mode = static_cast<int>(ddgi_cfg.debug_mode);
+            if (!ui::choice("##ddgi_view", ddgi_mode, DDGI_VIEW_NAMES).changed) return;
+            ddgi_cfg.debug_mode = static_cast<DdgiDebugMode>(ddgi_mode);
+            // These colors mean nothing once the surface composite multiplies
+            // them by albedo and kD — a dark surface reads as "no data" when
+            // the lookup actually succeeded. Switching the channel with the
+            // view keeps the two in step instead of leaving it to be
+            // remembered.
+            if (ddgi_cfg.debug_mode != DdgiDebugMode::Off) {
+                vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::DdgiIndirect));
+            } else if (vk_->debug_light_channel()
+                       == static_cast<int>(DebugLightChannel::DdgiIndirect)) {
+                vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::Off));
+            }
+        });
+        ui::hint("Replaces the indirect output with what the probe cage resolved for each pixel");
     }
 }
 
