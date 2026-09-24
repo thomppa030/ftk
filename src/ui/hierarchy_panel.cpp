@@ -55,7 +55,7 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const FogVolumeNode*>(&obj)) return {ui::icon::fog_volume, C::Environment};
     if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) return {ui::icon::world_environment, C::Environment};
     if (dynamic_cast<const CameraNode*>(&obj)) return {ui::icon::camera, C::Camera};
-    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure, theme::preset()};
+    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure};
     if (!obj.is_spatial()) return {ui::icon::folder, C::Structure};
     if (obj.components.get<MeshComponent>() != nullptr) return {ui::icon::mesh, std::nullopt};
     return {ui::icon::transform, std::nullopt};
