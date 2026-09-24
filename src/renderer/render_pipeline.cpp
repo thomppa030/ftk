@@ -239,6 +239,28 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 add_scatter("fog_scatter_prev", fog->prev_index());
             }
         }
+        // The GI outputs, under their producers' names. Resting where the
+        // surfaces sample them once the pass has written them.
+        if (auto* ddgi = pp_resources->ddgi();
+            ddgi != nullptr && ddgi->indirect_image != VK_NULL_HANDLE) {
+            ImportedImage img{};
+            img.image = ddgi->indirect_image;
+            img.view = ddgi->indirect_view;
+            img.persistent = true;   // the opaque pass reads it the next frame
+            img.initial_layout = ddgi->indirect_needs_init
+                ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            decl_ctx.imports.emplace(fg_name_hash("ddgi_indirect"), img);
+        }
+        if (auto* ss_gi = pp_resources->ss_gi();
+            ss_gi != nullptr && ss_gi->indirect_image != VK_NULL_HANDLE) {
+            ImportedImage img{};
+            img.image = ss_gi->indirect_image;
+            img.view = ss_gi->indirect_view;
+            img.persistent = true;   // the opaque pass reads it the next frame
+            img.initial_layout = ss_gi->first_frame
+                ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            decl_ctx.imports.emplace(fg_name_hash("ss_gi_output"), img);
+        }
         // TAA's history ping-pong: the slot it writes this frame, which the
         // tonemap then reads, and the one it reads back from the frame
         // before. Persistent: each slot is next frame's read.
@@ -294,6 +316,21 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
             ctx.subsystems[i]->collect_exports(decl_ctx);
         }
+
+        // The names the surfaces read the GI outputs by stand for what the
+        // global set binds at those slots: the output once it holds
+        // something, nothing while the set binds the fallback.
+        auto name_if_bound = [&](std::string_view slot, std::string_view output, VkImage bound) {
+            const auto it = decl_ctx.imports.find(fg_name_hash(output));
+            if (bound == VK_NULL_HANDLE || it == decl_ctx.imports.end()
+                || it->second.image != bound) {
+                return;
+            }
+            const ImportedImage img = it->second;
+            decl_ctx.imports.emplace(fg_name_hash(slot), img);
+        };
+        name_if_bound("gi_indirect", "ddgi_indirect", ctx.bound_gi_indirect);
+        name_if_bound("ss_gi_emissive", "ss_gi_output", ctx.bound_ss_gi_emissive);
     }
 
     // ── Collect declared passes + run DAG sort ────────────────────────

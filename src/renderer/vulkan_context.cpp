@@ -519,6 +519,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
                                                 : VK_NULL_HANDLE;
     current_ctx_.graphics_post_cmd = is_main_cb ? gpu_.graphics_post_cb(current_frame_)
                                                 : VK_NULL_HANDLE;
+    // The main frame binds the per-frame set, where record_frame put the GI
+    // outputs; a preview's set holds the fallbacks there.
+    current_ctx_.bound_gi_indirect = is_main_cb ? bound_gi_indirect_ : VK_NULL_HANDLE;
+    current_ctx_.bound_ss_gi_emissive = is_main_cb ? bound_ss_gi_emissive_ : VK_NULL_HANDLE;
 
 
     // Init screen color image on first use (or after resize) so the descriptor
@@ -1889,11 +1893,13 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         // space. Falling back to the black fallback image is what actually
         // turns the contribution off.
         VkImageView gi_view = gpu_.gi_fallback_view();
+        bound_gi_indirect_ = VK_NULL_HANDLE;
         auto* ddgi_imgs = default_pp_->ddgi();
         if (ddgi_pass().config().enabled
             && ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
             && !ddgi_imgs->images_need_init) {
             gi_view = ddgi_imgs->indirect_view;
+            bound_gi_indirect_ = ddgi_imgs->indirect_image;
         }
         gb.write_image(current_frame_, "gi_indirect",
             gi_view, gpu_.gi_fallback_sampler(),
@@ -1901,12 +1907,14 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
         // SS-GI emissive: screen-space emissive color bleeding (supplements DDGI)
         VkImageView ss_gi_view = gpu_.gi_fallback_view();
+        bound_ss_gi_emissive_ = VK_NULL_HANDLE;
         auto* ss_gi_imgs = default_pp_->ss_gi();
         // Same ghost as DDGI above: a disabled pass keeps its last output.
         if (ss_gi_pass().config().enabled
             && ss_gi_imgs && ss_gi_imgs->indirect_view != VK_NULL_HANDLE
             && !ss_gi_imgs->first_frame) {
             ss_gi_view = ss_gi_imgs->indirect_view;
+            bound_ss_gi_emissive_ = ss_gi_imgs->indirect_image;
         }
         gb.write_image(current_frame_, "ss_gi_emissive",
             ss_gi_view, gpu_.gi_fallback_sampler(),

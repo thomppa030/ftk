@@ -75,6 +75,10 @@ struct FrameContext {
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
+    /// What that set binds at the GI slots this run: DDGI's and SS-GI's
+    /// outputs once they hold something, null while it binds the fallback.
+    VkImage bound_gi_indirect{VK_NULL_HANDLE};
+    VkImage bound_ss_gi_emissive{VK_NULL_HANDLE};
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
     VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
     glm::mat4 view{1.0f};

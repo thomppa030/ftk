@@ -480,6 +480,11 @@ private:
   // present fires the compute queue submit + timeline wait.
   bool recorded_async_this_frame_{false};
   bool async_compute_enabled_{false};
+  /// The images this frame's global set binds at the GI slots, null for the
+  /// fallback; written with the bindings, handed to the graph by the runs
+  /// that bind that set.
+  VkImage bound_gi_indirect_{VK_NULL_HANDLE};
+  VkImage bound_ss_gi_emissive_{VK_NULL_HANDLE};
   /// Counts frames from the first begin_frame(); what the transient pool
   /// and the frame graph date their state by.
   uint64_t frame_serial_{0};

@@ -30,6 +30,13 @@ void declare_lit_surface_reads(PassBuilder& builder, const DeclareContext& ctx) 
     if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
         builder.read(motion, ResourceAccess::sampled_fragment);
     }
+    // Absent while the global set binds the fallback in their place.
+    if (auto gi = builder.import_named_optional(ctx, "gi_indirect"); gi.valid()) {
+        builder.read(gi, ResourceAccess::sampled_fragment);
+    }
+    if (auto gi = builder.import_named_optional(ctx, "ss_gi_emissive"); gi.valid()) {
+        builder.read(gi, ResourceAccess::sampled_fragment);
+    }
 }
 
 } // namespace fjell
