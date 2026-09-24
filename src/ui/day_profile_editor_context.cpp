@@ -206,12 +206,8 @@ void DayProfileEditorContext::draw_tracks_panel() {
         return;
     }
 
-    // Header: name, save state, and how the open scene relates to it.
+    // Name, and how the open scene relates to it.
     ImGui::Text("%s", profile_.name.c_str());
-    if (has_unsaved_changes()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(unsaved, Ctrl+S)");
-    }
     if (deps_.scene != nullptr) {
         auto* env = find_world_environment(*deps_.scene);
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - 200.0f);

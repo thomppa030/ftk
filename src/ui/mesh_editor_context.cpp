@@ -237,20 +237,6 @@ void MeshEditorContext::draw_slots_panel() {
             return;
         }
 
-        const bool unsaved = has_unsaved_changes();
-        ImGui::BeginDisabled(!unsaved);
-        if (ImGui::Button("Save")) {
-            if (auto saved = save(); !saved) {
-                FJELL_CORE_ERROR("Couldn't save {}: {}", fjmesh_path_, saved.error());
-            }
-        }
-        ImGui::EndDisabled();
-        if (unsaved) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("unsaved changes");
-        }
-        ImGui::Separator();
-
         for (size_t i = 0; i < authored_.material_slots.size(); ++i) {
             auto& slot = authored_.material_slots[i];
             ImGui::PushID(static_cast<int>(i));

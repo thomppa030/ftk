@@ -408,20 +408,12 @@ void InputMappingEditorContext::draw_mappings() {
             }
         }
 
-        // Right-aligned: unsaved indicator + Add Action button
+        // Right-aligned: Add Action
         const char* add_label = "+  Add Action";
         float add_w = ImGui::CalcTextSize(add_label).x + ImGui::GetStyle().FramePadding.x * 2.0F;
 
-        const char* unsaved_text = "● unsaved";
-        float unsaved_w = has_unsaved_changes() ? ImGui::CalcTextSize(unsaved_text).x + 16.0F : 0.0F;
-
         float right_edge = ImGui::GetContentRegionAvail().x;
-        ImGui::SameLine(0.0F, std::max(8.0F, right_edge - add_w - unsaved_w - 4.0F));
-
-        if (has_unsaved_changes()) {
-            ImGui::TextColored(theme::accent(), "%s", unsaved_text);
-            ImGui::SameLine(0.0F, 16.0F);
-        }
+        ImGui::SameLine(0.0F, std::max(8.0F, right_edge - add_w - 4.0F));
 
         if (ImGui::Button(add_label)) {
             action_filter_.clear();

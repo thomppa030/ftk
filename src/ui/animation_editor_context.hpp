@@ -60,6 +60,7 @@ public:
     bool handle_shortcuts() override;
     [[nodiscard]] std::string document() const override;
     [[nodiscard]] Result<> write() override;
+    [[nodiscard]] std::string saved_files() const override;
     [[nodiscard]] Result<> restore(const std::string& text) override;
 
     // Viewport

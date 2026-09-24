@@ -333,6 +333,21 @@ Result<> AnimationEditorContext::write() {
     return {};
 }
 
+std::string AnimationEditorContext::saved_files() const {
+    std::vector<std::string> files;
+    if (!animset_path_.empty()) files.push_back(fs::path(animset_path_).filename().string());
+    if (current_clip_ && !current_clip_path_.empty()) {
+        files.push_back(fs::path(current_clip_path_).filename().string() + " (notifies)");
+    }
+    if (!skeleton_path_.empty()) files.push_back(fs::path(skeleton_path_).filename().string() + " (colliders)");
+    std::string text;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i > 0) text += i + 1 == files.size() ? " and " : ", ";
+        text += files[i];
+    }
+    return text;
+}
+
 Result<> AnimationEditorContext::restore(const std::string& text) {
     auto j = nlohmann::json::parse(text, nullptr, false);
     if (!j.is_object()) return make_error("the animation document isn't JSON");

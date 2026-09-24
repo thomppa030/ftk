@@ -51,6 +51,8 @@ public:
     /// rule written for it only means something if the id is in the file.
     [[nodiscard]] std::string document() const override;
     [[nodiscard]] Result<> write() override;
+    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] std::string saved_files() const override;
 
     void init() override;
     void shutdown() override;

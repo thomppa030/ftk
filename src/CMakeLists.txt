@@ -336,6 +336,7 @@ add_executable(fjell
     ui/inspectors/rendering_inspectors.cpp
     ui/inspectors/script_fields.cpp
     ui/inspectors/spline_inspectors.cpp
+    ui/kit/asset_header.cpp
     ui/kit/asset_kind.cpp
     ui/kit/asset_tile.cpp
     ui/kit/button.cpp

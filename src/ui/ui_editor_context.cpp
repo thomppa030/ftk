@@ -2,6 +2,7 @@
 #include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
+#include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_style_commands.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
@@ -112,6 +113,28 @@ Result<> UiEditorContext::write() {
     }
     FJELL_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
     return {};
+}
+
+Result<> UiEditorContext::restore(const std::string& text) {
+    if (!preview_ui_ || !preview_ui_->root()) return make_error("no UI is open");
+    // Only the stylesheet is edited here; the markup comes back as it is.
+    const auto split = text.find('\0');
+    if (text.substr(0, split) != markup_text()) {
+        return make_error("the markup changed, and this editor only puts a stylesheet back");
+    }
+    if (split != std::string::npos && !fjss_path_.empty()) {
+        Stylesheet sheet = FjssParser::parse(std::string_view(text).substr(split + 1), fjss_path_);
+        resolve_imports(sheet, fs::path(fjss_path_).parent_path().string());
+        preview_ui_->stylesheet() = std::move(sheet);
+        preview_ui_->mark_dirty();
+    }
+    return {};
+}
+
+std::string UiEditorContext::saved_files() const {
+    std::string files = fs::path(fjui_path_).filename().string();
+    if (!fjss_path_.empty()) files += " and " + fs::path(fjss_path_).filename().string();
+    return files;
 }
 
 void UiEditorContext::draw(float dt) {

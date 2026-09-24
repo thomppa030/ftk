@@ -605,12 +605,6 @@ void VfxEditorContext::draw_node_editor() {
                 ImGui::PopStyleColor();
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Save")) {
-                if (auto saved = save(); !saved) {
-                    FJELL_CORE_ERROR("Couldn't save {}: {}", fjvfx_path_, saved.error());
-                }
-            }
-            ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
             ImGui::SliderFloat("Speed", &time_scale_, 0.0f, 3.0f, "%.1f");
         }

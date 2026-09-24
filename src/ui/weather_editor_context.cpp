@@ -364,10 +364,6 @@ void WeatherEditorContext::draw_event_panel() {
             push_live();
         }
     }
-    if (has_unsaved_changes()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(unsaved, Ctrl+S)");
-    }
     if (deps_.environment != nullptr) {
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - 150.0f);
         const bool playing_here = is_playing_here();

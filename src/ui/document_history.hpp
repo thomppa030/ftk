@@ -30,6 +30,9 @@ public:
     /// could have finished an edit. `what` names the step.
     void frame(bool editing, bool input_finished, const std::string& what);
 
+    /// Puts `text` in as one undo step named `what` (Revert).
+    void change_to(const std::string& text, const std::string& what);
+
 private:
     friend class DocumentEdit;
     void apply(const std::string& text);

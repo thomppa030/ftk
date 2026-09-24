@@ -50,6 +50,10 @@ public:
     // Build default dockspace layout for this context (called within DockBuilder block)
     virtual void setup_dockspace(ImGuiID main_area) = 0;
 
+    /// The editor's own actions in the header (open the shader, play in the
+    /// scene), each drawn after ImGui::SameLine(). None by default.
+    virtual void draw_header_actions() {}
+
     // Handle context-specific shortcuts. Return true if consumed.
     virtual bool handle_shortcuts() = 0;
 
@@ -73,8 +77,21 @@ public:
         return make_error("this editor can't restore its document");
     }
 
-    /// Writes the document and remembers it as saved.
+    /// Writes the document and remembers it as saved. A failure is shown
+    /// under the header until a save works.
     Result<> save();
+
+    /// Puts the document back as last opened or saved, as one undo step.
+    void revert();
+
+    /// The files Save writes, for its tooltip: the asset's own file unless
+    /// the editor writes more ("hero.fjanimset, walk.fjanim and hero.fjskel").
+    [[nodiscard]] virtual std::string saved_files() const;
+
+    /// Draws the header strip across the context (sheet 7) when it edits an
+    /// asset. The engine calls this under the context tabs, before the
+    /// dockspace.
+    void draw_header();
 
     /// True while the document differs from the one last opened or saved.
     /// The tab bar marks the context's tab with it and the window title
@@ -147,6 +164,8 @@ private:
     // has_unsaved_changes() gave, which it recomputes a few times a second
     // at most: a document can be large and the tab bar asks every frame.
     std::string saved_document_;
+    // Why the last save failed; empty once one works.
+    std::string save_error_;
     mutable bool unsaved_{false};
     mutable double unsaved_checked_at_{-1.0};
 

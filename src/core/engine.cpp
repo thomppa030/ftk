@@ -1729,6 +1729,7 @@ void Engine::draw_ui() {
     capture_popup_.draw(capture_service_, scene_context_->viewport_manager());
 
     draw_context_tabs();
+    active_context().draw_header();
     setup_dockspace();
 
     // Active context draws its own panels (including Stats, Console, History)
