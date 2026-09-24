@@ -16,7 +16,7 @@ namespace fjell {
 ///
 /// becomes:
 ///
-///     if (auto p = Panel(ICON_LC_SLIDERS_HORIZONTAL, "Properties")) {
+///     if (auto p = Panel(ui::icon::properties, "Properties")) {
 ///         ...
 ///     }
 ///
@@ -79,20 +79,13 @@ private:
             ImGui::PopStyleColor();
             ImGui::SameLine(0.0f, 8.0f);
         }
-        // Bold font for the label if available
-        bool pushed = false;
-        if (ImGui::GetIO().Fonts->Fonts.Size > 1) {
-            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
-            pushed = true;
-        }
+        ImGui::PushFont(theme::bold_font());
         // Strip the ImGui "##suffix" disambiguator (e.g. "History##ctx0")
         // the same way the native title bar does — the suffix is for ID
         // uniqueness, not display.
         const char* label_end = ImGui::FindRenderedTextEnd(label);
         ImGui::TextUnformatted(label, label_end);
-        if (pushed) {
-            ImGui::PopFont();
-        }
+        ImGui::PopFont();
 
         // Underline separator beneath the header strip
         ImGui::SetCursorScreenPos({p0.x, p1.y});

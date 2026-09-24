@@ -36,4 +36,27 @@ struct TabStripResult {
 
 TabStripResult tab_strip(const char* id, const TabStripSpec& spec);
 
+/// The bar along the top of the editor holding a tab for each context (the
+/// Scene and every open asset): a strip in the menu bar's colour, its tabs
+/// at the kit's tab padding, raised under the mouse and the base surface
+/// when chosen. Draw the ImGui tab bar inside it.
+///
+///     if (auto bar = ui::ContextTabBar("##ContextBar")) {
+///         if (ImGui::BeginTabBar("##ContextTabs", ...)) { ... }
+///     }
+class ContextTabBar {
+public:
+    explicit ContextTabBar(const char* id);
+    ~ContextTabBar();
+    ContextTabBar(const ContextTabBar&) = delete;
+    ContextTabBar& operator=(const ContextTabBar&) = delete;
+    ContextTabBar(ContextTabBar&&) = delete;
+    ContextTabBar& operator=(ContextTabBar&&) = delete;
+
+    explicit operator bool() const { return open_; }
+
+private:
+    bool open_{false};
+};
+
 } // namespace fjell::ui

@@ -86,4 +86,31 @@ TabStripResult tab_strip(const char* id, const TabStripSpec& spec) {
     return result;
 }
 
+ContextTabBar::ContextTabBar(const char* id) {
+    // The padding first, so the bar is as tall as a tab with it.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {14.0f, 8.0f});
+    const float height = ImGui::GetFrameHeight() + 4.0f;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 2.0f});
+    open_ = ImGui::BeginViewportSideBar(id, ImGui::GetMainViewport(), ImGuiDir_Up, height,
+                                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    ImVec4 resting = theme::surface_sunken();
+    resting.w = 0.0f;
+    ImGui::PushStyleColor(ImGuiCol_Tab, resting);
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, theme::surface_raised());
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, theme::surface_base());
+    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 1.0f);
+}
+
+ContextTabBar::~ContextTabBar() {
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();   // the frame padding
+    ImGui::End();
+}
+
 } // namespace fjell::ui

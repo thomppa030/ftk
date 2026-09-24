@@ -31,6 +31,8 @@
 #include "ui/kit/asset_kind.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/status_bar.hpp"
+#include "ui/kit/tabs.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
 #include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
 #include "ui/blend_space_editor_context.hpp"
@@ -1096,12 +1098,7 @@ void Engine::setup_dockspace() {
         ImGuiWindowFlags_NoBackground |
         ImGuiWindowFlags_NoDocking;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-
-    ImGui::Begin("##DockHost", nullptr, host_flags);
-    ImGui::PopStyleVar(3);
+    (void)ui::begin_host_window("##DockHost", host_flags);
 
     // Per-context dockspaces — each context gets its own
     // Only draw the active one; the others retain their layout in ImGui state
@@ -2297,32 +2294,8 @@ void Engine::draw_context_tabs() {
     // reference the closing context's textures again.
     apply_pending_context_close();
 
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-    // Tab sizing — push FramePadding early so bar_height accounts for it
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {14.0f, 8.0f});
-    float bar_height = ImGui::GetFrameHeight() + 4.0f;
-
-    // Match menu bar background, minimal window padding
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 2.0f});
-    if (!ImGui::BeginViewportSideBar("##ContextBar", viewport, ImGuiDir_Up, bar_height,
-                                      ImGuiWindowFlags_NoScrollbar |
-                                      ImGuiWindowFlags_NoScrollWithMouse)) {
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor();
-        return;
-    }
-    ImGui::PopStyleVar();   // WindowPadding
-    ImGui::PopStyleColor(); // WindowBg
-
-    // Tab colors
-    ImGui::PushStyleColor(ImGuiCol_Tab, theme::srgb(0.067f, 0.071f, 0.078f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_TabHovered, theme::srgb(0.169f, 0.176f, 0.192f));
-    ImGui::PushStyleColor(ImGuiCol_TabSelected, theme::srgb(0.118f, 0.122f, 0.133f));
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 1.0f);
+    auto bar = ui::ContextTabBar("##ContextBar");
+    if (!bar) return;
 
     // Indent tabs to align with the viewport (past the left dock panels)
     float indent = scene_context_->viewport_manager().active_viewport_pos().x;
@@ -2385,11 +2358,6 @@ void Engine::draw_context_tabs() {
         }
     }
 
-    ImGui::PopStyleVar(2);   // TabRounding, TabBorderSize
-    ImGui::PopStyleColor(3);
-    ImGui::PopStyleVar();    // FramePadding
-
-    ImGui::End();
 }
 
 void Engine::apply_pending_context_close() {

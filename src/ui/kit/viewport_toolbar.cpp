@@ -45,6 +45,15 @@ ViewportPill::~ViewportPill() {
     ImGui::PopID();
 }
 
+bool begin_host_window(const char* name, ImGuiWindowFlags flags) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+    const bool visible = ImGui::Begin(name, nullptr, flags);
+    ImGui::PopStyleVar(3);
+    return visible;
+}
+
 ViewportWindow::ViewportWindow(const char* title, bool* open, ImGuiWindowFlags flags) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});

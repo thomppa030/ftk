@@ -235,7 +235,7 @@ void ContentBrowser::draw() {
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoCollapse;
 
-    if (auto p = Panel(ICON_LC_FOLDER_OPEN, "Content Browser", &visible_, flags)) {
+    if (auto p = Panel(ui::icon::content_browser, "Content Browser", &visible_, flags)) {
         if (root_.empty()) {
             ImGui::TextDisabled("No project open");
         } else {
@@ -268,7 +268,7 @@ void ContentBrowser::draw() {
         }
 
         ImGui::SetNextWindowSize({400, 440}, ImGuiCond_FirstUseEver);
-        if (auto pv = Panel(ICON_LC_IMAGE, "Texture Preview", &show_texture_preview_)) {
+        if (auto pv = Panel(ui::icon::texture, "Texture Preview", &show_texture_preview_)) {
             auto filename = std::filesystem::path(preview_texture_path_).filename().string();
             ImGui::Text("%s", filename.c_str());
             if (preview_width_ > 0) {
@@ -1002,43 +1002,30 @@ void ContentBrowser::draw_common_context_items(int index) {
 
 namespace {
 
-struct FolderSwatch {
-    const char* name;
-    ImVec4 color;
-};
-
-// Muted enough to sit beside the amber accent the uncoloured folder uses.
-const FolderSwatch FOLDER_SWATCHES[] = {
-    {"Red",    theme::srgb(0.851f, 0.412f, 0.373f)}, // #D9695F
-    {"Orange", theme::srgb(0.878f, 0.541f, 0.310f)}, // #E08A4F
-    {"Yellow", theme::srgb(0.851f, 0.761f, 0.357f)}, // #D9C25B
-    {"Green",  theme::srgb(0.494f, 0.749f, 0.557f)}, // #7EBF8E
-    {"Teal",   theme::srgb(0.373f, 0.722f, 0.690f)}, // #5FB8B0
-    {"Blue",   theme::srgb(0.369f, 0.608f, 0.851f)}, // #5E9BD9
-    {"Purple", theme::srgb(0.604f, 0.498f, 0.820f)}, // #9A7FD1
-    {"Pink",   theme::srgb(0.831f, 0.498f, 0.682f)}, // #D47FAE
-    {"Grey",   theme::srgb(0.604f, 0.612f, 0.639f)}, // #9A9CA3
-};
+// A folder's stored colour, which is sRGB like every editor colour.
+ImVec4 folder_tint(const glm::vec3& colour) {
+    return {colour.r, colour.g, colour.b, 1.0f};
+}
 
 } // namespace
 
 void ContentBrowser::draw_folder_icon(const std::filesystem::path& folder, float size) {
     VkDescriptorSet desc = VK_NULL_HANDLE;
-    ImVec4 tint = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::optional<ImVec4> tint;
     if (icons_) {
         // The plain icon is drawn in amber, which a tint could only darken;
         // a coloured folder draws the white one instead.
         if (auto color = folder_colors_.find(folder)) {
             desc = icons_->icon("folder_tint");
-            tint = theme::srgb(color->r, color->g, color->b);
+            if (desc) tint = folder_tint(*color);
         }
-        if (!desc) {
-            desc = icons_->icon("folder");
-            tint = {1.0f, 1.0f, 1.0f, 1.0f};
-        }
+        if (!desc) desc = icons_->icon("folder");
     }
-    if (desc) {
-        ImGui::Image(desc, {size, size}, ImVec2(0, 0), ImVec2(1, 1), tint, ImVec4(0, 0, 0, 0));
+    if (desc && tint) {
+        ImGui::ImageWithBg(reinterpret_cast<ImTextureID>(desc), {size, size}, {0.0f, 0.0f}, {1.0f, 1.0f},
+                           ImVec4{}, *tint);
+    } else if (desc) {
+        ImGui::Image(reinterpret_cast<ImTextureID>(desc), {size, size});
     } else {
         ImGui::Dummy({size, size});
     }
@@ -1048,13 +1035,14 @@ void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder)
     auto current = folder_colors_.find(folder);
 
     constexpr float SWATCH = 20.0f;
-    for (size_t i = 0; i < std::size(FOLDER_SWATCHES); ++i) {
-        const auto& swatch = FOLDER_SWATCHES[i];
-        glm::vec3 color{swatch.color.x, swatch.color.y, swatch.color.z};
+    for (size_t i = 0; i < std::size(theme::FOLDER_COLOURS); ++i) {
+        const auto& swatch = theme::FOLDER_COLOURS[i];
+        const ImVec4 shown = theme::hex(swatch.rgb);
+        const glm::vec3 color{shown.x, shown.y, shown.z};
         if (i > 0) ImGui::SameLine(0, 4);
 
         ImGui::PushID(static_cast<int>(i));
-        if (ImGui::ColorButton(swatch.name, swatch.color,
+        if (ImGui::ColorButton(swatch.name, shown,
                                ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
                                {SWATCH, SWATCH})) {
             folder_colors_.set(folder, color);
@@ -1073,10 +1061,10 @@ void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder)
 
     ImGui::Spacing();
     // An uncoloured folder starts the picker at the amber it is drawn in.
-    ImVec4 start = current ? theme::srgb(current->r, current->g, current->b) : theme::accent();
+    ImVec4 start = current ? folder_tint(*current) : theme::accent();
     float rgb[3] = {start.x, start.y, start.z};
     // As wide as the row of swatches above it.
-    constexpr auto SWATCH_COUNT = static_cast<float>(std::size(FOLDER_SWATCHES));
+    constexpr auto SWATCH_COUNT = static_cast<float>(std::size(theme::FOLDER_COLOURS));
     ImGui::SetNextItemWidth(SWATCH * SWATCH_COUNT + 4.0f * (SWATCH_COUNT - 1.0f));
     if (ImGui::ColorPicker3("##custom", rgb,
                             ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |

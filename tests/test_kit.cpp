@@ -555,3 +555,28 @@ TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") 
     CHECK(first.x == window_pos.x);
     CHECK(first.y == window_pos.y);
 }
+
+TEST_CASE("The context tab bar and a host window leave ImGui's stacks as they found them", "[ui][kit]") {
+    ImGuiHarness h;
+    int style_vars = -1;
+    int colours = -1;
+    h.set_ui([&] {
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        const int vars_before = g.StyleVarStack.Size;
+        const int colours_before = g.ColorStack.Size;
+        {
+            auto bar = ui::ContextTabBar("##context_bar");
+            if (bar && ImGui::BeginTabBar("##tabs")) {
+                if (ImGui::BeginTabItem("Scene")) ImGui::EndTabItem();
+                ImGui::EndTabBar();
+            }
+        }
+        (void)ui::begin_host_window("##host", ImGuiWindowFlags_NoTitleBar);
+        ImGui::End();
+        style_vars = g.StyleVarStack.Size - vars_before;
+        colours = g.ColorStack.Size - colours_before;
+    });
+    h.step(3);
+    CHECK(style_vars == 0);
+    CHECK(colours == 0);
+}
