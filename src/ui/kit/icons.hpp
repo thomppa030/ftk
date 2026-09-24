@@ -23,6 +23,7 @@ inline constexpr const char* reorder      = ICON_LC_GRIP_VERTICAL;
 inline constexpr const char* play         = ICON_LC_PLAY;
 inline constexpr const char* pause        = ICON_LC_PAUSE;
 inline constexpr const char* stop         = ICON_LC_SQUARE;
+inline constexpr const char* loop         = ICON_LC_REPEAT;  // playback starts over at the end
 inline constexpr const char* curve        = ICON_LC_ACTIVITY;  // a number keyed over time
 inline constexpr const char* editing      = ICON_LC_PENCIL;  // the editor is not playing
 inline constexpr const char* follow       = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep the newest line in view

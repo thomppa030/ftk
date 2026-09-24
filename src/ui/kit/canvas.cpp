@@ -172,6 +172,18 @@ void CanvasView::store(ImGuiID id) const {
     st->SetFloat(ImHashStr("size_y", 0, id), size_.y);
 }
 
+void CanvasView::set_bounds(float lo, float hi) {
+    const bool all = span_.x >= (options_.bound_max - options_.bound_min) * 0.999f;
+    options_.bound_min = lo;
+    options_.bound_max = hi;
+    if (all) {
+        min_.x = lo;
+        span_.x = hi - lo;
+    }
+    clamp_horizontal();
+    keep();
+}
+
 void CanvasView::keep() {
     if (!key_.empty()) kept()[key_] = {min_, scale_, span_};
 }
@@ -236,6 +248,41 @@ void canvas_grid(ImDrawList* dl, const CanvasView& view, float step, const ImVec
         if (y > hi.y) break;
         dl->AddLine({lo.x, y}, {hi.x, y}, line);
     }
+}
+
+void canvas_ruler(ImDrawList* dl, const CanvasView& view, float height) {
+    const ImVec2 lo = view.origin();
+    const ImVec2 hi{lo.x + view.size().x, lo.y + height};
+    dl->AddRectFilled(lo, hi, colour(theme::surface_base()));
+    dl->PushClipRect(lo, hi, true);
+    ImGui::PushFont(theme::mono_font(), theme::AXIS_TEXT);
+    int minors = 5;
+    const float step = nice_step(view.scale_x(), 70.0f, &minors);
+    const float minor = step / static_cast<float>(minors);
+    const float first = std::floor(view.to_world_x(lo.x) / minor) * minor;
+    char label[32];
+    for (int i = 0;; ++i) {
+        const float t = first + static_cast<float>(i) * minor;
+        const float x = std::floor(view.to_screen_x(t)) + 0.5f;
+        if (x > hi.x) break;
+        const float in_steps = t / step;
+        const bool major = std::abs(in_steps - std::round(in_steps)) < 1e-3f;
+        dl->AddLine({x, hi.y - (major ? 9.0f : 5.0f)}, {x, hi.y},
+                    colour(major ? theme::text_disabled() : theme::grid_major()));
+        if (major) {
+            format_value(label, sizeof(label), t, step);
+            dl->AddText({x + 3.0f, lo.y + 3.0f}, colour(theme::text_secondary()), label);
+        }
+    }
+    ImGui::PopFont();
+    dl->PopClipRect();
+    dl->AddLine({lo.x, hi.y - 0.5f}, {hi.x, hi.y - 0.5f}, colour(theme::border()));
+}
+
+void canvas_playhead(ImDrawList* dl, float x, float top, float bottom, bool head) {
+    const float px = std::floor(x) + 0.5f;
+    dl->AddLine({px, top}, {px, bottom}, colour(theme::text()), 1.5f);
+    if (head) dl->AddTriangleFilled({px - 5.0f, top}, {px + 5.0f, top}, {px, top + 6.0f}, colour(theme::text()));
 }
 
 void canvas_handle(ImDrawList* dl, ImVec2 at, bool hot, bool selected, HandleLook look) {
