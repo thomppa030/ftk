@@ -184,6 +184,16 @@ void ExpressionGraph::remove_link(uint64_t link_id) {
         links.end());
 }
 
+void ExpressionGraph::module_removed(int stack, int index) {
+    const uint64_t gone = module_node_id(stack, index);
+    const uint64_t stack_end = module_node_id(stack + 1, 0);
+    std::erase_if(links, [gone](const ExpressionLink& l) { return l.target_pin_id / 100 == gone; });
+    for (auto& link : links) {
+        const uint64_t node = link.target_pin_id / 100;
+        if (node > gone && node < stack_end) link.target_pin_id -= 100;
+    }
+}
+
 void ExpressionGraph::clear() {
     nodes.clear();
     links.clear();

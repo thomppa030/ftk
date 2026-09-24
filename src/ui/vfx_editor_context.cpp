@@ -1011,6 +1011,7 @@ void VfxEditorContext::draw_module_stack() {
         }
         if (remove) {
             modules.erase(modules.begin() + static_cast<std::ptrdiff_t>(*remove));
+            emitter.expression_graph.module_removed(stack, static_cast<int>(*remove));
             needs_initial_layout_ = true;
             selected_module_stack_ = -1;
             selected_module_index_ = -1;

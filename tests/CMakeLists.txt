@@ -61,6 +61,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/environment/climate_director.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_scenario.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_curve.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_expression.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/buoyancy.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
@@ -227,6 +228,7 @@ add_executable(fjell-tests
     test_state_graph.cpp
     test_canvas.cpp
     test_timeline.cpp
+    test_vfx_expression.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

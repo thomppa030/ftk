@@ -44,6 +44,13 @@ enum class ExprNodeType : uint8_t {
     global_wind,  // the environment's wind as a vec3: direction * speed * gust
 };
 
+/// A module's node in the expression graph: 10000, 20000 or 30000 for its
+/// stack (spawn, update, render) plus its index there. A link into a module
+/// targets pin `node * 100 + i`, `i` its i-th pin descriptor.
+[[nodiscard]] constexpr uint64_t module_node_id(int stack, int index) {
+    return static_cast<uint64_t>(10000 * (stack + 1) + index);
+}
+
 struct ExprNodePinDef {
     const char* name;
     PinDataType type;
@@ -85,6 +92,10 @@ struct ExpressionGraph {
     void remove_node(uint64_t node_id);
     void add_link(uint64_t source_pin, uint64_t target_pin);
     void remove_link(uint64_t link_id);
+    /// Keeps the links right when module `index` of `stack` goes: the links
+    /// into it go with it, and those into the modules after it follow them
+    /// down one place.
+    void module_removed(int stack, int index);
     void clear();
 
     [[nodiscard]] ExpressionNode* find_node(uint64_t node_id);
