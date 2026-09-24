@@ -46,7 +46,7 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     // asset, not with the frame, and the global set has no free binding for a
     // per-asset resource. Heights feed the mesh stage, layer weights the
     // fragment stage.
-    std::array<VkDescriptorSetLayoutBinding, 2> terrain_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 3> terrain_bindings{};
     terrain_bindings[0].binding = 0;
     terrain_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     terrain_bindings[0].descriptorCount = 1;
@@ -55,6 +55,11 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     terrain_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     terrain_bindings[1].descriptorCount = 1;
     terrain_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // Patch bounds: the task stage decides there whether a patch is emitted.
+    terrain_bindings[2].binding = 2;
+    terrain_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    terrain_bindings[2].descriptorCount = 1;
+    terrain_bindings[2].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -338,7 +343,7 @@ void TerrainPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
     bindless_ = &gpu.bindless_textures();
 }
 
-void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     frame_sets_.clear();
     if (ctx.scene == nullptr || pipeline_cache_ == nullptr) return;
     // Pipelines are built here rather than in record(): a first sighting of
@@ -349,7 +354,7 @@ void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     auto& sets = terrain_sets_[ctx.frame_index];
     bool any = false;
     for (const auto& node : ctx.scene->objects()) {
-        const auto* tc = node->components.get<TerrainComponent>();
+        auto* tc = node->components.get<TerrainComponent>();
         if (tc == nullptr || tc->terrain == nullptr) continue;
         any = true;
         if (!frame_sets_.contains(tc->terrain) && frame_sets_.size() < TERRAINS_PER_FRAME) {
@@ -360,6 +365,11 @@ void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         if (tc->material != nullptr) {
             (void)ensure_material_pipeline(tc->material->pipeline_id());
         }
+        // Sculpting invalidates the patch bounds the task shader culls
+        // against. Catching them up here rather than in apply_heights() means
+        // a stroke of many dabs costs one rebuild per frame, and the copy is
+        // recorded outside the render pass like every other upload.
+        tc->terrain->refresh_patch_bounds(gpu.upload_context());
     }
     if (!any) return;
     ensure_fallback_material();
@@ -605,15 +615,18 @@ void TerrainPass::destroy() {
 }
 
 void TerrainPass::write_terrain_set(VkDescriptorSet set, const TerrainAsset& terrain) const {
-    std::array<VkDescriptorImageInfo, 2> image_infos{};
+    std::array<VkDescriptorImageInfo, 3> image_infos{};
     image_infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_infos[0].imageView = terrain.height_view();
     image_infos[0].sampler = terrain.height_sampler();
     image_infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_infos[1].imageView = terrain.weight_view();
     image_infos[1].sampler = terrain.weight_sampler();
+    image_infos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_infos[2].imageView = terrain.patch_bounds_view();
+    image_infos[2].sampler = terrain.patch_bounds_sampler();
 
-    std::array<VkWriteDescriptorSet, 2> writes{};
+    std::array<VkWriteDescriptorSet, 3> writes{};
     for (uint32_t i = 0; i < writes.size(); ++i) {
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[i].dstSet = set;
@@ -739,6 +752,13 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
 
         if (count_draws && ctx.render_stats != nullptr) {
             ctx.render_stats->draw_calls++;
+            const uint32_t dispatched = patches * patches;
+            ctx.render_stats->terrain_patches_dispatched += dispatched;
+            // Per patch: patch_quads² quads, two triangles each. The task
+            // shader drops patches before the mesh stage runs, so this is the
+            // ceiling rather than what rasterized.
+            const uint32_t quads = terrain.patch_quads();
+            ctx.render_stats->terrain_triangles_max += dispatched * quads * quads * 2;
         }
     }
 }

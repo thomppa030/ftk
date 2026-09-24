@@ -87,6 +87,14 @@ void StatsPanel::draw_rendering_section() {
                                       stats.objects_culled));
         metric("MSAA", std::format("{}x", static_cast<uint32_t>(ctx_->msaa_samples())));
         metric("Meshlets", std::to_string(stats.meshlets_dispatched));
+        if (stats.terrain_patches_dispatched > 0) {
+            // Patches handed to the task shader and the triangles they would
+            // emit if none were culled. Culling happens on the GPU with no
+            // readback, so this is the ceiling, not the drawn count.
+            metric("Terrain patches", std::format("{} (max {} tris)",
+                                                  stats.terrain_patches_dispatched,
+                                                  stats.terrain_triangles_max));
+        }
         if (stats.two_pass_occlusion) {
             metric("Occlusion", "2-pass");
         }

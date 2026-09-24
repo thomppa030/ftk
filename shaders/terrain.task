@@ -11,6 +11,11 @@ layout(local_size_x = 1) in;
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
+// Per-patch height bounds: one texel per patch, r = lowest, g = highest, both
+// normalized like the height texture. Binding 2 of the terrain set; heights
+// (0) and layer weights (1) are read by the later stages.
+layout(set = 2, binding = 2) uniform sampler2D patch_bounds_tex;
+
 layout(push_constant) uniform PushConstants {
     vec2  world_origin;      // terrain min corner, world XZ
     float world_size;        // terrain extent in metres (square)
@@ -82,16 +87,17 @@ void main() {
     uint px = patch_index % push.patches_per_side;
     uint pz = patch_index / push.patches_per_side;
 
-    // The patch's footprint in world XZ, and the whole height range the
-    // heightfield can reach. Conservative in Y so the test needs no sample of
-    // the height texture: a patch is emitted whenever its column might be
-    // visible, and the mesh shader places the surface inside it.
+    // The patch's footprint in world XZ, and the height range this patch
+    // actually reaches, read from its own texel. Using the whole field's range
+    // would be correct but loose: a patch on flat ground would claim the full
+    // vertical extent of the terrain and survive tests it should fail.
     float patch_size = push.world_size / float(push.patches_per_side);
+    vec2 bounds = texelFetch(patch_bounds_tex, ivec2(px, pz), 0).rg;
     vec3 lo = vec3(push.world_origin.x + float(px) * patch_size,
-                   push.height_offset,
+                   push.height_offset + bounds.x * push.height_scale,
                    push.world_origin.y + float(pz) * patch_size);
     vec3 hi = vec3(lo.x + patch_size,
-                   push.height_offset + push.height_scale,
+                   push.height_offset + bounds.y * push.height_scale,
                    lo.z + patch_size);
 
     mat4 vp = push.view_index == 0u ? ubo.projection * ubo.view

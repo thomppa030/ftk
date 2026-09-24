@@ -25,6 +25,13 @@ struct RenderStats {
     uint32_t gi_only_draws{0};
     uint32_t tlas_instances{0};
 
+    // Terrain patches dispatched to the task shader for the camera view, and
+    // the triangles they would emit if every one survived. The task shader
+    // culls per patch on the GPU, so what actually rasterizes is at most this
+    // and there is no readback to say by how much.
+    uint32_t terrain_patches_dispatched{0};
+    uint32_t terrain_triangles_max{0};
+
     void reset() {
         draw_calls = 0;
         triangle_count = 0;
@@ -40,6 +47,8 @@ struct RenderStats {
         distance_culled = 0;
         gi_only_draws = 0;
         tlas_instances = 0;
+        terrain_patches_dispatched = 0;
+        terrain_triangles_max = 0;
     }
 };
 

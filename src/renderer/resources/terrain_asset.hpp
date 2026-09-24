@@ -54,6 +54,17 @@ public:
     [[nodiscard]] VkImageView height_view() const;
     [[nodiscard]] VkSampler height_sampler() const { return sampler_; }
 
+    /// Per-patch height bounds, one texel per patch, holding the lowest and
+    /// highest normalized height that patch reaches. The task shader reads it
+    /// to bound a patch in Y: without it a patch on flat ground claims the
+    /// whole vertical extent of the terrain and culling keeps it.
+    ///
+    /// One texel per patch rather than a mip of the height texture, because
+    /// the patch grid is the sample grid over `patch_quads` (11, prime) and no
+    /// mip level lines up with it.
+    [[nodiscard]] VkImageView patch_bounds_view() const;
+    [[nodiscard]] VkSampler patch_bounds_sampler() const { return sampler_; }
+
     /// Painted layer weights, one layer per channel, sampled by the fragment
     /// stage. The texture always covers the field at weight_count() texels a
     /// side; until the first paint stroke the CPU array stays empty and the
@@ -267,9 +278,20 @@ public:
     /// edge.
     [[nodiscard]] float height_at(float local_x, float local_z) const;
 
+    /// Bring the patch-bounds image up to date with height edits made since
+    /// the last call. Cheap and idempotent when nothing changed: the terrain
+    /// pass calls it every frame it draws. Kept off apply_heights() so a
+    /// stroke of many dabs rebuilds each patch once per frame rather than once
+    /// per dab.
+    void refresh_patch_bounds(UploadContext& upload);
+
 private:
     /// Decimate the height array into the triangle mesh ray tracing needs.
     void build_ray_mesh();
+
+    /// Min and max normalized height over a rectangle of patches, written into
+    /// `patch_bounds_texels_`.
+    void compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x, uint32_t count_z);
 
     FjTerrainData data_;
     std::string path_;
@@ -298,6 +320,11 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     std::unique_ptr<Image> weight_image_;
+    std::unique_ptr<Image> patch_bounds_image_;
+    /// Two unorm16 per patch, min then max, row-major over the patch grid.
+    std::vector<uint16_t> patch_bounds_texels_;
+    /// The edit generation `patch_bounds_image_` is current as of.
+    uint32_t patch_bounds_generation_{0};
     uint32_t weight_side_{0};
     VkSampler sampler_{VK_NULL_HANDLE};
     std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};

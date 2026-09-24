@@ -19,6 +19,9 @@ constexpr float UNORM16_MAX = 65535.0F;
 
 constexpr VkPipelineStageFlags2 HEIGHT_READ_STAGE = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
 constexpr VkPipelineStageFlags2 WEIGHT_READ_STAGE = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+// Patch bounds are read by the task shader, which decides there whether the
+// patch is emitted at all.
+constexpr VkPipelineStageFlags2 BOUNDS_READ_STAGE = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT;
 
 // Weight texture of a terrain that has never been painted: layer 0 at full
 // weight, everywhere.
@@ -77,6 +80,108 @@ TerrainAsset::~TerrainAsset() {
 
 VkImageView TerrainAsset::height_view() const {
     return height_image_ ? height_image_->view() : VK_NULL_HANDLE;
+}
+
+VkImageView TerrainAsset::patch_bounds_view() const {
+    return patch_bounds_image_ ? patch_bounds_image_->view() : VK_NULL_HANDLE;
+}
+
+void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x,
+                                        uint32_t count_z) {
+    const uint32_t patches = patches_per_side();
+    const uint32_t samples = data_.sample_count();
+    const uint32_t quads = data_.patch_quads();
+    if (patches == 0 || quads == 0) return;
+
+    const uint32_t px_end = std::min(px + count_x, patches);
+    const uint32_t pz_end = std::min(pz + count_z, patches);
+    for (uint32_t p_z = pz; p_z < pz_end; ++p_z) {
+        for (uint32_t p_x = px; p_x < px_end; ++p_x) {
+            // A patch spans quads*quads cells, so quads+1 samples a side: the
+            // last row and column are shared with the next patch and must be
+            // included or the bounds miss the ground the patch actually draws.
+            const uint32_t x0 = p_x * quads;
+            const uint32_t z0 = p_z * quads;
+            const uint32_t x1 = std::min(x0 + quads, samples - 1);
+            const uint32_t z1 = std::min(z0 + quads, samples - 1);
+
+            float lo = 1.0F;
+            float hi = 0.0F;
+            for (uint32_t sz = z0; sz <= z1; ++sz) {
+                const float* row = &data_.heights[static_cast<size_t>(sz) * samples];
+                for (uint32_t sx = x0; sx <= x1; ++sx) {
+                    lo = std::min(lo, row[sx]);
+                    hi = std::max(hi, row[sx]);
+                }
+            }
+            lo = std::clamp(lo, 0.0F, 1.0F);
+            hi = std::clamp(hi, 0.0F, 1.0F);
+
+            const size_t texel = (static_cast<size_t>(p_z) * patches + p_x) * 2;
+            patch_bounds_texels_[texel] = static_cast<uint16_t>(std::lround(lo * UNORM16_MAX));
+            patch_bounds_texels_[texel + 1] = static_cast<uint16_t>(std::lround(hi * UNORM16_MAX));
+        }
+    }
+}
+
+void TerrainAsset::refresh_patch_bounds(UploadContext& upload) {
+    if (!patch_bounds_image_ || patch_bounds_generation_ == edit_generation_) return;
+
+    const uint32_t patches = patches_per_side();
+    const uint32_t quads = data_.patch_quads();
+    if (patches == 0 || quads == 0) {
+        patch_bounds_generation_ = edit_generation_;
+        return;
+    }
+
+    // Which patches the edits since our last refresh touched. A sample on a
+    // patch boundary belongs to both patches, so the rect grows by one sample
+    // each way before it is divided down.
+    const SampleRect rect = edits_since(patch_bounds_generation_);
+    if (rect.empty()) {
+        patch_bounds_generation_ = edit_generation_;
+        return;
+    }
+    const uint32_t sx0 = rect.x > 0 ? rect.x - 1 : 0;
+    const uint32_t sz0 = rect.z > 0 ? rect.z - 1 : 0;
+    const uint32_t px0 = std::min(sx0 / quads, patches - 1);
+    const uint32_t pz0 = std::min(sz0 / quads, patches - 1);
+    const uint32_t px1 = std::min((rect.x + rect.width) / quads, patches - 1);
+    const uint32_t pz1 = std::min((rect.z + rect.height) / quads, patches - 1);
+    const uint32_t w = px1 - px0 + 1;
+    const uint32_t h = pz1 - pz0 + 1;
+
+    compute_patch_bounds(px0, pz0, w, h);
+
+    // Upload just those patches, tightly packed at the rect's own width.
+    std::vector<uint16_t> texels(static_cast<size_t>(w) * h * 2);
+    for (uint32_t row = 0; row < h; ++row) {
+        const uint16_t* src =
+            &patch_bounds_texels_[((static_cast<size_t>(pz0 + row) * patches) + px0) * 2];
+        std::copy(src, src + (static_cast<size_t>(w) * 2),
+                  &texels[static_cast<size_t>(row) * w * 2]);
+    }
+
+    StagingSlice staging = upload.stage_for_image(texels.data(), texels.size() * sizeof(uint16_t));
+    VkCommandBuffer cmd = upload.image_cb();
+    VkImage image = patch_bounds_image_->handle();
+
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, BOUNDS_READ_STAGE);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = staging.offset;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {static_cast<int32_t>(px0), static_cast<int32_t>(pz0), 0};
+    region.imageExtent = {w, h, 1};
+    vkCmdCopyBufferToImage(cmd, staging.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &region);
+
+    barrier_terrain_image(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, BOUNDS_READ_STAGE);
+
+    patch_bounds_generation_ = edit_generation_;
 }
 
 VkImageView TerrainAsset::weight_view() const {
@@ -248,6 +353,48 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
 
     asset->height_image_->create_view(device, VK_FORMAT_R16_UNORM,
                                       VK_IMAGE_ASPECT_COLOR_BIT, 1);
+
+    // Per-patch height bounds, one texel per patch. Built here from the same
+    // heights, uploaded whole; sculpting refreshes only the patches it touched.
+    {
+        const uint32_t patches = asset->patches_per_side();
+        if (patches > 0) {
+            asset->patch_bounds_texels_.resize(static_cast<size_t>(patches) * patches * 2);
+            asset->compute_patch_bounds(0, 0, patches, patches);
+
+            auto bounds_image = Image::create(allocator, patches, patches,
+                                              VK_FORMAT_R16G16_UNORM, VK_IMAGE_TILING_OPTIMAL,
+                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                  VK_IMAGE_USAGE_SAMPLED_BIT,
+                                              VMA_MEMORY_USAGE_AUTO, 1);
+            if (!bounds_image) {
+                return make_error("terrain: " + bounds_image.error());
+            }
+            asset->patch_bounds_image_ = std::make_unique<Image>(std::move(*bounds_image));
+
+            const VkDeviceSize bounds_bytes =
+                asset->patch_bounds_texels_.size() * sizeof(uint16_t);
+            StagingSlice bounds_staging =
+                upload.stage_for_image(asset->patch_bounds_texels_.data(), bounds_bytes);
+
+            barrier_terrain_image(cmd, asset->patch_bounds_image_->handle(),
+                                  VK_IMAGE_LAYOUT_UNDEFINED,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, BOUNDS_READ_STAGE);
+            VkBufferImageCopy bounds_region{};
+            bounds_region.bufferOffset = bounds_staging.offset;
+            bounds_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            bounds_region.imageSubresource.layerCount = 1;
+            bounds_region.imageExtent = {patches, patches, 1};
+            vkCmdCopyBufferToImage(cmd, bounds_staging.buffer,
+                                   asset->patch_bounds_image_->handle(),
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bounds_region);
+            barrier_terrain_image(cmd, asset->patch_bounds_image_->handle(),
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, BOUNDS_READ_STAGE);
+            asset->patch_bounds_image_->create_view(device, VK_FORMAT_R16G16_UNORM,
+                                                    VK_IMAGE_ASPECT_COLOR_BIT, 1);
+        }
+    }
 
     // Layer weights. An unpainted field gets a texture at one texel per
     // height sample filled with layer 0, so the first paint stroke is a
