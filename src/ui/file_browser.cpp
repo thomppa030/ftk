@@ -1,14 +1,10 @@
 #include "ui/file_browser.hpp"
 #include "core/log.hpp"
-#include "core/window.hpp"
-#include "renderer/gpu/gpu_core.hpp"
-#include "renderer/gpu/vk_utils.hpp"
-#include "ui/imgui_layer.hpp"
+#include "ui/standalone_window.hpp"
 #include "ui/kit/search.hpp"
 
 
 #include <imgui.h>
-#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <chrono>
@@ -74,186 +70,22 @@ void FileBrowser::open(const std::string& title, Mode mode,
         navigate(fs::current_path());
     }
 
-    // Create standalone window
-    window_ = std::make_unique<Window>(title, BROWSER_WIDTH, BROWSER_HEIGHT);
-    surface_ = window_->create_surface(gpu_->instance());
-    swapchain_ = std::make_unique<Swapchain>(
-        gpu_->device(), gpu_->allocator(), *window_, surface_);
-
-    auto dev = gpu_->vk_device();
-
-    VkCommandPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    pool_ci.queueFamilyIndex = gpu_->graphics_family();
-    vkCreateCommandPool(dev, &pool_ci, nullptr, &command_pool_);
-
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
-    vkAllocateCommandBuffers(dev, &alloc_info, command_buffers_.data());
-
-    VkSemaphoreCreateInfo sem_ci{};
-    sem_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    VkFenceCreateInfo fence_ci{};
-    fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        vkCreateSemaphore(dev, &sem_ci, nullptr, &image_available_[i]);
-        vkCreateFence(dev, &fence_ci, nullptr, &in_flight_[i]);
-    }
-
-    imgui_ = std::make_unique<ImGuiLayer>(
-        window_->handle(), gpu_->instance(),
-        gpu_->physical_device(), gpu_->vk_device(),
-        gpu_->graphics_family(), gpu_->graphics_queue(),
-        swapchain_->format(), swapchain_->image_count());
-
-    frame_index_ = 0;
+    window_ = std::make_unique<StandaloneWindow>(*gpu_, title, BROWSER_WIDTH, BROWSER_HEIGHT);
 }
 
 void FileBrowser::tick() {
     if (!is_open()) return;
-
-    if (window_->should_close()) {
+    if (window_->close_requested()) {
         close();
         return;
     }
-
-    auto dev = gpu_->vk_device();
-
-    vkWaitForFences(dev, 1, &in_flight_[frame_index_], VK_TRUE, UINT64_MAX);
-    vkResetFences(dev, 1, &in_flight_[frame_index_]);
-
-    uint32_t img_idx = 0;
-    auto result = vkAcquireNextImageKHR(
-        dev, swapchain_->handle(), UINT64_MAX,
-        image_available_[frame_index_], VK_NULL_HANDLE, &img_idx);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        swapchain_->recreate();
-        return;
-    }
-
-    auto cmd = command_buffers_[frame_index_];
-    vkResetCommandBuffer(cmd, 0);
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    vkBeginCommandBuffer(cmd, &begin);
-
-    vk_utils::prepare_color_attachment(cmd, swapchain_->image(img_idx));
-
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = swapchain_->image_view(img_idx);
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.clearValue.color = {{0.012f, 0.012f, 0.015f, 1.0f}};
-
-    VkRenderingInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering_info.renderArea.extent = swapchain_->extent();
-    rendering_info.layerCount = 1;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachments = &color_attachment;
-
-    vkCmdBeginRendering(cmd, &rendering_info);
-
-    imgui_->activate();
-    imgui_->begin_frame();
-    bool should_close = draw_ui(
-        static_cast<float>(swapchain_->extent().width),
-        static_cast<float>(swapchain_->extent().height));
-    imgui_->end_frame();
-    imgui_->render(cmd);
-    imgui_->deactivate();
-
-    vkCmdEndRendering(cmd);
-
-    vk_utils::transition_image(cmd, swapchain_->image(img_idx),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-
-    vkEndCommandBuffer(cmd);
-
-    const auto& render_done = swapchain_->render_finished_semaphores();
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &image_available_[frame_index_];
-    submit.pWaitDstStageMask = &wait_stage;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &render_done[img_idx];
-
-    vkQueueSubmit(gpu_->graphics_queue(), 1, &submit, in_flight_[frame_index_]);
-
-    VkSwapchainKHR sc = swapchain_->handle();
-    VkPresentInfoKHR present{};
-    present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &render_done[img_idx];
-    present.swapchainCount = 1;
-    present.pSwapchains = &sc;
-    present.pImageIndices = &img_idx;
-    VkResult present_result = vkQueuePresentKHR(gpu_->graphics_queue(), &present);
-
-    // A stale swapchain keeps its creation size while the window grows, which
-    // leaves the UI laid out in a corner and the mouse landing away from it.
-    // was_resized() covers compositors that resize without reporting
-    // OUT_OF_DATE.
-    if (present_result == VK_ERROR_OUT_OF_DATE_KHR ||
-        present_result == VK_SUBOPTIMAL_KHR ||
-        window_->was_resized()) {
-        window_->reset_resized();
-        vkDeviceWaitIdle(gpu_->vk_device());
-        swapchain_->recreate();
-    }
-
-    frame_index_ = (frame_index_ + 1) % MAX_FRAMES_IN_FLIGHT;
-
-    if (should_close) {
-        close();
-    }
+    bool should_close = false;
+    window_->frame([&](float width, float height) { should_close = draw_ui(width, height); });
+    if (should_close) close();
 }
 
 void FileBrowser::close() {
-    if (!is_open()) return;
-
-    auto dev = gpu_->vk_device();
-    vkDeviceWaitIdle(dev);
-
-    imgui_.reset();
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (image_available_[i] != VK_NULL_HANDLE)
-            vkDestroySemaphore(dev, image_available_[i], nullptr);
-        if (in_flight_[i] != VK_NULL_HANDLE)
-            vkDestroyFence(dev, in_flight_[i], nullptr);
-        image_available_[i] = VK_NULL_HANDLE;
-        in_flight_[i] = VK_NULL_HANDLE;
-    }
-    if (command_pool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(dev, command_pool_, nullptr);
-        command_pool_ = VK_NULL_HANDLE;
-    }
-
-    swapchain_.reset();
-
-    if (surface_ != VK_NULL_HANDLE) {
-        vkDestroySurfaceKHR(gpu_->instance(), surface_, nullptr);
-        surface_ = VK_NULL_HANDLE;
-    }
-
     window_.reset();
-    frame_index_ = 0;
 }
 
 // ── Directory operations ────────────────────────────────────────────────
@@ -358,7 +190,7 @@ void FileBrowser::confirm_selection() {
         on_location_selected.broadcast(current_dir_.string(), std::string(name_buf_));
     }
 
-    glfwSetWindowShouldClose(window_->handle(), GLFW_TRUE);
+    window_->request_close();
 }
 
 // ── ImGui UI ────────────────────────────────────────────────────────────
@@ -378,7 +210,7 @@ bool FileBrowser::draw_ui(float window_w, float window_h) {
     draw_bottom_bar();
 
     ImGui::End();
-    return false; // close is handled by glfwSetWindowShouldClose
+    return false;  // closing goes through request_close()
 }
 
 void FileBrowser::draw_path_bar() {
@@ -527,7 +359,7 @@ void FileBrowser::draw_bottom_bar() {
 
     ImGui::SameLine();
     if (ImGui::Button("Cancel", {80, 0})) {
-        glfwSetWindowShouldClose(window_->handle(), GLFW_TRUE);
+        window_->request_close();
     }
 }
 
