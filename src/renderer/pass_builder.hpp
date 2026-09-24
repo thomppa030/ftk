@@ -29,6 +29,18 @@ struct ImportedImage {
     bool persistent{false};
 };
 
+/// A named buffer made available to pass declare() bodies, the buffer
+/// counterpart of ImportedImage. Producer passes add their outputs through
+/// RenderPass::collect_exports(); consumers reach them by name through
+/// PassBuilder::import_named_buffer().
+struct BufferImport {
+    VkBuffer buffer{VK_NULL_HANDLE};
+    VkDeviceSize size{0};
+    // Read on a later frame than the one that wrote it, so a writer stays
+    // alive with no reader in the frame.
+    bool persistent{false};
+};
+
 /// FNV-1a over a string_view. Used to key the DeclareContext::imports
 /// catalog and PassBuilder transient names by a cheap 64-bit hash
 /// instead of std::string — declare() is a hot per-frame path that
@@ -98,6 +110,11 @@ struct DeclareContext {
     /// that walked 150+ map lookups on std::string keys before; this
     /// drops string alloc + hashing entirely.
     std::unordered_map<uint64_t, ImportedImage> imports;
+
+    /// Named buffer catalog, filled the same way as `imports` and keyed the
+    /// same way. A buffer both a producer and its consumers declare is what
+    /// gives the graph the edge between them and the barrier on it.
+    std::unordered_map<uint64_t, BufferImport> buffer_imports;
 };
 
 /// Records a pass's imported/created resources and its accesses against
@@ -141,6 +158,12 @@ public:
     /// crashing the frame.
     FgTexture import_named(const DeclareContext& ctx, std::string_view name,
                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+
+    /// Import a buffer by the name a producer exported it under. Returns an
+    /// invalid handle when no pass exported it this frame, which a consumer
+    /// takes as "nothing to wait for": the producer is absent from this
+    /// viewport's graph, or the buffer does not exist yet.
+    FgBuffer import_named_buffer(const DeclareContext& ctx, std::string_view name);
 
     // ── Access declarations ────────────────────────────────────────────
 

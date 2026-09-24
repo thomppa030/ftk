@@ -93,6 +93,37 @@ struct ImageKeyHash {
     }
 };
 
+// Synchronisation state of one tracked buffer. A buffer has no layout, so
+// what matters is who last wrote it, who has read it since, and which
+// readers that write has already been made visible to.
+struct BufferState {
+    VkPipelineStageFlags2 write_stages{0};    // 0: no write seen
+    VkAccessFlags2 write_access{0};
+    VkPipelineStageFlags2 read_stages{0};     // every reader since that write
+    // The destination scope of the last barrier that made the write
+    // visible. Kept as one scope, widened each time, so a reader covered by
+    // it is covered for every stage and access in it together.
+    VkPipelineStageFlags2 visible_stages{0};
+    VkAccessFlags2 visible_access{0};
+};
+
+// Buffer tracked by the frame graph, as a whole: no pass declares part of
+// one.
+struct TrackedBuffer {
+    VkBuffer buffer{VK_NULL_HANDLE};
+    bool persistent{false};
+    BufferState state;
+};
+
+// One pass's use of a buffer.
+struct BufferUse {
+    uint32_t buffer_id{0};
+    VkPipelineStageFlags2 stages{0};
+    VkAccessFlags2 access{0};
+    bool read{false};
+    bool write{false};
+};
+
 // One (image, subresource, usage) tuple inside a pass declaration.
 struct ImageAccess {
     uint32_t image_id{0};
@@ -116,6 +147,7 @@ struct PassDecl {
     std::string name;
     std::function<void(VkCommandBuffer)> execute;
     std::vector<ImageAccess> image_uses;
+    std::vector<BufferUse> buffer_uses;
     std::vector<FinalLayoutOverride> final_layouts;
     uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
     // Which queue should record this pass. Phase 3b reads this to split
@@ -168,9 +200,14 @@ public:
                             bool persistent = false,
                             VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
 
-    // Once per frame, before any run: forget the state of images no run
-    // touched last frame, so a destroyed image's handle cannot come back
-    // with a stale layout attached.
+    // Register a buffer to track and return its id; the same buffer again
+    // in one run returns the existing id. A new entry starts from what the
+    // graph remembers of the buffer, else with no write to wait for.
+    uint32_t register_buffer(VkBuffer buffer, bool persistent = false);
+
+    // Once per frame, before any run: forget the state of images and
+    // buffers no run touched last frame, so a destroyed handle cannot come
+    // back with stale state attached.
     void new_frame();
 
     // Once per run: drop the previous run's passes and images. The
@@ -309,7 +346,14 @@ private:
                                   VkAccessFlags2 dst_access,
                                   QueueType queue);
 
-    // Every barrier a pass needs, issued as one vkCmdPipelineBarrier2.
+    // Append the barrier one pass's use of a buffer needs to
+    // buffer_barriers_scratch_, and record the use on the buffer's state.
+    // Nothing is appended when the use has nothing to wait for.
+    void append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
+                                   QueueType queue);
+
+    // Every barrier a pass needs, image and buffer, issued as one
+    // vkCmdPipelineBarrier2.
     void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
 
     // After a run: store every imported image's slice state for the next
@@ -334,6 +378,10 @@ private:
         std::vector<ImageSlice> slices;
         uint64_t seen{0};
     };
+    struct RememberedBuffer {
+        BufferState state;
+        uint64_t seen{0};
+    };
 
     // Apply a pass's final_layout overrides: patch slice state to the
     // declared values without emitting any barrier (producer promises
@@ -341,6 +389,7 @@ private:
     void apply_final_layouts(const PassDecl& pass);
 
     std::vector<TrackedImage> images_;
+    std::vector<TrackedBuffer> buffers_;
     std::vector<PassDecl> passes_;
 
     // Per-run lookup from image identity, and from transient name, to an
@@ -348,12 +397,18 @@ private:
     std::unordered_map<ImageKey, uint32_t, ImageKeyHash> image_index_;
     std::unordered_map<uint64_t, uint32_t> virtual_index_;
 
+    std::unordered_map<VkBuffer, uint32_t> buffer_index_;
+
     std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
+    std::unordered_map<VkBuffer, RememberedBuffer> remembered_buffers_;
     uint64_t frame_serial_{0};
 
     // Reusable scratch, so a run allocates nothing on its hot path.
     std::vector<VkCommandBuffer> secondaries_scratch_;
     std::vector<VkImageMemoryBarrier2> barriers_scratch_;
+    std::vector<VkBufferMemoryBarrier2> buffer_barriers_scratch_;
+    std::vector<BufferUse> merged_buffers_scratch_;
+    std::vector<uint32_t> handle_to_buffer_scratch_;
     std::vector<ImageSlice> rebuilt_scratch_;
     std::vector<size_t> indices_scratch_;
     std::vector<MergedAccess> merged_scratch_;

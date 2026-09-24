@@ -72,6 +72,14 @@ FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view 
     return h;
 }
 
+FgBuffer PassBuilder::import_named_buffer(const DeclareContext& ctx, std::string_view name) {
+    auto it = ctx.buffer_imports.find(fg_name_hash(name));
+    if (it == ctx.buffer_imports.end() || it->second.buffer == VK_NULL_HANDLE) {
+        return FgBuffer{};
+    }
+    return import(name, it->second.buffer, it->second.size, it->second.persistent);
+}
+
 FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size,
                               bool persistent) {
     FgBuffer h{next_buffer_id_++};
@@ -91,6 +99,7 @@ FgTexture PassBuilder::read(FgTexture h, ResourceAccess a) {
 }
 
 FgBuffer PassBuilder::read(FgBuffer h, ResourceAccess a) {
+    if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
@@ -101,6 +110,7 @@ FgTexture PassBuilder::write(FgTexture h, ResourceAccess a) {
 }
 
 FgBuffer PassBuilder::write(FgBuffer h, ResourceAccess a) {
+    if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
@@ -111,6 +121,7 @@ FgTexture PassBuilder::read_write(FgTexture h, ResourceAccess a) {
 }
 
 FgBuffer PassBuilder::read_write(FgBuffer h, ResourceAccess a) {
+    if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
