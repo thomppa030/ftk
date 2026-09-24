@@ -151,7 +151,8 @@ struct BufferScope {
 constexpr VkAccessFlags2 WRITE_ACCESS_BITS =
     VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
   | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT
-  | VK_ACCESS_2_MEMORY_WRITE_BIT;
+  | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+  | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 // Clamp an externally-specified range against the image's actual
 // dimensions. VK_REMAINING_* expands to "whole image from base_*".
@@ -464,8 +465,10 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         out.range.mip_count = images_[image_id].mip_count;
         out.range.base_layer = images_[image_id].base_layer;
         out.range.layer_count = images_[image_id].array_layers;
-        out.last_stage = fl.last_stage;
-        out.last_access = fl.last_access;
+        out.written_stage = fl.written_stage;
+        out.written_access = fl.written_access;
+        out.visible_stage = fl.visible_stage;
+        out.visible_access = fl.visible_access;
         pass.final_layouts.push_back(out);
     }
 
@@ -789,7 +792,9 @@ VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
       | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
       | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT
       | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT
-      | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
+      | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT
+      | VK_PIPELINE_STAGE_2_BLIT_BIT
+      | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
 
     const VkPipelineStageFlags2 disallowed = stages & graphics_only;
     if (disallowed == 0) { return stages; }
@@ -802,10 +807,13 @@ VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
 
 VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
     switch (usage) {
+        // An attachment's load op reads what is there before the pass
+        // writes over it.
         case ImageUsage::color_attachment:
-            return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            return VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         case ImageUsage::depth_attachment:
-            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+                 | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         case ImageUsage::depth_attachment_read:
             return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         case ImageUsage::shader_read:
@@ -901,8 +909,7 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
             for (size_t j = i + 1; j < img.slices.size(); ++j) {
                 const auto& a = img.slices[i];
                 const auto& b = img.slices[j];
-                if (a.layout != b.layout || a.last_stage != b.last_stage
-                    || a.last_access != b.last_access) { continue; }
+                if (a.layout != b.layout || !(a.state == b.state)) { continue; }
                 if (a.range.aspect != b.range.aspect) { continue; }
                 // Horizontal merge (same layer range, adjacent mips)
                 if (a.range.base_layer == b.range.base_layer
@@ -950,68 +957,98 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
                                           VkImageLayout new_layout,
                                           VkPipelineStageFlags2 dst_stage,
                                           VkAccessFlags2 dst_access,
+                                          bool write,
                                           QueueType queue) {
-    if (slice.layout == new_layout
-        && (slice.last_access & dst_access) == dst_access) {
-        // Another read of a slice already visible to this access needs
-        // no barrier, but the next write to it must wait for this reader
-        // too: fold its stage into the state so that barrier's srcStage
-        // covers every reader since the last write.
-        slice.last_stage |= stages_for_queue(dst_stage, queue);
-        return;
+    AccessState& s = slice.state;
+    const VkPipelineStageFlags2 stage = stages_for_queue(dst_stage, queue);
+    const bool layout_change = slice.layout != new_layout;
+
+    // The same rule as for buffers, plus the layout. A layout change or a
+    // write waits for the last write and every reader since; a read waits
+    // for the last write unless an earlier barrier already made it visible
+    // to this stage and access.
+    VkPipelineStageFlags2 src_stage = 0;
+    VkAccessFlags2 src_access = 0;
+    VkPipelineStageFlags2 barrier_dst = stage;
+    VkAccessFlags2 barrier_dst_access = dst_access;
+    bool needed = false;
+    if (layout_change || write) {
+        src_stage = s.write_stages | s.read_stages;
+        src_access = s.write_access;
+        needed = layout_change || src_stage != 0;
+    } else if (s.write_stages != 0
+               && ((stage & ~s.visible_stages) != 0 || (dst_access & ~s.visible_access) != 0)) {
+        src_stage = s.write_stages;
+        src_access = s.write_access;
+        // Widen to everything made visible before, so the one scope kept
+        // covers every reader so far.
+        barrier_dst = stages_for_queue(stage | s.visible_stages, queue);
+        barrier_dst_access = dst_access | s.visible_access;
+        needed = true;
     }
 
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    // Stage masks have to be legal for the queue we're recording into.
-    // The semaphore wait in submit_and_present already handles any cross-
-    // queue ordering, so collapsing graphics-only bits on the compute CB
-    // loses no information.
-    //
-    // When the previous access used graphics-only stages and this barrier
-    // is recorded on the compute queue, the timeline-semaphore wait in
-    // submit_and_present is what actually synchronises against that work.
-    // The source side of this barrier reduces to a no-op execution
-    // dependency: keep the layout transition, but clear srcAccess and use
-    // a queue-legal srcStage so the (stage, access) pair stays valid.
-    // Otherwise srcAccess like DEPTH_STENCIL_ATTACHMENT_WRITE wouldn't
-    // satisfy any stage the compute queue accepts.
-    const VkPipelineStageFlags2 translated_src = stages_for_queue(slice.last_stage, queue);
-    const bool cross_queue = translated_src != slice.last_stage;
-    barrier.srcStageMask = cross_queue ? VK_PIPELINE_STAGE_2_NONE : translated_src;
-    barrier.srcAccessMask = cross_queue ? 0 : slice.last_access;
-    barrier.dstStageMask = stages_for_queue(dst_stage, queue);
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = slice.layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = img.image;
-    barrier.subresourceRange.aspectMask = slice.range.aspect;
-    barrier.subresourceRange.baseMipLevel = slice.range.base_mip;
-    barrier.subresourceRange.levelCount = slice.range.mip_count;
-    barrier.subresourceRange.baseArrayLayer = slice.range.base_layer;
-    barrier.subresourceRange.layerCount = slice.range.layer_count;
+    if (needed) {
+        // A source stage the recording queue does not have means the last
+        // access happened on the other queue, and the timeline semaphore
+        // between the submits orders the work. The barrier is still needed
+        // for a layout change, with an empty source scope; without one it
+        // would carry nothing.
+        const VkPipelineStageFlags2 translated_src = stages_for_queue(src_stage, queue);
+        const bool cross_queue = translated_src != src_stage;
+        if (layout_change || !cross_queue) {
+            VkImageMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = (cross_queue || src_stage == 0) ? VK_PIPELINE_STAGE_2_NONE : src_stage;
+            barrier.srcAccessMask = cross_queue ? 0 : src_access;
+            barrier.dstStageMask = barrier_dst;
+            barrier.dstAccessMask = barrier_dst_access;
+            barrier.oldLayout = slice.layout;
+            barrier.newLayout = new_layout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = img.image;
+            barrier.subresourceRange.aspectMask = slice.range.aspect;
+            barrier.subresourceRange.baseMipLevel = slice.range.base_mip;
+            barrier.subresourceRange.levelCount = slice.range.mip_count;
+            barrier.subresourceRange.baseArrayLayer = slice.range.base_layer;
+            barrier.subresourceRange.layerCount = slice.range.layer_count;
 
-    if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
-        FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
-                       reinterpret_cast<uintptr_t>(img.image),
-                       layout_str(slice.layout), layout_str(new_layout),
-                       static_cast<uint64_t>(barrier.srcStageMask),
-                       static_cast<uint64_t>(barrier.dstStageMask),
-                       queue == QueueType::async_compute ? "compute" : "graphics",
-                       reinterpret_cast<uintptr_t>(cmd));
+            if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
+                FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
+                               reinterpret_cast<uintptr_t>(img.image),
+                               layout_str(slice.layout), layout_str(new_layout),
+                               static_cast<uint64_t>(barrier.srcStageMask),
+                               static_cast<uint64_t>(barrier.dstStageMask),
+                               queue == QueueType::async_compute ? "compute" : "graphics",
+                               reinterpret_cast<uintptr_t>(cmd));
+            }
+            barriers_scratch_.push_back(barrier);
+        }
     }
 
-    barriers_scratch_.push_back(barrier);
-
-    // Record the queue-translated stage back into the slice. The next
-    // pass's barrier will feed this as srcStage — translating once at
-    // emit time means the slice state always reflects what's actually
-    // valid on whichever queue last touched it.
+    // Record the use. Stages are kept queue-translated, so the next barrier
+    // built from them is legal on whichever queue last touched the slice.
+    if (write) {
+        s.write_stages = stage;
+        s.write_access = dst_access & WRITE_ACCESS_BITS;
+        s.read_stages = 0;
+        s.visible_stages = 0;
+        s.visible_access = 0;
+    } else if (layout_change) {
+        // The transition is ordered before this reader, so a later reader
+        // chains through this reader's stage to wait for it.
+        s.write_stages |= stage;
+        s.read_stages = stage;
+        s.visible_stages = stage;
+        s.visible_access = dst_access;
+    } else {
+        if (needed) {
+            s.visible_stages = barrier_dst;
+            s.visible_access = barrier_dst_access;
+        }
+        s.read_stages |= stage;
+    }
     slice.layout = new_layout;
-    slice.last_stage = stages_for_queue(dst_stage, queue);
-    slice.last_access = dst_access;
 }
 
 namespace {
@@ -1046,7 +1083,7 @@ VkImageLayout merge_layouts(VkImageLayout a, VkImageLayout b) {
 
 void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
                                           QueueType queue) {
-    BufferState& s = buf.state;
+    AccessState& s = buf.state;
     const VkPipelineStageFlags2 dst_stage = stages_for_queue(use.stages, queue);
 
     // A write waits for the last write (write-after-write) and for every
@@ -1172,7 +1209,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         for (size_t idx : indices_scratch_) {
             append_barrier_for_slice(cmd, img, img.slices[idx],
                                      m.layout, m.stages, m.access,
-                                     pass.queue);
+                                     m.any_write, pass.queue);
         }
         coalesce_slices(img);
     }
@@ -1222,8 +1259,13 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
         carve_slices(img, fl.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
             img.slices[idx].layout = fl.layout;
-            img.slices[idx].last_stage = fl.last_stage;
-            img.slices[idx].last_access = fl.last_access;
+            img.slices[idx].state = AccessState{
+                .write_stages = fl.written_stage,
+                .write_access = fl.written_access,
+                .read_stages = 0,
+                .visible_stages = fl.visible_stage,
+                .visible_access = fl.visible_access,
+            };
         }
         coalesce_slices(img);
     }

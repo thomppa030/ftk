@@ -43,12 +43,27 @@ struct SubresourceRange {
     uint32_t layer_count{1};
 };
 
+// Synchronisation state of one tracked resource, or one slice of an
+// image: who last wrote it, who has read it since, and which readers that
+// write has already been made visible to.
+struct AccessState {
+    VkPipelineStageFlags2 write_stages{0};    // 0: no write seen
+    VkAccessFlags2 write_access{0};
+    VkPipelineStageFlags2 read_stages{0};     // every reader since that write
+    // The destination scope of the last barrier that made the write
+    // visible. Kept as one scope, widened each time, so a reader covered by
+    // it is covered for every stage and access in it together.
+    VkPipelineStageFlags2 visible_stages{0};
+    VkAccessFlags2 visible_access{0};
+
+    bool operator==(const AccessState&) const noexcept = default;
+};
+
 // State for one non-overlapping slice of a tracked image.
 struct ImageSlice {
     SubresourceRange range;
     VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT};
-    VkAccessFlags2 last_access{0};
+    AccessState state;
 };
 
 // Image tracked by the frame graph. Layout/access state is per-slice so
@@ -93,26 +108,12 @@ struct ImageKeyHash {
     }
 };
 
-// Synchronisation state of one tracked buffer. A buffer has no layout, so
-// what matters is who last wrote it, who has read it since, and which
-// readers that write has already been made visible to.
-struct BufferState {
-    VkPipelineStageFlags2 write_stages{0};    // 0: no write seen
-    VkAccessFlags2 write_access{0};
-    VkPipelineStageFlags2 read_stages{0};     // every reader since that write
-    // The destination scope of the last barrier that made the write
-    // visible. Kept as one scope, widened each time, so a reader covered by
-    // it is covered for every stage and access in it together.
-    VkPipelineStageFlags2 visible_stages{0};
-    VkAccessFlags2 visible_access{0};
-};
-
 // Buffer tracked by the frame graph, as a whole: no pass declares part of
 // one.
 struct TrackedBuffer {
     VkBuffer buffer{VK_NULL_HANDLE};
     bool persistent{false};
-    BufferState state;
+    AccessState state;
 };
 
 // One pass's use of a buffer.
@@ -132,14 +133,19 @@ struct ImageAccess {
 };
 
 // A post-pass state override. The pass promises that after its
-// record() returns, the named subresource is in the stated layout —
-// the graph records it without emitting a barrier.
+// record() returns, the named subresource is in the stated layout, last
+// written at `written_stage` with `written_access`, and made visible by
+// the pass's own closing barrier to `visible_stage` / `visible_access`.
+// The graph records it without emitting a barrier, and later readers
+// outside the visible scope get one.
 struct FinalLayoutOverride {
     uint32_t image_id{0};
     SubresourceRange range{};
     VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
-    VkAccessFlags2 last_access{0};
+    VkPipelineStageFlags2 written_stage{0};
+    VkAccessFlags2 written_access{0};
+    VkPipelineStageFlags2 visible_stage{0};
+    VkAccessFlags2 visible_access{0};
 };
 
 // A pass declaration: what images it reads and writes
@@ -344,6 +350,7 @@ private:
                                   VkImageLayout new_layout,
                                   VkPipelineStageFlags2 dst_stage,
                                   VkAccessFlags2 dst_access,
+                                  bool write,
                                   QueueType queue);
 
     // Append the barrier one pass's use of a buffer needs to
@@ -379,7 +386,7 @@ private:
         uint64_t seen{0};
     };
     struct RememberedBuffer {
-        BufferState state;
+        AccessState state;
         uint64_t seen{0};
     };
 

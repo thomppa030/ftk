@@ -127,13 +127,17 @@ FgBuffer PassBuilder::read_write(FgBuffer h, ResourceAccess a) {
 }
 
 FgTexture PassBuilder::final_layout(FgTexture h, VkImageLayout layout,
-                                     VkPipelineStageFlags2 last_stage,
-                                     VkAccessFlags2 last_access) {
+                                     VkPipelineStageFlags2 written_stage,
+                                     VkAccessFlags2 written_access,
+                                     VkPipelineStageFlags2 visible_stage,
+                                     VkAccessFlags2 visible_access) {
     final_layouts_.push_back({
         .handle = h,
         .layout = layout,
-        .last_stage = last_stage,
-        .last_access = last_access,
+        .written_stage = written_stage,
+        .written_access = written_access,
+        .visible_stage = visible_stage,
+        .visible_access = visible_access,
     });
     return h;
 }
