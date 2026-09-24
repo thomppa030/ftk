@@ -12,7 +12,7 @@ Stylesheets name recipes with `@font-face` (see [FJSS](FJSS.md#fonts-font-face-f
 {
     "source": "Inter-Regular.ttf",
     "charset": ["ascii", "latin-1", "U+2013-2014", "U+20AC"],
-    "cell_size": 48,
+    "em_size": 48,
     "px_range": 6,
     "kerning": true
 }
@@ -23,16 +23,18 @@ Stylesheets name recipes with `@font-face` (see [FJSS](FJSS.md#fonts-font-face-f
   (32–126), `latin-1` (160–255), `latin-ext-a` (256–383), `greek` (880–1023),
   `cyrillic` (1024–1279). Omitted, it is `ascii` plus `latin-1`. Glyphs the font
   lacks are listed in a warning and left out.
-- `cell_size` — the MSDF cell in atlas pixels (8–512). 48 suits UI text; a font used
-  only for large titles can bake at 64, one for 12 px labels at 32.
-- `px_range` — the distance range in pixels, less than half the cell. 6 is right
-  for 48.
+- `em_size` — atlas pixels per em (8–512): how large the font is drawn into the
+  atlas. 48 suits UI text; a font used only for large titles can bake at 64, one
+  for 12 px labels at 32. Thin weights need more than heavy ones: a hairline stem
+  under two atlas pixels wide loses its shape.
+- `px_range` — the distance range in atlas pixels, less than half the em size. 6
+  is right for 48.
 - `kerning` — bake the font's kerning pairs.
 
-Every glyph in an atlas shares one scale, chosen so the largest glyph fills a cell,
-which keeps stroke weight identical across the set. A charset edit therefore
-rebuilds the whole atlas. One page per font, at most 8192 square; a charset that
-does not fit fails the bake and says so.
+Every glyph is drawn at the em size, so stroke weight is identical across the set
+and adding glyphs to the charset leaves the others as they were. Each glyph takes
+as much of the page as it needs: an em-dash is wider than an `i`. One page per
+font, at most 8192 square; a charset that does not fit fails the bake and says so.
 
 Many fonts, static cuts of variable fonts especially, draw a glyph as contours
 laid over each other: the bowl of a `b` over its stem. A distance field keeps
@@ -50,7 +52,7 @@ warning: it may show a faint seam where its contours cross.
 - `fjimport fonts/Inter.fjfont` bakes from the shell; CI does this for the engine
   fonts.
 
-Double-click a recipe to open the font editor: source, charset, cell size, range
+Double-click a recipe to open the font editor: source, charset, em size, range
 and kerning, with the atlas and a sample line drawn in the font. Every field
 commits on Enter or when it loses focus, writes the recipe and rebuilds the atlas.
 Edits are undoable.

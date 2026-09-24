@@ -81,9 +81,8 @@ struct BakedGlyph {
     }
 };
 
-// Geist Bold baked from ASCII and Latin-1, the charset a recipe gets when it
-// names none. The largest glyph of the set sets the scale, so every glyph
-// comes out at the size real atlases hold it. Baked once for every test.
+// Geist Bold baked as a recipe that names nothing but its font would bake
+// it: ASCII and Latin-1 at the default em size. Baked once for every test.
 const BakedFontAtlas* geist_bold() {
     static const std::optional<BakedFontAtlas> atlas = []() -> std::optional<BakedFontAtlas> {
         FjFontRecipe recipe;
@@ -173,4 +172,27 @@ TEST_CASE("A glyph drawn with overlapping contours shows no seam where they cros
         }
     }
     CHECK(seams == 0);
+}
+
+TEST_CASE("Every glyph is baked at the recipe's em size whatever the charset", "[fjfont]") {
+    // How many atlas pixels an em of the glyph `codepoint` spans.
+    auto texels_per_em = [](const FjFontRecipe& recipe, uint32_t codepoint) {
+        auto atlas = bake_font_atlas(recipe, GEIST_BOLD, 0);
+        REQUIRE(atlas);
+        auto found = std::find_if(atlas->glyphs.begin(), atlas->glyphs.end(),
+                                  [&](const FjFontGlyph& g) { return g.codepoint == codepoint; });
+        REQUIRE(found != atlas->glyphs.end());
+        return (found->uv_x1 - found->uv_x0) * atlas->header.atlas_width / found->quad_w;
+    };
+
+    FjFontRecipe alone;
+    alone.em_size = 40;
+    alone.charset = {{'a', 'a'}};
+    alone.kerning = false;
+    // Taller and wider glyphs beside it must not shrink it.
+    FjFontRecipe crowded = alone;
+    crowded.charset = {{'a', 'z'}, {'|', '|'}, {0x00C7, 0x00C7}, {0x00C6, 0x00C6}};
+
+    CHECK(std::fabs(texels_per_em(alone, 'a') - 40.0) < 0.01);
+    CHECK(std::fabs(texels_per_em(crowded, 'a') - 40.0) < 0.01);
 }

@@ -32,7 +32,7 @@ BakedFontAtlas sample_atlas() {
     BakedFontAtlas atlas;
     atlas.header.atlas_width = 4;
     atlas.header.atlas_height = 2;
-    atlas.header.cell_size = 48;
+    atlas.header.em_size = 48;
     atlas.header.px_range = 6.0f;
     atlas.header.ascender = 0.9f;
     atlas.header.descender = -0.2f;
@@ -84,7 +84,7 @@ TEST_CASE("A recipe loads with defaults and reports unknown keys", "[fjfont]") {
     auto recipe = load_font_recipe(path, &warnings);
     REQUIRE(recipe);
     REQUIRE(recipe->source == "Inter.ttf");
-    REQUIRE(recipe->cell_size == 48);
+    REQUIRE(recipe->em_size == 48);
     REQUIRE(recipe->px_range == Catch::Approx(6.0f));
     REQUIRE(recipe->kerning);
     // ASCII plus Latin-1 when nothing is named.
@@ -104,7 +104,7 @@ TEST_CASE("A recipe rejects what it cannot bake", "[fjfont]") {
     REQUIRE_FALSE(load_font_recipe(dir.base / "missing.fjfont"));
     REQUIRE_FALSE(load_font_recipe(dir.write("a.fjfont", "{ not json")));
     REQUIRE_FALSE(load_font_recipe(dir.write("b.fjfont", R"({ "charset": ["ascii"] })")));
-    REQUIRE_FALSE(load_font_recipe(dir.write("c.fjfont", R"({ "source": "x.ttf", "cell_size": 4 })")));
+    REQUIRE_FALSE(load_font_recipe(dir.write("c.fjfont", R"({ "source": "x.ttf", "em_size": 4 })")));
     REQUIRE_FALSE(load_font_recipe(dir.write("d.fjfont", R"({ "source": "x.ttf", "px_range": 30 })")));
 
     std::vector<std::string> warnings;

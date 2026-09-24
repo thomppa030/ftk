@@ -112,7 +112,7 @@ void FontEditorContext::open_font(const std::string& recipe_path) {
     }
     recipe_ = *recipe;
     loaded_ = true;
-    cell_size_edit_ = static_cast<int>(recipe_.cell_size);
+    em_size_edit_ = static_cast<int>(recipe_.em_size);
     px_range_edit_ = recipe_.px_range;
     sample_dirty_ = true;
     document_opened();
@@ -144,7 +144,7 @@ Result<> FontEditorContext::restore(const std::string& text) {
 
 void FontEditorContext::apply_recipe(const FjFontRecipe& recipe) {
     recipe_ = recipe;
-    cell_size_edit_ = static_cast<int>(recipe_.cell_size);
+    em_size_edit_ = static_cast<int>(recipe_.em_size);
     px_range_edit_ = recipe_.px_range;
     // Previewed, not saved: the font shows the edit everywhere it draws,
     // and the file changes on Save.
@@ -234,17 +234,17 @@ void FontEditorContext::draw_recipe_panel() {
 
     ui::subheading("Atlas");
     if (auto t = ui::PropertyTable("##atlas")) {
-        ui::row("Cell size", [&] {
-            if (ui::drag_int("##cell", cell_size_edit_, 0.5f, 8, 512, ui::Unit::Pixels).committed &&
-                static_cast<uint32_t>(cell_size_edit_) != recipe_.cell_size) {
+        ui::row("Em size", "Atlas pixels per em, for every glyph whatever the charset.", [&] {
+            if (ui::drag_int("##em", em_size_edit_, 0.5f, 8, 512, ui::Unit::Pixels).committed &&
+                static_cast<uint32_t>(em_size_edit_) != recipe_.em_size) {
                 auto next = recipe_;
-                next.cell_size = static_cast<uint32_t>(cell_size_edit_);
-                next.px_range = std::min(next.px_range, static_cast<float>(cell_size_edit_) * 0.5f - 0.5f);
-                commit(std::move(next), "cell size");
+                next.em_size = static_cast<uint32_t>(em_size_edit_);
+                next.px_range = std::min(next.px_range, static_cast<float>(em_size_edit_) * 0.5f - 0.5f);
+                commit(std::move(next), "em size");
             }
         });
-        ui::row("Distance range", "How far the edge's distance is kept, in pixels of a cell.", [&] {
-            const float limit = static_cast<float>(recipe_.cell_size) * 0.5f - 0.5f;
+        ui::row("Distance range", "How far the edge's distance is kept, in atlas pixels.", [&] {
+            const float limit = static_cast<float>(recipe_.em_size) * 0.5f - 0.5f;
             if (ui::drag("##range", px_range_edit_,
                          {.speed = 0.1f, .min = 1.0f, .max = limit, .unit = ui::Unit::Pixels, .format = "%.1f"})
                     .committed &&

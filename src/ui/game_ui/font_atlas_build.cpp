@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-// Padding between glyph cells to prevent neighbour bleed.
+// Padding between glyph boxes to prevent neighbour bleed.
 static constexpr uint32_t ATLAS_PADDING = 2;
 
 // The largest page one atlas may be. A charset that does not fit is a
@@ -92,12 +92,14 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
         }
     } closer{ft, font};
 
-    const uint32_t glyph_size = recipe.cell_size;
+    // Glyphs load in em units, so the em size is the scale from outline to
+    // atlas pixels, the same for every glyph and every charset.
+    const double scale_val = static_cast<double>(recipe.em_size);
     const double px_range = recipe.px_range;
 
     BakedFontAtlas atlas;
     auto& header = atlas.header;
-    header.cell_size = glyph_size;
+    header.em_size = recipe.em_size;
     header.px_range = static_cast<float>(px_range);
     header.source_hash = source_hash;
 
@@ -107,8 +109,7 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     header.descender = static_cast<float>(fm.descenderY);
     header.line_height = static_cast<float>(fm.lineHeight);
 
-    // First pass: load every glyph shape and find the largest bounding box,
-    // which sets the one scale all glyphs share.
+    // First pass: load every glyph's outline.
     struct GlyphData {
         msdfgen::Shape shape;
         msdfgen::Shape::Bounds bounds{};
@@ -118,7 +119,6 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     };
     const uint32_t count = static_cast<uint32_t>(codepoints.size());
     std::vector<GlyphData> glyph_data(count);
-    double max_dim = 0.0;
 
     for (uint32_t idx = 0; idx < count; ++idx) {
         auto& gd = glyph_data[idx];
@@ -135,17 +135,7 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
         gd.shape.normalize();
         msdfgen::edgeColoringSimple(gd.shape, 3.0);
         gd.bounds = gd.shape.getBounds();
-
-        double w = gd.bounds.r - gd.bounds.l;
-        double h = gd.bounds.t - gd.bounds.b;
-        max_dim = std::max(max_dim, std::max(w, h));
     }
-
-    // Uniform scale: map the largest glyph dimension into the cell area left
-    // after the distance range on each side.
-    double available = static_cast<double>(glyph_size) - 2.0 * px_range;
-    double scale_val = available / max_dim;
-    if (!std::isfinite(scale_val) || scale_val <= 0) scale_val = 1.0;
 
     // Shape-space distance range (the same for all glyphs since scale is uniform)
     double range_shape = px_range / scale_val;
@@ -161,6 +151,7 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     };
     std::vector<PackedGlyph> boxes;
     uint64_t total_area = 0;
+    uint32_t widest = 0;
     for (uint32_t idx = 0; idx < count; ++idx) {
         const auto& gd = glyph_data[idx];
         if (!gd.has_contours) continue;
@@ -171,12 +162,16 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
         box.width = static_cast<uint32_t>(std::ceil(w));
         box.height = static_cast<uint32_t>(std::ceil(h));
         total_area += static_cast<uint64_t>(box.width + ATLAS_PADDING) * (box.height + ATLAS_PADDING);
+        widest = std::max(widest, box.width);
         boxes.push_back(box);
     }
 
     uint32_t page_width = next_power_of_two(
         static_cast<uint32_t>(std::ceil(std::sqrt(static_cast<double>(total_area)))));
-    page_width = std::clamp(page_width, glyph_size + ATLAS_PADDING, MAX_PAGE_SIZE);
+    // At least as wide as the widest glyph; one wider than a whole page
+    // fails the packing below and says so.
+    page_width = std::clamp(page_width, std::min(next_power_of_two(widest + ATLAS_PADDING), MAX_PAGE_SIZE),
+                            MAX_PAGE_SIZE);
     uint32_t page_height = boxes.empty() ? 1 : pack_shelves(boxes, page_width);
     // A page taller than it is wide wastes nothing but reads oddly; widen
     // once when that would still fit, so pages stay near square.
@@ -186,9 +181,9 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     }
     if (page_height == 0 || page_height > MAX_PAGE_SIZE) {
         return make_error("a charset of " + std::to_string(count) + " glyphs at " +
-                          std::to_string(glyph_size) + "px cells does not fit one " +
+                          std::to_string(recipe.em_size) + " px per em does not fit one " +
                           std::to_string(MAX_PAGE_SIZE) + "x" + std::to_string(MAX_PAGE_SIZE) +
-                          " page; use a smaller cell size or a smaller charset");
+                          " page; use a smaller em size or a smaller charset");
     }
     header.atlas_width = page_width;
     header.atlas_height = std::max(page_height, 1u);

@@ -135,7 +135,7 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
         }
         FJELL_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
                        recipe_path, atlas.header.atlas_width, atlas.header.atlas_height,
-                       atlas.glyphs.size(), atlas.header.cell_size, atlas.header.px_range);
+                       atlas.glyphs.size(), atlas.header.em_size, atlas.header.px_range);
 #else
         // A shipped build carries no baker; the atlas has to arrive with
         // the recipe.

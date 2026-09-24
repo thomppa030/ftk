@@ -17,9 +17,9 @@
 namespace fjell {
 
 /// Renders every glyph of the recipe's charset from the font at
-/// `source_path` and packs them into one atlas page. Every glyph shares one
-/// scale, chosen so the largest glyph fills a cell, which keeps stroke
-/// weight identical across the set. A glyph drawn as overlapping contours
+/// `source_path` and packs them into one atlas page. Every glyph is drawn at
+/// the recipe's em size, so stroke weight is identical across the set and
+/// does not change when the charset does. A glyph drawn as overlapping contours
 /// is merged into one outline first. `source_hash` is recorded in the
 /// header for the freshness check. Codepoints the font has no glyph for are
 /// left out and listed in `missing` when it is given; glyphs whose contours

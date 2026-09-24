@@ -1265,7 +1265,7 @@ void ContentBrowser::create_font_recipe(const std::filesystem::path& font_file) 
     file << "{\n"
          << "    \"source\": \"" << font_file.filename().string() << "\",\n"
          << "    \"charset\": [\"ascii\", \"latin-1\"],\n"
-         << "    \"cell_size\": 48,\n"
+         << "    \"em_size\": 48,\n"
          << "    \"px_range\": 6,\n"
          << "    \"kerning\": true\n"
          << "}\n";

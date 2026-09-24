@@ -12,7 +12,7 @@
 // {
 //     "source": "Inter-Regular.ttf",          relative to the recipe file
 //     "charset": ["ascii", "latin-1", "U+2013-2014", "U+20AC"],
-//     "cell_size": 48,                          MSDF cell in atlas pixels
+//     "em_size": 48,                            atlas pixels per em
 //     "px_range": 6,                            SDF distance range in pixels
 //     "kerning": true
 // }
@@ -48,13 +48,14 @@ struct FjFontRecipe {
     std::string source;
     /// As authored, in order. Overlaps are fine; charset_codepoints() merges.
     std::vector<CharsetRange> charset;
-    uint32_t cell_size{48};
+    /// Atlas pixels per em, the same for every glyph whatever the charset.
+    uint32_t em_size{48};
     float px_range{6.0f};
     bool kerning{true};
 };
 
 /// Reads a recipe. Missing or unreadable file, malformed JSON and a missing
-/// or invalid `source`, `cell_size` or `px_range` are errors. Unknown keys
+/// or invalid `source`, `em_size` or `px_range` are errors. Unknown keys
 /// and unparseable charset entries are dropped and reported in `warnings`
 /// as "<path>: <message>" so a linter can print them and the engine can log
 /// them; pass nullptr to ignore them.
@@ -101,7 +102,7 @@ struct FjFontRecipe {
 /// Raised whenever the baker makes different pixels from the same recipe
 /// and font. The source hash includes it, so atlases baked before go stale
 /// and are baked again.
-static constexpr uint32_t FJFONT_BAKE_REVISION = 3;
+static constexpr uint32_t FJFONT_BAKE_REVISION = 4;
 
 /// FNV-1a over the bake revision, the recipe text and the font bytes: what
 /// the atlas records, so a rebuild happens when any of them changes and not
@@ -127,7 +128,7 @@ struct FjFontAtlasHeader {
     uint32_t page_count{1};
     uint32_t atlas_width{0};
     uint32_t atlas_height{0};
-    uint32_t cell_size{0};
+    uint32_t em_size{0};      // atlas pixels per em
     float px_range{0.0f};
     float ascender{0.0f};     // em-normalised
     float descender{0.0f};    // em-normalised, negative

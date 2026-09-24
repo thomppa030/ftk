@@ -23,7 +23,7 @@ struct FontEditorDeps {
     AssetThumbnailRenderer* asset_thumbnails;
 };
 
-/// Edits a `.fjfont` recipe: the font file, the charset, the cell size and
+/// Edits a `.fjfont` recipe: the font file, the charset, the em size and
 /// distance range, whether kerning is baked. Every committed field writes
 /// the recipe and the font library rebuilds the atlas, so the sample line
 /// and the atlas image show the result a moment later. Edits are undoable.
@@ -69,7 +69,7 @@ private:
     bool loaded_{false};
 
     // Field buffers, committed on Enter or when the field loses focus.
-    int cell_size_edit_{48};
+    int em_size_edit_{48};
     float px_range_edit_{6.0f};
 
     // Sample line

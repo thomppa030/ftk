@@ -117,7 +117,7 @@ std::string font_recipe_text(const FjFontRecipe& recipe) {
     auto charset = nlohmann::ordered_json::array();
     for (const auto& range : recipe.charset) charset.push_back(charset_entry_text(range));
     j["charset"] = charset;
-    j["cell_size"] = recipe.cell_size;
+    j["em_size"] = recipe.em_size;
     // A whole number of pixels is written as one; 6.5 stays 6.5.
     if (recipe.px_range == std::floor(recipe.px_range)) {
         j["px_range"] = static_cast<int>(recipe.px_range);
@@ -184,17 +184,17 @@ Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::str
         recipe.charset = kDefaultCharset;
     }
 
-    if (j.contains("cell_size")) {
-        if (!j["cell_size"].is_number_unsigned() || j["cell_size"].get<uint32_t>() < 8 ||
-            j["cell_size"].get<uint32_t>() > 512) {
-            return make_error(where + ": 'cell_size' must be a whole number of pixels from 8 to 512");
+    if (j.contains("em_size")) {
+        if (!j["em_size"].is_number_unsigned() || j["em_size"].get<uint32_t>() < 8 ||
+            j["em_size"].get<uint32_t>() > 512) {
+            return make_error(where + ": 'em_size' must be a whole number of pixels from 8 to 512");
         }
-        recipe.cell_size = j["cell_size"].get<uint32_t>();
+        recipe.em_size = j["em_size"].get<uint32_t>();
     }
     if (j.contains("px_range")) {
         if (!j["px_range"].is_number() || j["px_range"].get<float>() <= 0.0f ||
-            j["px_range"].get<float>() * 2.0f >= static_cast<float>(recipe.cell_size)) {
-            return make_error(where + ": 'px_range' must be positive and less than half the cell size");
+            j["px_range"].get<float>() * 2.0f >= static_cast<float>(recipe.em_size)) {
+            return make_error(where + ": 'px_range' must be positive and less than half the em size");
         }
         recipe.px_range = j["px_range"].get<float>();
     }
@@ -205,7 +205,7 @@ Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::str
         recipe.kerning = j["kerning"].get<bool>();
     }
 
-    static constexpr std::array<std::string_view, 5> known{"source", "charset", "cell_size",
+    static constexpr std::array<std::string_view, 5> known{"source", "charset", "em_size",
                                                            "px_range", "kerning"};
     for (const auto& [key, value] : j.items()) {
         if (std::find(known.begin(), known.end(), key) == known.end()) {
