@@ -68,10 +68,12 @@ enum class ResourceAccess : uint8_t {
     }
 }
 
+/// Whether the access depends on what the resource already holds. An
+/// attachment counts: a pass loads what earlier passes drew before it draws
+/// over them, and two writers of one image have to be ordered either way,
+/// so the earlier one is a producer the later one reads.
 [[nodiscard]] constexpr bool access_is_read(ResourceAccess a) noexcept {
     switch (a) {
-        case ResourceAccess::color_attachment:
-        case ResourceAccess::depth_attachment:
         case ResourceAccess::storage_write_compute:
         case ResourceAccess::storage_write_raytracing:
         case ResourceAccess::storage_buffer_write_compute:
