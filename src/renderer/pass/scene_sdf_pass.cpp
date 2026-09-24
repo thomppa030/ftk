@@ -599,8 +599,14 @@ void SceneSdfPass::compose_region(VkCommandBuffer cmd, const glm::ivec3& voxel_m
     vkCmdDispatch(cmd, uint32_t(groups.x), uint32_t(groups.y), uint32_t(groups.z));
 }
 
-void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_pos) {
-    if (!slice_initialized_) {
+void SceneSdfPass::request_slice(uint32_t axis, float slice_pos) {
+    slice_requested_ = true;
+    slice_axis_ = axis;
+    slice_pos_ = slice_pos;
+}
+
+void SceneSdfPass::create_slice_resources() {
+    {
         // Create slice output image (2D RGBA8, SLICE_SIZE x SLICE_SIZE)
         VkImageCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -726,10 +732,23 @@ void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_
 
         slice_initialized_ = true;
     }
+}
 
-    // Transition slice image to GENERAL for compute write
+void SceneSdfPass::record_slice(VkCommandBuffer cmd) {
+    if (!slice_requested_) return;
+    slice_requested_ = false;
+    // The slice samples the field in the layout compose_pending() leaves it
+    // in, so there is nothing to draw before the field's first compose.
+    if (image_layout_ != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) return;
+    if (!slice_initialized_) create_slice_resources();
+    const uint32_t axis = slice_axis_;
+    const float slice_pos = slice_pos_;
+
+    // Transition slice image to GENERAL for compute write, after the
+    // previous frame's ImGui draw has finished reading it.
     VkImageMemoryBarrier2 pre{};
     pre.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    pre.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     pre.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     pre.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     pre.image = slice_image_;

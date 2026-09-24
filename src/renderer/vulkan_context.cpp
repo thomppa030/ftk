@@ -750,6 +750,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     if (scene_sdf_pass().has_pending_update()) {
         scene_sdf_pass().compose_pending(cmd);
     }
+    // The SDF debug window's slice, once the field is up to date.
+    scene_sdf_pass().record_slice(cmd);
 
     // Once-per-frame pass preparation: each pass scans the scene for the
     // nodes it needs (shadow cascades, fog params, sky colors, etc.)
@@ -1956,30 +1958,9 @@ void VulkanContext::draw_sdf_debug_window() {
 
         ImGui::Text("Resolution: %u", scene_sdf_pass().resolution());
 
-        // Dispatch slice render
-        VkCommandBuffer cmd{};
-        VkCommandBufferAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc.commandPool = gpu_.command_pool();
-        alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc.commandBufferCount = 1;
-        vkAllocateCommandBuffers(gpu_.device(), &alloc, &cmd);
-
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &begin);
-
-        scene_sdf_pass().render_slice(cmd, static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
-
-        vkEndCommandBuffer(cmd);
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
-        vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(gpu_.graphics_queue());
-        vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &cmd);
+        // Drawn in the frame's own command buffer ahead of the UI, so the
+        // picture below is this frame's slice.
+        scene_sdf_pass().request_slice(static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
 
         // Display slice image
         auto imgui_set = scene_sdf_pass().slice_imgui_set();

@@ -126,8 +126,14 @@ public:
     [[nodiscard]] const glm::vec3& volume_max() const { return volume_max_; }
     [[nodiscard]] uint32_t resolution() const { return resolution_; }
 
-    // Debug slice visualization
-    void render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_pos);
+    /// Asks for a slice through the field across `axis` (0 X, 1 Y, 2 Z) at
+    /// `slice_pos` (0..1 through the volume), drawn in this frame's command
+    /// buffer. The SDF debug window asks every frame it is open.
+    void request_slice(uint32_t axis, float slice_pos);
+    /// Draws the slice asked for since the last call, after the field is
+    /// composed; nothing when none was asked for or there is no field yet.
+    void record_slice(VkCommandBuffer cmd);
+    /// The slice for ImGui; none until the first slice has been drawn.
     [[nodiscard]] VkDescriptorSet slice_imgui_set() const { return slice_imgui_set_; }
 
     // Per-model SDF metadata
@@ -218,6 +224,10 @@ private:
     VkDescriptorSet slice_set_{VK_NULL_HANDLE};
     VkDescriptorSet slice_imgui_set_{VK_NULL_HANDLE};
     bool slice_initialized_{false};
+    bool slice_requested_{false};
+    uint32_t slice_axis_{1};
+    float slice_pos_{0.5f};
+    void create_slice_resources();
 };
 
 } // namespace fjell
