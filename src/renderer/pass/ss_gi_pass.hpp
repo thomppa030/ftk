@@ -97,11 +97,12 @@ public:
         // has bound would hand that frame this frame's slot: a TLAS built
         // three frames ago against an instance table just overwritten with
         // a different layout. One set per slot keeps each frame on its own.
-        // The upsample set binds only per-viewport images and stays single.
+        // The upsample set's depth and normal bindings are rewritten every
+        // frame too, so it is per slot for the same reason.
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> resolve_set{};
-        VkDescriptorSet upsample_set{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> upsample_set{};
 
         bool first_frame{true};
 

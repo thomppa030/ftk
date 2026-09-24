@@ -144,7 +144,7 @@ void SsGiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     }
     trace_set.fill(VK_NULL_HANDLE);
     resolve_set.fill(VK_NULL_HANDLE);
-    upsample_set = VK_NULL_HANDLE;
+    upsample_set.fill(VK_NULL_HANDLE);
 
     invalidate_imgui_texture();
 }
@@ -606,31 +606,31 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── Allocate descriptor sets on first use ──
     if (imgs.desc_pool == VK_NULL_HANDLE) {
-        // One trace set and one resolve set per frame slot, plus the single
-        // upsample set. Sizes are per set, multiplied by the slot count.
+        // One trace, one resolve and one upsample set per frame slot.
+        // Sizes are per set, multiplied by the slot count.
         constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 * SLOTS};        // trace + resolve
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 14 * SLOTS};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 * SLOTS};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 17 * SLOTS};
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4 * SLOTS};
         pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, SLOTS};
 
         VkDescriptorPoolCreateInfo pool_ci{};
         pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        pool_ci.maxSets = 2 * SLOTS + 1;
+        pool_ci.maxSets = 3 * SLOTS;
         pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
         pool_ci.pPoolSizes = pool_sizes.data();
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
-        std::array<VkDescriptorSetLayout, 2 * SLOTS + 1> layouts{};
-        std::array<VkDescriptorSet, 2 * SLOTS + 1> sets{};
+        std::array<VkDescriptorSetLayout, 3 * SLOTS> layouts{};
+        std::array<VkDescriptorSet, 3 * SLOTS> sets{};
         for (uint32_t s = 0; s < SLOTS; ++s) {
             layouts[s] = trace_set_layout_;
             layouts[SLOTS + s] = resolve_set_layout_;
+            layouts[2 * SLOTS + s] = upsample_set_layout_;
         }
-        layouts[2 * SLOTS] = upsample_set_layout_;
         VkDescriptorSetAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = imgs.desc_pool;
@@ -640,8 +640,8 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         for (uint32_t s = 0; s < SLOTS; ++s) {
             imgs.trace_set[s] = sets[s];
             imgs.resolve_set[s] = sets[SLOTS + s];
+            imgs.upsample_set[s] = sets[2 * SLOTS + s];
         }
-        imgs.upsample_set = sets[2 * SLOTS];
         imgs.first_frame = true;
     }
 
@@ -693,11 +693,13 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         indirect_out_info.imageView = imgs.indirect_view;
         indirect_out_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        std::array<VkWriteDescriptorSet, 2> usw{};
-        for (auto& w : usw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.upsample_set; w.descriptorCount = 1; }
-        usw[0].dstBinding = 0; usw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; usw[0].pImageInfo = &resolved_info;
-        usw[1].dstBinding = 3; usw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; usw[1].pImageInfo = &indirect_out_info;
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(usw.size()), usw.data(), 0, nullptr);
+        for (VkDescriptorSet upsample_set : imgs.upsample_set) {
+            std::array<VkWriteDescriptorSet, 2> usw{};
+            for (auto& w : usw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = upsample_set; w.descriptorCount = 1; }
+            usw[0].dstBinding = 0; usw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; usw[0].pImageInfo = &resolved_info;
+            usw[1].dstBinding = 3; usw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; usw[1].pImageInfo = &indirect_out_info;
+            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(usw.size()), usw.data(), 0, nullptr);
+        }
 
         imgs.first_frame = false;
     }
@@ -725,7 +727,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         // Upsample set: depth, normal
         std::array<VkWriteDescriptorSet, 2> uw{};
-        for (auto& w : uw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.upsample_set; w.descriptorCount = 1; }
+        for (auto& w : uw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.upsample_set[ctx.frame_index]; w.descriptorCount = 1; }
         uw[0].dstBinding = 1; uw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; uw[0].pImageInfo = &di;
         uw[1].dstBinding = 2; uw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; uw[1].pImageInfo = &ni;
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(uw.size()), uw.data(), 0, nullptr);
@@ -960,7 +962,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, upsample_pipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                upsample_pipeline_layout_, 0, 1, &imgs.upsample_set, 0, nullptr);
+                                upsample_pipeline_layout_, 0, 1, &imgs.upsample_set[ctx.frame_index], 0, nullptr);
 
         UpsamplePushConstants push{};
         push.output_size = {imgs.indirect_extent.width, imgs.indirect_extent.height};
