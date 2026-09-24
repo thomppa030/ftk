@@ -229,6 +229,7 @@ add_executable(fjell-tests
     test_canvas.cpp
     test_timeline.cpp
     test_vfx_expression.cpp
+    test_vfx_pin.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

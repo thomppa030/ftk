@@ -84,128 +84,180 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
 // ─── Pin descriptors ────────────────────────────────────────────────────
 
 std::vector<PinDescriptor> SpawnRateModule::pin_descriptors() {
-    return {{"rate", PinDataType::float_type, &rate, {}, 0.0f, 10000.0f, 1.0f}};
+    return {{.name = "rate", .data_type = PinDataType::float_type, .value_ptr = &rate, .range_min = 0.0f, .range_max = 10000.0f,
+             .drag_speed = 1.0f, .help = "Particles a second.", .format = "%.0f"}};
 }
 
 std::vector<PinDescriptor> InitialLifetimeModule::pin_descriptors() {
     return {
-        {"min", PinDataType::float_type, &lifetime_min, {}, 0.01f, 60.0f, 0.01f},
-        {"max", PinDataType::float_type, &lifetime_max, {}, 0.01f, 60.0f, 0.01f},
+        {.name = "min", .data_type = PinDataType::float_type, .value_ptr = &lifetime_min, .range_min = 0.01f, .range_max = 60.0f,
+         .label = "Min", .group = "Lifetime", .unit = PinUnit::seconds},
+        {.name = "max", .data_type = PinDataType::float_type, .value_ptr = &lifetime_max, .range_min = 0.01f, .range_max = 60.0f,
+         .label = "Max", .group = "Lifetime", .unit = PinUnit::seconds, .at_least = 0},
     };
 }
 
 std::vector<PinDescriptor> InitialPositionModule::pin_descriptors() {
+    const bool round = shape == SpawnShape::sphere || shape == SpawnShape::cone || shape == SpawnShape::ring ||
+                       shape == SpawnShape::disk;
     return {
-        {"shape", PinDataType::enum_type, &shape, {"Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Disk"}},
-        {"radius", PinDataType::float_type, &radius, {}, 0.0f, 100.0f, 0.01f},
-        {"half_extents", PinDataType::vec3_type, &half_extents, {}, 0.0f, 100.0f, 0.01f},
-        {"edge_length", PinDataType::float_type, &edge_length, {}, 0.0f, 100.0f, 0.01f},
+        {.name = "shape", .data_type = PinDataType::enum_type, .value_ptr = &shape,
+         .enum_names = {"Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Disk"}},
+        {.name = "radius", .data_type = PinDataType::float_type, .value_ptr = &radius, .range_max = 100.0f, .unit = PinUnit::metres,
+         .shown = round},
+        {.name = "half_extents", .data_type = PinDataType::vec3_type, .value_ptr = &half_extents, .range_max = 100.0f,
+         .unit = PinUnit::metres, .shown = shape == SpawnShape::box},
+        {.name = "edge_length", .data_type = PinDataType::float_type, .value_ptr = &edge_length, .range_max = 100.0f, .label = "Length",
+         .unit = PinUnit::metres, .shown = shape == SpawnShape::edge},
     };
 }
 
 std::vector<PinDescriptor> InitialVelocityModule::pin_descriptors() {
+    const bool cone = mode == VelocityMode::cone;
     return {
-        {"mode", PinDataType::enum_type, &mode, {"Directional", "Random", "Cone"}},
-        {"velocity_min", PinDataType::vec3_type, &velocity_min, {}, -100.0f, 100.0f, 0.1f},
-        {"velocity_max", PinDataType::vec3_type, &velocity_max, {}, -100.0f, 100.0f, 0.1f},
-        {"direction", PinDataType::vec3_type, &direction, {}, -1.0f, 1.0f, 0.01f},
-        {"angle", PinDataType::float_type, &angle, {}, 0.0f, 180.0f, 0.5f},
-        {"speed_min", PinDataType::float_type, &speed_min, {}, 0.0f, 100.0f, 0.1f},
-        {"speed_max", PinDataType::float_type, &speed_max, {}, 0.0f, 100.0f, 0.1f},
+        {.name = "mode", .data_type = PinDataType::enum_type, .value_ptr = &mode, .enum_names = {"Directional", "Random", "Cone"}},
+        {.name = "velocity_min", .data_type = PinDataType::vec3_type, .value_ptr = &velocity_min, .range_min = -100.0f,
+         .range_max = 100.0f, .drag_speed = 0.1f, .label = "Min", .unit = PinUnit::metres_per_second, .shown = !cone},
+        {.name = "velocity_max", .data_type = PinDataType::vec3_type, .value_ptr = &velocity_max, .range_min = -100.0f,
+         .range_max = 100.0f, .drag_speed = 0.1f, .label = "Max", .unit = PinUnit::metres_per_second, .shown = !cone},
+        {.name = "direction", .data_type = PinDataType::vec3_type, .value_ptr = &direction, .range_min = -1.0f, .range_max = 1.0f,
+         .shown = cone},
+        {.name = "angle", .data_type = PinDataType::float_type, .value_ptr = &angle, .range_max = 90.0f, .drag_speed = 0.5f,
+         .help = "Half the cone's opening.", .unit = PinUnit::degrees, .format = "%.1f", .shown = cone},
+        {.name = "speed_min", .data_type = PinDataType::float_type, .value_ptr = &speed_min, .range_max = 100.0f, .drag_speed = 0.1f,
+         .label = "Min", .group = "Speed", .unit = PinUnit::metres_per_second, .shown = cone},
+        {.name = "speed_max", .data_type = PinDataType::float_type, .value_ptr = &speed_max, .range_max = 100.0f, .drag_speed = 0.1f,
+         .label = "Max", .group = "Speed", .unit = PinUnit::metres_per_second, .at_least = 5, .shown = cone},
     };
 }
 
 std::vector<PinDescriptor> InitialColorModule::pin_descriptors() {
-    return {{"color", PinDataType::vec4_type, &color, {}, 0.0f, 1.0f, 0.01f}};
+    return {{.name = "color", .data_type = PinDataType::vec4_type, .value_ptr = &color, .widget = PinWidget::colour}};
 }
 
 std::vector<PinDescriptor> InitialSizeModule::pin_descriptors() {
     return {
-        {"min", PinDataType::float_type, &size_min, {}, 0.0f, 100.0f, 0.01f},
-        {"max", PinDataType::float_type, &size_max, {}, 0.0f, 100.0f, 0.01f},
+        {.name = "min", .data_type = PinDataType::float_type, .value_ptr = &size_min, .range_min = 0.001f, .range_max = 10.0f,
+         .drag_speed = 0.001f, .label = "Min", .group = "Size", .unit = PinUnit::metres, .format = "%.3f"},
+        {.name = "max", .data_type = PinDataType::float_type, .value_ptr = &size_max, .range_min = 0.001f, .range_max = 10.0f,
+         .drag_speed = 0.001f, .label = "Max", .group = "Size", .unit = PinUnit::metres, .format = "%.3f",
+         .at_least = 0},
     };
 }
 
 std::vector<PinDescriptor> GravityModule::pin_descriptors() {
-    return {{"force", PinDataType::vec3_type, &force, {}, -100.0f, 100.0f, 0.1f}};
+    return {{.name = "force", .data_type = PinDataType::vec3_type, .value_ptr = &force, .range_min = -1000.0f, .range_max = 1000.0f,
+             .drag_speed = 0.1f, .help = "Acceleration, in metres a second squared."}};
 }
 
 std::vector<PinDescriptor> ColorOverLifeModule::pin_descriptors() {
     return {
-        {"start", PinDataType::vec4_type, &color_start, {}, 0.0f, 1.0f, 0.01f},
-        {"end", PinDataType::vec4_type, &color_end, {}, 0.0f, 1.0f, 0.01f},
+        {.name = "start", .data_type = PinDataType::vec4_type, .value_ptr = &color_start, .widget = PinWidget::colour},
+        {.name = "end", .data_type = PinDataType::vec4_type, .value_ptr = &color_end, .widget = PinWidget::colour},
     };
 }
 
 std::vector<PinDescriptor> SizeOverLifeModule::pin_descriptors() {
     return {
-        {"start", PinDataType::float_type, &size_start, {}, 0.0f, 100.0f, 0.01f},
-        {"end", PinDataType::float_type, &size_end, {}, 0.0f, 100.0f, 0.01f},
+        {.name = "start", .data_type = PinDataType::float_type, .value_ptr = &size_start, .range_min = 0.001f, .range_max = 10.0f,
+         .drag_speed = 0.001f, .unit = PinUnit::metres, .format = "%.3f"},
+        {.name = "end", .data_type = PinDataType::float_type, .value_ptr = &size_end, .range_min = 0.001f, .range_max = 10.0f,
+         .drag_speed = 0.001f, .unit = PinUnit::metres, .format = "%.3f"},
     };
 }
 
 std::vector<PinDescriptor> DragModule::pin_descriptors() {
-    return {{"drag", PinDataType::float_type, &drag, {}, 0.0f, 10.0f, 0.01f}};
+    return {{.name = "drag", .data_type = PinDataType::float_type, .value_ptr = &drag, .range_max = 10.0f,
+             .help = "How fast a particle loses speed."}};
 }
 
 std::vector<PinDescriptor> NoiseModule::pin_descriptors() {
     return {
-        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
-        {"frequency", PinDataType::float_type, &frequency, {}, 0.01f, 50.0f, 0.1f},
-        {"scroll_speed", PinDataType::float_type, &scroll_speed, {}, 0.0f, 10.0f, 0.1f},
+        {.name = "strength", .data_type = PinDataType::float_type, .value_ptr = &strength, .range_max = 100.0f, .drag_speed = 0.1f},
+        {.name = "frequency", .data_type = PinDataType::float_type, .value_ptr = &frequency, .range_min = 0.01f, .range_max = 50.0f,
+         .drag_speed = 0.1f, .help = "How small the noise's swirls are: higher is finer."},
+        {.name = "scroll_speed", .data_type = PinDataType::float_type, .value_ptr = &scroll_speed, .range_max = 10.0f, .drag_speed = 0.1f},
     };
 }
 
 std::vector<PinDescriptor> AttractModule::pin_descriptors() {
     return {
-        {"position", PinDataType::vec3_type, &position, {}, -100.0f, 100.0f, 0.1f},
-        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
-        {"radius", PinDataType::float_type, &radius, {}, 0.0f, 100.0f, 0.1f},
+        {.name = "position", .data_type = PinDataType::vec3_type, .value_ptr = &position, .range_min = -1000.0f, .range_max = 1000.0f,
+         .drag_speed = 0.1f, .unit = PinUnit::metres},
+        {.name = "strength", .data_type = PinDataType::float_type, .value_ptr = &strength, .range_max = 100.0f, .drag_speed = 0.1f},
+        {.name = "radius", .data_type = PinDataType::float_type, .value_ptr = &radius, .range_min = 0.01f, .range_max = 1000.0f,
+         .drag_speed = 0.1f, .help = "How far the pull reaches.", .unit = PinUnit::metres},
     };
 }
 
 std::vector<PinDescriptor> VelocityLimitModule::pin_descriptors() {
-    return {{"max_speed", PinDataType::float_type, &max_speed, {}, 0.0f, 1000.0f, 0.1f}};
+    return {{.name = "max_speed", .data_type = PinDataType::float_type, .value_ptr = &max_speed, .range_max = 1000.0f, .drag_speed = 0.1f,
+             .unit = PinUnit::metres_per_second}};
 }
 
 std::vector<PinDescriptor> CollisionModule::pin_descriptors() {
+    const bool bounces = response != Response::kill;
     return {
-        {"response", PinDataType::enum_type, &response, {"Bounce", "Slide", "Kill"}},
-        {"source", PinDataType::enum_type, &source, {"SDF", "Depth", "Both"}},
-        {"restitution", PinDataType::float_type, &restitution, {}, 0.0f, 1.0f, 0.01f},
-        {"friction", PinDataType::float_type, &friction, {}, 0.0f, 1.0f, 0.01f},
-        {"radius_scale", PinDataType::float_type, &radius_scale, {}, 0.0f, 2.0f, 0.01f},
+        {.name = "response", .data_type = PinDataType::enum_type, .value_ptr = &response, .enum_names = {"Bounce", "Slide", "Kill"}},
+        {.name = "source", .data_type = PinDataType::enum_type, .value_ptr = &source,
+         .enum_names = {"Static geometry", "Depth buffer", "Both", "Shelter above"}, .label = "Against",
+         .help = "Static geometry is the scene's baked distance field; the depth buffer also sees what moves or "
+                 "is displaced, but only on screen."},
+        {.name = "restitution", .data_type = PinDataType::float_type, .value_ptr = &restitution, .range_max = 1.0f,
+         .help = "How much of its speed a particle keeps off a bounce.", .widget = PinWidget::slider,
+         .shown = bounces},
+        {.name = "friction", .data_type = PinDataType::float_type, .value_ptr = &friction, .range_max = 1.0f, .widget = PinWidget::slider,
+         .shown = bounces},
+        {.name = "radius_scale", .data_type = PinDataType::float_type, .value_ptr = &radius_scale, .range_max = 2.0f, .label = "Radius",
+         .help = "The particle's collision radius, as a share of its size.", .unit = PinUnit::times,
+         .widget = PinWidget::slider},
     };
 }
 
 std::vector<PinDescriptor> InitialStretchModule::pin_descriptors() {
-    return {{"stretch", PinDataType::float_type, &stretch, {}, 0.0f, 10.0f, 0.01f}};
+    return {{.name = "stretch", .data_type = PinDataType::float_type, .value_ptr = &stretch, .range_max = 100.0f, .drag_speed = 0.1f,
+             .help = "0 draws a square; above it the particle streaks along its velocity.", .format = "%.1f"}};
 }
 
 std::vector<PinDescriptor> InitialTextureModule::pin_descriptors() {
-    return {{"bindless_index", PinDataType::uint_type, &bindless_index, {}}};
+    // Only the texture, an asset: nothing to link.
+    return {};
 }
 
 std::vector<PinDescriptor> InitialRotationModule::pin_descriptors() {
     return {
-        {"rotation_min", PinDataType::float_type, &rotation_min, {}, 0.0f, 6.2832f, 0.01f},
-        {"rotation_max", PinDataType::float_type, &rotation_max, {}, 0.0f, 6.2832f, 0.01f},
-        {"speed", PinDataType::float_type, &speed, {}, -20.0f, 20.0f, 0.1f},
-        {"speed_variance", PinDataType::float_type, &speed_variance, {}, 0.0f, 20.0f, 0.1f},
+        {.name = "rotation_min", .data_type = PinDataType::float_type, .value_ptr = &rotation_min, .range_min = -360.0f,
+         .range_max = 360.0f, .drag_speed = 1.0f, .label = "Min", .group = "Rotation", .unit = PinUnit::degrees,
+         .radians = true, .format = "%.0f"},
+        {.name = "rotation_max", .data_type = PinDataType::float_type, .value_ptr = &rotation_max, .range_min = -360.0f,
+         .range_max = 360.0f, .drag_speed = 1.0f, .label = "Max", .group = "Rotation", .unit = PinUnit::degrees,
+         .radians = true, .format = "%.0f"},
+        {.name = "speed", .data_type = PinDataType::float_type, .value_ptr = &speed, .range_min = -3600.0f, .range_max = 3600.0f,
+         .drag_speed = 1.0f, .label = "Spin", .help = "Degrees a second.", .unit = PinUnit::degrees, .radians = true,
+         .format = "%.0f"},
+        {.name = "speed_variance", .data_type = PinDataType::float_type, .value_ptr = &speed_variance, .range_max = 3600.0f,
+         .drag_speed = 1.0f, .label = "Spin variance",
+         .help = "How far each particle's spin differs, either way, in degrees a second.", .unit = PinUnit::degrees,
+         .radians = true, .format = "%.0f"},
     };
 }
 
 std::vector<PinDescriptor> BurstModule::pin_descriptors() {
-    return {{"count", PinDataType::uint_type, &count, {}}};
+    return {{.name = "count", .data_type = PinDataType::uint_type, .value_ptr = &count, .range_min = 1.0f, .range_max = 100000.0f,
+             .drag_speed = 1.0f}};
 }
 
 std::vector<PinDescriptor> FlipbookModule::pin_descriptors() {
     return {
-        {"columns", PinDataType::uint_type, &columns, {}},
-        {"rows", PinDataType::uint_type, &rows, {}},
-        {"frame_count", PinDataType::uint_type, &frame_count, {}},
-        {"fps", PinDataType::float_type, &fps, {}, 1.0f, 120.0f, 0.5f},
-        {"mode", PinDataType::enum_type, &mode, {"Over Lifetime", "FPS Loop", "FPS Clamp"}},
+        {.name = "columns", .data_type = PinDataType::uint_type, .value_ptr = &columns, .range_min = 1.0f, .range_max = 64.0f,
+         .drag_speed = 0.1f},
+        {.name = "rows", .data_type = PinDataType::uint_type, .value_ptr = &rows, .range_min = 1.0f, .range_max = 64.0f, .drag_speed = 0.1f},
+        {.name = "frame_count", .data_type = PinDataType::uint_type, .value_ptr = &frame_count, .range_max = 255.0f, .drag_speed = 0.1f,
+         .label = "Frames", .help = "0 plays every cell of the grid."},
+        {.name = "fps", .data_type = PinDataType::float_type, .value_ptr = &fps, .range_min = 0.25f, .range_max = 63.75f, .drag_speed = 0.5f,
+         .label = "Rate", .help = "Frames a second.", .shown = mode != Mode::over_lifetime},
+        {.name = "mode", .data_type = PinDataType::enum_type, .value_ptr = &mode,
+         .enum_names = {"Over lifetime", "At a rate, looping", "At a rate, once"}},
     };
 }
 
@@ -410,8 +462,9 @@ void GravityModule::from_json(const nlohmann::json& j) {
 
 std::vector<PinDescriptor> WindModule::pin_descriptors() {
     return {
-        {"direction", PinDataType::vec3_type, &direction, {}, -1.0f, 1.0f, 0.01f},
-        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
+        {.name = "direction", .data_type = PinDataType::vec3_type, .value_ptr = &direction, .range_min = -1.0f, .range_max = 1.0f,
+         .disabled = use_global},
+        {.name = "strength", .data_type = PinDataType::float_type, .value_ptr = &strength, .range_max = 100.0f, .drag_speed = 0.1f},
     };
 }
 
@@ -444,10 +497,13 @@ void WindModule::from_json(const nlohmann::json& j) {
 
 std::vector<PinDescriptor> OrbitalModule::pin_descriptors() {
     return {
-        {"mode", PinDataType::enum_type, &mode, {"Vortex", "Orbit", "Swirl"}},
-        {"axis", PinDataType::vec3_type, &axis, {}, -1.0f, 1.0f, 0.01f},
-        {"speed", PinDataType::float_type, &speed, {}, -20.0f, 20.0f, 0.1f},
-        {"pull", PinDataType::float_type, &pull, {}, -10.0f, 10.0f, 0.1f},
+        {.name = "mode", .data_type = PinDataType::enum_type, .value_ptr = &mode, .enum_names = {"Vortex", "Orbit", "Swirl"}},
+        {.name = "axis", .data_type = PinDataType::vec3_type, .value_ptr = &axis, .range_min = -1.0f, .range_max = 1.0f,
+         .label = mode == OrbitalMode::orbit ? "Center" : "Axis"},
+        {.name = "speed", .data_type = PinDataType::float_type, .value_ptr = &speed, .range_min = -20.0f, .range_max = 20.0f,
+         .drag_speed = 0.1f, .help = "Turn rate, in radians a second."},
+        {.name = "pull", .data_type = PinDataType::float_type, .value_ptr = &pull, .range_min = -10.0f, .range_max = 10.0f,
+         .drag_speed = 0.1f, .help = "How hard the swirl draws particles in.", .shown = mode == OrbitalMode::swirl},
     };
 }
 
@@ -765,7 +821,9 @@ void BurstModule::from_json(const nlohmann::json& j) {
 // ─── EmitOverDistance ────────────────────────────────────────────────────
 
 std::vector<PinDescriptor> EmitOverDistanceModule::pin_descriptors() {
-    return {{"particles_per_meter", PinDataType::float_type, &particles_per_meter, {}, 0.1f, 200.0f, 0.5f}};
+    return {{.name = "particles_per_meter", .data_type = PinDataType::float_type, .value_ptr = &particles_per_meter, .range_min = 0.1f,
+             .range_max = 200.0f, .drag_speed = 0.5f, .label = "Per metre",
+             .help = "Particles for each metre the emitter moves.", .format = "%.1f"}};
 }
 
 uint32_t EmitOverDistanceModule::write_gpu_data(uint8_t* /*buffer*/) const {
@@ -838,7 +896,9 @@ void BillboardModule::from_json(const nlohmann::json& /*j*/) {
 // ─── VelocityInheritance ────────────────────────────────────────────────
 
 std::vector<PinDescriptor> VelocityInheritanceModule::pin_descriptors() {
-    return {{"factor", PinDataType::float_type, &factor, {}, 0.0f, 1.0f, 0.01f}};
+    return {{.name = "factor", .data_type = PinDataType::float_type, .value_ptr = &factor, .range_max = 1.0f,
+             .help = "How much of the emitter's own velocity a new particle starts with.", .unit = PinUnit::times,
+             .widget = PinWidget::slider}};
 }
 
 uint32_t VelocityInheritanceModule::write_gpu_data(uint8_t* buffer) const {
@@ -924,7 +984,7 @@ void CurveSizeOverLifeModule::from_json(const nlohmann::json& j) {
 // ─── MeshParticle ───────────────────────────────────────────────────────
 
 std::vector<PinDescriptor> MeshParticleModule::pin_descriptors() {
-    return {{"shape", PinDataType::enum_type, &shape, {"Cube", "Sphere", "Custom"}}};
+    return {{.name = "shape", .data_type = PinDataType::enum_type, .value_ptr = &shape, .enum_names = {"Cube", "Sphere", "Custom"}}};
 }
 
 uint32_t MeshParticleModule::write_gpu_data(uint8_t* /*buffer*/) const {
@@ -968,8 +1028,9 @@ void MeshParticleModule::from_json(const nlohmann::json& j) {
 
 std::vector<PinDescriptor> LitParticleModule::pin_descriptors() {
     return {
-        {"metallic", PinDataType::float_type, &metallic, {}, 0.0f, 1.0f, 0.01f},
-        {"roughness", PinDataType::float_type, &roughness, {}, 0.0f, 1.0f, 0.01f},
+        {.name = "metallic", .data_type = PinDataType::float_type, .value_ptr = &metallic, .range_max = 1.0f, .widget = PinWidget::slider},
+        {.name = "roughness", .data_type = PinDataType::float_type, .value_ptr = &roughness, .range_min = 0.04f, .range_max = 1.0f,
+         .widget = PinWidget::slider},
     };
 }
 
@@ -991,9 +1052,8 @@ void LitParticleModule::from_json(const nlohmann::json& j) {
 // ─── Distortion ─────────────────────────────────────────────────────────
 
 std::vector<PinDescriptor> DistortionModule::pin_descriptors() {
-    return {
-        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 1.0f, 0.001f},
-    };
+    return {{.name = "strength", .data_type = PinDataType::float_type, .value_ptr = &strength, .range_max = 1.0f, .drag_speed = 0.001f,
+             .format = "%.3f"}};
 }
 
 uint32_t DistortionModule::write_gpu_data(uint8_t* buffer) const {
@@ -1023,8 +1083,8 @@ void DistortionModule::from_json(const nlohmann::json& j) {
 
 std::vector<PinDescriptor> EmissiveModule::pin_descriptors() {
     return {
-        {"color", PinDataType::vec3_type, &color, {}, 0.0f, 1.0f, 0.01f},
-        {"intensity", PinDataType::float_type, &intensity, {}, 0.0f, 50.0f, 0.1f},
+        {.name = "color", .data_type = PinDataType::vec3_type, .value_ptr = &color, .widget = PinWidget::colour},
+        {.name = "intensity", .data_type = PinDataType::float_type, .value_ptr = &intensity, .range_max = 50.0f, .drag_speed = 0.1f},
     };
 }
 
@@ -1054,10 +1114,13 @@ void EmissiveModule::from_json(const nlohmann::json& j) {
 
 std::vector<PinDescriptor> SubEmitterModule::pin_descriptors() {
     return {
-        {"trigger", PinDataType::enum_type, &trigger, {"Death", "Collision", "Both"}},
-        {"child_emitter_index", PinDataType::float_type, &burst_count, {}, 0.0f, 16.0f, 1.0f},
-        {"burst_count", PinDataType::float_type, &burst_count, {}, 1.0f, 100.0f, 1.0f},
-        {"velocity_inherit", PinDataType::float_type, &velocity_inherit, {}, 0.0f, 1.0f, 0.01f},
+        {.name = "trigger", .data_type = PinDataType::enum_type, .value_ptr = &trigger, .enum_names = {"Death", "Collision", "Both"}},
+        {.name = "child_emitter_index", .data_type = PinDataType::uint_type, .value_ptr = &child_emitter_index, .range_max = 255.0f,
+         .drag_speed = 0.1f, .label = "Child emitter", .help = "The emitter, by its place in the effect, that is fired."},
+        {.name = "burst_count", .data_type = PinDataType::uint_type, .value_ptr = &burst_count, .range_min = 1.0f, .range_max = 10000.0f,
+         .drag_speed = 0.2f, .label = "Burst", .help = "Particles fired each time."},
+        {.name = "velocity_inherit", .data_type = PinDataType::float_type, .value_ptr = &velocity_inherit, .range_max = 1.0f,
+         .unit = PinUnit::times, .widget = PinWidget::slider},
     };
 }
 
