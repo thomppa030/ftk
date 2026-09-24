@@ -57,6 +57,13 @@ void DocumentHistory::frame(bool editing, bool input_finished, const std::string
     recorded_at_ = history_.current_index();
 }
 
+void DocumentHistory::change_to(const std::string& text, const std::string& what) {
+    std::string now = document_();
+    if (now == text) return;
+    history_.execute(std::make_unique<DocumentEdit>(*this, std::move(now), text, what));
+    recorded_at_ = history_.current_index();
+}
+
 void DocumentHistory::apply(const std::string& text) {
     if (auto restored = restore_(text); !restored) {
         FJELL_CORE_ERROR("Couldn't put the document back: {}", restored.error());

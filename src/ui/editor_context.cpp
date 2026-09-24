@@ -1,7 +1,11 @@
 #include "ui/editor_context.hpp"
 #include "ui/console.hpp"
+#include "ui/kit/asset_header.hpp"
+#include "ui/kit/asset_kind.hpp"
 #include "ui/kit/edit_record.hpp"
 #include "core/log.hpp"
+
+#include <filesystem>
 
 namespace fjell {
 
@@ -60,7 +64,11 @@ Result<> EditorContext::restore_document(const std::string& text) {
 }
 
 Result<> EditorContext::save() {
-    if (auto written = write(); !written) return written;
+    if (auto written = write(); !written) {
+        save_error_ = written.error();
+        return written;
+    }
+    save_error_.clear();
     saved_document_ = document();
     unsaved_ = false;
     unsaved_checked_at_ = ImGui::GetTime();
@@ -86,6 +94,49 @@ void EditorContext::document_opened() {
     document_history_.opened();
     unsaved_ = false;
     unsaved_checked_at_ = -1.0;
+}
+
+void EditorContext::revert() {
+    if (!has_unsaved_changes()) return;
+    document_history_.change_to(saved_document_, "Revert to saved");
+}
+
+std::string EditorContext::saved_files() const {
+    return std::filesystem::path(asset_path()).filename().string();
+}
+
+void EditorContext::draw_header() {
+    const std::filesystem::path path = asset_path();
+    if (path.empty()) return;
+
+    const auto& kind = ui::asset_kind(path.extension().string());
+    std::string folder;
+    for (const auto& part : path.parent_path()) {
+        if (!folder.empty()) folder += " / ";
+        folder += part.string();
+    }
+    const ui::AssetHeaderSpec spec{
+        .icon = kind.icon,
+        .icon_colour = theme::category(kind.category),
+        .name = path.filename().string(),
+        .folder = std::move(folder),
+        .unsaved = has_unsaved_changes(),
+        .saves = saved_files(),
+        .error = save_error_,
+    };
+    auto header = ui::AssetHeaderBar(spec);
+    if (!header) return;
+    header.begin_actions();
+    draw_header_actions();
+    switch (header.finish()) {
+        case ui::SaveAction::Save:
+            if (auto saved = save(); !saved) {
+                FJELL_CORE_ERROR("Couldn't save {}: {}", name(), saved.error());
+            }
+            break;
+        case ui::SaveAction::Revert: revert(); break;
+        case ui::SaveAction::None: break;
+    }
 }
 
 } // namespace fjell
