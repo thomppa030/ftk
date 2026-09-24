@@ -95,7 +95,7 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     ImGui::PushID(spec.id);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
-    bool open = spec.has_children && storage->GetBool(open_id, true);
+    bool open = spec.has_children && storage->GetBool(open_id, spec.starts_open);
 
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const float width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
