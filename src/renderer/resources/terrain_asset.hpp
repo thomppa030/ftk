@@ -173,8 +173,14 @@ public:
         return {-half, 0.0F, -half};
     }
     /// The field's min corner in world space, from the node's world matrix.
-    /// Only the translation is honoured here; rotation and scale are applied
-    /// by physics but not yet by the renderer.
+    ///
+    /// Translation only, everywhere: a terrain's size is its asset's
+    /// `world_size` and its shape is a grid sampled along world X and Z, so
+    /// the node places it and nothing more. Rotating or scaling a terrain
+    /// node does nothing, by decision — the raster path, physics, ray tracing
+    /// and the editor queries all read the transform this way, and any one of
+    /// them reading it differently puts collision or rays where the ground is
+    /// not drawn.
     [[nodiscard]] glm::vec3 world_min_corner(const glm::mat4& world_matrix) const {
         return glm::vec3{world_matrix[3]} + local_min_corner();
     }

@@ -18,6 +18,8 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/feedback.hpp"
+
+#include <cmath>
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
@@ -234,13 +236,34 @@ void terrain_brush(TerrainComponent& terrain, TerrainSculptTool& tool) {
 
 } // namespace
 
-ui::Edit draw_terrain(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
+ui::Edit draw_terrain(Node3D& node, void* component, const InspectorContext& ctx) {
     auto& terrain = *static_cast<TerrainComponent*>(component);
     static const std::string terrain_exts[] = {".fjterrain"};
     static const std::string material_exts[] = {".fjmat"};
     const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
     const Project* project = project_of(ctx);
     ui::Edit edit;
+
+    // The node places a terrain and nothing more: its size is the asset's
+    // world_size and its shape is a grid sampled along world X and Z, so the
+    // renderer, physics and ray tracing all read translation only. Silently
+    // ignoring the other two fields is a trap — a scaled node would look
+    // right in the transform panel and collide where nothing is drawn.
+    {
+        const auto& t = node.transform;
+        const bool rotated = std::abs(t.rotation.w) < 0.9999F;
+        const bool scaled = std::abs(t.scale.x - 1.0F) > 1e-3F ||
+                            std::abs(t.scale.y - 1.0F) > 1e-3F ||
+                            std::abs(t.scale.z - 1.0F) > 1e-3F;
+        if (rotated || scaled) {
+            ui::status(ui::Severity::Warning,
+                       rotated && scaled
+                           ? "Rotation and scale are ignored; a terrain's size is its asset's"
+                           : rotated ? "Rotation is ignored; terrain is sampled along world X and Z"
+                                     : "Scale is ignored; a terrain's size is its asset's world size");
+        }
+    }
+
     if (auto t = ui::PropertyTable("##terrain")) {
         ui::row("Terrain", [&] {
             if (asset_slot({.label = "Terrain", .id = "##terrain", .extensions = terrain_exts, .ctx = &ctx},

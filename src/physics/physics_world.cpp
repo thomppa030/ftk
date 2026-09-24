@@ -696,8 +696,7 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 // surface equation rather than repeated per sample.
 static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filters,
                                        PhysicsWorld::Impl& impl, const TerrainAsset& terrain,
-                                       const Node3D& node, const glm::vec3& world_position,
-                                       const glm::quat& world_rotation) {
+                                       const glm::vec3& world_position) {
     const auto& data = terrain.data();
     const uint32_t samples = data.sample_count();
 
@@ -706,17 +705,21 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
         return {};
     }
 
-    // Sample spacing on X and Z; the node's scale stretches the whole field.
-    // Jolt grows the field from the shape origin, so the min corner is
-    // offset to put the node's pivot at the centre, as the renderer does.
+    // Sample spacing on X and Z. A terrain's size is its asset's `world_size`
+    // and its shape is a grid sampled along world X and Z, so the node places
+    // it and nothing more: rotating or scaling the node is ignored here
+    // exactly as the renderer ignores it, rather than collision standing
+    // somewhere the ground is not drawn.
+    //
+    // Jolt grows the field from the shape origin, so the min corner is offset
+    // to put the node's pivot at the centre, as the renderer does.
     const float spacing = data.header.world_size / static_cast<float>(samples - 1);
-    const auto& s = node.transform.scale;
     const glm::vec3 corner = terrain.local_min_corner();
 
     JPH::HeightFieldShapeSettings settings(
         data.heights.data(),
-        JPH::Vec3(corner.x * s.x, data.header.height_offset * s.y, corner.z * s.z),
-        JPH::Vec3(spacing * s.x, data.header.height_scale * s.y, spacing * s.z),
+        JPH::Vec3(corner.x, data.header.height_offset, corner.z),
+        JPH::Vec3(spacing, data.header.height_scale, spacing),
         samples);
 
     // Heights are normalized, so the format's full range is [0,1] whatever the
@@ -761,7 +764,7 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
     JPH::BodyCreationSettings body_settings(
         shape_result.Get(),
         to_jolt(world_position),
-        to_jolt_quat(world_rotation),
+        JPH::Quat::sIdentity(),
         JPH::EMotionType::Static, layer);
 
     return bi.CreateAndAddBody(body_settings, JPH::EActivation::DontActivate);
@@ -906,8 +909,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
         glm::quat world_rotation;
         world_placement(scene, *spatial, world_position, world_rotation);
         if (auto body_id = create_terrain_body(bi, impl_->filter_table, *impl_,
-                                               *terrain_comp->terrain, *spatial,
-                                               world_position, world_rotation);
+                                               *terrain_comp->terrain, world_position);
             !body_id.IsInvalid()) {
             impl_->object_to_body[node.id] = body_id;
             impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;

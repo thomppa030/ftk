@@ -1634,9 +1634,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                     if (blas == nullptr) continue;
 
                     const auto* spatial = obj->as_spatial();
+                    // Translation only, as the raster path and physics place
+                    // it: the terrain's shape is its asset's, sampled along
+                    // world X and Z, and the node only says where. Passing the
+                    // full matrix here would rotate what rays hit away from
+                    // what is drawn.
                     AccelStructureManager::RtInstance inst{};
-                    inst.transform = spatial != nullptr ? spatial->world_matrix_
-                                                        : glm::mat4{1.0F};
+                    inst.transform = glm::translate(
+                        glm::mat4{1.0F},
+                        spatial != nullptr ? glm::vec3{spatial->world_matrix_[3]}
+                                           : glm::vec3{0.0F});
                     // Rays cannot run the layer blend, so the terrain bounces
                     // its first layer, which is the ground where nothing has
                     // been painted or sloped into another.
