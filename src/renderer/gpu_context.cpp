@@ -258,11 +258,17 @@ void GpuContext::create_descriptor_resources() {
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         light_ssbo_[i]->map();
 
-        // Tile light index SSBO (device-local, compute writes, fragment reads)
+        // Tile light index SSBO (device-local, compute writes, fragment reads).
+        // Light cull may write it on the async compute queue while fragment
+        // shaders read it on graphics, so it is shared by both families:
+        // an exclusive buffer would need an ownership transfer each frame.
+        uint32_t family_count = 0;
+        const uint32_t* families = core_.device().concurrent_queue_families(family_count);
         tile_light_ssbo_[i] = std::make_unique<Buffer>(
             core_.allocator(), tile_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO);
+            VMA_MEMORY_USAGE_AUTO, 0, 0,
+            std::span<const uint32_t>{families, family_count});
 
         // Fog volume SSBO (host-visible for CPU upload)
         fog_volume_ssbo_[i] = std::make_unique<Buffer>(
