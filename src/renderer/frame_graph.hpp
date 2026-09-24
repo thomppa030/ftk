@@ -20,6 +20,7 @@ class ThreadCommandPools;
 enum class ImageUsage : uint8_t {
     color_attachment,       // write as color render target
     depth_attachment,       // write as depth render target
+    depth_resolve,          // written by a multisample depth resolve at the end of rendering
     depth_attachment_read,  // read depth (no write) during rendering
     shader_read,            // sample in a fragment shader
     compute_read,           // sample in a compute shader

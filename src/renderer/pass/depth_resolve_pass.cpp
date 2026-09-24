@@ -19,7 +19,7 @@ void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
     builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    builder.write(depth, ResourceAccess::depth_attachment);
+    builder.write(depth, ResourceAccess::depth_resolve);
 }
 
 void DepthResolvePass::record(const FrameContext& ctx) {

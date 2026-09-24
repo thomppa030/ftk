@@ -412,8 +412,12 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // scene depth, which this pass samples, and a write declared on it would
     // have the graph move the image out from under its own reader.
     if (ctx.water_draws) {
+        // Under MSAA the sea's depth resolves into the surface depth as its
+        // rendering ends; without it the surface depth is the attachment.
         auto surface_depth = builder.import_named(ctx, "surface_depth");
-        builder.write(surface_depth, ResourceAccess::depth_attachment);
+        builder.write(surface_depth, ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
+                                         ? ResourceAccess::depth_resolve
+                                         : ResourceAccess::depth_attachment);
     }
 
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {

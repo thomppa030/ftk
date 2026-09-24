@@ -13,6 +13,10 @@ enum class ResourceAccess : uint8_t {
     // Graphics attachment uses (write)
     color_attachment,
     depth_attachment,
+    /// The single-sample image a multisampled depth attachment resolves
+    /// into when rendering ends. The resolve writes it at the colour
+    /// attachment output stage, not in the depth tests.
+    depth_resolve,
 
     // Graphics attachment uses (read-only)
     depth_attachment_read,
@@ -61,6 +65,7 @@ enum class ResourceAccess : uint8_t {
     switch (a) {
         case ResourceAccess::color_attachment:
         case ResourceAccess::depth_attachment:
+        case ResourceAccess::depth_resolve:
         case ResourceAccess::storage_write_compute:
         case ResourceAccess::storage_read_write_compute:
         case ResourceAccess::storage_write_raytracing:
@@ -79,6 +84,7 @@ enum class ResourceAccess : uint8_t {
 /// so the earlier one is a producer the later one reads.
 [[nodiscard]] constexpr bool access_is_read(ResourceAccess a) noexcept {
     switch (a) {
+        case ResourceAccess::depth_resolve:
         case ResourceAccess::storage_write_compute:
         case ResourceAccess::storage_write_raytracing:
         case ResourceAccess::storage_buffer_write_compute:

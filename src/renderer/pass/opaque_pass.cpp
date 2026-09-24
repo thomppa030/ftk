@@ -64,7 +64,11 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(msaa_velocity, ResourceAccess::color_attachment);
     builder.write(velocity, ResourceAccess::color_attachment);
     builder.write(msaa_depth, ResourceAccess::depth_attachment);
-    builder.write(depth, ResourceAccess::depth_attachment);
+    // Under MSAA the depth attachment resolves into `depth` as rendering
+    // ends; without it the two names are one attachment.
+    builder.write(depth, ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
+                             ? ResourceAccess::depth_resolve
+                             : ResourceAccess::depth_attachment);
 
     // Consumed producer outputs. Declared reads here are what lets the
     // DAG see the cross-pass edges currently papered over by inline
