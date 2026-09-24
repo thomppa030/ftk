@@ -3,7 +3,7 @@
 > Stub — fill in.
 
 ## Scope
-Node-graph authoring UI built on `imgui-node-editor`. Nodes are modules + expressions; the graph is serialized into the `.fjvfx` asset and reduced to a flat module list at runtime.
+Node-graph authoring UI drawn on the editor kit's canvas (`src/ui/vfx_graph.*`). Nodes are modules + expressions; the graph is serialized into the `.fjvfx` asset and reduced to a flat module list at runtime.
 
 ## Planned sections
 - Opening the editor (context tab, double-click `.fjvfx`)

@@ -77,14 +77,6 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    imgui_node_editor
-    GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
-    SOURCE_SUBDIR  no-cmake-here
-)
-
-FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
@@ -309,7 +301,7 @@ FetchContent_MakeAvailable(msdfgen)
 # Consumed as plain sources — these either ship no CMakeLists or have their
 # files compiled straight into our targets, so they are fetched but never
 # added as subdirectories.
-FetchContent_MakeAvailable(miniaudio imgui imguizmo imgui_node_editor)
+FetchContent_MakeAvailable(miniaudio imgui imguizmo)
 
 block()
     # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
@@ -372,32 +364,6 @@ block()
         file(WRITE "${_file}" "${_contents}")
         message(STATUS "imguizmo: widened rotation ring hit tolerance")
     endif()
-endblock()
-
-block()
-    # Patch: guard operator*(float, ImVec2) which ImGui docking branch already defines
-    foreach(_file
-        "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.h"
-        "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.inl")
-        file(READ "${_file}" _contents)
-        string(REPLACE
-            "inline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
-            "#if IMGUI_VERSION_NUM < 19100\ninline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
-            _contents "${_contents}")
-        # Close the guard: add #endif after the function body in .inl, after declaration in .h
-        if("${_file}" MATCHES "\\.inl$")
-            string(REPLACE
-                "return ImVec2(lhs * rhs.x, lhs * rhs.y);\n}"
-                "return ImVec2(lhs * rhs.x, lhs * rhs.y);\n}\n#endif"
-                _contents "${_contents}")
-        else()
-            string(REPLACE
-                "inline ImVec2 operator*(const float lhs, const ImVec2& rhs);\n#"
-                "inline ImVec2 operator*(const float lhs, const ImVec2& rhs);\n#endif\n#"
-                _contents "${_contents}")
-        endif()
-        file(WRITE "${_file}" "${_contents}")
-    endforeach()
 endblock()
 
 find_package(Vulkan)

@@ -415,12 +415,6 @@ add_executable(fjell
 
     # ImGuizmo
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
-
-    # imgui-node-editor
-    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
-    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
-    ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
-    ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
 )
 
 target_include_directories(fjell PRIVATE
@@ -433,7 +427,6 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
-    ${imgui_node_editor_SOURCE_DIR}
     ${miniaudio_SOURCE_DIR}
 )
 
@@ -541,23 +534,6 @@ else()
         ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-        PROPERTIES COMPILE_FLAGS "-w")
-endif()
-
-# imgui-node-editor — suppress warnings from third-party code
-if(MSVC)
-    set_source_files_properties(
-        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
-        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
-        ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
-        ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
-        PROPERTIES COMPILE_FLAGS "/w")
-else()
-    set_source_files_properties(
-        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
-        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
-        ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
-        ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
         PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
