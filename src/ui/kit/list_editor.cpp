@@ -31,6 +31,16 @@ struct Dragged {
 };
 constexpr const char* PAYLOAD = "FJ_LIST_ITEM";
 
+// Where the visible middle of `text`'s first glyph sits below the top of its
+// line, in the current font at `size`: glyphs of different fonts and sizes
+// line up by this, not by their line boxes.
+float glyph_middle(const char* text, float size) {
+    unsigned int c = 0;
+    ImTextCharFromUtf8(&c, text, nullptr);
+    const ImFontGlyph* glyph = ImGui::GetFont()->GetFontBaked(size)->FindGlyph(static_cast<ImWchar>(c));
+    return glyph != nullptr ? (glyph->Y0 + glyph->Y1) * 0.5f : size * 0.5f;
+}
+
 void dashed_rect(ImDrawList* dl, ImVec2 min, ImVec2 max, ImU32 colour) {
     auto dashes = [&](ImVec2 a, ImVec2 b) {
         const float length = std::hypot(b.x - a.x, b.y - a.y);
@@ -100,9 +110,15 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
         return false;
     }
 
+    // A closed card that opens lifts under the mouse, to say it can be
+    // clicked; its summary reads in full text then.
+    const bool closed = options_.opens && !selected;
+    const bool hovered = closed && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(card_min_, card_max);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(card_min_, card_max,
-                      ImGui::GetColorU32(selected ? theme::selection() : theme::surface_sunken()),
+                      ImGui::GetColorU32(selected  ? theme::selection()
+                                         : hovered ? theme::surface_raised()
+                                                   : theme::surface_sunken()),
                       ImGui::GetStyle().FrameRounding);
 
     // The card itself takes a click anywhere its fields don't: that selects
@@ -128,22 +144,38 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
                     icon::reorder);
     }
 
+    // The number is text beside the card's first line of text and sits on
+    // its baseline; the chevron, a shape set among lowercase letters, on
+    // the middle of those.
+    const float text_top = card_min_.y + PAD + ImGui::GetStyle().FramePadding.y;
+    const float baseline = text_top + ImGui::GetFontBaked()->Ascent;
+    const float lowercase_middle = text_top + glyph_middle("x", ImGui::GetFontSize());
+
     // The item's number, counted from one, right-aligned; in the accent
     // on a selected card.
     char number[16];
     std::snprintf(number, sizeof(number), "%zu", index + 1);
+    const float number_top = baseline - ImGui::GetFont()->GetFontBaked(theme::SMALL_TEXT)->Ascent;
     ImGui::PushFont(nullptr, theme::SMALL_TEXT);
     const ImVec2 number_size = ImGui::CalcTextSize(number);
     // A list that can't be reordered has no grip, and the number takes its place.
     const float grip_w = options_.reorder ? GRIP_W + theme::GAP_S : 0.0f;
     const float number_right = card_min_.x + PAD_LEFT + grip_w + INDEX_W;
-    dl->AddText({number_right - number_size.x, card_min_.y + PAD + (row_h - number_size.y) * 0.5f},
+    dl->AddText({number_right - number_size.x, number_top},
                 ImGui::GetColorU32(selected ? theme::accent() : theme::text_disabled()), number);
     ImGui::PopFont();
 
+    // A card that opens leads with a chevron, open on the selected card.
+    float content_x = number_right + theme::GAP_S + theme::GAP_XS;
+    if (options_.opens) {
+        const char* chevron = selected ? icon::fold_open : icon::fold_closed;
+        dl->AddText({content_x, lowercase_middle - glyph_middle(chevron, ImGui::GetFontSize())},
+                    ImGui::GetColorU32(hovered ? theme::text_secondary() : theme::text_disabled()), chevron);
+        content_x += ImGui::CalcTextSize(chevron).x + theme::GAP_S;
+    }
+
     // The item's own fields, between the number and the trash icon, on the
     // darker field colour a sunken card needs.
-    const float content_x = number_right + theme::GAP_S + theme::GAP_XS;
     const float content_w = card_min_.x + card_width_ - PAD - row_h - theme::GAP_S - content_x;
     ImGui::SetCursorScreenPos({content_x, card_min_.y + PAD});
     ImGui::BeginGroup();
@@ -163,10 +195,13 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
     window->WorkRect.Max.x = right;
     window->ContentRegionRect.Max.x = right;
     ImGui::PushClipRect({content_x, card_min_.y}, {right, FLT_MAX}, true);
+    summary_colour_ = closed;
+    if (summary_colour_) ImGui::PushStyleColor(ImGuiCol_Text, hovered ? theme::text() : theme::text_secondary());
     return true;
 }
 
 bool ListEditor::end_item() {
+    if (summary_colour_) ImGui::PopStyleColor();
     ImGui::PopClipRect();
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     window->WorkRect.Max.x = work_right_;

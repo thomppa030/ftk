@@ -32,6 +32,10 @@ struct ListOptions {
     /// With more items than this, the cards scroll inside a box this many
     /// cards tall instead of lengthening the panel. 0 never scrolls.
     int max_cards{0};
+    /// Only the selected card shows its fields; the rest are a summary line
+    /// that opens on a click (sheet 21). Each card leads with a chevron
+    /// saying so, and a closed card under the mouse lifts.
+    bool opens{false};
 };
 
 /// Draws the cards one at a time; list_editor() below is the usual way in.
@@ -74,6 +78,7 @@ private:
     std::size_t index_{0};
     bool selected_{false};
     bool clicked_{false};
+    bool summary_colour_{false};  // a closed card's text colour is pushed
     ImVec2 card_min_{};
     float card_width_{0.0f};
     ImGuiID card_id_{0};
@@ -151,6 +156,7 @@ Edit selectable_list_editor(const char* id, std::vector<T>& items, int& selected
     std::optional<std::size_t> remove;
     std::optional<int> select;
     {
+        options.opens = true;
         ListEditor list(id, items.size(), options);
         for (std::size_t i = 0; i < items.size(); ++i) {
             const bool open = static_cast<int>(i) == selected;
