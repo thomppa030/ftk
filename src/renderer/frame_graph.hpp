@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -69,8 +70,27 @@ struct TrackedImage {
     bool virtual_resource{false};
     TextureDesc desc{};
     std::string name;
+    uint64_t name_hash{0};
 
     std::vector<ImageSlice> slices;
+};
+
+// Identity of an imported image inside the graph: the same VkImage seen
+// through different layer ranges is tracked apart (shadow cascades).
+struct ImageKey {
+    VkImage image{VK_NULL_HANDLE};
+    uint32_t base_layer{0};
+    uint32_t layer_count{1};
+    bool operator==(const ImageKey&) const noexcept = default;
+};
+
+struct ImageKeyHash {
+    size_t operator()(const ImageKey& k) const noexcept {
+        auto h = std::hash<void*>{}(static_cast<void*>(k.image));
+        h ^= std::hash<uint32_t>{}(k.base_layer) << 1;
+        h ^= std::hash<uint32_t>{}(k.layer_count) << 2;
+        return h;
+    }
 };
 
 // One (image, subresource, usage) tuple inside a pass declaration.
@@ -126,28 +146,36 @@ struct AliasGroup {
     uint32_t last_free_pass{0};           // highest last_pass among members; used during packing
 };
 
-// Lightweight frame graph that tracks image layouts and inserts barriers.
-// Not a full dependency graph — pass order is explicit, the graph just
-// handles transitions.
+// Tracks image layouts across the passes of one pipeline run and inserts
+// the barriers between them. Not a dependency graph — pass order is decided
+// by RenderPipeline, the graph handles transitions.
+//
+// One instance serves every run: begin_frame() empties it for the next
+// call, and what it learned about each imported image's layout is kept
+// across calls, so a run starts from the layout the previous one left an
+// image in rather than from UNDEFINED. That is what lets a history image
+// read first in a frame keep its contents, and what gives the first barrier
+// of a frame a real source scope against the previous frame's readers.
 class FrameGraph {
 public:
-    // Register an image to track. Returns an ID.
+    // Register an image to track and return its id. Registering the same
+    // image and layer range again in one run returns the existing id. A new
+    // entry starts from what the graph remembers of the image, else from
+    // `initial_layout`.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                             uint32_t base_layer = 0, uint32_t layer_count = 1,
                             uint32_t mip_count = 1,
-                            bool persistent = false);
+                            bool persistent = false,
+                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
 
-    // Start a new frame — reset all layouts to UNDEFINED
+    // Once per frame, before any run: forget the state of images no run
+    // touched last frame, so a destroyed image's handle cannot come back
+    // with a stale layout attached.
+    void new_frame();
+
+    // Once per run: drop the previous run's passes and images. The
+    // remembered layouts survive.
     void begin_frame();
-
-    // Add a pass that uses images. The execute callback records commands into
-    // the provided command buffer (primary for sequential, secondary for parallel).
-    void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
-                  std::initializer_list<std::pair<uint32_t, ImageUsage>> uses,
-                  uint32_t parallel_group = 0);
-    void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
-                  std::vector<std::pair<uint32_t, ImageUsage>> uses,
-                  uint32_t parallel_group = 0);
 
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
     /// RenderPass::declare() or a pass's build()) plus the record
@@ -185,6 +213,7 @@ public:
     // usage flags) over the currently submitted pass list. Indices point
     // into passes_ in submission order — the pipeline submits in DAG
     // order, so these double as DAG-order lifetimes.
+    void compute_lifetimes(std::vector<ResourceLifetime>& out) const;
     [[nodiscard]] std::vector<ResourceLifetime> compute_lifetimes() const;
 
     // Log per-image lifetimes through the graphics logger. Gated by the
@@ -202,6 +231,8 @@ public:
     // candidate is returned as its own singleton group — the pool then
     // allocates one distinct VkImage per logical resource. Used as a
     // debug kill switch for A/B regression hunts.
+    void compute_alias_groups(const std::vector<ResourceLifetime>& lifetimes,
+                              std::vector<AliasGroup>& out) const;
     [[nodiscard]] std::vector<AliasGroup> compute_alias_groups() const;
 
     // Toggle whether compute_alias_groups() performs greedy packing.
@@ -259,22 +290,50 @@ private:
                                                   QueueType queue);
 
     // Split the slice list so that every slice is either fully inside
-    // the query range or fully outside it. Returns indices into img.slices
-    // for the slices that cover the range.
-    std::vector<size_t> carve_slices(TrackedImage& img, const SubresourceRange& range);
+    // the query range or fully outside it. Fills `out` with indices into
+    // img.slices for the slices that cover the range.
+    void carve_slices(TrackedImage& img, const SubresourceRange& range,
+                      std::vector<size_t>& out);
 
     // Merge neighbouring slices whose state is identical. Called after
     // updating state so the list doesn't grow unboundedly.
     void coalesce_slices(TrackedImage& img);
 
-    void insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                   ImageSlice& slice,
-                                   VkImageLayout new_layout,
-                                   VkPipelineStageFlags2 dst_stage,
-                                   VkAccessFlags2 dst_access,
-                                   QueueType queue);
+    // Append the barrier that brings one slice to the requested state to
+    // barriers_scratch_, and record the new state on the slice. Nothing is
+    // appended when the slice is already visible to that access.
+    void append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
+                                  ImageSlice& slice,
+                                  VkImageLayout new_layout,
+                                  VkPipelineStageFlags2 dst_stage,
+                                  VkAccessFlags2 dst_access,
+                                  QueueType queue);
 
+    // Every barrier a pass needs, issued as one vkCmdPipelineBarrier2.
     void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
+
+    // After a run: store every imported image's slice state for the next
+    // run to start from.
+    void remember_states();
+
+    // One image's merged pre-pass state, accumulated across all of the
+    // pass's declared accesses: one barrier per image per pass, combining
+    // every stage and access and a layout compatible with all of them.
+    struct MergedAccess {
+        uint32_t image_id{0};
+        SubresourceRange range{};
+        VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+        VkPipelineStageFlags2 stages{0};
+        VkAccessFlags2 access{0};
+        bool any_write{false};
+    };
+
+    // What a run left an imported image in, keyed by the image; `seen` is
+    // the frame that last stored it.
+    struct RememberedState {
+        std::vector<ImageSlice> slices;
+        uint64_t seen{0};
+    };
 
     // Apply a pass's final_layout overrides: patch slice state to the
     // declared values without emitting any barrier (producer promises
@@ -284,8 +343,20 @@ private:
     std::vector<TrackedImage> images_;
     std::vector<PassDecl> passes_;
 
-    // Reusable scratch for parallel group secondary command buffers
+    // Per-run lookup from image identity, and from transient name, to an
+    // index into images_.
+    std::unordered_map<ImageKey, uint32_t, ImageKeyHash> image_index_;
+    std::unordered_map<uint64_t, uint32_t> virtual_index_;
+
+    std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
+    uint64_t frame_serial_{0};
+
+    // Reusable scratch, so a run allocates nothing on its hot path.
     std::vector<VkCommandBuffer> secondaries_scratch_;
+    std::vector<VkImageMemoryBarrier2> barriers_scratch_;
+    std::vector<ImageSlice> rebuilt_scratch_;
+    std::vector<size_t> indices_scratch_;
+    std::vector<MergedAccess> merged_scratch_;
 
     bool aliasing_enabled_{true};
 };

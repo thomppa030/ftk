@@ -138,7 +138,23 @@ bool range_contains(const SubresourceRange& outer, const SubresourceRange& inner
 uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t base_layer, uint32_t layer_count,
                                      uint32_t mip_count,
-                                     bool persistent) {
+                                     bool persistent,
+                                     VkImageLayout initial_layout) {
+    const ImageKey key{image, base_layer, layer_count};
+    if (auto it = image_index_.find(key); it != image_index_.end()) {
+        auto& existing = images_[it->second];
+        existing.persistent = existing.persistent || persistent;
+        if (mip_count > existing.mip_count) {
+            // An earlier importer undersized the mip count; widen the
+            // tracked range to what the image really has.
+            existing.mip_count = mip_count;
+            if (existing.slices.size() == 1) {
+                existing.slices.front().range.mip_count = mip_count;
+            }
+        }
+        return it->second;
+    }
+
     uint32_t id = static_cast<uint32_t>(images_.size());
     TrackedImage img{};
     img.image = image;
@@ -148,45 +164,71 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     img.base_layer = base_layer;
     img.persistent = persistent;
 
-    ImageSlice slice{};
-    slice.range.aspect = aspect;
-    slice.range.base_mip = 0;
-    slice.range.mip_count = mip_count;
-    slice.range.base_layer = base_layer;
-    slice.range.layer_count = layer_count;
-    slice.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    img.slices.push_back(slice);
+    // Start from where the last run left the image. A remembered state
+    // whose slices no longer describe this range (the image was widened
+    // to more mips since) is not trusted; the declared layout stands.
+    const auto remembered = remembered_.find(key);
+    bool seeded = false;
+    if (remembered != remembered_.end()) {
+        uint32_t covered = 0;
+        for (const auto& slice : remembered->second.slices) {
+            covered += slice.range.mip_count * slice.range.layer_count;
+        }
+        if (covered == mip_count * layer_count) {
+            img.slices.assign(remembered->second.slices.begin(),
+                              remembered->second.slices.end());
+            seeded = true;
+        }
+    }
+    if (!seeded) {
+        ImageSlice slice{};
+        slice.range.aspect = aspect;
+        slice.range.base_mip = 0;
+        slice.range.mip_count = mip_count;
+        slice.range.base_layer = base_layer;
+        slice.range.layer_count = layer_count;
+        slice.layout = initial_layout;
+        img.slices.push_back(slice);
+    }
+    if (layout_trace_enabled() && image != VK_NULL_HANDLE) {
+        FJELL_GFX_INFO("[layout] register img=0x{:x} layers={}+{} mips={} start={}{}",
+                       reinterpret_cast<uintptr_t>(image), base_layer, layer_count,
+                       mip_count, layout_str(img.slices.front().layout),
+                       seeded ? " (remembered)" : "");
+    }
 
     images_.push_back(std::move(img));
+    image_index_.emplace(key, id);
     return id;
+}
+
+void FrameGraph::new_frame() {
+    ++frame_serial_;
+    // An image no run imported last frame is gone or idle; either way its
+    // state is not worth carrying, and a handle the driver reuses must not
+    // inherit it.
+    for (auto it = remembered_.begin(); it != remembered_.end();) {
+        if (it->second.seen + 1 < frame_serial_) {
+            it = remembered_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void FrameGraph::begin_frame() {
     passes_.clear();
-    const bool trace = layout_trace_enabled();
-    for (auto& img : images_) {
-        if (img.persistent) { continue; }
-        if (trace && !img.virtual_resource && img.image != VK_NULL_HANDLE) {
-            VkImageLayout prev = img.slices.empty() ? VK_IMAGE_LAYOUT_UNDEFINED
-                                                    : img.slices.front().layout;
-            FJELL_GFX_INFO("[layout] begin_frame reset img=0x{:x} prev={} -> UNDEFINED",
-                           reinterpret_cast<uintptr_t>(img.image), layout_str(prev));
-        }
-        // Virtual resources get their VkImage re-bound every frame via
-        // bind_virtual_image() after the pool acquires an allocation.
-        // Clear the stale handle so a pass that ends up without an
-        // allocation this frame hits the VK_NULL_HANDLE guard in
-        // emit_barriers_for_pass.
-        if (img.virtual_resource) { img.image = VK_NULL_HANDLE; }
-        img.slices.clear();
-        ImageSlice slice{};
-        slice.range.aspect = img.aspect;
-        slice.range.base_mip = 0;
-        slice.range.mip_count = img.mip_count;
-        slice.range.base_layer = img.base_layer;
-        slice.range.layer_count = img.array_layers;
-        slice.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        img.slices.push_back(slice);
+    images_.clear();
+    image_index_.clear();
+    virtual_index_.clear();
+}
+
+void FrameGraph::remember_states() {
+    for (const auto& img : images_) {
+        if (img.virtual_resource || img.image == VK_NULL_HANDLE) { continue; }
+        auto& state = remembered_[ImageKey{img.image, img.base_layer, img.array_layers}];
+        state.slices.assign(img.slices.begin(), img.slices.end());
+        state.seen = frame_serial_;
     }
 }
 
@@ -195,48 +237,6 @@ void FrameGraph::bind_virtual_image(uint32_t image_id, VkImage image) {
     auto& img = images_[image_id];
     if (!img.virtual_resource) { return; }
     img.image = image;
-}
-
-void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
-                           std::initializer_list<std::pair<uint32_t, ImageUsage>> uses,
-                           uint32_t parallel_group) {
-    PassDecl pass;
-    pass.name = name;
-    pass.execute = std::move(execute);
-    pass.image_uses.reserve(uses.size());
-    for (const auto& [id, usage] : uses) {
-        ImageAccess acc{};
-        acc.image_id = id;
-        acc.usage = usage;
-        acc.range.aspect = images_[id].aspect;
-        acc.range.mip_count = images_[id].mip_count;
-        acc.range.base_layer = images_[id].base_layer;
-        acc.range.layer_count = images_[id].array_layers;
-        pass.image_uses.push_back(acc);
-    }
-    pass.parallel_group = parallel_group;
-    passes_.push_back(std::move(pass));
-}
-
-void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
-                           std::vector<std::pair<uint32_t, ImageUsage>> uses,
-                           uint32_t parallel_group) {
-    PassDecl pass;
-    pass.name = name;
-    pass.execute = std::move(execute);
-    pass.image_uses.reserve(uses.size());
-    for (const auto& [id, usage] : uses) {
-        ImageAccess acc{};
-        acc.image_id = id;
-        acc.usage = usage;
-        acc.range.aspect = images_[id].aspect;
-        acc.range.mip_count = images_[id].mip_count;
-        acc.range.base_layer = images_[id].base_layer;
-        acc.range.layer_count = images_[id].array_layers;
-        pass.image_uses.push_back(acc);
-    }
-    pass.parallel_group = parallel_group;
-    passes_.push_back(std::move(pass));
 }
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
@@ -271,31 +271,9 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         handle_to_image_id.resize(max_handle_id + 1, UINT32_MAX);
     }
     for (const auto& imp : builder.imported_textures()) {
-        uint32_t image_id = UINT32_MAX;
-        for (size_t i = 0; i < images_.size(); ++i) {
-            if (images_[i].image == imp.image &&
-                images_[i].base_layer == imp.base_layer &&
-                images_[i].array_layers == imp.layer_count) {
-                image_id = static_cast<uint32_t>(i);
-                break;
-            }
-        }
-        if (image_id == UINT32_MAX) {
-            image_id = register_image(imp.image, imp.aspect,
-                                       imp.base_layer, imp.layer_count,
-                                       imp.mip_count,
-                                       imp.persistent);
-        } else if (imp.persistent) {
-            images_[image_id].persistent = true;
-            if (imp.mip_count > images_[image_id].mip_count) {
-                // First importer undersized the mip count; upgrade.
-                images_[image_id].mip_count = imp.mip_count;
-                if (!images_[image_id].slices.empty()) {
-                    images_[image_id].slices.front().range.mip_count = imp.mip_count;
-                }
-            }
-        }
-        handle_to_image_id[imp.handle.id] = image_id;
+        handle_to_image_id[imp.handle.id] = register_image(
+            imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
+            imp.persistent, imp.initial_layout);
     }
 
     // Register created textures as virtual resources. Virtual resources
@@ -303,20 +281,12 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     // pass and read by another (both call create() with the same name +
     // desc) resolves to the same TrackedImage. VK_NULL_HANDLE image +
     // one initial slice covering the whole surface so carve_slices
-    // behaves normally during any stray range queries.
+    // behaves normally during any stray range queries. A transient always
+    // starts at UNDEFINED: its contents are dead between runs, and the
+    // pool may back two of them with one image inside a run.
     for (const auto& cre : builder.created_textures()) {
-        // Dedup by name: if an earlier pass created the same named
-        // transient, reuse its image_id and just map this pass's handle
-        // onto it.
-        uint32_t existing_id = UINT32_MAX;
-        for (size_t k = 0; k < images_.size(); ++k) {
-            if (images_[k].virtual_resource && images_[k].name == cre.name) {
-                existing_id = static_cast<uint32_t>(k);
-                break;
-            }
-        }
-        if (existing_id != UINT32_MAX) {
-            handle_to_image_id[cre.handle.id] = existing_id;
+        if (auto it = virtual_index_.find(cre.name_hash); it != virtual_index_.end()) {
+            handle_to_image_id[cre.handle.id] = it->second;
             continue;
         }
 
@@ -330,6 +300,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         img.virtual_resource = true;
         img.desc = cre.desc;
         img.name = cre.name;
+        img.name_hash = cre.name_hash;
         ImageSlice slice{};
         slice.range.aspect = img.aspect;
         slice.range.base_mip = 0;
@@ -339,6 +310,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         img.slices.push_back(slice);
         images_.push_back(std::move(img));
         uint32_t image_id = static_cast<uint32_t>(images_.size() - 1);
+        virtual_index_.emplace(cre.name_hash, image_id);
         handle_to_image_id[cre.handle.id] = image_id;
     }
 
@@ -421,8 +393,8 @@ VkImageUsageFlags usage_flag_for(ImageUsage u) {
 
 } // namespace
 
-std::vector<ResourceLifetime> FrameGraph::compute_lifetimes() const {
-    std::vector<ResourceLifetime> out(images_.size());
+void FrameGraph::compute_lifetimes(std::vector<ResourceLifetime>& out) const {
+    out.assign(images_.size(), ResourceLifetime{});
     for (uint32_t p = 0; p < passes_.size(); ++p) {
         for (const auto& acc : passes_[p].image_uses) {
             auto& lt = out[acc.image_id];
@@ -431,6 +403,11 @@ std::vector<ResourceLifetime> FrameGraph::compute_lifetimes() const {
             lt.usage_flags |= usage_flag_for(acc.usage);
         }
     }
+}
+
+std::vector<ResourceLifetime> FrameGraph::compute_lifetimes() const {
+    std::vector<ResourceLifetime> out;
+    compute_lifetimes(out);
     return out;
 }
 
@@ -480,7 +457,14 @@ bool desc_matches_exactly(const TextureDesc& a, const TextureDesc& b) {
 } // namespace
 
 std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
-    const auto lifetimes = compute_lifetimes();
+    std::vector<AliasGroup> groups;
+    compute_alias_groups(compute_lifetimes(), groups);
+    return groups;
+}
+
+void FrameGraph::compute_alias_groups(const std::vector<ResourceLifetime>& lifetimes,
+                                      std::vector<AliasGroup>& groups) const {
+    groups.clear();
 
     // Walk virtual resources in first_pass order — greedy packs need a
     // stable arrival sequence. Persistent and imported images sit out
@@ -501,7 +485,6 @@ std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
                   return a.lt.first_pass < b.lt.first_pass;
               });
 
-    std::vector<AliasGroup> groups;
     for (const auto& c : candidates) {
         const auto& desc = images_[c.image_id].desc;
         AliasGroup* target = nullptr;
@@ -521,7 +504,6 @@ std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
         target->resource_ids.push_back(c.image_id);
         target->last_free_pass = std::max(target->last_free_pass, c.lt.last_pass);
     }
-    return groups;
 }
 
 bool FrameGraph::validate_alias_groups(const std::vector<AliasGroup>& groups) const {
@@ -742,17 +724,19 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
     return 0;
 }
 
-std::vector<size_t> FrameGraph::carve_slices(TrackedImage& img, const SubresourceRange& query) {
+void FrameGraph::carve_slices(TrackedImage& img, const SubresourceRange& query,
+                              std::vector<size_t>& out) {
     // Split each overlapping slice along the query's mip/layer edges so
     // every resulting slice is either fully inside `query` or fully
-    // outside. Then return the indices of the inside ones.
+    // outside. Then collect the indices of the inside ones.
+    out.clear();
     SubresourceRange q = clamp_range(img, query);
-    if (q.mip_count == 0 || q.layer_count == 0) { return {}; }
+    if (q.mip_count == 0 || q.layer_count == 0) { return; }
     const uint32_t q_mip_end = q.base_mip + q.mip_count;
     const uint32_t q_lay_end = q.base_layer + q.layer_count;
 
-    std::vector<ImageSlice> rebuilt;
-    rebuilt.reserve(img.slices.size() * 2);
+    auto& rebuilt = rebuilt_scratch_;
+    rebuilt.clear();
     for (const auto& s : img.slices) {
         if (!ranges_intersect(s.range, q)) {
             rebuilt.push_back(s);
@@ -792,16 +776,13 @@ std::vector<size_t> FrameGraph::carve_slices(TrackedImage& img, const Subresourc
             }
         }
     }
-    img.slices = std::move(rebuilt);
+    img.slices.swap(rebuilt);
 
-    std::vector<size_t> indices;
-    indices.reserve(img.slices.size());
     for (size_t i = 0; i < img.slices.size(); ++i) {
         if (range_contains(q, img.slices[i].range)) {
-            indices.push_back(i);
+            out.push_back(i);
         }
     }
-    return indices;
 }
 
 void FrameGraph::coalesce_slices(TrackedImage& img) {
@@ -859,12 +840,12 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
     }
 }
 
-void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                           ImageSlice& slice,
-                                           VkImageLayout new_layout,
-                                           VkPipelineStageFlags2 dst_stage,
-                                           VkAccessFlags2 dst_access,
-                                           QueueType queue) {
+void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
+                                          ImageSlice& slice,
+                                          VkImageLayout new_layout,
+                                          VkPipelineStageFlags2 dst_stage,
+                                          VkAccessFlags2 dst_access,
+                                          QueueType queue) {
     if (slice.layout == new_layout
         && (slice.last_access & dst_access) == dst_access) {
         // Another read of a slice already visible to this access needs
@@ -907,11 +888,6 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     barrier.subresourceRange.baseArrayLayer = slice.range.base_layer;
     barrier.subresourceRange.layerCount = slice.range.layer_count;
 
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-
     if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
         FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
                        reinterpret_cast<uintptr_t>(img.image),
@@ -922,7 +898,7 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
                        reinterpret_cast<uintptr_t>(cmd));
     }
 
-    vkCmdPipelineBarrier2(cmd, &dep);
+    barriers_scratch_.push_back(barrier);
 
     // Record the queue-translated stage back into the slice. The next
     // pass's barrier will feed this as srcStage — translating once at
@@ -934,18 +910,6 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
 }
 
 namespace {
-
-// Merged pre-pass access state for one image, accumulated across all of
-// the pass's declared ImageUses. Mirrors RDG's "Merged Access State":
-// one barrier per image per pass, combining every declared stage/access
-// bitmask and picking a layout that's compatible with all of them.
-struct MergedAccess {
-    SubresourceRange range{};
-    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 stages{0};
-    VkAccessFlags2 access{0};
-    bool any_write{false};
-};
 
 // Pick the layout that satisfies every declared access. If any write is
 // involved we use a general/attachment write layout; pure reads keep the
@@ -976,11 +940,12 @@ VkImageLayout merge_layouts(VkImageLayout a, VkImageLayout b) {
 } // namespace
 
 void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
-    // Merge every declared access per image_id into one required pre-pass
+    // Merge every declared access per image into one required pre-pass
     // state. Iteration order of image_uses doesn't matter for the merge —
     // we union stages + access flags and collapse layouts.
-    std::unordered_map<uint32_t, MergedAccess> merged;
-    merged.reserve(pass.image_uses.size());
+    auto& merged = merged_scratch_;
+    merged.clear();
+    barriers_scratch_.clear();
 
     for (const auto& acc : pass.image_uses) {
         auto& img = images_[acc.image_id];
@@ -1000,27 +965,39 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
                      || acc.usage == ImageUsage::raytracing_write
                      || acc.usage == ImageUsage::transfer_dst;
 
-        auto& m = merged[acc.image_id];
-        if (m.stages == 0 && m.access == 0 && m.layout == VK_IMAGE_LAYOUT_UNDEFINED) {
-            // First access — range defines the covered subresource.
-            m.range = acc.range;
+        // A pass touches a handful of images; a linear search beats a map.
+        MergedAccess* m = nullptr;
+        for (auto& entry : merged) {
+            if (entry.image_id == acc.image_id) { m = &entry; break; }
         }
-        m.layout = merge_layouts(m.layout, layout);
-        m.stages |= stages;
-        m.access |= access;
-        m.any_write = m.any_write || is_write;
+        if (m == nullptr) {
+            // First access — range defines the covered subresource.
+            merged.push_back(MergedAccess{.image_id = acc.image_id, .range = acc.range});
+            m = &merged.back();
+        }
+        m->layout = merge_layouts(m->layout, layout);
+        m->stages |= stages;
+        m->access |= access;
+        m->any_write = m->any_write || is_write;
     }
 
-    for (const auto& [image_id, m] : merged) {
-        auto& img = images_[image_id];
-        auto indices = carve_slices(img, m.range);
-        for (size_t idx : indices) {
-            insert_barrier_for_slice(cmd, img, img.slices[idx],
-                                      m.layout, m.stages, m.access,
-                                      pass.queue);
+    for (const auto& m : merged) {
+        auto& img = images_[m.image_id];
+        carve_slices(img, m.range, indices_scratch_);
+        for (size_t idx : indices_scratch_) {
+            append_barrier_for_slice(cmd, img, img.slices[idx],
+                                     m.layout, m.stages, m.access,
+                                     pass.queue);
         }
         coalesce_slices(img);
     }
+
+    if (barriers_scratch_.empty()) { return; }
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers_scratch_.size());
+    dep.pImageMemoryBarriers = barriers_scratch_.data();
+    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 void FrameGraph::apply_final_layouts(const PassDecl& pass) {
@@ -1033,8 +1010,8 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
                            pass.name, reinterpret_cast<uintptr_t>(img.image),
                            layout_str(fl.layout));
         }
-        auto indices = carve_slices(img, fl.range);
-        for (size_t idx : indices) {
+        carve_slices(img, fl.range, indices_scratch_);
+        for (size_t idx : indices_scratch_) {
             img.slices[idx].layout = fl.layout;
             img.slices[idx].last_stage = fl.last_stage;
             img.slices[idx].last_access = fl.last_access;
@@ -1152,6 +1129,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
             apply_final_layouts(passes_[p]);
         }
     }
+    remember_states();
     return recorded_async;
 }
 
