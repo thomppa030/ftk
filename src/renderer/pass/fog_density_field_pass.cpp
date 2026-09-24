@@ -300,14 +300,45 @@ PassSetup FogDensityFieldPass::setup() const {
     return {
         .name = "fog_density_field",
         .phase = RenderPhase::Environment,
-        .sub_order = 71,   // reads the motion field written just before it
+        .sub_order = 71,   // beside the motion field; its sources are its own
     };
 }
 
-void FogDensityFieldPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
-    // Pass-private images bound through the global descriptor; consumers reach
-    // them outside the catalog.
-    builder.has_side_effects();
+void FogDensityFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Nothing moves and the air has settled, or an earlier viewport already
+    // stepped the field this frame: it is left as it is.
+    if ((moving_count_ == 0 && settled_) || stepped_this_frame_) { return; }
+    // Last frame's field carried forward into this frame's. The graph moves
+    // the one written into GENERAL; record() moves it to where the fog
+    // samples it, which final_layout reports.
+    builder.read(builder.import_named(ctx, "fog_density_field_prev"),
+                 ResourceAccess::sampled_compute);
+    auto field = builder.import_named(ctx, "fog_density_field");
+    builder.write(field, ResourceAccess::storage_write_compute);
+    builder.final_layout(field, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+void FogDensityFieldPass::collect_exports(DeclareContext& ctx) {
+    if (fields_[cur_].image == VK_NULL_HANDLE) { return; }
+    // Neither field holds anything before the pass first runs; after that
+    // both rest where the fog samples them.
+    const VkImageLayout rest = first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED
+                                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    auto add = [&](std::string_view name, const Field& field) {
+        ImportedImage img{};
+        img.image = field.image;
+        img.view = field.view;
+        img.persistent = true;   // carried into the next frame's field
+        img.initial_layout = rest;
+        ctx.imports.emplace(fg_name_hash(name), img);
+    };
+    // The field this frame writes is the one the global set binds.
+    add("fog_density_field", fields_[cur_]);
+    add("fog_density_field_prev", fields_[prev_index()]);
 }
 
 void FogDensityFieldPass::record(const FrameContext& ctx) {
@@ -321,19 +352,8 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     const uint32_t write = cur_;
     const uint32_t read = 1 - cur_;
 
-    std::array<VkImageMemoryBarrier2, 2> to_use{
-        make_barrier(fields_[write].image,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL),
-        make_barrier(fields_[read].image,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
-    };
-    batch_barriers(cmd, to_use.data(), static_cast<uint32_t>(to_use.size()));
-
+    // The graph has the field written in GENERAL and the one read in
+    // SHADER_READ_ONLY_OPTIMAL.
     FrameCacheBinding b[3]{};
     b[0].binding = 0;
     b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -387,9 +407,10 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     const uint32_t groups_y = (RESOLUTION_Y + 3) / 4;
     vkCmdDispatch(cmd, groups_xz, groups_y, groups_xz);
 
+    // Only the fog reads the field, in compute.
     auto to_read = make_barrier(fields_[write].image,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     batch_barriers(cmd, &to_read, 1);
 

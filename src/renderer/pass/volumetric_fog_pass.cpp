@@ -795,6 +795,9 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
         builder.read(motion, ResourceAccess::sampled_compute);
     }
+    if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
+        builder.read(stir, ResourceAccess::sampled_compute);
+    }
     // The waterline mask, written by the water pass's dispatch at the start
     // of this node's recording and read by every medium dispatch after it.
     // One texel per froxel column.
@@ -996,6 +999,9 @@ void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // What the light variant samples through the global set.
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
         builder.read(clouds, ResourceAccess::sampled_compute);
+    }
+    if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
+        builder.read(stir, ResourceAccess::sampled_compute);
     }
 }
 

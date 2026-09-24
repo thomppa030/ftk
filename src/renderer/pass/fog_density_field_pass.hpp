@@ -90,6 +90,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the field holds anything worth reading. A still scene pays
     /// nothing, and readers skip it entirely.
