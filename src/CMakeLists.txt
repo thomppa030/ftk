@@ -336,10 +336,12 @@ add_executable(fjell
     ui/inspectors/script_fields.cpp
     ui/inspectors/spline_inspectors.cpp
     ui/kit/asset_kind.cpp
+    ui/kit/asset_tile.cpp
     ui/kit/button.cpp
     ui/kit/choice.cpp
     ui/kit/color_field.cpp
     ui/kit/component_block.cpp
+    ui/kit/dialog.cpp
     ui/kit/edit_record.cpp
     ui/kit/feedback.cpp
     ui/kit/field.cpp

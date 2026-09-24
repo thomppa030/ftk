@@ -69,10 +69,12 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/grouped_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_tile.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/dialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/edit_record.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
@@ -185,6 +187,7 @@ add_executable(fjell-tests
     test_node_edit_command.cpp
     test_component_storage.cpp
     test_curve_editor.cpp
+    test_asset_tile.cpp
     test_choices.cpp
     test_command_group.cpp
     test_edit_record.cpp
