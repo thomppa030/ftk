@@ -21,6 +21,7 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
+#include "ui/sdf_debug_panel.hpp"
 #include "ui/kit/dialog.hpp"
 #include "ui/project_settings_window.hpp"
 #include "ui/context_registry.hpp"
@@ -296,6 +297,7 @@ private:
     MenuBar menu_bar_;
     ui::KitGallery kit_gallery_;
     bool show_kit_gallery_{false};
+    SdfDebugPanel sdf_debug_panel_;
 
     // Editor screenshot capture
     CaptureService capture_service_;

@@ -3,13 +3,16 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -129,12 +132,24 @@ public:
     /// Asks for a slice through the field across `axis` (0 X, 1 Y, 2 Z) at
     /// `slice_pos` (0..1 through the volume), drawn in this frame's command
     /// buffer. The SDF debug window asks every frame it is open.
-    void request_slice(uint32_t axis, float slice_pos);
+    /// `texel`, when set, is the slice texel under the mouse, whose distance
+    /// hovered_distance() reports a few frames later.
+    void request_slice(uint32_t axis, float slice_pos, std::optional<glm::uvec2> texel = {});
     /// Draws the slice asked for since the last call, after the field is
     /// composed; nothing when none was asked for or there is no field yet.
-    void record_slice(VkCommandBuffer cmd);
+    /// `frame_index` picks the frame-in-flight's part of the distances,
+    /// whose fence has been waited, so the last one written there is read.
+    void record_slice(VkCommandBuffer cmd, uint32_t frame_index);
     /// The slice for ImGui; none until the first slice has been drawn.
     [[nodiscard]] VkDescriptorSet slice_imgui_set() const { return slice_imgui_set_; }
+    /// Texels across and down the slice.
+    static constexpr uint32_t SLICE_SIZE = 256;
+    /// The distance in metres at the texel last asked about, as the GPU
+    /// wrote it MAX_FRAMES_IN_FLIGHT frames earlier; none while nothing is
+    /// hovered or nothing has been read yet.
+    [[nodiscard]] std::optional<float> hovered_distance() const { return hovered_distance_; }
+    /// Metres either side of zero the slice draws as the surface.
+    [[nodiscard]] float slice_surface() const;
 
     // Per-model SDF metadata
     struct MeshSdfEntry {
@@ -212,7 +227,6 @@ private:
                         uint32_t instance_count);
 
     // Slice visualization
-    static constexpr uint32_t SLICE_SIZE = 256;
     VkImage slice_image_{VK_NULL_HANDLE};
     VmaAllocation slice_memory_{VK_NULL_HANDLE};
     VkImageView slice_view_{VK_NULL_HANDLE};
@@ -227,6 +241,11 @@ private:
     bool slice_requested_{false};
     uint32_t slice_axis_{1};
     float slice_pos_{0.5f};
+    std::optional<glm::uvec2> slice_texel_{};
+    std::optional<float> hovered_distance_{};
+    // MAX_FRAMES_IN_FLIGHT slices of distances, host-visible.
+    std::unique_ptr<Buffer> slice_distances_;
+    std::array<bool, MAX_FRAMES_IN_FLIGHT> slice_written_{};
     void create_slice_resources();
 };
 

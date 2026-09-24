@@ -149,6 +149,13 @@ inline ImVec4 layout_margin()  { return hex(0xFFA500, 0.22f); }
 inline ImVec4 layout_padding() { return hex(0x64C864, 0.22f); }
 inline ImVec4 layout_box()     { return hex(0x6496FF, 0.6f); }
 
+// The SDF debug slice's ramp, near the surface and at the field's far
+// edge, inside and out; shaders/sdf_slice.comp draws the same values.
+inline ImVec4 sdf_inside_near()  { return hex(0x4F87C4); }
+inline ImVec4 sdf_inside_far()   { return hex(0x122145); }
+inline ImVec4 sdf_outside_near() { return hex(0xD98A59); }
+inline ImVec4 sdf_outside_far()  { return hex(0x381F12); }
+
 // ── Metrics ─────────────────────────────────────────────────────────────
 
 inline constexpr float GAP_XS = 2.0f;

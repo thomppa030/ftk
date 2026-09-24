@@ -313,6 +313,7 @@ add_executable(fjell
     ui/icon_cache.cpp
     ui/texture_channels.cpp
     ui/texture_preview.cpp
+    ui/sdf_debug_panel.cpp
     ui/properties_node_sections.cpp
     ui/properties_panel.cpp
     ui/shader_error_callout.cpp

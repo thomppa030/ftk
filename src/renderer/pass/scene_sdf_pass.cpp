@@ -21,6 +21,19 @@
 
 namespace fjell {
 
+namespace {
+// The slice shader's push constants (sdf_slice.comp).
+struct SlicePush {
+    uint32_t axis;
+    float slice_pos;
+    uint32_t resolution;
+    float max_distance;
+    float surface;
+    uint32_t distance_offset;
+};
+static_assert(sizeof(SlicePush) == 24);
+} // namespace
+
 Result<> SceneSdfPass::create(Device& device, const PassResources& resources) {
     create(device, resources.global_set_layout, resources.allocator, resources.pipeline_cache);
     return {};
@@ -64,6 +77,7 @@ void SceneSdfPass::destroy() {
         // Don't call ImGui_ImplVulkan_RemoveTexture here — ImGui backend
         // may already be shut down during engine destruction.
         slice_imgui_set_ = VK_NULL_HANDLE;
+        slice_distances_.reset();
         safe(slice_pipeline_, vkDestroyPipeline);
         safe(slice_layout_, vkDestroyPipelineLayout);
         safe(slice_set_layout_, vkDestroyDescriptorSetLayout);
@@ -599,10 +613,17 @@ void SceneSdfPass::compose_region(VkCommandBuffer cmd, const glm::ivec3& voxel_m
     vkCmdDispatch(cmd, uint32_t(groups.x), uint32_t(groups.y), uint32_t(groups.z));
 }
 
-void SceneSdfPass::request_slice(uint32_t axis, float slice_pos) {
+void SceneSdfPass::request_slice(uint32_t axis, float slice_pos, std::optional<glm::uvec2> texel) {
     slice_requested_ = true;
     slice_axis_ = axis;
     slice_pos_ = slice_pos;
+    slice_texel_ = texel;
+}
+
+float SceneSdfPass::slice_surface() const {
+    // Half a voxel: the band in which the field crosses zero.
+    const glm::vec3 v = voxel_size();
+    return 0.5f * std::max({v.x, v.y, v.z});
 }
 
 void SceneSdfPass::create_slice_resources() {
@@ -638,8 +659,18 @@ void SceneSdfPass::create_slice_resources() {
         sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         vk_check(vkCreateSampler(device_, &sci, nullptr, &slice_sampler_), "SDF slice sampler");
 
-        // Slice compute pipeline: binding 0 = scene_sdf sampler3D, binding 1 = slice_output image2D
-        VkDescriptorSetLayoutBinding slice_bindings[2]{};
+        // Every frame in flight's slice of distances, read on the CPU once
+        // that frame's fence has been waited.
+        slice_distances_ = std::make_unique<Buffer>(
+            allocator_, VkDeviceSize{sizeof(float)} * SLICE_SIZE * SLICE_SIZE * MAX_FRAMES_IN_FLIGHT,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
+        slice_distances_->map();
+        slice_written_.fill(false);
+
+        // Slice compute pipeline: binding 0 = scene_sdf sampler3D, binding 1 = slice_output image2D,
+        // binding 2 = the distances
+        VkDescriptorSetLayoutBinding slice_bindings[3]{};
         slice_bindings[0].binding = 0;
         slice_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         slice_bindings[0].descriptorCount = 1;
@@ -648,16 +679,20 @@ void SceneSdfPass::create_slice_resources() {
         slice_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         slice_bindings[1].descriptorCount = 1;
         slice_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        slice_bindings[2].binding = 2;
+        slice_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        slice_bindings[2].descriptorCount = 1;
+        slice_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
         VkDescriptorSetLayoutCreateInfo slice_layout_ci{};
         slice_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        slice_layout_ci.bindingCount = 2;
+        slice_layout_ci.bindingCount = 3;
         slice_layout_ci.pBindings = slice_bindings;
         vk_check(vkCreateDescriptorSetLayout(device_, &slice_layout_ci, nullptr, &slice_set_layout_), "SDF slice layout");
 
         VkPushConstantRange push{};
         push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        push.size = 12; // uint axis + float slice_pos + uint resolution
+        push.size = sizeof(SlicePush);
 
         VkPipelineLayoutCreateInfo plci{};
         plci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -682,15 +717,17 @@ void SceneSdfPass::create_slice_resources() {
         vkDestroyShaderModule(device_, mod, nullptr);
 
         // Descriptor pool + set
-        VkDescriptorPoolSize slice_pool_sizes[2]{};
+        VkDescriptorPoolSize slice_pool_sizes[3]{};
         slice_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         slice_pool_sizes[0].descriptorCount = 1;
         slice_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         slice_pool_sizes[1].descriptorCount = 1;
+        slice_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        slice_pool_sizes[2].descriptorCount = 1;
         VkDescriptorPoolCreateInfo dpci{};
         dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         dpci.maxSets = 1;
-        dpci.poolSizeCount = 2;
+        dpci.poolSizeCount = 3;
         dpci.pPoolSizes = slice_pool_sizes;
         vk_check(vkCreateDescriptorPool(device_, &dpci, nullptr, &slice_pool_), "SDF slice pool");
 
@@ -711,7 +748,12 @@ void SceneSdfPass::create_slice_resources() {
         slice_info.imageView = slice_view_;
         slice_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        VkWriteDescriptorSet writes[2]{};
+        VkDescriptorBufferInfo distances_info{};
+        distances_info.buffer = slice_distances_->handle();
+        distances_info.offset = 0;
+        distances_info.range = VK_WHOLE_SIZE;
+
+        VkWriteDescriptorSet writes[3]{};
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = slice_set_;
         writes[0].dstBinding = 0;
@@ -724,7 +766,13 @@ void SceneSdfPass::create_slice_resources() {
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         writes[1].descriptorCount = 1;
         writes[1].pImageInfo = &slice_info;
-        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = slice_set_;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].descriptorCount = 1;
+        writes[2].pBufferInfo = &distances_info;
+        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
 
         // Register with ImGui
         slice_imgui_set_ = ImGui_ImplVulkan_AddTexture(
@@ -734,15 +782,29 @@ void SceneSdfPass::create_slice_resources() {
     }
 }
 
-void SceneSdfPass::record_slice(VkCommandBuffer cmd) {
+void SceneSdfPass::record_slice(VkCommandBuffer cmd, uint32_t frame_index) {
     if (!slice_requested_) return;
     slice_requested_ = false;
     // The slice samples the field in the layout compose_pending() leaves it
     // in, so there is nothing to draw before the field's first compose.
     if (image_layout_ != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) return;
     if (!slice_initialized_) create_slice_resources();
-    const uint32_t axis = slice_axis_;
-    const float slice_pos = slice_pos_;
+
+    // This frame in flight's slice was last written MAX_FRAMES_IN_FLIGHT
+    // frames ago and its fence has been waited: read the hovered texel's
+    // distance from it before this frame writes it again.
+    const VkDeviceSize slice_floats = VkDeviceSize{SLICE_SIZE} * SLICE_SIZE;
+    const VkDeviceSize offset = slice_floats * frame_index;
+    hovered_distance_.reset();
+    if (slice_texel_ && slice_written_[frame_index] && slice_texel_->x < SLICE_SIZE && slice_texel_->y < SLICE_SIZE) {
+        const VkDeviceSize at = offset + VkDeviceSize{slice_texel_->y} * SLICE_SIZE + slice_texel_->x;
+        vk_check(vmaInvalidateAllocation(allocator_, slice_distances_->allocation(), at * sizeof(float), sizeof(float)),
+                 "SDF slice distance invalidate");
+        float distance = 0.0f;
+        std::memcpy(&distance, static_cast<const float*>(slice_distances_->mapped()) + at, sizeof(float));
+        hovered_distance_ = distance;
+    }
+    slice_written_[frame_index] = true;
 
     // Transition slice image to GENERAL for compute write, after the
     // previous frame's ImGui draw has finished reading it.
@@ -766,7 +828,8 @@ void SceneSdfPass::record_slice(VkCommandBuffer cmd) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, slice_layout_,
                             0, 1, &slice_set_, 0, nullptr);
 
-    struct { uint32_t axis; float slice_pos; uint32_t resolution; } push_data{axis, slice_pos, SLICE_SIZE};
+    const SlicePush push_data{slice_axis_,     slice_pos_,     SLICE_SIZE,
+                              max_distance(), slice_surface(), static_cast<uint32_t>(offset)};
     vkCmdPushConstants(cmd, slice_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_data), &push_data);
 
     uint32_t groups = (SLICE_SIZE + 7) / 8;
@@ -783,8 +846,17 @@ void SceneSdfPass::record_slice(VkCommandBuffer cmd) {
     post.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     post.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     post.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    // The distances, for the CPU once the frame's fence is signalled.
+    VkMemoryBarrier2 to_host{};
+    to_host.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    to_host.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    to_host.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    to_host.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    to_host.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
     VkDependencyInfo post_dep{};
     post_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    post_dep.memoryBarrierCount = 1;
+    post_dep.pMemoryBarriers = &to_host;
     post_dep.imageMemoryBarrierCount = 1;
     post_dep.pImageMemoryBarriers = &post;
     vkCmdPipelineBarrier2(cmd, &post_dep);

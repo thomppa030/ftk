@@ -30,6 +30,7 @@ public:
     void set_vulkan_context(VulkanContext* vk) { vk_ = vk; }
     /// The flag View > Kit Gallery toggles; the engine draws the window.
     void set_kit_gallery_flag(bool* show) { show_kit_gallery_ = show; }
+    void set_sdf_debug_flag(bool* show) { show_sdf_debug_ = show; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
     void set_gpu(GpuCore* gpu);
 
@@ -67,6 +68,7 @@ private:
     Project* project_{nullptr};
     VulkanContext* vk_{nullptr};
     bool* show_kit_gallery_{nullptr};
+    bool* show_sdf_debug_{nullptr};
     ViewportManager* viewports_{nullptr};
     const std::string* scene_path_{nullptr};
     bool building_{false};

@@ -1,15 +1,36 @@
 #version 460
 
+// A slice through the scene's distance field for the SDF debug window:
+// blue inside, white on the surface, orange outside, each fading to its
+// dark end at max_distance. The window's legend draws the same ramp from
+// theme::sdf_*() in src/ui/theme.hpp: the colours are those sRGB values,
+// change both together.
+
+#include "fjell_color_space.glsl"
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform sampler3D scene_sdf;
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2D slice_output;
+// Every texel's distance in metres, one frame-in-flight's slice after
+// another, for the window to read the one under the mouse.
+layout(std430, set = 0, binding = 2) writeonly buffer SliceDistances { float distances[]; };
 
 layout(push_constant) uniform PushConstants {
-    uint axis;        // 0=X, 1=Y, 2=Z
-    float slice_pos;  // normalized [0,1] along the axis
-    uint resolution;  // output image size
+    uint axis;             // 0=X, 1=Y, 2=Z
+    float slice_pos;       // normalized [0,1] along the axis
+    uint resolution;       // output image size
+    float max_distance;    // metres, where the field is clamped
+    float surface;         // metres either side of zero drawn as the surface
+    uint distance_offset;  // where this frame's slice starts in distances[]
 };
+
+// sRGB, as theme.hpp writes them; the image holds linear light, which is
+// how ImGui takes a texture.
+const vec3 INSIDE_NEAR = vec3(0x4F, 0x87, 0xC4) / 255.0;
+const vec3 INSIDE_FAR = vec3(0x12, 0x21, 0x45) / 255.0;
+const vec3 OUTSIDE_NEAR = vec3(0xD9, 0x8A, 0x59) / 255.0;
+const vec3 OUTSIDE_FAR = vec3(0x38, 0x1F, 0x12) / 255.0;
 
 void main() {
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
@@ -23,23 +44,11 @@ void main() {
     else                 uvw = vec3(uv.x, uv.y, slice_pos);
 
     float dist = textureLod(scene_sdf, uvw, 0).r;
+    distances[distance_offset + uint(gid.y) * resolution + uint(gid.x)] = dist;
 
-    // Colorize: blue = inside, orange = outside close, green = far outside
-    vec3 color;
-    if (dist < 0.0) {
-        // Inside: dark blue to bright blue by depth
-        float t = clamp(-dist * 10.0, 0.0, 1.0);
-        color = mix(vec3(0.05, 0.05, 0.2), vec3(0.2, 0.4, 1.0), t);
-    } else {
-        // Outside: orange (close) to dark green (far)
-        float t = clamp(dist * 5.0, 0.0, 1.0);
-        color = mix(vec3(1.0, 0.5, 0.1), vec3(0.05, 0.15, 0.05), t);
-    }
+    float t = clamp(abs(dist) / max_distance, 0.0, 1.0);
+    vec3 color = dist < 0.0 ? mix(INSIDE_NEAR, INSIDE_FAR, t) : mix(OUTSIDE_NEAR, OUTSIDE_FAR, t);
+    if (abs(dist) < surface) color = vec3(1.0);
 
-    // White highlight at surface (zero crossing)
-    if (abs(dist) < 0.05) {
-        color = vec3(1.0);
-    }
-
-    imageStore(slice_output, gid, vec4(color, 1.0));
+    imageStore(slice_output, gid, vec4(srgb_to_linear(color), 1.0));
 }

@@ -121,9 +121,9 @@ void MenuBar::draw_view_menu() {
         }
     }
     ImGui::Separator();
-    if (vk_) {
-        const bool sdf = vk_->show_sdf_debug();
-        if (ui::menu_item({.label = "SDF debug", .checked = sdf})) vk_->set_show_sdf_debug(!sdf);
+    if (show_sdf_debug_ != nullptr &&
+        ui::menu_item({.label = "SDF debug", .checked = *show_sdf_debug_})) {
+        *show_sdf_debug_ = !*show_sdf_debug_;
     }
     if (show_kit_gallery_ != nullptr &&
         ui::menu_item({.label = "Kit gallery", .checked = *show_kit_gallery_})) {

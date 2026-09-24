@@ -751,7 +751,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         scene_sdf_pass().compose_pending(cmd);
     }
     // The SDF debug window's slice, once the field is up to date.
-    scene_sdf_pass().record_slice(cmd);
+    scene_sdf_pass().record_slice(cmd, current_frame_);
 
     // Once-per-frame pass preparation: each pass scans the scene for the
     // nodes it needs (shadow cascades, fog params, sky colors, etc.)
@@ -1939,38 +1939,6 @@ void VulkanContext::release_imgui_textures() {
     if (auto* cv = passes_.try_get<CullVizPass>("cull_viz")) cv->invalidate_imgui_texture();
     light_heatmap_pass().invalidate_imgui_texture();
     light_grid_pass().invalidate_imgui_texture();
-}
-
-void VulkanContext::draw_sdf_debug_window() {
-    if (!show_sdf_debug_) return;
-
-    if (ImGui::Begin("SDF Debug", &show_sdf_debug_)) {
-        const char* axes[] = {"X", "Y", "Z"};
-        ImGui::Combo("Axis", &sdf_debug_axis_, axes, 3);
-        ImGui::SliderFloat("Slice", &sdf_debug_slice_, 0.0f, 1.0f);
-
-        glm::vec3 vol_min = scene_sdf_pass().volume_min();
-        glm::vec3 vol_max = scene_sdf_pass().volume_max();
-        bool bounds_changed = false;
-        if (ImGui::DragFloat3("Vol Min", &vol_min.x, 0.5f)) bounds_changed = true;
-        if (ImGui::DragFloat3("Vol Max", &vol_max.x, 0.5f)) bounds_changed = true;
-        if (bounds_changed) scene_sdf_pass().set_bounds(vol_min, vol_max);
-
-        ImGui::Text("Resolution: %u", scene_sdf_pass().resolution());
-
-        // Drawn in the frame's own command buffer ahead of the UI, so the
-        // picture below is this frame's slice.
-        scene_sdf_pass().request_slice(static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
-
-        // Display slice image
-        auto imgui_set = scene_sdf_pass().slice_imgui_set();
-        if (imgui_set) {
-            float avail = ImGui::GetContentRegionAvail().x;
-            float size = std::min(avail, 256.0f);
-            ImGui::Image(imgui_set, {size, size});
-        }
-    }
-    ImGui::End();
 }
 
 void VulkanContext::apply_pending_ddgi_toggle() {
