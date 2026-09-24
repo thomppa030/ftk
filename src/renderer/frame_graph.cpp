@@ -104,6 +104,52 @@ ImageUsage image_usage_for(ResourceAccess a) {
     }
 }
 
+// Where in the pipeline, and how, a buffer access happens. Zero for an
+// access kind that does not apply to buffers.
+struct BufferScope {
+    VkPipelineStageFlags2 stages{0};
+    VkAccessFlags2 access{0};
+};
+
+[[nodiscard]] BufferScope buffer_scope_for(ResourceAccess a) {
+    switch (a) {
+        case ResourceAccess::uniform_read:
+            return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_UNIFORM_READ_BIT};
+        case ResourceAccess::storage_buffer_read_compute:
+            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
+        case ResourceAccess::storage_buffer_read_vertex:
+            return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
+        case ResourceAccess::storage_buffer_read_fragment:
+            return {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
+        case ResourceAccess::indirect_read:
+            return {VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT};
+        case ResourceAccess::index_read:
+            return {VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT};
+        case ResourceAccess::vertex_read:
+            return {VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+                    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT};
+        case ResourceAccess::storage_buffer_write_compute:
+            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
+        case ResourceAccess::storage_buffer_read_write_compute:
+            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
+        case ResourceAccess::transfer_src:
+            return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT};
+        case ResourceAccess::transfer_dst:
+            return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
+        default:
+            return {};
+    }
+}
+
+// The access bits that write memory, as opposed to reading it.
+constexpr VkAccessFlags2 WRITE_ACCESS_BITS =
+    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+  | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT
+  | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
 // Clamp an externally-specified range against the image's actual
 // dimensions. VK_REMAINING_* expands to "whole image from base_*".
 SubresourceRange clamp_range(const TrackedImage& img, SubresourceRange r) {
@@ -202,18 +248,35 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     return id;
 }
 
+uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent) {
+    if (auto it = buffer_index_.find(buffer); it != buffer_index_.end()) {
+        buffers_[it->second].persistent = buffers_[it->second].persistent || persistent;
+        return it->second;
+    }
+    const auto id = static_cast<uint32_t>(buffers_.size());
+    TrackedBuffer buf{};
+    buf.buffer = buffer;
+    buf.persistent = persistent;
+    if (auto remembered = remembered_buffers_.find(buffer);
+        remembered != remembered_buffers_.end()) {
+        buf.state = remembered->second.state;
+    }
+    buffers_.push_back(buf);
+    buffer_index_.emplace(buffer, id);
+    return id;
+}
+
 void FrameGraph::new_frame() {
     ++frame_serial_;
-    // An image no run imported last frame is gone or idle; either way its
-    // state is not worth carrying, and a handle the driver reuses must not
-    // inherit it.
-    for (auto it = remembered_.begin(); it != remembered_.end();) {
-        if (it->second.seen + 1 < frame_serial_) {
-            it = remembered_.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    // An image or buffer no run imported last frame is gone or idle; either
+    // way its state is not worth carrying, and a handle the driver reuses
+    // must not inherit it.
+    std::erase_if(remembered_, [&](const auto& entry) {
+        return entry.second.seen + 1 < frame_serial_;
+    });
+    std::erase_if(remembered_buffers_, [&](const auto& entry) {
+        return entry.second.seen + 1 < frame_serial_;
+    });
 }
 
 void FrameGraph::begin_frame() {
@@ -221,6 +284,8 @@ void FrameGraph::begin_frame() {
     images_.clear();
     image_index_.clear();
     virtual_index_.clear();
+    buffers_.clear();
+    buffer_index_.clear();
 }
 
 void FrameGraph::remember_states() {
@@ -228,6 +293,11 @@ void FrameGraph::remember_states() {
         if (img.virtual_resource || img.image == VK_NULL_HANDLE) { continue; }
         auto& state = remembered_[ImageKey{img.image, img.base_layer, img.array_layers}];
         state.slices.assign(img.slices.begin(), img.slices.end());
+        state.seen = frame_serial_;
+    }
+    for (const auto& buf : buffers_) {
+        auto& state = remembered_buffers_[buf.buffer];
+        state.state = buf.state;
         state.seen = frame_serial_;
     }
 }
@@ -314,12 +384,42 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         handle_to_image_id[cre.handle.id] = image_id;
     }
 
+    // Resolve imported buffers the same way. Created buffers are not
+    // allocated by the graph; they were warned about above.
+    auto& handle_to_buffer_id = handle_to_buffer_scratch_;
+    handle_to_buffer_id.clear();
+    for (const auto& imp : builder.imported_buffers()) {
+        if (imp.handle.id >= handle_to_buffer_id.size()) {
+            handle_to_buffer_id.resize(imp.handle.id + 1, UINT32_MAX);
+        }
+        handle_to_buffer_id[imp.handle.id] = register_buffer(imp.buffer, imp.persistent);
+    }
+
     PassDecl pass;
     pass.name = name;
     pass.execute = std::move(execute);
     pass.parallel_group = builder.parallel_group();
     pass.queue = builder.queue();
     pass.image_uses.reserve(builder.texture_accesses().size());
+    pass.buffer_uses.reserve(builder.buffer_accesses().size());
+    for (const auto& acc : builder.buffer_accesses()) {
+        if (acc.handle.id >= handle_to_buffer_id.size()) { continue; }
+        const uint32_t buffer_id = handle_to_buffer_id[acc.handle.id];
+        if (buffer_id == UINT32_MAX) { continue; }
+        const BufferScope scope = buffer_scope_for(acc.access);
+        if (scope.stages == 0) {
+            FJELL_GFX_WARN("FrameGraph: pass '{}' declares a buffer access the graph has "
+                           "no buffer scope for.", name.c_str());
+            continue;
+        }
+        pass.buffer_uses.push_back(BufferUse{
+            .buffer_id = buffer_id,
+            .stages = scope.stages,
+            .access = scope.access,
+            .read = access_is_read(acc.access),
+            .write = access_is_write(acc.access),
+        });
+    }
 
     for (const auto& acc : builder.texture_accesses()) {
         if (!access_applies_to_image(acc.access)) { continue; }
@@ -939,6 +1039,85 @@ VkImageLayout merge_layouts(VkImageLayout a, VkImageLayout b) {
 
 } // namespace
 
+void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
+                                          QueueType queue) {
+    BufferState& s = buf.state;
+    const VkPipelineStageFlags2 dst_stage = stages_for_queue(use.stages, queue);
+
+    // A write waits for the last write (write-after-write) and for every
+    // reader since (write-after-read: execution only, a read leaves nothing
+    // to make available). A read waits for the last write unless an earlier
+    // barrier already made it visible to this stage and access.
+    VkPipelineStageFlags2 src_stage = 0;
+    VkAccessFlags2 src_access = 0;
+    VkAccessFlags2 dst_access = use.access;
+    if (use.write) {
+        src_stage = s.write_stages | s.read_stages;
+        src_access = s.write_access;
+    } else if (s.write_stages != 0
+               && ((dst_stage & ~s.visible_stages) != 0 || (use.access & ~s.visible_access) != 0)) {
+        src_stage = s.write_stages;
+        src_access = s.write_access;
+        // Widen to everything made visible before, so the one scope kept
+        // covers every reader so far.
+        dst_access |= s.visible_access;
+    }
+
+    if (src_stage != 0) {
+        const VkPipelineStageFlags2 barrier_dst =
+            use.write ? dst_stage : stages_for_queue(dst_stage | s.visible_stages, queue);
+        // Same rule as for images: a source stage the recording queue does
+        // not have means the last access happened on the other queue, and
+        // the timeline semaphore between the submits is what orders them.
+        // An image still needs its barrier there for the layout change; a
+        // buffer has none, so the barrier would carry nothing and is left
+        // out.
+        const VkPipelineStageFlags2 translated_src = stages_for_queue(src_stage, queue);
+        const bool cross_queue = translated_src != src_stage;
+
+        if (!cross_queue) {
+            VkBufferMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            barrier.srcStageMask = src_stage;
+            barrier.srcAccessMask = src_access;
+            barrier.dstStageMask = barrier_dst;
+            barrier.dstAccessMask = dst_access;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = buf.buffer;
+            barrier.offset = 0;
+            barrier.size = VK_WHOLE_SIZE;
+            buffer_barriers_scratch_.push_back(barrier);
+
+            if (layout_trace_enabled()) {
+                FJELL_GFX_INFO("[layout] buffer barrier buf=0x{:x} {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
+                               reinterpret_cast<uintptr_t>(buf.buffer),
+                               use.write ? (s.write_stages != 0 ? "WAW/WAR" : "WAR") : "RAW",
+                               static_cast<uint64_t>(barrier.srcStageMask),
+                               static_cast<uint64_t>(barrier.srcAccessMask),
+                               static_cast<uint64_t>(barrier.dstStageMask),
+                               static_cast<uint64_t>(barrier.dstAccessMask),
+                               queue == QueueType::async_compute ? "compute" : "graphics");
+            }
+        }
+
+        if (!use.write) {
+            s.visible_stages = barrier_dst;
+            s.visible_access = dst_access;
+        }
+    }
+
+    if (use.write) {
+        s.write_stages = dst_stage;
+        s.write_access = use.access & WRITE_ACCESS_BITS;
+        s.read_stages = 0;
+        s.visible_stages = 0;
+        s.visible_access = 0;
+    } else {
+        s.read_stages |= dst_stage;
+    }
+}
+
 void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
     // Merge every declared access per image into one required pre-pass
     // state. Iteration order of image_uses doesn't matter for the merge —
@@ -946,6 +1125,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
     auto& merged = merged_scratch_;
     merged.clear();
     barriers_scratch_.clear();
+    buffer_barriers_scratch_.clear();
 
     for (const auto& acc : pass.image_uses) {
         auto& img = images_[acc.image_id];
@@ -992,11 +1172,35 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         coalesce_slices(img);
     }
 
-    if (barriers_scratch_.empty()) { return; }
+    // Buffers, merged per buffer the same way: one use carrying every
+    // stage and access the pass declared on it.
+    auto& merged_buffers = merged_buffers_scratch_;
+    merged_buffers.clear();
+    for (const auto& use : pass.buffer_uses) {
+        BufferUse* m = nullptr;
+        for (auto& entry : merged_buffers) {
+            if (entry.buffer_id == use.buffer_id) { m = &entry; break; }
+        }
+        if (m == nullptr) {
+            merged_buffers.push_back(use);
+            continue;
+        }
+        m->stages |= use.stages;
+        m->access |= use.access;
+        m->read = m->read || use.read;
+        m->write = m->write || use.write;
+    }
+    for (const auto& use : merged_buffers) {
+        append_barrier_for_buffer(buffers_[use.buffer_id], use, pass.queue);
+    }
+
+    if (barriers_scratch_.empty() && buffer_barriers_scratch_.empty()) { return; }
     VkDependencyInfo dep{};
     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers_scratch_.size());
     dep.pImageMemoryBarriers = barriers_scratch_.data();
+    dep.bufferMemoryBarrierCount = static_cast<uint32_t>(buffer_barriers_scratch_.size());
+    dep.pBufferMemoryBarriers = buffer_barriers_scratch_.data();
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
