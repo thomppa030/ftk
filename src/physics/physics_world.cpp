@@ -160,12 +160,15 @@ public:
             default: return broad_phase::MOVING;
         }
     }
+#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
+    // Jolt only declares the name hook when its profiler is compiled in.
     [[nodiscard]] const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override {
         if (layer == broad_phase::STATIC) return "STATIC";
         if (layer == broad_phase::MOVING) return "MOVING";
         if (layer == broad_phase::SENSOR) return "SENSOR";
         return "UNKNOWN";
     }
+#endif
 };
 
 class ObjectVsBroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
