@@ -138,12 +138,10 @@ void WaterEditorContext::open_water(const std::string& path) {
     }
 
     setup_preview();
-    if (auto* cam = viewport_manager_.active_camera()) {
-        // Stand off and look along the sea rather than down at it: a wave
-        // field is read by how its crests march past, which is invisible from
-        // overhead.
-        cam->focus({0.0f, 0.0f, 0.0f}, 90.0f);
-    }
+    // Stand off and look along the sea rather than down at it: a wave
+    // field is read by how its crests march past, which is invisible from
+    // overhead.
+    viewport_manager_.frame({0.0f, 0.0f, 0.0f}, 90.0f);
 }
 
 void WaterEditorContext::setup_preview() {

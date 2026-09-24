@@ -95,6 +95,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tabs.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/viewport_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/imgui_curve_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/track_lanes.cpp
 )

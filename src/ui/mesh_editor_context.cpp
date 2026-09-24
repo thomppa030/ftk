@@ -198,13 +198,12 @@ void MeshEditorContext::apply_slot_materials() {
 }
 
 void MeshEditorContext::frame_camera() {
-    auto* cam = viewport_manager_.active_camera();
-    if (!cam || !model_) return;
+    if (!model_) return;
 
     const auto& aabb = model_->local_aabb();
     glm::vec3 center = aabb.valid() ? (aabb.min + aabb.max) * 0.5f : glm::vec3{0.0f};
     float radius = model_->bounding_radius() > 0.0f ? model_->bounding_radius() : 1.0f;
-    cam->focus(center, radius);
+    viewport_manager_.frame(center, radius);
 }
 
 // ── Panels ───────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,9 +46,17 @@ public:
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
 
-    // Draw viewport panels (image display, source selector, camera input).
-    // Picking, gizmo, and toolbar are the caller's responsibility.
+    // Draw viewport panels (image display, camera input) and, unless turned
+    // off, the preview toolbar over each (sheet 28). Picking and gizmo are the
+    // caller's responsibility.
     void draw(VulkanContext& ctx, const Input& input, float dt);
+
+    /// Off for a viewport that draws a toolbar of its own (the Scene's).
+    void set_preview_toolbar(bool on) { preview_toolbar_ = on; }
+
+    /// Points the viewports at what is edited, a sphere at `center` of
+    /// `radius`, and remembers it for the toolbar's Frame button and F.
+    void frame(const glm::vec3& center, float radius);
 
     // Access active panel state for external picking/gizmo
     [[nodiscard]] ViewportPanel* active_panel();
@@ -86,6 +95,15 @@ private:
     std::vector<ViewportPanel> panels_;
     int next_id_{1};
     int active_id_{0};
+    bool preview_toolbar_{true};
+    // What Frame brings into view, once the editor has said.
+    struct Framing {
+        glm::vec3 center{0.0f};
+        float radius{1.0f};
+    };
+    std::optional<Framing> framing_;
+
+    void draw_preview_toolbar(ViewportPanel& panel, VulkanContext& ctx);
 };
 
 } // namespace fjell

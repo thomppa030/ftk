@@ -11,6 +11,7 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/tabs.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>
@@ -508,4 +509,32 @@ TEST_CASE("A named box's remove icon removes without folding it", "[ui][kit]") {
     h.step(2);
     CHECK(remove);
     CHECK(open);
+}
+
+TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui][kit]") {
+    ImGuiHarness h;
+    const ImVec2 image_min{20.0f, 30.0f};
+    const ImVec2 image_max{420.0f, 330.0f};
+    ImVec2 left_min{};
+    float right_edge = 0.0f;
+    h.set_ui([&] {
+        {
+            ui::ViewportPill pill("##left", image_min, image_max, ui::PillPlace::TopLeft);
+            (void)ui::icon_button("##grid", ui::icon::grid, "Grid");
+            left_min = ImGui::GetItemRectMin();
+        }
+        {
+            ui::ViewportPill pill("##right", image_min, image_max, ui::PillPlace::TopRight);
+            (void)ui::icon_button("##a", ui::icon::grid, "A");
+            ImGui::SameLine();
+            (void)ui::icon_button("##b", ui::icon::grid, "B");
+            right_edge = ImGui::GetItemRectMax().x;
+        }
+    });
+    // The right one learns its width in the first frame and is placed by it after.
+    h.step(3);
+    CHECK(left_min.x > image_min.x);
+    CHECK(left_min.y > image_min.y);
+    CHECK(right_edge < image_max.x);
+    CHECK(right_edge > image_max.x - 16.0f);
 }

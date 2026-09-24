@@ -242,6 +242,8 @@ void SceneEditorContext::init() {
                            deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
+    // The Scene draws a toolbar of its own, with its tools and Play.
+    viewport_manager_.set_preview_toolbar(false);
 
     hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_, &command_history());
     properties_panel_.set_environment(deps_.environment);

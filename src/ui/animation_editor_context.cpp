@@ -423,9 +423,7 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
     preview_node_id_ = preview_scene_.add_node(std::move(node));
 
     // Auto-focus camera
-    if (auto* cam = viewport_manager_.active_camera()) {
-        cam->focus({0.0f, 1.0f, 0.0f}, 2.5f);
-    }
+    viewport_manager_.frame({0.0f, 1.0f, 0.0f}, 2.5f);
 
     // Play first clip if available
     if (!available_clip_paths_.empty()) {

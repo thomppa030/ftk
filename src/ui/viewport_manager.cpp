@@ -1,8 +1,10 @@
 #include "ui/viewport_manager.hpp"
 #include "core/profiler.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/viewport_toolbar.hpp"
 #include "ui/theme.hpp"
 #include "ui/viewport_view.hpp"
 
@@ -359,14 +361,63 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                             ui::icon::debug, std::format("Showing {}", view_name(panel.source, ctx)).c_str());
         }
 
-        // Camera input — only the active viewport drives the render
-        if (panel.hovered && panel.id == active_id_) {
+        if (preview_toolbar_ && img_w > 0 && img_h > 0) draw_preview_toolbar(panel, ctx);
+
+        // Camera input — only the active viewport drives the render, and not
+        // while the mouse is on its toolbar.
+        const bool on_toolbar = ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive();
+        if (panel.hovered && panel.id == active_id_ && !on_toolbar) {
             panel.camera.update(input, dt);
         }
     }
     ImGui::End();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
+}
+
+void ViewportManager::frame(const glm::vec3& center, float radius) {
+    framing_ = Framing{center, radius};
+    for (auto& panel : panels_) panel.camera.focus(center, radius);
+}
+
+void ViewportManager::draw_preview_toolbar(ViewportPanel& panel, VulkanContext& ctx) {
+    const ImVec2 min{panel.img_pos.x, panel.img_pos.y};
+    const ImVec2 max{panel.img_pos.x + panel.img_size.x, panel.img_pos.y + panel.img_size.y};
+
+    // Left: what is drawn over the picture, and bringing the asset back.
+    if (auto pill = ui::ViewportPill("##view_left", min, max, ui::PillPlace::TopLeft)) {
+        if (ui::toggle_button("##grid", ui::icon::grid, panel.show_grid, "Grid")) panel.show_grid = !panel.show_grid;
+        if (framing_) {
+            ImGui::SameLine();
+            if (ui::icon_button("##frame", ui::icon::frame_view, "Frame (F)")) {
+                panel.camera.focus(framing_->center, framing_->radius);
+            }
+        }
+    }
+    if (framing_ && panel.hovered && !ImGui::IsAnyItemActive() && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+        panel.camera.focus(framing_->center, framing_->radius);
+    }
+
+    // Right: what the viewport shows, and the projection.
+    if (auto pill = ui::ViewportPill("##view_right", min, max, ui::PillPlace::TopRight)) {
+        const bool lit = view_is_lit(panel.source, ctx);
+        if (ui::mode_button("##view", lit ? ui::icon::directional_light : ui::icon::debug,
+                            view_name(panel.source, ctx), !lit)) {
+            ImGui::OpenPopup("##view_menu");
+        }
+        ImGui::SetItemTooltip("What this viewport shows");
+        if (ImGui::BeginPopup("##view_menu")) {
+            view_menu(panel.source, ctx);
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine();
+        const bool perspective = panel.camera.mode() == EditorCameraMode::perspective;
+        if (ui::icon_button("##projection", perspective ? ui::icon::perspective : ui::icon::orthographic,
+                            perspective ? "Perspective: click for orthographic"
+                                        : "Orthographic: click for perspective")) {
+            panel.camera.set_mode(perspective ? EditorCameraMode::orthographic : EditorCameraMode::perspective);
+        }
+    }
 }
 
 } // namespace fjell

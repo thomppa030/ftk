@@ -97,9 +97,7 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
 
     setup_preview_scene();
 
-    if (auto* cam = viewport_manager_.active_camera()) {
-        cam->focus({0.0f, 0.0f, 0.0f}, 1.5f);
-    }
+    viewport_manager_.frame({0.0f, 0.0f, 0.0f}, 1.5f);
 
     document_opened();
     FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);

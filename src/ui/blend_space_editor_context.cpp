@@ -645,7 +645,7 @@ void BlendSpaceEditorContext::load_skeleton(const std::string& skel_path) {
     auto& anim = node->components.add<AnimatorComponent>();
     anim.init(skel_model->skeleton());
     preview_node_id_ = preview_scene_.add_node(std::move(node));
-    if (auto* cam = viewport_manager_.active_camera()) cam->focus({0.0f, 1.0f, 0.0f}, 2.5f);
+    viewport_manager_.frame({0.0f, 1.0f, 0.0f}, 2.5f);
 
     setup_preview_state_machine();
 }

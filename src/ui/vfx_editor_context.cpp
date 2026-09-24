@@ -367,9 +367,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
 
     setup_preview();
 
-    if (auto* cam = viewport_manager_.active_camera()) {
-        cam->focus({0.0f, 1.0f, 0.0f}, 3.0f);
-    }
+    viewport_manager_.frame({0.0f, 1.0f, 0.0f}, 3.0f);
 
     document_opened();
     FJELL_CORE_INFO("VFX editor opened: {}", fjvfx_path);
