@@ -1276,10 +1276,13 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
         carve_slices(img, fl.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
             img.slices[idx].layout = fl.layout;
+            // What the pass made the write visible to is where it expects
+            // readers, some of which the graph never sees (ImGui showing a
+            // viewport image), so the next write waits for those stages.
             img.slices[idx].state = AccessState{
                 .write_stages = fl.written_stage,
                 .write_access = fl.written_access,
-                .read_stages = 0,
+                .read_stages = fl.visible_stage,
                 .visible_stages = fl.visible_stage,
                 .visible_access = fl.visible_access,
             };
