@@ -1381,10 +1381,9 @@ void VulkanContext::submit_and_present() {
         // the single-submit path measures ~5% *faster* (344 → 327 FPS)
         // than the async path. CPU work is identical; the regression is
         // GPU-side serialization plus 3× submit overhead. Suspect the
-        // chain is effectively serial in practice — graphics_post waits
-        // at FRAGMENT_SHADER for v2, so vertex/early fragment can run
-        // alongside compute, but the workload here is too small for the
-        // overlap to recover the per-submit and timeline cost.
+        // chain is effectively serial in practice — and graphics_post now
+        // waits for v2 at every stage, since its compute passes read the
+        // async results too, which leaves even less to overlap.
         //
         // Three async passes total ~83µs of GPU compute; per-frame
         // delta is ~130µs. To make this pay we'd need either bigger
@@ -1472,10 +1471,12 @@ void VulkanContext::submit_and_present() {
         post_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         post_wait.semaphore = timeline;
         post_wait.value = v2;
-        // Wait at fragment stage — the compute output (AO) is read by
-        // mesh.frag, so earlier graphics-queue work (if any were still
-        // outstanding) wouldn't need to stall.
-        post_wait.stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        // Every stage waits. The compute results are read by compute
+        // passes here too, not only by fragment shaders (the second
+        // meshlet cull samples the Hi-Z pyramid), and the frame graph
+        // relies on this wait for every hand-off between the queues: its
+        // barriers after a compute-queue access only chain onto it.
+        post_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         VkCommandBufferSubmitInfo post_cmd{};
         post_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
