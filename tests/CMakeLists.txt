@@ -59,6 +59,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/fixed_timestep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/core/step_input_latch.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/test_pacing.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
@@ -232,6 +233,7 @@ add_executable(fjell-tests
     test_kinematic_spread.cpp
     test_character_intent.cpp
     test_simulation_determinism.cpp
+    test_test_pacing.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

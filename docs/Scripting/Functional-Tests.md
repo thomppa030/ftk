@@ -62,7 +62,7 @@ class DoorOpensTest : public fjell::FunctionalTest {
         start_height_ = transform().position.y;
     }
 
-    void test_tick(float dt) override {
+    void test_fixed_tick(const fjell::FixedStep& step) override {
         // drive the world here
     }
 
@@ -85,24 +85,32 @@ do: `[[fj::property]]` fields show up in the inspector and save with the scene,
 
 ### The lifecycle
 
-A test spans frames — the character has to walk, physics has to tick, the
-contact lands a frame or two later. So it is a lifecycle rather than a
-function:
+A test spans frames — the character has to walk, physics has to step, the
+contact lands a step or two later. So it is a lifecycle rather than a
+function, and it runs on the simulation's fixed steps rather than on frames:
 
 | | |
 |---|---|
-| `is_ready()` | Polled every frame until it returns true. Wait for an async load, or for the character to land. Default: ready at once. |
-| `start_test()` | Called once, when the test is ready. Record what the assertions will compare against. |
-| `test_tick(dt)` | Called each frame while the test runs. Drive the world here. |
+| `is_ready()` | Polled at the start of every fixed step until it returns true. Wait for an async load, or for the character to land. Default: ready at once. |
+| `start_test()` | Called once, at the start of the step on which the test is ready, before any script's `fixed_tick()` in it. Record what the assertions will compare against. |
+| `test_fixed_tick(step)` | Called each fixed step while the test runs, from that first step on. Drive the world here: set a character's intent, move a platform, spawn and destroy. |
+| `test_tick(dt)` | Called each frame while the test runs. For checks, and for anything that follows the screen. |
 | `cleanup_test()` | Called once the result is known, however it was reached — including a timeout. |
 
-**Override `test_tick()`, not `tick()`.** The script subsystem ticks every
-component every frame, including while a test is still waiting on `is_ready()`
-and after it has reported its verdict. A test that drove the world in those
-windows would be moving things before it started measuring — which is exactly
-how the trap test below once reported a shorter walk than it had performed.
-`tick()` is `final` on the base and gates `test_tick()` to the running window,
-so the mistake does not compile.
+**Drive the world from `test_fixed_tick()`.** A test that starts on a step and
+acts on steps does the same thing on the same step at any frame rate, so its
+result does not depend on how fast the machine running it draws — and
+`--pacing` (below) can check the game for the same. What `test_tick()` moves,
+it moves once a frame: on different steps at 30 fps than at 144.
+
+**Override `test_fixed_tick()` and `test_tick()`, not `fixed_tick()` and
+`tick()`.** The script subsystem ticks every component every frame and every
+step, including while a test is still waiting on `is_ready()` and after it has
+reported its verdict. A test that drove the world in those windows would be
+moving things before it started measuring — which is exactly how the trap test
+below once reported a shorter walk than it had performed. Both are `final` on
+the base and gate the test's own hooks to the running window, so the mistake
+does not compile.
 
 ### Assertions
 
@@ -170,6 +178,40 @@ The process exits 0 only if every test passed, so a shell or a CI job can act
 on it. A scene under `Tests/` holding no test component is reported rather than
 passed over — a test that cannot run is not a test that passed.
 
+### Pacing
+
+```bash
+fjell <project> --run-tests --pacing 30,144,jitter
+```
+
+`--pacing` plays every test once per pacing, telling the engine's clock each
+frame took what the pacing says rather than what it did: `30` is frames of a
+thirtieth of a second, `jitter` uneven frames from 2 to 45 ms with a
+quarter-second hitch every fiftieth. The simulation advances in fixed steps
+whatever the frames do, so each run of a test has to leave exactly the same
+state after every step. After each step the runner keeps every body and
+character — placement, velocity, spin, ground state — and every other node
+moved in the step; a node moved outside the steps, like a camera rig in
+`late_tick()`, is drawn rather than simulated and is left out.
+
+Each run is compared with the first pacing's, value for value, to the bit.
+A run that parts from it fails, naming where:
+
+```
+PASS  TrapTriggerTest (30 fps)       0.97s  the trap fired
+FAIL  TrapTriggerTest (144 fps)      0.97s  the simulation stepped differently at 144 fps
+        diverged from 30 fps at step 212: "Crate" position x is 3.4101 at 30 fps and 3.4097 at 144 fps
+```
+
+That is a frame rate leaking into the game: a script integrating with the
+frame's `dt` in `tick()` and handing the result to the simulation, a platform
+moved in `tick()` by a sine of the frame's time, a test acting in `test_tick()`.
+The step and the node say where to look. Runs are compared over the steps both
+took; a test finishing a frame earlier at one pacing is not a divergence.
+
+Every test run, paced or not, starts from game time zero, so a scene with waves
+or gusts plays from the same moment each time.
+
 **Editor build only.** In a game build (one with `game.fjell` beside the
 executable) stopping play closes the window rather than ending the session, so
 the first test would end the whole run. The runner says so instead of reporting
@@ -192,15 +234,24 @@ bool TrapTriggerTest::is_ready() {
     return cc->ground_state == fjell::CharacterGroundState::OnGround;
 }
 
-void TrapTriggerTest::test_tick(float) {
-    fjell::Node3D walker{character_id_};
-    auto* cc = walker.get_component<fjell::CharacterComponent>();
+void TrapTriggerTest::start_test() {
+    time_limit = 5.0f;
+    start_position_ = fjell::Node3D{character_id_}.position();
+
+    // Walked by intent, the way a player's controller moves a character.
+    if (auto* cc = fjell::Node3D{character_id_}.get_component<fjell::CharacterComponent>()) {
+        cc->movement = fjell::CharacterMovement::Intent;
+        cc->max_speed = walk_speed;
+    }
+}
+
+void TrapTriggerTest::test_fixed_tick(const fjell::FixedStep&) {
+    auto* cc = fjell::Node3D{character_id_}.get_component<fjell::CharacterComponent>();
     if (cc == nullptr) return;
 
-    // Horizontal velocity does not persist as a decision — write it every
-    // tick. Vertical is gravity's, so leave it alone.
-    cc->velocity.x = 0.0f;
-    cc->velocity.z = walk_speed;
+    // Straight ahead, every step: intent is cleared before each frame's
+    // input, the way a released stick lets go of it.
+    cc->move_intent = glm::vec3{0.0f, 0.0f, 1.0f};
 }
 
 void TrapTriggerTest::on_trigger_enter(uint32_t other_id) {
@@ -216,11 +267,12 @@ void TrapTriggerTest::on_trigger_enter(uint32_t other_id) {
 The component sits on the **trap**, not on the character, because a trigger
 callback goes to the node whose collider was entered.
 
-Note what it does *not* do: it never sets the character's position. Writing
-`velocity` and letting the solver move the capsule is what makes this a test of
-character movement rather than a test of arithmetic. Driving the world directly
-in C++ like this covers movement, physics and collision dispatch; it does not
-cover input bindings, which are not yet reachable from a test.
+Note what it does *not* do: it never sets the character's position or its
+velocity. Setting the intent and letting the engine steer the capsule and the
+solver move it is what makes this a test of character movement rather than a
+test of arithmetic. Driving the world directly in C++ like this covers
+movement, physics and collision dispatch; it does not cover input bindings,
+which are not yet reachable from a test.
 
 ## Things that will bite
 
@@ -232,7 +284,7 @@ it still passes, just not for the reason you think.
 **A passing test is not proof.** Check its duration against the physics. A 2.8
 metre walk at 3 m/s takes 0.93 s; a pass in 0.41 s means something fired that
 should not have. Run-to-run variance in a scenario that should be deterministic
-is itself a defect.
+is itself a defect, and `--pacing` is how to look for it.
 
 **Subsystems re-derive state from the scene every frame.** Anything a test sets
 *beside* a subsystem is overwritten on the next tick. Write the authoring node.

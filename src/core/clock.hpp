@@ -26,6 +26,10 @@ public:
     /// Scaled elapsed gameplay time (accumulates only while unpaused).
     [[nodiscard]] float game_elapsed() const { return game_elapsed_; }
 
+    /// Start game time over from zero, for a run that has to play from the
+    /// same moment every time whatever ran before it: a functional test.
+    void reset_game_time() { game_elapsed_ = 0.0f; }
+
     void set_time_scale(float scale) { time_scale_ = scale; }
     [[nodiscard]] float time_scale() const { return time_scale_; }
 

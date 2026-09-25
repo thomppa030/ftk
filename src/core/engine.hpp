@@ -17,6 +17,7 @@
 #include "core/capture_service.hpp"
 #include "environment/environment_overrides.hpp"
 #include "environment/environment_scenario.hpp"
+#include "scripting/test_pacing.hpp"
 #include "scripting/test_runner.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
@@ -101,6 +102,10 @@ public:
     /// contains it. Fails before the run when there is nothing to run or the
     /// tests could not be driven.
     [[nodiscard]] Result<> set_run_tests(const std::string& filter);
+    /// Play every test once per pacing in `list` ("30,144,jitter") and fail
+    /// a run whose simulation parts from the first pacing's. Call after
+    /// set_run_tests().
+    [[nodiscard]] Result<> set_test_pacing(std::string_view list);
 
     /// Whether every test passed. Read after run() to pick an exit code; true
     /// when no tests were run.
@@ -232,13 +237,20 @@ private:
     enum class TestPhase : uint8_t {
         idle,       ///< Not running tests at all.
         load,       ///< Load the next scene, or finish the run.
-        prepare,    ///< Play started; polling is_ready().
+        prepare,    ///< Play started; polling is_ready() at each step.
         run,        ///< start_test() called; ticking until a verdict.
         teardown,   ///< Verdict recorded; stop play before the next load.
         done,       ///< Every scene ran; the report is written.
     };
 
     void tick_test_runner();
+    /// At the start of a fixed step: start the test waiting in `prepare` if
+    /// it is ready. A test starts on a step so that it acts on the same step
+    /// at any frame rate.
+    void start_test_on_step();
+    /// After a scene has run at every pacing: fail each run whose steps part
+    /// from the first pacing's, naming the step and what differed.
+    void compare_paced_runs();
     /// Record how the current test ended and move to teardown.
     void finish_current_test(TestOutcome outcome, const std::string& message);
 
@@ -249,6 +261,13 @@ private:
     TestHandle test_;
     float test_elapsed_{0.0f};
     bool tests_passed_{true};
+
+    // --pacing: the frame rates each test plays at, which one this run is,
+    // the frames it is fed, and the steps each run of the current scene left.
+    std::vector<Pacing> pacings_;
+    std::size_t pacing_index_{0};
+    std::optional<PacedFrames> paced_frames_;
+    std::vector<StepRecording> paced_runs_;
 
     // Project
     ProjectManager project_mgr_;

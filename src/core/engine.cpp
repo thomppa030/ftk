@@ -1778,6 +1778,7 @@ void Engine::run_fixed_steps() {
         const FixedStepTime step = timestep.next_step();
         play_controller_.step_input().begin_step();
         scene_.begin_fixed_step(step.index);
+        start_test_on_step();
         const FixedTickContext ctx{
             .scene = scene_,
             .dt = static_cast<float>(step.dt),
@@ -1802,6 +1803,7 @@ void Engine::run_fixed_steps() {
                 scene_, *physics_subsystem_->world());
         }
         flush_pending();
+        if (!paced_runs_.empty()) paced_runs_.back().record(scene_, physics_subsystem_->world());
         stats.seconds += seconds_since(step_start);
     }
     if (steps > 0) scene_.end_fixed_steps(timestep.index() - 1);
@@ -1934,11 +1936,23 @@ Result<> Engine::set_run_tests(const std::string& filter) {
     return {};
 }
 
+Result<> Engine::set_test_pacing(std::string_view list) {
+    if (test_phase_ == TestPhase::idle) return make_error("--pacing needs --run-tests");
+    auto pacings = parse_pacings(list);
+    if (!pacings) return make_error(pacings.error());
+    pacings_ = std::move(*pacings);
+    std::string names;
+    for (const Pacing& pacing : pacings_) names += (names.empty() ? "" : ", ") + pacing.name;
+    FJELL_CORE_INFO("Pacing every test at {}", names);
+    return {};
+}
+
 void Engine::finish_current_test(TestOutcome outcome, const std::string& message) {
     auto& report = test_reports_.emplace_back();
     report.name = test_.valid()
                       ? test_.type_name()
                       : std::filesystem::path(test_scenes_[test_index_]).stem().string();
+    if (!pacings_.empty()) report.name += " (" + pacings_[pacing_index_].name + ")";
     report.scene = test_scenes_[test_index_];
     report.outcome = outcome;
     report.message = message;
@@ -1983,9 +1997,17 @@ void Engine::tick_test_runner() {
                 window_.request_close();
                 return;
             }
+            if (!pacings_.empty()) {
+                paced_frames_.emplace(pacings_[pacing_index_]);
+                paced_runs_.emplace_back();
+            }
             load_scene(test_scenes_[test_index_]);
             // What earlier tests' scripts were reported for is theirs.
             (void)script_subsystem_->manager().take_write_reports();
+            // Every run plays from game time zero: the simulation starts
+            // there, and whatever follows time (waves, gusts) has to be where
+            // it was the last time this test ran.
+            clock_.reset_game_time();
             // start() is what instantiates the scene's script components:
             // load_scene leaves every ScriptEntry holding only its type name.
             play_controller_.start();
@@ -2001,13 +2023,8 @@ void Engine::tick_test_runner() {
         }
 
         case TestPhase::prepare: {
+            // start_test_on_step() starts it; this only times the wait.
             test_elapsed_ += clock_.delta_time();
-            if (test_.is_ready()) {
-                test_elapsed_ = 0.0f;  // the limit is on the test, not the wait
-                test_.start_test();
-                test_phase_ = TestPhase::run;
-                return;
-            }
             if (test_.preparation_time_limit() > 0.0f
                 && test_elapsed_ > test_.preparation_time_limit()) {
                 finish_current_test(TestOutcome::timed_out, "never became ready");
@@ -2036,11 +2053,45 @@ void Engine::tick_test_runner() {
             // not in load_scene — a scene loaded over a live session would
             // alias node ids into the previous test's physics world.
             play_controller_.stop();
+            if (!pacings_.empty() && ++pacing_index_ < pacings_.size()) {
+                test_phase_ = TestPhase::load;  // the same scene at the next pacing
+                return;
+            }
+            if (!pacings_.empty()) {
+                compare_paced_runs();
+                pacing_index_ = 0;
+            }
             ++test_index_;
             test_phase_ = TestPhase::load;
             return;
         }
     }
+}
+
+void Engine::compare_paced_runs() {
+    // Each run of the scene left one report, the last of them in order.
+    const std::size_t first_report = test_reports_.size() - paced_runs_.size();
+    for (std::size_t run = 1; run < paced_runs_.size(); ++run) {
+        const auto divergence = paced_runs_.front().first_divergence(paced_runs_[run]);
+        if (!divergence) continue;
+        TestReport& report = test_reports_[first_report + run];
+        report.failures.push_back(std::format(
+            "diverged from {} at step {}: \"{}\" {} is {} at {} and {} at {}", pacings_.front().name,
+            divergence->step, divergence->node, divergence->field, divergence->first,
+            pacings_.front().name, divergence->second, pacings_[run].name));
+        if (report.outcome == TestOutcome::passed) {
+            report.outcome = TestOutcome::failed;
+            report.message = "the simulation stepped differently at " + pacings_[run].name;
+        }
+    }
+    paced_runs_.clear();
+}
+
+void Engine::start_test_on_step() {
+    if (test_phase_ != TestPhase::prepare || !test_.is_ready()) return;
+    test_elapsed_ = 0.0f;  // the limit is on the test, not the wait
+    test_.start_test();
+    test_phase_ = TestPhase::run;
 }
 
 Result<> Engine::set_scenario(const std::string& path) {
@@ -2099,7 +2150,13 @@ void Engine::run() {
         if (import_dialog_.is_open()) import_dialog_.tick();
         if (import_file_browser_.is_open()) import_file_browser_.tick();
         menu_bar_.tick_browsers();
-        clock_.tick();
+        // A paced test run tells the clock each frame took what its pacing
+        // says, however long it really took.
+        if (paced_frames_) {
+            clock_.advance(static_cast<float>(paced_frames_->next()));
+        } else {
+            clock_.tick();
+        }
         // One clock for what is simulated and what is drawn: the renderer is
         // told the time here, on every iteration, including those that end up
         // drawing nothing.

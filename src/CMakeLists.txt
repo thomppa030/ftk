@@ -269,6 +269,7 @@ add_executable(fjell
     core/input_component_meta.cpp
     scripting/script_manager.cpp
     scripting/reflected_types.cpp
+    scripting/test_pacing.cpp
     scripting/test_runner.cpp
     scripting/script_globals.cpp
     scripting/asset_type_registrations.cpp

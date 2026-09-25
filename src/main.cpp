@@ -51,6 +51,7 @@ int main(int argc, char* argv[]) {
     std::string scenario_path;
     bool run_tests = false;
     std::string test_filter;
+    std::string pacing;
     fjell::EnvironmentOverrides environment;
 
     // A flag that takes a value and is given none is a mistake worth
@@ -105,6 +106,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "--scenario") == 0) {
             if (const char* v = value_for(i, "--scenario")) scenario_path = v;
+        } else if (std::strcmp(argv[i], "--pacing") == 0) {
+            if (const char* v = value_for(i, "--pacing")) pacing = v;
         } else if (std::strcmp(argv[i], "--run-tests") == 0) {
             run_tests = true;
             // The filter is optional, so it cannot go through value_for():
@@ -148,6 +151,12 @@ int main(int argc, char* argv[]) {
             // no result at all — which must not read as "everything passed".
             if (auto ready = engine.set_run_tests(test_filter); !ready) {
                 FJELL_CORE_ERROR("{}", ready.error());
+                failed = true;
+            }
+        }
+        if (!pacing.empty() && !failed) {
+            if (auto paced = engine.set_test_pacing(pacing); !paced) {
+                FJELL_CORE_ERROR("{}", paced.error());
                 failed = true;
             }
         }

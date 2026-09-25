@@ -34,6 +34,12 @@ enum class TestResult : uint8_t {
 /// out of time. Tests run one at a time — there is one world to put a fixture
 /// in — but a single test spans as many frames as it needs.
 ///
+/// A test starts on a fixed step, not on a frame, and drives the world from
+/// `test_fixed_tick()`: then it does the same thing on the same step at any
+/// frame rate, which is what `--run-tests --pacing` checks the game for.
+/// `test_tick()` runs once a frame, for checks and for anything that follows
+/// the screen.
+///
 /// Failing an assertion records it and carries on, so one run reports
 /// everything it can see rather than only the first problem. The test ends
 /// when it calls `finish_test()` or its `time_limit` expires; a test that
@@ -51,8 +57,8 @@ enum class TestResult : uint8_t {
 ///         start_pos = transform().position;
 ///     }
 ///
-///     void test_tick(float dt) override {
-///         transform().position.z += 2.0f * dt;
+///     void test_fixed_tick(const fjell::FixedStep& step) override {
+///         transform().position.z += 2.0f * step.dt;
 ///     }
 ///
 ///     void on_trigger_enter(uint32_t other) override {
@@ -67,26 +73,39 @@ enum class TestResult : uint8_t {
 /// @endcode
 class FunctionalTest : public ScriptComponent {
 public:
-    /// Polled every frame before the test starts, until it returns true.
-    /// Override to wait for an async load or for physics to settle. Taking
-    /// longer than `preparation_time_limit` fails the test without running it.
+    /// Polled at the start of every fixed step before the test starts, until
+    /// it returns true. Override to wait for an async load or for physics to
+    /// settle. Taking longer than `preparation_time_limit` fails the test
+    /// without running it.
     virtual bool is_ready() { return true; }
 
-    /// Called once, the frame after `is_ready()` first returns true. Set up
-    /// what the test needs and record whatever the assertions compare against.
+    /// Called once, at the start of the step on which `is_ready()` first
+    /// returns true, before any script's `fixed_tick()` in it. Set up what the
+    /// test needs and record whatever the assertions compare against.
     virtual void start_test() {}
 
+    /// Called each fixed step while the test is running, from the step
+    /// `start_test()` ran on until the test reports a verdict. Drive the world
+    /// from here: move things, set a character's intent, spawn and destroy.
+    /// Override this rather than `fixed_tick()`.
+    virtual void test_fixed_tick(const FixedStep& step) { (void)step; }
+
     /// Called each frame while the test is running — after `start_test()` and
-    /// before it reports a verdict. Override this rather than `tick()`.
+    /// before it reports a verdict. For checks, and for what follows the
+    /// screen: what it moves, it moves at a frame's time, so on different
+    /// steps at different frame rates. Override this rather than `tick()`.
     virtual void test_tick(float dt) { (void)dt; }
 
-    /// The script subsystem ticks every component every frame, including while
-    /// a test is still waiting on `is_ready()` and after it has finished. A
-    /// test that drove the world in those windows would be moving things
-    /// before it started measuring, so the phase gate lives here rather than
-    /// in each test.
+    /// The script subsystem ticks every component every frame and every step,
+    /// including while a test is still waiting on `is_ready()` and after it
+    /// has finished. A test that drove the world in those windows would be
+    /// moving things before it started measuring, so the phase gate lives
+    /// here rather than in each test.
     void tick(float dt) final {
         if (running_ && !finished()) test_tick(dt);
+    }
+    void fixed_tick(const FixedStep& step) final {
+        if (running_ && !finished()) test_fixed_tick(step);
     }
 
     /// Called once the result is known, however it was reached — including on
