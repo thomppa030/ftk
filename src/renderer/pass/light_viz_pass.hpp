@@ -18,7 +18,6 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
-    void set_tile_ssbo(VkBuffer buffer, VkDeviceSize size);
     void set_mode(uint32_t mode) { mode_ = mode; }
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
@@ -53,7 +52,8 @@ private:
 
     uint32_t mode_{0}; // 0 = heatmap, 1 = grid
 
-    // Cached tile SSBO info for descriptor updates
+    // The tile lists this run's light cull wrote, taken from the catalog in
+    // declare(); null when there are none or the view is not showing.
     VkBuffer tile_buffer_{VK_NULL_HANDLE};
     VkDeviceSize tile_buffer_size_{0};
 };

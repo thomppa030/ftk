@@ -275,11 +275,6 @@ void LightVizPass::invalidate_imgui_texture() {
     }
 }
 
-void LightVizPass::set_tile_ssbo(VkBuffer buffer, VkDeviceSize size) {
-    tile_buffer_ = buffer;
-    tile_buffer_size_ = size;
-}
-
 void LightVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
     if (tile_buffer_ == VK_NULL_HANDLE) return;
@@ -354,15 +349,20 @@ PassSetup LightVizPass::setup() const {
 }
 
 void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    // LightVizPass is registered twice (heatmap + grid); both bits can
-    // keep either instance alive. The mode-specific bit check happens
-    // at record time.
-    const uint32_t bits =
-        (1U << static_cast<uint32_t>(ViewportSource::light_heatmap)) |
-        (1U << static_cast<uint32_t>(ViewportSource::light_grid));
-    if ((ctx.active_sources & bits) != 0U) {
-        builder.has_side_effects();
-    }
+    // Registered twice, once per view; each instance draws only while its
+    // own view is showing.
+    tile_buffer_ = VK_NULL_HANDLE;
+    tile_buffer_size_ = 0;
+    const auto source = mode_ == 0 ? ViewportSource::light_heatmap : ViewportSource::light_grid;
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(source))) == 0U) { return; }
+    const auto tiles = ctx.buffer_imports.find(fg_name_hash("tile_light_ssbo"));
+    if (tiles == ctx.buffer_imports.end()) { return; }
+    tile_buffer_ = tiles->second.buffer;
+    tile_buffer_size_ = tiles->second.size;
+    builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
+                 ResourceAccess::storage_buffer_read_fragment);
+    // What it draws is its own image, shown by the editor.
+    builder.has_side_effects();
 }
 
 } // namespace fjell
