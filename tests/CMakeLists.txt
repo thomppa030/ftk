@@ -212,6 +212,7 @@ add_executable(fjell-tests
     test_particle_budget.cpp
     test_buoyancy.cpp
     test_fixed_timestep.cpp
+    test_fixed_step_blend.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

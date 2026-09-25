@@ -3,7 +3,10 @@
 #include "core/profiler.hpp"
 #include "scripting/fjell/component.hpp"
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
+#include <limits>
 
 namespace fjell {
 
@@ -318,6 +321,33 @@ std::vector<const Node*> Scene::collect_subtree(uint32_t root_id) const {
     return result;
 }
 
+namespace {
+
+/// Whether two transforms place a node identically.
+[[nodiscard]] bool same_placement(const Transform& a, const Transform& b) {
+    return a.position == b.position && a.rotation == b.rotation && a.scale == b.scale;
+}
+
+/// Where the node is drawn. Each part of a node the last step moved is drawn
+/// blended while it is still where that step left it. A part something
+/// outside the simulation has changed since (a script turning a character in
+/// its tick, a teleport, the network, the inspector) is drawn as it now is:
+/// a turn does not stop a walk from blending, and a jump is not blended
+/// across.
+[[nodiscard]] Transform drawn_transform(const Node3D& node) {
+    if (!node.interpolated_) return node.transform;
+    const Transform& now = node.transform;
+    const Transform& end = node.step_end_transform_;
+    const Transform& blend = node.interpolated_transform_;
+    return Transform{
+        .position = now.position == end.position ? blend.position : now.position,
+        .rotation = now.rotation == end.rotation ? blend.rotation : now.rotation,
+        .scale = now.scale == end.scale ? blend.scale : now.scale,
+    };
+}
+
+} // namespace
+
 void Scene::compute_world_matrices(ThreadPool* pool) {
     FJELL_PROFILE_SCOPE_N("compute_world_matrices");
 
@@ -328,18 +358,18 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
 
     auto n = objects_.size();
 
-    // Snapshot previous world matrices for motion vectors, then detect dirty transforms
+    // Snapshot previous world matrices for motion vectors, then detect dirty
+    // transforms. A node is drawn at its blended transform while the last
+    // fixed step moved it, and at its transform otherwise.
     auto detect_dirty = [&](uint32_t /*chunk*/, uint32_t begin, uint32_t end) {
         for (uint32_t i = begin; i < end; ++i) {
             auto* spatial = objects_[i]->as_spatial();
             if (!spatial) continue;
             spatial->prev_world_matrix_ = spatial->world_matrix_;
-            if (spatial->transform_dirty_ ||
-                spatial->transform.position != spatial->prev_transform_.position ||
-                spatial->transform.rotation != spatial->prev_transform_.rotation ||
-                spatial->transform.scale != spatial->prev_transform_.scale) {
-                spatial->local_matrix_ = spatial->transform.matrix();
-                spatial->prev_transform_ = spatial->transform;
+            const Transform drawn = drawn_transform(*spatial);
+            if (spatial->transform_dirty_ || !same_placement(drawn, spatial->prev_transform_)) {
+                spatial->local_matrix_ = drawn.matrix();
+                spatial->prev_transform_ = drawn;
                 spatial->transform_dirty_ = false;
                 spatial->world_dirty_ = true;
             } else {
@@ -443,7 +473,7 @@ glm::mat4 Scene::current_world_matrix(const Node3D& node) const {
     return world;
 }
 
-void Scene::set_world_position(Node3D& node, const glm::vec3& world_position) const {
+glm::mat4 Scene::parent_world_matrix(const Node3D& node) const {
     glm::mat4 parent_world{1.0f};
     int32_t parent_id = node.parent_id;
     while (parent_id >= 0) {
@@ -454,7 +484,90 @@ void Scene::set_world_position(Node3D& node, const glm::vec3& world_position) co
         }
         parent_id = parent->parent_id;
     }
+    return parent_world;
+}
+
+void Scene::set_world_position(Node3D& node, const glm::vec3& world_position) const {
+    const glm::mat4 parent_world = parent_world_matrix(node);
     node.transform.position = glm::vec3{glm::inverse(parent_world) * glm::vec4{world_position, 1.0f}};
+}
+
+void Scene::teleport(Node3D& node, const glm::vec3& world_position,
+                     const glm::quat& world_rotation) const {
+    const glm::mat4 parent_world = parent_world_matrix(node);
+    node.transform.position = glm::vec3{glm::inverse(parent_world) * glm::vec4{world_position, 1.0f}};
+    // The parent's rotation, from its basis with the scale taken out.
+    const glm::quat parent_rotation = glm::quat_cast(glm::mat3{
+        glm::normalize(glm::vec3(parent_world[0])),
+        glm::normalize(glm::vec3(parent_world[1])),
+        glm::normalize(glm::vec3(parent_world[2]))});
+    node.transform.rotation = glm::normalize(glm::inverse(parent_rotation) * world_rotation);
+
+    // Arriving is the start and end of the step as far as blending is
+    // concerned, so it is never drawn crossing the distance it jumped. Moved
+    // inside a step, whatever else the step does to it blends from here.
+    node.step_start_transform_ = node.transform;
+    node.step_end_transform_ = node.transform;
+    node.interpolated_ = false;
+}
+
+// ── Blending between fixed steps ────────────────────────────────────────
+
+void Scene::begin_fixed_step(std::uint64_t index) {
+    for (auto& obj : objects_) {
+        auto* spatial = obj->as_spatial();
+        if (spatial == nullptr) continue;
+        spatial->step_start_transform_ = spatial->transform;
+        spatial->step_start_index_ = index;
+    }
+}
+
+void Scene::end_fixed_steps(std::uint64_t last_index) {
+    for (auto& obj : objects_) {
+        auto* spatial = obj->as_spatial();
+        if (spatial == nullptr) continue;
+        spatial->step_end_transform_ = spatial->transform;
+        // Spawned during the last step, it has no start in that step to blend
+        // from, and appears where it was put.
+        spatial->interpolated_ =
+            spatial->step_start_index_ == last_index &&
+            !same_placement(spatial->step_start_transform_, spatial->step_end_transform_);
+    }
+}
+
+void Scene::interpolate(float alpha) {
+    for (auto& obj : objects_) {
+        auto* spatial = obj->as_spatial();
+        if (spatial == nullptr || !spatial->interpolated_) continue;
+        const Transform& from = spatial->step_start_transform_;
+        const Transform& to = spatial->step_end_transform_;
+        spatial->interpolated_transform_.position = glm::mix(from.position, to.position, alpha);
+        spatial->interpolated_transform_.rotation = glm::slerp(from.rotation, to.rotation, alpha);
+        spatial->interpolated_transform_.scale = glm::mix(from.scale, to.scale, alpha);
+    }
+}
+
+void Scene::clear_interpolation() {
+    for (auto& obj : objects_) {
+        auto* spatial = obj->as_spatial();
+        if (spatial == nullptr) continue;
+        spatial->interpolated_ = false;
+        spatial->step_start_index_ = std::numeric_limits<std::uint64_t>::max();
+    }
+}
+
+glm::mat4 Scene::interpolated_world_matrix(const Node3D& node) const {
+    glm::mat4 world = drawn_transform(node).matrix();
+    int32_t parent_id = node.parent_id;
+    while (parent_id >= 0) {
+        const auto* parent = find(static_cast<uint32_t>(parent_id));
+        if (parent == nullptr) break;
+        if (const auto* spatial = parent->as_spatial()) {
+            world = drawn_transform(*spatial).matrix() * world;
+        }
+        parent_id = parent->parent_id;
+    }
+    return world;
 }
 
 void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {

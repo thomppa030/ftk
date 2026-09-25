@@ -66,6 +66,37 @@ public:
     /// under its current parent chain.
     void set_world_position(Node3D& node, const glm::vec3& world_position) const;
 
+    /// Moves the node to a world placement at once: its local transform is set
+    /// so it sits there under its parent chain, and it is not blended there
+    /// from where it was. Its scale stays.
+    void teleport(Node3D& node, const glm::vec3& world_position,
+                  const glm::quat& world_rotation) const;
+
+    // ── Blending between fixed steps ──
+    // During play, the engine calls begin_fixed_step() before each fixed
+    // step, end_fixed_steps() after the last step of a frame, and
+    // interpolate() every frame, whether it ran steps or not, before
+    // compute_world_matrices().
+
+    /// Keep every node's transform as the start of the step about to run.
+    void begin_fixed_step(std::uint64_t index);
+    /// Keep every node's transform as the end of the last step, and mark the
+    /// nodes that step moved.
+    void end_fixed_steps(std::uint64_t last_index);
+    /// Blend each node the last step moved between that step's start and end,
+    /// `alpha` of the way. A part of it (position, rotation, scale) that
+    /// something outside the simulation has changed since is drawn as it now
+    /// is instead.
+    void interpolate(float alpha);
+    /// Draw every node at its transform again: play is over.
+    void clear_interpolation();
+
+    /// Where the node is drawn: its world matrix from its and its ancestors'
+    /// blended transforms where the last step moved them, and their current
+    /// transforms otherwise. What compute_world_matrices() will produce, for
+    /// anything that follows a node on screen before that pass has run.
+    [[nodiscard]] glm::mat4 interpolated_world_matrix(const Node3D& node) const;
+
     [[nodiscard]] Node* find(uint32_t id);
     [[nodiscard]] const Node* find(uint32_t id) const;
     [[nodiscard]] Node3D* find_spatial(uint32_t id) {
@@ -161,6 +192,10 @@ public:
     [[nodiscard]] uint64_t id() const { return scene_id_; }
 
 private:
+    /// The world matrix of the node's parent chain from their current
+    /// transforms; identity for a root.
+    [[nodiscard]] glm::mat4 parent_world_matrix(const Node3D& node) const;
+
     static uint64_t next_scene_id() {
         static std::atomic<uint64_t> counter{1};
         return counter.fetch_add(1);

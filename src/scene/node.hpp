@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -68,11 +69,25 @@ struct Node3D : public Node {
     glm::mat4 world_matrix_{1.0f};
     glm::mat4 prev_world_matrix_{1.0f}; // previous frame's world matrix (for motion vectors)
 
-    // Cached local matrix — recomputed only when transform changes
+    // Cached local matrix — recomputed only when the drawn transform changes
     glm::mat4 local_matrix_{1.0f};
-    Transform prev_transform_{}; // snapshot for dirty detection
+    Transform prev_transform_{}; // what local_matrix_ was built from, for dirty detection
     bool transform_dirty_{true}; // true = local_matrix_ needs recompute
     bool world_dirty_{true};     // true = world_matrix_ needs recompute this frame
+
+    // Blending between fixed steps. The simulation moves a node in whole
+    // steps; a node the last step moved is drawn at `interpolated_transform_`,
+    // its transform blended between the start and end of that step by how far
+    // the frame sits past it, so it moves smoothly at any frame rate. Nothing
+    // in the simulation reads these: `transform` stays the exact state.
+    Transform step_start_transform_{};
+    Transform step_end_transform_{};
+    Transform interpolated_transform_{};
+    // The step `step_start_transform_` was taken at. A node spawned during
+    // the last step has none from that step, and is drawn where it is.
+    std::uint64_t step_start_index_{std::numeric_limits<std::uint64_t>::max()};
+    // Drawn at `interpolated_transform_` rather than `transform`.
+    bool interpolated_{false};
 
     Node3D();
     ~Node3D() override;

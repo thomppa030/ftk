@@ -6,6 +6,9 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scene/component_registry.hpp"
+#include "physics/physics_world.hpp"
+
+#include <cstring>
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name) {
     auto* scene = fjell::script_services().scene;
@@ -54,6 +57,37 @@ extern "C" FJELL_SDK_EXPORT float* fjell_scene_get_rotation(uint32_t node_id) {
     if (!scene) return nullptr;
     auto* node = scene->find_spatial(node_id);
     return node ? &node->transform.rotation.x : nullptr;
+}
+
+extern "C" FJELL_SDK_EXPORT bool fjell_scene_get_render_transform(uint32_t node_id,
+                                                                  float* position,
+                                                                  float* rotation,
+                                                                  float* scale) {
+    auto* scene = fjell::script_services().scene;
+    if (!scene) return false;
+    const auto* node = scene->find_spatial(node_id);
+    if (!node) return false;
+    const fjell::Transform drawn =
+        fjell::decompose_matrix(scene->interpolated_world_matrix(*node));
+    std::memcpy(position, &drawn.position, sizeof(drawn.position));
+    std::memcpy(rotation, &drawn.rotation, sizeof(drawn.rotation));
+    std::memcpy(scale, &drawn.scale, sizeof(drawn.scale));
+    return true;
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_scene_teleport(uint32_t node_id, const float* position,
+                                                      const float* rotation) {
+    auto& services = fjell::script_services();
+    if (!services.scene) return;
+    auto* node = services.scene->find_spatial(node_id);
+    if (!node) return;
+    glm::vec3 world_position;
+    glm::quat world_rotation;
+    std::memcpy(&world_position, position, sizeof(world_position));
+    std::memcpy(&world_rotation, rotation, sizeof(world_rotation));
+    services.scene->teleport(*node, world_position, world_rotation);
+    // A body's physics would otherwise put the node back where it was.
+    if (services.physics) services.physics->teleport(node_id, world_position, world_rotation);
 }
 
 // The component of the given type on one node, engine or script, or null.

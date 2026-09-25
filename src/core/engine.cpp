@@ -1748,6 +1748,7 @@ void Engine::run_fixed_steps() {
     for (int i = 0; i < steps; ++i) {
         FJELL_PROFILE_SCOPE_N("fixed_step");
         const FixedStepTime step = timestep.next_step();
+        scene_.begin_fixed_step(step.index);
         const FixedTickContext ctx{
             .scene = scene_,
             .dt = static_cast<float>(step.dt),
@@ -1768,6 +1769,7 @@ void Engine::run_fixed_steps() {
         }
         flush_pending();
     }
+    if (steps > 0) scene_.end_fixed_steps(timestep.index() - 1);
 }
 
 void Engine::flush_pending() {
@@ -2101,6 +2103,14 @@ void Engine::run() {
             // Phase 1: Environment, then the simulation's fixed steps
             for (auto* s : play_phase_1_) s->run(ctx);
             run_fixed_steps();
+
+            // What the steps moved is drawn blended between the last two of
+            // them, whether this frame ran any or not, and the shaders see the
+            // time that blend shows, so the waves are drawn at the moment the
+            // hulls on them are.
+            const FixedTimestep& timestep = play_controller_.fixed_timestep();
+            scene_.interpolate(static_cast<float>(timestep.alpha()));
+            vulkan_context_->set_time(static_cast<float>(timestep.render_time()));
 
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->run(ctx);

@@ -418,6 +418,9 @@ void PlayController::stop() {
 
     session_->snapshot()->restore(s_);
 
+    // The editor draws every node where its transform puts it.
+    s_.scene->clear_interpolation();
+
     // Bodies are keyed by node id, so the world can outlive the play scene
     // by a moment without referencing anything that is gone.
     s_.physics->notify_play_stop(ctx);

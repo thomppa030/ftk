@@ -56,6 +56,12 @@ public:
         return start_time_ + (static_cast<double>(index_) * dt_);
     }
 
+    /// The simulation time rendering shows. What moved is drawn blended
+    /// `alpha()` of the way through the last step, so anything drawn from a
+    /// time, like the waves a hull floats on, has to be drawn at that same
+    /// point in the step.
+    [[nodiscard]] double render_time() const { return time() - dt_ + (alpha() * dt_); }
+
     [[nodiscard]] double step_seconds() const { return dt_; }
     [[nodiscard]] std::uint64_t index() const { return index_; }
 

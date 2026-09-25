@@ -3,6 +3,7 @@
 
 #include "fjell/api.h"
 #include "fjell/component.hpp"
+#include "fjell/transform.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -14,6 +15,10 @@ FJELL_SDK_EXPORT void     fjell_scene_destroy(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_position(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_scale(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_rotation(uint32_t node_id);
+FJELL_SDK_EXPORT bool     fjell_scene_get_render_transform(uint32_t node_id, float* position,
+                                                           float* rotation, float* scale);
+FJELL_SDK_EXPORT void     fjell_scene_teleport(uint32_t node_id, const float* position,
+                                               const float* rotation);
 FJELL_SDK_EXPORT void*    fjell_scene_get_component(uint32_t node_id, const char* type_name);
 FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, const char* type_name);
 }
@@ -71,6 +76,30 @@ struct Node3D {
     /// For Euler input use `Transform::set_euler_degrees()`.
     [[nodiscard]] glm::quat& rotation() const {
         return *reinterpret_cast<glm::quat*>(fjell_scene_get_rotation(node_id));
+    }
+
+    /// Where the node is drawn, in world space. The simulation moves things in
+    /// fixed steps and each frame draws them blended between the last two, so
+    /// this is up to a step behind `position()`, which is the simulation's own
+    /// state. Follow a node on screen (with a camera, a marker, a trail) by
+    /// this, or the follower steps while the node glides. Called from
+    /// `tick()`, which runs before the simulation steps, it is where the node
+    /// was drawn last frame.
+    /// @return The drawn world transform, or an identity transform if the
+    ///         node no longer resolves.
+    [[nodiscard]] Transform render_transform() const {
+        Transform drawn;
+        (void)fjell_scene_get_render_transform(node_id, &drawn.position.x, &drawn.rotation.x,
+                                               &drawn.scale.x);
+        return drawn;
+    }
+
+    /// Move the node to a world position and rotation at once: it is drawn
+    /// there, not blended there from where it was, and a physics body or
+    /// character on it moves with it, keeping its velocity. Writing
+    /// `position()` moves a node too, but a body's physics would put it back.
+    void teleport(const glm::vec3& world_position, const glm::quat& world_rotation) const {
+        fjell_scene_teleport(node_id, &world_position.x, &world_rotation.x);
     }
 
     /// Look up a component on this node.

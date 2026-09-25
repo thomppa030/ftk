@@ -2,6 +2,9 @@
 
 #include "physics/physics_types.hpp"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -50,6 +53,11 @@ public:
     [[nodiscard]] glm::vec3 get_linear_velocity(uint32_t object_id) const;
     void set_angular_velocity(uint32_t object_id, const glm::vec3& vel);
     [[nodiscard]] glm::vec3 get_angular_velocity(uint32_t object_id) const;
+
+    /// Move a node's body to a world placement at once, keeping its velocity:
+    /// a dynamic or kinematic body is put there without sweeping the way, and
+    /// a character stands there. Nothing happens for a node without a body.
+    void teleport(uint32_t object_id, const glm::vec3& position, const glm::quat& rotation);
 
     /// Nearest hit along a ray. `filter` narrows which bodies are eligible.
     [[nodiscard]] bool raycast(const glm::vec3& origin, const glm::vec3& direction,

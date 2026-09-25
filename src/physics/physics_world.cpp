@@ -1586,6 +1586,24 @@ glm::vec3 PhysicsWorld::get_angular_velocity(uint32_t object_id) const {
     return to_glm(impl_->physics_system->GetBodyInterface().GetAngularVelocity(it->second));
 }
 
+void PhysicsWorld::teleport(uint32_t object_id, const glm::vec3& position,
+                            const glm::quat& rotation) {
+    if (auto it = impl_->object_to_body.find(object_id); it != impl_->object_to_body.end()) {
+        impl_->physics_system->GetBodyInterface().SetPositionAndRotation(
+            it->second, to_jolt(position), to_jolt_quat(rotation), JPH::EActivation::Activate);
+        return;
+    }
+    for (auto& entry : impl_->characters) {
+        if (entry.object_id != object_id) continue;
+        entry.character->SetPosition(to_jolt(position));
+        entry.character->SetRotation(to_jolt_quat(rotation));
+        // Already where the node is, so the next step does not take it for a
+        // move from outside and place it a second time.
+        entry.synced_position = position;
+        return;
+    }
+}
+
 // ── Raycast ─────────────────────────────────────────────────────────────
 
 // Translates an engine-side QueryFilter into the body filter Jolt asks with.
