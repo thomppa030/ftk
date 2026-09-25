@@ -192,6 +192,11 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     return asset;
 }
 
+std::vector<ModelDecl> load_widget_models(const std::string& path) {
+    auto asset = load_widget_asset(path);
+    return asset ? std::move(asset->models) : std::vector<ModelDecl>{};
+}
+
 std::string widget_asset_text(const WidgetAsset& asset, const UiNode* markup) {
     std::ostringstream file;
     file << "<widget";

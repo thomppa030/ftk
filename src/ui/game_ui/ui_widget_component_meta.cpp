@@ -25,6 +25,12 @@ static const bool registered = [] {
             if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space)
                 out["render_mode"] = static_cast<int>(wc->render_mode);
             if (!wc->style_classes.empty()) out["style_classes"] = wc->style_classes;
+            if (!wc->model_nodes.empty()) {
+                auto& picks = out["model_nodes"];
+                for (const auto& picked : wc->model_nodes) {
+                    picks.push_back({{"model", picked.model}, {"node", picked.node}});
+                }
+            }
             if (wc->scaling != UiWidgetComponent::Scaling::design_resolution)
                 out["scaling"] = static_cast<int>(wc->scaling);
             if (wc->scaling == UiWidgetComponent::Scaling::custom)
@@ -43,6 +49,11 @@ static const bool registered = [] {
             wc.render_mode = static_cast<UiWidgetComponent::RenderMode>(j.value("render_mode", 0));
             if (j.contains("style_classes") && j["style_classes"].is_array()) {
                 for (const auto& cls : j["style_classes"]) wc.style_classes.push_back(cls.get<std::string>());
+            }
+            if (j.contains("model_nodes") && j["model_nodes"].is_array()) {
+                for (const auto& picked : j["model_nodes"]) {
+                    wc.model_nodes.push_back({picked.value("model", ""), picked.value("node", 0u)});
+                }
             }
             wc.scaling = static_cast<UiWidgetComponent::Scaling>(j.value("scaling", 0));
             wc.custom_reference_height = j.value("reference_height", 1080.0f);

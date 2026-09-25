@@ -104,6 +104,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         inst.node_id = obj->id;
         inst.widget_path = widget_resolved;
         inst.style_classes = wc->style_classes;
+        inst.model_nodes = wc->model_nodes;
         inst.render_mode = wc->render_mode;
         inst.game_ui = std::make_unique<GameUi>();
         inst.game_ui->pipes().set_game_pipes(&script_manager_->reflected_types());
@@ -184,9 +185,16 @@ void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_ass
     auto& models = inst.game_ui->models();
     if (scene_ != nullptr && model_world_) models.attach(*scene_, *model_world_, inst.node_id);
 
-    // The placed widget's own Models live in the UI's root scope; a nested
+    // The placed widget's own Models live in the UI's root scope, each read
+    // from the node the placement picked for it when there is one; a nested
     // widget's in the scope WidgetResolver made for it.
-    for (const auto& model : widget_asset.models) models.add(model, inst.game_ui->context());
+    for (const auto& model : widget_asset.models) {
+        uint32_t placed = 0;
+        for (const auto& picked : inst.model_nodes) {
+            if (picked.model == model.name) placed = picked.node;
+        }
+        models.add(model, inst.game_ui->context(), placed);
+    }
     auto walk = [&](auto& self, UiNode& node) -> void {
         if (node.is_widget && node.scoped_context) {
             for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);

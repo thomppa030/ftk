@@ -59,10 +59,18 @@ time it is read. A prop may carry a whole Model on to a nested widget:
 - `local` is the node carrying that component which the local player controls; in
   a single-player game, the first node that has one.
 
+A placement can choose too. Under **Models**, the UI Widget component lists the
+widget's own `<model>`s, each with a node field showing its rule ("Local player",
+"This node") until a node is picked from the scene or dragged in from the
+hierarchy; only nodes carrying the Model's component are offered, and clearing the
+field goes back to the rule. The pick is saved with the scene. A nested widget's
+Models are not listed: it gets its data through props.
+
 A controller can choose a Model's node at runtime, for a target frame showing
 whatever the player has targeted: `models().bind("target", node.id())` reads that
 node until `models().clear("target")` returns the Model to its `from` rule. A
-destroyed node leaves the Model empty. `model<PlayerStats>("player")` hands the
+destroyed node leaves the Model empty. A controller's choice wins over the
+placement's, which wins over the rule. `model<PlayerStats>("player")` hands the
 controller the component its markup shows now, read-only, or null.
 
 A controller's own `[[fj::model]]` fields are Models too, by their field name:

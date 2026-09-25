@@ -12,6 +12,7 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
 #include "ui/kit/search.hpp"
+#include "ui/node_visuals.hpp"
 #include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
@@ -33,36 +34,9 @@ namespace fjell {
 
 namespace {
 
-// What a hierarchy drag carries: the dragged nodes' ids, in scene order.
-constexpr const char* NODES_PAYLOAD = "HIERARCHY_NODE";
-
 // The toolbar's node-kind filter, and the least the search beside it keeps.
 constexpr float TYPE_FILTER_WIDTH = 96.0f;
 constexpr float MIN_SEARCH_WIDTH = 60.0f;
-
-// A node type's icon, and the category it is tinted in. A plain node (an
-// empty, a mesh) has none: what it is shows in its component dots.
-struct NodeVisuals {
-    const char* icon;
-    std::optional<theme::Category> category;
-    std::optional<ImVec4> tint{};
-};
-
-NodeVisuals node_visuals(const Node& obj) {
-    using C = theme::Category;
-    if (dynamic_cast<const DirectionalLightNode*>(&obj)) return {ui::icon::directional_light, C::Light};
-    if (dynamic_cast<const PointLightNode*>(&obj)) return {ui::icon::point_light, C::Light};
-    if (dynamic_cast<const SpotLightNode*>(&obj)) return {ui::icon::spot_light, C::Light};
-    if (dynamic_cast<const VolumetricFogNode*>(&obj)) return {ui::icon::volumetric_fog, C::Environment};
-    if (dynamic_cast<const FogVolumeNode*>(&obj)) return {ui::icon::fog_volume, C::Environment};
-    if (dynamic_cast<const PostProcessVolumeNode*>(&obj)) return {ui::icon::post_process_volume, C::Environment};
-    if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) return {ui::icon::world_environment, C::Environment};
-    if (dynamic_cast<const CameraNode*>(&obj)) return {ui::icon::camera, C::Camera};
-    if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure};
-    if (!obj.is_spatial()) return {ui::icon::folder, C::Structure};
-    if (obj.components.get<MeshComponent>() != nullptr) return {ui::icon::mesh, std::nullopt};
-    return {ui::icon::transform, std::nullopt};
-}
 
 // A dot per category composed onto the node, first come first: its
 // components' categories, then Logic for scripts.

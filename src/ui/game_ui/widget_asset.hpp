@@ -52,6 +52,10 @@ struct WidgetAsset {
 
 [[nodiscard]] Result<WidgetAsset> load_widget_asset(const std::string& path);
 
+/// The <model>s a widget file declares, for whoever places the widget and
+/// never needs its markup; empty when the file does not load.
+[[nodiscard]] std::vector<ModelDecl> load_widget_models(const std::string& path);
+
 /// Every declared prop that has a default, into the context as its declared
 /// type: what a widget shows before anything binds its props.
 void set_prop_defaults(const std::vector<PropDecl>& props, UiContext& context);

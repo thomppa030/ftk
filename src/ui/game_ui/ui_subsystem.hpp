@@ -69,6 +69,8 @@ public:
         // Classes the placing component adds to the root node, applied on
         // every load so a reload keeps the placement's chosen variant.
         std::vector<std::string> style_classes;
+        // Nodes the placing component picked for the widget's own Models.
+        std::vector<UiWidgetComponent::ModelNode> model_nodes;
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};

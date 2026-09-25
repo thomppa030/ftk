@@ -248,6 +248,34 @@ TEST_CASE("A Controller binds a Model to a node it chose, until it clears it", "
     REQUIRE(models.searches() == 0);
 }
 
+TEST_CASE("A placement's pick is read over the rule, and a Controller's bind over both", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t hud = scene.add_empty({}, "hud"); // carries no Stats
+    const uint32_t goblin = spawn(scene, "goblin", 15.0f);
+    const uint32_t troll = spawn(scene, "troll", 90.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, hud);
+    models.add(model("target", ModelSource::self), scope, troll);
+    models.bind();
+    REQUIRE(scope.lookup("target.hp") == UiValue(90.0f));
+
+    REQUIRE(models.bind_node(scope, "target", goblin));
+    models.bind();
+    REQUIRE(scope.lookup("target.hp") == UiValue(15.0f));
+
+    REQUIRE(models.bind_node(scope, "target", 0)); // back to the placement's pick
+    models.bind();
+    REQUIRE(scope.lookup("target.hp") == UiValue(90.0f));
+
+    destroy(scene, troll);
+    models.bind();
+    REQUIRE_FALSE(scope.evaluate("target").truthy());
+    REQUIRE(models.searches() == 0);
+}
+
 TEST_CASE("Only a Model the widget declares can be bound", "[ui_models]") {
     Scene scene;
     TestWorld world;

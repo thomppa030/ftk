@@ -6,8 +6,11 @@
 #include "renderer/components/particle_emitter.hpp"
 #include "scene/component_meta.hpp"
 #include "scene/node.hpp"
+#include "core/base_path.hpp"
+#include "core/project_manager.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "ui/inspectors/asset_rows.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
@@ -19,10 +22,14 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/node_slot.hpp"
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -64,6 +71,99 @@ std::vector<std::string> split_classes(const std::string& text) {
     }
     if (!token.empty()) classes.push_back(std::move(token));
     return classes;
+}
+
+// The <model>s a widget file declares, read again only when the file has
+// changed and asked at most once a second: an inspector draws every frame.
+const std::vector<ModelDecl>& declared_models(const std::string& file) {
+    struct Read {
+        std::filesystem::file_time_type written{};
+        double checked_at{-1.0};
+        std::vector<ModelDecl> models;
+    };
+    static std::unordered_map<std::string, Read> read;
+    auto& entry = read[file];
+    const double now = ImGui::GetTime();
+    if (entry.checked_at >= 0.0 && now - entry.checked_at < 1.0) return entry.models;
+    entry.checked_at = now;
+    std::error_code ec;
+    const auto written = std::filesystem::last_write_time(file, ec);
+    if (ec) {
+        entry.models.clear();
+        return entry.models;
+    }
+    if (written == entry.written) return entry.models;
+    entry.written = written;
+    entry.models = load_widget_models(file);
+    return entry.models;
+}
+
+void set_model_node(UiWidgetComponent& wc, const std::string& model, uint32_t node) {
+    std::erase_if(wc.model_nodes, [&](const UiWidgetComponent::ModelNode& picked) { return picked.model == model; });
+    if (node != 0) wc.model_nodes.push_back({model, node});
+}
+
+// The widget's own <model>s, each with the node this placement reads it from:
+// the markup's `from` rule until a node is picked. A pick for a Model the
+// widget no longer declares stays until it is cleared, so a renamed Model
+// loses nothing without being told.
+ui::Edit draw_widget_models(UiWidgetComponent& wc, const InspectorContext& ctx) {
+    const Project* project = ctx.project_mgr != nullptr ? ctx.project_mgr->active() : nullptr;
+    const std::string file = wc.widget_path.empty() ? std::string()
+                                                    : base_path::resolve_asset(wc.widget_path, project);
+    static const std::vector<ModelDecl> none;
+    const std::vector<ModelDecl>& declared = file.empty() ? none : declared_models(file);
+    if (declared.empty() && wc.model_nodes.empty()) return {};
+
+    const std::string file_name = std::filesystem::path(file).filename().string();
+    ui::Edit edit;
+    ui::subheading("Models");
+    if (auto t = ui::PropertyTable("##ui_widget_models")) {
+        for (const auto& model : declared) {
+            const std::string help = "Reads " + model.component + " (" + file_name + ":" +
+                                     std::to_string(model.source_line) + ").";
+            ui::row(model.name.c_str(), help.c_str(), [&] {
+                const bool local = model.from == ModelSource::local;
+                uint32_t node = wc.model_node(model.name);
+                const std::string id = "##model_" + model.name;
+                const NodeSlotConfig slot{
+                    .id = id.c_str(),
+                    .scene = ctx.scene,
+                    .refusal = [&](const Node& candidate) -> std::string {
+                        for (const auto& script : candidate.scripts) {
+                            if (script.type_name == model.component) return {};
+                        }
+                        return candidate.name + " has no " + model.component + "; this Model reads " +
+                               model.component + ".";
+                    },
+                    .empty_glyph = local ? ui::icon::local_player : ui::icon::this_node,
+                    .empty_text = local ? "Local player" : "This node",
+                };
+                if (node_slot(slot, node)) {
+                    set_model_node(wc, model.name, node);
+                    edit = {true, true};
+                }
+            });
+        }
+        for (std::size_t i = 0; i < wc.model_nodes.size(); ++i) {
+            const std::string name = wc.model_nodes[i].model;
+            if (std::ranges::any_of(declared, [&](const ModelDecl& m) { return m.name == name; })) continue;
+            ui::row(name.c_str(), [&] {
+                const float start = ImGui::GetCursorPosX();
+                const float clear_at =
+                    start + std::max(ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight(), 0.0f);
+                const std::string gone = "No longer in " + file_name;
+                ui::readout(gone.c_str());
+                ImGui::SameLine(clear_at);
+                const std::string id = "##forget_" + name;
+                if (ui::icon_button(id.c_str(), ui::icon::clear, "Clear", ui::ButtonKind::GhostDanger)) {
+                    set_model_node(wc, name, 0);
+                    edit = {true, true};
+                }
+            });
+        }
+    }
+    return edit;
 }
 
 } // namespace
@@ -184,6 +284,7 @@ ui::Edit draw_ui_widget(Node3D& /*node*/, void* component, const InspectorContex
             });
         }
     }
+    edit |= draw_widget_models(wc, ctx);
     return edit;
 }
 

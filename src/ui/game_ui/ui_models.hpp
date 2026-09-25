@@ -40,13 +40,13 @@ public:
 };
 
 /// The Models of one placed UI: the game components its widgets read in
-/// place. A `local` Model's node is found by walking the scene once and then
-/// kept; it is looked for again only when that node is gone, no longer
-/// carries the component or changes hands, and, while nothing is found, only
-/// once nodes have joined, left or changed hands since the last look. A
-/// `self` Model reads the placement's own node, and one a Controller has bound
-/// reads the node it was given: lookups rather than walks. Nothing walks the
-/// scene every frame.
+/// place. Which node each reads is, first to last: the node a Controller
+/// bound it to, the node the placement picked, then the markup's `from` rule.
+/// A `local` Model's node is found by walking the scene once and then kept;
+/// it is looked for again only when that node is gone, no longer carries the
+/// component or changes hands, and, while nothing is found, only once nodes
+/// have joined, left or changed hands since the last look. Every other way is
+/// a lookup rather than a walk. Nothing walks the scene every frame.
 class UiModels {
 public:
     /// Where the Models are found: the scene, the game, and the node the UI
@@ -55,7 +55,9 @@ public:
 
     /// A Model a widget declares, bound into that widget's scope. The scope
     /// belongs to the UI's tree: clear() before the tree is replaced.
-    void add(const ModelDecl& decl, UiContext& scope);
+    /// `placed` is a node the placement picked for it in the editor, read
+    /// instead of its `from` rule; 0 for none.
+    void add(const ModelDecl& decl, UiContext& scope, uint32_t placed = 0);
     void clear();
     [[nodiscard]] bool empty() const { return entries_.empty(); }
 
@@ -90,14 +92,19 @@ private:
         uint64_t searched_scene{0};
         uint64_t searched_structure{0};
         uint64_t searched_possession{0};
-        uint32_t bound{0};            ///< a node a Controller chose; 0 follows the rule
+        uint32_t bound{0};            ///< a node a Controller chose; 0 for none
         uint32_t bound_generation{0}; ///< its generation when first looked up; 0 not yet
+        uint32_t placed{0};           ///< the node the placement picked; 0 for none
+        uint32_t placed_generation{0};
         bool reported{false};   ///< an unknown component is reported once
     };
 
     [[nodiscard]] Entry* find(const UiContext& scope, std::string_view name);
     /// The component the entry reads now, or null.
     [[nodiscard]] const void* resolve(Entry& entry);
+    /// The component on a chosen node, while that node lives: its generation
+    /// is taken the first time it is looked up.
+    [[nodiscard]] const void* on_chosen(uint32_t node, uint32_t& generation, const std::string& type) const;
     /// The component of the local player's node, walking the scene only when
     /// what was found before no longer holds and something may have changed.
     [[nodiscard]] const void* find_local(Entry& entry);

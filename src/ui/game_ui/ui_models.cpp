@@ -27,10 +27,11 @@ void UiModels::attach(const Scene& scene, const UiModelWorld& world, uint32_t se
     self_node_ = self_node;
 }
 
-void UiModels::add(const ModelDecl& decl, UiContext& scope) {
+void UiModels::add(const ModelDecl& decl, UiContext& scope, uint32_t placed) {
     Entry entry;
     entry.decl = decl;
     entry.scope = &scope;
+    entry.placed = placed;
     entries_.push_back(std::move(entry));
 }
 
@@ -92,18 +93,20 @@ UiModels::Entry* UiModels::find(const UiContext& scope, std::string_view name) {
 }
 
 const void* UiModels::resolve(Entry& entry) {
-    if (entry.bound != 0) {
-        // The node a Controller chose, for as long as that node lives.
-        if (entry.bound_generation == 0) entry.bound_generation = scene_->generation_of(entry.bound);
-        if (scene_->generation_of(entry.bound) != entry.bound_generation) return nullptr;
-        const Node* node = scene_->find(entry.bound);
-        return node != nullptr ? script_on(*node, entry.decl.component) : nullptr;
-    }
+    if (entry.bound != 0) return on_chosen(entry.bound, entry.bound_generation, entry.decl.component);
+    if (entry.placed != 0) return on_chosen(entry.placed, entry.placed_generation, entry.decl.component);
     if (entry.decl.from == ModelSource::self) {
         const Node* node = scene_->find(self_node_);
         return node != nullptr ? script_on(*node, entry.decl.component) : nullptr;
     }
     return find_local(entry);
+}
+
+const void* UiModels::on_chosen(uint32_t node, uint32_t& generation, const std::string& type) const {
+    if (generation == 0) generation = scene_->generation_of(node);
+    if (scene_->generation_of(node) != generation) return nullptr;
+    const Node* found = scene_->find(node);
+    return found != nullptr ? script_on(*found, type) : nullptr;
 }
 
 const void* UiModels::find_local(Entry& entry) {

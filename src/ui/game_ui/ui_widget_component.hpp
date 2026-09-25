@@ -19,6 +19,23 @@ struct UiWidgetComponent {
 
     std::vector<std::string> style_classes;  // per-instance CSS class overrides
 
+    // A node this placement picked for one of the widget's <model>s, read
+    // instead of the model's `from` rule. A controller binding the model at
+    // runtime still wins.
+    struct ModelNode {
+        std::string model; // the <model>'s name
+        uint32_t node{0};  // the node's id in this scene
+    };
+    std::vector<ModelNode> model_nodes;
+
+    /// The node picked for `model`, or 0 when it follows its rule.
+    [[nodiscard]] uint32_t model_node(const std::string& model) const {
+        for (const auto& picked : model_nodes) {
+            if (picked.model == model) return picked.node;
+        }
+        return 0;
+    }
+
     // Screen-space only: how layout pixels map to the viewport.
     enum class Scaling : uint8_t {
         design_resolution, ///< the project's design height fills the viewport (default)

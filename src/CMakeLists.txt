@@ -304,6 +304,8 @@ add_executable(fjell
     ui/asset_picker.cpp
     ui/grouped_picker.cpp
     ui/asset_ref_widget.cpp
+    ui/node_slot.cpp
+    ui/node_visuals.cpp
     ui/capture_popup.cpp
     ui/console.cpp
     ui/menu_bar.cpp

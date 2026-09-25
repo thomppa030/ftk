@@ -95,6 +95,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/grouped_picker.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/node_slot.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/node_visuals.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_header.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_tile.cpp
@@ -288,6 +290,7 @@ add_executable(fjell-tests
     test_tree.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp
+    test_node_slot.cpp
     test_fields.cpp
     test_kit.cpp
     test_texture_channels.cpp
