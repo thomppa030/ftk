@@ -14,9 +14,7 @@ layout(push_constant) uniform TaaPush {
     float pad;
 };
 
-float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-vec3  tonemap_weight(vec3 c) { return c / (1.0 + luma(c)); }
-vec3  inverse_weight(vec3 c) { return c / max(1.0 - luma(c), 1e-4); }
+#include "fjell_luma_weight.glsl"
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -46,9 +44,9 @@ void main() {
     vec2 velocity = texture(velocity_tex, closest_uv).rg;
     vec2 history_uv = uv - velocity;
 
-    // Current frame color (tonemapped for stable clamping)
+    // Current frame color, weighted for stable clamping
     vec3 current_hdr = texture(current_color, uv).rgb;
-    vec3 current = tonemap_weight(current_hdr);
+    vec3 current = luma_weight(current_hdr);
 
     // Neighborhood min/max for variance clipping
     vec3 m1 = vec3(0.0);
@@ -57,7 +55,7 @@ void main() {
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             vec2 sample_uv = uv + vec2(dx, dy) * texel_size;
-            vec3 s = tonemap_weight(texture(current_color, sample_uv).rgb);
+            vec3 s = luma_weight(texture(current_color, sample_uv).rgb);
             m1 += s;
             m2 += s * s;
         }
@@ -72,7 +70,7 @@ void main() {
 
     // Sample and clamp history
     vec3 history_hdr = texture(history_color, history_uv).rgb;
-    vec3 history = tonemap_weight(history_hdr);
+    vec3 history = luma_weight(history_hdr);
     history = clamp(history, aabb_min, aabb_max);
 
     // Reject history if reprojected UV is off-screen
@@ -92,9 +90,9 @@ void main() {
     float motion_alpha = mix(blend_factor, 1.0, clamp(speed, 0.0, 1.0));
     float alpha = oob ? 1.0 : motion_alpha;
 
-    // Blend in tonemapped space, convert back to HDR
+    // Blend in the weighted space, convert back to HDR
     vec3 resolved = mix(history, current, alpha);
-    resolved = inverse_weight(resolved);
+    resolved = luma_unweight(resolved);
 
     imageStore(resolve_output, pixel, vec4(resolved, 1.0));
 }
