@@ -200,7 +200,7 @@ private:
 
     // Phase groups (non-owning, built once in constructor)
     std::vector<Subsystem*> play_phase_0_;   // scripts
-    std::vector<Subsystem*> play_phase_1_;   // physics
+    std::vector<Subsystem*> play_phase_1_;   // environment, then physics
     std::vector<Subsystem*> play_phase_2_;   // vfx
     std::vector<Subsystem*> early_always_;   // before compute_world_matrices
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices

@@ -151,6 +151,13 @@ void Engine::init_subsystems() {
     play_phase_0_.push_back(net_receive_subsystem_);
     play_phase_0_.push_back(script_subsystem_);
     play_phase_0_.push_back(camera_subsystem_);
+    // The environment is an input to physics: the wind that pushes bodies and
+    // the sea and wakes they float on are resolved there, and have to be this
+    // frame's, so while playing it runs just ahead of physics. Outside play it
+    // ticks every frame with the always subsystems instead. Either way it
+    // resolves before anything renders: the frame's sun, sky and fog come from
+    // it, not from the scene's nodes.
+    play_phase_1_.push_back(environment_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     // Animation is an input to physics — bone-driven colliders have to be at
@@ -158,9 +165,6 @@ void Engine::init_subsystems() {
     // playing it runs ahead of the play phases rather than with the always
     // subsystems. Outside play it still ticks every frame so the animation
     // editor can scrub.
-    // The environment resolves before anything renders: the frame's sun,
-    // sky and fog come from it, not from the scene's nodes.
-    early_always_.push_back(environment_subsystem_);
     early_always_.push_back(sprite_anim_subsystem_);
     // NetSend runs after physics + compute_world_matrices so it transmits final
     // post-physics transforms, at its own fixed network rate.
@@ -2027,7 +2031,12 @@ void Engine::run() {
             if (scenario_.finished()) window_.request_close();
         }
 
-        if (play_controller_.playing()) {
+        // Decided once for the frame. Play can start or stop between the play
+        // phases and the always subsystems below (the test runner does both),
+        // and animation and the environment, which tick in one or the other,
+        // must tick exactly once.
+        const bool play_phases_run = play_controller_.playing();
+        if (play_phases_run) {
             // Update camera state for worldspace UI billboard computation
             if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
                 float aspect = scene_context_->viewport_manager().active_aspect();
@@ -2045,7 +2054,7 @@ void Engine::run() {
             for (auto* s : play_phase_0_) s->run(ctx);
             flush_pending();
 
-            // Phase 1: Physics + collision dispatch
+            // Phase 1: Environment, physics, collision dispatch
             for (auto* s : play_phase_1_) s->run(ctx);
             if (physics_subsystem_->world()) {
                 script_subsystem_->manager().dispatch_collision_events(
@@ -2076,9 +2085,11 @@ void Engine::run() {
         }
 #endif
 
-        // Always-tick subsystems (before world matrices)
-        if (!play_controller_.playing()) {
+        // Always-tick subsystems (before world matrices). Animation and the
+        // environment have already ticked if the play phases ran.
+        if (!play_phases_run) {
             animation_subsystem_->run(ctx);
+            environment_subsystem_->run(ctx);
         }
         for (auto* s : early_always_) s->run(ctx);
         scene_.compute_world_matrices(&thread_pool_);
