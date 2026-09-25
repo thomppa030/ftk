@@ -30,6 +30,9 @@
 
         { "class": "OpaquePass",       "name": "opaque" },
         { "class": "TransparentPass",  "name": "transparent" },
+        // Water, glass and distortion sample the scene behind them through
+        // SCREEN_TEXTURE; without the copy they read whatever the image held.
+        { "class": "ScreenColorCopyPass", "name": "screen_color_copy" },
         { "class": "SkyPass",          "name": "sky" },
 
         { "class": "TonemapPass",      "name": "tonemap" }
