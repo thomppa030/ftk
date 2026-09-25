@@ -240,6 +240,10 @@ bool VfxGraph::apply(VfxEmitter& emitter, const ui::NodeGraphEvents& events) {
         graph_.select_link(graph.links.back().link_id);
         changed = true;
     }
+    for (const uint64_t link : events.unlinked) {
+        graph.remove_link(link);
+        changed = true;
+    }
     for (const uint64_t node : events.edited) {
         // A module's values keep their ranges in order (a min under its max).
         if (const auto it = sources_.find(node); it != sources_.end() && it->second.stack >= 0) {

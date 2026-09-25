@@ -34,8 +34,8 @@
 //
 // A canvas like every other (ui::CanvasView): the wheel zooms at the cursor,
 // a middle or Alt drag pans, F frames everything, Del removes what is
-// selected, and right-click opens the caller's menu on what is under the
-// mouse.
+// selected, Ctrl and a click on a pin breaks its links, and right-click opens
+// the caller's menu on what is under the mouse.
 
 namespace fjell::ui {
 
@@ -166,6 +166,8 @@ struct NodeGraphEvents {
 
     /// A link dragged out and let go on an end that takes it.
     std::optional<Link> linked;
+    /// Links to break: every link on a pin Ctrl-clicked.
+    std::vector<uint64_t> unlinked;
     /// A node dragged by its body.
     std::optional<Move> moved;
     /// Nodes one of whose values was edited this frame.

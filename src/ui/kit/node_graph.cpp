@@ -425,7 +425,12 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
 
     // ── Input ─────────────────────────────────────────────────────────
     if (!view_.panning() && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        if (hot_pin.node != 0) {
+        if (hot_pin.node != 0 && ImGui::GetIO().KeyCtrl) {
+            // Ctrl and a click on a pin breaks every link on it.
+            for (const NodeLink& link : desc.links) {
+                if (link.from == hot_pin || link.to == hot_pin) events.unlinked.push_back(link.id);
+            }
+        } else if (hot_pin.node != 0) {
             drag_ = Drag::Link;
             drag_end_ = hot_pin;
         } else if (hot_node != 0 && hot_edge) {
