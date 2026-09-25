@@ -59,6 +59,7 @@ inline constexpr const char* collision         = ICON_LC_BOX_SELECT;
 inline constexpr const char* info              = ICON_LC_INFO;
 inline constexpr const char* rendering         = ICON_LC_MONITOR;
 inline constexpr const char* frame_graph       = ICON_LC_WORKFLOW;
+inline constexpr const char* node_graph        = ICON_LC_WORKFLOW;  // a graph of nodes and the links between them
 
 // Kinds of asset (ui/kit/asset_kind.hpp says which file is which)
 inline constexpr const char* mesh         = ICON_LC_BOX;
