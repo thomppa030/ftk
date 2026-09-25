@@ -51,6 +51,22 @@ TEST_CASE("Plain markup survives a round trip", "[fjui-serialize]") {
     REQUIRE(text.find(" disabled") != std::string::npos);
 }
 
+TEST_CASE("A text binding showing nothing is still written as its template", "[fjui-serialize]") {
+    auto tree = FjuiParser::parse(R"(<div><text class="name">{selected_name}</text></div>)");
+    REQUIRE(tree);
+    // A live tree, as the UI editor saves it: each text keeps its template,
+    // and this one resolved to nothing because no value was bound yet.
+    auto bind = [](auto& self, UiNode& node) -> void {
+        if (node.type == UiNodeType::text) {
+            node.text_template = node.text_content;
+            node.text_content.clear();
+        }
+        for (auto& child : node.children) self(self, *child);
+    };
+    bind(bind, *tree);
+    REQUIRE(FjuiSerializer::serialize(*tree).find("{selected_name}") != std::string::npos);
+}
+
 TEST_CASE("Quotes inside attribute values are escaped and read back", "[fjui-serialize]") {
     auto [text, again] = round_trip(R"(<div title="say &quot;hi&quot;"/>)");
     REQUIRE(text == again);

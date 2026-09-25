@@ -125,11 +125,13 @@ void FjuiSerializer::write_node(const UiNode& node, std::string& out, int indent
     if (node.foreach_item_index >= 0) return;
 
     if (node.type == UiNodeType::text) {
-        if (node.text_content.empty()) return;
-        append_indent(out, indent);
         // text_template preserves the original {key} form; resolved
-        // text_content would bake a stale runtime value into the file.
-        out += node.text_template.empty() ? node.text_content : node.text_template;
+        // text_content would bake a stale runtime value into the file, and
+        // a template showing nothing right now is still the markup.
+        const std::string& text = node.text_template.empty() ? node.text_content : node.text_template;
+        if (text.empty()) return;
+        append_indent(out, indent);
+        out += text;
         out += '\n';
         return;
     }
