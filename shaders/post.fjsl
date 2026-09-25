@@ -1,0 +1,12 @@
+shader_type post;
+
+// The engine's look: the scene with its bloom, through a tone curve. What a
+// viewport shows when no post process volume says otherwise, and the starting
+// point for a project's own.
+
+uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
+uniform float bloom_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
+
+void color() {
+    COLOR = tonemap(operator, COLOR + BLOOM * bloom_intensity);
+}

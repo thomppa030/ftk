@@ -189,6 +189,7 @@ private:
     std::string terrain_template_;
     std::string water_template_;
     std::string fog_template_;
+    std::string post_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;

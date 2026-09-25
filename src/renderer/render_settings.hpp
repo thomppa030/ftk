@@ -99,7 +99,7 @@ struct RenderSettings {
     } ssr;
 
     struct Tonemap {
-        // Must mirror TonemapPass::Operator and FJ_TONEMAP_* in tonemap.frag.
+        // Must mirror TonemapPass::Operator and the order of post.fjsl's operator hint_enum.
         enum class Operator : uint8_t {
             Linear   = 0,
             Reinhard = 1,

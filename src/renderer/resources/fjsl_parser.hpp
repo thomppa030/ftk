@@ -11,6 +11,8 @@
 
 namespace fjell {
 
+struct NamedValue;
+
 /// How many of a material's texture slots are the fixed PBR set, and how many
 /// are a shader's own. Named here, where the parser assigns them, rather than
 /// spelled as literals: the split has to agree across GpuMaterial in
@@ -28,13 +30,14 @@ constexpr uint32_t TOTAL_TEXTURE_SLOTS = PBR_TEXTURE_SLOTS + CUSTOM_TEXTURE_SLOT
 /// code is generated into, and the built-ins it has in scope. Engine-provided
 /// and closed — a .fjsl names one of these or it does not parse.
 ///
-/// The six are three families. Spatial, terrain and water are lit surfaces:
+/// The seven are four families. Spatial, terrain and water are lit surfaces:
 /// same lighting code, same G-buffer, a light() hook. Sky and ui emit a colour
 /// and are lit by nothing. Fog is a participating medium: no surface at all,
 /// a density and a colour at a world point, lit per light through its own
-/// light() with a phase angle where a surface has a normal. What separates
-/// the members of a family is how their geometry arrives, which is why each
-/// needs a pipeline of its own.
+/// light() with a phase angle where a surface has a normal. Post is what the
+/// finished frame looks like: the exposed scene colour in, the display colour
+/// out. What separates the members of a family is how their geometry arrives,
+/// which is why each needs a pipeline of its own.
 enum class ShaderType : uint8_t {
     Spatial, ///< a mesh, drawn from the vertex or mesh shader path
     Sky,     ///< one fullscreen triangle, also baked to the lighting cubemap
@@ -42,6 +45,7 @@ enum class ShaderType : uint8_t {
     Terrain, ///< generated from a .fjterrain height texture in a mesh shader
     Water,   ///< generated from a .fjwater wave field in a mesh shader
     Fog,     ///< a medium sampled per froxel by the volumetric fog compute pass
+    Post,    ///< the scene colour to the display colour, one fullscreen triangle
 };
 
 /// The spelling a .fjsl uses for `type`, for diagnostics and asset files.
@@ -214,7 +218,7 @@ struct ShaderMetadata {
     std::vector<FjslPort> outputs;
     /// Functions this file composes, in source order.
     std::vector<FjslUse> uses;
-    FjslBody fragment_body;    // contents of fragment() { ... }; sky() for a sky, density() for fog
+    FjslBody fragment_body;    // contents of fragment() { ... }; sky() for a sky, density() for fog, color() for post
     FjslBody vertex_body;      // contents of vertex() { ... } (empty = standard)
     FjslBody light_body;       // contents of light() { ... } (empty = the type's default: PBR, or the fog phase)
     FjslBody layers_body;      // terrain only: contents of layers() { ... } (empty = painted weights as-is)
@@ -340,5 +344,12 @@ void encode_uniform_for_gpu(const FjslUniform& u, std::span<float> values);
 /// Inverse of encode_uniform_for_gpu, for a value read back from the SSBO
 /// that is about to be saved to a `.fjmat` or shown in a colour picker.
 void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values);
+
+/// The block of floats a shader's scalar uniforms read, as the GPU holds
+/// them: each uniform's .fjsl default, the value of the same name in
+/// `values` over it, encoded. A value shorter than its uniform keeps the
+/// default in the components it leaves out. `meta.custom_param_count` long.
+[[nodiscard]] std::vector<float> resolve_uniform_block(const ShaderMetadata& meta,
+                                                       const std::vector<NamedValue>& values);
 
 } // namespace fjell

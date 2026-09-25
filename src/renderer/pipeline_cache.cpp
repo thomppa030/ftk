@@ -130,6 +130,7 @@ void PipelineCache::load_includes() {
     terrain_template_ = load_template("fjell_terrain_template.glsl");
     water_template_ = load_template("fjell_water_template.glsl");
     fog_template_ = load_template("fjell_fog_template.glsl");
+    post_template_ = load_template("fjell_post_template.glsl");
     if (template_source_.empty()) {
         throw std::runtime_error("Failed to open spatial template");
     }
@@ -292,7 +293,8 @@ void PipelineCache::compile_entry(Entry& entry) {
         // template; sky the fullscreen sky template; ui the UI quad template;
         // terrain the layer-blending template drawn by the terrain mesh
         // shader; water the wave template drawn by the water mesh shader; fog
-        // the froxel compute template the volumetric fog pass dispatches.
+        // the froxel compute template the volumetric fog pass dispatches;
+        // post the fullscreen template the post pass draws per layer.
         const ShaderType shader_type = next.metadata.shader_type;
         const bool is_ui = shader_type == ShaderType::Ui;
         const bool is_fog = shader_type == ShaderType::Fog;
@@ -306,6 +308,7 @@ void PipelineCache::compile_entry(Entry& entry) {
                 case ShaderType::Terrain: return terrain_template_;
                 case ShaderType::Water:   return water_template_;
                 case ShaderType::Fog:     return fog_template_;
+                case ShaderType::Post:    return post_template_;
                 case ShaderType::Spatial: break;
             }
             return template_source_;

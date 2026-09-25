@@ -1284,7 +1284,7 @@ TEST_CASE("Fog rejects the surface hooks, other types reject density()", "[fjsl]
         // it reaches the generated file's globals.
         REQUIRE(meta.user_globals.find(hook) == std::string::npos);
     }
-    for (const char* type : {"spatial", "sky", "ui", "terrain", "water"}) {
+    for (const char* type : {"spatial", "sky", "ui", "terrain", "water", "post"}) {
         INFO("type: " << type);
         auto meta = parse_fjsl("shader_type " + std::string(type)
                                + ";\nvoid density() { DENSITY = 1.0; }\n");
@@ -1401,6 +1401,137 @@ TEST_CASE("Every fog .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][fo
             INFO(output);
             REQUIRE(status == 0);
         }
+    }
+}
+
+TEST_CASE("Parse shader_type post takes its body from color()", "[fjsl][post]") {
+    auto meta = parse_fjsl(R"(
+        shader_type post;
+        uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
+        uniform float bloom_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
+        void color() {
+            COLOR = tonemap(operator, COLOR + BLOOM * bloom_intensity);
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.shader_type == ShaderType::Post);
+    REQUIRE(meta.fragment_body.code.find("COLOR = tonemap") != std::string::npos);
+    REQUIRE(meta.user_globals.find("void color") == std::string::npos);
+    REQUIRE(shader_type_from_name("post") == ShaderType::Post);
+    REQUIRE(shader_type_name(ShaderType::Post) == "post");
+}
+
+TEST_CASE("Post rejects the other hooks, other types reject color()", "[fjsl][post]") {
+    for (const char* hook : {"fragment", "vertex", "light", "sky", "layers", "density"}) {
+        INFO("hook: " << hook);
+        auto meta = parse_fjsl("shader_type post;\nvoid color() {}\nvoid "
+                               + std::string(hook) + "() {}\n");
+        REQUIRE(meta.has_errors());
+        REQUIRE(meta.user_globals.find(hook) == std::string::npos);
+    }
+    for (const char* type : {"spatial", "sky", "ui", "terrain", "water", "fog"}) {
+        INFO("type: " << type);
+        auto meta = parse_fjsl("shader_type " + std::string(type)
+                               + ";\nvoid color() { COLOR = vec3(1.0); }\n");
+        REQUIRE(meta.has_errors());
+        bool named = false;
+        for (const auto& d : meta.diagnostics) {
+            named |= d.message.find("display colour") != std::string::npos;
+        }
+        REQUIRE(named);
+    }
+    auto function = parse_fjsl("shader_function;\nout float x;\nvoid main() { x = 1.0; }\n"
+                               "void color() {}\n");
+    REQUIRE(function.has_errors());
+}
+
+TEST_CASE("A post shader without color() is warned about", "[fjsl][post]") {
+    auto meta = parse_fjsl("shader_type post;\nuniform float x = 1.0;\n");
+    REQUIRE_FALSE(meta.has_errors());
+    bool warned = false;
+    for (const auto& d : meta.diagnostics) {
+        warned |= d.severity == FjslSeverity::warning
+               && d.message.find("color()") != std::string::npos;
+    }
+    REQUIRE(warned);
+}
+
+TEST_CASE("Post reads its values from the pass and its textures from the row", "[fjsl][post]") {
+    auto meta = parse_fjsl(R"(
+        shader_type post;
+        uniform vec3 tint : hint_color = vec3(1.0);
+        uniform int mode : hint_enum("A,B") = 1;
+        uniform sampler2D grain;
+        void color() { COLOR *= tint * texture(grain, SCREEN_UV).r * float(mode); }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    auto glsl = generate_fragment_shader(meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_CODE*/\n");
+    // The values differ per viewport, so they come from the pass's buffer at
+    // the pushed base, never from the material row's slice of the params.
+    REQUIRE(glsl.find("#define tint (vec3(post_params[push.param_base + 0], "
+                      "post_params[push.param_base + 1], post_params[push.param_base + 2]))")
+            != std::string::npos);
+    REQUIRE(glsl.find("#define mode (int(round(post_params[push.param_base + 3])))")
+            != std::string::npos);
+    REQUIRE(glsl.find("custom_params") == std::string::npos);
+    REQUIRE(glsl.find("materials[push.material_id].texture_indices[4]") != std::string::npos);
+}
+
+// The post template is drawn by the post pass as a fullscreen fragment; a
+// hand-written sample touches every built-in and helper so the template stays
+// covered even when the shipped shader uses only some of them.
+TEST_CASE("Every post .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][post]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_post_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    std::vector<std::pair<std::string, std::string>> sources;
+    sources.emplace_back("post_builtins", R"(
+        shader_type post;
+        uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
+        uniform vec3 tint : hint_color = vec3(1.0);
+        uniform sampler2D grain;
+        vec3 vignette(vec2 uv) { return vec3(1.0 - 0.3 * dot(uv - 0.5, uv - 0.5)); }
+        void color() {
+            vec3 c = COLOR + (HAS_BLOOM ? BLOOM : vec3(0.0));
+            float far = smoothstep(50.0, 400.0, DEPTH) + texture(DEPTH_TEXTURE, SCREEN_UV).r * 0.0;
+            float weather = CLOUD_COVERAGE + PRECIPITATION + WIND_SPEED + dot(WIND_DIR, SUN_DIR);
+            float clock = TIME + TIME_OF_DAY + EXPOSURE + LUMINANCE;
+            vec2 at = PIXEL / VIEWPORT_SIZE;
+            c = tonemap(operator, c) + 0.0 * (tonemap_agx(c) + tonemap_aces(c) + tonemap_hable(c)
+                                              + tonemap_reinhard(c) + tonemap_neutral(c));
+            c = srgb_to_linear(linear_to_srgb(c)) * tint * vignette(at);
+            COLOR = mix(c, vec3(texture(grain, SCREEN_UV).r), 0.0 * (far + weather + clock));
+            if (operator == TONEMAP_LINEAR) COLOR = clamp(COLOR, 0.0, 1.0);
+        }
+    )");
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto text = read_text(entry.path());
+        if (parse_fjsl(text).shader_type == ShaderType::Post) {
+            sources.emplace_back(entry.path().stem().string(), text);
+        }
+    }
+    REQUIRE(sources.size() > 1);  // the engine ships post.fjsl
+
+    for (const auto& [name, text] : sources) {
+        INFO("shader: " << name);
+        auto meta = parse_fjsl(text);
+        REQUIRE_FALSE(meta.has_errors());
+        auto frag = out_dir / (name + ".post.frag");
+        std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+        auto spv = out_dir / (name + ".post.spv");
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                    + quoted(shader_dir / "include") + " "
+                                    + quoted(frag) + " -o " + quoted(spv));
+        INFO(output);
+        REQUIRE(status == 0);
     }
 }
 

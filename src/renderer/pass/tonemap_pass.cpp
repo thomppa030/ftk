@@ -1,29 +1,35 @@
 #include "renderer/pass/tonemap_pass.hpp"
 #include "environment/environment_state.hpp"
-#include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
-#include "renderer/pass/bloom_pass.hpp"
-#include "renderer/pass/exposure_pass.hpp"
-#include "renderer/pass/taa_resolve_pass.hpp"
-#include "renderer/pass_builder.hpp"
-
-#include <algorithm>
-#include <cmath>
-#include "renderer/gpu/vma_image.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_registry.hpp"
-#include "renderer/post_process_resources.hpp"
-#include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
-#include "renderer/gpu/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
+#include "renderer/bindless.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
+#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
+#include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vk_utils.hpp"
+#include "renderer/gpu/vma_image.hpp"
+#include "renderer/gpu_context.hpp"
+#include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/exposure_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
+#include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/pipeline_cache.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
+#include "renderer/resources/shader_utils.hpp"
 
 #include <imgui_impl_vulkan.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <stdexcept>
 
 namespace fjell {
@@ -100,94 +106,130 @@ void TonemapPass::Images::invalidate_imgui_texture() {
 
 // ── TonemapPass (singleton) ─────────────────────────────────────────────────
 
+namespace {
+
+// Mirrors the push block in fjell_post_template.glsl.
+struct PostPush {
+    uint32_t material_id;
+    uint32_t param_base;
+    float exposure;
+    float luminance;
+    float has_bloom;
+    float layer_weight;
+};
+
+// Room for the values of a few layers in a few viewports before the buffer
+// has to grow; a post shader's block is tens of floats.
+constexpr uint32_t INITIAL_VALUE_FLOATS = 1024;
+
+std::unique_ptr<Buffer> make_value_buffer(VmaAllocator allocator, uint32_t floats) {
+    auto buffer = std::make_unique<Buffer>(
+        allocator, static_cast<VkDeviceSize>(floats) * sizeof(float),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+    buffer->map();
+    return buffer;
+}
+
+} // namespace
+
 Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
+    deferred_deleter_ = resources.deferred_deleter;
+    global_set_layout_ = resources.global_set_layout;
+    material_set_layout_ = resources.material_set_layout;
 
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
     sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
-    // Descriptor set layout: binding 0 = HDR scene, binding 1 = bloom mip
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // Set 2, the pass inputs: the scene colour, the bloom, the surface depth
+    // and this frame's layer values.
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    for (uint32_t i = 0; i < 3; ++i) {
+        bindings[i].binding = i;
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].descriptorCount = 1;
+        bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
     layout_ci.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create tonemap descriptor layout");
+    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &input_set_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create post pass descriptor layout");
     }
 
-    // Pipeline layout with push constants: bloom_intensity, has_bloom, exposure (float)
-    // followed by operator (int). Must match the layout(push_constant) block in tonemap.frag.
+    // Set 0 the global UBOs, set 1 the bindless material set, as the sky
+    // and fog templates bind them; set 2 the inputs above.
+    std::array set_layouts = {global_set_layout_, material_set_layout_, input_set_layout_};
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.offset = 0;
-    push_range.size = 3 * sizeof(float) + sizeof(int32_t);
+    push_range.size = sizeof(PostPush);
 
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 1;
-    pipe_layout_ci.pSetLayouts = &set_layout_;
+    pipe_layout_ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    pipe_layout_ci.pSetLayouts = set_layouts.data();
     pipe_layout_ci.pushConstantRangeCount = 1;
     pipe_layout_ci.pPushConstantRanges = &push_range;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        return make_error("Failed to create tonemap pipeline layout");
+        return make_error("Failed to create post pass pipeline layout");
     }
 
-    // Pipeline
-    auto vert_module = create_shader_module(device_, read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")));
-    auto frag_module = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tonemap.frag.spv")));
+    for (auto& buffer : value_buffers_) {
+        buffer = make_value_buffer(allocator_, INITIAL_VALUE_FLOATS);
+    }
 
-    pipeline_ = vk_utils::create_fullscreen_pipeline({
-        .device = device_,
-        .layout = layout_,
-        .vert_module = vert_module,
-        .frag_module = frag_module,
-        .color_format = VK_FORMAT_R8G8B8A8_SRGB,
-        .pipeline_cache = vk_pipeline_cache_,
-    });
-
-    vkDestroyShaderModule(device_, frag_module, nullptr);
-    vkDestroyShaderModule(device_, vert_module, nullptr);
-
-    FJELL_GFX_DEBUG("Tonemap pass created");
+    FJELL_GFX_DEBUG("Post pass created");
     return {};
 }
 
 void TonemapPass::destroy() {
-    default_images_.destroy(device_, allocator_);
-
-    if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
+    destroy_material_pipelines();
+    for (auto& buffer : value_buffers_) buffer.reset();
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
-    if (set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr); set_layout_ = VK_NULL_HANDLE; }
+    if (input_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, input_set_layout_, nullptr); input_set_layout_ = VK_NULL_HANDLE; }
     if (input_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, input_sampler_, nullptr); input_sampler_ = VK_NULL_HANDLE; }
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
-void TonemapPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, width, height);
+void TonemapPass::destroy_material_pipelines() {
+    for (auto& [id, mp] : material_pipelines_) {
+        if (mp.base != VK_NULL_HANDLE) vkDestroyPipeline(device_, mp.base, nullptr);
+        if (mp.over != VK_NULL_HANDLE) vkDestroyPipeline(device_, mp.over, nullptr);
+    }
+    material_pipelines_.clear();
+    default_.ready = false;
 }
 
-VkDescriptorSet TonemapPass::imgui_texture() {
-    return default_images_.imgui_texture(sampler_);
+void TonemapPass::set_operator(Operator op) {
+    operator_ = op;
+    set_named(default_values_, {.name = "operator", .count = 1,
+                                .values = {static_cast<float>(op), 0.0f, 0.0f, 0.0f}});
 }
 
-void TonemapPass::invalidate_imgui_texture() {
-    default_images_.invalidate_imgui_texture();
-}
+void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
+    // The frame that last wrote this slot's values has finished: its fence
+    // was waited on before anything records.
+    values_used_[ctx.frame_index] = 0;
 
-void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    // Pipelines are built here rather than in record(): a first sighting of a
+    // shader or a hot reload means vkCreateGraphicsPipelines, which does not
+    // belong inside command recording.
+    pipeline_cache_ = gpu.pipeline_cache();
+    bindless_ = &gpu.bindless_textures();
+    ensure_default();
+    if (default_.ready) ensure_material_pipeline(default_.pipeline_id);
+
+    luminance_ = 0.0f;
     if (!ctx.passes) return;
 
     // Enable/disable histogram pass based on auto-exposure toggle
@@ -203,6 +245,7 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // complete. The previous frame's buffer would be one frame fresher and
     // may still be in flight.
     float avg_lum = exposure_pass->average_luminance(ctx.frame_index);
+    luminance_ = avg_lum;
 
     // EV100 from average luminance (ISO 100 standard)
     // EV100 = log2(avg_luminance / 0.125)  (where 0.125 = 12.5% middle grey)
@@ -216,21 +259,144 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     exposure_ += (target_ev - exposure_) * std::min(speed, 1.0f);
 }
 
+void TonemapPass::ensure_default() {
+    if (default_.ready || pipeline_cache_ == nullptr || bindless_ == nullptr) return;
+
+    const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_SHADER));
+    default_.pipeline_id = pid;
+    if (pipeline_cache_->has_compile_error(pid) || pipeline_cache_->generation(pid) == 0) {
+        // Said once: this runs every frame until a hot reload of the file
+        // compiles, and the cache has already logged the compiler's output.
+        if (reported_entries_.insert(pid).second) {
+            FJELL_GFX_ERROR("Post: '{}' failed to compile; the viewport stays black until it does",
+                            DEFAULT_SHADER);
+        }
+        return;
+    }
+    reported_entries_.erase(pid);
+
+    // The row only carries textures: the values come from the pass's own
+    // buffer. Taken once and kept, since nothing hands a row back.
+    if (default_.material_id == ~0u) {
+        default_.material_id = bindless_->add_material(GpuMaterial{});
+    }
+    default_.ready = ensure_material_pipeline(pid) != nullptr;
+}
+
+const TonemapPass::MaterialPipeline* TonemapPass::ensure_material_pipeline(uint32_t pipeline_id) {
+    if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
+        return nullptr;
+    }
+    const uint32_t generation = pipeline_cache_->generation(pipeline_id);
+    auto it = material_pipelines_.find(pipeline_id);
+    if (it != material_pipelines_.end() && it->second.generation == generation) {
+        return &it->second;
+    }
+
+    const auto& meta = pipeline_cache_->metadata(pipeline_id);
+    if (meta.shader_type != ShaderType::Post) {
+        if (reported_entries_.insert(pipeline_id).second) {
+            FJELL_GFX_ERROR("Post: '{}' is shader_type '{}', a post process volume needs shader_type post",
+                            pipeline_cache_->shader_path(pipeline_id),
+                            shader_type_name(meta.shader_type));
+        }
+        return nullptr;
+    }
+    if (pipeline_cache_->has_compile_error(pipeline_id) || generation == 0) {
+        // A failed recompile keeps the pipeline built from the last good one.
+        return it != material_pipelines_.end() ? &it->second : nullptr;
+    }
+
+    MaterialPipeline built{};
+    built.generation = generation;
+    VkShaderModule vert_module = VK_NULL_HANDLE;
+    VkShaderModule frag_module = VK_NULL_HANDLE;
+    try {
+        vert_module = create_shader_module(device_, read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")));
+        frag_module = create_shader_module(device_, read_spirv(pipeline_cache_->frag_spv_path(pipeline_id)));
+        vk_utils::FullscreenPipelineInfo info{
+            .device = device_,
+            .layout = layout_,
+            .vert_module = vert_module,
+            .frag_module = frag_module,
+            .color_format = VK_FORMAT_R8G8B8A8_SRGB,
+            .pipeline_cache = vk_pipeline_cache_,
+        };
+        built.base = vk_utils::create_fullscreen_pipeline(info);
+        // A layer over the base blends by the alpha it writes. The alpha
+        // itself blends as "over", which keeps the opaque image opaque:
+        // ImGui draws the viewport with alpha blending, so anything less
+        // would let the dock show through.
+        info.blend_enable = true;
+        built.over = vk_utils::create_fullscreen_pipeline(info);
+    } catch (const std::exception& e) {
+        FJELL_GFX_ERROR("Post: '{}': {}", pipeline_cache_->shader_path(pipeline_id), e.what());
+    }
+    if (frag_module != VK_NULL_HANDLE) vkDestroyShaderModule(device_, frag_module, nullptr);
+    if (vert_module != VK_NULL_HANDLE) vkDestroyShaderModule(device_, vert_module, nullptr);
+    if (built.base == VK_NULL_HANDLE || built.over == VK_NULL_HANDLE) {
+        for (VkPipeline half : {built.base, built.over}) {
+            if (half != VK_NULL_HANDLE) vkDestroyPipeline(device_, half, nullptr);
+        }
+        return it != material_pipelines_.end() ? &it->second : nullptr;
+    }
+
+    // The old pipelines may still be referenced by a frame in flight, so
+    // they die with that frame rather than now.
+    if (it != material_pipelines_.end()) {
+        for (VkPipeline doomed : {it->second.base, it->second.over}) {
+            if (doomed == VK_NULL_HANDLE) continue;
+            if (deferred_deleter_ != nullptr) {
+                deferred_deleter_->defer([device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
+            } else {
+                vkDeviceWaitIdle(device_);
+                vkDestroyPipeline(device_, doomed, nullptr);
+            }
+        }
+    }
+    auto& slot = material_pipelines_[pipeline_id];
+    slot = built;
+    FJELL_GFX_DEBUG("Post: built the pipeline for '{}'", pipeline_cache_->shader_path(pipeline_id));
+    return &slot;
+}
+
+uint32_t TonemapPass::write_values(uint32_t frame_index, const Layer& layer) {
+    static const std::vector<NamedValue> NONE;
+    if (pipeline_cache_ == nullptr || layer.pipeline_id >= pipeline_cache_->shader_count()) return 0;
+    const auto& meta = pipeline_cache_->metadata(layer.pipeline_id);
+    const std::vector<float> block =
+        resolve_uniform_block(meta, layer.values != nullptr ? *layer.values : NONE);
+
+    auto& buffer = value_buffers_[frame_index];
+    uint32_t& used = values_used_[frame_index];
+    const auto capacity = static_cast<uint32_t>(buffer->size() / sizeof(float));
+    if (used + block.size() > capacity) {
+        // Draws recorded earlier this frame read the old buffer through their
+        // own descriptor sets, so it lives until the frame is done; what
+        // follows starts afresh in one with room.
+        const auto grown = std::max(capacity * 2, static_cast<uint32_t>(block.size()));
+        if (deferred_deleter_ != nullptr) deferred_deleter_->retire(std::move(buffer));
+        buffer = make_value_buffer(allocator_, grown);
+        used = 0;
+    }
+    const uint32_t base = used;
+    if (!block.empty()) {
+        std::memcpy(static_cast<float*>(buffer->mapped()) + base, block.data(),
+                    block.size() * sizeof(float));
+    }
+    used += static_cast<uint32_t>(block.size());
+    return base;
+}
+
 void TonemapPass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_tonemap");
     FJELL_GPU_ZONE(ctx, "Tonemap");
 
-    // The day profile's bias rides on top of the project exposure, adapted
-    // or fixed alike, so a dusk that should read dark does.
-    const float exposure = exposure_ + (ctx.environment != nullptr ? ctx.environment->exposure_bias : 0.0f);
-    auto* tonemap = ctx.pp_resources ? ctx.pp_resources->tonemap() : nullptr;
-    if (tonemap == nullptr) {
-        record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure);
-        return;
-    }
+    auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->tonemap() : nullptr;
+    if (output == nullptr || ctx.registry == nullptr) return;
 
     VkImageView bloom_view = VK_NULL_HANDLE;
-    if (ctx.passes != nullptr && ctx.registry != nullptr) {
+    if (ctx.passes != nullptr) {
         auto* bloom = ctx.passes->try_get<BloomCore>("bloom_ds_0");
         if (bloom != nullptr && bloom->enabled()) {
             bloom_view = ctx.registry->image_view("bloom_mip0");
@@ -246,41 +412,66 @@ void TonemapPass::record(const FrameContext& ctx) {
         }
     }
 
-    record_into(ctx, *tonemap, color_source, bloom_view, 0.3f, exposure);
+    // The day profile's bias rides on top of the project exposure, adapted
+    // or fixed alike, so a dusk that should read dark does.
+    const float exposure = exposure_ + (ctx.environment != nullptr ? ctx.environment->exposure_bias : 0.0f);
+
+    // Until the engine default has compiled there is nothing to draw with,
+    // and the viewport is the clear colour rather than a stale image.
+    const std::array layers{Layer{
+        .pipeline_id = default_.pipeline_id,
+        .material_id = default_.material_id,
+        .values = &default_values_,
+        .weight = 1.0f,
+    }};
+    record_into(ctx, *output, color_source, bloom_view, ctx.registry->image_view("surface_depth"),
+                exposure, default_.ready ? std::span<const Layer>(layers) : std::span<const Layer>{});
 }
 
 void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                              VkImageView bloom_view, float bloom_intensity,
-                              float exposure) {
-    if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE) return;
+                              VkImageView bloom_view, VkImageView depth_view, float exposure,
+                              std::span<const Layer> layers) {
+    if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE || depth_view == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
 
-    VkImageView bloom = bloom_view != VK_NULL_HANDLE ? bloom_view : source;
-    float has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f;
+    // Every layer's values first, so a buffer that grows does so before any
+    // descriptor set names it.
+    std::vector<uint32_t> bases(layers.size());
+    for (size_t i = 0; i < layers.size(); ++i) {
+        bases[i] = write_values(ctx.frame_index, layers[i]);
+    }
 
-    std::array<FrameCacheBinding, 2> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[0].image.sampler = input_sampler_;
-    bindings[0].image.imageView = source;
-    bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    bindings[1].binding = 1;
-    bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].image.sampler = input_sampler_;
-    bindings[1].image.imageView = bloom;
-    bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorSet input_set = ctx.descriptor_cache->acquire(set_layout_, bindings);
+    // With no bloom the scene colour stands in, so the set is complete; the
+    // shader reads zero bloom either way.
+    std::array<FrameCacheBinding, 4> bindings{};
+    const std::array<VkImageView, 3> views{source, bloom_view != VK_NULL_HANDLE ? bloom_view : source,
+                                           depth_view};
+    for (uint32_t i = 0; i < 3; ++i) {
+        bindings[i].binding = i;
+        bindings[i].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].image.sampler = input_sampler_;
+        bindings[i].image.imageView = views[i];
+        bindings[i].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    bindings[3].binding = 3;
+    bindings[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[3].buffer.buffer = value_buffers_[ctx.frame_index]->handle();
+    bindings[3].buffer.range = VK_WHOLE_SIZE;
+    VkDescriptorSet input_set = ctx.descriptor_cache->acquire(input_set_layout_, bindings);
 
-    // Transition output to writable
-
-    // Render
+    // The base layer covers every pixel, so what was there does not matter.
+    // Without one the image is cleared to opaque black, and anything laid
+    // over lands on that.
+    const bool has_base = !layers.empty() && material_pipelines_.contains(layers.front().pipeline_id);
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color_attachment.imageView = imgs.view;
     color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color_attachment.loadOp = has_base ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_CLEAR;
     color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
     VkRenderingInfo ri{};
     ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -290,8 +481,6 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     ri.pColorAttachments = &color_attachment;
 
     vkCmdBeginRendering(cmd, &ri);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
     VkViewport vp{};
     vp.width = static_cast<float>(imgs.extent.width);
@@ -310,18 +499,26 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     sc.extent = imgs.extent;
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &input_set, 0, nullptr);
+    std::array sets = {ctx.global_descriptor_set, ctx.bindless_set, input_set};
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
+                            static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
-    struct {
-        float intensity;
-        float active;
-        float ev;
-        int32_t op;
-    } push{bloom_intensity, has_bloom, exposure, static_cast<int32_t>(operator_)};
-    vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
-
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    for (size_t i = 0; i < layers.size(); ++i) {
+        const auto built = material_pipelines_.find(layers[i].pipeline_id);
+        if (built == material_pipelines_.end()) continue;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          i == 0 ? built->second.base : built->second.over);
+        const PostPush push{
+            .material_id = layers[i].material_id,
+            .param_base = bases[i],
+            .exposure = exposure,
+            .luminance = luminance_,
+            .has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f,
+            .layer_weight = layers[i].weight,
+        };
+        vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
 
     vkCmdEndRendering(cmd);
 
@@ -340,6 +537,10 @@ PassSetup TonemapPass::setup() const {
 void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
+
+    // DEPTH in a post shader: the opaque scene with the water laid over it.
+    auto depth = builder.import_named(ctx, "surface_depth");
+    builder.read(depth, ResourceAccess::sampled_fragment);
 
     // What the viewport shows. The pass hands it to ImGui itself, after
     // the graph, with a transition to a fragment-shader read.

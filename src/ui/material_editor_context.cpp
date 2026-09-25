@@ -250,6 +250,10 @@ void MaterialEditorContext::draw_params_panel() {
             elsewhere = "A fog shader doesn't draw on the preview. Put the material on the "
                         "scene's Volumetric Fog node and look at the scene.";
             break;
+        case ShaderType::Post:
+            elsewhere = "A post shader doesn't draw on the preview: it turns the finished frame "
+                        "into what the viewport shows.";
+            break;
     }
     if (elsewhere != nullptr) ui::status(ui::Severity::Warning, elsewhere);
 

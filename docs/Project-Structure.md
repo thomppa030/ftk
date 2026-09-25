@@ -97,7 +97,7 @@ Each pass is its own class. They're instantiated and orchestrated by `VulkanCont
 | `transparent_pass` | Alpha-blended objects (back-to-front) |
 | `sky_pass` | Procedural sky rendering |
 | `bloom_pass` | Multi-stage bloom (downsample + upsample + composite) |
-| `tonemap_pass` | AgX tone mapping |
+| `tonemap_pass` | The post pass: the scene colour to what the viewport shows, through a `shader_type post` shader (`shaders/post.fjsl` by default) |
 | `light_cull_pass` | Forward+ tiled light culling (compute) |
 | `debug_pass` | Debug line rendering |
 | `depth_viz_pass` | Depth buffer visualization |
@@ -171,7 +171,7 @@ GLSL shaders compiled to SPIR-V at build time into `build/shaders/`. `.fjsl` sha
 
 **Post-processing:**
 - `bloom_downsample.frag`, `bloom_upsample.frag`, `bloom_composite.frag` — bloom chain
-- `tonemap.frag` — AgX tone mapping
+- `post.fjsl` — the engine's look: bloom and a tone curve, drawn by the post pass through `include/fjell_post_template.glsl`; the curves are in `include/tonemap/`
 
 **Particles:**
 - `particle_emit.comp`, `particle_sim.comp`, `particle_indirect.comp` — GPU particle compute

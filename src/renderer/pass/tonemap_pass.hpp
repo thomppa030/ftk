@@ -1,18 +1,43 @@
 #pragma once
 
+#include "core/named_value.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 namespace fjell {
 
-// Tone mapping pass. Reads HDR input (from bloom composite or raw scene
-// color), applies the selected operator, outputs LDR sRGB.
+class BindlessTextures;
+class Buffer;
+class DeferredDeleter;
+class PipelineCache;
+
+// The post pass: what the viewport shows, drawn from the scene colour after
+// TAA through a `shader_type post` shader. The look is the shader's, the tone
+// curve included; the pass supplies the exposure, the bloom and the depth and
+// writes the 8-bit sRGB image ImGui displays.
+//
+// A shader's uniforms are per viewport, because each viewport's camera may sit
+// somewhere different, and one frame renders several. So the pass does not
+// write a material row's params: it resolves the values itself and writes
+// them into a buffer of its own per frame in flight, one slice per draw, and
+// pushes where the slice starts. The material row supplies the textures.
 class TonemapPass : public RenderPass {
 public:
-    // Must match FJ_TONEMAP_* constants in shaders/tonemap.frag.
+    /// The engine's own post shader, the look when nothing else is set.
+    static constexpr std::string_view DEFAULT_SHADER = "shaders/post.fjsl";
+
+    // The order of post.fjsl's `operator` hint_enum.
     enum class Operator : uint8_t {
         Linear   = 0,
         Reinhard = 1,
@@ -22,9 +47,9 @@ public:
         Neutral  = 5,
     };
 
-    // Per-viewport output image. Input descriptor sets are no longer
-    // owned per-viewport — TonemapPass::record_into() acquires them from
-    // FrameContext::descriptor_cache against the current source views.
+    // Per-viewport output image. Input descriptor sets are not owned per
+    // viewport: record_into() acquires them from FrameContext::descriptor_cache
+    // against the current source views.
     struct Images {
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
@@ -49,15 +74,11 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    // Record into externally-provided images.
-    void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                     VkImageView bloom_view = VK_NULL_HANDLE, float bloom_intensity = 0.3f,
-                     float exposure = 0.0f);
-
     void set_exposure(float ev) { exposure_ = ev; }
     [[nodiscard]] float exposure() const { return exposure_; }
 
-    void set_operator(Operator op) { operator_ = op; }
+    /// The project's operator, given to the engine default's `operator`.
+    void set_operator(Operator op);
     [[nodiscard]] Operator tonemap_operator() const { return operator_; }
 
     void set_auto_exposure(bool on) { auto_exposure_ = on; }
@@ -68,44 +89,85 @@ public:
 
     void set_exposure_range(float min_ev, float max_ev) { min_ev_ = min_ev; max_ev_ = max_ev; }
 
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    void invalidate_imgui_texture();
-    void resize(uint32_t width, uint32_t height);
-
-    // Set the HDR source to read from (bloom output or raw scene color)
-    void set_source_view(VkImageView view) { source_view_ = view; }
-
-    // Output image accessors (for overlays rendered after tonemap)
-    [[nodiscard]] VkImage output_image() const { return default_images_.image; }
-    [[nodiscard]] VkImageView output_view() const { return default_images_.view; }
-    [[nodiscard]] VkExtent2D output_extent() const { return default_images_.extent; }
-
-    // Expose set layout and sampler so external Images can be created/displayed
-    [[nodiscard]] VkDescriptorSetLayout image_set_layout() const { return set_layout_; }
+    /// The sampler the viewport images are shown with.
     [[nodiscard]] VkSampler output_sampler() const { return sampler_; }
 
 private:
+    /// A post shader's two pipelines. The first layer covers the image
+    /// and draws opaque, as the one draw of the common case should; every
+    /// layer after it blends over what is there by the weight it writes.
+    struct MaterialPipeline {
+        VkPipeline base{VK_NULL_HANDLE};
+        VkPipeline over{VK_NULL_HANDLE};
+        uint32_t generation{0};
+    };
+    /// The engine default, registered once and given a material row for its
+    /// textures.
+    struct Fallback {
+        bool ready{false};
+        uint32_t pipeline_id{0};
+        uint32_t material_id{~0u};
+    };
+    /// One fullscreen draw: a shader, the row its textures come from, its
+    /// values and how much of it lies over the layers below.
+    struct Layer {
+        uint32_t pipeline_id{0};
+        uint32_t material_id{~0u};
+        const std::vector<NamedValue>* values{nullptr};
+        float weight{1.0f};
+    };
+
+    /// Build, or fetch, the pipeline for a post shader entry, kept current
+    /// with the entry's compile generation so a hot reload reaches it. Null
+    /// when the entry is not a post shader or has never compiled; a failed
+    /// recompile keeps the last good one.
+    const MaterialPipeline* ensure_material_pipeline(uint32_t pipeline_id);
+    void ensure_default();
+    void destroy_material_pipelines();
+
+    /// Resolve a layer's values and write them into this frame's buffer.
+    /// Returns where they start, in floats.
+    uint32_t write_values(uint32_t frame_index, const Layer& layer);
+    void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
+                     VkImageView bloom_view, VkImageView depth_view, float exposure,
+                     std::span<const Layer> layers);
+
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
+    DeferredDeleter* deferred_deleter_{nullptr};
+    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
+
+    PipelineCache* pipeline_cache_{nullptr};
+    BindlessTextures* bindless_{nullptr};
 
     // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};
     VkSampler input_sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout input_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
 
-    VkImageView source_view_{VK_NULL_HANDLE};
+    std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
+    /// Entries already reported as unusable, so a broken shader is said once
+    /// rather than every frame.
+    std::unordered_set<uint32_t> reported_entries_;
+    Fallback default_;
+    std::vector<NamedValue> default_values_;
+
+    /// This frame's layer values: host-written, read by the fragment
+    /// shader at the pushed base. Reset in prepare_frame(), once the frame
+    /// that last used the slot has finished.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> value_buffers_;
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> values_used_{};
+
     Operator operator_{Operator::Agx};
     float exposure_{0.0f};
+    float luminance_{0.0f};
     bool auto_exposure_{false};
     float adaptation_speed_{1.5f};
     float min_ev_{-5.0f};
     float max_ev_{5.0f};
-
-    // Default per-viewport images (backward compat — used by record()/resize())
-    Images default_images_;
 };
 
 } // namespace fjell

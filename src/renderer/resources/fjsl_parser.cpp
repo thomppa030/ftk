@@ -1,6 +1,7 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "core/log.hpp"
 #include "core/math/color_space.hpp"
+#include "core/named_value.hpp"
 
 #include <algorithm>
 #include <map>
@@ -24,6 +25,7 @@ constexpr ShaderTypeName SHADER_TYPE_NAMES[] = {
     {"spatial", ShaderType::Spatial}, {"sky", ShaderType::Sky},
     {"ui", ShaderType::Ui},           {"terrain", ShaderType::Terrain},
     {"water", ShaderType::Water},     {"fog", ShaderType::Fog},
+    {"post", ShaderType::Post},
 };
 } // namespace
 
@@ -56,15 +58,19 @@ constexpr HookRule FUNCTION_HOOKS[] = {
     {"sky", "a shader_function has one entry point, main()"},
     {"layers", "a shader_function has one entry point, main()"},
     {"density", "a shader_function has one entry point, main()"},
+    {"color", "a shader_function has one entry point, main()"},
 };
 
 constexpr std::string_view DENSITY_REFUSAL = "only a shader_type fog shader writes a medium";
+constexpr std::string_view COLOR_REFUSAL =
+    "only a shader_type post shader writes the display colour";
 
 constexpr HookRule SPATIAL_HOOKS[] = {
     {"fragment", {}}, {"vertex", {}}, {"light", {}},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
     {"density", DENSITY_REFUSAL},
+    {"color", COLOR_REFUSAL},
 };
 constexpr HookRule SKY_HOOKS[] = {
     {"sky", {}},
@@ -73,6 +79,7 @@ constexpr HookRule SKY_HOOKS[] = {
     {"light", "the sky is not lit; it is the light"},
     {"layers", "only terrain blends painted layers"},
     {"density", DENSITY_REFUSAL},
+    {"color", COLOR_REFUSAL},
 };
 constexpr HookRule UI_HOOKS[] = {
     {"fragment", {}},
@@ -81,12 +88,14 @@ constexpr HookRule UI_HOOKS[] = {
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
     {"density", DENSITY_REFUSAL},
+    {"color", COLOR_REFUSAL},
 };
 constexpr HookRule TERRAIN_HOOKS[] = {
     {"fragment", {}}, {"light", {}}, {"layers", {}},
     {"vertex", "terrain geometry is generated in a mesh shader from the height texture"},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"density", DENSITY_REFUSAL},
+    {"color", COLOR_REFUSAL},
 };
 constexpr HookRule WATER_HOOKS[] = {
     {"fragment", {}}, {"light", {}},
@@ -94,6 +103,7 @@ constexpr HookRule WATER_HOOKS[] = {
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
     {"density", DENSITY_REFUSAL},
+    {"color", COLOR_REFUSAL},
 };
 // A fog shader answers what the medium is at a world point and how it
 // scatters each light. It has no surface, so nothing for fragment() to
@@ -104,6 +114,19 @@ constexpr HookRule FOG_HOOKS[] = {
     {"vertex", "fog has no geometry; it is sampled per froxel"},
     {"sky", "only a shader_type sky shader writes SKY"},
     {"layers", "only terrain blends painted layers"},
+    {"color", COLOR_REFUSAL},
+};
+// A post shader takes the finished frame to the display: COLOR in, exposed,
+// COLOR out, display-linear. The frame is already lit and has no geometry
+// left to move.
+constexpr HookRule POST_HOOKS[] = {
+    {"color", {}},
+    {"fragment", "a post shader writes COLOR from color(), not a surface from fragment()"},
+    {"vertex", "a post shader is drawn as one fullscreen triangle"},
+    {"light", "a post shader works on the lit frame; nothing in it is lit again"},
+    {"sky", "only a shader_type sky shader writes SKY"},
+    {"layers", "only terrain blends painted layers"},
+    {"density", DENSITY_REFUSAL},
 };
 
 std::span<const HookRule> hook_rules(std::optional<ShaderType> type) {
@@ -114,6 +137,7 @@ std::span<const HookRule> hook_rules(std::optional<ShaderType> type) {
         case ShaderType::Terrain: return TERRAIN_HOOKS;
         case ShaderType::Water:   return WATER_HOOKS;
         case ShaderType::Fog:     return FOG_HOOKS;
+        case ShaderType::Post:    return POST_HOOKS;
         case ShaderType::Spatial: break;
     }
     return SPATIAL_HOOKS;
@@ -261,6 +285,26 @@ void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values) {
     for (size_t i = 0; i < rgb; ++i) {
         values[i] = color_space::linear_to_srgb(values[i]);
     }
+}
+
+std::vector<float> resolve_uniform_block(const ShaderMetadata& meta,
+                                         const std::vector<NamedValue>& values) {
+    std::vector<float> block(meta.custom_param_count, 0.0f);
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        const uint32_t count = uniform_float_count(u.type);
+        if (u.slot + count > block.size()) continue;
+        for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+            block[u.slot + i] = u.default_value[i];
+        }
+        if (const NamedValue* value = find_named(values, u.name)) {
+            for (uint32_t i = 0; i < count && i < value->count; ++i) {
+                block[u.slot + i] = value->values[i];
+            }
+        }
+        encode_uniform_for_gpu(u, std::span{block}.subspan(u.slot, count));
+    }
+    return block;
 }
 
 static UniformType parse_type(const std::string& t) {
@@ -1181,8 +1225,8 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         meta.uses.push_back(std::move(use));
     });
 
-    // Sky and fog shaders supply their user code via sky() and density()
-    // rather than fragment(); both route through the same fragment_body slot
+    // Sky, fog and post shaders supply their user code via sky(), density()
+    // and color() rather than fragment(); all route through the same fragment_body slot
     // so the /*FJSL_USER_CODE*/ substitution path serves every type.
     if (meta.is_function) {
         meta.main_body = extract_function_body(source, "main");
@@ -1190,6 +1234,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         const char* body_hook = "fragment";
         if (meta.shader_type == ShaderType::Sky) body_hook = "sky";
         if (meta.shader_type == ShaderType::Fog) body_hook = "density";
+        if (meta.shader_type == ShaderType::Post) body_hook = "color";
         meta.fragment_body = extract_function_body(source, body_hook);
         meta.vertex_body = extract_function_body(source, "vertex");
         meta.light_body = extract_function_body(source, "light");
@@ -1234,6 +1279,13 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         && find_function_declaration(source, "density") == std::string::npos) {
         diagnose(0, FjslSeverity::warning,
                  "a shader_type fog shader with no density() makes no fog");
+    }
+    // An empty color() is not the engine's look: it shows the exposed scene
+    // clamped, with no tone curve, which reads as a broken frame.
+    if (!meta.is_function && meta.shader_type == ShaderType::Post
+        && find_function_declaration(source, "color") == std::string::npos) {
+        diagnose(0, FjslSeverity::warning,
+                 "a shader_type post shader with no color() shows the scene with no tone curve");
     }
 
     if (meta.is_function) {
@@ -1517,7 +1569,9 @@ std::string emit_use_calls(const std::vector<FjslUse>& uses,
 }
 
 /// Where a generated shader reads its scalar uniforms: an array and the
-/// expression its run starts at.
+/// expression its run starts at. Every type reads its material row's slice of
+/// the params SSBO except post, whose values differ per viewport and come from
+/// the post pass's own buffer (see fjell_post_template.glsl).
 struct ParamBlock {
     std::string array;
     std::string base;
@@ -1641,11 +1695,14 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
             case ShaderType::Water:   return "materials[push.water_material_id]";
             case ShaderType::Fog:     return "materials[pc.fog_material_id]";
             case ShaderType::Ui:      return "materials[quads[frag_quad_index].material_id]";
+            case ShaderType::Post:    return "materials[push.material_id]";
             case ShaderType::Spatial: break;
         }
         return "materials[draws[frag_draw_index].material_id]";
     }();
-    const ParamBlock params{"custom_params", mat_expr + ".param_offset"};
+    const ParamBlock params = meta.shader_type == ShaderType::Post
+        ? ParamBlock{"post_params", "push.param_base"}
+        : ParamBlock{"custom_params", mat_expr + ".param_offset"};
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
         param_defines += "#define " + u.name + " (" + uniform_read(u, params, u.slot) + ")\n";
