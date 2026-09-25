@@ -50,22 +50,28 @@ public:
 
     [[nodiscard]] uint64_t generation() const { return generation_; }
 
-    /// The value for key here, or in the nearest parent that has one; null
-    /// when no scope does.
+    /// The value published under exactly this name here, or in the nearest
+    /// parent that has one; null when no scope does. Paths go through lookup().
     [[nodiscard]] const UiValue* find(const std::string& key) const {
         auto it = values_.find(key);
         if (it != values_.end()) return &it->second;
         return parent_ ? parent_->find(key) : nullptr;
     }
 
-    /// The value for key as markup shows it, or "" when no scope has one.
-    [[nodiscard]] std::string get(const std::string& key) const {
-        const UiValue* value = find(key);
-        return value != nullptr ? value->text() : std::string();
-    }
+    /// The value a path reaches: `name`, or `name.field.field` into an
+    /// object (a Model, a struct, a getter's result) or a vector. The first
+    /// name is looked up through the scopes, each later one read from the
+    /// value before it. A name no scope holds reads the whole path as one
+    /// name, so a value published under a dotted name is still found. No
+    /// value when nothing is there.
+    [[nodiscard]] UiValue lookup(std::string_view path) const;
 
-    /// What a binding's braces hold, `name` or `name|pipe:arg|pipe`: the value,
-    /// formatted by its pipes left to right. No value when no scope has it.
+    /// The value a path reaches as markup shows it, or "" when there is none.
+    [[nodiscard]] std::string get(const std::string& path) const { return lookup(path).text(); }
+
+    /// What a binding's braces hold, `path` or `path|pipe:arg|pipe`: the
+    /// value, formatted by its pipes left to right. No value when the path
+    /// reaches nothing.
     [[nodiscard]] UiValue evaluate(std::string_view expression) const;
 
     /// The pipes bindings format with: this scope's, or the nearest parent's.

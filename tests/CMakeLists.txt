@@ -248,6 +248,7 @@ add_executable(fjell-tests
     test_fjui_serializer.cpp
     test_data_bind.cpp
     test_ui_pipes.cpp
+    test_ui_paths.cpp
     test_ui_animation.cpp
     test_ui_bar_dynamics.cpp
     test_spline.cpp
