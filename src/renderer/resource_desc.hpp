@@ -28,6 +28,8 @@ enum class ResourceAccess : uint8_t {
     // Shader reads
     sampled_fragment,
     sampled_vertex,
+    /// Sampled by a task or mesh shader.
+    sampled_mesh,
     sampled_compute,
 
     // Storage image
