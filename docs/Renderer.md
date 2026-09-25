@@ -107,7 +107,7 @@ VulkanContext
   ├── TransparentPass      Back-to-front sorted
   ├── ParticleSystem       GPU compute particles
   ├── BloomPass            Downscale chain + composite
-  ├── TonemapPass          AgX tone mapping
+  ├── TonemapPass          Post: shader_type post, blended by post process volumes
   ├── OutlinePass          Selection outline
   ├── DebugDraw            Collider wireframes
   ├── [Debug viz passes]   Depth, normals, UV, overdraw, wireframe,
@@ -130,7 +130,7 @@ VulkanContext
 9. Particle compute (emit, simulate, indirect) + particle rendering
 10. Debug passes (only if the active viewport requests a debug visualization)
 11. Bloom (downscale chain + upsample composite)
-12. Tone mapping (AgX)
+12. Post (`shader_type post`, per post process volume; see [Post-Process.md](Post-Process.md))
 13. Outline pass (selection highlight)
 14. ImGui overlay rendered to swapchain
 

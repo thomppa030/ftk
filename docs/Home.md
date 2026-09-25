@@ -20,6 +20,7 @@ Vulkan game engine written in C++23, targeting Linux and Windows.
 - [Renderer](Renderer.md)
 - [Materials](Materials.md)
 - [Render Passes](Render-Passes.md)
+- [Post-Processing](Post-Process.md) — `shader_type post` and Post Process Volumes: the tone curve, grades and filters as materials, blended per camera
 - [Scene System](Scene-System.md)
 - [Physics](Physics.md)
 - [Look Belongs in Shaders](Architecture/Look-Belongs-In-Shaders.md) — the rule for visual systems, and the shape of one that follows it

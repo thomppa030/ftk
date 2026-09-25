@@ -41,6 +41,8 @@ not need a key at both ends.
 | `sky_bottom` | colour | override | Its horizon. |
 | `fog.<uniform>` | as declared | multiply for density, else override | A uniform of the haze's [fog material](Fog-Shaders.md): `fog.density` is the dawn mist spike, `fog.color` its colour, and anything else the shader declares. `fog_density` and `fog_color` are the older names for those two. |
 | `fog.<group>.<uniform>` | as declared | as above | The same, for every [fog volume](Fog-Volumes.md) in that group. |
+| `post.<uniform>` | as declared | override | A uniform of the [post process volumes](../Post-Process.md) with infinite bounds, the scene's base look: `post.bloom_intensity`, or a grade's amount that rises at dusk. |
+| `post.<group>.<uniform>` | as declared | override | The same, for every post process volume in that group, bounded or not. |
 | `exposure_bias` | curve | override | EV added on top of the project's exposure. Negative at night is what makes night read as night rather than as a dimly lit day. |
 | `star_intensity` | curve | override | The sky's `STARS` built-in. Overrides the automatic dusk fade. |
 
@@ -49,9 +51,9 @@ not need a key at both ends.
 Any name the list above does not claim becomes a **sky shader uniform** of that
 name, and is readable by scripts. This is the extension point: if your sky
 shader declares `uniform float haze`, a `haze` track animates it over the day
-with no engine change. Fog works the same way behind its `fog.` prefix: the
-editor offers every uniform the scene's fog materials declare, and a track for
-one they do not says so under its name.
+with no engine change. Fog and post work the same way behind their `fog.` and
+`post.` prefixes: the editor offers every uniform the scene's fog and post
+materials declare, and a track for one they do not says so under its name.
 
 The sample profile uses this for `zenith_color` and `horizon_color`, which are
 the gradient sky shader's own uniforms, so that sky animates over the day the
@@ -62,7 +64,7 @@ same way the built-in gradient does.
 Double-click a `.fjday` in the content browser.
 
 - **Track list**, left. The built-in tracks it does not have yet are offered by
-  name, then the fog tracks the open scene's materials declare; below them, a
+  name, then the fog and post tracks the open scene's materials declare; below them, a
   field for a custom name and a kind. The `x` beside a
   track removes it. The selected track's mode is a combo below the list.
 - **The curve or the gradient**, right. Float tracks get the curve editor with

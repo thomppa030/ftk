@@ -186,12 +186,12 @@ The older names `fog_density.<group>` and `fog_color.<group>` still work.
 ## For engine work
 
 `FogVolumeNode` derives `VolumeNode`, which carries the shape and the edge
-falloff for any placed region — the fog volume is its first user, not its only
-intended one. How far inside a volume a point sits is `volume_occupancy()` in
-`shaders/include/fjell_volume.glsl`; a volume that needs answering on the CPU
-rather than per froxel wants a mirror of that function, and the
-`.fjwater`/`tests/test_fjwater.cpp` pairing is the pattern for keeping two such
-halves honest.
+falloff for any placed region; the [post process volume](../Post-Process.md)
+is its other user. How far inside a volume a point sits is
+`volume_occupancy()` in `shaders/include/fjell_volume_shape.glsl`, and on the
+CPU in `src/scene/volume_occupancy.hpp`, which the post pass asks per camera.
+`tests/test_volume_occupancy.cpp` compiles the GLSL as C++ and holds the two
+to each other, the way `tests/test_fjwater.cpp` holds the water field's.
 
 Volumes are gathered by `EnvironmentResolver` into `EnvironmentState::fog_volumes`
 with their material's uniforms resolved, uploaded to one SSBO, and drawn one

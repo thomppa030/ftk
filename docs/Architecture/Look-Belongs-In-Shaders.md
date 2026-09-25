@@ -197,8 +197,7 @@ cannot author something, not ahead of it.
 | Terrain | `terrain` | `.fjmat` reference, default shader. |
 | Water | `water` | `.fjmat` reference, per-node instance for scripts. |
 | Fog | `fog` | All eight parts. The worked example; plan in `Plans/done/environment/fog-shaders-2026-09-22.md`. |
+| Post-processing | `post` | `.fjmat` on Post Process Volumes, default shader, tracks. The tone curve left the project settings. See [Post-Process.md](../Post-Process.md). |
 
 Next in line, in the order they earn it: the sky's values into a `.fjmat`
-with params; post-processing as a `shader_type post` so grading, vignette and
-a stylized filter are project files rather than three more fixed passes; the
-sun shafts' look onto the sun's material.
+with params; the sun shafts' look onto the sun's material.
