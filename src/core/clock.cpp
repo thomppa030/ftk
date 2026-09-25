@@ -1,14 +1,23 @@
 #include "core/clock.hpp"
 
+#include <algorithm>
+
 namespace fjell {
 
 void Clock::tick() {
     auto now = SteadyClock::now();
-    delta_time_ = std::chrono::duration<float>(now - last_).count();
     elapsed_ = std::chrono::duration<float>(now - start_).count();
+    const float real_delta = std::chrono::duration<float>(now - last_).count();
     last_ = now;
+    advance(real_delta);
+}
 
-    game_delta_time_ = paused_ ? 0.0f : delta_time_ * time_scale_;
+void Clock::advance(float real_delta) {
+    delta_time_ = real_delta;
+
+    const float scaled = paused_ ? 0.0f : delta_time_ * time_scale_;
+    game_delta_limited_ = scaled > max_game_delta_;
+    game_delta_time_ = std::min(scaled, max_game_delta_);
     game_elapsed_ += game_delta_time_;
 }
 

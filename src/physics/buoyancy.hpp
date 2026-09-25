@@ -48,6 +48,11 @@ struct BuoyancySamples {
 [[nodiscard]] BuoyancySamples buoyancy_samples(const BuoyancyComponent& buoyancy,
                                                const ColliderComponent* collider);
 
+/// The same, written into `samples` over whatever it held, so a caller
+/// sampling every fixed step reuses the storage instead of allocating it.
+void buoyancy_samples(const BuoyancyComponent& buoyancy, const ColliderComponent* collider,
+                      BuoyancySamples& samples);
+
 /// What one sample point contributes, in world space.
 ///
 /// `depth` is how far the point sits below the surface; at or above it there

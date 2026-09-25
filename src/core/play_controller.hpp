@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "core/fixed_timestep.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -109,8 +110,13 @@ public:
     void toggle_pause();
     [[nodiscard]] bool paused() const;
 
-    /// Resume for exactly one tick, then re-pause. No-op unless playing.
+    /// Resume for exactly one frame, which advances the simulation by exactly
+    /// one fixed step, then re-pause. No-op unless playing.
     void step();
+
+    /// The simulation's clock for the session: how many fixed steps each
+    /// frame runs. Reset when play starts.
+    [[nodiscard]] FixedTimestep& fixed_timestep() { return fixed_timestep_; }
 
     void set_time_scale(float scale);
     [[nodiscard]] float time_scale() const;
@@ -231,6 +237,8 @@ private:
     // Set by step(), consumed by begin_frame(): resume this frame, then
     // re-pause at the start of the next one.
     bool stepping_{false};
+
+    FixedTimestep fixed_timestep_;
 
     // Docked-only: true unless the player has released focus with Shift+Esc
     // and not yet clicked the viewport to take it back. Starts true on

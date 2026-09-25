@@ -153,12 +153,13 @@ void Engine::init_subsystems() {
     play_phase_0_.push_back(camera_subsystem_);
     // The environment is an input to physics: the wind that pushes bodies and
     // the sea and wakes they float on are resolved there, and have to be this
-    // frame's, so while playing it runs just ahead of physics. Outside play it
-    // ticks every frame with the always subsystems instead. Either way it
-    // resolves before anything renders: the frame's sun, sky and fog come from
-    // it, not from the scene's nodes.
+    // frame's, so while playing it runs just ahead of the fixed steps. Outside
+    // play it ticks every frame with the always subsystems instead. Either way
+    // it resolves before anything renders: the frame's sun, sky and fog come
+    // from it, not from the scene's nodes.
     play_phase_1_.push_back(environment_subsystem_);
-    play_phase_1_.push_back(physics_subsystem_);
+    // The simulation, run once per fixed step rather than once per frame.
+    play_fixed_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     // Animation is an input to physics — bone-driven colliders have to be at
     // the pose the solver collides against, not one frame behind it — so while
@@ -1731,6 +1732,44 @@ TickContext Engine::make_frame_context() {
     };
 }
 
+void Engine::run_fixed_steps() {
+    // A frame over the limit counts for less game time than it took, and the
+    // game runs slower through it. Said once as it starts, not every frame.
+    if (clock_.game_delta_limited() && !game_time_limited_) {
+        FJELL_CORE_WARN("A {:.0f} ms frame counts as {:.0f} ms of game time: a frame runs at "
+                        "most {} simulation steps, so the game slows down until frames catch up",
+                        clock_.delta_time() * 1000.0f, clock_.game_delta_time() * 1000.0f,
+                        FixedTimestep::MAX_STEPS_PER_FRAME);
+    }
+    game_time_limited_ = clock_.game_delta_limited();
+
+    FixedTimestep& timestep = play_controller_.fixed_timestep();
+    const int steps = timestep.advance(clock_.game_delta_time());
+    for (int i = 0; i < steps; ++i) {
+        FJELL_PROFILE_SCOPE_N("fixed_step");
+        const FixedStepTime step = timestep.next_step();
+        const FixedTickContext ctx{
+            .scene = scene_,
+            .dt = static_cast<float>(step.dt),
+            .time = step.time,
+            .index = step.index,
+            .physics = physics_subsystem_->world(),
+            .project = project_mgr_.active(),
+            .resources = resource_manager_.get(),
+            .workers = &thread_pool_,
+        };
+        for (auto* s : play_fixed_) s->run_fixed(ctx);
+
+        // A step's collisions are answered, and whatever the answers spawned
+        // or destroyed is settled, before the next step moves anything.
+        if (physics_subsystem_->world()) {
+            script_subsystem_->manager().dispatch_collision_events(
+                scene_, *physics_subsystem_->world());
+        }
+        flush_pending();
+    }
+}
+
 void Engine::flush_pending() {
     // Materialize nodes spawned mid-tick before anything else walks objects_.
     play_controller_.flush_spawned();
@@ -2059,13 +2098,9 @@ void Engine::run() {
             for (auto* s : play_phase_0_) s->run(ctx);
             flush_pending();
 
-            // Phase 1: Environment, physics, collision dispatch
+            // Phase 1: Environment, then the simulation's fixed steps
             for (auto* s : play_phase_1_) s->run(ctx);
-            if (physics_subsystem_->world()) {
-                script_subsystem_->manager().dispatch_collision_events(
-                    scene_, *physics_subsystem_->world());
-            }
-            flush_pending();
+            run_fixed_steps();
 
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->run(ctx);

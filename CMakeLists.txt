@@ -50,6 +50,26 @@ add_custom_command(
     VERBATIM)
 add_custom_target(fjell-editor-ui-check DEPENDS "${FJELL_EDITOR_UI_STAMP}")
 
+# Simulation code reads the fixed step's time, never the frame's. Checked at
+# configure and again by fjell-fixed-tick-check whenever a listed file or
+# either list changes.
+include(cmake/FixedTickCheck.cmake)
+fjell_check_fixed_tick()
+fjell_fixed_tick_read_list("${FJELL_FIXED_TICK_SOURCES}" FJELL_FIXED_TICK_FILES)
+list(TRANSFORM FJELL_FIXED_TICK_FILES PREPEND "${CMAKE_SOURCE_DIR}/")
+set(FJELL_FIXED_TICK_STAMP "${CMAKE_BINARY_DIR}/fixed_tick_check.stamp")
+add_custom_command(
+    OUTPUT "${FJELL_FIXED_TICK_STAMP}"
+    COMMAND "${CMAKE_COMMAND}" -DFJELL_FIXED_TICK_CHECK=ON -P "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_FIXED_TICK_STAMP}"
+    DEPENDS ${FJELL_FIXED_TICK_FILES}
+            "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
+            "${FJELL_FIXED_TICK_SOURCES}"
+            "${FJELL_FIXED_TICK_ALLOWLIST}"
+    COMMENT "Checking simulation code for reads of the frame"
+    VERBATIM)
+add_custom_target(fjell-fixed-tick-check DEPENDS "${FJELL_FIXED_TICK_STAMP}")
+
 include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 include(cmake/GenerateShaderConstants.cmake)

@@ -170,6 +170,8 @@ void PlayController::begin_frame() {
     // doesn't advance too, without ever broadcasting resume/pause for what
     // is really a single-frame nudge.
     s_.clock->set_paused(true);
+    // However long the frame took, the simulation moves by one step of it.
+    fixed_timestep_.request_single_step();
 }
 
 bool PlayController::input_focused() const {
@@ -368,6 +370,12 @@ void PlayController::start() {
         s_.ui->notify_play_start(ctx);
     }
 
+    // The simulation starts where game time is, so anything that follows
+    // game time (the water shaders) and the simulation agree from the first
+    // step. A frame counts for no more game time than the steps it may run.
+    fixed_timestep_.reset(1.0 / FixedTimestep::DEFAULT_TICK_RATE, s_.clock->game_elapsed());
+    s_.clock->set_max_game_delta(static_cast<float>(fixed_timestep_.max_frame_seconds()));
+
     session_ = std::make_unique<PlaySession>(std::move(snapshot));
     state_ = PlayState::playing;
     s_.vulkan->set_playing(true);
@@ -397,6 +405,7 @@ void PlayController::stop() {
 
     s_.clock->set_time_scale(1.0f);
     s_.clock->set_paused(false);
+    s_.clock->clear_max_game_delta();
 
     fjell_input_clear_connections();
     s_.ui->notify_play_stop(ctx);

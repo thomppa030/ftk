@@ -1,6 +1,5 @@
 #include "physics/physics_subsystem.hpp"
 
-#include "core/clock.hpp"
 #include "core/frame_context.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
@@ -12,12 +11,13 @@
 #include "scene/scene.hpp"
 
 #include <cmath>
+#include <span>
 #include <utility>
 #include <vector>
 
 namespace fjell {
 
-void PhysicsSubsystem::apply_wind(const TickContext& ctx) {
+void PhysicsSubsystem::apply_wind(const FixedTickContext& ctx) {
     if (environment_ == nullptr) return;
     const auto& weather = environment_->state().weather;
     const glm::vec3 wind = weather.wind_direction * (weather.wind_speed * weather.wind_gust);
@@ -77,12 +77,10 @@ namespace {
 
 } // namespace
 
-void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
+void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     FJELL_PROFILE_SCOPE_N("apply_buoyancy");
-    // The same clock the renderer advances its wave field with, so a hull
-    // floats on the wave the player is looking at rather than one a frame
-    // either side of it.
-    const float time = ctx.clock.game_elapsed();
+    // The sea as it is when this step starts, like every body in the step.
+    const auto time = static_cast<float>(ctx.time);
 
     // Buoyancy is a fight against gravity, so it has to be the same gravity:
     // a scene that has turned it down floats its boats gently rather than by
@@ -97,19 +95,11 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
     // order on this thread: reading the physics world and writing forces into
     // it in a fixed order is what makes the result the same whichever thread
     // got which body, and the same on every machine.
-    struct Floating {
-        uint32_t id;
-        const BuoyancyComponent* buoyancy;
-        BuoyancySamples samples;
-        glm::mat4 world;
-        glm::vec3 velocity;
-        glm::vec3 spin;
-        // Filled by the parallel pass.
-        std::vector<std::pair<glm::vec3, glm::vec3>> forces;   // at point, force
-        bool any_submerged{false};
-    };
-    std::vector<Floating> floating;
-
+    //
+    // The records are refilled in place rather than rebuilt: this runs every
+    // fixed step, and a record keeps the storage its sample points and forces
+    // had last step.
+    std::size_t used = 0;
     for (const auto& obj : ctx.scene.objects()) {
         auto* buoyancy = obj->components.get<BuoyancyComponent>();
         if (buoyancy == nullptr) continue;
@@ -117,25 +107,25 @@ void PhysicsSubsystem::apply_buoyancy(const TickContext& ctx) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
         if (rb == nullptr || rb->body_type != BodyType::Dynamic) continue;
 
-        BuoyancySamples samples =
-            buoyancy_samples(*buoyancy, obj->components.get<ColliderComponent>());
-        if (samples.points.empty() || samples.volume <= 0.0f) continue;
-
         const auto* spatial = obj->as_spatial();
         if (spatial == nullptr) continue;
 
-        floating.push_back({
-            .id = obj->id,
-            .buoyancy = buoyancy,
-            .samples = std::move(samples),
-            .world = ctx.scene.current_world_matrix(*spatial),
-            .velocity = world_->get_linear_velocity(obj->id),
-            .spin = world_->get_angular_velocity(obj->id),
-            .forces = {},
-            .any_submerged = false,
-        });
+        if (used == floating_.size()) floating_.emplace_back();
+        Floating& body = floating_[used];
+        buoyancy_samples(*buoyancy, obj->components.get<ColliderComponent>(), body.samples);
+        if (body.samples.points.empty() || body.samples.volume <= 0.0f) continue;
+
+        body.id = obj->id;
+        body.buoyancy = buoyancy;
+        body.world = ctx.scene.current_world_matrix(*spatial);
+        body.velocity = world_->get_linear_velocity(obj->id);
+        body.spin = world_->get_angular_velocity(obj->id);
+        body.forces.clear();
+        body.any_submerged = false;
+        ++used;
     }
-    if (floating.empty()) return;
+    if (used == 0) return;
+    const std::span<Floating> floating(floating_.data(), used);
 
     auto evaluate = [&](Floating& body) {
         const glm::vec3 centre{body.world[3]};

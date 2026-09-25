@@ -50,6 +50,7 @@
 #include <cstdarg>
 #include <mutex>
 #include <algorithm>
+#include <tuple>
 #include <unordered_set>
 #include <thread>
 
@@ -459,6 +460,11 @@ struct PhysicsWorld::Impl {
     // rescaled afterwards, so the scale each body was built at is kept to
     // notice when it no longer matches and the shape must be rebuilt.
     std::unordered_map<uint32_t, glm::vec3> body_scales;
+
+    // The character contact pairs already reported this step. Kept rather
+    // than rebuilt, since a step runs several times a frame on a slow machine;
+    // a step touches few enough pairs that a search beats hashing.
+    std::vector<uint64_t> reported_pairs;
 
     // One Jolt material per surface id, created on first use and kept for
     // the world's lifetime, and the reverse map that turns the material a
@@ -1201,6 +1207,26 @@ void PhysicsWorld::apply_character_changes(CharacterEntry& entry, CharacterCompo
     }
 }
 
+namespace {
+
+/// Put one step's events in an order that does not depend on which of Jolt's
+/// worker threads reported each contact first. Callbacks then run in the same
+/// order on every run, which gameplay reacting to them needs to replay.
+void sort_events(std::vector<std::pair<uint32_t, CollisionEvent>>& events) {
+    std::sort(events.begin(), events.end(), [](const auto& a, const auto& b) {
+        const CollisionEvent& ea = a.second;
+        const CollisionEvent& eb = b.second;
+        return std::tie(a.first, ea.other_id, ea.contact_point.x, ea.contact_point.y,
+                        ea.contact_point.z, ea.contact_normal.x, ea.contact_normal.y,
+                        ea.contact_normal.z, ea.surface)
+             < std::tie(b.first, eb.other_id, eb.contact_point.x, eb.contact_point.y,
+                        eb.contact_point.z, eb.contact_normal.x, eb.contact_normal.y,
+                        eb.contact_normal.z, eb.surface);
+    });
+}
+
+} // namespace
+
 void PhysicsWorld::step(float dt, Scene& scene) {
     FJELL_PROFILE_SCOPE_N("physics_step");
     if (dt <= 0.0f) return;
@@ -1281,7 +1307,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     JPH::Vec3 gravity = impl_->physics_system->GetGravity();
     // Two characters touching each other are both aware of it, so a pair is
     // reported once per step no matter which side found it.
-    std::unordered_set<uint64_t> reported_pairs;
+    auto& reported_pairs = impl_->reported_pairs;
+    reported_pairs.clear();
     // `surface` is what the character touched; the character itself has none,
     // so the other side's event carries 0.
     auto report_character_contact = [&](bool enter, bool sensor, uint32_t self, uint32_t other,
@@ -1289,7 +1316,10 @@ void PhysicsWorld::step(float dt, Scene& scene) {
                                         uint32_t surface) {
         uint64_t pair = (static_cast<uint64_t>(std::min(self, other)) << 32) |
                         std::max(self, other);
-        if (!reported_pairs.insert(pair).second) return;
+        if (std::find(reported_pairs.begin(), reported_pairs.end(), pair) != reported_pairs.end()) {
+            return;
+        }
+        reported_pairs.push_back(pair);
         auto& listener = impl_->contact_listener;
         auto& events = sensor ? (enter ? listener.trigger_enter_events : listener.trigger_exit_events)
                               : (enter ? listener.collision_enter_events : listener.collision_exit_events);
@@ -1403,6 +1433,12 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     impl_->physics_system->Update(dt, collision_steps,
                                    impl_->temp_allocator.get(),
                                    impl_->job_system.get());
+
+    auto& listener = impl_->contact_listener;
+    sort_events(listener.collision_enter_events);
+    sort_events(listener.collision_exit_events);
+    sort_events(listener.trigger_enter_events);
+    sort_events(listener.trigger_exit_events);
 
     // Sync dynamic bodies: pull Jolt transforms -> engine
     for (auto& obj : scene.objects()) {

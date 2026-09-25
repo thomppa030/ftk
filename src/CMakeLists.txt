@@ -37,6 +37,7 @@ add_executable(fjell
     core/asset_type_registry.cpp
     core/base_path.cpp
     core/clock.cpp
+    core/fixed_timestep.cpp
     core/game_builder.cpp
     core/capture_service.cpp
     core/engine.cpp
@@ -441,6 +442,8 @@ target_include_directories(fjell SYSTEM PRIVATE
 
 # Fails the build on hand-styled editor UI before anything compiles.
 add_dependencies(fjell fjell-editor-ui-check)
+# And on simulation code that reads the frame.
+add_dependencies(fjell fjell-fixed-tick-check)
 
 target_link_libraries(fjell PRIVATE
     fjell-platform

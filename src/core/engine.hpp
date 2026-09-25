@@ -143,6 +143,9 @@ private:
     void load_input_actions();
     void load_project_scripts();
     void flush_pending();
+    /// Run as many of the simulation's fixed steps as this frame's game time
+    /// covers, each followed by its collision callbacks and spawns.
+    void run_fixed_steps();
     [[nodiscard]] TickContext make_frame_context();
     void handle_play_shortcuts();
 
@@ -200,7 +203,8 @@ private:
 
     // Phase groups (non-owning, built once in constructor)
     std::vector<Subsystem*> play_phase_0_;   // scripts
-    std::vector<Subsystem*> play_phase_1_;   // environment, then physics
+    std::vector<Subsystem*> play_phase_1_;   // environment
+    std::vector<Subsystem*> play_fixed_;     // physics, once per fixed step
     std::vector<Subsystem*> play_phase_2_;   // vfx
     std::vector<Subsystem*> early_always_;   // before compute_world_matrices
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices
@@ -260,6 +264,9 @@ private:
     // Play mode
     bool play_immediate_{false};
     PlayController play_controller_;
+    // Whether last frame's game time was cut short by the clock's limit, so
+    // a stall is reported once as it starts rather than every frame of it.
+    bool game_time_limited_{false};
 
     // Game UI (owned by game layer, rendered via callback)
     GameUi game_ui_;

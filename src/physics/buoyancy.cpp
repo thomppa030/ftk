@@ -44,11 +44,20 @@ void axis_points(const glm::vec3& half, const glm::vec3& offset,
 BuoyancySamples buoyancy_samples(const BuoyancyComponent& buoyancy,
                                  const ColliderComponent* collider) {
     BuoyancySamples samples;
+    buoyancy_samples(buoyancy, collider, samples);
+    return samples;
+}
+
+void buoyancy_samples(const BuoyancyComponent& buoyancy, const ColliderComponent* collider,
+                      BuoyancySamples& samples) {
+    samples.points.clear();
+    samples.volume = 0.0f;
+    samples.span = 1.0f;
 
     // No collider is no size to displace water with. A body can still float
     // on authored points, but it needs a volume from somewhere, and guessing
     // one would float it at a scale nothing in the scene agrees with.
-    if (collider == nullptr) return samples;
+    if (collider == nullptr) return;
 
     glm::vec3 half{0.0f};
     switch (collider->shape) {
@@ -85,7 +94,7 @@ BuoyancySamples buoyancy_samples(const BuoyancyComponent& buoyancy,
 
     if (!buoyancy.points.empty()) {
         samples.points = buoyancy.points;
-        return samples;
+        return;
     }
 
     switch (collider->shape) {
@@ -98,7 +107,6 @@ BuoyancySamples buoyancy_samples(const BuoyancyComponent& buoyancy,
         axis_points(half, collider->offset, samples.points);
         break;
     }
-    return samples;
 }
 
 BuoyancyForce buoyancy_at(float depth, float point_volume, float span, float drag,
