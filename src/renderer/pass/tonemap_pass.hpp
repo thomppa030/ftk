@@ -9,6 +9,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <span>
 #include <unordered_map>
@@ -39,6 +40,12 @@ class PipelineCache;
 // slice starts. The material row supplies the textures.
 class TonemapPass : public RenderPass {
 public:
+    /// The bindless index a sampler with this hint reads when nothing is
+    /// bound: what the engine default's row holds in its texture slots, the
+    /// neutral table for its grade among them.
+    using TextureFallbacks = std::function<uint32_t(UniformHint)>;
+    void set_texture_fallbacks(TextureFallbacks fallbacks) { texture_fallbacks_ = std::move(fallbacks); }
+
 
     // Per-viewport output image. Input descriptor sets are not owned per
     // viewport: record_into() acquires them from FrameContext::descriptor_cache
@@ -98,6 +105,9 @@ private:
         uint32_t pipeline_id{0};
         uint32_t material_id{~0u};
         uint32_t generation{0};
+        /// Whether the row's texture slots hold the fallbacks yet: they
+        /// arrive after the pass is made.
+        bool textured{false};
         PostLayer layer;
     };
 
@@ -140,6 +150,7 @@ private:
     /// rather than every frame.
     std::unordered_set<uint32_t> reported_entries_;
     Fallback default_;
+    TextureFallbacks texture_fallbacks_;
 
     /// This frame's layer values: host-written, read by the fragment
     /// shader at the pushed base. Reset in prepare_frame(), once the frame

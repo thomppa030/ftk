@@ -97,6 +97,9 @@ enum class UniformHint {
     /// hint_enum("A,B,C") on an int: the value is an index into
     /// FjslUniform::enum_options and the inspector shows a drop-down.
     Enum,
+    /// hint_lut on a sampler2D: a colour grading table from a `.fjlut`,
+    /// loaded 16-bit and clamped, and the neutral table when none is set.
+    Lut,
 };
 
 struct HintRange {

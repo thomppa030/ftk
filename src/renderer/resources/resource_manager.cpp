@@ -11,6 +11,8 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
+#include "renderer/resources/lut_asset.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/primitives.hpp"
@@ -22,6 +24,7 @@
 #include "core/log.hpp"
 #include "core/project.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 namespace fjell {
@@ -127,6 +130,15 @@ ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
     default_normal_handle_ = register_default("__default_normal", flat_normal.data());
     default_mr_handle_     = register_default("__default_mr", default_mr_pixels.data());
     default_black_handle_  = register_default("__default_black", black.data());
+
+    // What an unset hint_lut slot reads: the table that changes nothing.
+    // Sixteen is enough, since a lookup through it is exact at any size.
+    {
+        auto texture = make_lut_texture(neutral_lut(16));
+        const uint32_t bindless_idx = bindless_.add(*texture);
+        default_lut_handle_ = textures_.insert("__default_lut", std::move(texture));
+        texture_to_bindless_[default_lut_handle_.index()] = bindless_idx;
+    }
 }
 
 Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
@@ -237,6 +249,144 @@ Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& p
     } catch (const std::exception& e) {
         return make_error("Failed to load texture (nearest) '" + path + "': " + e.what());
     }
+}
+
+uint32_t ResourceManager::fallback_texture_index(UniformHint hint) const {
+    switch (hint) {
+        case UniformHint::Black:     return bindless_index(default_black_handle_);
+        case UniformHint::Normal:    return bindless_index(default_normal_handle_);
+        case UniformHint::DefaultMr: return bindless_index(default_mr_handle_);
+        case UniformHint::Lut:       return bindless_index(default_lut_handle_);
+        case UniformHint::None:
+        case UniformHint::Color:
+        case UniformHint::White:
+        case UniformHint::Enum:
+            break;
+    }
+    return bindless_index(default_white_handle_);
+}
+
+uint32_t ResourceManager::file_texture_index(const FjslUniform& u, const std::string& file,
+                                             const std::string& material_path,
+                                             const Project* project) {
+    if (u.hint != UniformHint::Lut) {
+        auto texture = load_texture(base_path::resolve_asset(file, project));
+        if (!texture) FJELL_GFX_WARN("Material '{}': {}", material_path, texture.error());
+        return bindless_index(texture ? *texture : default_white_handle_);
+    }
+    // A grading table is not an image: it wants its 16 bits, no mips and no
+    // wrap, which only the .fjlut path gives it. Any other file is refused
+    // rather than read as a picture of a table.
+    if (std::filesystem::path(file).extension() != ".fjlut") {
+        FJELL_GFX_WARN("Material '{}': '{}' is a colour grading table and takes a .fjlut, not "
+                       "'{}'; using the neutral table",
+                       material_path, u.name, file);
+        return fallback_texture_index(UniformHint::Lut);
+    }
+    auto lut = load_lut(base_path::resolve_asset(file, project));
+    if (!lut) {
+        FJELL_GFX_WARN("Material '{}': {}; using the neutral table", material_path, lut.error());
+        return fallback_texture_index(UniformHint::Lut);
+    }
+    return bindless_index(*lut);
+}
+
+std::unique_ptr<Texture> ResourceManager::make_lut_texture(const LutStrip& strip) {
+    // Clamped, filtered, one mip: the lookup takes its own half-texel
+    // offsets and reads the table's edge texels as its ends.
+    return std::make_unique<Texture>(device_, allocator_, physical_device_, upload_,
+                                     reinterpret_cast<const uint8_t*>(strip.rgba.data()),
+                                     strip.width(), strip.height(),
+                                     VK_FORMAT_R16G16B16A16_UNORM, 1, true);
+}
+
+Result<TextureHandle> ResourceManager::load_lut(const std::string& path) {
+    auto it = textures_.name_to_handle.find(path);
+    if (it != textures_.name_to_handle.end()) return it->second;
+
+    auto strip = fjell::load_lut(path);
+    if (!strip) return make_error(strip.error());
+    try {
+        auto texture = make_lut_texture(*strip);
+        const uint32_t bindless_idx = bindless_.add(*texture);
+        auto handle = textures_.insert(path, std::move(texture));
+        texture_to_bindless_[handle.index()] = bindless_idx;
+        watch_lut(path, handle);
+        return handle;
+    } catch (const std::exception& e) {
+        return make_error("Failed to create the table for '" + path + "': " + e.what());
+    }
+}
+
+void ResourceManager::watch_lut(const std::string& path, TextureHandle handle) {
+#ifndef NDEBUG
+    // The recipe and its source both decide the table, and an image editor
+    // saves by writing a new file over the old one, so the folders are
+    // watched rather than the files.
+    const std::filesystem::path recipe = path;
+    std::filesystem::path source;
+    if (auto parsed = read_lut_recipe(recipe)) source = lut_source_path(recipe, *parsed);
+    luts_.push_back({path, source.lexically_normal().string(), handle});
+    for (const auto& file : {recipe, source}) {
+        if (file.empty()) continue;
+        const std::string dir = std::filesystem::absolute(file).parent_path().lexically_normal().string();
+        if (!lut_watched_dirs_.insert(dir).second) continue;
+        lut_watcher_.watch(dir, [this](const std::filesystem::path& changed) {
+            lut_changed_.push_back(std::filesystem::absolute(changed).lexically_normal().string());
+        });
+    }
+#else
+    (void)path;
+    (void)handle;
+#endif
+}
+
+void ResourceManager::poll_lut_changes() {
+#ifndef NDEBUG
+    (void)lut_watcher_.poll();
+    if (lut_changed_.empty()) return;
+    const auto changed = std::move(lut_changed_);
+    lut_changed_.clear();
+    const auto same = [](const std::string& a, const std::string& b) {
+        return !a.empty() && !b.empty()
+            && std::filesystem::absolute(a).lexically_normal() == std::filesystem::absolute(b).lexically_normal();
+    };
+    for (auto& lut : luts_) {
+        const bool touched = std::any_of(changed.begin(), changed.end(), [&](const std::string& c) {
+            return same(c, lut.recipe) || same(c, lut.source);
+        });
+        if (touched) reload_lut(lut);
+    }
+#endif
+}
+
+void ResourceManager::reload_lut(LoadedLut& lut) {
+    // A source mid-save may be half written; the old table stays until the
+    // file reads whole, and the next change event tries again.
+    auto strip = fjell::load_lut(lut.recipe);
+    if (!strip) {
+        FJELL_GFX_WARN("LUT reload: {}", strip.error());
+        return;
+    }
+    if (auto recipe = read_lut_recipe(lut.recipe)) {
+        lut.source = lut_source_path(lut.recipe, *recipe).lexically_normal().string();
+    }
+    std::unique_ptr<Texture> fresh;
+    try {
+        fresh = make_lut_texture(*strip);
+    } catch (const std::exception& e) {
+        FJELL_GFX_WARN("LUT reload: {}: {}", lut.recipe, e.what());
+        return;
+    }
+    // Same bindless index, so every material pointing at it follows; the old
+    // texture lives until the frames still reading it are done, as a font
+    // atlas's does on its reload.
+    const uint32_t index = bindless_index(lut.handle);
+    bindless_.update_entry(index, fresh->image_view(), fresh->sampler());
+    auto& slot = textures_.slots[lut.handle.index()];
+    if (deleter_ != nullptr) deleter_->retire(std::move(slot));
+    slot = std::move(fresh);
+    FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }
 
 MaterialHandle ResourceManager::create_material(const std::string& name,
@@ -389,31 +539,9 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);
 
-    // Resolve custom textures and params from shader metadata
+    // Resolve custom params from shader metadata. The custom textures are set
+    // on the final material, once its row exists, further down.
     if (shader_meta) {
-        for (const auto& u : shader_meta->uniforms) {
-            if (u.type != UniformType::Sampler2D) continue;
-            auto tex_it = asset.textures.find(u.name);
-            if (tex_it != asset.textures.end()) {
-                const auto& tex_path = tex_it->second;
-                if (tex_path.starts_with("$viewport:")) {
-                    uint32_t idx = viewport_resolver_ ? viewport_resolver_(tex_path.substr(10)) : 0;
-                    if (idx == 0) idx = bindless_index(default_white_handle_);
-                    material->set_custom_texture(u.slot, idx);
-                } else {
-                    auto tex_result = load_texture(base_path::resolve_asset(tex_path, project));
-                    auto tex_handle = tex_result ? *tex_result : default_white_handle_;
-                    material->set_custom_texture(u.slot, bindless_index(tex_handle));
-                }
-            } else {
-                TextureHandle default_tex = default_white_handle_;
-                if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
-                else if (u.hint == UniformHint::Normal) default_tex = default_normal_handle_;
-                else if (u.hint == UniformHint::DefaultMr) default_tex = default_mr_handle_;
-                material->set_custom_texture(u.slot, bindless_index(default_tex));
-            }
-        }
-
         if (shader_meta->custom_param_count > 0) {
             uint32_t offset = bindless_.allocate_params(shader_meta->custom_param_count);
             material->set_custom_params(offset, shader_meta->custom_param_count);
@@ -527,16 +655,10 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                     material->set_custom_texture(u.slot, idx);
                     viewport_bindings_[vp_name].push_back({mat_id, u.slot});
                 } else {
-                    auto tex_result = load_texture(base_path::resolve_asset(tex_path, project));
-                    auto tex_handle = tex_result ? *tex_result : default_white_handle_;
-                    material->set_custom_texture(u.slot, bindless_index(tex_handle));
+                    material->set_custom_texture(u.slot, file_texture_index(u, tex_path, path, project));
                 }
             } else {
-                TextureHandle default_tex = default_white_handle_;
-                if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
-                else if (u.hint == UniformHint::Normal) default_tex = default_normal_handle_;
-                else if (u.hint == UniformHint::DefaultMr) default_tex = default_mr_handle_;
-                material->set_custom_texture(u.slot, bindless_index(default_tex));
+                material->set_custom_texture(u.slot, fallback_texture_index(u.hint));
             }
         }
         // Update GPU material with final state (custom textures applied)

@@ -263,7 +263,8 @@ void TonemapPass::ensure_default() {
 
     const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_POST_SHADER));
     const uint32_t generation = pipeline_cache_->generation(pid);
-    if (default_.ready && default_.generation == generation) return;
+    const bool textured = static_cast<bool>(texture_fallbacks_);
+    if (default_.ready && default_.generation == generation && default_.textured == textured) return;
     default_.pipeline_id = pid;
     if (pipeline_cache_->has_compile_error(pid) || generation == 0) {
         // Said once: this runs every frame until a hot reload of the file
@@ -278,16 +279,28 @@ void TonemapPass::ensure_default() {
     reported_entries_.erase(pid);
     if (ensure_material_pipeline(pid) == nullptr) return;
 
-    // The row only carries textures: the values come from the pass's own
-    // buffer. Taken once and kept, since nothing hands a row back.
+    // The row only carries textures, what an unset slot of each sampler reads
+    // (the neutral table for a grade): the values come from the pass's own
+    // buffer. Taken once and kept, since nothing hands a row back, and
+    // refilled when the shader's samplers may have changed.
+    const auto& meta = pipeline_cache_->metadata(pid);
+    GpuMaterial row{};
+    if (textured) {
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D && u.slot < TOTAL_TEXTURE_SLOTS) {
+                row.texture_indices[u.slot] = texture_fallbacks_(u.hint);
+            }
+        }
+    }
     if (default_.material_id == ~0u) {
-        default_.material_id = bindless_->add_material(GpuMaterial{});
+        default_.material_id = bindless_->add_material(row);
+    } else {
+        bindless_->update_material(default_.material_id, row);
     }
 
     // The layer everything else applies over: the shader at its declared
     // values, colours marked so a blend toward a volume's mixes them in
     // linear light.
-    const auto& meta = pipeline_cache_->metadata(pid);
     PostLayer layer;
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
@@ -303,6 +316,7 @@ void TonemapPass::ensure_default() {
     layer.look = look_for(PostVolume{});
     default_.layer = std::move(layer);
     default_.generation = generation;
+    default_.textured = textured;
     default_.ready = true;
 }
 

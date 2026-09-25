@@ -407,6 +407,21 @@ TEST_CASE("hint_enum belongs on an int and needs its names quoted", "[fjsl]") {
     REQUIRE(unquoted.diagnostics[0].message.find("quoted") != std::string::npos);
 }
 
+TEST_CASE("hint_lut marks a sampler as a colour grading table", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type post;
+        uniform sampler2D grade : hint_lut;
+        uniform float amount : hint_lut = 1.0;
+        void color() { COLOR = lut_sample(grade, COLOR) * amount; }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.uniforms[0].hint == UniformHint::Lut);
+    // On anything but a sampler it means nothing, and says so.
+    REQUIRE(meta.uniforms[1].hint == UniformHint::None);
+    REQUIRE(meta.diagnostics.size() == 1);
+    REQUIRE(meta.diagnostics[0].message.find("hint_lut") != std::string::npos);
+}
+
 TEST_CASE("An int is read rounded, wherever its uniform is read", "[fjsl]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;

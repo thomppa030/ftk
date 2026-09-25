@@ -323,6 +323,7 @@ static UniformHint parse_hint_name(const std::string& h) {
     if (h == "hint_black") return UniformHint::Black;
     if (h == "hint_normal") return UniformHint::Normal;
     if (h == "hint_default_mr") return UniformHint::DefaultMr;
+    if (h == "hint_lut") return UniformHint::Lut;
     return UniformHint::None;
 }
 
@@ -1070,6 +1071,12 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             for (auto& problem : hint_problems) {
                 diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,
                          std::move(problem));
+            }
+            if (u.hint == UniformHint::Lut && u.type != UniformType::Sampler2D) {
+                diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,
+                         "hint_lut on '" + u.name + "' names a table to sample; a "
+                             + std::string(glsl_type_name(u.type)) + " ignores it");
+                u.hint = UniformHint::None;
             }
             if (u.hint == UniformHint::Enum && u.type != UniformType::Int) {
                 diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,

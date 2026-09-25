@@ -47,12 +47,33 @@ Texture::~Texture() {
     }
 }
 
+namespace {
+
+// Bytes one texel of `format` takes in the pixels handed to upload(): four
+// 8-bit channels for the images and atlases, four 16-bit ones for a LUT strip.
+VkDeviceSize texel_bytes(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_R8G8B8A8_SRGB:
+        case VK_FORMAT_R8G8B8A8_UNORM:
+            return 4;
+        case VK_FORMAT_R16G16B16A16_UNORM:
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+            return 8;
+        case VK_FORMAT_R32G32B32A32_SFLOAT:
+            return 16;
+        default:
+            throw std::runtime_error("Texture: no texel size known for this format");
+    }
+}
+
+} // namespace
+
 void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
                      UploadContext& upload_ctx,
                      const void* pixels, uint32_t width, uint32_t height,
                      VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge,
                      bool nearest) {
-    VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
+    VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * texel_bytes(format);
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 

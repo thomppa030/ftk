@@ -29,6 +29,8 @@ constexpr std::array ENTRIES{
     Entry{".fjmesh", MESH}, Entry{".glb", MESH}, Entry{".gltf", MESH}, Entry{".fbx", MESH},
     Entry{".fjskel", {"skeleton", icon::skeleton, C::Animation}},
     Entry{".fjmat", {"material", icon::material, C::Rendering}},
+    Entry{".fjlut", {"colour grade", icon::colour, C::Rendering}},
+    Entry{".cube", {"colour grade table", icon::colour, C::Rendering}},
     Entry{".fjsl", SHADER},
     Entry{".png", TEXTURE}, Entry{".jpg", TEXTURE}, Entry{".jpeg", TEXTURE},
     Entry{".hdr", HDRI}, Entry{".exr", HDRI},

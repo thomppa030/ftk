@@ -272,6 +272,7 @@ void Engine::init_resources() {
     resource_manager_->set_viewport_resolver([this](const std::string& name) -> uint32_t {
         return vulkan_context_->scene_viewport_bindless_index(name);
     });
+    resource_manager_->set_deferred_deleter(&vulkan_context_->gpu().deferred_deleter());
 
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
@@ -2019,6 +2020,8 @@ void Engine::run() {
             }
         }
         if (fjgraph_watcher_) { (void)fjgraph_watcher_->poll(); }
+        // A grade saved from an image editor shows in the running scene.
+        if (resource_manager_) resource_manager_->poll_lut_changes();
 #endif
 
         auto ctx = make_frame_context();

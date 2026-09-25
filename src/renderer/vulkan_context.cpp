@@ -170,6 +170,18 @@ VulkanContext::~VulkanContext() {
     passes_.destroy_all();
 }
 
+void VulkanContext::set_resource_manager(ResourceManager* rm) {
+    resource_manager_ = rm;
+    // The post pass builds its default look's material row itself, and fills
+    // the shader's samplers with what an unset slot reads, the neutral table
+    // for its grade among them.
+    tonemap_pass().set_texture_fallbacks(
+        rm == nullptr ? TonemapPass::TextureFallbacks{}
+                      : TonemapPass::TextureFallbacks{[rm](UniformHint hint) {
+                            return rm->fallback_texture_index(hint);
+                        }});
+}
+
 void VulkanContext::set_render_settings(const RenderSettings& s) {
     // MSAA intentionally not applied — requires pipeline + offscreen
     // recreation we don't support yet. Project's stored value becomes

@@ -2,6 +2,8 @@
 
 #include "core/input_action.hpp"
 #include "core/result.hpp"
+#include "platform/file_watcher.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
@@ -25,11 +27,14 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
 
 class BindlessTextures;
+class DeferredDeleter;
+struct LutStrip;
 class MegaBuffer;
 class MeshletBuffer;
 class Model;
@@ -56,6 +61,18 @@ public:
     Result<ModelHandle> create_primitive(const std::string& type);
     Result<TextureHandle> load_texture(const std::string& path);
     Result<TextureHandle> load_texture_nearest(const std::string& path);
+    /// A colour grading table from a `.fjlut` recipe, as a 16-bit strip:
+    /// clamped, filtered, one mip. Cached by path. In debug builds an edit to
+    /// the recipe or its source reloads it in place through
+    /// poll_lut_changes(), keeping its bindless index.
+    Result<TextureHandle> load_lut(const std::string& path);
+    /// Re-read every loaded table whose recipe or source changed on disk.
+    /// Debug builds; once a frame, before anything records.
+    void poll_lut_changes();
+
+    /// Where a texture being replaced goes to live out the frames still
+    /// reading it. Without one a table cannot reload.
+    void set_deferred_deleter(DeferredDeleter* deleter) { deleter_ = deleter; }
 
     // Async loading support
     [[nodiscard]] ModelHandle find_model(const std::string& path) const;
@@ -174,6 +191,12 @@ public:
     [[nodiscard]] TextureHandle default_normal_handle() const { return default_normal_handle_; }
     [[nodiscard]] TextureHandle default_metallic_roughness_handle() const { return default_mr_handle_; }
     [[nodiscard]] TextureHandle default_black_handle() const { return default_black_handle_; }
+    /// The table that changes nothing, what an unset hint_lut slot reads.
+    [[nodiscard]] TextureHandle default_lut_handle() const { return default_lut_handle_; }
+    /// The bindless index a sampler with this hint reads when nothing is
+    /// bound to it: white, black, a flat normal, the default
+    /// metallic/roughness, or the neutral table.
+    [[nodiscard]] uint32_t fallback_texture_index(UniformHint hint) const;
 
     [[nodiscard]] uint32_t bindless_index(TextureHandle handle) const;
 
@@ -255,6 +278,7 @@ private:
     TextureHandle default_normal_handle_;
     TextureHandle default_mr_handle_;
     TextureHandle default_black_handle_;
+    TextureHandle default_lut_handle_;
 
     ViewportResolver viewport_resolver_;
     const Project*   project_{nullptr};  // default for relative asset-path resolution
@@ -263,6 +287,28 @@ private:
     // Key: viewport name, Value: list of {material_id, custom_texture_slot}
     struct ViewportBinding { uint32_t material_id; uint32_t slot; };
     std::unordered_map<std::string, std::vector<ViewportBinding>> viewport_bindings_;
+
+    /// The bindless index for a file a material names for one of its
+    /// shader's samplers, loaded as the uniform's hint asks: a `.fjlut` for a
+    /// hint_lut slot, an image for any other.
+    uint32_t file_texture_index(const FjslUniform& u, const std::string& file,
+                                const std::string& material_path, const Project* project);
+    std::unique_ptr<Texture> make_lut_texture(const LutStrip& strip);
+
+    /// A loaded table and the files it is made from, for the reload.
+    struct LoadedLut {
+        std::string recipe;
+        std::string source;
+        TextureHandle handle;
+    };
+    void watch_lut(const std::string& path, TextureHandle handle);
+    void reload_lut(LoadedLut& lut);
+
+    DeferredDeleter* deleter_{nullptr};
+    std::vector<LoadedLut> luts_;
+    platform::FileWatcher lut_watcher_;
+    std::unordered_set<std::string> lut_watched_dirs_;
+    std::vector<std::string> lut_changed_;
 };
 
 } // namespace fjell

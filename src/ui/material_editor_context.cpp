@@ -271,16 +271,21 @@ void MaterialEditorContext::draw_texture_panel() {
     }
 
     // The fixed PBR slots on a surface material, then the textures the
-    // shader declares; ui and terrain shaders sample only their own.
-    std::vector<std::string> slots;
+    // shader declares; ui and terrain shaders sample only their own. A
+    // hint_lut slot takes a colour grading table, not an image.
+    struct Slot {
+        std::string name;
+        bool lut{false};
+    };
+    std::vector<Slot> slots;
     if (material_->shader_type() == ShaderType::Spatial) {
-        slots = {"base_color", "normal_map", "metallic_roughness", "emissive"};
+        slots = {{"base_color"}, {"normal_map"}, {"metallic_roughness"}, {"emissive"}};
     }
     auto* cache = deps_.vulkan_context->pipeline_cache();
     const uint32_t pid = material_->pipeline_id();
     if (pid < cache->shader_count()) {
         for (const auto& u : cache->metadata(pid).uniforms) {
-            if (u.type == UniformType::Sampler2D) slots.push_back(u.name);
+            if (u.type == UniformType::Sampler2D) slots.push_back({u.name, u.hint == UniformHint::Lut});
         }
     }
 
@@ -288,20 +293,25 @@ void MaterialEditorContext::draw_texture_panel() {
     ictx.project_mgr = deps_.project_mgr;
     ictx.icons = deps_.icon_cache;
     static const std::string texture_exts[] = {".png", ".jpg", ".jpeg", ".tga"};
+    static const std::string lut_exts[] = {".fjlut"};
     bool changed = false;
     if (auto t = ui::PropertyTable("##textures")) {
         for (const auto& slot : slots) {
-            ImGui::PushID(slot.c_str());
-            const std::string label = display_name(slot);
+            ImGui::PushID(slot.name.c_str());
+            const std::string label = display_name(slot.name);
             ui::row(label.c_str(), [&] {
-                auto it = asset_.textures.find(slot);
+                auto it = asset_.textures.find(slot.name);
                 std::string path = it != asset_.textures.end() ? it->second : std::string{};
-                if (asset_slot({.label = label.c_str(), .id = "##texture", .extensions = texture_exts, .ctx = &ictx},
+                if (asset_slot({.label = label.c_str(),
+                                .id = "##texture",
+                                .extensions = slot.lut ? std::span<const std::string>(lut_exts)
+                                                       : std::span<const std::string>(texture_exts),
+                                .ctx = &ictx},
                                path)) {
                     if (path.empty()) {
-                        asset_.textures.erase(slot);
+                        asset_.textures.erase(slot.name);
                     } else {
-                        asset_.textures[slot] = path;
+                        asset_.textures[slot.name] = path;
                     }
                     changed = true;
                 }
