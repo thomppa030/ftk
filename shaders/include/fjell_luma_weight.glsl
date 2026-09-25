@@ -9,7 +9,9 @@ float luma_709(vec3 c) {
 // c / (1 + luma): any HDR colour squeezed below one with its hue kept, and
 // back. A filter over a neighbourhood works in this space so that one bright
 // highlight does not outweigh everything around it. TAA clamps and blends its
-// history here.
+// history here; the post sharpen and paint filters weigh their samples here.
+// tests/test_post_effects.cpp compiles this as C++, so the divisors are
+// floats rather than literals mixed into vector arithmetic.
 vec3 luma_weight(vec3 c) {
     float scale = 1.0 + luma_709(c);
     return c / scale;

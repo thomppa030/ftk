@@ -12,14 +12,12 @@ uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
 uniform float bloom_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
 uniform sampler2D grade : hint_lut;
 uniform float saturation : hint_range(0.0, 2.0, 0.01) = 1.0;
-uniform float vignette : hint_range(0.0, 1.0, 0.01) = 0.25;
+uniform float darken_corners : hint_range(0.0, 1.0, 0.01) = 0.25;
 
 void color() {
     vec3 c = lut_sample(grade, tonemap(operator, COLOR + BLOOM * bloom_intensity));
-    float grey = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = mix(vec3(grey), c, saturation);
-    vec2 d = SCREEN_UV - 0.5;
-    COLOR = c * (1.0 - vignette * dot(d, d) * 2.0);
+    c = mix(vec3(luma_709(c)), c, saturation);
+    COLOR = c * vignette(SCREEN_UV, darken_corners, 0.6);
 }
 ```
 
@@ -58,17 +56,58 @@ refused in a post shader, and `color()` is refused in every other type.
 | `SCREEN_UV`, `PIXEL`, `VIEWPORT_SIZE` | `vec2` | Where on the screen, 0..1 and in pixels, and how big the screen is. |
 | `DEPTH` | `float` | Linear depth in metres at this pixel. |
 | `DEPTH_TEXTURE` | `sampler2D` | The depth itself: the opaque scene with the water laid over it, so a sea pixel is the sea and not its bed. |
+| `SCENE_TEXTURE` | `sampler2D` | The scene colour `COLOR` came from, after TAA and before the exposure. |
+| `TEXEL_SIZE` | `vec2` | One pixel in UV, `1 / VIEWPORT_SIZE`. |
 | `TIME`, `TIME_OF_DAY`, `SUN_DIR` | | As the sky has them. |
 | `WIND_DIR`, `WIND_SPEED`, `CLOUD_COVERAGE`, `PRECIPITATION` | | The weather, as the sky has it. `WIND_SPEED` carries the gust. |
 
 Helpers in scope: `tonemap(op, c)` with `TONEMAP_LINEAR`, `TONEMAP_REINHARD`,
 `TONEMAP_ACES`, `TONEMAP_AGX`, `TONEMAP_HABLE` and `TONEMAP_NEUTRAL`, the six
 curves by name (`tonemap_agx(c)` and the rest), `linear_to_srgb` /
-`srgb_to_linear`, and `lut_sample(table, c)` for a colour grade (below).
+`srgb_to_linear`, `luma_709(c)`, `lut_sample(table, c)` for a colour grade
+(below), and the effects in the next section.
 
 A post shader has uniforms like any other: `float`, `vec2..4`, `int`,
 `sampler2D`, with the same hints. `hint_enum` is how the default offers its
 curve as a drop-down.
+
+## Reading around the pixel
+
+`COLOR` and `DEPTH` are this pixel. These read any pixel, for a shader that
+looks at its neighbours:
+
+| Function | What it gives |
+|---|---|
+| `scene_at(uv)` | The scene colour at `uv`, exposed as `COLOR` is. Filtered, so `uv` may fall between pixels. |
+| `depth_at(uv)` | Linear depth at `uv`, as `DEPTH` is. |
+| `normal_at(uv)` | The world normal at `uv`, or zero where nothing was drawn (the sky). An unlit surface reads as facing +Z: the G-buffer stores the two alike. |
+| `velocity_at(uv)` | How far the surface at `uv` moved across the screen since last frame, in UV. |
+
+Step by `TEXEL_SIZE` to reach a neighbour: `depth_at(SCREEN_UV + vec2(TEXEL_SIZE.x, 0.0))`.
+Depth, normal and motion are read texel by texel, since none of them means
+anything between two pixels.
+
+### Effects
+
+Ready-made, in `shaders/include/fjell_post_effects.glsl`. A shader that calls
+none of them pays nothing for them.
+
+| Effect | Returns | Where it belongs |
+|---|---|---|
+| `sharpen(uv, amount)` | The scene sharpened: AMD's Contrast Adaptive Sharpening, strong only where the picture is flat, so edges come back after TAA without ringing. `amount` 0..1; 0 changes nothing. | Instead of `COLOR`, before the tone curve. |
+| `outline(uv, depth_edge, normal_edge)` | 0..1, how strongly an ink line is drawn: at silhouettes, where the scene falls away behind an edge by `depth_edge` of its distance (0.1 is a tenth), and at creases, where the surface turns by `normal_edge` as 1 − cos of the angle (0.3 is about 45°). One pixel wide on the nearer side of a silhouette; a floor seen at a low angle draws nothing. Either edge at 0 turns that half off. | `mix(c, ink, outline(...))`, usually after the tone curve. |
+| `kuwahara(uv, radius)` | The scene as paint: each pixel takes the mean of whichever of the four quarters around it varies least, so flat areas fill while edges stay. `radius` in pixels, held to 8; the cost is (2r + 1)² samples, so 2–3 is the practical range. | Instead of `COLOR`, before the tone curve. |
+| `chromatic_aberration(uv, amount)` | The scene with red and blue pulled apart toward the edges. `amount` in UV at the edge; 0.003 is subtle. | Instead of `COLOR`, before the tone curve. |
+| `vignette(uv, amount, softness)` | A factor, 1 in the middle and `1 - amount` in the corners, round whatever the aspect. `softness` is how far in the fall starts, 0..1. | Multiply the colour, anywhere. |
+| `film_grain(pixel, time, amount)` | An offset of up to half of `amount` either way, new each frame. Interleaved gradient noise, so it does not crawl in clumps. | Add after the tone curve: `c += film_grain(PIXEL, TIME, 0.03)`. |
+| `posterize(c, steps)` | `c` cut into `steps` bands by its brightness, hue kept, each step with a narrow soft edge so it does not alias. | After the tone curve. |
+
+`shaders/post_stylized.fjsl` puts them together: paint, then the tone curve and
+grade, then ink along silhouettes and creases, then a vignette. It is the
+starting point for a stylised look, as `post.fjsl` is for the plain one.
+
+A uniform named like a helper (`uniform float vignette`) hides that helper in
+the shader, and nothing else breaks.
 
 ## Post Process Volumes
 
@@ -195,7 +234,17 @@ with infinite bounds and set its operator to that curve to keep the look.
 
 - Template: `shaders/include/fjell_post_template.glsl`. Set 0 is the global
   set (the UBOs), set 1 the bindless material set, set 2 the pass inputs:
-  scene colour, bloom, `surface_depth` and the layer values.
+  scene colour, bloom, `surface_depth`, the layer values, and the G-buffer's
+  `normal` and `velocity`. The depth, normal and velocity are sampled
+  nearest.
+- The effects live in `shaders/include/fjell_post_effects.glsl`, included by
+  the template before the generated uniform defines (which is why a uniform
+  can take a helper's name). `tests/test_post_effects.cpp` compiles the file
+  as C++ through `tests/glsl_shim.hpp` and holds each effect to what it should
+  do with a flat image, an edge, a silhouette, a crease and a tilted floor, so
+  it is written without swizzles and with literals in vector arithmetic
+  wrapped in constructors. `sharpen` and `kuwahara` weigh their samples in
+  `fjell_luma_weight.glsl`, the space TAA clamps in.
 - A post shader's values are per viewport, and one frame renders several
   viewports while the material params buffer is one buffer. So the pass never
   writes a material row's params: it writes each layer's values into a buffer

@@ -131,8 +131,17 @@ private:
     /// Resolve a layer's values and write them into this frame's buffer.
     /// Returns where they start, in floats.
     uint32_t write_values(uint32_t frame_index, const PostLayer& layer);
-    void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                     VkImageView bloom_view, VkImageView depth_view, float exposure,
+
+    /// What the template's set 2 samples. `bloom` is null when this
+    /// viewport's graph builds no bloom.
+    struct Inputs {
+        VkImageView color{VK_NULL_HANDLE};
+        VkImageView bloom{VK_NULL_HANDLE};
+        VkImageView depth{VK_NULL_HANDLE};
+        VkImageView normal{VK_NULL_HANDLE};
+        VkImageView velocity{VK_NULL_HANDLE};
+    };
+    void record_into(const FrameContext& ctx, Images& imgs, const Inputs& inputs, float exposure,
                      std::span<const PostLayer> layers);
 
     VkDevice device_{VK_NULL_HANDLE};
@@ -148,6 +157,7 @@ private:
     // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};
     VkSampler input_sampler_{VK_NULL_HANDLE};
+    VkSampler nearest_sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout input_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
 

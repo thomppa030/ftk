@@ -117,6 +117,11 @@ struct PostPush {
     float layer_weight;
 };
 
+// Set 2 of fjell_post_template.glsl: images at every binding but the one
+// holding this frame's layer values.
+constexpr uint32_t INPUT_BINDINGS = 6;
+constexpr uint32_t VALUES_BINDING = 3;
+
 // Room for the values of a few layers in a few viewports before the buffer
 // has to grow; a post shader's block is tens of floats.
 constexpr uint32_t INITIAL_VALUE_FLOATS = 1024;
@@ -141,21 +146,19 @@ Result<> PostPass::create(Device& device, const PassResources& resources) {
     material_set_layout_ = resources.material_set_layout;
 
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
+    nearest_sampler_ = vk_utils::create_nearest_clamp_sampler(device_);
     sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
-    // Set 2, the pass inputs: the scene colour, the bloom, the surface depth
-    // and this frame's layer values.
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
-    for (uint32_t i = 0; i < 3; ++i) {
+    // Set 2, the pass inputs: the scene colour, the bloom, the surface depth,
+    // this frame's layer values, and the G-buffer's normal and motion.
+    std::array<VkDescriptorSetLayoutBinding, INPUT_BINDINGS> bindings{};
+    for (uint32_t i = 0; i < INPUT_BINDINGS; ++i) {
         bindings[i].binding = i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].descriptorType = i == VALUES_BINDING ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                         : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[i].descriptorCount = 1;
         bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
-    bindings[3].binding = 3;
-    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -197,6 +200,7 @@ void PostPass::destroy() {
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
     if (input_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, input_set_layout_, nullptr); input_set_layout_ = VK_NULL_HANDLE; }
     if (input_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, input_sampler_, nullptr); input_sampler_ = VK_NULL_HANDLE; }
+    if (nearest_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, nearest_sampler_, nullptr); nearest_sampler_ = VK_NULL_HANDLE; }
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
@@ -485,14 +489,22 @@ void PostPass::record(const FrameContext& ctx) {
         }
         layers = plan_post_layers(default_.layer, candidates, ctx.camera_position);
     }
-    record_into(ctx, *output, color_source, bloom_view, ctx.registry->image_view("surface_depth"),
-                exposure, layers);
+    const Inputs inputs{
+        .color = color_source,
+        .bloom = bloom_view,
+        .depth = ctx.registry->image_view("surface_depth"),
+        .normal = ctx.registry->image_view("normal"),
+        .velocity = ctx.registry->image_view("velocity"),
+    };
+    record_into(ctx, *output, inputs, exposure, layers);
 }
 
-void PostPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                              VkImageView bloom_view, VkImageView depth_view, float exposure,
-                              std::span<const PostLayer> layers) {
-    if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE || depth_view == VK_NULL_HANDLE) return;
+void PostPass::record_into(const FrameContext& ctx, Images& imgs, const Inputs& inputs,
+                              float exposure, std::span<const PostLayer> layers) {
+    if (imgs.view == VK_NULL_HANDLE || inputs.color == VK_NULL_HANDLE || inputs.depth == VK_NULL_HANDLE
+        || inputs.normal == VK_NULL_HANDLE || inputs.velocity == VK_NULL_HANDLE) {
+        return;
+    }
 
     auto cmd = ctx.cmd;
 
@@ -504,22 +516,26 @@ void PostPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView so
     }
 
     // With no bloom the scene colour stands in, so the set is complete; the
-    // shader reads zero bloom either way.
-    std::array<FrameCacheBinding, 4> bindings{};
-    const std::array<VkImageView, 3> views{source, bloom_view != VK_NULL_HANDLE ? bloom_view : source,
-                                           depth_view};
-    for (uint32_t i = 0; i < 3; ++i) {
-        bindings[i].binding = i;
-        bindings[i].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[i].image.sampler = input_sampler_;
-        bindings[i].image.imageView = views[i];
-        bindings[i].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    }
-    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    bindings[3].binding = 3;
-    bindings[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[3].buffer.buffer = value_buffers_[ctx.frame_index]->handle();
-    bindings[3].buffer.range = VK_WHOLE_SIZE;
+    // shader reads zero bloom either way. The colours filter; the depth, the
+    // encoded normal and the motion are read texel by texel.
+    std::array<FrameCacheBinding, INPUT_BINDINGS> bindings{};
+    const auto image = [&](uint32_t binding, VkImageView view, VkSampler sampler,
+                           VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        bindings[binding].binding = binding;
+        bindings[binding].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[binding].image.sampler = sampler;
+        bindings[binding].image.imageView = view;
+        bindings[binding].image.imageLayout = layout;
+    };
+    image(0, inputs.color, input_sampler_);
+    image(1, inputs.bloom != VK_NULL_HANDLE ? inputs.bloom : inputs.color, input_sampler_);
+    image(2, inputs.depth, nearest_sampler_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    image(4, inputs.normal, nearest_sampler_);
+    image(5, inputs.velocity, nearest_sampler_);
+    bindings[VALUES_BINDING].binding = VALUES_BINDING;
+    bindings[VALUES_BINDING].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[VALUES_BINDING].buffer.buffer = value_buffers_[ctx.frame_index]->handle();
+    bindings[VALUES_BINDING].buffer.range = VK_WHOLE_SIZE;
     VkDescriptorSet input_set = ctx.descriptor_cache->acquire(input_set_layout_, bindings);
 
     // The base layer covers every pixel, so what was there does not matter.
@@ -574,7 +590,7 @@ void PostPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView so
             .param_base = bases[i],
             .exposure = exposure,
             .luminance = luminance_,
-            .has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f,
+            .has_bloom = inputs.bloom != VK_NULL_HANDLE ? 1.0f : 0.0f,
             .layer_weight = layers[i].weight,
         };
         vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
@@ -602,6 +618,10 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // DEPTH in a post shader: the opaque scene with the water laid over it.
     auto depth = builder.import_named(ctx, "surface_depth");
     builder.read(depth, ResourceAccess::sampled_fragment);
+
+    // normal_at() and velocity_at(): the resolved G-buffer.
+    builder.read(builder.import_named(ctx, "normal"), ResourceAccess::sampled_fragment);
+    builder.read(builder.import_named(ctx, "velocity"), ResourceAccess::sampled_fragment);
 
     // What the viewport shows. The pass hands it to ImGui itself, after
     // the graph, with a transition to a fragment-shader read.

@@ -79,12 +79,13 @@ inline void finish_color_attachment(VkCommandBuffer cmd, VkImage image) {
 
 // ── Samplers ────────────────────────────────────────────────────────────
 
-/// Create a LINEAR filter, CLAMP_TO_EDGE sampler (the common post-process sampler).
-inline VkSampler create_linear_clamp_sampler(VkDevice device) {
+/// Create a CLAMP_TO_EDGE sampler with one filter for magnification and
+/// minification. Null if the device refuses it.
+inline VkSampler create_clamp_sampler(VkDevice device, VkFilter filter) {
     VkSamplerCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    ci.magFilter = VK_FILTER_LINEAR;
-    ci.minFilter = VK_FILTER_LINEAR;
+    ci.magFilter = filter;
+    ci.minFilter = filter;
     ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -94,6 +95,17 @@ inline VkSampler create_linear_clamp_sampler(VkDevice device) {
         return VK_NULL_HANDLE;
     }
     return sampler;
+}
+
+/// Create a LINEAR filter, CLAMP_TO_EDGE sampler (the common post-process sampler).
+inline VkSampler create_linear_clamp_sampler(VkDevice device) {
+    return create_clamp_sampler(device, VK_FILTER_LINEAR);
+}
+
+/// Create a NEAREST filter, CLAMP_TO_EDGE sampler, for images whose values
+/// mean nothing between two texels: depth, encoded normals, motion.
+inline VkSampler create_nearest_clamp_sampler(VkDevice device) {
+    return create_clamp_sampler(device, VK_FILTER_NEAREST);
 }
 
 // ── Descriptors ─────────────────────────────────────────────────────────

@@ -1,0 +1,39 @@
+shader_type post;
+
+// A stylised look to start a project's own from, as post.fjsl is for the
+// plain one: the scene smoothed into paint, ink along its silhouettes and
+// creases, then the tone curve, the grade and a vignette. Each step has its
+// dial, and a dial at 0 leaves that step out.
+
+group "Paint";
+// How far a brush stroke reaches, in pixels. 2 or 3 reads as paint; every
+// step up costs more, and 0 leaves the scene as it is.
+uniform int paint_radius : hint_range(0.0, 4.0, 1.0) = 2;
+
+group "Ink";
+uniform vec3 ink_color : hint_color = vec3(0.10, 0.08, 0.07);
+uniform float ink_strength : hint_range(0.0, 1.0, 0.01) = 0.85;
+// How far the scene has to fall away behind an edge for a full line, as a
+// share of the distance.
+uniform float silhouette : hint_range(0.0, 0.5, 0.005) = 0.08;
+// How sharply a surface has to turn for a full line: 0.3 is about 45 degrees.
+uniform float crease : hint_range(0.0, 1.0, 0.01) = 0.35;
+
+group "Tone";
+uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
+uniform float bloom_intensity : hint_range(0.0, 1.0, 0.01) = 0.2;
+// A .fjlut; with none set the table is neutral and changes nothing.
+uniform sampler2D grade : hint_lut;
+uniform float grade_amount : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+group "Frame";
+uniform float vignette_amount : hint_range(0.0, 1.0, 0.01) = 0.25;
+uniform float vignette_softness : hint_range(0.0, 1.0, 0.01) = 0.6;
+
+void color() {
+    vec3 c = kuwahara(SCREEN_UV, paint_radius);
+    c = tonemap(operator, c + BLOOM * bloom_intensity);
+    c = mix(c, lut_sample(grade, c), grade_amount);
+    c = mix(c, ink_color, outline(SCREEN_UV, silhouette, crease) * ink_strength);
+    COLOR = c * vignette(SCREEN_UV, vignette_amount, vignette_softness);
+}

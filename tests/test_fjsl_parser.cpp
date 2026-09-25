@@ -1522,6 +1522,13 @@ TEST_CASE("Every post .fjsl generates GLSL that glslc accepts", "[fjsl][glslc][p
             c = tonemap(operator, c) + 0.0 * (tonemap_agx(c) + tonemap_aces(c) + tonemap_hable(c)
                                               + tonemap_reinhard(c) + tonemap_neutral(c));
             c = srgb_to_linear(linear_to_srgb(c)) * tint * vignette(at);
+            vec3 around = scene_at(SCREEN_UV + TEXEL_SIZE) + texture(SCENE_TEXTURE, SCREEN_UV).rgb
+                        + normal_at(SCREEN_UV) * depth_at(SCREEN_UV) + vec3(velocity_at(SCREEN_UV), 0.0);
+            vec3 effects = sharpen(SCREEN_UV, 0.5) + kuwahara(SCREEN_UV, 2)
+                         + chromatic_aberration(SCREEN_UV, 0.003)
+                         + vec3(outline(SCREEN_UV, 0.1, 0.3) + vignette(SCREEN_UV, 0.3, 0.5)
+                                + film_grain(PIXEL, TIME, 0.02) + luma_709(c));
+            c = posterize(c, 4.0) + 0.0 * (around + effects);
             COLOR = mix(c, vec3(texture(grain, SCREEN_UV).r), 0.0 * (far + weather + clock));
             if (operator == TONEMAP_LINEAR) COLOR = clamp(COLOR, 0.0, 1.0);
         }
