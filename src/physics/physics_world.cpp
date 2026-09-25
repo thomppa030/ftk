@@ -524,14 +524,15 @@ static void ensure_jolt_init() {
     FJELL_CORE_INFO("Jolt Physics initialized");
 }
 
-PhysicsWorld::PhysicsWorld() : impl_(std::make_unique<Impl>()) {
+PhysicsWorld::PhysicsWorld(std::optional<int> worker_threads) : impl_(std::make_unique<Impl>()) {
     ensure_jolt_init();
 
     impl_->temp_allocator = std::make_unique<JPH::TempAllocatorImpl>(10 * 1024 * 1024);
 
-    auto num_threads = std::max(1u, std::thread::hardware_concurrency() - 1);
+    const int num_threads = worker_threads.value_or(
+        static_cast<int>(std::max(1u, std::thread::hardware_concurrency() - 1)));
     impl_->job_system = std::make_unique<JPH::JobSystemThreadPool>(
-        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, static_cast<int>(num_threads));
+        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::max(num_threads, 0));
 
     constexpr JPH::uint max_bodies = 4096;
     constexpr JPH::uint num_body_mutexes = 0; // auto

@@ -88,6 +88,60 @@ TEST_CASE("A frame of one step reaches the target on it", "[kinematic_spread]") 
     CHECK(v[0] == Approx(1.0f / STEP_DT));
 }
 
+TEST_CASE("A character on a lift the frame moves rises on every step of the frame",
+          "[kinematic_spread]") {
+    // A lift moved once a frame, in tick, carries whoever stands on it. At
+    // two steps a frame the lift covers half of the frame's rise on each, and
+    // the character has to rise with it on both: all of it on the first and
+    // none on the second would jerk the character up and down at the frame
+    // rate. Nothing in test_project has a moving platform, so this is the one
+    // place a character riding one is checked.
+    Scene scene;
+    const uint32_t lift = scene.add_empty({}, "lift");
+    {
+        auto* node = scene.find_spatial(lift);
+        auto& collider = node->components.add<ColliderComponent>();
+        collider.shape = ColliderShape::Box;
+        collider.half_extents = glm::vec3{2.0f, 0.1f, 2.0f};
+        node->components.add<RigidbodyComponent>().body_type = BodyType::Kinematic;
+    }
+    Transform standing;
+    standing.position = {0.0f, 0.15f, 0.0f};
+    const uint32_t character = scene.add_empty(standing, "character");
+    scene.find_spatial(character)->components.add<CharacterComponent>();
+    scene.compute_world_matrices();
+
+    PhysicsWorld physics;
+    physics.create_bodies(scene);
+    uint64_t index = 0;
+    auto step = [&](int steps_left) {
+        scene.begin_fixed_step(index++);
+        physics.step(STEP_DT, scene, steps_left);
+    };
+    auto height = [&](uint32_t id) { return scene.find_spatial(id)->transform.position.y; };
+
+    // Settle on the lift while it stands still.
+    for (int i = 0; i < 60; ++i) step(1);
+    REQUIRE(scene.find_spatial(character)->components.get<CharacterComponent>()->ground_state ==
+            CharacterGroundState::OnGround);
+
+    // Then half a metre a second up, set once a frame for a frame of two
+    // steps. The first frame starts it from rest; after that every step.
+    constexpr float SPEED = 0.5f;
+    for (int frame = 0; frame < 30; ++frame) {
+        scene.find_spatial(lift)->transform.position.y += SPEED * 2.0f * STEP_DT;
+        for (int i = 0; i < 2; ++i) {
+            const float character_before = height(character);
+            step(2 - i);
+            if (frame == 0) continue;
+            INFO("frame " << frame << ", step " << i);
+            // The node holds the frame's target; the body is what moves.
+            CHECK(physics.get_linear_velocity(lift).y == Approx(SPEED).epsilon(0.01));
+            CHECK(height(character) - character_before == Approx(SPEED * STEP_DT).epsilon(0.1));
+        }
+    }
+}
+
 TEST_CASE("A step longer than a sixtieth of a second takes more collision passes",
           "[kinematic_spread]") {
     CHECK(collision_steps_for(1.0f / 60.0f) == 1);

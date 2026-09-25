@@ -42,6 +42,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_spectrum.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_surface.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_wake.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/components/water_component.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
@@ -56,6 +57,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/core/clock.cpp
     ${CMAKE_SOURCE_DIR}/src/core/fixed_timestep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/core/step_input_latch.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
@@ -80,6 +82,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_types.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/physics_subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/document_history.cpp
@@ -221,6 +224,7 @@ add_executable(fjell-tests
     test_step_input_latch.cpp
     test_kinematic_spread.cpp
     test_character_intent.cpp
+    test_simulation_determinism.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

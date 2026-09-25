@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -24,7 +25,11 @@ class Scene;
 
 class PhysicsWorld {
 public:
-    PhysicsWorld();
+    /// `worker_threads` is how many threads Jolt spreads a step over besides
+    /// the one calling step(): all but one of the machine's cores unless
+    /// given. Any count simulates the same world to the bit and reports its
+    /// events in the same order.
+    explicit PhysicsWorld(std::optional<int> worker_threads = std::nullopt);
     ~PhysicsWorld();
 
     PhysicsWorld(const PhysicsWorld&) = delete;
