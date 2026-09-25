@@ -4,10 +4,6 @@
 
 namespace fjell {
 
-UiContext::~UiContext() = default;
-UiContext::UiContext(UiContext&&) noexcept = default;
-UiContext& UiContext::operator=(UiContext&&) noexcept = default;
-
 FJELL_SDK_EXPORT void UiWidgetContext::set(const std::string& key, const std::string& value) {
     if (ctx_) ctx_->set(key, value);
 }

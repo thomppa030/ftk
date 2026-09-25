@@ -139,6 +139,7 @@ void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_
 }
 
 GameUi::GameUi() {
+    context_.set_pipes(&pipes_);
     // Text takes the room it is drawn in: the <text> element's font, size
     // and width, as shape_text_nodes draws it.
     layout_.set_text_measure([this](const UiNode& text, float max_width) -> UiTextSize {

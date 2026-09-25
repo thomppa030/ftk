@@ -43,7 +43,7 @@ Any element takes `src="path"` to draw a texture, resolved against the project, 
 | Attribute | Does |
 |---|---|
 | `id`, `class` | selector hooks; `class` takes several names separated by spaces |
-| `{key}` in text or any attribute | replaced by the context value, every frame it changes |
+| `{key}` in text or any attribute | replaced by the context value, every frame it changes; `{key\|pipe}` formats it (see Pipes) |
 | `if="key"` | shows the element while `key` is truthy: not empty, not `0`, not `false` |
 | `class:name="key==value"` | adds `name` while the comparison holds; either side may be a `{key}` |
 | `on:click="action"` | dispatches `action`; `select_slot(3)` passes arguments |
@@ -55,6 +55,39 @@ Any element takes `src="path"` to draw a texture, resolved against the project, 
 
 Comments are `<!-- -->`, elements self-close with `/>`, and attribute values are
 double-quoted. Whitespace-only text between elements is dropped.
+
+## Pipes
+
+A binding may format its value on the way into the markup: `{stamina|round}`,
+`{left|seconds}`, `{ratio|percent:1}`. Pipes run left to right, so
+`{count|round|times}` rounds, then prefixes. Arguments follow a colon, each literal
+text; put one in single quotes to keep its spaces: `{copper|coins:' gold'}`.
+
+| Pipe | Makes | Example |
+|---|---|---|
+| `round` | the nearest whole number | `117.6` → `118` |
+| `fixed:n` | `n` decimals (0–9) | `fixed:1`: `0.25` → `0.3` |
+| `seconds` | a countdown: whole seconds rounded up, `m:ss` from a minute | `2.4` → `3`, `125` → `2:05` |
+| `times` | a count with `×` | `3` → `×3` |
+| `percent[:n]` | a 0–1 ratio as a percentage | `0.123` → `12%`, `percent:1` → `12.3%` |
+
+A game adds its own with `[[fj::pipe]]` on a free function in a script header,
+returning `std::string` from the value and any literal arguments:
+
+```cpp
+[[fj::pipe]] inline std::string coins(int copper, const std::string& unit) {
+    return std::to_string(copper / 100) + unit;
+}
+```
+
+The value and the arguments are converted to the parameters' types (bool, int,
+float or `std::string` for the value; int, float or `std::string` for arguments).
+An engine pipe wins a name both have, and the game is told. A pipe that does not
+exist, or arguments that do not fit it, leave the value unformatted and are
+reported once; a number pipe given text that is not a number leaves it as it is.
+
+A prop bound through a pipe is still stored as its declared type:
+`shown="{stamina|round}"` on an `int` prop holds the number 118.
 
 ## Data flow
 

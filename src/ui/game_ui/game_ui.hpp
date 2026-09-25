@@ -10,6 +10,7 @@
 #include "ui/game_ui/ui_input.hpp"
 #include "ui/game_ui/ui_layout.hpp"
 #include "ui/game_ui/ui_node.hpp"
+#include "ui/game_ui/ui_pipes.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/widget_resolver.hpp"
@@ -130,6 +131,9 @@ public:
     [[nodiscard]] glm::vec2 layout_size() const { return {last_layout_width_, last_layout_height_}; }
 
     [[nodiscard]] UiContext& context() { return context_; }
+    /// The pipes this UI's bindings format with; the game module's are added
+    /// once it has loaded.
+    [[nodiscard]] UiPipes& pipes() { return pipes_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
@@ -176,6 +180,7 @@ private:
     std::string stylesheet_path_;
     StyleResolver style_resolver_;
     UiLayout layout_;
+    UiPipes pipes_; // before context_, which points at it
     UiContext context_;
     UiRenderer renderer_;
     UiInput ui_input_;

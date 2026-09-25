@@ -404,6 +404,8 @@ add_executable(fjell
     ui/game_ui/ui_input.cpp
     ui/game_ui/ui_data_bind.cpp
     ui/game_ui/ui_value.cpp
+    ui/game_ui/ui_context.cpp
+    ui/game_ui/ui_pipes.cpp
     ui/game_ui/ui_animation.cpp
     ui/game_ui/ui_bar_dynamics.cpp
     ui/game_ui/ui_watcher.cpp

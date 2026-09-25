@@ -7,8 +7,9 @@
 
 namespace fjell {
 
-/// If the string is exactly "{key}" (a single binding), return the key.
-/// Returns nullopt for compound expressions like "{a} / {b}" or plain text.
+/// If the string is exactly one binding, "{key}" or "{key|pipe}", return what
+/// its braces hold. Returns nullopt for compound expressions like "{a} / {b}"
+/// or plain text.
 static std::optional<std::string> extract_single_key(const std::string& s) {
     if (s.size() < 3 || s.front() != '{' || s.back() != '}') return std::nullopt;
     // Check no inner braces (would indicate compound expression)
@@ -51,7 +52,7 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
         for (const auto& [inner_key, outer_expr] : node.prop_map) {
             UiValue value;
             if (auto key = extract_single_key(outer_expr)) {
-                if (const UiValue* bound = context.find(*key)) value = *bound;
+                value = context.evaluate(*key);
             } else {
                 value = UiValue(resolve_template(outer_expr, context));
             }
@@ -65,8 +66,7 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
     // Evaluate if="key" directive — visibility change affects layout
     auto if_it = node.attributes.find("if");
     if (if_it != node.attributes.end()) {
-        const UiValue* value = ctx.find(if_it->second);
-        const bool visible = value != nullptr && value->truthy();
+        const bool visible = ctx.evaluate(if_it->second).truthy();
         if (node.hidden_by_if != !visible) {
             node.hidden_by_if = !visible;
             result.layout_changed = true;
@@ -84,10 +84,9 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
             auto key = condition.substr(0, eq_pos);
             auto expected = condition.substr(eq_pos + 2);
             auto resolved = resolve_template(expected, ctx);
-            should_have = (ctx.get(key) == resolved);
+            should_have = ctx.evaluate(key).text() == resolved;
         } else {
-            const UiValue* value = ctx.find(condition);
-            should_have = value != nullptr && value->truthy();
+            should_have = ctx.evaluate(condition).truthy();
         }
 
         bool has_it = node.has_class(class_name);
@@ -149,7 +148,7 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
             auto read = [&](const std::string& expr, float fallback) {
                 std::optional<float> number;
                 if (auto key = extract_single_key(expr)) {
-                    if (const UiValue* value = ctx.find(*key)) number = value->number();
+                    number = ctx.evaluate(*key).number();
                 } else {
                     number = UiValue(resolve_template(expr, ctx)).number();
                 }
@@ -291,8 +290,7 @@ std::string UiDataBind::resolve_template(const std::string& tmpl, const UiContex
         if (tmpl[i] == '{') {
             size_t end = tmpl.find('}', i + 1);
             if (end != std::string::npos) {
-                auto key = tmpl.substr(i + 1, end - i - 1);
-                result += context.get(key);
+                result += context.evaluate(std::string_view(tmpl).substr(i + 1, end - i - 1)).text();
                 i = end + 1;
             } else {
                 result += tmpl[i];

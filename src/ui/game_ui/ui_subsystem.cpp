@@ -79,6 +79,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         inst.style_classes = wc->style_classes;
         inst.render_mode = wc->render_mode;
         inst.game_ui = std::make_unique<GameUi>();
+        inst.game_ui->pipes().set_game_pipes(&script_manager_->reflected_types());
         // Both draw into an OffscreenPass, never the swapchain — world
         // widgets into the scene's HDR target, screen widgets into
         // PlayController's HUD target — so the pipeline's color format has

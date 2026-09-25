@@ -242,6 +242,9 @@ void UiEditorContext::open_ui(const std::string& path) {
     // Initialize preview GameUi if needed
     if (!preview_ui_) {
         preview_ui_ = std::make_unique<GameUi>();
+        if (deps_.script_manager != nullptr) {
+            preview_ui_->pipes().set_game_pipes(&deps_.script_manager->reflected_types());
+        }
         if (deps_.project_mgr && deps_.project_mgr->active()) {
             const auto& ui = deps_.project_mgr->active()->config().ui;
             preview_width_ = static_cast<float>(ui.design_width);

@@ -6,12 +6,14 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace fjell {
 
 class UiContext;
+class UiPipes;
 
 /// The items of a list, for `foreach`. A deque, because each repeat the
 /// markup stamps out keeps a pointer to its item: a deque grown or shrunk at
@@ -60,6 +62,18 @@ public:
     [[nodiscard]] std::string get(const std::string& key) const {
         const UiValue* value = find(key);
         return value != nullptr ? value->text() : std::string();
+    }
+
+    /// What a binding's braces hold, `name` or `name|pipe:arg|pipe`: the value,
+    /// formatted by its pipes left to right. No value when no scope has it.
+    [[nodiscard]] UiValue evaluate(std::string_view expression) const;
+
+    /// The pipes bindings format with: this scope's, or the nearest parent's.
+    /// The root scope of a UI gets its UI's.
+    void set_pipes(const UiPipes* pipes) { pipes_ = pipes; }
+    [[nodiscard]] const UiPipes* pipes() const {
+        if (pipes_ != nullptr) return pipes_;
+        return parent_ != nullptr ? parent_->pipes() : nullptr;
     }
 
     template <typename F>
@@ -166,6 +180,7 @@ public:
 
 private:
     UiContext* parent_{nullptr};
+    const UiPipes* pipes_{nullptr};
     uint64_t generation_{0};
     std::unordered_map<std::string, UiValue> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
