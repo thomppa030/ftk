@@ -368,6 +368,10 @@ void ScriptManager::unload(Scene& scene) {
 
 Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
     FJELL_CORE_INFO("Hot-reloading scripts...");
+    // In a running game a reload is the scripts ending and new ones starting:
+    // the ones going away get their end_play, and the new ones their
+    // begin_play, which is where they bind input again.
+    if (playing_) call_end_play(scene);
     unload(scene);
 
     auto result = load(so_path);
@@ -376,6 +380,7 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
     }
 
     deserialize_all(scene);
+    if (playing_) call_begin_play(scene);
 
 #ifndef NDEBUG
     last_reload_time_ = std::chrono::steady_clock::now();

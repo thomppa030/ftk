@@ -346,7 +346,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
         });
 }
 
-void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene, bool playing) {
+void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene) {
 #ifndef NDEBUG
     // Check for source file changes — auto-trigger build after a debounce
     (void)script_watcher_.poll();
@@ -385,8 +385,6 @@ void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene, bool playi
         if (std::filesystem::exists(result.so_path)) {
             if (auto r = scripts.reload(scene, result.so_path); !r) {
                 FJELL_CORE_ERROR("{}", r.error());
-            } else if (playing) {
-                scripts.call_begin_play(scene);
             }
         }
     } else {

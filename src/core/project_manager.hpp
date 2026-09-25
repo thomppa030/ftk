@@ -33,10 +33,10 @@ public:
     /// Call poll_build() each frame to check for completion and trigger reload.
     void build_scripts(ScriptManager& scripts, Scene& scene);
 
-    /// Check if the background build finished. If it succeeded, reload scripts.
-    /// If playing is true, also calls begin_play after reload.
-    /// Call once per frame from the main thread.
-    void poll_build(ScriptManager& scripts, Scene& scene, bool playing);
+    /// Check if the background build finished. If it succeeded, reload scripts
+    /// (in a running game that ends the old ones and starts the new: see
+    /// ScriptManager::reload). Call once per frame from the main thread.
+    void poll_build(ScriptManager& scripts, Scene& scene);
 
     /// Generate a new script .cpp file in the project's scripts/ directory.
     void create_script(const std::string& class_name);

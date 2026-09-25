@@ -2135,8 +2135,7 @@ void Engine::run() {
         // dispatched by now.
         tick_test_runner();
 
-        project_mgr_.poll_build(script_subsystem_->manager(), scene_,
-                                play_controller_.playing());
+        project_mgr_.poll_build(script_subsystem_->manager(), scene_);
 
 #ifndef NDEBUG
         // Skip .so file watcher while a background build is running —

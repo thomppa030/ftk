@@ -96,6 +96,9 @@ public:
 
     Result<> load(const std::filesystem::path& so_path);
     void unload(Scene& scene);
+    /// Swap in a rebuilt game library. While the game is running, the scripts
+    /// it replaces get their end_play first and the new ones their
+    /// begin_play after, so a reload is the same whichever path asked for it.
     Result<> reload(Scene& scene, const std::filesystem::path& so_path);
 
     void prepare(Scene& scene, const Input& input, const Clock& clock,
