@@ -1,5 +1,6 @@
-# fjimport — offline importer: glTF/GLB/FBX → .fjmesh, and .fjfont recipes →
-# their baked atlases. Links Assimp + meshoptimizer + msdfgen + FreeType.
+# fjimport — offline importer: glTF/GLB/FBX → .fjmesh, .fjfont recipes →
+# their baked atlases, and the neutral LUT strips a colour grade starts from.
+# Links Assimp + meshoptimizer + msdfgen + FreeType + stb.
 # NOT linked into the engine runtime.
 
 add_executable(fjimport
@@ -14,11 +15,15 @@ add_executable(fjimport
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjmesh_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/lut_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image_write.cpp
 )
 
 target_include_directories(fjimport PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+target_include_directories(fjimport SYSTEM PRIVATE ${stb_SOURCE_DIR})
 
 target_link_libraries(fjimport PRIVATE
     assimp::assimp

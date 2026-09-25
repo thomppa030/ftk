@@ -58,6 +58,9 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/post_layers.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/lut_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image_write.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/material_track.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/color_gradient.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/track_set.cpp
@@ -121,6 +124,9 @@ target_include_directories(fjell-testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/scripting
 )
+# The LUT decoder reads strip images and writes the neutral ones through stb,
+# and its test writes images of its own.
+target_include_directories(fjell-testable SYSTEM PUBLIC ${stb_SOURCE_DIR})
 target_link_libraries(fjell-testable PUBLIC
     fjell-platform
     fjell-imgui-headless
@@ -208,6 +214,7 @@ add_executable(fjell-tests
     test_water_wake.cpp
     test_volume_occupancy.cpp
     test_post_layers.cpp
+    test_lut_asset.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp

@@ -4,6 +4,7 @@
 #include "physics/collision_build.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
+#include "renderer/resources/lut_asset.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/meshlet.hpp"
@@ -1630,8 +1631,30 @@ static void print_usage(const char* prog) {
     std::fprintf(stderr,
         "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n"
         "       %s <input.glb|gltf|fbx> --inspect  print what the file holds as one JSON line\n"
-        "       %s <font.fjfont>        bake the recipe's atlas into .fjcache/ beside it\n",
-        prog, prog, prog);
+        "       %s <font.fjfont>        bake the recipe's atlas into .fjcache/ beside it\n"
+        "       %s --neutral-lut <out.png> [--size 16|32]\n"
+        "                                write the colour grading table that changes nothing\n",
+        prog, prog, prog, prog);
+}
+
+// Writes the neutral LUT strip a grade starts from: paste it beside an
+// ungraded capture, grade both in an image editor, crop it back out and name
+// it in a .fjlut. 16 bits a channel, so the grade keeps its precision.
+static int write_neutral_lut(const std::string& out_path, uint32_t size) {
+    if (size < 2 || size > 64) {
+        std::fprintf(stderr, "error: --size must be from 2 to 64 (16 and 32 are the usual)\n");
+        return 1;
+    }
+    const std::vector<uint8_t> png = fjell::encode_lut_png(fjell::neutral_lut(size));
+    std::ofstream out(out_path, std::ios::binary);
+    if (!out.is_open()) {
+        std::fprintf(stderr, "error: cannot write %s\n", out_path.c_str());
+        return 1;
+    }
+    out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+    std::printf("wrote %s: a neutral %u strip, %ux%u, 16 bits\n", out_path.c_str(), size,
+                size * size, size);
+    return 0;
 }
 
 // Bakes one .fjfont recipe. Prints what a maintainer wants to see from a
@@ -1675,6 +1698,8 @@ int main(int argc, char* argv[]) {
     std::string input_path;
     std::string output_path;
     std::string settings_path;
+    std::string neutral_lut_path;
+    uint32_t lut_size = 32;
     bool use_json_progress = false;
     bool inspect = false;
 
@@ -1687,6 +1712,10 @@ int main(int argc, char* argv[]) {
             inspect = true;
         } else if (std::strcmp(argv[i], "--json-progress") == 0) {
             use_json_progress = true;
+        } else if (std::strcmp(argv[i], "--neutral-lut") == 0 && i + 1 < argc) {
+            neutral_lut_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
+            lut_size = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (argv[i][0] != '-') {
             input_path = argv[i];
         } else {
@@ -1694,6 +1723,10 @@ int main(int argc, char* argv[]) {
             print_usage(argv[0]);
             return 1;
         }
+    }
+
+    if (!neutral_lut_path.empty()) {
+        return write_neutral_lut(neutral_lut_path, lut_size);
     }
 
     if (input_path.empty()) {

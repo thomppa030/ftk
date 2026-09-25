@@ -210,6 +210,7 @@ add_executable(fjell
     renderer/shader_watcher.cpp
     renderer/resources/skeletal_model.cpp
     renderer/resources/stb_image.cpp
+    renderer/resources/lut_asset.cpp
     renderer/resources/stb_image_resize.cpp
     renderer/resources/stb_image_write.cpp
     renderer/gpu/swapchain.cpp
