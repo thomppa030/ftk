@@ -152,15 +152,16 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     return changed;
 }
 
-// The fog material's uniforms as rows on a Volumetric Fog or Fog Volume node:
-// each shows the node's own value when it has one and the material's
-// otherwise, and an edit stores the node's value in `params`. A day profile or
-// weather track of the same name folds over both while it is bound. Returns
-// whether the node's values changed.
-bool draw_fog_overrides(const Material* material, std::string_view default_shader,
-                               std::vector<NamedValue>& params,
-                               const std::vector<NamedValue>& material_values,
-                               const InspectorContext& ictx) {
+// A material-carrying node's uniforms as rows (the fog, a fog volume, a post
+// process volume): each shows the node's own value when it has one and the
+// material's otherwise, and an edit stores the node's value in `params`. A day
+// profile or weather track of the same name folds over both while it is bound.
+// `type` is the shader_type the node draws with and `icon` heads the box.
+// Returns whether the node's values changed.
+bool draw_node_values(const Material* material, std::string_view default_shader, ShaderType type,
+                      const char* icon, std::vector<NamedValue>& params,
+                      const std::vector<NamedValue>& material_values,
+                      const InspectorContext& ictx) {
     bool changed = false;
     if (ictx.pipeline_cache == nullptr) return false;
     const uint32_t pid = material != nullptr
@@ -168,8 +169,8 @@ bool draw_fog_overrides(const Material* material, std::string_view default_shade
         : ictx.pipeline_cache->register_shader(std::string(default_shader));
     if (pid >= ictx.pipeline_cache->shader_count()) return false;
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
-    auto node_box = [] {
-        return ui::InsetGroup("##node_values", "This node", ui::icon::volumetric_fog,
+    auto node_box = [icon] {
+        return ui::InsetGroup("##node_values", "This node", icon,
                               theme::category(theme::Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
@@ -178,7 +179,7 @@ bool draw_fog_overrides(const Material* material, std::string_view default_shade
         return false;
     }
     const auto& meta = ictx.pipeline_cache->metadata(pid);
-    if (meta.shader_type != ShaderType::Fog) return false;
+    if (meta.shader_type != type) return false;
 
     bool any = false;
     for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
@@ -361,6 +362,9 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
     } else if (auto* volume = dynamic_cast<FogVolumeNode*>(&node)) {
         title = "Fog volume";
         changed = draw_fog_volume(*volume, ictx);
+    } else if (auto* post = dynamic_cast<PostProcessVolumeNode*>(&node)) {
+        title = "Post process volume";
+        changed = draw_post_process_volume(*post, ictx);
     } else if (auto* env = dynamic_cast<WorldEnvironmentNode*>(&node)) {
         title = "World environment";
         changed = draw_world_environment(*env, ictx);
@@ -535,7 +539,8 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_SHADER);
         ui::hint(text.c_str());
     }
-    changed |= draw_fog_overrides(fog.material, DEFAULT_FOG_SHADER, fog.params, fog.material_values_, ictx);
+    changed |= draw_node_values(fog.material, DEFAULT_FOG_SHADER, ShaderType::Fog,
+                                ui::icon::volumetric_fog, fog.params, fog.material_values_, ictx);
 
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##fog")) {
@@ -612,8 +617,9 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_VOLUME_SHADER);
         ui::hint(text.c_str());
     }
-    changed |= draw_fog_overrides(volume.material, DEFAULT_FOG_VOLUME_SHADER, volume.params,
-                       volume.material_values_, ictx);
+    changed |= draw_node_values(volume.material, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog,
+                                ui::icon::volumetric_fog, volume.params, volume.material_values_,
+                                ictx);
 
     ui::Edit edit;
     if (auto t = ui::PropertyTable("##fog_volume")) {
@@ -664,6 +670,57 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
         });
         if (volume.density_field_debug > 0.0f) {
             ui::hint("Red is air pushed aside, blue piled up");
+        }
+    }
+    return changed || edit.changed;
+}
+
+bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
+                                               const InspectorContext& ictx) {
+    bool changed = false;
+    ui::section("Post process volume", ui::icon::post_process_volume);
+    // How the frame looks is the material; the node keeps where the look
+    // applies, over which others and how much.
+    static const std::string post_mat_exts[] = {".fjmat"};
+    if (auto t = ui::PropertyTable("##post_material")) {
+        ui::row("Material", [&] {
+            changed |= asset_slot({.label = "Material",
+                                   .id = "##material",
+                                   .extensions = post_mat_exts,
+                                   .ctx = &ictx,
+                                   .shader_types = only_shader_type(ShaderType::Post)},
+                                  volume.material_path);
+        });
+    }
+    if (volume.material != nullptr) {
+        draw_material_inspector_for(volume.material);
+    } else {
+        const std::string text = "Drawn with the engine's " + std::string(DEFAULT_POST_SHADER);
+        ui::hint(text.c_str());
+    }
+    changed |= draw_node_values(volume.material, DEFAULT_POST_SHADER, ShaderType::Post,
+                                ui::icon::post_process_volume, volume.params,
+                                volume.material_values_, ictx);
+
+    ui::Edit edit;
+    if (auto t = ui::PropertyTable("##post_volume")) {
+        ui::row("Infinite bounds", [&] { edit |= ui::checkbox("##infinite", volume.infinite_bounds); });
+        if (volume.infinite_bounds) {
+            ui::hint("Applies everywhere; the shape is ignored");
+        } else {
+            ui::row("Shape", [&] { edit |= ui::choice("##shape", volume.shape, VOLUME_SHAPES); });
+            ui::hint("Size comes from the node's scale");
+            ui::row("Edge falloff", [&] { edit |= ui::slider("##falloff", volume.edge_falloff, 0.0f, 1.0f); });
+        }
+        ui::row("Priority", [&] { edit |= ui::drag_int("##priority", volume.priority, 0.1f); });
+        ui::hint("Where volumes overlap, higher applies over lower");
+        ui::row("Weight", [&] { edit |= ui::slider("##weight", volume.weight, 0.0f, 1.0f); });
+        ui::row("Group", [&] { edit |= ui::text_field("##group", volume.post_group); });
+        if (!volume.post_group.empty()) {
+            const std::string text = "Driven by post." + volume.post_group + ".<uniform> tracks";
+            ui::hint(text.c_str());
+        } else if (volume.infinite_bounds) {
+            ui::hint("Driven by post.<uniform> tracks");
         }
     }
     return changed || edit.changed;

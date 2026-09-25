@@ -16,6 +16,18 @@ namespace fjell {
 
 namespace {
 
+// A node's own values for its material's uniforms, over the material's. A
+// value for a uniform the shader does not declare is dropped here rather than
+// carried to the pass, which would have nowhere to write it.
+void fold_node_values(std::vector<NamedValue>& uniforms, const std::vector<NamedValue>& node_values) {
+    for (const auto& override : node_values) {
+        if (auto* value = find_named(uniforms, override.name)) {
+            const uint32_t count = std::min(value->count, override.count);
+            for (uint32_t i = 0; i < count; ++i) value->values[i] = override.values[i];
+        }
+    }
+}
+
 // The sun a scene gets when it has no directional light: a warm key light
 // from up and to the side, bright enough to read the geometry. The same
 // values a fresh DirectionalLightNode starts with, except for the ambient
@@ -171,20 +183,13 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                 f.density_field_debug = fog->density_field_debug;
                 // The material's values first, then the node's own over
                 // them; the hour's and the weather's tracks fold over both
-                // further down. A node override for a uniform the shader
-                // does not declare is dropped here rather than carried to
-                // the pass, which would have nowhere to write it.
+                // further down.
                 if (fog->material != nullptr) {
                     f.pipeline_id = fog->material->pipeline_id();
                     f.material_id = fog->material->material_id();
                 }
                 f.uniforms = fog->material_values_;
-                for (const auto& override : fog->params) {
-                    if (auto* value = find_named(f.uniforms, override.name)) {
-                        const uint32_t count = std::min(value->count, override.count);
-                        for (uint32_t i = 0; i < count; ++i) value->values[i] = override.values[i];
-                    }
-                }
+                fold_node_values(f.uniforms, fog->params);
 
                 auto& s = state.sun_shafts;
                 s.enabled = fog->shafts_enabled;
@@ -217,13 +222,27 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
             }
             // The material's values under the node's own, as for the haze.
             resolved.uniforms = volume->material_values_;
-            for (const auto& override : volume->params) {
-                if (auto* value = find_named(resolved.uniforms, override.name)) {
-                    const uint32_t count = std::min(value->count, override.count);
-                    for (uint32_t i = 0; i < count; ++i) value->values[i] = override.values[i];
-                }
-            }
+            fold_node_values(resolved.uniforms, volume->params);
             state.fog_volumes.push_back(std::move(resolved));
+            continue;
+        }
+        if (const auto* post = dynamic_cast<const PostProcessVolumeNode*>(obj.get())) {
+            PostVolume resolved;
+            resolved.node_id = post->id;
+            resolved.transform = post->world_matrix_;
+            resolved.shape = post->shape;
+            resolved.edge_falloff = post->edge_falloff;
+            resolved.infinite = post->infinite_bounds;
+            resolved.priority = post->priority;
+            resolved.weight = post->weight;
+            resolved.group = post->post_group;
+            if (post->material != nullptr) {
+                resolved.pipeline_id = post->material->pipeline_id();
+                resolved.material_id = post->material->material_id();
+            }
+            resolved.uniforms = post->material_values_;
+            fold_node_values(resolved.uniforms, post->params);
+            state.post_volumes.push_back(std::move(resolved));
             continue;
         }
         // Anything carrying a motion source writes into the motion field,

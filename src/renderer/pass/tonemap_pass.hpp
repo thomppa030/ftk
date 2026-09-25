@@ -2,6 +2,7 @@
 
 #include "core/named_value.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/post_layers.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <vk_mem_alloc.h>
@@ -10,7 +11,6 @@
 #include <array>
 #include <memory>
 #include <span>
-#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -23,29 +23,22 @@ class DeferredDeleter;
 class PipelineCache;
 
 // The post pass: what the viewport shows, drawn from the scene colour after
-// TAA through a `shader_type post` shader. The look is the shader's, the tone
+// TAA through `shader_type post` shaders. The look is the shaders', the tone
 // curve included; the pass supplies the exposure, the bloom and the depth and
 // writes the 8-bit sRGB image ImGui displays.
 //
-// A shader's uniforms are per viewport, because each viewport's camera may sit
+// Which shaders, with which values, is the scene's post process volumes as
+// this viewport's camera stands among them: plan_post_layers() turns them into
+// layers, and each layer is one fullscreen draw over the ones below. With no
+// volume, the one layer is the engine's post.fjsl.
+//
+// A shader's values are per viewport, because each viewport's camera may sit
 // somewhere different, and one frame renders several. So the pass does not
-// write a material row's params: it resolves the values itself and writes
-// them into a buffer of its own per frame in flight, one slice per draw, and
-// pushes where the slice starts. The material row supplies the textures.
+// write a material row's params: it writes each layer's values into a buffer
+// of its own per frame in flight, one slice per draw, and pushes where the
+// slice starts. The material row supplies the textures.
 class TonemapPass : public RenderPass {
 public:
-    /// The engine's own post shader, the look when nothing else is set.
-    static constexpr std::string_view DEFAULT_SHADER = "shaders/post.fjsl";
-
-    // The order of post.fjsl's `operator` hint_enum.
-    enum class Operator : uint8_t {
-        Linear   = 0,
-        Reinhard = 1,
-        Aces     = 2,
-        Agx      = 3,
-        Hable    = 4,
-        Neutral  = 5,
-    };
 
     // Per-viewport output image. Input descriptor sets are not owned per
     // viewport: record_into() acquires them from FrameContext::descriptor_cache
@@ -77,10 +70,6 @@ public:
     void set_exposure(float ev) { exposure_ = ev; }
     [[nodiscard]] float exposure() const { return exposure_; }
 
-    /// The project's operator, given to the engine default's `operator`.
-    void set_operator(Operator op);
-    [[nodiscard]] Operator tonemap_operator() const { return operator_; }
-
     void set_auto_exposure(bool on) { auto_exposure_ = on; }
     [[nodiscard]] bool auto_exposure() const { return auto_exposure_; }
 
@@ -102,19 +91,14 @@ private:
         uint32_t generation{0};
     };
     /// The engine default, registered once and given a material row for its
-    /// textures.
+    /// textures, and the layer it draws as: its own look at the .fjsl's
+    /// values, rebuilt when the shader recompiles.
     struct Fallback {
         bool ready{false};
         uint32_t pipeline_id{0};
         uint32_t material_id{~0u};
-    };
-    /// One fullscreen draw: a shader, the row its textures come from, its
-    /// values and how much of it lies over the layers below.
-    struct Layer {
-        uint32_t pipeline_id{0};
-        uint32_t material_id{~0u};
-        const std::vector<NamedValue>* values{nullptr};
-        float weight{1.0f};
+        uint32_t generation{0};
+        PostLayer layer;
     };
 
     /// Build, or fetch, the pipeline for a post shader entry, kept current
@@ -125,12 +109,15 @@ private:
     void ensure_default();
     void destroy_material_pipelines();
 
+    /// What a volume draws with: its material, or the engine default when it
+    /// has none or its shader has no pipeline to draw with.
+    [[nodiscard]] PostLook look_for(const PostVolume& volume) const;
     /// Resolve a layer's values and write them into this frame's buffer.
     /// Returns where they start, in floats.
-    uint32_t write_values(uint32_t frame_index, const Layer& layer);
+    uint32_t write_values(uint32_t frame_index, const PostLayer& layer);
     void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
                      VkImageView bloom_view, VkImageView depth_view, float exposure,
-                     std::span<const Layer> layers);
+                     std::span<const PostLayer> layers);
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
@@ -153,7 +140,6 @@ private:
     /// rather than every frame.
     std::unordered_set<uint32_t> reported_entries_;
     Fallback default_;
-    std::vector<NamedValue> default_values_;
 
     /// This frame's layer values: host-written, read by the fragment
     /// shader at the pushed base. Reset in prepare_frame(), once the frame
@@ -161,7 +147,6 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> value_buffers_;
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> values_used_{};
 
-    Operator operator_{Operator::Agx};
     float exposure_{0.0f};
     float luminance_{0.0f};
     bool auto_exposure_{false};

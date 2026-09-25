@@ -1541,6 +1541,15 @@ void SceneEditorContext::add_primitive(const std::string& type) {
         selected_id_ = deps_.scene->add_node(std::move(node));
         return;
     }
+    if (type == "post_process_volume") {
+        auto node = std::make_unique<PostProcessVolumeNode>();
+        node->name = "Post Process Volume";
+        // Big enough to stand in, so the look shows the moment the camera
+        // walks into it.
+        node->transform.scale = glm::vec3(10.0f);
+        selected_id_ = deps_.scene->add_node(std::move(node));
+        return;
+    }
     if (type == "world_environment") {
         auto node = std::make_unique<WorldEnvironmentNode>();
         node->name = "World Environment";

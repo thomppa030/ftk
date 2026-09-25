@@ -29,6 +29,7 @@ class TerrainSculptTool;
 struct CameraNode;
 struct DirectionalLightNode;
 struct FogVolumeNode;
+struct PostProcessVolumeNode;
 struct GridSettings;
 struct InspectorContext;
 struct Node;
@@ -83,6 +84,7 @@ private:
     bool draw_spot_light(SpotLightNode& light);
     bool draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx);
     bool draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx);
+    bool draw_post_process_volume(PostProcessVolumeNode& volume, const InspectorContext& ictx);
     bool draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx);
     bool draw_weather_controls(WorldEnvironmentNode& env, const InspectorContext& ictx);
     void draw_material_inspector_for(Material* mat);

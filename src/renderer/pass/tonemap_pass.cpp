@@ -209,12 +209,6 @@ void TonemapPass::destroy_material_pipelines() {
     default_.ready = false;
 }
 
-void TonemapPass::set_operator(Operator op) {
-    operator_ = op;
-    set_named(default_values_, {.name = "operator", .count = 1,
-                                .values = {static_cast<float>(op), 0.0f, 0.0f, 0.0f}});
-}
-
 void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // The frame that last wrote this slot's values has finished: its fence
     // was waited on before anything records.
@@ -226,7 +220,13 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     pipeline_cache_ = gpu.pipeline_cache();
     bindless_ = &gpu.bindless_textures();
     ensure_default();
-    if (default_.ready) ensure_material_pipeline(default_.pipeline_id);
+    if (ctx.environment != nullptr) {
+        for (const PostVolume& volume : ctx.environment->post_volumes) {
+            if (volume.pipeline_id != FogSettings::NO_MATERIAL) {
+                ensure_material_pipeline(volume.pipeline_id);
+            }
+        }
+    }
 
     luminance_ = 0.0f;
     if (!ctx.passes) return;
@@ -259,27 +259,72 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
 }
 
 void TonemapPass::ensure_default() {
-    if (default_.ready || pipeline_cache_ == nullptr || bindless_ == nullptr) return;
+    if (pipeline_cache_ == nullptr || bindless_ == nullptr) return;
 
-    const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_SHADER));
+    const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_POST_SHADER));
+    const uint32_t generation = pipeline_cache_->generation(pid);
+    if (default_.ready && default_.generation == generation) return;
     default_.pipeline_id = pid;
-    if (pipeline_cache_->has_compile_error(pid) || pipeline_cache_->generation(pid) == 0) {
+    if (pipeline_cache_->has_compile_error(pid) || generation == 0) {
         // Said once: this runs every frame until a hot reload of the file
         // compiles, and the cache has already logged the compiler's output.
-        if (reported_entries_.insert(pid).second) {
+        // A recompile that fails keeps the layer built from the last good one.
+        if (reported_entries_.insert(pid).second && !default_.ready) {
             FJELL_GFX_ERROR("Post: '{}' failed to compile; the viewport stays black until it does",
-                            DEFAULT_SHADER);
+                            DEFAULT_POST_SHADER);
         }
         return;
     }
     reported_entries_.erase(pid);
+    if (ensure_material_pipeline(pid) == nullptr) return;
 
     // The row only carries textures: the values come from the pass's own
     // buffer. Taken once and kept, since nothing hands a row back.
     if (default_.material_id == ~0u) {
         default_.material_id = bindless_->add_material(GpuMaterial{});
     }
-    default_.ready = ensure_material_pipeline(pid) != nullptr;
+
+    // The layer everything else applies over: the shader at its declared
+    // values, colours marked so a blend toward a volume's mixes them in
+    // linear light.
+    const auto& meta = pipeline_cache_->metadata(pid);
+    PostLayer layer;
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+        NamedValue value;
+        value.name = u.name;
+        value.count = uniform_float_count(u.type);
+        value.srgb = u.hint == UniformHint::Color;
+        for (uint32_t i = 0; i < value.count && i < u.default_value.size(); ++i) {
+            value.values[i] = u.default_value[i];
+        }
+        layer.values.push_back(std::move(value));
+    }
+    layer.look = look_for(PostVolume{});
+    default_.layer = std::move(layer);
+    default_.generation = generation;
+    default_.ready = true;
+}
+
+PostLook TonemapPass::look_for(const PostVolume& volume) const {
+    const bool own = volume.pipeline_id != FogSettings::NO_MATERIAL
+                  && volume.material_id != FogSettings::NO_MATERIAL
+                  && material_pipelines_.contains(volume.pipeline_id);
+    PostLook look;
+    look.pipeline_id = own ? volume.pipeline_id : default_.pipeline_id;
+    look.material_id = own ? volume.material_id : default_.material_id;
+    if (pipeline_cache_ == nullptr || bindless_ == nullptr
+        || look.pipeline_id >= pipeline_cache_->shader_count() || look.material_id == ~0u) {
+        return look;
+    }
+    // Only the slots the shader samples, so two rows that differ where
+    // nothing reads are still one look and blend their values.
+    const auto& meta = pipeline_cache_->metadata(look.pipeline_id);
+    const GpuMaterial& row = bindless_->material_at(look.material_id);
+    for (uint32_t i = 0; i < meta.custom_texture_count && i < CUSTOM_TEXTURE_SLOTS; ++i) {
+        look.textures[i] = row.texture_indices[PBR_TEXTURE_SLOTS + i];
+    }
+    return look;
 }
 
 const TonemapPass::MaterialPipeline* TonemapPass::ensure_material_pipeline(uint32_t pipeline_id) {
@@ -359,12 +404,12 @@ const TonemapPass::MaterialPipeline* TonemapPass::ensure_material_pipeline(uint3
     return &slot;
 }
 
-uint32_t TonemapPass::write_values(uint32_t frame_index, const Layer& layer) {
-    static const std::vector<NamedValue> NONE;
-    if (pipeline_cache_ == nullptr || layer.pipeline_id >= pipeline_cache_->shader_count()) return 0;
-    const auto& meta = pipeline_cache_->metadata(layer.pipeline_id);
-    const std::vector<float> block =
-        resolve_uniform_block(meta, layer.values != nullptr ? *layer.values : NONE);
+uint32_t TonemapPass::write_values(uint32_t frame_index, const PostLayer& layer) {
+    if (pipeline_cache_ == nullptr || layer.look.pipeline_id >= pipeline_cache_->shader_count()) {
+        return 0;
+    }
+    const auto& meta = pipeline_cache_->metadata(layer.look.pipeline_id);
+    const std::vector<float> block = resolve_uniform_block(meta, layer.values);
 
     auto& buffer = value_buffers_[frame_index];
     uint32_t& used = values_used_[frame_index];
@@ -412,21 +457,27 @@ void TonemapPass::record(const FrameContext& ctx) {
     // or fixed alike, so a dusk that should read dark does.
     const float exposure = exposure_ + (ctx.environment != nullptr ? ctx.environment->exposure_bias : 0.0f);
 
-    // Until the engine default has compiled there is nothing to draw with,
-    // and the viewport is the clear colour rather than a stale image.
-    const std::array layers{Layer{
-        .pipeline_id = default_.pipeline_id,
-        .material_id = default_.material_id,
-        .values = &default_values_,
-        .weight = 1.0f,
-    }};
+    // The volumes as this viewport's camera stands among them. Until the
+    // engine default has compiled there is nothing to draw with, and the
+    // viewport is the clear colour rather than a stale image.
+    std::vector<PostLayer> layers;
+    if (default_.ready) {
+        std::vector<PostCandidate> candidates;
+        if (ctx.environment != nullptr) {
+            candidates.reserve(ctx.environment->post_volumes.size());
+            for (const PostVolume& volume : ctx.environment->post_volumes) {
+                candidates.push_back({&volume, look_for(volume)});
+            }
+        }
+        layers = plan_post_layers(default_.layer, candidates, ctx.camera_position);
+    }
     record_into(ctx, *output, color_source, bloom_view, ctx.registry->image_view("surface_depth"),
-                exposure, default_.ready ? std::span<const Layer>(layers) : std::span<const Layer>{});
+                exposure, layers);
 }
 
 void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
                               VkImageView bloom_view, VkImageView depth_view, float exposure,
-                              std::span<const Layer> layers) {
+                              std::span<const PostLayer> layers) {
     if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE || depth_view == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
@@ -460,7 +511,7 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     // The base layer covers every pixel, so what was there does not matter.
     // Without one the image is cleared to opaque black, and anything laid
     // over lands on that.
-    const bool has_base = !layers.empty() && material_pipelines_.contains(layers.front().pipeline_id);
+    const bool has_base = !layers.empty() && material_pipelines_.contains(layers.front().look.pipeline_id);
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color_attachment.imageView = imgs.view;
@@ -500,12 +551,12 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
                             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
     for (size_t i = 0; i < layers.size(); ++i) {
-        const auto built = material_pipelines_.find(layers[i].pipeline_id);
+        const auto built = material_pipelines_.find(layers[i].look.pipeline_id);
         if (built == material_pipelines_.end()) continue;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           i == 0 ? built->second.base : built->second.over);
         const PostPush push{
-            .material_id = layers[i].material_id,
+            .material_id = layers[i].look.material_id,
             .param_base = bases[i],
             .exposure = exposure,
             .luminance = luminance_,

@@ -55,6 +55,7 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const SpotLightNode*>(&obj)) return {ui::icon::spot_light, C::Light};
     if (dynamic_cast<const VolumetricFogNode*>(&obj)) return {ui::icon::volumetric_fog, C::Environment};
     if (dynamic_cast<const FogVolumeNode*>(&obj)) return {ui::icon::fog_volume, C::Environment};
+    if (dynamic_cast<const PostProcessVolumeNode*>(&obj)) return {ui::icon::post_process_volume, C::Environment};
     if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) return {ui::icon::world_environment, C::Environment};
     if (dynamic_cast<const CameraNode*>(&obj)) return {ui::icon::camera, C::Camera};
     if (!obj.preset_source.empty()) return {ui::icon::preset, C::Structure};
@@ -101,6 +102,7 @@ std::string draw_add_object_menu() {
     ImGui::Separator();
     item(ui::icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
     item(ui::icon::fog_volume, "Fog volume", "fog_volume");
+    item(ui::icon::post_process_volume, "Post process volume", "post_process_volume");
     item(ui::icon::world_environment, "World environment", "world_environment");
     return picked;
 }

@@ -70,6 +70,9 @@ inline constexpr std::string_view DEFAULT_FOG_VOLUME_SHADER = "shaders/fog_volum
 /// The shader a body of water's medium falls back to when the material it
 /// names cannot draw: clear water that darkens and blues with distance.
 inline constexpr std::string_view DEFAULT_WATER_MEDIUM_SHADER = "shaders/water_medium.fjsl";
+/// The look a viewport has where no post process volume says otherwise, and
+/// the one a volume with no material draws: bloom and a tone curve.
+inline constexpr std::string_view DEFAULT_POST_SHADER = "shaders/post.fjsl";
 
 /// The volumetric fog node's haze. `enabled` is false when the scene has none.
 ///
@@ -193,6 +196,35 @@ struct WaterMedium {
     std::vector<NamedValue> uniforms;
 };
 
+/// One post process volume, resolved from a PostProcessVolumeNode. The scene
+/// decides what each volume is; which of them apply, and how much, depends on
+/// where a camera stands, so that is left to the post pass, which blends them
+/// per viewport.
+struct PostVolume {
+    /// The node this came from.
+    uint32_t node_id{0};
+    /// The world matrix as authored; the pass inverts it to ask how far
+    /// inside a camera stands.
+    glm::mat4 transform{1.0f};
+    ColliderShape shape{ColliderShape::Box};
+    float edge_falloff{0.2f};
+    /// Everywhere, shape ignored.
+    bool infinite{false};
+    /// Higher applies over lower.
+    int priority{0};
+    /// How much applies with the camera fully inside, 0..1.
+    float weight{1.0f};
+    /// For `post.<group>.<uniform>` tracks. Empty means none reaches it.
+    std::string group;
+
+    uint32_t pipeline_id{FogSettings::NO_MATERIAL};
+    uint32_t material_id{FogSettings::NO_MATERIAL};
+    /// Every scalar and vector uniform the shader declares, for this frame,
+    /// once the node's own values and the tracks have folded over the
+    /// material's. Colours in sRGB, as `hint_color` is authored everywhere.
+    std::vector<NamedValue> uniforms;
+};
+
 struct SunShaftSettings {
     bool enabled{false};
     float intensity{1.0f};
@@ -290,6 +322,9 @@ struct EnvironmentState {
     std::vector<MotionSource> motion_sources;
     /// The bodies of water that are a medium this frame.
     std::vector<WaterMedium> water_media;
+    /// Every post process volume in the scene, in scene order. The post pass
+    /// sorts what applies by priority, per viewport.
+    std::vector<PostVolume> post_volumes;
     SunShaftSettings sun_shafts;
 
     WeatherParams weather;

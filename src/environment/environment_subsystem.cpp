@@ -46,7 +46,7 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
         bind_climate(*env, ctx.resources);
         bind_weather(*env, ctx.resources);
     }
-    bind_fog_materials(ctx.scene, ctx.resources, ctx.project);
+    bind_node_materials(ctx.scene, ctx.resources, ctx.project);
     if (env != nullptr && env->time_of_day_enabled) {
         const bool advancing = playing() || env->advance_in_editor;
         if (advancing && env->day_length > 0.0f) {
@@ -119,12 +119,13 @@ void EnvironmentSubsystem::bind_day_profile(WorldEnvironmentNode& env, ResourceM
 
 namespace {
 
-// Every scalar and vector uniform of the fog shader the node draws with, at
-// the material's own value: read back from the material's row so a .fjmat
-// edited in the inspector or reloaded from disk is what the resolver seeds
-// from. A node with no material reads the default shader's declared values.
-void read_fog_material_values(const Material* material, std::string_view default_shader,
-                              std::vector<NamedValue>& out, ResourceManager* resources) {
+// Every scalar and vector uniform of the shader the node draws with, at the
+// material's own value: read back from the material's row so a .fjmat edited
+// in the inspector or reloaded from disk is what the resolver seeds from. A
+// node with no material reads the default shader's declared values.
+void read_material_values(const Material* material, std::string_view default_shader,
+                          ShaderType type, std::vector<NamedValue>& out,
+                          ResourceManager* resources) {
     out.clear();
     if (resources == nullptr) return;
     PipelineCache* cache = resources->pipeline_cache();
@@ -135,7 +136,7 @@ void read_fog_material_values(const Material* material, std::string_view default
         : cache->register_shader(std::string(default_shader));
     if (pid >= cache->shader_count()) return;
     const auto& meta = cache->metadata(pid);
-    if (meta.shader_type != ShaderType::Fog) return;
+    if (meta.shader_type != type) return;
 
     const BindlessTextures& bindless = resources->bindless();
     for (const auto& u : meta.uniforms) {
@@ -158,14 +159,16 @@ void read_fog_material_values(const Material* material, std::string_view default
     }
 }
 
-// The haze and a volume carry their material the same way; this keeps one
-// node's material following its path and reads its values back. `what`
-// names the node in the log, and `lights` says whether this node's material
-// is the one that lights the fog: only the haze's light() runs, so a
-// volume's is reported rather than silently ignored.
-template <typename FogNode>
-void bind_fog_node_material(FogNode& node, std::string_view default_shader, const char* what,
-                            bool lights, ResourceManager* resources, const Project* project) {
+// The haze, a fog volume and a post process volume carry their material the
+// same way; this keeps one node's material following its path and reads its
+// values back. `type` is the shader_type the node draws with, `what` names
+// the node in the log, and `light_unused` says the material's light() never
+// runs on this node: only the haze's lights the fog, so a fog volume's is
+// reported rather than silently ignored.
+template <typename MaterialNode>
+void bind_node_material(MaterialNode& node, std::string_view default_shader, ShaderType type,
+                        const char* what, bool light_unused, ResourceManager* resources,
+                        const Project* project) {
     if (node.material_path != node.material_bound_) {
         node.material_bound_ = node.material_path;
         node.material_handle = {};
@@ -177,19 +180,20 @@ void bind_fog_node_material(FogNode& node, std::string_view default_shader, cons
                 FJELL_CORE_ERROR("{}: {}", what, handle.error());
             } else {
                 Material* material = resources->get(*handle);
-                if (material != nullptr && material->shader_type() != ShaderType::Fog) {
+                if (material != nullptr && material->shader_type() != type) {
                     // Bound to nothing rather than to the wrong kind of
                     // shader, so the node draws the engine's default and says
                     // why once instead of failing to build a pipeline every
                     // frame.
-                    FJELL_CORE_ERROR("{}: '{}' is shader_type '{}', a fog node needs shader_type "
-                                     "fog; drawing the default",
+                    FJELL_CORE_ERROR("{}: '{}' is shader_type '{}', this node needs shader_type "
+                                     "{}; drawing the default",
                                      what, node.material_path,
-                                     shader_type_name(material->shader_type()));
+                                     shader_type_name(material->shader_type()),
+                                     shader_type_name(type));
                 } else {
                     node.material_handle = *handle;
                     node.material = material;
-                    if (material != nullptr && !lights && resources->pipeline_cache() != nullptr) {
+                    if (material != nullptr && light_unused && resources->pipeline_cache() != nullptr) {
                         const auto& meta = resources->pipeline_cache()->metadata(material->pipeline_id());
                         if (!meta.light_body.empty()) {
                             FJELL_CORE_ERROR("{}: '{}' defines light(), which only the Volumetric "
@@ -206,20 +210,23 @@ void bind_fog_node_material(FogNode& node, std::string_view default_shader, cons
         // asset replaces in place.
         node.material = resources->get(node.material_handle);
     }
-    read_fog_material_values(node.material, default_shader, node.material_values_, resources);
+    read_material_values(node.material, default_shader, type, node.material_values_, resources);
 }
 
 } // namespace
 
-void EnvironmentSubsystem::bind_fog_materials(Scene& scene, ResourceManager* resources,
-                                              const Project* project) {
+void EnvironmentSubsystem::bind_node_materials(Scene& scene, ResourceManager* resources,
+                                               const Project* project) {
     for (const auto& obj : scene.objects()) {
         if (auto* fog = dynamic_cast<VolumetricFogNode*>(obj.get())) {
-            bind_fog_node_material(*fog, DEFAULT_FOG_SHADER, "Volumetric fog", true,
-                                   resources, project);
+            bind_node_material(*fog, DEFAULT_FOG_SHADER, ShaderType::Fog, "Volumetric fog", false,
+                               resources, project);
         } else if (auto* volume = dynamic_cast<FogVolumeNode*>(obj.get())) {
-            bind_fog_node_material(*volume, DEFAULT_FOG_VOLUME_SHADER, "Fog volume", false,
-                                   resources, project);
+            bind_node_material(*volume, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog, "Fog volume",
+                               true, resources, project);
+        } else if (auto* post = dynamic_cast<PostProcessVolumeNode*>(obj.get())) {
+            bind_node_material(*post, DEFAULT_POST_SHADER, ShaderType::Post,
+                               "Post process volume", false, resources, project);
         }
     }
 }
@@ -536,8 +543,8 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
             water->medium_material = resources_->get(water->medium_material_handle);
         }
         if (water->medium_material != nullptr) {
-            read_fog_material_values(water->medium_material, DEFAULT_WATER_MEDIUM_SHADER,
-                                     water->medium_values_, resources_);
+            read_material_values(water->medium_material, DEFAULT_WATER_MEDIUM_SHADER,
+                                 ShaderType::Fog, water->medium_values_, resources_);
             WaterMedium medium;
             medium.node_id = obj->id;
             if (const auto* spatial = obj->as_spatial()) {

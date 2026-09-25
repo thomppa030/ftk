@@ -360,9 +360,10 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
 
     // Bounds of a selected volume. Fog has no hard edge to see, so the
     // wireframe is the only way to know where the volume actually reaches.
+    // One that reaches everywhere has no bounds to show.
     if (selected_id != 0) {
         const auto* obj = scene.find(selected_id);
-        if (const auto* volume = dynamic_cast<const VolumeNode*>(obj)) {
+        if (const auto* volume = dynamic_cast<const VolumeNode*>(obj); volume != nullptr && volume->bounded()) {
             uint32_t first = static_cast<uint32_t>(vertices_.size());
             // The unit shape: the node's world matrix carries the size, so
             // scale must not be applied twice.

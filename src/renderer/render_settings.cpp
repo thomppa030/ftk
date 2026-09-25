@@ -1,4 +1,5 @@
 #include "renderer/render_settings.hpp"
+#include "core/log.hpp"
 
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
@@ -10,6 +11,8 @@
 #include "renderer/vulkan_context.hpp"
 
 #include <nlohmann/json.hpp>
+
+#include <iterator>
 
 namespace fjell {
 
@@ -61,7 +64,6 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"max_trace_dist", s.ssr.max_trace_dist},
         }},
         {"tonemap", {
-            {"operator",          static_cast<uint32_t>(s.tonemap.op)},
             {"auto_exposure",     s.tonemap.auto_exposure},
             {"exposure_ev",       s.tonemap.exposure_ev},
             {"adaptation_speed",  s.tonemap.adaptation_speed},
@@ -131,10 +133,20 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
     }
     if (j.contains("tonemap")) {
         const auto& t = j["tonemap"];
+        // The tone curve was a project setting before post process volumes
+        // and is the post shader's now. A project that chose something other
+        // than AgX, the engine default's, is told once how to get its look
+        // back; the key is not written again.
         if (t.contains("operator")) {
-            uint32_t op = t.value("operator", static_cast<uint32_t>(s.tonemap.op));
-            if (op <= static_cast<uint32_t>(RenderSettings::Tonemap::Operator::Neutral)) {
-                s.tonemap.op = static_cast<RenderSettings::Tonemap::Operator>(op);
+            static constexpr const char* OPERATORS[] = {"Linear", "Reinhard", "ACES", "AgX",
+                                                        "Hable", "Neutral"};
+            constexpr uint32_t AGX = 3;
+            const uint32_t op = t.value("operator", AGX);
+            if (op != AGX && op < std::size(OPERATORS)) {
+                FJELL_CORE_WARN("Project settings: the tone curve is a post process volume's "
+                                "now, and this project used {0}. Add a Post Process Volume with "
+                                "Infinite bounds and set its operator to {0} to keep the look.",
+                                OPERATORS[op]);
             }
         }
         s.tonemap.auto_exposure    = t.value("auto_exposure",    s.tonemap.auto_exposure);
@@ -180,8 +192,6 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ssr.max_trace_dist = ctx.rt_reflection_pass().max_trace_dist();
 
     // Tonemap
-    out.tonemap.op = static_cast<RenderSettings::Tonemap::Operator>(
-        ctx.tonemap_pass().tonemap_operator());
     out.tonemap.auto_exposure    = ctx.tonemap_pass().auto_exposure();
     out.tonemap.exposure_ev      = ctx.tonemap_pass().exposure();
     out.tonemap.adaptation_speed = ctx.tonemap_pass().adaptation_speed();

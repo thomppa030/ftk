@@ -57,6 +57,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/post_layers.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/fog_track.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/color_gradient.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/track_set.cpp
@@ -206,6 +207,7 @@ add_executable(fjell-tests
     test_water_spectrum.cpp
     test_water_wake.cpp
     test_volume_occupancy.cpp
+    test_post_layers.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp

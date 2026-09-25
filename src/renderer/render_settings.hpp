@@ -98,17 +98,9 @@ struct RenderSettings {
         bool operator==(const Ssr&) const = default;
     } ssr;
 
+    /// Exposure: a measurement and a correction, not a look. The tone curve
+    /// and everything after it are the post process volumes' shaders.
     struct Tonemap {
-        // Must mirror TonemapPass::Operator and the order of post.fjsl's operator hint_enum.
-        enum class Operator : uint8_t {
-            Linear   = 0,
-            Reinhard = 1,
-            Aces     = 2,
-            Agx      = 3,
-            Hable    = 4,
-            Neutral  = 5,
-        };
-        Operator op{Operator::Agx};
         bool auto_exposure{false};
         float exposure_ev{0.0f};
         float adaptation_speed{1.5f};

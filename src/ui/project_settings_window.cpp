@@ -31,7 +31,6 @@ namespace {
 
 using Backend = RenderSettings::Ddgi::Backend;
 using ReflectionMode = RenderSettings::Ssr::Mode;
-using TonemapOperator = RenderSettings::Tonemap::Operator;
 
 inline constexpr ui::Choice<Backend> DDGI_BACKENDS[] = {
     {Backend::SdfFallback, "SDF"},
@@ -43,15 +42,6 @@ inline constexpr ui::Choice<ReflectionMode> REFLECTION_MODES[] = {
     {ReflectionMode::Off, "Off"},
     {ReflectionMode::ScreenSpace, "Screen space"},
     {ReflectionMode::RayTraced, "Ray traced"},
-};
-
-inline constexpr ui::Choice<TonemapOperator> TONEMAP_OPERATORS[] = {
-    {TonemapOperator::Linear, "Linear (off)"},
-    {TonemapOperator::Reinhard, "Reinhard"},
-    {TonemapOperator::Aces, "ACES"},
-    {TonemapOperator::Agx, "AgX"},
-    {TonemapOperator::Hable, "Hable (Uncharted 2)"},
-    {TonemapOperator::Neutral, "Neutral (PBR)"},
 };
 
 // A value shown but not edited, on its own row.
@@ -358,11 +348,9 @@ void ProjectSettingsWindow::draw_rendering() {
         }
     }
 
-    if (ui::subheading_foldable("Tonemap")) {
+    if (ui::subheading_foldable("Exposure")) {
+        ui::hint("The tone curve and the grade are the post process volumes' shaders");
         if (auto t = ui::PropertyTable("##tonemap")) {
-            ui::row("Operator", [&] {
-                edit |= ui::choice("##operator", s.tonemap.op, TONEMAP_OPERATORS);
-            });
             ui::row("Auto exposure", [&] {
                 edit |= ui::checkbox("##auto_exposure", s.tonemap.auto_exposure);
             });

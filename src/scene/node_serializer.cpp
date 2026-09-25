@@ -206,6 +206,8 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             node = std::make_unique<VolumetricFogNode>();
         } else if (node_type == "fog_volume") {
             node = std::make_unique<FogVolumeNode>();
+        } else if (node_type == "post_process_volume") {
+            node = std::make_unique<PostProcessVolumeNode>();
         } else if (node_type == "world_environment") {
             node = std::make_unique<WorldEnvironmentNode>();
         } else if (node_type == "game_ui") {

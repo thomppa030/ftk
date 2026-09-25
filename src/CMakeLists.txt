@@ -116,6 +116,7 @@ add_executable(fjell
     renderer/scene_viewport.cpp
     renderer/gpu/pipeline.cpp
     renderer/post_process_resources.cpp
+    renderer/post_layers.cpp
     renderer/pipeline_cache.cpp
     renderer/shader_diagnostic.cpp
     renderer/resources/primitives.cpp

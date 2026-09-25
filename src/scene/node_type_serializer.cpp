@@ -1,6 +1,6 @@
-// What a typed node (camera, light, fog, world environment) holds of its own,
-// to and from JSON. The scene file writes and reads it through here, and so
-// does undo of an edit to those settings.
+// What a typed node (camera, light, fog, post process volume, world
+// environment) holds of its own, to and from JSON. The scene file writes and
+// reads it through here, and so does undo of an edit to those settings.
 
 #include "scene/node_serializer.hpp"
 
@@ -25,6 +25,33 @@ nlohmann::json color_to_json(glm::vec3 linear) {
 glm::vec3 color_from_json(const nlohmann::json& srgb) {
     return color_space::srgb_to_linear(
         glm::vec3{srgb[0].get<float>(), srgb[1].get<float>(), srgb[2].get<float>()});
+}
+
+// A material-carrying node's own values for its material's uniforms, under
+// `params`, written as the picker shows them: colours in sRGB. Nothing is
+// written when the node has none.
+static void write_node_values(const std::vector<NamedValue>& params, nlohmann::json& block) {
+    if (params.empty()) return;
+    auto& jp = block["params"] = nlohmann::json::object();
+    for (const auto& p : params) {
+        auto values = nlohmann::json::array();
+        for (uint32_t i = 0; i < p.count; ++i) values.push_back(p.values[i]);
+        jp[p.name] = values;
+    }
+}
+
+static std::vector<NamedValue> read_node_values(const nlohmann::json& block) {
+    std::vector<NamedValue> params;
+    if (!block.contains("params") || !block["params"].is_object()) return params;
+    for (const auto& [param_name, values] : block["params"].items()) {
+        if (!values.is_array() || values.empty()) continue;
+        NamedValue p;
+        p.name = param_name;
+        p.count = static_cast<uint32_t>(std::min<size_t>(values.size(), 4));
+        for (uint32_t i = 0; i < p.count; ++i) p.values[i] = values[i].get<float>();
+        params.push_back(std::move(p));
+    }
+    return params;
 }
 
 // The settings of a node's own type, into the node's JSON: the node_type
@@ -96,14 +123,7 @@ static void write_node_type(const Node& node, nlohmann::json& j) {
         if (!vf->material_path.empty()) {
             j["fog"]["material"] = vf->material_path;
         }
-        if (!vf->params.empty()) {
-            auto& jp = j["fog"]["params"] = nlohmann::json::object();
-            for (const auto& p : vf->params) {
-                auto values = nlohmann::json::array();
-                for (uint32_t i = 0; i < p.count; ++i) values.push_back(p.values[i]);
-                jp[p.name] = values;
-            }
-        }
+        write_node_values(vf->params, j["fog"]);
     } else if (auto* fv = dynamic_cast<const FogVolumeNode*>(&node)) {
         j["node_type"] = "fog_volume";
         j["fog_volume"] = {
@@ -122,14 +142,21 @@ static void write_node_type(const Node& node, nlohmann::json& j) {
         if (!fv->material_path.empty()) {
             j["fog_volume"]["material"] = fv->material_path;
         }
-        if (!fv->params.empty()) {
-            auto& jp = j["fog_volume"]["params"] = nlohmann::json::object();
-            for (const auto& p : fv->params) {
-                auto values = nlohmann::json::array();
-                for (uint32_t i = 0; i < p.count; ++i) values.push_back(p.values[i]);
-                jp[p.name] = values;
-            }
+        write_node_values(fv->params, j["fog_volume"]);
+    } else if (auto* pv = dynamic_cast<const PostProcessVolumeNode*>(&node)) {
+        j["node_type"] = "post_process_volume";
+        j["post_volume"] = {
+            {"shape", static_cast<int>(pv->shape)},
+            {"edge_falloff", pv->edge_falloff},
+            {"infinite_bounds", pv->infinite_bounds},
+            {"priority", pv->priority},
+            {"weight", pv->weight},
+            {"group", pv->post_group}
+        };
+        if (!pv->material_path.empty()) {
+            j["post_volume"]["material"] = pv->material_path;
         }
+        write_node_values(pv->params, j["post_volume"]);
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
         j["sky"] = {
@@ -266,17 +293,7 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
         if (j.contains("fog")) {
             auto& jf = j["fog"];
             vf->material_path = jf.value("material", std::string{});
-            vf->params.clear();
-            if (jf.contains("params") && jf["params"].is_object()) {
-                for (const auto& [param_name, values] : jf["params"].items()) {
-                    if (!values.is_array() || values.empty()) continue;
-                    NamedValue p;
-                    p.name = param_name;
-                    p.count = static_cast<uint32_t>(std::min<size_t>(values.size(), 4));
-                    for (uint32_t i = 0; i < p.count; ++i) p.values[i] = values[i].get<float>();
-                    vf->params.push_back(std::move(p));
-                }
-            }
+            vf->params = read_node_values(jf);
             // A scene from before the fog had a material carries its
             // look as fields. They become the node's own values for the
             // default shader's uniforms of the same names, so the haze
@@ -321,17 +338,7 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
             fv->fog_group = jv.value("group", std::string{});
             fv->edge_falloff = jv.value("edge_falloff", 0.2f);
             fv->material_path = jv.value("material", std::string{});
-            fv->params.clear();
-            if (jv.contains("params") && jv["params"].is_object()) {
-                for (const auto& [param_name, values] : jv["params"].items()) {
-                    if (!values.is_array() || values.empty()) continue;
-                    NamedValue p;
-                    p.name = param_name;
-                    p.count = static_cast<uint32_t>(std::min<size_t>(values.size(), 4));
-                    for (uint32_t i = 0; i < p.count; ++i) p.values[i] = values[i].get<float>();
-                    fv->params.push_back(std::move(p));
-                }
-            }
+            fv->params = read_node_values(jv);
             // A scene from before the volume had a material carries its
             // look as fields. They become the node's own values for the
             // default shader's uniforms, under the names those have, so
@@ -380,6 +387,19 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
             fv->vortex_strength = jv.value("vortex_strength", 0.0f);
             fv->compression = jv.value("compression", 0.0f);
             fv->density_field_debug = jv.value("density_field_debug", 0.0f);
+        }
+        return true;
+    } else if (auto* pv = dynamic_cast<PostProcessVolumeNode*>(&node)) {
+        if (j.contains("post_volume")) {
+            auto& jv = j["post_volume"];
+            pv->shape = static_cast<ColliderShape>(jv.value("shape", 0));
+            pv->edge_falloff = jv.value("edge_falloff", 0.2f);
+            pv->infinite_bounds = jv.value("infinite_bounds", false);
+            pv->priority = jv.value("priority", 0);
+            pv->weight = jv.value("weight", 1.0f);
+            pv->post_group = jv.value("group", std::string{});
+            pv->material_path = jv.value("material", std::string{});
+            pv->params = read_node_values(jv);
         }
         return true;
     } else if (auto* env = dynamic_cast<WorldEnvironmentNode*>(&node)) {

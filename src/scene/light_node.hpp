@@ -105,11 +105,11 @@ struct SpotLightNode : Node3D {
 // sphere in the node's own space, so position, rotation and extent all come
 // from the transform and there is no separate size to keep in step with it.
 //
-// What a volume *does* is the derived node's business — fog adds density,
-// others will override render settings. What they share is the region and how
-// far inside it a point sits, which is `volume_occupancy()` in
-// shaders/include/fjell_volume.glsl. A CPU mirror of that function belongs
-// here when a volume needs answering on the CPU; fog does not.
+// What a volume *does* is the derived node's business — fog adds density, a
+// post process volume changes how the frame looks. What they share is the
+// region and how far inside it a point sits, which is `volume_occupancy()` in
+// shaders/include/fjell_volume_shape.glsl on the GPU and in
+// scene/volume_occupancy.hpp on the CPU.
 struct VolumeNode : Node3D {
     /// Box and Sphere are the analytic shapes a volume can be; Capsule and
     /// Mesh are not implemented and read as Box.
@@ -117,6 +117,10 @@ struct VolumeNode : Node3D {
     /// Fraction of the extent the edge fades across, so scaling a volume
     /// keeps its edge proportionally soft. 0 is a hard edge.
     float edge_falloff{0.2f};
+
+    /// Whether the shape bounds the volume. A volume that reaches everywhere
+    /// has no region worth drawing in the editor.
+    [[nodiscard]] virtual bool bounded() const { return true; }
 
 protected:
     void clone_volume_into(VolumeNode& target) const {
@@ -225,6 +229,59 @@ struct FogVolumeNode : VolumeNode {
         copy->vortex_strength = vortex_strength;
         copy->compression = compression;
         copy->density_field_debug = density_field_debug;
+        return copy;
+    }
+};
+
+// How the frame looks where the camera stands. The look is a `shader_type post`
+// .fjmat, exactly as a fog bank's is a `shader_type fog` one; the node keeps
+// what places it among the others: the region, whether it has one at all, its
+// priority and its weight. The post pass blends every volume the camera is
+// in by how far inside it stands, per viewport. A volume with no material
+// draws the engine's post.fjsl, which is also the look with no volume at all.
+struct PostProcessVolumeNode : VolumeNode {
+    /// The `.fjmat` the volume draws with, as an asset reference. Empty draws
+    /// the engine's default look.
+    std::string material_path;
+    MaterialHandle material_handle{};
+    Material* material{nullptr};
+    /// The reference the handle was loaded from. Runtime state, not saved.
+    std::string material_bound_;
+    /// The node's own values for the material's uniforms, by name, over what
+    /// the .fjmat holds: one interior a little warmer than the grade every
+    /// interior shares. A `post.<group>.<uniform>` track folds over both.
+    std::vector<NamedValue> params;
+    /// Every uniform the material's shader declares, at the material's own
+    /// value, read back each tick. Runtime state, not saved.
+    std::vector<NamedValue> material_values_;
+
+    /// The volume is everywhere and its shape is ignored: the scene's base
+    /// look, and what a `post.<uniform>` track reaches.
+    bool infinite_bounds{false};
+    /// Which applies over which where volumes overlap: higher over lower.
+    int priority{0};
+    /// How much of the volume applies with the camera fully inside it, 0..1.
+    /// A script fading a look in drives this.
+    float weight{1.0f};
+    /// Which volumes a day profile or a weather event moves together, by
+    /// `post.<group>.<uniform>`. Empty means nothing but the scene drives it.
+    std::string post_group;
+
+    [[nodiscard]] bool bounded() const override { return !infinite_bounds; }
+
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
+        auto copy = std::make_unique<PostProcessVolumeNode>();
+        clone_volume_into(*copy);
+        copy->material_path = material_path;
+        copy->material_handle = material_handle;
+        copy->material = material;
+        copy->material_bound_ = material_bound_;
+        copy->params = params;
+        copy->material_values_ = material_values_;
+        copy->infinite_bounds = infinite_bounds;
+        copy->priority = priority;
+        copy->weight = weight;
+        copy->post_group = post_group;
         return copy;
     }
 };

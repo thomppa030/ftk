@@ -1006,6 +1006,8 @@ void Engine::save_material_assets() {
             save_material(fog->material, fog->material_path);
         } else if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get())) {
             save_material(volume->material, volume->material_path);
+        } else if (const auto* post = dynamic_cast<const PostProcessVolumeNode*>(obj.get())) {
+            save_material(post->material, post->material_path);
         }
     }
 }

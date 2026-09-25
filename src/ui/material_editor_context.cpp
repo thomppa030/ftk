@@ -251,8 +251,8 @@ void MaterialEditorContext::draw_params_panel() {
                         "scene's Volumetric Fog node and look at the scene.";
             break;
         case ShaderType::Post:
-            elsewhere = "A post shader doesn't draw on the preview: it turns the finished frame "
-                        "into what the viewport shows.";
+            elsewhere = "A post shader doesn't draw on the preview: it is how the finished frame "
+                        "looks. Put the material on a Post Process Volume and look at the scene.";
             break;
     }
     if (elsewhere != nullptr) ui::status(ui::Severity::Warning, elsewhere);
