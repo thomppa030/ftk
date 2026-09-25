@@ -1,20 +1,13 @@
 #include "parser.hpp"
 
+#include "lexer.hpp"
+
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
-#include <cstdlib>
-#include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <regex>
 #include <sstream>
 #include <string>
-
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
+#include <string_view>
 
 namespace fjreflect {
 
@@ -36,34 +29,20 @@ static std::string map_field_type(const std::string& cpp_type,
     if (bare == "glm::vec4") return "FJELL_FIELD_VEC4";
     if (bare == "std::string") return "FJELL_FIELD_STD_STRING";
 
-    // WeakRef<T>
-    if (bare.starts_with("WeakRef<")) {
+    // WeakRef<T>, Ref<T>, SharedRef<T>: the target's bare name
+    static const std::pair<const char*, const char*> refs[] = {
+        {"WeakRef<", "FJELL_FIELD_WEAK_REF"},
+        {"Ref<", "FJELL_FIELD_REF"},
+        {"SharedRef<", "FJELL_FIELD_SHARED_REF"},
+    };
+    for (const auto& [prefix, kind] : refs) {
+        if (!bare.starts_with(prefix)) continue;
         auto start = bare.find('<') + 1;
         auto end = bare.rfind('>');
         ref_target = bare.substr(start, end - start);
         if (auto pos = ref_target.rfind("::"); pos != std::string::npos)
             ref_target = ref_target.substr(pos + 2);
-        return "FJELL_FIELD_WEAK_REF";
-    }
-
-    // Ref<T>
-    if (bare.starts_with("Ref<")) {
-        auto start = bare.find('<') + 1;
-        auto end = bare.rfind('>');
-        ref_target = bare.substr(start, end - start);
-        if (auto pos = ref_target.rfind("::"); pos != std::string::npos)
-            ref_target = ref_target.substr(pos + 2);
-        return "FJELL_FIELD_REF";
-    }
-
-    // SharedRef<T>
-    if (bare.starts_with("SharedRef<")) {
-        auto start = bare.find('<') + 1;
-        auto end = bare.rfind('>');
-        ref_target = bare.substr(start, end - start);
-        if (auto pos = ref_target.rfind("::"); pos != std::string::npos)
-            ref_target = ref_target.substr(pos + 2);
-        return "FJELL_FIELD_SHARED_REF";
+        return kind;
     }
 
     return {}; // Unknown
@@ -81,137 +60,6 @@ static bool is_engine_pointer(const std::string& type) {
     return false;
 }
 
-// ── Text-based parsing ──────────────────────────────────────────────────
-
-static std::string trim(const std::string& s) {
-    auto start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
-    auto end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
-}
-
-/// Extract attribute content from [[fj::...]] patterns starting at lines[idx].
-/// If the attribute spans multiple lines, joins them with spaces and writes the
-/// number of lines consumed (>= 1) into out_consumed. Returns empty string if
-/// no fj::-attribute starts on this line.
-static std::string extract_fj_attrs(const std::vector<std::string>& lines,
-                                     std::size_t idx,
-                                     std::size_t& out_consumed) {
-    out_consumed = 1;
-    const auto& first = lines[idx];
-    auto open = first.find("[[");
-    if (open == std::string::npos) return {};
-
-    // Try same-line close first
-    auto close = first.find("]]", open);
-    if (close != std::string::npos) {
-        auto content = first.substr(open + 2, close - open - 2);
-        if (content.find("fj::") == std::string::npos) return {};
-        return content;
-    }
-
-    // Multi-line: accumulate until ]] found. We don't know yet whether it's
-    // a fj:: attribute, so check after joining.
-    std::string joined = first.substr(open + 2);
-    for (std::size_t k = idx + 1; k < lines.size(); ++k) {
-        auto end = lines[k].find("]]");
-        if (end == std::string::npos) {
-            joined += ' ';
-            joined += lines[k];
-            continue;
-        }
-        joined += ' ';
-        joined += lines[k].substr(0, end);
-        out_consumed = k - idx + 1;
-        if (joined.find("fj::") == std::string::npos) return {};
-        return joined;
-    }
-    // Unterminated — bail
-    return {};
-}
-
-/// Backward-compatible single-line wrapper used by call sites that only have
-/// one line in hand (e.g. early action detection on a stand-alone line).
-static std::string extract_fj_attrs(const std::string& line) {
-    auto open = line.find("[[");
-    if (open == std::string::npos) return {};
-    auto close = line.find("]]", open);
-    if (close == std::string::npos) return {};
-    auto content = line.substr(open + 2, close - open - 2);
-    if (content.find("fj::") == std::string::npos) return {};
-    return content;
-}
-
-/// Parse range hint from "fj::range(min, max)" inside attribute string.
-static bool parse_range(const std::string& attrs, float& min, float& max) {
-    std::regex re(R"(fj::range\(\s*([0-9.eE+-]+)\s*,\s*([0-9.eE+-]+)\s*\))");
-    std::smatch m;
-    if (std::regex_search(attrs, m, re)) {
-        try {
-            min = std::stof(m[1]);
-            max = std::stof(m[2]);
-            return true;
-        } catch (...) {}
-    }
-    return false;
-}
-
-/// Parse "fj::step(0.01)" — drag speed override.
-static bool parse_step(const std::string& attrs, float& step) {
-    std::regex re(R"(fj::step\(\s*([0-9.eE+-]+)\s*\))");
-    std::smatch m;
-    if (std::regex_search(attrs, m, re)) {
-        try {
-            step = std::stof(m[1]);
-            return true;
-        } catch (...) {}
-    }
-    return false;
-}
-
-/// Parse a single quoted-string argument: 'fj::<key>("text with spaces")'.
-/// Returns true on match; out receives the unquoted string.
-static bool parse_quoted_arg(const std::string& attrs, const std::string& key,
-                             std::string& out) {
-    // Match key("..."); string body excludes embedded "
-    std::regex re("fj::" + key + R"(\(\s*\"([^\"]*)\"\s*\))");
-    std::smatch m;
-    if (std::regex_search(attrs, m, re)) {
-        out = m[1].str();
-        return true;
-    }
-    return false;
-}
-
-/// Parse 'fj::enum(A, B, C)' — comma-separated identifiers (or quoted strings).
-/// Stores label list in out. Whitespace tolerated. Quotes optional.
-/// Parse a comma-separated list argument: [[fj::<name>(A, B, "C")]].
-static bool parse_list_arg(const std::string& attrs, const std::string& name,
-                           std::vector<std::string>& out) {
-    auto pos = attrs.find("fj::" + name + "(");
-    if (pos == std::string::npos) return false;
-    auto open = attrs.find('(', pos);
-    auto close = attrs.find(')', open);
-    if (open == std::string::npos || close == std::string::npos) return false;
-
-    auto body = attrs.substr(open + 1, close - open - 1);
-    std::string token;
-    auto flush = [&] {
-        auto t = trim(token);
-        if (t.size() >= 2 && t.front() == '"' && t.back() == '"') {
-            t = t.substr(1, t.size() - 2);
-        }
-        if (!t.empty()) out.push_back(t);
-        token.clear();
-    };
-    for (char c : body) {
-        if (c == ',') flush();
-        else token.push_back(c);
-    }
-    flush();
-    return !out.empty();
-}
-
 /// Why a field's [[fj::shader_type]] cannot stand, or empty when it can. The
 /// Type names themselves are the engine's to check when it loads the module:
 /// it owns the list, and a copy here would drift from it.
@@ -222,833 +70,1172 @@ static std::string shader_type_error(const FieldInfo& fi) {
            fi.name + "'";
 }
 
-/// Apply all hint/decoration attributes to a FieldInfo.
-/// Range/step/tooltip/category/enum/color/readonly are independent of field type
-/// and the type-specific guards are applied later by the caller.
-static void apply_attrs(FieldInfo& fi, const std::string& attrs) {
-    if (parse_range(attrs, fi.hint_min, fi.hint_max)) {
-        fi.has_range = true;
-    }
-    parse_step(attrs, fi.hint_speed);
-    parse_quoted_arg(attrs, "tooltip", fi.tooltip);
-    parse_quoted_arg(attrs, "category", fi.category);
-    parse_list_arg(attrs, "enum", fi.enum_labels);
-    parse_list_arg(attrs, "shader_type", fi.shader_types);
-    fi.is_color = attrs.find("fj::color") != std::string::npos;
-    fi.is_readonly = attrs.find("fj::readonly") != std::string::npos;
-    fi.is_replicated = attrs.find("fj::replicated") != std::string::npos;
+// ── Header parsing ──────────────────────────────────────────────────────
+
+namespace {
+
+using TokenList = std::vector<Token>;
+
+bool is_word(const Token& t) {
+    return t.kind == TokenKind::identifier || t.kind == TokenKind::number ||
+           t.kind == TokenKind::string || t.kind == TokenKind::character;
 }
 
-/// Parse a field declaration after stripping attributes.
-/// Handles: "float speed = 10.0f;" and "WeakRef<Node3D> target;"
-static bool parse_field_decl(const std::string& line, std::string& type, std::string& name) {
-    // Remove everything from [[...]] to ]]
-    auto clean = line;
-    while (true) {
-        auto open = clean.find("[[");
-        if (open == std::string::npos) break;
-        auto close = clean.find("]]", open);
-        if (close == std::string::npos) break;
-        clean.erase(open, close - open + 2);
-    }
-    clean = trim(clean);
-
-    // Remove brace-initialized default value: "name{...}" -> "name"
-    auto brace = clean.find('{');
-    if (brace != std::string::npos) {
-        clean = trim(clean.substr(0, brace));
-    }
-
-    // Remove default value (everything from " = " or "=" to ";")
-    auto eq = clean.find('=');
-    if (eq != std::string::npos) {
-        clean = trim(clean.substr(0, eq));
-    }
-
-    // Remove trailing semicolon
-    if (clean.ends_with(";")) clean.pop_back();
-    clean = trim(clean);
-
-    if (clean.empty()) return false;
-
-    // Split into type and name: last token is name, everything before is type
-    // Handle template types like WeakRef<Node3D>
-    auto last_space = clean.rfind(' ');
-    auto last_gt = clean.rfind('>');
-
-    // If the last > is after the last space, we need to find the space before the template
-    if (last_gt != std::string::npos && (last_space == std::string::npos || last_gt > last_space)) {
-        // Find space after the closing >
-        last_space = clean.find(' ', last_gt);
-    }
-
-    if (last_space == std::string::npos) return false;
-
-    type = trim(clean.substr(0, last_space));
-    name = trim(clean.substr(last_space + 1));
-
-    return !type.empty() && !name.empty();
-}
-
-// The source with every comment turned into spaces. Line breaks inside a
-// block comment stay, so line numbers in diagnostics still match the file.
-// Everything after reads this, so a comment can neither become part of a
-// field declaration nor pass for an attribute or a brace. String, character
-// and raw string literals are skipped whole: a "//" inside one is text.
-static std::string blank_comments(const std::string& source) {
-    std::string out = source;
-    const size_t n = source.size();
-    size_t i = 0;
-    while (i < n) {
-        const char c = source[i];
-        const char next = i + 1 < n ? source[i + 1] : '\0';
-        if (c == '/' && next == '/') {
-            while (i < n && source[i] != '\n') out[i++] = ' ';
-        } else if (c == '/' && next == '*') {
-            out[i++] = ' ';
-            out[i++] = ' ';
-            while (i < n && !(source[i] == '*' && i + 1 < n && source[i + 1] == '/')) {
-                if (source[i] != '\n') out[i] = ' ';
-                ++i;
-            }
-            if (i < n) {
-                out[i++] = ' ';
-                out[i++] = ' ';
-            }
-        } else if (c == 'R' && next == '"') {
-            // R"delim( ... )delim"
-            size_t open = source.find('(', i + 2);
-            if (open == std::string::npos) { ++i; continue; }
-            const std::string end = ")" + source.substr(i + 2, open - (i + 2)) + "\"";
-            size_t close = source.find(end, open + 1);
-            i = close == std::string::npos ? n : close + end.size();
-        } else if (c == '\'' && i > 0 && std::isdigit(static_cast<unsigned char>(source[i - 1])) &&
-                   std::isalnum(static_cast<unsigned char>(next))) {
-            ++i; // a digit separator, as in 1'000
-        } else if (c == '"' || c == '\'') {
-            ++i;
-            while (i < n && source[i] != c && source[i] != '\n') {
-                i += source[i] == '\\' ? 2 : 1;
-            }
-            if (i < n) ++i;
-        } else {
-            ++i;
+/// Tokens written back out the way the engine's own code writes a type: a
+/// space between two words and after a comma, none around `::`, `<`, `>`, `*`
+/// or `&`. `fjell::WeakRef<fjell::Node3D>`, `const int&`, `std::map<int, float>`.
+std::string join(const TokenList& tokens, std::size_t begin, std::size_t end) {
+    std::string out;
+    for (std::size_t i = begin; i < end; ++i) {
+        const Token& t = tokens[i];
+        if (i > begin) {
+            const Token& prev = tokens[i - 1];
+            const bool space = (is_word(prev) && is_word(t)) || prev.text == "," ||
+                               ((prev.text == ">" || prev.text == "*" || prev.text == "&") &&
+                                t.kind == TokenKind::identifier);
+            if (space) out += ' ';
         }
+        out += t.text;
     }
     return out;
 }
 
+/// The text between a string literal's quotes, prefix and suffix dropped.
+std::string string_body(const Token& t) {
+    const auto open = t.text.find('"');
+    const auto close = t.text.rfind('"');
+    if (open == std::string::npos || close <= open) return {};
+    if (open > 0 && t.text[open - 1] == 'R') {
+        const auto paren = t.text.find('(', open);
+        const auto end = t.text.rfind(')', close);
+        return t.text.substr(paren + 1, end - paren - 1);
+    }
+    return t.text.substr(open + 1, close - open - 1);
+}
+
+/// Looks like a macro rather than a type or a function: all capitals, digits
+/// and underscores.
+bool is_macro_name(const Token& t) {
+    if (t.kind != TokenKind::identifier || t.text.size() < 2) return false;
+    bool letter = false;
+    for (char c : t.text) {
+        if (std::isupper(static_cast<unsigned char>(c))) letter = true;
+        else if (!std::isdigit(static_cast<unsigned char>(c)) && c != '_') return false;
+    }
+    return letter;
+}
+
+std::string lower(std::string s) {
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+struct Attribute {
+    std::string scope; // "fj" for [[fj::range(...)]], empty for [[nodiscard]]
+    std::string name;
+    TokenList args;    // the tokens between the parentheses
+    bool has_args{false};
+    unsigned line{0};
+};
+
+enum class ComponentMacro { none, component, ui_widget, notify };
+
+/// One declaration inside a class body, as far as reflection cares.
+struct Member {
+    std::vector<Attribute> attrs;
+    bool is_function{false};
+    bool is_static{false};
+    bool is_array{false};
+    bool several_declarators{false};
+    bool unsupported_declarator{false}; // a function pointer or parenthesised name
+    bool has_body{false};
+    std::string name;
+    unsigned line{0};
+    std::string type;                   // data type, or the function's return type
+    std::vector<std::string> param_types; // const and references stripped
+    std::vector<std::string> param_names; // empty where the parameter has none
+};
+
+/// A class being read. Members are kept until the class closes, because the
+/// macro that makes it a component may come anywhere in its body.
+struct ClassScope {
+    std::string name;
+    std::string qualified_name;
+    unsigned line{0};
+    ComponentMacro macro{ComponentMacro::none};
+    std::string macro_name;   // the class name the macro was given
+    std::string widget_tag;
+    unsigned macro_line{0};
+    std::vector<Member> members;
+};
+
+class HeaderParser {
+public:
+    HeaderParser(std::string path, TokenList tokens, ParseResult& result)
+        : path_(std::move(path)), tokens_(std::move(tokens)), result_(result) {}
+
+    void run() { parse_scope("", false); }
+
+private:
+    // ── Token access ────────────────────────────────────────────────────
+
+    [[nodiscard]] const Token& tok(std::size_t ahead = 0) const {
+        const std::size_t i = std::min(pos_ + ahead, tokens_.size() - 1);
+        return tokens_[i];
+    }
+    [[nodiscard]] bool at_end() const { return tok().kind == TokenKind::end; }
+    /// The next token is this punctuation mark or name (never a literal).
+    [[nodiscard]] bool is(std::string_view text, std::size_t ahead = 0) const {
+        const Token& t = tok(ahead);
+        return (t.kind == TokenKind::punct || t.kind == TokenKind::identifier) && t.text == text;
+    }
+    [[nodiscard]] bool at_attribute() const { return is("[") && is("[", 1); }
+    void next() {
+        if (!at_end()) ++pos_;
+    }
+
+    void error(unsigned line, const std::string& message) {
+        result_.errors.push_back(path_ + ":" + std::to_string(line) + ": error: " + message);
+    }
+    void warning(unsigned line, const std::string& message) {
+        result_.warnings.push_back(path_ + ":" + std::to_string(line) + ": warning: " + message);
+    }
+
+    // ── Skipping what reflection does not read ──────────────────────────
+
+    /// At an opening bracket: step past its matching close, whatever nests
+    /// inside. Returns false at the end of the file.
+    bool skip_balanced() {
+        std::string closers;
+        const unsigned line = tok().line;
+        do {
+            const std::string& t = tok().text;
+            if (tok().kind == TokenKind::punct) {
+                if (t == "(") closers.push_back(')');
+                else if (t == "[") closers.push_back(']');
+                else if (t == "{") closers.push_back('}');
+                else if ((t == ")" || t == "]" || t == "}") && !closers.empty() &&
+                         t[0] == closers.back()) {
+                    closers.pop_back();
+                }
+            }
+            if (at_end()) {
+                error(line, "unexpected end of file: this bracket is never closed");
+                return false;
+            }
+            next();
+        } while (!closers.empty());
+        return true;
+    }
+
+    /// At `<`: step past the matching `>`. Brackets inside are skipped whole,
+    /// so a `>` in a default argument's parentheses does not close the list.
+    void skip_angles() {
+        int depth = 0;
+        do {
+            if (is("(") || is("[") || is("{")) {
+                if (!skip_balanced()) return;
+                continue;
+            }
+            if (is("<")) ++depth;
+            else if (is(">")) --depth;
+            else if (is(";") || is("}") || at_end()) return;
+            next();
+        } while (depth > 0);
+    }
+
+    /// Up to and past the `;` that ends this declaration. Stops short of a
+    /// `}` that closes the enclosing scope.
+    void skip_to_semicolon() {
+        while (!at_end() && !is(";") && !is("}")) {
+            if (is("(") || is("[") || is("{")) {
+                if (!skip_balanced()) return;
+            } else {
+                next();
+            }
+        }
+        if (is(";")) next();
+    }
+
+    /// Past a declaration nobody reflects: to its `;`, or past its body.
+    void skip_declaration() {
+        const Token* prev = nullptr;
+        while (!at_end() && !is(";") && !is("}")) {
+            if (is("{")) {
+                const bool initializer = prev != nullptr && (prev->text == "=" || prev->text == ",");
+                if (!skip_balanced()) return;
+                if (!initializer) {
+                    if (is(";")) next();
+                    return;
+                }
+                prev = nullptr;
+                continue;
+            }
+            if (is("(") || is("[")) {
+                if (!skip_balanced()) return;
+                prev = nullptr;
+                continue;
+            }
+            prev = &tok();
+            next();
+        }
+        if (is(";")) next();
+    }
+
+    /// At `template`: past the parameter list and the declaration it heads.
+    void skip_template() {
+        next();
+        if (is("<")) skip_angles();
+        if ((is("class") || is("struct") || is("union")) && class_head_is_definition()) {
+            while (!at_end() && !is("{")) next();
+            skip_balanced();
+            skip_to_semicolon();
+            return;
+        }
+        skip_declaration();
+    }
+
+    /// At an ALL_CAPS name followed by `(`: past the invocation.
+    void skip_macro_invocation() {
+        next();
+        skip_balanced();
+        if (is(";")) next();
+    }
+
+    // ── Attributes ──────────────────────────────────────────────────────
+
+    /// Every `[[...]]` block and `alignas(...)` here, in order.
+    std::vector<Attribute> parse_attributes() {
+        std::vector<Attribute> attrs;
+        while (true) {
+            if (is("alignas") && is("(", 1)) {
+                next();
+                skip_balanced();
+                continue;
+            }
+            if (!at_attribute()) break;
+            next();
+            next();
+            std::string using_scope;
+            if (is("using") && tok(1).kind == TokenKind::identifier && is(":", 2)) {
+                using_scope = tok(1).text;
+                next();
+                next();
+                next();
+            }
+            while (!at_end() && !(is("]") && is("]", 1))) {
+                if (is(",")) {
+                    next();
+                    continue;
+                }
+                if (tok().kind != TokenKind::identifier) {
+                    error(tok().line, "expected an attribute name, found '" + tok().text + "'");
+                    while (!at_end() && !(is("]") && is("]", 1))) next();
+                    break;
+                }
+                Attribute a;
+                a.line = tok().line;
+                a.scope = using_scope;
+                a.name = tok().text;
+                next();
+                if (is("::") && tok(1).kind == TokenKind::identifier) {
+                    a.scope = a.name;
+                    a.name = tok(1).text;
+                    next();
+                    next();
+                }
+                if (is("(")) {
+                    a.has_args = true;
+                    const std::size_t open = pos_;
+                    if (!skip_balanced()) break;
+                    a.args.assign(tokens_.begin() + static_cast<std::ptrdiff_t>(open) + 1,
+                                  tokens_.begin() + static_cast<std::ptrdiff_t>(pos_) - 1);
+                }
+                attrs.push_back(std::move(a));
+            }
+            next();
+            next();
+        }
+        return attrs;
+    }
+
+    // ── Scopes ──────────────────────────────────────────────────────────
+
+    /// `class Name ... {` or `class Name : Base {` defines a class here;
+    /// `class Name;` declares one, and `class Name* member` only names one.
+    [[nodiscard]] bool class_head_is_definition() const {
+        std::size_t i = 1;
+        auto at = [&](std::string_view text) {
+            const Token& t = tok(i);
+            return (t.kind == TokenKind::punct || t.kind == TokenKind::identifier) && t.text == text;
+        };
+        while (at("[") && tok(i + 1).text == "[") {
+            int depth = 0;
+            do {
+                if (at("[")) ++depth;
+                else if (at("]")) --depth;
+                ++i;
+            } while (depth > 0 && tok(i).kind != TokenKind::end);
+        }
+        while (tok(i).kind == TokenKind::identifier || at("::")) {
+            if (at("final")) {
+                ++i;
+                break;
+            }
+            if (at("alignas") && tok(i + 1).text == "(") {
+                int depth = 0;
+                ++i;
+                do {
+                    if (at("(")) ++depth;
+                    else if (at(")")) --depth;
+                    ++i;
+                } while (depth > 0 && tok(i).kind != TokenKind::end);
+                continue;
+            }
+            ++i;
+            if (at("<")) {
+                int depth = 0;
+                do {
+                    if (at("<")) ++depth;
+                    else if (at(">")) --depth;
+                    ++i;
+                } while (depth > 0 && tok(i).kind != TokenKind::end);
+            }
+        }
+        return at("{") || at(":");
+    }
+
+    /// Declarations at namespace level, until the closing `}` when braced.
+    void parse_scope(const std::string& ns, bool braced) {
+        const unsigned open_line = pos_ > 0 ? tokens_[pos_ - 1].line : 1;
+        while (true) {
+            if (at_end()) {
+                if (braced) error(open_line, "unexpected end of file: this '{' is never closed");
+                return;
+            }
+            if (is("}")) {
+                if (braced) {
+                    next();
+                    return;
+                }
+                error(tok().line, "unmatched '}'");
+                next();
+                continue;
+            }
+            if (is(";")) {
+                next();
+            } else if (is("namespace") || (is("inline") && is("namespace", 1))) {
+                parse_namespace(ns);
+            } else if (is("extern") && tok(1).kind == TokenKind::string) {
+                next();
+                next();
+                if (is("{")) {
+                    next();
+                    parse_scope(ns, true);
+                }
+            } else if (is("template")) {
+                skip_template();
+            } else if ((is("class") || is("struct") || is("union")) && class_head_is_definition()) {
+                parse_class(ns);
+            } else if (is("using") || is("typedef") || is("static_assert")) {
+                skip_to_semicolon();
+            } else if (at_attribute()) {
+                for (const auto& a : parse_attributes()) {
+                    if (a.scope == "fj") {
+                        error(a.line, "[[fj::" + a.name + "]] only means something inside a component");
+                    }
+                }
+            } else if (is_macro_name(tok()) && is("(", 1)) {
+                skip_macro_invocation();
+            } else {
+                skip_declaration();
+            }
+        }
+    }
+
+    void parse_namespace(const std::string& ns) {
+        if (is("inline")) next();
+        next(); // namespace
+        parse_attributes();
+        std::string name;
+        while (tok().kind == TokenKind::identifier || is("::")) {
+            if (is("inline")) {
+                next();
+                continue;
+            }
+            name += tok().text;
+            next();
+        }
+        if (is("=")) { // namespace alias
+            skip_to_semicolon();
+            return;
+        }
+        if (!is("{")) {
+            error(tok().line, "expected '{' after namespace " + name);
+            skip_declaration();
+            return;
+        }
+        next();
+        const std::string inner = name.empty() ? ns : (ns.empty() ? name : ns + "::" + name);
+        parse_scope(inner, true);
+    }
+
+    /// At `class`, `struct` or `union` that defines a class.
+    void parse_class(const std::string& outer) {
+        ClassScope cls;
+        cls.line = tok().line;
+        next();
+        parse_attributes();
+        while (tok().kind == TokenKind::identifier || is("::")) {
+            if (is("final")) {
+                next();
+                break;
+            }
+            if (is("alignas")) {
+                parse_attributes();
+                continue;
+            }
+            cls.name = is("::") ? cls.name : tok().text;
+            next();
+            if (is("<")) skip_angles(); // a specialisation: its arguments
+        }
+        if (is(":")) {
+            while (!at_end() && !is("{") && !is(";")) {
+                if (is("(")) skip_balanced();
+                else next();
+            }
+        }
+        if (!is("{")) {
+            error(tok().line, "expected '{' to open class " + cls.name);
+            skip_declaration();
+            return;
+        }
+        next();
+        cls.qualified_name = outer.empty() ? cls.name : outer + "::" + cls.name;
+        parse_class_body(cls);
+        skip_to_semicolon(); // `};`, or `} instance;`
+        finish_class(cls);
+    }
+
+    /// Members until the class's closing brace, which it consumes.
+    void parse_class_body(ClassScope& cls) {
+        while (true) {
+            if (at_end()) {
+                error(cls.line, "unexpected end of file: class " + cls.name + " is never closed");
+                return;
+            }
+            if (is("}")) {
+                next();
+                return;
+            }
+            if (is(";")) {
+                next();
+            } else if ((is("public") || is("private") || is("protected")) && is(":", 1)) {
+                next();
+                next();
+            } else if (is("FJELL_COMPONENT") || is("FJELL_UI_WIDGET") || is("FJELL_UI_COMPONENT") ||
+                       is("FJELL_NOTIFY")) {
+                parse_component_macro(cls);
+            } else if (is_macro_name(tok()) && is("(", 1)) {
+                skip_macro_invocation();
+            } else if ((is("class") || is("struct") || is("union")) && class_head_is_definition()) {
+                parse_class(cls.qualified_name);
+            } else if (is("enum") || is("friend")) {
+                skip_declaration();
+            } else if (is("using") || is("typedef") || is("static_assert")) {
+                skip_to_semicolon();
+            } else if (is("template")) {
+                skip_template();
+            } else {
+                parse_member(cls);
+            }
+        }
+    }
+
+    void parse_component_macro(ClassScope& cls) {
+        const Token& macro = tok();
+        const unsigned line = macro.line;
+        ComponentMacro kind = ComponentMacro::component;
+        if (macro.text == "FJELL_UI_WIDGET" || macro.text == "FJELL_UI_COMPONENT") kind = ComponentMacro::ui_widget;
+        if (macro.text == "FJELL_NOTIFY") kind = ComponentMacro::notify;
+        const std::string macro_text = macro.text;
+        next();
+
+        std::string name, tag;
+        bool well_formed = is("(") && tok(1).kind == TokenKind::identifier;
+        if (well_formed) {
+            name = tok(1).text;
+            if (macro_text == "FJELL_UI_COMPONENT") {
+                well_formed = is(",", 2) && tok(3).kind == TokenKind::string && is(")", 4);
+                if (well_formed) tag = string_body(tok(3));
+            } else {
+                well_formed = is(")", 2);
+            }
+        }
+        if (is("(")) skip_balanced();
+        if (is(";")) next();
+
+        if (!well_formed) {
+            error(line, macro_text == "FJELL_UI_COMPONENT"
+                            ? "expected FJELL_UI_COMPONENT(ClassName, \"tag\")"
+                            : "expected " + macro_text + "(ClassName)");
+            return;
+        }
+        if (cls.macro != ComponentMacro::none) {
+            error(line, "class " + cls.name + " already names itself with " +
+                            std::string(cls.macro == ComponentMacro::notify ? "FJELL_NOTIFY" : "a component macro") +
+                            " on line " + std::to_string(cls.macro_line));
+            return;
+        }
+        if (name != cls.name) {
+            error(line, macro_text + "(" + name + ") sits in class " + cls.name +
+                            "; the macro names the class it is in");
+            return;
+        }
+        cls.macro = kind;
+        cls.macro_name = name;
+        cls.widget_tag = tag;
+        cls.macro_line = line;
+    }
+
+    // ── Members ─────────────────────────────────────────────────────────
+
+    /// One member declaration: attributes, then a data member or a function.
+    void parse_member(ClassScope& cls) {
+        Member m;
+        m.attrs = parse_attributes();
+
+        const std::size_t start = pos_;
+        std::size_t name_index = std::string::npos;
+        int angle = 0;
+
+        // Walk the declaration up to its name: a `(` right after a name opens
+        // a function's parameters; `;`, `=`, `{`, `,`, `:` or `[` ends a data
+        // member's declarator.
+        while (true) {
+            if (at_end()) {
+                error(tokens_[start].line, "unexpected end of file in a declaration");
+                return;
+            }
+            if (is("}") && angle == 0) {
+                error(tok().line, "expected ';' after the declaration");
+                return;
+            }
+            if (at_attribute()) {
+                for (const auto& a : parse_attributes()) {
+                    if (a.scope == "fj") {
+                        error(a.line, "[[fj::" + a.name + "]] goes before the declaration it marks");
+                    }
+                }
+                continue;
+            }
+            if (is("<")) {
+                ++angle;
+                next();
+                continue;
+            }
+            if (is(">") && angle > 0) {
+                --angle;
+                next();
+                continue;
+            }
+            if (angle > 0) {
+                if (is("(") || is("[") || is("{")) {
+                    if (!skip_balanced()) return;
+                } else {
+                    next();
+                }
+                continue;
+            }
+            if (is("operator")) {
+                name_index = pos_;
+                next();
+                // The operator's own symbol, then its parameter list.
+                if (is("(") && is(")", 1)) {
+                    next();
+                    next();
+                }
+                while (!at_end() && !is("(") && !is(";")) next();
+                if (!is("(")) break;
+                m.is_function = true;
+                break;
+            }
+            if (is("decltype") || is("sizeof") || is("alignof") || is("noexcept") ||
+                is("__attribute__") || is("__declspec")) {
+                next();
+                if (is("(")) skip_balanced();
+                continue;
+            }
+            if (is("(")) {
+                const bool after_name = pos_ > start && tokens_[pos_ - 1].kind == TokenKind::identifier;
+                if (after_name && !is("*", 1) && !is("&", 1) && !is("^", 1)) {
+                    name_index = pos_ - 1;
+                    m.is_function = true;
+                    break;
+                }
+                m.unsupported_declarator = true;
+                if (!skip_balanced()) return;
+                continue;
+            }
+            if (is(";") || is("=") || is("{") || is(",") || is(":") || is("[")) break;
+            next();
+        }
+
+        if (m.is_function) {
+            parse_function_rest(m, start, name_index);
+        } else {
+            parse_data_rest(m, start);
+        }
+        cls.members.push_back(std::move(m));
+    }
+
+    /// Specifiers that say how a member is stored or bound, not what it is.
+    static bool is_storage_specifier(const Token& t) {
+        static const char* words[] = {"static", "mutable", "inline", "constexpr", "consteval",
+                                      "constinit", "thread_local", "virtual", "explicit",
+                                      "extern", "friend"};
+        if (t.kind != TokenKind::identifier) return false;
+        return std::any_of(std::begin(words), std::end(words),
+                           [&](const char* w) { return t.text == w; });
+    }
+
+    /// The type named by tokens [begin, end), storage specifiers left out.
+    std::string type_text(std::size_t begin, std::size_t end, bool& is_static) const {
+        TokenList kept;
+        for (std::size_t i = begin; i < end; ++i) {
+            if (is_storage_specifier(tokens_[i])) {
+                if (tokens_[i].text == "static") is_static = true;
+                continue;
+            }
+            kept.push_back(tokens_[i]);
+        }
+        return join(kept, 0, kept.size());
+    }
+
+    /// At the token that ends a data member's declarator.
+    void parse_data_rest(Member& m, std::size_t start) {
+        const std::size_t end = pos_;
+        if (end > start && tokens_[end - 1].kind == TokenKind::identifier) {
+            m.name = tokens_[end - 1].text;
+            m.line = tokens_[end - 1].line;
+            m.type = type_text(start, end - 1, m.is_static);
+        } else {
+            m.line = tokens_[std::min(start, tokens_.size() - 1)].line;
+            m.unsupported_declarator = true;
+        }
+
+        if (is("[")) {
+            m.is_array = true;
+            skip_balanced();
+        }
+        if (is(",")) m.several_declarators = true;
+        if (is("{")) {
+            skip_balanced();
+            if (is(",")) m.several_declarators = true;
+        }
+        skip_to_semicolon(); // an `= initializer`, a bit-field width, more declarators
+    }
+
+    /// At a function's `(`; name_index is the token that names it.
+    void parse_function_rest(Member& m, std::size_t start, std::size_t name_index) {
+        m.name = tokens_[name_index].text;
+        m.line = tokens_[name_index].line;
+        std::size_t type_end = name_index;
+        if (name_index > start && tokens_[name_index - 1].text == "~") {
+            m.name = "~" + m.name;
+            --type_end;
+        }
+        m.type = type_text(start, type_end, m.is_static);
+
+        // Parameters, split at the commas between them.
+        const std::size_t open = pos_;
+        if (!skip_balanced()) return;
+        const std::size_t close = pos_ - 1;
+        std::size_t param_begin = open + 1;
+        int depth = 0;
+        for (std::size_t i = open + 1; i <= close; ++i) {
+            const std::string& t = tokens_[i].text;
+            const bool punct = tokens_[i].kind == TokenKind::punct;
+            if (punct && (t == "(" || t == "[" || t == "{" || t == "<")) ++depth;
+            else if (punct && (t == ")" || t == "]" || t == "}" || t == ">") && depth > 0) --depth;
+            else if ((punct && t == "," && depth == 0) || i == close) {
+                add_parameter(m, param_begin, i);
+                param_begin = i + 1;
+            }
+        }
+
+        // Qualifiers, then `;`, `= 0|default|delete`, a body, or a
+        // constructor's initialiser list and then its body.
+        while (!at_end() && !is(";") && !is("{") && !is("=") && !is(":") && !is("}")) {
+            if (at_attribute()) {
+                parse_attributes();
+            } else if (is("(")) {
+                skip_balanced(); // noexcept(...), throw(...)
+            } else {
+                next();
+            }
+        }
+        if (is("=")) {
+            skip_to_semicolon();
+            return;
+        }
+        if (is(":")) {
+            next();
+            while (!at_end() && !is("{") && !is(";") && !is("}")) {
+                while (tok().kind == TokenKind::identifier || is("::")) {
+                    next();
+                    if (is("<")) skip_angles();
+                }
+                if (is("(") || is("{")) {
+                    if (!skip_balanced()) return;
+                }
+                if (is(",")) next();
+                else break;
+            }
+        }
+        if (is("{")) {
+            m.has_body = true;
+            skip_balanced();
+            if (is(";")) next();
+            return;
+        }
+        if (is(";")) next();
+    }
+
+    void add_parameter(Member& m, std::size_t begin, std::size_t end) {
+        // A default argument is not part of the parameter's type.
+        std::size_t stop = begin;
+        int depth = 0;
+        while (stop < end) {
+            const std::string& t = tokens_[stop].text;
+            if (t == "(" || t == "[" || t == "{" || t == "<") ++depth;
+            else if ((t == ")" || t == "]" || t == "}" || t == ">") && depth > 0) --depth;
+            else if (t == "=" && depth == 0) break;
+            ++stop;
+        }
+        if (stop == begin) return;
+        if (stop == begin + 1 && tokens_[begin].text == "void") return; // f(void)
+
+        // The last word names the parameter unless it is part of the type:
+        // `glm::vec3` or `int` alone name nothing.
+        std::string name;
+        std::size_t type_end = stop;
+        const Token& last = tokens_[stop - 1];
+        if (stop - begin >= 2 && last.kind == TokenKind::identifier &&
+            tokens_[stop - 2].text != "::" && !is_type_keyword(last.text)) {
+            name = last.text;
+            type_end = stop - 1;
+        }
+        // const and references say how it is passed, not what it is.
+        std::size_t type_begin = begin;
+        while (type_begin < type_end && tokens_[type_begin].text == "const") ++type_begin;
+        while (type_end > type_begin && tokens_[type_end - 1].text == "&") --type_end;
+        m.param_types.push_back(join(tokens_, type_begin, type_end));
+        m.param_names.push_back(name);
+    }
+
+    static bool is_type_keyword(const std::string& word) {
+        static const char* words[] = {"int", "float", "double", "bool", "char", "long", "short",
+                                      "unsigned", "signed", "void", "auto", "const", "volatile"};
+        return std::any_of(std::begin(words), std::end(words),
+                           [&](const char* w) { return word == w; });
+    }
+
+    // ── What a class contributes ────────────────────────────────────────
+
+    void finish_class(const ClassScope& cls) {
+        if (cls.macro == ComponentMacro::none) {
+            for (const auto& m : cls.members) {
+                for (const auto& a : m.attrs) {
+                    if (a.scope != "fj") continue;
+                    error(a.line, "[[fj::" + a.name + "]] on '" + m.name + "' in class " + cls.name +
+                                      ", which is not a component: add FJELL_COMPONENT, "
+                                      "FJELL_UI_WIDGET or FJELL_NOTIFY to it");
+                    break;
+                }
+            }
+            return;
+        }
+
+        ComponentInfo comp;
+        comp.class_name = cls.macro_name;
+        comp.qualified_name = cls.qualified_name;
+        comp.source_file = path_;
+        comp.is_ui_component = cls.macro == ComponentMacro::ui_widget;
+        comp.is_notify = cls.macro == ComponentMacro::notify;
+        comp.widget_tag = cls.widget_tag;
+
+        for (const auto& m : cls.members) add_member(comp, m);
+
+        if (!comp.fields.empty() || !comp.actions.empty() || !comp.rpcs.empty() ||
+            comp.is_ui_component) {
+            result_.components.push_back(std::move(comp));
+        }
+    }
+
+    static bool is_field_attribute(const std::string& name) {
+        static const char* names[] = {"property", "bind", "bind_list", "range", "step",
+                                      "tooltip", "category", "color", "enum", "readonly",
+                                      "replicated", "shader_type"};
+        return std::any_of(std::begin(names), std::end(names),
+                           [&](const char* n) { return name == n; });
+    }
+
+    void add_member(ComponentInfo& comp, const Member& m) {
+        const Attribute* action = nullptr;
+        const Attribute* rpc = nullptr;
+        bool field = false;
+        bool bad = false;
+        for (const auto& a : m.attrs) {
+            if (a.scope != "fj") continue;
+            if (a.name == "action") action = &a;
+            else if (a.name == "rpc") rpc = &a;
+            else if (is_field_attribute(a.name)) field = true;
+            else {
+                error(a.line, "unknown attribute [[fj::" + a.name + "]] on '" + m.name + "'");
+                bad = true;
+            }
+        }
+        if (bad) return;
+
+        if (action || rpc) {
+            const char* which = action ? "[[fj::action]]" : "[[fj::rpc]]";
+            if (field || (action && rpc)) {
+                error(m.line, std::string(which) + " cannot be combined with other fj attributes on '" +
+                                  m.name + "'");
+                return;
+            }
+            if (!m.is_function) {
+                error(m.line, std::string(which) + " marks a method; '" + m.name + "' is not one");
+                return;
+            }
+            if (m.type != "void") {
+                error(m.line, std::string(which) + " method '" + m.name + "' must return void");
+                return;
+            }
+            if (action) add_action(comp, m, *action);
+            else add_rpc(comp, m, *rpc);
+            return;
+        }
+
+        if (!field) {
+            // Not reflected. A raw pointer to an engine object is worth a word:
+            // nothing keeps it valid when the object goes away.
+            if (!m.is_function && !m.name.empty() && is_engine_pointer(m.type)) {
+                warning(m.line, "untracked raw pointer '" + m.type + " " + m.name + "' to engine type");
+            }
+            return;
+        }
+        add_field(comp, m);
+    }
+
+    void add_field(ComponentInfo& comp, const Member& m) {
+        if (m.is_function) {
+            error(m.line, "fj field attributes mark a data member; '" + m.name + "' is a function");
+            return;
+        }
+        if (m.unsupported_declarator || m.name.empty()) {
+            error(m.line, "fjreflect cannot read this declaration; declare one field as 'Type name;'");
+            return;
+        }
+        if (m.is_static) {
+            error(m.line, "'" + m.name + "' is static; only instance fields can be reflected");
+            return;
+        }
+        if (m.is_array) {
+            error(m.line, "'" + m.name + "' is an array, which fjreflect cannot reflect");
+            return;
+        }
+        if (m.several_declarators) {
+            error(m.line, "declare one reflected field per declaration ('" + m.name + "')");
+            return;
+        }
+
+        FieldInfo fi;
+        fi.name = m.name;
+        fi.cpp_type = m.type;
+        fi.line = m.line;
+        for (const auto& a : m.attrs) {
+            if (a.scope != "fj") continue;
+            if (a.name == "bind") fi.is_bind = true;
+            else if (a.name == "bind_list") fi.is_bind_list = true;
+        }
+        if (!apply_attributes(fi, m.attrs)) return;
+
+        // [[fj::bind]] on a pointer to a widget: resolved by the UI subsystem.
+        if (fi.is_bind && m.type.ends_with("*") && !is_engine_pointer(m.type)) {
+            auto bare = m.type.substr(0, m.type.size() - 1);
+            if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos) bare = bare.substr(ns_pos + 2);
+            FieldInfo ptr;
+            ptr.name = m.name;
+            ptr.cpp_type = m.type;
+            ptr.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
+            ptr.ref_target = bare;
+            ptr.line = m.line;
+            ptr.is_bind = true;
+            comp.fields.push_back(std::move(ptr));
+            return;
+        }
+        if (is_engine_pointer(m.type)) {
+            error(m.line, "[[fj::property]] on raw pointer '" + m.type + " " + m.name +
+                              "' — use WeakRef<T> or Ref<T>");
+            return;
+        }
+
+        std::string ref_target;
+        fi.fj_field_type = map_field_type(m.type, ref_target);
+        fi.ref_target = ref_target;
+        if (fi.fj_field_type.empty()) {
+            error(m.line, "unsupported type '" + m.type + "' for [[fj::property]] on '" + m.name + "'");
+            return;
+        }
+        if (fi.is_color) {
+            if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
+                fi.fj_field_type = "FJELL_FIELD_COLOR3";
+            } else if (fi.fj_field_type == "FJELL_FIELD_VEC4") {
+                fi.fj_field_type = "FJELL_FIELD_COLOR4";
+            } else {
+                error(m.line, "[[fj::color]] requires vec3 or vec4, got '" + m.type + "' on '" + m.name + "'");
+                return;
+            }
+        }
+        if (!fi.enum_labels.empty()) {
+            if (fi.fj_field_type != "FJELL_FIELD_INT") {
+                error(m.line, "[[fj::enum]] requires int field, got '" + m.type + "' on '" + m.name + "'");
+                return;
+            }
+            fi.fj_field_type = "FJELL_FIELD_ENUM";
+        }
+        if (auto message = shader_type_error(fi); !message.empty()) {
+            error(m.line, message);
+            return;
+        }
+        comp.fields.push_back(std::move(fi));
+    }
+
+    // ── Attribute arguments ─────────────────────────────────────────────
+
+    /// The arguments split at their top-level commas.
+    static std::vector<TokenList> split_args(const TokenList& args) {
+        std::vector<TokenList> out;
+        if (args.empty()) return out;
+        out.emplace_back();
+        int depth = 0;
+        for (const auto& t : args) {
+            if (t.text == "(" || t.text == "[" || t.text == "{") ++depth;
+            else if (t.text == ")" || t.text == "]" || t.text == "}") --depth;
+            if (t.kind == TokenKind::punct && t.text == "," && depth == 0) {
+                out.emplace_back();
+                continue;
+            }
+            out.back().push_back(t);
+        }
+        return out;
+    }
+
+    /// A number, optionally signed: `-89.0`, `0.5f`, `1'000`.
+    static bool read_number(const TokenList& arg, float& out) {
+        std::size_t i = 0;
+        std::string text;
+        if (arg.size() == 2 && (arg[0].text == "-" || arg[0].text == "+")) {
+            text = arg[0].text;
+            i = 1;
+        }
+        if (arg.size() != i + 1 || arg[i].kind != TokenKind::number) return false;
+        for (char c : arg[i].text) {
+            if (c != '\'') text += c;
+        }
+        while (!text.empty() && (text.back() == 'f' || text.back() == 'F')) text.pop_back();
+        try {
+            std::size_t used = 0;
+            out = std::stof(text, &used);
+            return used == text.size();
+        } catch (...) {
+            return false;
+        }
+    }
+
+    /// One or more adjacent string literals, joined.
+    static bool read_string(const TokenList& arg, std::string& out) {
+        if (arg.empty()) return false;
+        out.clear();
+        for (const auto& t : arg) {
+            if (t.kind != TokenKind::string) return false;
+            out += string_body(t);
+        }
+        return true;
+    }
+
+    /// A name, qualified or not, or a string: the last name, or the string.
+    static bool read_word(const TokenList& arg, std::string& out) {
+        if (arg.size() == 1 && arg[0].kind == TokenKind::string) {
+            out = string_body(arg[0]);
+            return true;
+        }
+        if (arg.empty() || arg.back().kind != TokenKind::identifier) return false;
+        for (std::size_t i = 0; i < arg.size(); ++i) {
+            const bool name_slot = i % 2 == 0;
+            if (name_slot ? arg[i].kind != TokenKind::identifier : arg[i].text != "::") return false;
+        }
+        out = arg.back().text;
+        return true;
+    }
+
+    /// Hints and decorations onto a field. False, with an error, when an
+    /// attribute's arguments are not what it takes.
+    bool apply_attributes(FieldInfo& fi, const std::vector<Attribute>& attrs) {
+        for (const auto& a : attrs) {
+            if (a.scope != "fj") continue;
+            const auto args = split_args(a.args);
+            auto bad = [&](const std::string& expected) {
+                error(a.line, "[[fj::" + a.name + "]] on '" + fi.name + "' expects " + expected);
+                return false;
+            };
+            const bool takes_none = a.name == "property" || a.name == "bind" || a.name == "bind_list" ||
+                                    a.name == "color" || a.name == "readonly" || a.name == "replicated";
+            if (takes_none) {
+                if (a.has_args) return bad("no arguments");
+                if (a.name == "color") fi.is_color = true;
+                if (a.name == "readonly") fi.is_readonly = true;
+                if (a.name == "replicated") fi.is_replicated = true;
+            } else if (a.name == "range") {
+                if (args.size() != 2 || !read_number(args[0], fi.hint_min) ||
+                    !read_number(args[1], fi.hint_max)) {
+                    return bad("(min, max)");
+                }
+                fi.has_range = true;
+            } else if (a.name == "step") {
+                if (args.size() != 1 || !read_number(args[0], fi.hint_speed)) return bad("(step)");
+            } else if (a.name == "tooltip" || a.name == "category") {
+                auto& text = a.name == "tooltip" ? fi.tooltip : fi.category;
+                if (args.size() != 1 || !read_string(args[0], text)) return bad("(\"text\")");
+            } else if (a.name == "enum" || a.name == "shader_type") {
+                auto& list = a.name == "enum" ? fi.enum_labels : fi.shader_types;
+                list.clear();
+                for (const auto& arg : args) {
+                    std::string word;
+                    if (!read_word(arg, word) || word.empty()) return bad("a list of names");
+                    list.push_back(word);
+                }
+                if (list.empty()) return bad("a list of names");
+            }
+        }
+        return true;
+    }
+
+    void add_action(ComponentInfo& comp, const Member& m, const Attribute& a) {
+        if (!comp.is_ui_component) {
+            error(a.line, "[[fj::action]] on '" + m.name + "' belongs in a UI widget; a script "
+                          "component binds input with InputAPI::bind() in begin_play");
+            return;
+        }
+        ActionInfo ai;
+        ai.method_name = m.name;
+        ai.name = m.name;
+        if (a.has_args) {
+            const auto args = split_args(a.args);
+            std::string trigger;
+            if (args.size() != 1 || !read_word(args[0], trigger)) {
+                error(a.line, "[[fj::action]] on '" + m.name + "' expects (pressed), (released), "
+                              "(completed) or (triggered)");
+                return;
+            }
+            trigger = lower(trigger);
+            if (trigger == "pressed") ai.trigger = ActionTriggerMode::pressed;
+            else if (trigger == "released") ai.trigger = ActionTriggerMode::released;
+            else if (trigger == "completed") ai.trigger = ActionTriggerMode::completed;
+            else if (trigger == "triggered") ai.trigger = ActionTriggerMode::triggered;
+            else {
+                error(a.line, "unknown trigger '" + trigger + "' in [[fj::action]] on '" + m.name +
+                                  "' (pressed, released, completed, triggered)");
+                return;
+            }
+        }
+        if (m.param_types.size() > 1) {
+            error(m.line, "[[fj::action]] method '" + m.name + "' takes at most one parameter");
+            return;
+        }
+        if (m.param_types.size() == 1) {
+            auto type = m.param_types[0];
+            if (type.starts_with("fjell::")) type = type.substr(7);
+            if (type == "int" || type == "int32_t") {
+                ai.param = ActionParamType::int_param;
+                ai.has_int_param = true;
+            } else if (type == "float") {
+                ai.param = ActionParamType::float_param;
+            } else if (type == "glm::vec2" || type == "vec2") {
+                ai.param = ActionParamType::vec2_param;
+            } else {
+                error(m.line, "[[fj::action]] method '" + m.name + "' takes int, float or glm::vec2, not '" +
+                                  m.param_types[0] + "'");
+                return;
+            }
+        }
+        comp.actions.push_back(std::move(ai));
+    }
+
+    void add_rpc(ComponentInfo& comp, const Member& m, const Attribute& a) {
+        if (m.has_body) {
+            error(m.line, "[[fj::rpc]] method '" + m.name + "' is defined by fjreflect; declare it "
+                          "without a body and write the handler as " + m.name + "_impl");
+            return;
+        }
+        RpcInfo ri;
+        ri.method_name = m.name;
+        if (a.has_args) {
+            const auto args = split_args(a.args);
+            std::string target;
+            if (args.size() != 1 || !read_word(args[0], target)) {
+                error(a.line, "[[fj::rpc]] on '" + m.name + "' expects (server), (clients) or (all)");
+                return;
+            }
+            target = lower(target);
+            if (target == "server") ri.target = RpcTarget::server;
+            else if (target == "clients") ri.target = RpcTarget::clients;
+            else if (target == "all") ri.target = RpcTarget::all;
+            else {
+                error(a.line, "unknown target '" + target + "' in [[fj::rpc]] on '" + m.name +
+                                  "' (server, clients, all)");
+                return;
+            }
+        }
+        for (std::size_t p = 0; p < m.param_types.size(); ++p) {
+            RpcParam param;
+            param.cpp_type = m.param_types[p];
+            param.name = m.param_names[p].empty() ? "p" + std::to_string(p) : m.param_names[p];
+            ri.params.push_back(std::move(param));
+        }
+        comp.rpcs.push_back(std::move(ri));
+    }
+
+    std::string path_;
+    TokenList tokens_;
+    ParseResult& result_;
+    std::size_t pos_{0};
+};
+
+} // namespace
+
 ParseResult parse_file(const std::string& filepath) {
     ParseResult result;
 
-    std::ifstream file(filepath);
+    std::ifstream file(filepath, std::ios::binary);
     if (!file) {
         result.errors.push_back(filepath + ": cannot open file");
         return result;
     }
-
     std::ostringstream text;
     text << file.rdbuf();
-    std::vector<std::string> lines;
-    std::istringstream uncommented(blank_comments(text.str()));
-    std::string line;
-    while (std::getline(uncommented, line)) {
-        lines.push_back(line);
+
+    auto lexed = tokenize(text.str());
+    for (const auto& e : lexed.errors) {
+        const auto colon = e.find(':');
+        result.errors.push_back(filepath + ":" + e.substr(0, colon) + ": error:" + e.substr(colon + 1));
     }
+    if (!lexed.errors.empty()) return result;
 
-    // Find FJELL_COMPONENT, FJELL_UI_WIDGET, FJELL_UI_COMPONENT, or FJELL_NOTIFY
-    std::regex comp_re(R"(FJELL_COMPONENT\(\s*(\w+)\s*\))");
-    std::regex ui_widget_re(R"(FJELL_UI_WIDGET\(\s*(\w+)\s*\))");
-    std::regex ui_comp_re(R"RE(FJELL_UI_COMPONENT\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
-    std::regex notify_re(R"(FJELL_NOTIFY\(\s*(\w+)\s*\))");
-
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::smatch m;
-        bool is_ui = false;
-        bool is_notify = false;
-        if (std::regex_search(lines[i], m, ui_widget_re)) {
-            is_ui = true;
-        } else if (std::regex_search(lines[i], m, ui_comp_re)) {
-            is_ui = true;
-        } else if (std::regex_search(lines[i], m, notify_re)) {
-            is_notify = true;
-        } else if (!std::regex_search(lines[i], m, comp_re)) {
-            continue;
-        }
-
-        ComponentInfo comp;
-        comp.class_name = m[1];
-        comp.source_file = filepath;
-        comp.is_ui_component = is_ui;
-        comp.is_notify = is_notify;
-
-        // Detect enclosing namespace by scanning backwards
-        std::string ns;
-        std::regex ns_re(R"(namespace\s+(\w+))");
-        int ns_brace_depth = 0;
-        for (size_t j = i; j-- > 0;) {
-            for (auto ch : lines[j]) {
-                if (ch == '}') ns_brace_depth++;
-                if (ch == '{') ns_brace_depth--;
-            }
-            std::smatch nm;
-            if (ns_brace_depth < 0 && std::regex_search(lines[j], nm, ns_re)) {
-                ns = nm[1].str();
-                break;
-            }
-        }
-        comp.qualified_name = ns.empty() ? comp.class_name : ns + "::" + comp.class_name;
-
-        // Scan forward for fields until we hit closing brace or end of file
-        // Track brace depth to know when the class ends
-        int brace_depth = 0;
-        bool in_class = false;
-
-        // Find the opening brace of this class (might be before FJELL_COMPONENT)
-        for (size_t j = i; j-- > 0;) {
-            if (lines[j].find('{') != std::string::npos) {
-                brace_depth = 1;
-                in_class = true;
-                break;
-            }
-            if (lines[j].find("class ") != std::string::npos ||
-                lines[j].find("struct ") != std::string::npos) {
-                break;
-            }
-        }
-        if (!in_class) {
-            // Opening brace might be on the same line or after
-            for (size_t j = i; j < lines.size(); ++j) {
-                if (lines[j].find('{') != std::string::npos) {
-                    brace_depth = 1;
-                    in_class = true;
-                    break;
-                }
-            }
-        }
-
-        // Now scan from after FJELL_COMPONENT line for fields
-        std::string pending_attrs;
-        unsigned pending_line = 0;
-
-        for (size_t j = i + 1; j < lines.size(); ++j) {
-            auto& ln = lines[j];
-
-            // Track brace depth
-            for (char c : ln) {
-                if (c == '{') brace_depth++;
-                else if (c == '}') brace_depth--;
-            }
-            if (brace_depth <= 0) break; // End of class
-
-            auto trimmed = trim(ln);
-
-            // Check for [[fj::action]] on void methods (UI widgets only for codegen)
-            auto attrs_early = extract_fj_attrs(ln);
-
-            // ── [[fj::rpc(target)]] networked method ───────────────────────
-            if (!attrs_early.empty() && attrs_early.find("fj::rpc") != std::string::npos) {
-                // Declaration: [[fj::rpc(server)]] void request_fire(glm::vec3 dir, int w);
-                // (attribute may be on its own line, method on the next)
-                auto rpc_line = trim(trimmed);
-                if (auto be = rpc_line.find("]]"); be != std::string::npos) {
-                    rpc_line = trim(rpc_line.substr(be + 2));
-                }
-                if (rpc_line.empty() && j + 1 < lines.size()) {
-                    ++j;
-                    rpc_line = trim(lines[j]);
-                    for (char c : lines[j]) {
-                        if (c == '{') brace_depth++;
-                        else if (c == '}') brace_depth--;
-                    }
-                }
-
-                if (rpc_line.starts_with("void ")) {
-                    auto rest = rpc_line.substr(5);
-                    auto paren = rest.find('(');
-                    auto close = rest.find(')', paren);
-                    if (paren != std::string::npos && close != std::string::npos) {
-                        RpcInfo ri;
-                        ri.method_name = trim(rest.substr(0, paren));
-
-                        // target from fj::rpc(<target>)
-                        auto tpos = attrs_early.find("fj::rpc(");
-                        if (tpos != std::string::npos) {
-                            auto ts = tpos + 8;
-                            auto te = attrs_early.find(')', ts);
-                            auto targ = trim(attrs_early.substr(ts, te - ts));
-                            if (auto cp = targ.rfind("::"); cp != std::string::npos)
-                                targ = targ.substr(cp + 2);
-                            for (auto& c : targ) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                            if (targ == "clients") ri.target = RpcTarget::clients;
-                            else if (targ == "all") ri.target = RpcTarget::all;
-                            else ri.target = RpcTarget::server;
-                        }
-
-                        // parse comma-separated params "type name, type name"
-                        auto plist = trim(rest.substr(paren + 1, close - paren - 1));
-                        if (!plist.empty()) {
-                            size_t start = 0;
-                            while (start < plist.size()) {
-                                auto comma = plist.find(',', start);
-                                auto one = trim(plist.substr(start,
-                                    comma == std::string::npos ? std::string::npos : comma - start));
-                                // split last whitespace → type | name
-                                auto sp = one.find_last_of(" \t");
-                                RpcParam p;
-                                if (sp != std::string::npos) {
-                                    p.cpp_type = trim(one.substr(0, sp));
-                                    p.name = trim(one.substr(sp + 1));
-                                } else {
-                                    p.cpp_type = one;
-                                    p.name = "p" + std::to_string(ri.params.size());
-                                }
-                                // strip const/&
-                                if (p.cpp_type.starts_with("const ")) p.cpp_type = trim(p.cpp_type.substr(6));
-                                while (!p.cpp_type.empty() && (p.cpp_type.back() == '&' || p.cpp_type.back() == ' '))
-                                    p.cpp_type.pop_back();
-                                if (!p.cpp_type.empty()) ri.params.push_back(std::move(p));
-                                if (comma == std::string::npos) break;
-                                start = comma + 1;
-                            }
-                        }
-                        comp.rpcs.push_back(std::move(ri));
-                    }
-                }
-                pending_attrs.clear();
-                continue;
-            }
-            if (!attrs_early.empty() && attrs_early.find("fj::action") != std::string::npos
-                && comp.is_ui_component) {
-                // Parse action: [[fj::action]] void method_name(int param) { ... }
-                // or [[fj::action]] on its own line, method on next
-                auto action_line = trimmed;
-                // Strip [[...]]
-                auto bracket_start = action_line.find("[[");
-                auto bracket_end = action_line.find("]]");
-                if (bracket_start != std::string::npos && bracket_end != std::string::npos) {
-                    action_line = trim(action_line.substr(bracket_end + 2));
-                }
-                if (action_line.empty() && j + 1 < lines.size()) {
-                    // Attribute on its own line, method on next
-                    ++j;
-                    action_line = trim(lines[j]);
-                    for (char c : lines[j]) {
-                        if (c == '{') brace_depth++;
-                        else if (c == '}') brace_depth--;
-                    }
-                }
-                // Parse "void method_name(...)"
-                if (action_line.starts_with("void ")) {
-                    auto rest = action_line.substr(5);
-                    auto paren = rest.find('(');
-                    if (paren != std::string::npos) {
-                        ActionInfo ai;
-                        ai.method_name = trim(rest.substr(0, paren));
-                        ai.name = ai.method_name;  // default: action name = method name
-                        // Parse trigger mode from [[fj::action(...)]]
-                        // Supports: "pressed", pressed, FjellTrigger::Pressed, Pressed
-                        auto action_arg_pos = attrs_early.find("fj::action(");
-                        if (action_arg_pos != std::string::npos) {
-                            auto arg_start = action_arg_pos + 11; // after "fj::action("
-                            auto arg_end = attrs_early.find(')', arg_start);
-                            if (arg_end != std::string::npos) {
-                                auto arg = trim(attrs_early.substr(arg_start, arg_end - arg_start));
-                                // Strip quotes if present
-                                if (arg.size() >= 2 && arg.front() == '"' && arg.back() == '"') {
-                                    arg = arg.substr(1, arg.size() - 2);
-                                }
-                                // Strip enum prefix (FjellTrigger:: or any Foo::)
-                                auto colon_pos = arg.rfind("::");
-                                if (colon_pos != std::string::npos) {
-                                    arg = arg.substr(colon_pos + 2);
-                                }
-                                // Case-insensitive compare
-                                for (auto& c : arg) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                                if (arg == "pressed") ai.trigger = ActionTriggerMode::pressed;
-                                else if (arg == "released") ai.trigger = ActionTriggerMode::released;
-                                else if (arg == "completed") ai.trigger = ActionTriggerMode::completed;
-                                else if (arg == "triggered") ai.trigger = ActionTriggerMode::triggered;
-                            }
-                        }
-                        // Detect parameter type
-                        auto params = rest.substr(paren + 1);
-                        auto close_paren = params.find(')');
-                        if (close_paren != std::string::npos) {
-                            auto param_str = trim(params.substr(0, close_paren));
-                            if (param_str == "int" || param_str.starts_with("int ") ||
-                                param_str.find("int ") != std::string::npos) {
-                                ai.param = ActionParamType::int_param;
-                                ai.has_int_param = true;
-                            } else if (param_str == "float" || param_str.starts_with("float ")) {
-                                ai.param = ActionParamType::float_param;
-                            } else if (param_str.find("vec2") != std::string::npos) {
-                                ai.param = ActionParamType::vec2_param;
-                            }
-                        }
-                        comp.actions.push_back(std::move(ai));
-                    }
-                }
-                pending_attrs.clear();
-                continue;
-            }
-
-            // Skip access specifiers, methods, nested structs, etc.
-            if (trimmed.starts_with("public:") || trimmed.starts_with("private:") ||
-                trimmed.starts_with("protected:") || trimmed.starts_with("//") ||
-                trimmed.starts_with("static ") || trimmed.starts_with("virtual ") ||
-                trimmed.starts_with("void ") || trimmed.starts_with("auto ") ||
-                trimmed.starts_with("struct ") || trimmed.starts_with("class ") ||
-                trimmed.starts_with("friend ") || trimmed.starts_with("using ") ||
-                trimmed.starts_with("template") || trimmed.starts_with("#") ||
-                trimmed.empty()) {
-                pending_attrs.clear();
-                continue;
-            }
-
-            // Check for [[fj::...]] attributes (may span multiple lines)
-            std::size_t attr_consumed = 1;
-            auto attrs = extract_fj_attrs(lines, j, attr_consumed);
-
-            bool is_property = attrs.find("fj::property") != std::string::npos;
-            bool is_bind = attrs.find("fj::bind_list") != std::string::npos ? false
-                         : attrs.find("fj::bind") != std::string::npos;
-            bool is_bind_list = attrs.find("fj::bind_list") != std::string::npos;
-
-            // fj::bind, fj::bind_list, and any decoration attribute imply fj::property
-            if (is_bind || is_bind_list) is_property = true;
-            if (!is_property) {
-                static const char* implicit[] = {
-                    "fj::range", "fj::step", "fj::tooltip", "fj::category",
-                    "fj::color", "fj::enum", "fj::readonly", "fj::replicated",
-                    "fj::shader_type",
-                };
-                for (const auto* k : implicit) {
-                    if (attrs.find(k) != std::string::npos) { is_property = true; break; }
-                }
-            }
-
-            if (!attrs.empty() && is_property) {
-                // Multi-line attribute: field is on a line we haven't visited
-                // yet. Stash and skip past the continuation lines (counting
-                // their braces so brace_depth stays accurate).
-                if (attr_consumed > 1) {
-                    for (std::size_t k = 1; k < attr_consumed; ++k) {
-                        for (char c : lines[j + k]) {
-                            if (c == '{') brace_depth++;
-                            else if (c == '}') brace_depth--;
-                        }
-                    }
-                    pending_attrs = attrs;
-                    pending_line = static_cast<unsigned>(j + attr_consumed + 1);
-                    j += attr_consumed - 1;
-                    continue;
-                }
-
-                // Attribute and field might be on same line or attribute on its own line
-                std::string type_str, name_str;
-                if (parse_field_decl(ln, type_str, name_str)) {
-                    // Same line: [[fj::property]] float speed = 10.0f;
-                    pending_attrs = attrs;
-                    pending_line = static_cast<unsigned>(j + 1);
-                } else {
-                    // Attribute on its own line, field on next
-                    pending_attrs = attrs;
-                    pending_line = static_cast<unsigned>(j + 1);
-                    continue;
-                }
-
-                // Process the field
-                // [[fj::bind]] on a non-engine pointer → widget pointer binding
-                if (is_bind && type_str.ends_with("*") && !is_engine_pointer(type_str)) {
-                    FieldInfo fi;
-                    fi.name = name_str;
-                    fi.cpp_type = type_str;
-                    fi.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
-                    // Extract pointed-to type name (strip trailing * and namespace)
-                    auto bare = type_str.substr(0, type_str.size() - 1);
-                    while (!bare.empty() && bare.back() == ' ') bare.pop_back();
-                    if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos)
-                        bare = bare.substr(ns_pos + 2);
-                    fi.ref_target = bare;
-                    fi.line = pending_line;
-                    fi.is_bind = true;
-                    comp.fields.push_back(std::move(fi));
-                    pending_attrs.clear();
-                    continue;
-                }
-
-                if (is_engine_pointer(type_str)) {
-                    result.errors.push_back(
-                        filepath + ":" + std::to_string(j + 1) +
-                        ": error: [[fj::property]] on raw pointer '" + type_str +
-                        " " + name_str + "' — use WeakRef<T> or Ref<T>");
-                    pending_attrs.clear();
-                    continue;
-                }
-
-                std::string ref_target;
-                auto fj_type = map_field_type(type_str, ref_target);
-                if (fj_type.empty()) {
-                    result.errors.push_back(
-                        filepath + ":" + std::to_string(j + 1) +
-                        ": error: unsupported type '" + type_str +
-                        "' for [[fj::property]] on '" + name_str + "'");
-                    pending_attrs.clear();
-                    continue;
-                }
-
-                FieldInfo fi;
-                fi.name = name_str;
-                fi.cpp_type = type_str;
-                fi.fj_field_type = fj_type;
-                fi.ref_target = ref_target;
-                fi.line = pending_line;
-                fi.is_bind = is_bind;
-                fi.is_bind_list = is_bind_list;
-                apply_attrs(fi, pending_attrs);
-
-                if (fi.is_color) {
-                    if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
-                        fi.fj_field_type = "FJELL_FIELD_COLOR3";
-                    } else if (fi.fj_field_type == "FJELL_FIELD_VEC4") {
-                        fi.fj_field_type = "FJELL_FIELD_COLOR4";
-                    } else {
-                        result.errors.push_back(
-                            filepath + ":" + std::to_string(j + 1) +
-                            ": error: [[fj::color]] requires vec3 or vec4, got '" +
-                            type_str + "' on '" + name_str + "'");
-                        pending_attrs.clear();
-                        continue;
-                    }
-                }
-                if (!fi.enum_labels.empty()) {
-                    if (fi.fj_field_type != "FJELL_FIELD_INT") {
-                        result.errors.push_back(
-                            filepath + ":" + std::to_string(j + 1) +
-                            ": error: [[fj::enum]] requires int field, got '" +
-                            type_str + "' on '" + name_str + "'");
-                        pending_attrs.clear();
-                        continue;
-                    }
-                    fi.fj_field_type = "FJELL_FIELD_ENUM";
-                }
-                if (auto error = shader_type_error(fi); !error.empty()) {
-                    result.errors.push_back(filepath + ":" + std::to_string(j + 1) +
-                                            ": error: " + error);
-                    pending_attrs.clear();
-                    continue;
-                }
-
-                comp.fields.push_back(std::move(fi));
-                pending_attrs.clear();
-                continue;
-            }
-
-            // Check if this line is a field following a pending attribute
-            if (!pending_attrs.empty()) {
-                bool p_is_bind = pending_attrs.find("fj::bind_list") != std::string::npos ? false
-                               : pending_attrs.find("fj::bind") != std::string::npos;
-                bool p_is_bind_list = pending_attrs.find("fj::bind_list") != std::string::npos;
-
-                std::string type_str, name_str;
-                if (parse_field_decl(ln, type_str, name_str)) {
-                    // [[fj::bind]] on a non-engine pointer → widget pointer binding
-                    if (p_is_bind && type_str.ends_with("*") && !is_engine_pointer(type_str)) {
-                        FieldInfo fi;
-                        fi.name = name_str;
-                        fi.cpp_type = type_str;
-                        fi.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
-                        auto bare = type_str.substr(0, type_str.size() - 1);
-                        while (!bare.empty() && bare.back() == ' ') bare.pop_back();
-                        if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos)
-                            bare = bare.substr(ns_pos + 2);
-                        fi.ref_target = bare;
-                        fi.line = static_cast<unsigned>(j + 1);
-                        fi.is_bind = true;
-                        comp.fields.push_back(std::move(fi));
-                    } else if (is_engine_pointer(type_str)) {
-                        result.errors.push_back(
-                            filepath + ":" + std::to_string(j + 1) +
-                            ": error: [[fj::property]] on raw pointer '" + type_str +
-                            " " + name_str + "' — use WeakRef<T> or Ref<T>");
-                    } else {
-                        std::string ref_target;
-                        auto fj_type = map_field_type(type_str, ref_target);
-                        if (fj_type.empty()) {
-                            result.errors.push_back(
-                                filepath + ":" + std::to_string(j + 1) +
-                                ": error: unsupported type '" + type_str +
-                                "' for [[fj::property]] on '" + name_str + "'");
-                        } else {
-                            FieldInfo fi;
-                            fi.name = name_str;
-                            fi.cpp_type = type_str;
-                            fi.fj_field_type = fj_type;
-                            fi.ref_target = ref_target;
-                            fi.line = static_cast<unsigned>(j + 1);
-                            fi.is_bind = p_is_bind;
-                            fi.is_bind_list = p_is_bind_list;
-                            apply_attrs(fi, pending_attrs);
-
-                            bool keep = true;
-                            if (fi.is_color) {
-                                if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
-                                    fi.fj_field_type = "FJELL_FIELD_COLOR3";
-                                } else if (fi.fj_field_type == "FJELL_FIELD_VEC4") {
-                                    fi.fj_field_type = "FJELL_FIELD_COLOR4";
-                                } else {
-                                    result.errors.push_back(
-                                        filepath + ":" + std::to_string(j + 1) +
-                                        ": error: [[fj::color]] requires vec3 or vec4, got '" +
-                                        type_str + "' on '" + name_str + "'");
-                                    keep = false;
-                                }
-                            }
-                            if (keep && !fi.enum_labels.empty()) {
-                                if (fi.fj_field_type != "FJELL_FIELD_INT") {
-                                    result.errors.push_back(
-                                        filepath + ":" + std::to_string(j + 1) +
-                                        ": error: [[fj::enum]] requires int field, got '" +
-                                        type_str + "' on '" + name_str + "'");
-                                    keep = false;
-                                } else {
-                                    fi.fj_field_type = "FJELL_FIELD_ENUM";
-                                }
-                            }
-                            if (auto error = shader_type_error(fi); keep && !error.empty()) {
-                                result.errors.push_back(filepath + ":" + std::to_string(j + 1) +
-                                                        ": error: " + error);
-                                keep = false;
-                            }
-                            if (keep) comp.fields.push_back(std::move(fi));
-                        }
-                    }
-                }
-                pending_attrs.clear();
-                continue;
-            }
-
-            // Check for raw pointers without [[fj::property]] (warning)
-            std::string type_str, name_str;
-            if (parse_field_decl(ln, type_str, name_str) && is_engine_pointer(type_str)) {
-                result.warnings.push_back(
-                    filepath + ":" + std::to_string(j + 1) +
-                    ": warning: untracked raw pointer '" + type_str +
-                    " " + name_str + "' to engine type");
-            }
-        }
-
-        if (!comp.fields.empty() || !comp.actions.empty() || comp.is_ui_component) {
-            result.components.push_back(std::move(comp));
-        }
-    }
-
+    HeaderParser(filepath, std::move(lexed.tokens), result).run();
     return result;
-}
-
-// ── Offset query via compiler ───────────────────────────────────────────
-
-bool query_offsets(std::vector<ComponentInfo>& components,
-                   const std::string& source_file,
-                   const std::vector<std::string>& include_dirs,
-                   const std::string& compiler) {
-    if (components.empty()) return true;
-
-    // Generate a temporary C++ file that prints offsets
-    auto tmp_dir = std::filesystem::temp_directory_path();
-    auto query_src = tmp_dir / "fjreflect_query.cpp";
-    auto query_bin = tmp_dir / "fjreflect_query";
-
-    {
-        std::ofstream out(query_src);
-        if (!out) {
-            std::cerr << "fjreflect: cannot write " << query_src << "\n";
-            return false;
-        }
-
-        // Block api.h from being included (it redefines our macros and
-        // pulls in Windows SDK headers we don't need for offset queries).
-        // Provide the minimal types api.h would have defined.
-        out << "#define FJELL_SCRIPTING_API_H\n"; // api.h include guard
-        out << "#define FJELL_SDK_EXPORT\n";
-        out << "#define FJELL_GAME_EXPORT\n";
-        out << "#define FJELL_API_VERSION 0\n";
-        out << "#define FJELL_PRINTF_FMT(fmt_idx, va_idx)\n";
-        out << "#include <cstdint>\n";
-        out << "#include <cstddef>\n";
-        // Mirrors FjellFieldType in fjell/api.h and must keep the same order.
-        out << "enum FjellFieldType { FJELL_FIELD_FLOAT=0, FJELL_FIELD_INT, FJELL_FIELD_BOOL,\n"
-               "    FJELL_FIELD_VEC2, FJELL_FIELD_VEC3, FJELL_FIELD_VEC4,\n"
-               "    FJELL_FIELD_COLOR3, FJELL_FIELD_COLOR4, FJELL_FIELD_STRING,\n"
-               "    FJELL_FIELD_ENUM, FJELL_FIELD_WEAK_REF, FJELL_FIELD_REF,\n"
-               "    FJELL_FIELD_WIDGET_PTR, FJELL_FIELD_STD_STRING };\n";
-        out << "struct FjellFieldDesc { const char* name; FjellFieldType type;\n"
-               "    uint32_t offset; uint32_t size; const char* const* enum_labels;\n"
-               "    float min; float max; float speed; const char* ref_type_name;\n"
-               "    const char* tooltip; const char* category; uint8_t readonly; };\n";
-        out << "enum FjellUiActionParam { FJELL_UI_ACTION_NONE=0, FJELL_UI_ACTION_INT,\n"
-               "    FJELL_UI_ACTION_FLOAT, FJELL_UI_ACTION_VEC2 };\n";
-        out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n";
-        out << "enum FjellRpcTarget { FJELL_RPC_SERVER=0, FJELL_RPC_CLIENTS, FJELL_RPC_ALL };\n";
-        out << "struct FjellRpcDesc { const char* name; FjellRpcTarget target;\n"
-               "    uint32_t payload_size; void (*invoke)(void*, const uint8_t*, uint32_t); };\n";
-        out << "struct FjellComponentLayout { const char* type_name; uint32_t size; };\n\n";
-
-        // Stub engine extern "C" symbols that registration macros reference.
-        // Headers only declare classes + fields, no engine method bodies.
-        out << "struct FjellTypeRegistry;\n";
-        out << "struct FjellComponentTypeOOP;\n";
-        out << "struct FjellUiWidgetTypeOOP;\n";
-        out << "using FjellUiComponentTypeOOP = FjellUiWidgetTypeOOP;\n";
-        out << "struct FjellGeneratedInfo;\n";
-        out << "struct FjellUiGeneratedInfo;\n";
-        out << "struct FjellNotifyTypeOOP;\n";
-        out << "extern \"C\" void fjell_reg_component(FjellTypeRegistry*, const FjellComponentTypeOOP*) {}\n";
-        out << "extern \"C\" void fjell_reg_ui_component(FjellTypeRegistry*, const FjellUiWidgetTypeOOP*) {}\n";
-        out << "extern \"C\" void fjell_reg_notify(FjellTypeRegistry*, const FjellNotifyTypeOOP*) {}\n";
-        out << "extern \"C\" void fjell_set_generated_table(const FjellGeneratedInfo*, unsigned) {}\n";
-        out << "extern \"C\" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo*, unsigned) {}\n";
-        out << "extern \"C\" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char*) { return nullptr; }\n";
-        out << "extern \"C\" const FjellGeneratedInfo* fjell_find_generated(const char*) { return nullptr; }\n";
-        out << "extern \"C\" void* fjell_resolve_weak_ref(unsigned, unsigned) { return nullptr; }\n";
-        out << "extern \"C\" void fjell_ref_acquire(unsigned) {}\n";
-        out << "extern \"C\" void fjell_ref_release(unsigned) {}\n";
-        out << "extern \"C\" void* fjell_ref_resolve(unsigned, unsigned char) { return nullptr; }\n";
-        out << "extern \"C\" void fjell_shared_ref_acquire(unsigned) {}\n";
-        out << "extern \"C\" void fjell_shared_ref_release(unsigned) {}\n";
-        out << "extern \"C\" void* fjell_shared_ref_resolve(unsigned) { return nullptr; }\n";
-        out << "extern \"C\" void fjell_gc_trace_weak(void*, void*) {}\n";
-        out << "extern \"C\" void fjell_gc_trace_ref(void*, void*) {}\n";
-        out << "extern \"C\" void fjell_gc_trace_shared(void*, void*) {}\n\n";
-
-        out << "#include \"" << std::filesystem::path(source_file).filename().string() << "\"\n";
-        out << "#include <cstdio>\n";
-        out << "#include <cstddef>\n";
-        out << "int main() {\n";
-
-        for (const auto& comp : components) {
-            for (const auto& f : comp.fields) {
-                out << "    printf(\"" << comp.class_name << " " << f.name
-                    << " %zu %zu\\n\", offsetof(" << comp.qualified_name << ", " << f.name
-                    << "), sizeof(((" << comp.qualified_name << "*)nullptr)->" << f.name << "));\n";
-            }
-        }
-
-        out << "    return 0;\n}\n";
-    }
-
-    // Build compiler command
-    bool is_msvc = compiler.find("cl") != std::string::npos
-                && compiler.find("clang") == std::string::npos;
-
-    std::string includes;
-    auto source_dir = std::filesystem::path(source_file).parent_path().generic_string();
-    if (!source_dir.empty()) {
-        if (is_msvc)
-            includes += " /I\"" + source_dir + "\"";
-        else
-            includes += " -I" + source_dir;
-    }
-    for (const auto& dir : include_dirs) {
-        if (is_msvc)
-            includes += " /I\"" + dir + "\"";
-        else
-            includes += " -I" + dir;
-    }
-
-    std::string cmd;
-    if (is_msvc) {
-        auto query_exe = query_bin;
-        query_exe += ".exe";
-        // Derive vcvarsall.bat path from cl.exe path:
-        // cl.exe is at .../VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
-        // vcvarsall is at .../VC/Auxiliary/Build/vcvarsall.bat
-        auto cl_path = std::filesystem::path(compiler);
-        // cl.exe: .../VC/Tools/MSVC/<ver>/bin/Host<arch>/<arch>/cl.exe
-        //         7 parent_path() calls to reach .../VC
-        auto vc_root = cl_path.parent_path();
-        for (int i = 0; i < 6; ++i) vc_root = vc_root.parent_path();
-        auto vcvarsall = vc_root / "Auxiliary" / "Build" / "vcvarsall.bat";
-
-        // Write a temporary .bat file that sets up the MSVC environment
-        // and compiles the query. _popen uses cmd.exe which makes quoting
-        // paths with spaces unreliable; a .bat file avoids that entirely.
-        auto bat_file = tmp_dir / "fjreflect_build.bat";
-        {
-            std::ofstream bat(bat_file);
-            bat << "@echo off\n";
-            if (std::filesystem::exists(vcvarsall)) {
-                bat << "call \"" << vcvarsall.string() << "\" x64 >nul 2>&1\n";
-            }
-            // Use /MDd and _DEBUG to match Debug build's std::string/container
-            // layout (iterator debugging changes sizeof(std::string) from 32 to 40).
-            bat << "\"" << cl_path.string() << "\" /std:c++latest /w /EHsc /MDd /D_DEBUG"
-                << includes
-                << " /Fe\"" << query_exe.string() << "\""
-                << " \"" << query_src.string() << "\""
-                << " /link /NOLOGO /FORCE:UNRESOLVED\n";
-        }
-        cmd = "\"" + bat_file.string() + "\" 2>&1";
-        query_bin = query_exe;
-    } else {
-        cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w"
-            " -Wl,--unresolved-symbols=ignore-in-object-files"
-            + includes + " -o " + query_bin.string() + " " + query_src.string() + " 2>&1";
-    }
-
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        std::cerr << "fjreflect: cannot run compiler\n";
-        return false;
-    }
-    std::string compile_output;
-    char buf[256];
-    while (fgets(buf, sizeof(buf), pipe)) {
-        compile_output += buf;
-    }
-    int status = pclose(pipe);
-    if (status != 0) {
-        std::cerr << "fjreflect: offset query compilation failed:\n" << compile_output;
-        std::filesystem::remove(query_src);
-        return false;
-    }
-
-    // Run
-    pipe = popen(query_bin.string().c_str(), "r");
-    if (!pipe) {
-        std::cerr << "fjreflect: cannot run offset query\n";
-        return false;
-    }
-
-    // Parse output: "ClassName fieldname offset size"
-    std::string line;
-    while (fgets(buf, sizeof(buf), pipe)) {
-        std::istringstream iss(buf);
-        std::string class_name, field_name;
-        size_t offset, size;
-        if (iss >> class_name >> field_name >> offset >> size) {
-            for (auto& comp : components) {
-                if (comp.class_name != class_name) continue;
-                for (auto& f : comp.fields) {
-                    if (f.name == field_name) {
-                        f.offset = static_cast<uint32_t>(offset);
-                        f.size = static_cast<uint32_t>(size);
-                    }
-                }
-            }
-        }
-    }
-    pclose(pipe);
-
-    // Cleanup
-    std::filesystem::remove(query_src);
-    std::filesystem::remove(query_bin);
-    std::filesystem::remove(tmp_dir / "fjreflect_query.o");
-    std::filesystem::remove(tmp_dir / "fjreflect_query.obj"); // MSVC object file
-    std::filesystem::remove(tmp_dir / "fjreflect_build.bat"); // MSVC build script
-
-    return true;
 }
 
 } // namespace fjreflect

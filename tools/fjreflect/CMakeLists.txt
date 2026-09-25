@@ -1,6 +1,8 @@
 add_executable(fjreflect
     main.cpp
+    lexer.cpp
     parser.cpp
+    offsets.cpp
     generator.cpp
 )
 

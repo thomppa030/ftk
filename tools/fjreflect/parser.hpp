@@ -97,8 +97,13 @@ struct ParseResult {
     std::vector<std::string> warnings;
 };
 
-/// Text-based parse: find FJELL_COMPONENT / FJELL_UI_COMPONENT classes
-/// and [[fj::property]] / [[fj::bind]] / [[fj::action]] members.
+/// Read a header's classes and collect the components in it: every class
+/// that names itself with FJELL_COMPONENT, FJELL_UI_WIDGET, FJELL_UI_COMPONENT
+/// or FJELL_NOTIFY, with its [[fj::...]] fields, actions and RPCs. The header
+/// is tokenised and read declaration by declaration, so comments, literals
+/// and line breaks never change what it means. Anything fjreflect cannot
+/// reflect, or an fj attribute where none belongs, is an error with the file
+/// and line; code outside reflected classes is skipped.
 ParseResult parse_file(const std::string& filepath);
 
 /// Compile and run a tiny program to query offsetof/sizeof for all fields.
