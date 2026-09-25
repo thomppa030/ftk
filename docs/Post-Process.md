@@ -10,11 +10,12 @@ shader_type post;
 
 uniform int operator : hint_enum("Linear,Reinhard,ACES,AgX,Hable,Neutral") = 3;
 uniform float bloom_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
+uniform sampler2D grade : hint_lut;
 uniform float saturation : hint_range(0.0, 2.0, 0.01) = 1.0;
 uniform float vignette : hint_range(0.0, 1.0, 0.01) = 0.25;
 
 void color() {
-    vec3 c = tonemap(operator, COLOR + BLOOM * bloom_intensity);
+    vec3 c = lut_sample(grade, tonemap(operator, COLOR + BLOOM * bloom_intensity));
     float grey = dot(c, vec3(0.2126, 0.7152, 0.0722));
     c = mix(vec3(grey), c, saturation);
     vec2 d = SCREEN_UV - 0.5;
@@ -24,8 +25,9 @@ void color() {
 
 Put it in a `.fjmat` and set that on a Post Process Volume's Material field.
 With no volume in the scene, or a volume with no material, the frame draws
-with the engine's own `shaders/post.fjsl`: the bloom and the AgX curve. That
-file is an ordinary post shader and the place to start from.
+with the engine's own `shaders/post.fjsl`: the bloom, the AgX curve and an
+unset grade. That file is an ordinary post shader and the place to start
+from.
 
 ## What a post shader is
 
@@ -61,8 +63,8 @@ refused in a post shader, and `color()` is refused in every other type.
 
 Helpers in scope: `tonemap(op, c)` with `TONEMAP_LINEAR`, `TONEMAP_REINHARD`,
 `TONEMAP_ACES`, `TONEMAP_AGX`, `TONEMAP_HABLE` and `TONEMAP_NEUTRAL`, the six
-curves by name (`tonemap_agx(c)` and the rest), and `linear_to_srgb` /
-`srgb_to_linear`.
+curves by name (`tonemap_agx(c)` and the rest), `linear_to_srgb` /
+`srgb_to_linear`, and `lut_sample(table, c)` for a colour grade (below).
 
 A post shader has uniforms like any other: `float`, `vec2..4`, `int`,
 `sampler2D`, with the same hints. `hint_enum` is how the default offers its
@@ -122,6 +124,62 @@ fog:
 The track editors offer every uniform the scene's post materials declare, with
 the range the shader gave it (an enum's runs over its names), and say so
 beside a track that reaches nothing.
+
+## Colour grading with a LUT
+
+A grade made in an image editor or in Resolve is a table: every display
+colour and the colour it becomes. A post shader takes one as a `hint_lut`
+sampler and reads it with `lut_sample()`:
+
+```glsl
+uniform sampler2D grade : hint_lut;
+uniform float grade_amount : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+void color() {
+    vec3 c = tonemap(TONEMAP_AGX, COLOR + BLOOM * 0.3);
+    COLOR = mix(c, lut_sample(grade, c), grade_amount);
+}
+```
+
+`lut_sample()` takes the display colour after the tone curve, 0 to 1, and
+gives the graded one back. An unset slot reads the neutral table, which
+changes nothing, so a shader can carry a grade slot before it has a grade.
+The engine's `post.fjsl` does exactly this, with `grade_amount` to fade it.
+
+The slot takes a `.fjlut`, a small recipe naming the table's source:
+
+```json
+{ "name": "Dusk", "source": "dusk.png" }
+```
+
+The source sits beside the recipe and is either:
+
+- **a strip PNG**, Unreal's layout: N slices of N by N side by side, so
+  256×16 or 1024×32. Red runs across a slice, green down it, blue from slice
+  to slice. 8 or 16 bits a channel.
+- **a `.cube`** from Resolve or Photoshop's export: `LUT_3D_SIZE`, optionally
+  `DOMAIN_MIN`/`DOMAIN_MAX`, and the rows with red changing fastest. It is
+  resampled onto a 32 strip.
+
+Either way the table is loaded at 16 bits, clamped and filtered, and while the
+editor runs, saving the recipe or its source reloads it in place.
+
+### Making a grade
+
+1. Take an **ungraded** capture: the capture dialog has an Ungraded tick, and
+   Project Settings → Exposure has the same as a runtime switch. Both draw
+   the engine's default look whatever volumes the camera is in.
+2. Paste the neutral strip beside it. `assets/grading/neutral_16.png` and
+   `neutral_32.png` ship with the engine, or write one with
+   `fjimport --neutral-lut out.png --size 32`.
+3. Grade the whole image in the editor you like.
+4. Crop the strip back out, save it beside a `.fjlut` naming it, and set the
+   `.fjlut` on the material's grade slot.
+
+A 16 strip is small and exact for gentle grades; a 32 one holds a strong or
+hue-bending grade without banding. Two volumes with different tables blend
+their finished images, since tables cannot mix, so a camera walking between
+two graded rooms cross-fades rather than steps.
 
 ## Exposure
 

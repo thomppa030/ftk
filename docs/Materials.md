@@ -63,6 +63,7 @@ Hints control inspector UI and default textures for samplers.
 | `hint_color` | ColorEdit3/4 in inspector |
 | `hint_range(min, max, step)` | SliderFloat in inspector |
 | `hint_enum("A,B,C")` | Drop-down of named values (int) |
+| `hint_lut` | A colour grading table from a `.fjlut` (sampler2D); the neutral table when unset. Sample it with `lut_sample()` in a post shader |
 | `hint_white` | Default to white texture (sampler2D) |
 | `hint_black` | Default to black texture (sampler2D) |
 | `hint_normal` | Default to flat normal texture (sampler2D) |

@@ -26,5 +26,6 @@ Every `.fj*` file at a glance. Each entry: one-line description, text vs binary,
 | `.fjday` | text (JSON) | Day profile — the look of a day over 24 hours | [Day Profiles](../Environment/Day-Profiles.md) |
 | `.fjweather` | text (JSON) | Weather event — phases, tracks, precipitation, lightning | [Weather](../Environment/Weather.md) |
 | `.fjclimate` | text (JSON) | Climate — which weather follows which, and how likely | [Weather](../Environment/Weather.md#climates-fjclimate) |
+| `.fjlut` | text (JSON) | Colour grading table: `{"name", "source"}`, the source a strip PNG or a `.cube` beside it | [Post-Processing](../Post-Process.md#colour-grading-with-a-lut) |
 
 Each format will get a short schema section here once filled in.
