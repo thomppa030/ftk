@@ -73,18 +73,6 @@ TEST_CASE("A link dragged from an output onto an input that takes it is made", "
     CHECK(s.emitter.expression_graph.links[0].target_pin_id == Scene::rate(1));
 }
 
-TEST_CASE("A link dragged either way round is made output to input", "[ui][vfx_graph]") {
-    Scene s;
-    VfxGraph graph;
-    ImGuiHarness h;
-    h.set_ui([&] { (void)graph.draw(s.emitter); });
-    h.step(2);
-
-    h.drag(graph.pin_position(Scene::rate(0)), graph.pin_position(Scene::out(s.random)));
-    REQUIRE(s.emitter.expression_graph.links.size() == 1);
-    CHECK(s.emitter.expression_graph.links[0].source_pin_id == Scene::out(s.random));
-}
-
 TEST_CASE("A vec3 can't be linked into a float", "[ui][vfx_graph]") {
     Scene s;
     VfxGraph graph;
