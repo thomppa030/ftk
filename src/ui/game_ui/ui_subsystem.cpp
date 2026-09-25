@@ -215,6 +215,10 @@ void UiSubsystem::destroy_controllers(UiInstance& inst) {
     for (auto& wi : inst.widgets) {
         if (wi.widget) {
             wi.widget->end_play();
+            // A controller can bind input and set timers by its own pointer,
+            // like a script; recreated on a hot reload mid-play, it has to
+            // take those with it.
+            if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
         }
         wi.connections.clear();
         wi.widget.reset();

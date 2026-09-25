@@ -1777,7 +1777,21 @@ void Engine::flush_pending() {
     play_controller_.flush_spawned();
 
     if (scene_.pending_destroy().empty()) return;
-    script_subsystem_->manager().trace_doomed_refs(scene_, scene_.pending_destroy());
+
+    // Scripts on doomed nodes end first, while everything they might read is
+    // still there. An end_play can destroy more, so this goes round until
+    // every script on everything queued has ended; one already ended is gone,
+    // so a node queued twice is not ended twice.
+    auto& scripts = script_subsystem_->manager();
+    for (std::size_t ended = 0; ended < scene_.pending_destroy().size();) {
+        const std::span<const uint32_t> pending = scene_.pending_destroy();
+        const std::vector<uint32_t> batch(pending.begin() + static_cast<std::ptrdiff_t>(ended),
+                                          pending.end());
+        ended = pending.size();
+        scripts.end_play_destroyed(scene_, batch);
+    }
+
+    scripts.trace_doomed_refs(scene_, scene_.pending_destroy());
     if (physics_subsystem_->world()) {
         for (uint32_t id : scene_.pending_destroy()) {
             physics_subsystem_->world()->destroy_body(id);

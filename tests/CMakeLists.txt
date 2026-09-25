@@ -56,6 +56,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/core/clock.cpp
     ${CMAKE_SOURCE_DIR}/src/core/fixed_timestep.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
@@ -213,6 +214,7 @@ add_executable(fjell-tests
     test_buoyancy.cpp
     test_fixed_timestep.cpp
     test_fixed_step_blend.cpp
+    test_timer_manager.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

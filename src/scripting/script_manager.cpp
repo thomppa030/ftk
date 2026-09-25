@@ -10,6 +10,7 @@
 #include "scripting/fjell/weak_ref.hpp"
 #include "scripting/fjell/ref.hpp"
 #include "scripting/gc_visitor.hpp"
+#include "scripting/input_bindings.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/input_action_map.hpp"
@@ -80,6 +81,27 @@ extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_ref(void*, void*) {}
 extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void*, void*) {}
 
 namespace fjell {
+
+// ── Running script hooks ────────────────────────────────────────────────
+
+/// Run a hook on one of the node's scripts, reporting an exception rather
+/// than letting it out: one script's mistake must not stop the others. The
+/// entry is found again by index for the report, since a hook may add a
+/// script to its own node and move the list.
+template <typename Hook>
+static void run_hook_on(Node& node, std::size_t index, const char* hook_name, Hook&& hook) {
+    ScriptComponent* instance = node.scripts[index].instance.get();
+    if (instance == nullptr) return;
+    try {
+        hook(*instance);
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("Exception in {}.{} on '{}': {}", node.scripts[index].type_name,
+                         hook_name, node.name, e.what());
+    } catch (...) {
+        FJELL_CORE_ERROR("Unknown exception in {}.{} on '{}'", node.scripts[index].type_name,
+                         hook_name, node.name);
+    }
+}
 
 /// The Types a [[fj::shader_type]] names. A word naming none is dropped and
 /// reported against the field; the rest still narrow the slot.
@@ -652,6 +674,27 @@ void ScriptManager::call_end_play(Scene& scene) {
         }
     }
     timers_.clear();
+}
+
+void ScriptManager::end_play_destroyed(Scene& scene, std::span<const uint32_t> doomed_ids) {
+    for (uint32_t id : doomed_ids) {
+        Node* obj = scene.find(id);
+        if (obj == nullptr) continue;
+        // By index: an end_play may add a script to its own node, which is
+        // then ended in turn.
+        for (std::size_t i = 0; i < obj->scripts.size(); ++i) {
+            ScriptComponent* instance = obj->scripts[i].instance.get();
+            if (instance == nullptr) continue;
+            run_hook_on(*obj, i, "end_play", [](ScriptComponent& script) { script.end_play(); });
+            release(instance);
+            obj->scripts[i].instance.reset();
+        }
+    }
+}
+
+void ScriptManager::release_address(const void* owner) {
+    release_input_bindings(owner);
+    timers_.cancel_owned(owner);
 }
 
 // ── GC trace — null WeakRefs pointing at doomed nodes ───────────────────

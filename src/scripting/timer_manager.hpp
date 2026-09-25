@@ -20,14 +20,19 @@ class TimerManager {
 public:
     using Callback = std::function<void()>;
 
-    /// Create a one-shot timer. Returns a handle for cancellation.
-    TimerHandle set(float delay, Callback callback);
+    /// Create a one-shot timer. Returns a handle for cancellation. `owner` is
+    /// what the callback calls into (a script instance), so every timer it set
+    /// can be cancelled when it goes; null for a timer nothing owns.
+    TimerHandle set(float delay, Callback callback, const void* owner = nullptr);
 
     /// Create a repeating timer. Fires every `interval` seconds.
-    TimerHandle set_repeating(float interval, Callback callback);
+    TimerHandle set_repeating(float interval, Callback callback, const void* owner = nullptr);
 
     /// Cancel a timer. Safe to call with invalid/expired handles.
     void cancel(TimerHandle handle);
+
+    /// Cancel every timer `owner` set.
+    void cancel_owned(const void* owner);
 
     /// Advance all timers by dt, fire expired ones.
     void tick(float dt);
@@ -41,6 +46,7 @@ private:
         float remaining{0.0f};
         float interval{0.0f};   // >0 = repeating
         uint32_t generation{0}; // 0 = free slot
+        const void* owner{nullptr};
     };
 
     std::vector<Entry> entries_;

@@ -122,6 +122,23 @@ public:
     void call_begin_play(Scene& scene);
     void call_end_play(Scene& scene);
 
+    /// End the scripts on nodes about to be destroyed while play goes on:
+    /// each gets its end_play(), then lets go of everything it registered
+    /// with the engine (see release()), and is destroyed. Safe to call again
+    /// for the same nodes; a script already ended is gone.
+    void end_play_destroyed(Scene& scene, std::span<const uint32_t> doomed_ids);
+
+    /// Let go of the input bindings and timers `owner` registered by its own
+    /// pointer, so nothing calls into it once it is gone. Scripts register
+    /// with `this` as their own class, which is the address of the whole
+    /// object; both it and the base's address are let go, so a script that
+    /// derives from something else first is covered too.
+    template <typename Base>
+    void release(const Base* owner) {
+        release_address(owner);
+        release_address(dynamic_cast<const void*>(owner));
+    }
+
     // Instantiate scripts and call begin_play for nodes spawned mid-play (the
     // play-start deserialize/begin_play passes already ran, so freshly-spawned
     // nodes would otherwise have no live script instances). ids are the nodes
@@ -161,6 +178,8 @@ public:
 #endif
 
 private:
+    void release_address(const void* owner);
+
     void populate_world(const Input& input, const Clock& clock,
                         PhysicsWorld* physics);
     void build_registry();

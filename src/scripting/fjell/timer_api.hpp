@@ -33,10 +33,10 @@ struct TimerHandle {
 /// Schedules callbacks on the gameplay clock. Timers respect `Time::set_scale()`
 /// and stop advancing while `Time::pause()` is active.
 ///
-/// @warning Timers are NOT cancelled when the owning component is destroyed —
-///          only when play stops or scripts hot-reload. A timer bound to
-///          `this` will fire into a freed object if the node is destroyed
-///          first. Store the handle and cancel it in `end_play()`.
+/// A timer set on `this` belongs to it: every timer a component set is
+/// cancelled when it goes away (its node destroyed, play stopped, scripts
+/// reloaded), so none fires into a freed object. Keep the handle only to stop
+/// one earlier.
 ///
 /// @code
 /// class Turret : public fjell::ScriptComponent {
@@ -46,7 +46,7 @@ struct TimerHandle {
 ///     void begin_play() override {
 ///         fire_timer_ = fjell::Timer::set_repeating<&Turret::fire>(1.5f, this);
 ///     }
-///     void end_play() override { fjell::Timer::cancel(fire_timer_); }
+///     void disarm() { fjell::Timer::cancel(fire_timer_); }
 ///     void fire() { /* ... */ }
 /// };
 /// @endcode
@@ -55,8 +55,9 @@ struct Timer {
     /// @tparam Method  Pointer to a zero-argument member function, passed as a
     ///                 template argument: `Timer::set<&MyClass::on_timeout>(...)`.
     /// @param delay    Seconds to wait, in scaled gameplay time.
-    /// @param instance Object to call the method on — normally `this`. It must
-    ///                 outlive the delay, or the timer must be cancelled first.
+    /// @param instance Object to call the method on — normally `this`, whose
+    ///                 going away cancels the timer. Any other object must
+    ///                 outlive the delay, or the timer be cancelled first.
     /// @return Handle for cancellation. Keep it only if you may cancel.
     template <auto Method, typename T>
     static TimerHandle set(float delay, T* instance) {
@@ -68,9 +69,10 @@ struct Timer {
     /// @tparam Method  Pointer to a zero-argument member function.
     /// @param interval Seconds between firings, in scaled gameplay time. The
     ///                 first call happens after one full interval, not immediately.
-    /// @param instance Object to call the method on — normally `this`.
-    /// @return Handle for cancellation. Always store this one: a repeating
-    ///         timer runs until play stops otherwise.
+    /// @param instance Object to call the method on — normally `this`, whose
+    ///                 going away cancels the timer.
+    /// @return Handle for cancellation. Store it to stop the timer before
+    ///         `instance` goes away; it runs until then otherwise.
     template <auto Method, typename T>
     static TimerHandle set_repeating(float interval, T* instance) {
         return {fjell_timer_set_repeating(interval, instance,

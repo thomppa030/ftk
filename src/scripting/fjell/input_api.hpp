@@ -52,8 +52,9 @@ struct InputAPI {
     /// @param trigger  When to fire: `Pressed` on press, `Released` on release,
     ///                 `Triggered` every frame the action is active, `Completed`
     ///                 when it goes inactive.
-    /// @param instance Object to call on — normally `this`. It must outlive
-    ///                 play, since bindings are not released individually.
+    /// @param instance Object to call on — normally `this`, whose going away
+    ///                 (its node destroyed, play stopped, scripts reloaded)
+    ///                 releases the binding. Any other object must outlive play.
     template <auto Method, typename T>
         requires requires(T* t) { (t->*Method)(); }
     static void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance) {

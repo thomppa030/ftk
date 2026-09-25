@@ -3,13 +3,20 @@
 #include "core/delegate.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scripting/fjell/api.h"
+#include "scripting/input_bindings.hpp"
 #include "scripting/script_globals.hpp"
 
 #include <vector>
 
 namespace {
 
-std::vector<fjell::Connection> s_input_connections;
+// Every binding a script made, with the instance it calls into, so one that
+// goes away mid-play takes its own bindings with it.
+struct OwnedConnection {
+    const void* owner;
+    fjell::Connection connection;
+};
+std::vector<OwnedConnection> s_input_connections;
 
 fjell::InputActionMap* get_iam() {
     return fjell::script_services().input_actions;
@@ -36,16 +43,16 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_void(uint32_t action_handle_id
     void* inst = instance;
     switch (static_cast<fjell::EInputTrigger>(trigger)) {
         case fjell::EInputTrigger::Triggered:
-            s_input_connections.push_back(d->on_triggered.bind([fn, inst]() { fn(inst); }));
+            s_input_connections.push_back({inst, d->on_triggered.bind([fn, inst]() { fn(inst); })});
             break;
         case fjell::EInputTrigger::Pressed:
-            s_input_connections.push_back(d->on_pressed.bind([fn, inst]() { fn(inst); }));
+            s_input_connections.push_back({inst, d->on_pressed.bind([fn, inst]() { fn(inst); })});
             break;
         case fjell::EInputTrigger::Released:
-            s_input_connections.push_back(d->on_released.bind([fn, inst]() { fn(inst); }));
+            s_input_connections.push_back({inst, d->on_released.bind([fn, inst]() { fn(inst); })});
             break;
         case fjell::EInputTrigger::Completed:
-            s_input_connections.push_back(d->on_completed.bind([fn, inst]() { fn(inst); }));
+            s_input_connections.push_back({inst, d->on_completed.bind([fn, inst]() { fn(inst); })});
             break;
     }
 }
@@ -61,11 +68,11 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_float(uint32_t action_handle_i
 
     void* inst = instance;
     // axis1d fires continuously while active
-    s_input_connections.push_back(d->on_axis1d.bind([fn, inst](float v) { fn(inst, v); }));
+    s_input_connections.push_back({inst, d->on_axis1d.bind([fn, inst](float v) { fn(inst, v); })});
 
     // Also connect triggered/completed if requested
     if (static_cast<fjell::EInputTrigger>(trigger) == fjell::EInputTrigger::Completed) {
-        s_input_connections.push_back(d->on_completed.bind([fn, inst]() { fn(inst, 0.0f); }));
+        s_input_connections.push_back({inst, d->on_completed.bind([fn, inst]() { fn(inst, 0.0f); })});
     }
 }
 
@@ -81,18 +88,28 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id
     void* inst = instance;
     // axis2d fires continuously while active
     s_input_connections.push_back(
-        d->on_axis2d.bind([fn, inst](glm::vec2 v) { fn(inst, v.x, v.y); }));
+        OwnedConnection{inst, d->on_axis2d.bind([fn, inst](glm::vec2 v) { fn(inst, v.x, v.y); })});
 
     // Connect completed if requested (sends zero)
     if (static_cast<fjell::EInputTrigger>(trigger) == fjell::EInputTrigger::Completed) {
         s_input_connections.push_back(
-            d->on_completed.bind([fn, inst]() { fn(inst, 0.0f, 0.0f); }));
+            OwnedConnection{inst, d->on_completed.bind([fn, inst]() { fn(inst, 0.0f, 0.0f); })});
     }
 }
 
 extern "C" FJELL_SDK_EXPORT void fjell_input_clear_connections() {
     s_input_connections.clear();
 }
+
+namespace fjell {
+
+void release_input_bindings(const void* owner) {
+    if (owner == nullptr) return;
+    std::erase_if(s_input_connections,
+                  [owner](const OwnedConnection& c) { return c.owner == owner; });
+}
+
+} // namespace fjell
 
 extern "C" FJELL_SDK_EXPORT void fjell_input_push_context(const char* name) {
     auto* iam = get_iam();

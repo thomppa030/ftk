@@ -22,7 +22,7 @@ extern "C" FJELL_SDK_EXPORT uint64_t fjell_timer_set(float delay, void* instance
                                                      void (*fn)(void*)) {
     auto* mgr = fjell::script_services().timers;
     if (!mgr) return 0;
-    auto handle = mgr->set(delay, [fn, instance]() { fn(instance); });
+    auto handle = mgr->set(delay, [fn, instance]() { fn(instance); }, instance);
     return pack(handle);
 }
 
@@ -31,7 +31,7 @@ extern "C" FJELL_SDK_EXPORT uint64_t fjell_timer_set_repeating(float interval,
                                                                void (*fn)(void*)) {
     auto* mgr = fjell::script_services().timers;
     if (!mgr) return 0;
-    auto handle = mgr->set_repeating(interval, [fn, instance]() { fn(instance); });
+    auto handle = mgr->set_repeating(interval, [fn, instance]() { fn(instance); }, instance);
     return pack(handle);
 }
 
