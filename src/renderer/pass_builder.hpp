@@ -101,7 +101,9 @@ struct DeclareContext {
     /// A pass that writes it declares that only when this is set.
     bool water_draws{false};
     bool auto_exposure_enabled{false};
-    bool volumetric_fog_enabled{true};
+    /// Whether this run builds the volumetric fog's froxel volume, so a pass
+    /// may declare a read of its integrated result.
+    bool volumetric_fog_enabled{false};
     bool ddgi_enabled{true};
     bool ss_gi_enabled{true};
     bool contact_shadows_enabled{true};
