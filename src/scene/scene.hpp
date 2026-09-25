@@ -160,10 +160,18 @@ public:
     void unlock_iteration() { if (iteration_depth_ > 0) --iteration_depth_; }
     [[nodiscard]] bool iterating() const { return iteration_depth_ > 0; }
     // Materialize deferred spawns into objects_. Returns the ids of the nodes
-    // that were added, so the caller can run script lifecycle (instantiate +
-    // begin_play) on freshly-spawned nodes during play.
+    // that were added.
     std::vector<uint32_t> flush_spawned();
     [[nodiscard]] bool has_pending_spawns() const { return !pending_spawn_.empty(); }
+
+    /// While on, every node that joins the scene is remembered for
+    /// take_added(), whether it was added directly or deferred and flushed
+    /// in. Play turns it on: whatever joins the running game has to be
+    /// started, however it got there. Turning it off forgets the list.
+    void track_added(bool on);
+    [[nodiscard]] bool has_added() const { return !added_.empty(); }
+    /// The nodes that joined since the last call, in the order they joined.
+    [[nodiscard]] std::vector<uint32_t> take_added();
 
     struct TickLock {
         explicit TickLock(Scene& s) : scene_(s) { scene_.lock_iteration(); }
@@ -217,6 +225,8 @@ private:
 
     int iteration_depth_{0};                              // >0 while a tick walks objects_
     std::vector<std::unique_ptr<Node>> pending_spawn_;    // deferred adds, flushed post-tick
+    std::vector<uint32_t> added_;                         // joined since take_added(), while tracked
+    bool tracking_added_{false};
 };
 
 } // namespace fjell

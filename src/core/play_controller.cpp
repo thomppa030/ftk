@@ -192,31 +192,35 @@ void PlayController::release_input() {
 }
 
 void PlayController::flush_spawned() {
-    // A hard bound on rounds so a script that spawns from every begin_play
-    // stalls with a warning instead of hanging the start.
+    // Every node that joined the game since the last flush is started here,
+    // however it joined: spawned during a tick (deferred until now), or added
+    // directly from an input handler, a collision callback, a UI action, a
+    // preset. Starting a round's nodes runs their begin_play, which can spawn
+    // more; those are the next round. A hard bound on rounds so a script that
+    // spawns from every begin_play stalls with a warning instead of hanging.
     constexpr int MAX_ROUNDS = 64;
-    for (int round = 0; s_.scene->has_pending_spawns(); ++round) {
+    for (int round = 0;; ++round) {
+        (void)s_.scene->flush_spawned();
+        if (!s_.scene->has_added()) return;
         if (round == MAX_ROUNDS) {
-            FJELL_CORE_WARN("PlayController: spawns still pending after {} flush rounds, "
-                            "a begin_play keeps spawning; leaving the rest for the next tick",
+            FJELL_CORE_WARN("PlayController: nodes still joining after {} rounds, a begin_play "
+                            "keeps spawning; leaving the rest for the next flush",
                             MAX_ROUNDS);
             return;
         }
-        auto spawned = s_.scene->flush_spawned();
-        // A spawned node may carry an InputComponent (e.g. a player's camera);
-        // load its contexts before begin_play so scripts can bind/activate input.
+        const std::vector<uint32_t> joined = s_.scene->take_added();
+        // A node may carry an InputComponent (e.g. a player's camera); load
+        // its contexts before begin_play so scripts can bind/activate input.
         load_input_contexts();
-        // Bodies before begin_play: a spawned node's script may query physics
-        // or set a velocity in its first frame, and a body that appears a tick
-        // later means the object falls through whatever it spawned on.
+        // Bodies before begin_play: a node's script may query physics or set a
+        // velocity in its first frame, and a body that appears a tick later
+        // means the object falls through whatever it spawned on.
         if (auto* physics = s_.physics->world()) {
-            for (uint32_t id : spawned) {
+            for (uint32_t id : joined) {
                 if (auto* node = s_.scene->find(id)) physics->create_body(*s_.scene, *node);
             }
         }
-        // Give freshly-spawned nodes their script lifecycle (instantiate +
-        // begin_play) — the play-start passes already ran without them.
-        s_.scripts->manager().initialize_spawned(*s_.scene, spawned);
+        s_.scripts->manager().initialize_spawned(*s_.scene, joined);
     }
 }
 
@@ -322,6 +326,10 @@ void PlayController::start() {
         snapshot = PlaySnapshot::capture(s_);
     }
 
+    // The scene's nodes as they stand are started below, all at once. What
+    // joins from here on, by whatever path, flush_spawned() starts.
+    s_.scene->track_added(true);
+
     // Physics and VFX start first and without a physics world in their
     // context: nothing else depends on them, and everything after needs the
     // physics world to exist.
@@ -417,6 +425,7 @@ void PlayController::stop() {
     s_.vfx->notify_play_stop(ctx);
 
     session_->snapshot()->restore(s_);
+    s_.scene->track_added(false);
 
     // The editor draws every node where its transform puts it.
     s_.scene->clear_interpolation();

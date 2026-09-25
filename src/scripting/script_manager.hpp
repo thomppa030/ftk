@@ -31,6 +31,7 @@ class Scene;
 class Input;
 class Clock;
 class PhysicsWorld;
+struct Node;
 struct Node3D;
 struct ScriptEntry;
 
@@ -102,6 +103,8 @@ public:
     void update(Scene& scene, const Input& input, const Clock& clock,
                 PhysicsWorld* physics = nullptr);
 
+    /// Add a script to the node. While the game is running it starts at once:
+    /// its begin_play runs before this returns.
     Result<> add_script(Node3D& obj, const std::string& type_name);
     void remove_script(Node3D& obj, const std::string& type_name);
 
@@ -122,6 +125,12 @@ public:
     void call_begin_play(Scene& scene);
     void call_end_play(Scene& scene);
 
+    /// Whether the game is running. While it is, a script added to a node
+    /// starts at once, and a reload ends the scripts it replaces and starts
+    /// the new ones.
+    void set_playing(bool playing) { playing_ = playing; }
+    [[nodiscard]] bool playing() const { return playing_; }
+
     /// End the scripts on nodes about to be destroyed while play goes on:
     /// each gets its end_play(), then lets go of everything it registered
     /// with the engine (see release()), and is destroyed. Safe to call again
@@ -139,10 +148,10 @@ public:
         release_address(dynamic_cast<const void*>(owner));
     }
 
-    // Instantiate scripts and call begin_play for nodes spawned mid-play (the
-    // play-start deserialize/begin_play passes already ran, so freshly-spawned
-    // nodes would otherwise have no live script instances). ids are the nodes
-    // returned by Scene::flush_spawned().
+    /// Create the scripts on nodes that joined the game mid-play and run their
+    /// begin_play (the play-start passes already ran without them). What
+    /// those begin_plays spawn is left pending, for the caller's next round:
+    /// see PlayController::flush_spawned().
     void initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids);
 
     void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
@@ -179,6 +188,8 @@ public:
 
 private:
     void release_address(const void* owner);
+    /// Run the script's begin_play, unless it has already run.
+    void start_script(Node& node, std::size_t index);
 
     void populate_world(const Input& input, const Clock& clock,
                         PhysicsWorld* physics);
@@ -199,6 +210,7 @@ private:
 
     World world_{};
     TimerManager timers_;
+    bool playing_{false};
 
 #ifndef NDEBUG
     platform::FileWatcher watcher_;

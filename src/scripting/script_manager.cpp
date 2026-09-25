@@ -103,6 +103,16 @@ static void run_hook_on(Node& node, std::size_t index, const char* hook_name, Ho
     }
 }
 
+/// Run a hook on each script the node has when the pass reaches it, by
+/// index: a hook may add a script to its own node, which a range-for over
+/// the list would not survive. A script added that way was started when it
+/// was added and joins the next pass, so it never runs a hook twice.
+template <typename Hook>
+static void run_hook(Node& node, const char* hook_name, Hook&& hook) {
+    const std::size_t count = node.scripts.size();
+    for (std::size_t i = 0; i < count; ++i) run_hook_on(node, i, hook_name, hook);
+}
+
 /// The Types a [[fj::shader_type]] names. A word naming none is dropped and
 /// reported against the field; the rest still narrow the slot.
 static std::vector<ShaderType> parse_shader_types(const char* names, const char* type_name,
@@ -472,6 +482,10 @@ Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
     entry.type_name = type->name;
     instantiate(obj, entry);
     obj.scripts.push_back(std::move(entry));
+
+    // Added to a running game, it starts now, as it would have with the rest
+    // at play start.
+    if (playing_) start_script(obj, obj.scripts.size() - 1);
     return {};
 }
 
@@ -482,6 +496,7 @@ void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
         return;
     }
     entry.instance.reset(type->create());
+    entry.started = false;
     entry.instance->node_ = &obj;
     entry.instance->world_ = &world_;
     entry.instance->transform_ = &obj.transform;
@@ -549,20 +564,10 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     // invalidate this loop's iterator over objects_.
     Scene::TickLock tick_lock(scene);
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) {
-                comp.instance->world_ = &world_;
-                try {
-                    comp.instance->tick(dt);
-                } catch (const std::exception& e) {
-                    FJELL_CORE_ERROR("Exception in {}.tick on '{}': {}",
-                                     comp.type_name, obj->name, e.what());
-                } catch (...) {
-                    FJELL_CORE_ERROR("Unknown exception in {}.tick on '{}'",
-                                     comp.type_name, obj->name);
-                }
-            }
-        }
+        run_hook(*obj, "tick", [&](ScriptComponent& script) {
+            script.world_ = &world_;
+            script.tick(dt);
+        });
     }
 
     // Tick timers only when unpaused (timers freeze during pause)
@@ -573,105 +578,63 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 
 // ── Lifecycle ───────────────────────────────────────────────────────────
 
+void ScriptManager::start_script(Node& node, std::size_t index) {
+    ScriptEntry& entry = node.scripts[index];
+    if (entry.instance == nullptr || entry.started) return;
+    // Marked before it runs: a begin_play that reaches back into this node
+    // must not start the script a second time.
+    entry.started = true;
+    run_hook_on(node, index, "begin_play", [this](ScriptComponent& script) {
+        script.world_ = &world_;
+        script.begin_play();
+    });
+}
+
 void ScriptManager::call_begin_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_begin_play");
     // begin_play() may spawn nodes (e.g. a server spawning a player on connect);
-    // defer those adds so they don't invalidate this loop's iterator, then flush
-    // them once the loop completes. Same contract as update().
-    {
-        Scene::TickLock tick_lock(scene);
-        for (auto& obj : scene.objects()) {
-            for (auto& comp : obj->scripts) {
-                if (comp.instance) {
-                    comp.instance->world_ = &world_;
-                    try {
-                        comp.instance->begin_play();
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
-                                         comp.type_name, obj->name, e.what());
-                    } catch (...) {
-                        FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
-                                         comp.type_name, obj->name);
-                    }
-                }
-            }
-        }
+    // defer those adds so they don't invalidate this loop's iterator. They
+    // are started with everything else that joins the game, by whoever
+    // flushes spawns next.
+    Scene::TickLock tick_lock(scene);
+    for (auto& obj : scene.objects()) {
+        const std::size_t count = obj->scripts.size();
+        for (std::size_t i = 0; i < count; ++i) start_script(*obj, i);
     }
-    // Nodes spawned during begin_play need their own script lifecycle.
-    initialize_spawned(scene, scene.flush_spawned());
 }
 
 void ScriptManager::initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids) {
     if (ids.empty() || !is_loaded()) return;
 
-    // Spawning can cascade (begin_play spawns more), so defer adds and re-flush.
-    std::vector<uint32_t> to_init = ids;
-    while (!to_init.empty()) {
-        // Instantiate scripts for this batch of new nodes (mirrors deserialize_all).
-        for (uint32_t node_id : to_init) {
-            Node* obj = scene.find(node_id);
-            auto* spatial = obj ? obj->as_spatial() : nullptr;
-            if (!spatial) continue;
-            for (auto& comp : obj->scripts) {
-                if (comp.instance) continue;  // already live
-                const auto* ctype = find_script_type(comp.type_name);
-                if (!ctype || !ctype->loaded || !ctype->create) continue;
-
-                comp.instance.reset(ctype->create());
-                comp.instance->node_ = spatial;
-                comp.instance->world_ = &world_;
-                comp.instance->transform_ = &spatial->transform;
-                comp.instance->id_ = obj->id;
-                comp.instance->name_ = obj->name.c_str();
-                if (!comp.serialized.empty()) {
-                    auto_deserialize_fields(ctype->fields, comp.instance.get(), comp.serialized);
-                }
-            }
+    // Every script is created before any begin_play runs, so a begin_play
+    // can find the scripts on the other nodes that joined with its own.
+    for (uint32_t node_id : ids) {
+        Node* obj = scene.find(node_id);
+        auto* spatial = obj ? obj->as_spatial() : nullptr;
+        if (!spatial) continue;
+        for (auto& comp : obj->scripts) {
+            if (comp.instance) continue;  // already live
+            instantiate(*spatial, comp);
         }
+    }
 
-        // begin_play this batch; their spawns defer behind the lock.
-        std::vector<uint32_t> next;
-        {
-            Scene::TickLock tick_lock(scene);
-            for (uint32_t node_id : to_init) {
-                Node* obj = scene.find(node_id);
-                if (!obj) continue;
-                for (auto& comp : obj->scripts) {
-                    if (!comp.instance) continue;
-                    comp.instance->world_ = &world_;
-                    try {
-                        comp.instance->begin_play();
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
-                                         comp.type_name, obj->name, e.what());
-                    } catch (...) {
-                        FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
-                                         comp.type_name, obj->name);
-                    }
-                }
-            }
-        }
-        next = scene.flush_spawned();
-        to_init = std::move(next);
+    // What these begin_plays spawn is deferred behind the lock and left for
+    // the caller's next round.
+    Scene::TickLock tick_lock(scene);
+    for (uint32_t node_id : ids) {
+        Node* obj = scene.find(node_id);
+        if (!obj) continue;
+        const std::size_t count = obj->scripts.size();
+        for (std::size_t i = 0; i < count; ++i) start_script(*obj, i);
     }
 }
 
 void ScriptManager::call_end_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_end_play");
+    // An end_play that spawns must not move the list under this loop.
+    Scene::TickLock tick_lock(scene);
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) {
-                try {
-                    comp.instance->end_play();
-                } catch (const std::exception& e) {
-                    FJELL_CORE_ERROR("Exception in {}.end_play on '{}': {}",
-                                     comp.type_name, obj->name, e.what());
-                } catch (...) {
-                    FJELL_CORE_ERROR("Unknown exception in {}.end_play on '{}'",
-                                     comp.type_name, obj->name);
-                }
-            }
-        }
+        run_hook(*obj, "end_play", [](ScriptComponent& script) { script.end_play(); });
     }
     timers_.clear();
 }
@@ -722,82 +685,67 @@ void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> do
 // ── Collision/trigger event dispatch ─────────────────────────────────────
 
 void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physics) {
-    // Collision enter
-    for (const auto& [node_id, event] : physics.collision_enter_events()) {
-        auto* node = scene.find(node_id);
-        if (!node) continue;
-        for (auto& comp : node->scripts) {
-            if (comp.instance) {
-                comp.instance->on_collision_enter(event.other_id, event.contact_point, event.contact_normal);
-            }
+    // Each event goes to the scripts on the node it happened to. The events
+    // are the physics world's own lists, which no hook can change; a node a
+    // hook spawns joins the scene and is started with the rest.
+    auto deliver = [&](const auto& events, const char* hook_name, auto&& hook) {
+        for (const auto& [node_id, event] : events) {
+            Node* node = scene.find(node_id);
+            if (node == nullptr) continue;
+            run_hook(*node, hook_name, [&](ScriptComponent& script) { hook(script, event); });
         }
-    }
-
-    // Collision exit
-    for (const auto& [node_id, event] : physics.collision_exit_events()) {
-        auto* node = scene.find(node_id);
-        if (!node) continue;
-        for (auto& comp : node->scripts) {
-            if (comp.instance) {
-                comp.instance->on_collision_exit(event.other_id);
-            }
-        }
-    }
-
-    // Trigger enter
-    for (const auto& [node_id, event] : physics.trigger_enter_events()) {
-        auto* node = scene.find(node_id);
-        if (!node) continue;
-        for (auto& comp : node->scripts) {
-            if (comp.instance) {
-                comp.instance->on_trigger_enter(event.other_id);
-            }
-        }
-    }
-
-    // Trigger exit
-    for (const auto& [node_id, event] : physics.trigger_exit_events()) {
-        auto* node = scene.find(node_id);
-        if (!node) continue;
-        for (auto& comp : node->scripts) {
-            if (comp.instance) {
-                comp.instance->on_trigger_exit(event.other_id);
-            }
-        }
-    }
+    };
+    deliver(physics.collision_enter_events(), "on_collision_enter",
+            [](ScriptComponent& script, const CollisionEvent& e) {
+                script.on_collision_enter(e.other_id, e.contact_point, e.contact_normal);
+            });
+    deliver(physics.collision_exit_events(), "on_collision_exit",
+            [](ScriptComponent& script, const CollisionEvent& e) {
+                script.on_collision_exit(e.other_id);
+            });
+    deliver(physics.trigger_enter_events(), "on_trigger_enter",
+            [](ScriptComponent& script, const CollisionEvent& e) {
+                script.on_trigger_enter(e.other_id);
+            });
+    deliver(physics.trigger_exit_events(), "on_trigger_exit",
+            [](ScriptComponent& script, const CollisionEvent& e) {
+                script.on_trigger_exit(e.other_id);
+            });
 }
 
 void ScriptManager::dispatch_weather_changed(Scene& scene, uint32_t event, int phase) {
     const auto weather_phase = static_cast<WeatherPhase>(phase);
+    Scene::TickLock tick_lock(scene);
     for (const auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) comp.instance->on_weather_changed(event, weather_phase);
-        }
+        run_hook(*obj, "on_weather_changed", [&](ScriptComponent& script) {
+            script.on_weather_changed(event, weather_phase);
+        });
     }
 }
 
 void ScriptManager::dispatch_time_phase_changed(Scene& scene, int phase) {
     const auto time_phase = static_cast<TimePhase>(phase);
+    Scene::TickLock tick_lock(scene);
     for (const auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) comp.instance->on_time_phase_changed(time_phase);
-        }
+        run_hook(*obj, "on_time_phase_changed", [&](ScriptComponent& script) {
+            script.on_time_phase_changed(time_phase);
+        });
     }
 }
 
 void ScriptManager::dispatch_player_connected(Scene& scene, uint32_t peer) {
+    Scene::TickLock tick_lock(scene);
     for (const auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) comp.instance->on_player_connected(peer);
-        }
+        run_hook(*obj, "on_player_connected",
+                 [&](ScriptComponent& script) { script.on_player_connected(peer); });
     }
 }
 
 void ScriptManager::dispatch_player_disconnected(Scene& scene, uint32_t peer) {
+    Scene::TickLock tick_lock(scene);
     for (const auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) comp.instance->on_player_disconnected(peer);
-        }
+        run_hook(*obj, "on_player_disconnected",
+                 [&](ScriptComponent& script) { script.on_player_disconnected(peer); });
     }
 }
 

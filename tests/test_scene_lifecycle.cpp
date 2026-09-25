@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <vector>
 
 using namespace fjell;
 
@@ -48,4 +49,39 @@ TEST_CASE("A node destroyed twice in one frame is queued once", "[scene_lifecycl
     scene.queue_destroy(parent);
     scene.queue_destroy(parent);
     CHECK(scene.pending_destroy().size() == 2);
+}
+
+TEST_CASE("While tracked, every node that joins is remembered once", "[scene_lifecycle]") {
+    Scene scene;
+    (void)scene.add_empty({}, "Before");
+    scene.track_added(true);
+    CHECK_FALSE(scene.has_added());
+
+    // Added directly (an input handler, a collision callback)...
+    const uint32_t direct = scene.add_empty({}, "Projectile");
+
+    // ...and deferred while something walks the scene, then flushed in.
+    uint32_t deferred = 0;
+    {
+        Scene::TickLock lock(scene);
+        deferred = scene.add_empty({}, "Spawned in tick");
+        // Not in the scene yet, so not joined yet.
+        CHECK(scene.take_added() == std::vector<uint32_t>{direct});
+    }
+    CHECK_FALSE(scene.has_added());
+    (void)scene.flush_spawned();
+    CHECK(scene.take_added() == std::vector<uint32_t>{deferred});
+    CHECK_FALSE(scene.has_added());
+}
+
+TEST_CASE("Untracked, nothing is remembered", "[scene_lifecycle]") {
+    // The editor adds nodes all the time; outside play nobody reads the list.
+    Scene scene;
+    (void)scene.add_empty({}, "Editor node");
+    CHECK_FALSE(scene.has_added());
+
+    scene.track_added(true);
+    (void)scene.add_empty({}, "Joined");
+    scene.track_added(false);
+    CHECK_FALSE(scene.has_added());
 }

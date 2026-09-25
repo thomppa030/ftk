@@ -22,6 +22,10 @@ struct ScriptEntry {
     std::unique_ptr<ScriptComponent> instance;
     std::string type_name;
     nlohmann::json serialized;
+    // Whether this instance's begin_play has run. A script can be started
+    // on its own (added to a running game) before the node it is on joins
+    // the scene and the rest of its scripts start; it starts only once.
+    bool started{false};
 
     ScriptEntry();
     ~ScriptEntry();

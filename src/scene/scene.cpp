@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace fjell {
 
@@ -103,6 +104,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
 
     id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(node));
+    if (tracking_added_) added_.push_back(id);
     return id;
 }
 
@@ -112,6 +114,7 @@ std::vector<uint32_t> Scene::flush_spawned() {
     spawned.reserve(pending_spawn_.size());
     for (auto& node : pending_spawn_) {
         spawned.push_back(node->id);
+        if (tracking_added_) added_.push_back(node->id);
         id_to_index_[node->id] = static_cast<int>(objects_.size());
         objects_.push_back(std::move(node));
     }
@@ -119,6 +122,15 @@ std::vector<uint32_t> Scene::flush_spawned() {
     index_dirty_ = true;
     dirty_ = true;
     return spawned;
+}
+
+void Scene::track_added(bool on) {
+    tracking_added_ = on;
+    added_.clear();
+}
+
+std::vector<uint32_t> Scene::take_added() {
+    return std::exchange(added_, {});
 }
 
 void Scene::remove(uint32_t id) {

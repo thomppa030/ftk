@@ -19,11 +19,13 @@ public:
     void on_play_start(const TickContext& ctx) override {
         manager_.prepare(ctx.scene, ctx.input, ctx.clock, ctx.physics);
         manager_.deserialize_all(ctx.scene);
+        manager_.set_playing(true);
         manager_.call_begin_play(ctx.scene);
     }
 
     void on_play_stop(const TickContext& ctx) override {
         manager_.call_end_play(ctx.scene);
+        manager_.set_playing(false);
     }
 
     [[nodiscard]] ScriptManager& manager() { return manager_; }
