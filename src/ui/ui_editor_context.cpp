@@ -467,7 +467,6 @@ void UiEditorContext::draw_preview(float dt) {
     for (const auto& [key, value] : mock_entries_) {
         preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
     }
-    sync_mock_lists();
 
     // Update the preview UI (layout, data bind, input in play mode)
     const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
@@ -1239,36 +1238,13 @@ void UiEditorContext::draw_mock_data() {
     }
 
     draw_mock_values();
-    draw_mock_lists();
     draw_action_bindings();
 
-    // One prompt for every name the panel asks for.
-    const char* title = prompt_for_ == MockPrompt::Value ? "New value"
-                      : prompt_for_ == MockPrompt::List  ? "New list"
-                                                         : "New field";
-    const char* hint = prompt_for_ == MockPrompt::Value ? "Its key, e.g. health"
-                     : prompt_for_ == MockPrompt::List  ? "The key foreach= names, e.g. inventory"
-                                                        : "Its key within the item, e.g. name";
-    if (ui::prompt_dialog("##mock_prompt", {.title = title, .hint = hint, .confirm = "Add"}, prompt_text_) ==
-        ui::DialogAnswer::Confirm) {
-        switch (prompt_for_) {
-            case MockPrompt::Value:
-                mock_entries_.emplace_back(prompt_text_, "");
-                preview_ui_->context().set(prompt_text_, "");
-                preview_ui_->mark_dirty();
-                break;
-            case MockPrompt::List:
-                mock_lists_.push_back({prompt_text_, {}});
-                open_list_ = static_cast<int>(mock_lists_.size()) - 1;
-                sync_mock_lists();
-                break;
-            case MockPrompt::Field:
-                if (prompt_list_ < mock_lists_.size() && prompt_item_ < mock_lists_[prompt_list_].items.size()) {
-                    mock_lists_[prompt_list_].items[prompt_item_].fields.emplace_back(prompt_text_, "");
-                    sync_mock_lists();
-                }
-                break;
-        }
+    if (ui::prompt_dialog("##mock_prompt", {.title = "New value", .hint = "Its key, e.g. health", .confirm = "Add"},
+                          prompt_text_) == ui::DialogAnswer::Confirm) {
+        mock_entries_.emplace_back(prompt_text_, "");
+        preview_ui_->context().set(prompt_text_, "");
+        preview_ui_->mark_dirty();
     }
 }
 
@@ -1325,7 +1301,6 @@ void UiEditorContext::draw_mock_values() {
         add = list.add_button("Add value");
     }
     if (add) {
-        prompt_for_ = MockPrompt::Value;
         prompt_text_.clear();
         ui::open_dialog("##mock_prompt");
     }
@@ -1340,73 +1315,6 @@ void UiEditorContext::draw_mock_values() {
             }
         }
     }
-}
-
-void UiEditorContext::draw_mock_lists() {
-    ui::section("Lists", ui::icon::ui_repeat);
-    bool changed = false;
-    bool add_list = false;
-    std::optional<std::size_t> remove_list;
-    std::optional<std::pair<std::size_t, std::size_t>> add_field;
-    {
-        ui::ListEditor lists("##lists", mock_lists_.size(), {.reorder = false, .opens = true});
-        for (std::size_t li = 0; li < mock_lists_.size(); ++li) {
-            auto& list = mock_lists_[li];
-            const bool open = open_list_ == static_cast<int>(li);
-            if (!lists.begin_item(li, open)) continue;
-            char summary[160];
-            std::snprintf(summary, sizeof(summary), "%s \xc2\xb7 %zu %s", list.key.c_str(), list.items.size(),
-                          list.items.size() == 1 ? "item" : "items");
-            ImGui::TextUnformatted(summary);
-            if (open) {
-                // Each item is a card of its own fields.
-                std::optional<std::size_t> remove_item;
-                ui::ListEditor items("##items", list.items.size(), {.reorder = false});
-                for (std::size_t ii = 0; ii < list.items.size(); ++ii) {
-                    if (!items.begin_item(ii)) continue;
-                    auto& item = list.items[ii];
-                    if (auto t = ui::PropertyTable("##fields")) {
-                        for (auto& [field_key, field_value] : item.fields) {
-                            ui::row(field_key.c_str(), [&] {
-                                const std::string id = "##" + field_key;
-                                changed |= ui::text_field(id.c_str(), field_value).committed;
-                            });
-                        }
-                        ui::row("", [&] {
-                            if (ui::action(ui::icon::add, "Add field", ui::ButtonKind::Ghost)) add_field = std::pair{li, ii};
-                        });
-                    }
-                    if (items.end_item()) remove_item = ii;
-                }
-                if (list.items.empty()) items.empty("No items: each is one copy of the foreach element");
-                if (items.add_button("Add item")) {
-                    list.items.push_back({});
-                    changed = true;
-                }
-                if (remove_item) {
-                    list.items.erase(list.items.begin() + static_cast<std::ptrdiff_t>(*remove_item));
-                    changed = true;
-                }
-            }
-            if (lists.end_item()) remove_list = li;
-            if (lists.clicked()) open_list_ = open ? -1 : static_cast<int>(li);
-        }
-        if (mock_lists_.empty()) lists.empty("No lists: add one for each foreach= the UI repeats");
-        add_list = lists.add_button("Add list");
-    }
-    if (add_list || add_field) {
-        prompt_for_ = add_list ? MockPrompt::List : MockPrompt::Field;
-        if (add_field) std::tie(prompt_list_, prompt_item_) = *add_field;
-        prompt_text_.clear();
-        ui::open_dialog("##mock_prompt");
-    }
-    if (remove_list) {
-        mock_lists_.erase(mock_lists_.begin() + static_cast<std::ptrdiff_t>(*remove_list));
-        if (open_list_ == static_cast<int>(*remove_list)) open_list_ = -1;
-        else if (open_list_ > static_cast<int>(*remove_list)) --open_list_;
-        changed = true;
-    }
-    if (changed) sync_mock_lists();
 }
 
 void UiEditorContext::draw_action_bindings() {
@@ -1460,27 +1368,6 @@ void UiEditorContext::draw_action_bindings() {
         if (open_binding_ == static_cast<int>(*remove)) open_binding_ = -1;
         else if (open_binding_ > static_cast<int>(*remove)) --open_binding_;
     }
-}
-
-// ── List sync ────────────────────────────────────────────────────────────
-
-void UiEditorContext::sync_mock_lists() {
-    if (!preview_ui_) return;
-    auto& ctx = preview_ui_->context();
-
-    for (const auto& ml : mock_lists_) {
-        std::vector<UiContext> items;
-        items.reserve(ml.items.size());
-        for (const auto& item : ml.items) {
-            UiContext item_ctx;
-            for (const auto& [k, v] : item.fields) {
-                item_ctx.set(k, v);
-            }
-            items.push_back(std::move(item_ctx));
-        }
-        ctx.set_list(ml.key, std::move(items));
-    }
-    preview_ui_->mark_dirty();
 }
 
 // ── Action Log Panel ─────────────────────────────────────────────────────

@@ -4,6 +4,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string>
@@ -13,6 +14,8 @@
 namespace fjell {
 
 struct OwnedFieldDesc;
+struct OwnedVectorDesc;
+class UiValue;
 
 /// A reflected object a scope holds, read in place: a widget's Model, or a
 /// struct inside one. It points into the object, so whoever puts it in a
@@ -26,6 +29,25 @@ struct UiObject {
     /// The same object: same place, read as the same type.
     friend bool operator==(const UiObject& a, const UiObject& b) {
         return a.address == b.address && a.fields.data() == b.fields.data();
+    }
+};
+
+/// A list a scope holds, read in place: a `std::vector` field of a Model,
+/// through the functions generated for its exact type. Like an object it
+/// points into the game's data, so whoever puts it in a scope keeps it
+/// current.
+struct UiList {
+    const OwnedVectorDesc* vector{nullptr};
+    const void* address{nullptr}; ///< the std::vector itself
+
+    [[nodiscard]] std::size_t size() const;
+    /// The entry at `index`, which must be below size(): an object for a
+    /// struct, the value itself for anything else.
+    [[nodiscard]] UiValue at(std::size_t index) const;
+
+    /// The same list: same place, read as the same type.
+    friend bool operator==(const UiList& a, const UiList& b) {
+        return a.address == b.address && a.vector == b.vector;
     }
 };
 
@@ -53,6 +75,7 @@ public:
     explicit UiValue(glm::vec3 value) : value_(UiVector{glm::vec4(value, 0.0f), 3}) {}
     explicit UiValue(glm::vec4 value) : value_(UiVector{value, 4}) {}
     explicit UiValue(UiObject object) : value_(object) {}
+    explicit UiValue(UiList list) : value_(list) {}
 
     /// Text as a declared prop type reads it: `float`, `int`, `bool` or
     /// `string`. Text that is not a number of that type stays text, as the
@@ -68,10 +91,12 @@ public:
 
     /// The object this holds, or null.
     [[nodiscard]] const UiObject* object() const { return std::get_if<UiObject>(&value_); }
+    /// The list this holds, or null.
+    [[nodiscard]] const UiList* list() const { return std::get_if<UiList>(&value_); }
 
     /// As markup shows it: `1`/`0` for a bool, the shortest decimal that reads
     /// back as the same float, a vector's components separated by `, `. An
-    /// object has no text.
+    /// object or a list has no text.
     [[nodiscard]] std::string text() const;
 
     /// As a number: text is read as one if it starts with one. None for no
@@ -79,8 +104,8 @@ public:
     [[nodiscard]] std::optional<float> number() const;
 
     /// For `if=` and `class:`: false for no value, false, zero, a vector of
-    /// zeros, an object with nothing to read, and the texts "", "0" and
-    /// "false".
+    /// zeros, an object with nothing to read, an empty list, and the texts
+    /// "", "0" and "false".
     [[nodiscard]] bool truthy() const;
 
     /// One step of a path: an object's field or getter by name, or a
@@ -93,7 +118,7 @@ public:
     bool operator==(const UiValue&) const = default;
 
 private:
-    std::variant<std::monostate, bool, int, float, std::string, UiVector, UiObject> value_;
+    std::variant<std::monostate, bool, int, float, std::string, UiVector, UiObject, UiList> value_;
 };
 
 } // namespace fjell

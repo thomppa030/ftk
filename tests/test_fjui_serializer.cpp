@@ -170,7 +170,7 @@ TEST_CASE("A {key} no prop declares is reported", "[widget-props]") {
     REQUIRE(logged.find("{title}") == std::string::npos);
 }
 
-TEST_CASE("Keys inside a foreach belong to the list items", "[widget-props]") {
+TEST_CASE("Keys inside a foreach belong to the repeat", "[widget-props]") {
     WidgetDir dir;
     auto path = dir.base / "widgets/effects.fjwidget";
     std::ofstream(path) <<
@@ -178,9 +178,9 @@ TEST_CASE("Keys inside a foreach belong to the list items", "[widget-props]") {
         "    <prop name=\"title\" type=\"string\"/>\n"
         "    <div>\n"
         "        <text>{title}</text>\n"
-        "        <div foreach=\"effects\" src=\"{icon}\">\n"
-        "            <text>{__index}: {name}</text>\n"
-        "            <bar value=\"{left}\" max=\"{duration}\"/>\n"
+        "        <div foreach=\"effect, i in effects\" src=\"{effect.icon}\">\n"
+        "            <text>{i}: {effect.name}</text>\n"
+        "            <bar value=\"{effect.left}\" max=\"{effect.duration}\"/>\n"
         "        </div>\n"
         "    </div>\n"
         "</widget>\n";

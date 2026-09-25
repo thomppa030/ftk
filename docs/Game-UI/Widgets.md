@@ -125,9 +125,9 @@ class health_bar_controller : public fjell::UiWidget {
 `[[fj::bind]]` fields are read by name where they are, each time markup shows them;
 a prop of the same name hides the field and is reported;
 `[[fj::action]]` methods and `ui().bind_action()` answer `on:click` and parameterized
-actions such as `on:activate="select_slot(3)"`. Lists for `foreach` are published
-with `ui().set_list_size()` and `ui().set_item()` (see [UiContext](UiContext.md)),
-cheap enough to call every tick. Find scene components by type with
+actions such as `on:activate="select_slot(3)"`. A list for `foreach` is a
+`std::vector` in a `[[fj::model]]` struct (see [FJUI](FJUI.md#lists)). Find scene
+components by type with
 `SceneAPI::find_node_with<PlayerStats>()` rather than by node name.
 
 ## Slot projection

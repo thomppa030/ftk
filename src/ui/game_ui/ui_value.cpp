@@ -25,6 +25,42 @@ UiValue call_getter(const OwnedFieldDesc& field, const void* object) {
     return UiValue(std::move(value));
 }
 
+/// A value as it is stored at `at`: a field of an object, or a list's entry.
+/// `size` is a char buffer's capacity, `labels` an enum's names.
+UiValue read_stored(FjellFieldType type, const void* at, uint32_t size, std::span<const std::string> labels,
+                    const OwnedTypeDesc* struct_type, const OwnedVectorDesc* vector) {
+    switch (type) {
+        case FJELL_FIELD_BOOL: return UiValue(*static_cast<const bool*>(at));
+        case FJELL_FIELD_INT: return UiValue(*static_cast<const int32_t*>(at));
+        case FJELL_FIELD_FLOAT: return UiValue(*static_cast<const float*>(at));
+        case FJELL_FIELD_VEC2: return UiValue(*static_cast<const glm::vec2*>(at));
+        case FJELL_FIELD_VEC3:
+        case FJELL_FIELD_COLOR3: return UiValue(*static_cast<const glm::vec3*>(at));
+        case FJELL_FIELD_VEC4:
+        case FJELL_FIELD_COLOR4: return UiValue(*static_cast<const glm::vec4*>(at));
+        case FJELL_FIELD_STD_STRING: return UiValue(*static_cast<const std::string*>(at));
+        case FJELL_FIELD_STRING: {
+            std::string_view chars(static_cast<const char*>(at), size);
+            return UiValue(std::string(chars.substr(0, chars.find('\0'))));
+        }
+        case FJELL_FIELD_ENUM: {
+            // Shown by its label; a value past the labels by its number.
+            const int32_t index = *static_cast<const int32_t*>(at);
+            if (index >= 0 && static_cast<size_t>(index) < labels.size()) {
+                return UiValue(labels[static_cast<size_t>(index)]);
+            }
+            return UiValue(index);
+        }
+        case FJELL_FIELD_STRUCT:
+            if (struct_type == nullptr) return {};
+            return UiValue(UiObject{struct_type->name, struct_type->fields, at});
+        case FJELL_FIELD_VECTOR:
+            if (vector == nullptr || vector->size == nullptr || vector->at == nullptr) return {};
+            return UiValue(UiList{vector, at});
+        default: return {}; // references and widget pointers are not values markup reads
+    }
+}
+
 /// What an object's field holds now.
 UiValue read_field(const OwnedFieldDesc& field, const void* object) {
     if (field.is_getter()) {
@@ -40,34 +76,8 @@ UiValue read_field(const OwnedFieldDesc& field, const void* object) {
             default: return {}; // fjreflect accepts no other return type
         }
     }
-    const void* at = static_cast<const char*>(object) + field.offset;
-    switch (field.type) {
-        case FJELL_FIELD_BOOL: return UiValue(*static_cast<const bool*>(at));
-        case FJELL_FIELD_INT: return UiValue(*static_cast<const int32_t*>(at));
-        case FJELL_FIELD_FLOAT: return UiValue(*static_cast<const float*>(at));
-        case FJELL_FIELD_VEC2: return UiValue(*static_cast<const glm::vec2*>(at));
-        case FJELL_FIELD_VEC3:
-        case FJELL_FIELD_COLOR3: return UiValue(*static_cast<const glm::vec3*>(at));
-        case FJELL_FIELD_VEC4:
-        case FJELL_FIELD_COLOR4: return UiValue(*static_cast<const glm::vec4*>(at));
-        case FJELL_FIELD_STD_STRING: return UiValue(*static_cast<const std::string*>(at));
-        case FJELL_FIELD_STRING: {
-            std::string_view chars(static_cast<const char*>(at), field.size);
-            return UiValue(std::string(chars.substr(0, chars.find('\0'))));
-        }
-        case FJELL_FIELD_ENUM: {
-            // Shown by its label; a value past the labels by its number.
-            const int32_t index = *static_cast<const int32_t*>(at);
-            if (index >= 0 && static_cast<size_t>(index) < field.enum_labels.size()) {
-                return UiValue(field.enum_labels[static_cast<size_t>(index)]);
-            }
-            return UiValue(index);
-        }
-        case FJELL_FIELD_STRUCT:
-            if (field.struct_type == nullptr) return {};
-            return UiValue(UiObject{field.struct_type->name, field.struct_type->fields, at});
-        default: return {}; // lists, references and widget pointers are not one value
-    }
+    return read_stored(field.type, static_cast<const char*>(object) + field.offset, field.size, field.enum_labels,
+                       field.struct_type, &field.vector);
 }
 
 /// `x y z w`, or `r g b a`: a component's index, or -1.
@@ -150,7 +160,17 @@ bool UiValue::truthy() const {
     if (const auto* s = std::get_if<std::string>(&value_)) return !s->empty() && *s != "0" && *s != "false";
     if (const auto* v = std::get_if<UiVector>(&value_)) return v->value != glm::vec4(0.0f);
     if (const auto* o = std::get_if<UiObject>(&value_)) return o->address != nullptr;
+    if (const auto* l = std::get_if<UiList>(&value_)) return l->size() > 0;
     return false;
+}
+
+std::size_t UiList::size() const {
+    return vector != nullptr && address != nullptr ? vector->size(address) : 0;
+}
+
+UiValue UiList::at(std::size_t index) const {
+    const void* entry = vector->at(address, static_cast<uint32_t>(index));
+    return read_stored(vector->element, entry, vector->element_size, {}, vector->element_type, nullptr);
 }
 
 UiValue UiValue::member(std::string_view name) const {

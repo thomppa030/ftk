@@ -108,7 +108,9 @@ struct UiNode {
     // Foreach directive
     bool is_foreach_template{false}; // hidden template node, preserved for cloning
     int foreach_item_index{-1};      // which list index this cloned node represents
-    UiContext* foreach_context{nullptr}; // non-owning, points to list item context
+    // A repeat's own scope, under the foreach's: the list entry and its index
+    // under the names the foreach gives them.
+    std::unique_ptr<UiContext> repeat_scope;
 
     std::vector<std::unique_ptr<UiNode>> children;
     UiNode* parent{nullptr};

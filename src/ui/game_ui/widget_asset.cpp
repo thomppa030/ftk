@@ -16,8 +16,8 @@ namespace fjell {
 
 /// Collect all {key} references from text content and attributes in a subtree.
 static void collect_key_references(const UiNode& node, std::vector<std::string>& keys) {
-    // A repeat and everything inside it read the values of its list item,
-    // `{__index}` among them, which the widget's props do not describe.
+    // A repeat and everything inside it read the entry and index its
+    // foreach names, which the widget's props do not describe.
     if (node.attributes.contains("foreach")) return;
 
     auto extract = [&](const std::string& s) {
@@ -158,7 +158,10 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     // Validate {path} references against declared props: each starts at a
     // prop or a model, or names a prop whole (a prop may have a dot in its
     // name). The pipes after it format the value and are not checked here.
-    if (asset.markup_root && !asset.props.empty()) {
+    // A widget with a controller also reads the controller's fields, which
+    // a file alone cannot know, so it is left to a check that has the game's
+    // reflection.
+    if (asset.markup_root && !asset.props.empty() && asset.class_name.empty()) {
         std::vector<std::string> keys;
         collect_key_references(*asset.markup_root, keys);
 

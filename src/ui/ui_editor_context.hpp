@@ -84,7 +84,6 @@ private:
     void draw_node_material_editor(UiNode& node);
     void draw_mock_data();
     void draw_mock_values();
-    void draw_mock_lists();
     void draw_action_bindings();
     void draw_action_log();
 
@@ -181,19 +180,6 @@ private:
     // Mock data: user-editable key/value pairs
     std::vector<std::pair<std::string, std::string>> mock_entries_;
 
-    // Mock list data for foreach directives
-    struct MockListItem {
-        std::vector<std::pair<std::string, std::string>> fields; // key/value per item
-    };
-    struct MockList {
-        std::string key;               // context list key (matches foreach="key")
-        std::vector<MockListItem> items;
-    };
-    std::vector<MockList> mock_lists_;
-    int open_list_{-1};         // the list card showing its items
-
-    void sync_mock_lists();
-
     // Action bindings: action name → (key, value) to set on dispatch
     struct ActionBinding {
         std::string action;
@@ -204,12 +190,7 @@ private:
     std::vector<std::string> discovered_actions_; // scanned from on:click attributes
     int open_binding_{-1};      // the binding card showing its fields
 
-    // The name the mock data's prompt dialog asks for, and what it is for:
-    // a value, a list, or a field of item `prompt_item_` in `prompt_list_`.
-    enum class MockPrompt { Value, List, Field };
-    MockPrompt prompt_for_{MockPrompt::Value};
-    std::size_t prompt_list_{0};
-    std::size_t prompt_item_{0};
+    // The key the mock data's prompt dialog asks for.
     std::string prompt_text_;
 
     // Widget isolation: true when editing a file from widgets/ directory

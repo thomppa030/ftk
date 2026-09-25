@@ -3,7 +3,6 @@
 #include "core/delegate.hpp"
 #include "ui/game_ui/ui_value.hpp"
 
-#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -17,11 +16,6 @@ namespace fjell {
 class UiContext;
 class UiPipes;
 struct UiExpression;
-
-/// The items of a list, for `foreach`. A deque, because each repeat the
-/// markup stamps out keeps a pointer to its item: a deque grown or shrunk at
-/// the back leaves every surviving item where it was.
-using UiList = std::deque<UiContext>;
 
 /// Hashes a name as text, so a scope is searched with a string_view and no
 /// std::string is built to look one up.
@@ -145,52 +139,10 @@ public:
         if (parent_) parent_->dispatch(action, args);
     }
 
-    /// Replace a list's items for foreach directives. Each item becomes a
-    /// context whose parent is this one. The items are moved into the slots
-    /// the list already has, so a repeat pointing at an item that survives
-    /// the change still points at a live context.
-    void set_list(const std::string& key, std::vector<UiContext> items) {
-        auto& list = lists_[key];
-        list.resize(items.size());
-        for (size_t i = 0; i < items.size(); ++i) {
-            list[i] = std::move(items[i]);
-            list[i].set_parent(this);
-        }
-    }
-
-    /// Grow or shrink a list at its end. Surviving items keep their values
-    /// and their place; new ones start empty, reading through to this
-    /// context. Resizing to the current size changes nothing.
-    void set_list_size(const std::string& key, size_t count) {
-        auto& list = lists_[key];
-        while (list.size() > count) list.pop_back();
-        while (list.size() < count) list.emplace_back(this);
-    }
-
-    /// Set a value on one item of a list. Ignored when the list does not
-    /// exist or the index is past its end.
-    void set_item(const std::string& key, size_t index, const std::string& field, UiValue value) {
-        auto it = lists_.find(key);
-        if (it == lists_.end() || index >= it->second.size()) return;
-        it->second[index].set(field, std::move(value));
-    }
-
-    /// Get a list by key, or nullptr if not found.
-    [[nodiscard]] UiList* get_list(const std::string& key) {
-        auto it = lists_.find(key);
-        return it != lists_.end() ? &it->second : nullptr;
-    }
-
-    [[nodiscard]] const UiList* get_list(const std::string& key) const {
-        auto it = lists_.find(key);
-        return it != lists_.end() ? &it->second : nullptr;
-    }
-
     void clear() {
         values_.clear();
         actions_.clear();
         param_actions_.clear();
-        lists_.clear();
     }
 
 private:
@@ -204,7 +156,6 @@ private:
     std::unordered_map<std::string, UiValue, UiNameHash, std::equal_to<>> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
-    std::unordered_map<std::string, UiList> lists_;
 };
 
 } // namespace fjell

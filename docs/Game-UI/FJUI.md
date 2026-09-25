@@ -47,7 +47,7 @@ Any element takes `src="path"` to draw a texture, resolved against the project, 
 | `if="key"` | shows the element while `key` is truthy: not empty, not `0`, not `false` |
 | `class:name="key==value"` | adds `name` while the comparison holds; either side may be a `{key}` |
 | `on:click="action"` | dispatches `action`; `select_slot(3)` passes arguments |
-| `foreach="list"` | repeats the element once per item of a list, each item its own scope |
+| `foreach="item, i in path"` | repeats the element once per entry of a list, each repeat with its entry as `item` and its position as `i` (`item in path` without one) |
 | `style-<property>="value"` | an inline style, templates resolved: `style---fill="{color}"` |
 | `value`, `max` on `bar` | fill fraction, also `FILL` inside a ui shader |
 | `settle`, `bounce` on `bar` | how the drawn fill follows the value: seconds to come to rest (0.35) and overshoot 0..1 (0.25) |
@@ -103,8 +103,19 @@ A prop bound through a pipe is still stored as its declared type:
 Values arrive through a `UiContext` (see [UiContext](UiContext.md)): the props a
 widget's placement passes, its Models, its `ui().set()` calls, and its controller's
 fields. Contexts nest: a widget instance resolves `{key}` in its own context first
-(its values, then its controller's fields), then its parent's, up to the root. A `foreach` item is a context of its own with `{__index}`
-set to its position.
+(its values, then its controller's fields), then its parent's, up to the root. Each
+repeat of a `foreach` is a context of its own under the foreach's, holding its entry
+and index under the names the `foreach` gives them.
+
+## Lists
+
+A list is a `std::vector` field of a Model: a controller's `[[fj::model]]` struct or
+a component's `[[fj::state]]` field. `foreach="slot, i in hud.slots"` stamps the element
+once per entry; inside it `{slot.name}` reads the entry (a struct is read field by
+field, a value as it is) and `{i}` its position from 0. The vector is read where it
+is, every frame the repeats are on show, so the game changes its data and the UI
+follows: a list that grows or shrinks at its end keeps the repeats it already had and
+stamps or removes the rest. `if="hud.slots"` is false for an empty list.
 
 Actions go the other way. A click bubbles from the hit element upward until an
 element with `on:click` is found. If that element sits inside a widget instance that

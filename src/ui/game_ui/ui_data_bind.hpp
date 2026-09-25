@@ -41,8 +41,10 @@ struct DataBindWork {
 /// those whose values differ from the last ones applied. Values are compared
 /// as read, before their pipes, which format them only when they change. A subtree hidden by
 /// `if=`, or by `display: none` in the last style pass, evaluates only its
-/// root's props, `if=` and `class:`. A `foreach` whose list changed length
-/// stamps or removes repeats, and the tree's bindings are compiled again.
+/// root's props, `if=` and `class:`. `foreach="item, i in path"` repeats an
+/// element per entry of a list, each repeat with a scope of its own holding
+/// the entry and its index; a list that changed length stamps or removes
+/// repeats at its end, and the tree's bindings are compiled again.
 class UiDataBind {
 public:
     /// Evaluate the bindings on show and apply the ones that changed.
@@ -64,8 +66,8 @@ public:
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
 
     /// Deep-clone a UiNode subtree. Copies structural data (tag, attributes,
-    /// classes, text, widget state) but not runtime pointers (yg_node,
-    /// foreach_context, scoped_context).
+    /// classes, text, widget state) but not runtime state (yg_node,
+    /// repeat_scope, scoped_context).
     static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
 
 private:
@@ -95,12 +97,13 @@ private:
 
     struct Binding {
         Kind kind{Kind::text};
-        std::string name{};      ///< a prop, class or style property; a repeat's list
+        std::string name{};      ///< a prop, class or style property; a repeat's entry
         std::string type{};      ///< a prop's declared type ("" keeps the value as it is)
+        std::string index{};     ///< a repeat's index name; empty for none
         Template value{};        ///< what it shows; a condition's left side; a bar's value
         Template other{};        ///< a `class:` comparison's right side; a bar's max
         bool compares{false};    ///< `class:name="a==b"` rather than a truth test
-        UiNode* repeated{nullptr}; ///< a repeat's template node
+        UiNode* repeated{nullptr}; ///< a repeat's template node; `value` is its list
         std::vector<UiValue> last{}; ///< what the expressions read when last applied, before their pipes
         bool applied{false};
     };
@@ -128,8 +131,8 @@ private:
     void evaluate(Binding& binding, const NodeEntry& entry, DataBindResult& result);
     /// Applies a binding with its values as shown: read, then formatted.
     void apply(const Binding& binding, std::span<const UiValue> shown, UiNode& node, DataBindResult& result) const;
-    /// Stamps or removes repeats to match the list and points each at its
-    /// item. True when the tree changed.
+    /// Stamps or removes repeats to match the list and gives each its entry
+    /// and index. True when the tree changed.
     bool repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result);
     /// Compile the table again and evaluate all of it.
     void rebuild_and_evaluate(DataBindResult& result);

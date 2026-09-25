@@ -1,11 +1,51 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "core/log.hpp"
 #include "core/profiler.hpp"
 
 #include <algorithm>
 #include <optional>
 
 namespace fjell {
+
+namespace {
+
+std::string_view trim(std::string_view text) {
+    const auto first = text.find_first_not_of(" \t");
+    if (first == std::string_view::npos) return {};
+    return text.substr(first, text.find_last_not_of(" \t") - first + 1);
+}
+
+bool is_name(std::string_view text) {
+    return !text.empty() && std::ranges::all_of(text, [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    });
+}
+
+/// What a `foreach` says: the name each repeat gives its entry, the one it
+/// gives its index (empty for none), and the path to the list.
+struct Foreach {
+    std::string item;
+    std::string index;
+    std::string list;
+};
+
+/// `item in path` or `item, i in path`; nothing when the text is neither.
+std::optional<Foreach> parse_foreach(std::string_view text) {
+    const auto in = text.find(" in ");
+    if (in == std::string_view::npos) return std::nullopt;
+    const std::string_view names = text.substr(0, in);
+    const auto comma = names.find(',');
+    Foreach out{.item = std::string(trim(names.substr(0, comma))),
+                .index = comma != std::string_view::npos ? std::string(trim(names.substr(comma + 1))) : std::string(),
+                .list = std::string(trim(text.substr(in + 4)))};
+    if (!is_name(out.item) || (comma != std::string_view::npos && !is_name(out.index)) || out.list.empty()) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+} // namespace
 
 // ── Templates ───────────────────────────────────────────────────────────
 
@@ -93,15 +133,14 @@ void UiDataBind::build(UiNode& root, UiContext& context) {
 }
 
 void UiDataBind::add_node(UiNode& node, UiContext& outer) {
-    // A repeat reads its list item, a widget its own scope, anything else
-    // the scope around it.
-    UiContext& scope = node.foreach_context ? *node.foreach_context
-                     : node.scoped_context  ? *node.scoped_context
-                                            : outer;
+    // A repeat reads through its own scope, which holds its entry; a widget
+    // reads its own scope, and its props the scope around it.
+    UiContext& around = node.repeat_scope ? *node.repeat_scope : outer;
+    UiContext& scope = node.scoped_context ? *node.scoped_context : around;
     const std::size_t index = nodes_.size();
     nodes_.push_back({.node = &node,
                       .scope = &scope,
-                      .outer = &outer,
+                      .outer = &around,
                       .first_binding = static_cast<uint32_t>(bindings_.size()),
                       .gate_end = 0,
                       .end_binding = 0,
@@ -167,7 +206,17 @@ void UiDataBind::add_node(UiNode& node, UiContext& outer) {
             child->hidden_by_if = true;
             templates_marked_ = true;
         }
-        bindings_.push_back({.kind = Kind::repeat, .name = it->second, .repeated = child.get()});
+        const auto spec = parse_foreach(it->second);
+        if (!spec) {
+            FJELL_CORE_WARN("{}:{}: foreach=\"{}\" reads `item in list` or `item, i in list`",
+                            child->source_file, child->source_line, it->second);
+            continue;
+        }
+        bindings_.push_back({.kind = Kind::repeat,
+                             .name = spec->item,
+                             .index = spec->index,
+                             .value = compile_expression(spec->list),
+                             .repeated = child.get()});
     }
     nodes_[index].end_binding = static_cast<uint32_t>(bindings_.size());
 
@@ -366,7 +415,8 @@ void UiDataBind::apply(const Binding& binding, std::span<const UiValue> shown, U
 bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result) {
     ++work_.evaluated;
     UiNode& parent = *entry.node;
-    UiList* list = entry.scope->get_list(binding.name);
+    const UiValue listed = entry.scope->lookup(binding.value.parts.front().expression.path);
+    const UiList* list = listed.list();
     const std::size_t count = list != nullptr ? list->size() : 0;
 
     std::size_t at = 0;
@@ -378,10 +428,10 @@ bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult
         ++existing;
     }
 
-    bool changed = false;
-    if (existing != count) {
-        changed = true;
+    const bool changed = existing != count;
+    if (changed) {
         result.layout_changed = true;
+        ++work_.applied;
         if (existing > count) {
             parent.children.erase(parent.children.begin() + static_cast<std::ptrdiff_t>(first + count),
                                   parent.children.begin() + static_cast<std::ptrdiff_t>(first + existing));
@@ -392,23 +442,18 @@ bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult
             clone->hidden_by_if = false;
             clone->foreach_item_index = static_cast<int>(j);
             clone->attributes.erase("foreach");
+            clone->repeat_scope = std::make_unique<UiContext>(entry.scope);
             parent.children.insert(parent.children.begin() + static_cast<std::ptrdiff_t>(first + j),
                                    std::move(clone));
         }
     }
-    // Each repeat reads its own item. A list refilled into new items moves
-    // them, and the repeats have to follow; `__index` is set on every pass,
-    // as refilling an item replaces its values.
+    // Each repeat's entry is read again every frame: a vector moves its
+    // entries when it grows, and a struct entry is read where it is now.
     for (std::size_t j = 0; j < count; ++j) {
-        UiContext& item = (*list)[j];
-        UiNode& repeat_node = *parent.children[first + j];
-        if (repeat_node.foreach_context != &item) {
-            repeat_node.foreach_context = &item;
-            changed = true;
-        }
-        item.set("__index", std::to_string(j));
+        UiContext& scope = *parent.children[first + j]->repeat_scope;
+        scope.set(binding.name, list->at(j));
+        if (!binding.index.empty()) scope.set(binding.index, UiValue(static_cast<int>(j)));
     }
-    if (changed) ++work_.applied;
     return changed;
 }
 

@@ -150,10 +150,16 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
 }
 
 void UiInput::dispatch_action(const std::string& expr, UiNode& node, UiContext& context) {
-    // Determine which context to use for resolving {key} templates in args.
-    UiContext& ctx = node.foreach_context ? *node.foreach_context
-                   : node.scoped_context  ? *node.scoped_context
-                   : context;
+    // {key} templates in the args read the scope the node reads: its own
+    // widget's or repeat's, else the nearest ancestor's, else the UI's root.
+    UiContext* scope = &context;
+    for (UiNode* n = &node; n != nullptr; n = n->parent) {
+        if (n->scoped_context || n->repeat_scope) {
+            scope = n->scoped_context ? n->scoped_context.get() : n->repeat_scope.get();
+            break;
+        }
+    }
+    UiContext& ctx = *scope;
 
     // Parse "action(arg1, arg2, ...)" or plain "action"
     auto paren = expr.find('(');

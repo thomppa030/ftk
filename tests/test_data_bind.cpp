@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/widget_asset.hpp"
+#include "scripting/reflected_types.hpp"
 #include "core/log.hpp"
 
 #include <catch2/benchmark/catch_benchmark.hpp>
@@ -826,16 +827,15 @@ TEST_CASE("clone_node copies structure and widget state", "[databind]") {
     REQUIRE(clone->parent == nullptr);
 }
 
-TEST_CASE("clone_node does not copy runtime pointers", "[databind]") {
+TEST_CASE("clone_node does not copy runtime state", "[databind]") {
     auto src = make_element("div");
     src->scoped_context = std::make_unique<UiContext>();
-    UiContext item;
-    src->foreach_context = &item;
+    src->repeat_scope = std::make_unique<UiContext>();
 
     auto clone = UiDataBind::clone_node(*src, nullptr);
 
     REQUIRE(clone->scoped_context == nullptr);
-    REQUIRE(clone->foreach_context == nullptr);
+    REQUIRE(clone->repeat_scope == nullptr);
     REQUIRE(clone->yg_node == nullptr);
 }
 
@@ -851,236 +851,299 @@ TEST_CASE("clone_node is a deep copy", "[databind]") {
 
 // --- foreach ---
 
-static std::vector<UiContext> make_items(const std::vector<std::string>& names) {
-    std::vector<UiContext> items;
-    items.reserve(names.size());
-    for (const auto& n : names) {
-        UiContext item;
-        item.set("name", n);
-        items.push_back(std::move(item));
-    }
-    return items;
+// A Model holding lists, and the descriptors fjreflect would generate for it.
+struct Entry {
+    std::string name{};
+    std::string icon{};
+    bool starred{false};
+};
+
+struct Shelf {
+    std::vector<Entry> items{};
+    std::vector<int> numbers{};
+};
+
+static uint32_t offset_in(const void* object, const void* member) {
+    return static_cast<uint32_t>(static_cast<const char*>(member) - static_cast<const char*>(object));
 }
 
-TEST_CASE("foreach stamps one clone per list item", "[databind]") {
+static OwnedFieldDesc state_field(const char* name, FjellFieldType type, uint32_t offset) {
+    OwnedFieldDesc field{};
+    field.name = name;
+    field.type = type;
+    field.offset = offset;
+    field.flags = FJELL_FIELD_FLAG_STATE;
+    return field;
+}
+
+template <class T>
+static OwnedVectorDesc vector_of(FjellFieldType element, const OwnedTypeDesc* element_type) {
+    return {.element = element,
+            .element_type = element_type,
+            .element_size = sizeof(T),
+            .size = [](const void* v) { return static_cast<uint32_t>(static_cast<const std::vector<T>*>(v)->size()); },
+            .at = [](const void* v, uint32_t i) -> const void* { return &(*static_cast<const std::vector<T>*>(v))[i]; }};
+}
+
+// Lives where it was made: the shelf's fields point at the entry type.
+struct ShelfTypes {
+    OwnedTypeDesc entry;
+    std::vector<OwnedFieldDesc> shelf;
+
+    ShelfTypes() {
+        const Entry e;
+        entry.name = "Entry";
+        entry.fields = {state_field("name", FJELL_FIELD_STD_STRING, offset_in(&e, &e.name)),
+                        state_field("icon", FJELL_FIELD_STD_STRING, offset_in(&e, &e.icon)),
+                        state_field("starred", FJELL_FIELD_BOOL, offset_in(&e, &e.starred))};
+        const Shelf s;
+        auto items = state_field("items", FJELL_FIELD_VECTOR, offset_in(&s, &s.items));
+        items.vector = vector_of<Entry>(FJELL_FIELD_STRUCT, &entry);
+        auto numbers = state_field("numbers", FJELL_FIELD_VECTOR, offset_in(&s, &s.numbers));
+        numbers.vector = vector_of<int>(FJELL_FIELD_INT, nullptr);
+        shelf = {items, numbers};
+    }
+    ShelfTypes(const ShelfTypes&) = delete;
+    ShelfTypes& operator=(const ShelfTypes&) = delete;
+
+    [[nodiscard]] UiValue object(const Shelf& s) const { return UiValue(UiObject{"Shelf", shelf, &s}); }
+};
+
+static std::vector<Entry> entries(std::initializer_list<const char*> names) {
+    std::vector<Entry> out;
+    for (const char* name : names) out.push_back({.name = name});
+    return out;
+}
+
+// A root holding a template repeated by `foreach`, with a text reading `text`.
+static UiNode* repeat_of(UiNode& root, const char* foreach, const char* text) {
+    auto* tmpl = add_child(root, make_element("span"));
+    tmpl->attributes["foreach"] = foreach;
+    add_child(*tmpl, make_text(text));
+    return tmpl;
+}
+
+static const std::string& shown(const UiNode& root, std::size_t repeat) {
+    return root.children[repeat + 1]->children[0]->text_content;
+}
+
+TEST_CASE("foreach stamps one repeat per entry of a list", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"one", "two", "three"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"one", "two", "three"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    // template + 3 clones
-    REQUIRE(root->children.size() == 4);
-    REQUIRE(root->children[0]->is_foreach_template == true);
-    REQUIRE(root->children[0]->hidden_by_if == true);
-
+    REQUIRE(root->children.size() == 4); // the template and three repeats
+    REQUIRE(root->children[0]->is_foreach_template);
+    REQUIRE(root->children[0]->hidden_by_if);
     for (int i = 0; i < 3; ++i) {
-        auto& clone = *root->children[static_cast<size_t>(i) + 1];
-        REQUIRE(clone.foreach_item_index == i);
-        REQUIRE(clone.is_foreach_template == false);
-        REQUIRE(clone.hidden_by_if == false);
-        REQUIRE_FALSE(clone.attributes.contains("foreach"));
+        auto& repeat = *root->children[static_cast<std::size_t>(i) + 1];
+        REQUIRE(repeat.foreach_item_index == i);
+        REQUIRE_FALSE(repeat.is_foreach_template);
+        REQUIRE_FALSE(repeat.hidden_by_if);
+        REQUIRE_FALSE(repeat.attributes.contains("foreach"));
+        REQUIRE(repeat.repeat_scope != nullptr);
     }
-
-    REQUIRE(root->children[1]->children[0]->text_content == "one");
-    REQUIRE(root->children[2]->children[0]->text_content == "two");
-    REQUIRE(root->children[3]->children[0]->text_content == "three");
+    REQUIRE(shown(*root, 0) == "one");
+    REQUIRE(shown(*root, 1) == "two");
+    REQUIRE(shown(*root, 2) == "three");
 }
 
-TEST_CASE("foreach exposes __index on each item", "[databind]") {
+TEST_CASE("foreach names each repeat's index", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{__index}:{name}"));
+    repeat_of(*root, "item, i in shelf.items", "{i}:{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"a", "b"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(root->children[1]->children[0]->text_content == "0:a");
-    REQUIRE(root->children[2]->children[0]->text_content == "1:b");
+    REQUIRE(shown(*root, 0) == "0:a");
+    REQUIRE(shown(*root, 1) == "1:b");
 }
 
-TEST_CASE("foreach items fall back to the outer context", "[databind]") {
+TEST_CASE("A repeat reads the scope around its foreach", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{prefix}{name}"));
+    repeat_of(*root, "item in shelf.items", "{prefix}{item.name}");
 
     UiContext ctx;
     ctx.set("prefix", ">");
-    ctx.set_list("items", make_items({"a"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(root->children[1]->children[0]->text_content == ">a");
+    REQUIRE(shown(*root, 0) == ">a");
 }
 
 TEST_CASE("foreach grows and shrinks with the list", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"a", "b"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 3);
+    UiNode* first = root->children[1].get();
 
-    ctx.set_list("items", make_items({"a", "b", "c", "d"}));
-    auto grew = bind.resolve(*root, ctx);
+    shelf.items = entries({"a", "b", "c", "d"});
+    const auto grew = bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 5);
-    REQUIRE(grew.layout_changed == true);
-    REQUIRE(root->children[4]->children[0]->text_content == "d");
+    REQUIRE(grew.layout_changed);
+    REQUIRE(shown(*root, 3) == "d");
+    REQUIRE(root->children[1].get() == first); // kept, not stamped again
 
-    ctx.set_list("items", make_items({"a"}));
-    auto shrank = bind.resolve(*root, ctx);
+    shelf.items = entries({"z"});
+    const auto shrank = bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 2);
-    REQUIRE(shrank.layout_changed == true);
-    REQUIRE(root->children[1]->children[0]->text_content == "a");
+    REQUIRE(shrank.layout_changed);
+    REQUIRE(shown(*root, 0) == "z");
 }
 
 TEST_CASE("foreach over an empty list leaves only the template", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf;
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", {});
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
     REQUIRE(root->children.size() == 1);
-    REQUIRE(root->children[0]->is_foreach_template == true);
+    REQUIRE(root->children[0]->is_foreach_template);
 }
 
-TEST_CASE("foreach over a missing list produces no clones", "[databind]") {
+TEST_CASE("foreach over a path that reaches no list stamps nothing", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "nonexistent";
+    repeat_of(*root, "item in shelf.missing", "{item.name}");
+    repeat_of(*root, "item in nobody.items", "{item.name}");
+    repeat_of(*root, "item in shelf", "{item.name}"); // an object, not a list
 
     UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(root->children.size() == 1);
-    REQUIRE(root->children[0]->is_foreach_template == true);
-}
-
-TEST_CASE("foreach clone count is stable across repeated resolves", "[databind]") {
-    auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
-
-    UiContext ctx;
-    ctx.set_list("items", make_items({"a", "b"}));
-    UiDataBind bind;
-    bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 3);
+    for (const auto& child : root->children) REQUIRE(child->is_foreach_template);
+}
 
+TEST_CASE("A foreach that is not `item in list` is reported and repeats nothing", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a"})};
+    auto root = make_element("div");
+    repeat_of(*root, "items", "{name}");
+    repeat_of(*root, "a b in shelf.items", "{a}");
+
+    UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children.size() == 2);
+    REQUIRE(root->children[0]->hidden_by_if); // still a template: never shown
+}
+
+TEST_CASE("The repeat count is stable across repeated resolves", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b"})};
+    auto root = make_element("div");
+    repeat_of(*root, "item in shelf.items", "{item.name}");
+
+    UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
+    UiDataBind bind;
     for (int i = 0; i < 5; ++i) bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 3);
 }
 
-TEST_CASE("foreach clones pick up item value changes", "[databind]") {
+TEST_CASE("A repeat shows its entry as it is now", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"before"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"before"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
-    REQUIRE(root->children[1]->children[0]->text_content == "before");
+    REQUIRE(shown(*root, 0) == "before");
 
-    ctx.set_item("items", 0, "name", "after");
-    bind.resolve(*root, ctx);
-    REQUIRE(root->children[1]->children[0]->text_content == "after");
+    shelf.items[0].name = "after";
+    const auto changed = bind.resolve(*root, ctx);
+    REQUIRE(shown(*root, 0) == "after");
+    REQUIRE_FALSE(changed.layout_changed); // a text, nothing structural
 }
 
-TEST_CASE("foreach follows set_list_size and set_item", "[databind][lists]") {
+TEST_CASE("A repeat follows its entry when the vector moves its storage", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a"})};
+    shelf.items.shrink_to_fit();
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "effects";
-    add_child(*tmpl, make_text("{name} {left}"));
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list_size("effects", 3);
-    const char* names[] = {"wet", "tailwind", "burning"};
-    for (size_t i = 0; i < 3; ++i) {
-        ctx.set_item("effects", i, "name", names[i]);
-        ctx.set_item("effects", i, "left", "10");
-    }
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
-    REQUIRE(root->children.size() == 4);
-    REQUIRE(root->children[3]->children[0]->text_content == "burning 10");
+    const Entry* before = shelf.items.data();
 
-    // A countdown touches one field per item and nothing structural.
-    ctx.set_item("effects", 2, "left", "9");
-    auto ticked = bind.resolve(*root, ctx);
-    REQUIRE(root->children[3]->children[0]->text_content == "burning 9");
-    REQUIRE(ticked.layout_changed == false);
-
-    ctx.set_list_size("effects", 1);
-    auto shrank = bind.resolve(*root, ctx);
-    REQUIRE(root->children.size() == 2);
-    REQUIRE(shrank.layout_changed == true);
-    REQUIRE(root->children[1]->children[0]->text_content == "wet 10");
+    for (int i = 0; i < 64; ++i) shelf.items.push_back({.name = "more"});
+    REQUIRE(shelf.items.data() != before); // the entries moved
+    shelf.items[0].name = "moved";
+    bind.resolve(*root, ctx);
+    REQUIRE(shown(*root, 0) == "moved");
+    REQUIRE(root->children.size() == 66);
 }
 
-TEST_CASE("A repeat keeps pointing at its item while the list grows", "[databind][lists]") {
+TEST_CASE("A list of values repeats the values", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.numbers = {3, 5}};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
+    repeat_of(*root, "n in shelf.numbers", "#{n}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"a"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
-    UiContext* first = root->children[1]->foreach_context;
-    REQUIRE(first == &ctx.get_list("items")->at(0));
 
-    // Growing adds at the end without moving the first item, so the repeat
-    // stamped for it never holds a stale pointer, even before a resolve.
-    ctx.set_list_size("items", 64);
-    REQUIRE(&ctx.get_list("items")->at(0) == first);
-    REQUIRE(first->get("name") == "a");
-    bind.resolve(*root, ctx);
-    REQUIRE(root->children[1]->foreach_context == first);
+    REQUIRE(shown(*root, 0) == "#3");
+    REQUIRE(shown(*root, 1) == "#5");
+    REQUIRE(ctx.evaluate("shelf.numbers").truthy());
+    REQUIRE_FALSE(ctx.evaluate("shelf.items").truthy()); // an empty list
 }
 
 TEST_CASE("foreach honours if directives inside the template", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = {{.name = "a", .starred = true}, {.name = "b", .starred = false}}};
     auto root = make_element("div");
     auto* tmpl = add_child(*root, make_element("span"));
-    tmpl->attributes["foreach"] = "items";
+    tmpl->attributes["foreach"] = "item in shelf.items";
     auto* badge = add_child(*tmpl, make_element("i"));
-    badge->attributes["if"] = "starred";
+    badge->attributes["if"] = "item.starred";
 
     UiContext ctx;
-    std::vector<UiContext> items;
-    UiContext a;
-    a.set("starred", "1");
-    items.push_back(std::move(a));
-    UiContext b;
-    b.set("starred", "0");
-    items.push_back(std::move(b));
-    ctx.set_list("items", std::move(items));
-
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(root->children[1]->children[0]->hidden_by_if == false);
-    REQUIRE(root->children[2]->children[0]->hidden_by_if == true);
+    REQUIRE_FALSE(root->children[1]->children[0]->hidden_by_if);
+    REQUIRE(root->children[2]->children[0]->hidden_by_if);
 }
 
 TEST_CASE("A new tree is bound on its first resolve, forgotten or not", "[bind]") {
@@ -1143,71 +1206,6 @@ TEST_CASE("style-* attributes resolve their {key} templates into inline styles",
     REQUIRE_FALSE(third.layout_changed);
 }
 
-// --- Lists on the context ---
-
-TEST_CASE("set_list refills the items where they are", "[lists]") {
-    UiContext ctx;
-    ctx.set_list("items", make_items({"a", "b"}));
-    UiContext* first = &ctx.get_list("items")->at(0);
-
-    ctx.set_list("items", make_items({"x", "y", "z"}));
-    REQUIRE(&ctx.get_list("items")->at(0) == first);
-    REQUIRE(first->get("name") == "x");
-    REQUIRE(first->parent() == &ctx);
-    REQUIRE(ctx.get_list("items")->at(2).parent() == &ctx);
-}
-
-TEST_CASE("set_list_size grows with empty items that read through to the owner", "[lists]") {
-    UiContext ctx;
-    ctx.set("prefix", ">");
-    ctx.set_list_size("items", 2);
-    const auto* list = ctx.get_list("items");
-    REQUIRE(list != nullptr);
-    REQUIRE(list->size() == 2);
-    REQUIRE(list->at(1).get("prefix") == ">");
-    REQUIRE(list->at(1).get("name").empty());
-}
-
-TEST_CASE("set_list_size shrinks from the end and keeps the rest", "[lists]") {
-    UiContext ctx;
-    ctx.set_list("items", make_items({"a", "b", "c"}));
-    UiContext* first = &ctx.get_list("items")->at(0);
-
-    ctx.set_list_size("items", 1);
-    REQUIRE(ctx.get_list("items")->size() == 1);
-    REQUIRE(&ctx.get_list("items")->at(0) == first);
-    REQUIRE(first->get("name") == "a");
-}
-
-TEST_CASE("set_list_size to the current size changes nothing", "[lists]") {
-    UiContext ctx;
-    ctx.set_list_size("items", 3);
-    ctx.set_item("items", 2, "name", "c");
-    const UiContext* last = &ctx.get_list("items")->at(2);
-    ctx.set_list_size("items", 3);
-    REQUIRE(&ctx.get_list("items")->at(2) == last);
-    REQUIRE(last->get("name") == "c");
-}
-
-TEST_CASE("set_item sets a value on one item", "[lists]") {
-    UiContext ctx;
-    ctx.set_list_size("items", 2);
-    ctx.set_item("items", 1, "name", "a");
-    REQUIRE(ctx.get_list("items")->at(1).get("name") == "a");
-    REQUIRE(ctx.get_list("items")->at(0).get("name").empty());
-}
-
-TEST_CASE("set_item ignores a missing list and an index past the end", "[lists]") {
-    UiContext ctx;
-    ctx.set_item("nothing", 0, "name", "a");
-    REQUIRE(ctx.get_list("nothing") == nullptr);
-
-    ctx.set_list_size("items", 1);
-    ctx.set_item("items", 1, "name", "a");
-    REQUIRE(ctx.get_list("items")->size() == 1);
-    REQUIRE(ctx.get_list("items")->at(0).get("name").empty());
-}
-
 // --- src and material templates ---
 
 TEST_CASE("A templated src is reported when it resolves and when it changes", "[databind][assets]") {
@@ -1241,30 +1239,28 @@ TEST_CASE("A plain src or material is left to the loader", "[databind][assets]")
     REQUIRE(root->bound_material.empty());
 }
 
-TEST_CASE("Each repeat binds its own item's src and material", "[databind][assets]") {
+TEST_CASE("Each repeat binds its own entry's src and material", "[databind][assets]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = {{.name = "ui_ring", .icon = "wet.png"}, {.name = "ui_ring_harmful", .icon = "burn.png"}}};
     auto root = make_element("div");
     auto* tmpl = add_child(*root, make_element("div"));
-    tmpl->attributes["foreach"] = "effects";
-    tmpl->attributes["src"] = "{icon}";
-    tmpl->attributes["material"] = "{ring}";
+    tmpl->attributes["foreach"] = "effect in shelf.items";
+    tmpl->attributes["src"] = "{effect.icon}";
+    tmpl->attributes["material"] = "{effect.name}";
 
     UiContext ctx;
-    ctx.set_list_size("effects", 2);
-    ctx.set_item("effects", 0, "icon", "wet.png");
-    ctx.set_item("effects", 0, "ring", "ui_ring");
-    ctx.set_item("effects", 1, "icon", "burn.png");
-    ctx.set_item("effects", 1, "ring", "ui_ring_harmful");
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     auto result = bind.resolve(*root, ctx);
 
-    // The template itself is never bound; each clone once, for both attributes.
+    // The template itself is never bound; each repeat once, for both attributes.
     REQUIRE(result.asset_changes.size() == 2);
     REQUIRE(tmpl->bound_src.empty());
     REQUIRE(root->children[1]->bound_src == "wet.png");
     REQUIRE(root->children[2]->bound_src == "burn.png");
     REQUIRE(root->children[2]->bound_material == "ui_ring_harmful");
 
-    ctx.set_item("effects", 1, "icon", "poison.png");
+    shelf.items[1].icon = "poison.png";
     auto changed = bind.resolve(*root, ctx);
     REQUIRE(changed.asset_changes == std::vector<UiNode*>{root->children[2].get()});
 }
@@ -1371,22 +1367,22 @@ TEST_CASE("A subtree the last style pass hid is bound once the style pass shows 
 }
 
 TEST_CASE("Repeats stamped for a longer list are bound in the same frame", "[databind][work]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a"})};
     auto root = make_element("div");
-    auto* tmpl = add_child(*root, make_element("div"));
-    tmpl->attributes["foreach"] = "items";
-    add_child(*tmpl, make_text("{name}"));
+    repeat_of(*root, "item in shelf.items", "{item.name}");
 
     UiContext ctx;
-    ctx.set_list("items", make_items({"a"}));
+    ctx.set("shelf", types.object(shelf));
     UiDataBind bind;
     bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 2);
 
-    ctx.set_list("items", make_items({"a", "b", "c"}));
+    shelf.items = entries({"a", "b", "c"});
     const auto grown = bind.resolve(*root, ctx);
     REQUIRE(grown.layout_changed);
     REQUIRE(root->children.size() == 4);
-    REQUIRE(root->children[3]->children[0]->text_content == "c");
+    REQUIRE(shown(*root, 2) == "c");
 
     bind.resolve(*root, ctx);
     REQUIRE(bind.work().applied == 0);
