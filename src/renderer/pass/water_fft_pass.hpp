@@ -30,10 +30,13 @@ class ThreadPool;
 // mipped so that a far-off vertex reads a sea averaged over the ground it
 // stands for rather than one texel of it.
 //
-// Owns its images outside the framegraph and moves their layouts itself, the
-// way the fog density field does, and for the same reason carries
-// `stepped_this_frame_`: the sea is one thing in the world and record() runs
-// once per viewport.
+// The three images the water samples — this frame's displacement, the one
+// before it and the derivatives — are handed to the graph as
+// "water_displacement", "water_displacement_prev" and "water_derivatives";
+// the graph moves them into the step's layouts and its readers declare their
+// reads. The spectra the transform works in, and the mip chain inside a step,
+// stay the pass's own. `stepped_this_frame_` because the sea is one thing in
+// the world and record() runs once per viewport.
 class WaterFftPass : public RenderPass {
 public:
     /// What the transform works in. Two complex numbers a texel; 32-bit
@@ -53,6 +56,7 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
     /// The sea to simulate, as it has been drawn, or null for none. Compared
     /// against the one already running, so handing over the same sea every
@@ -131,6 +135,14 @@ private:
     void retire_image(Image& image);
     [[nodiscard]] Result<> build_images();
     void retire_images();
+    /// Clear the still texel and leave it readable, once, at creation.
+    [[nodiscard]] Result<> seed_still(const PassResources& resources);
+    /// Which of the two displacement images holds this frame's surface once
+    /// the step has run: the one it writes next if it has yet to run this
+    /// frame, else the one it wrote. What the exports and the views agree on.
+    [[nodiscard]] std::uint32_t written_index() const {
+        return active() && !stepped_this_frame_ ? 1 - cur_ : cur_;
+    }
 
     /// Fill a mip chain from its top level, and leave every level readable.
     void generate_mips(VkCommandBuffer cmd, const Image& image) const;
@@ -182,8 +194,8 @@ private:
     Image derivatives_;
     std::uint32_t cur_{0};
     /// One texel of zeros: what there is to sample when no sea is running.
+    /// Cleared when created, and never written again.
     Image still_;
-    bool still_ready_{false};
 
     bool verifying_{false};
     /// The fixed sea the verification runs, kept alive for the pass to animate.

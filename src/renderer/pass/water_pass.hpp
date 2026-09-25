@@ -98,6 +98,12 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
+    /// Declare reads of the simulated sea's textures, which every water set
+    /// binds, for a pass that binds one: the draws, and the waterline in the
+    /// fog medium. Absent when the graph has no water_fft pass.
+    static void declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
+                                         ResourceAccess access);
+
     /// Copy the scene depth into the water's own depth image, so the sea is
     /// still hidden by whatever opaque geometry stands in front of it.
     /// Recorded by WaterDepthSeedPass, which declares both images: the scene

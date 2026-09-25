@@ -791,6 +791,9 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_compute);
     auto scene_depth = builder.import_named(ctx, "depth");
     builder.read(scene_depth, ResourceAccess::sampled_compute);
+    // The waterline dispatch recorded at the head of this node binds the
+    // water's set, and so the simulated sea's textures.
+    WaterPass::declare_simulation_reads(builder, ctx, ResourceAccess::sampled_compute);
     // What stirs the fog, through the global set.
     if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
         builder.read(motion, ResourceAccess::sampled_compute);

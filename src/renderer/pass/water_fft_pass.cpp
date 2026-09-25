@@ -5,6 +5,7 @@
 #include "core/profiler.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
@@ -33,6 +34,12 @@ constexpr float VERIFY_TIME = 3.7f;
 // Frames between the copy being recorded and its result being read: long
 // enough for every frame in flight when it was recorded to have finished.
 constexpr int VERIFY_WAIT_FRAMES = static_cast<int>(MAX_FRAMES_IN_FLIGHT) + 2;
+// Where the surface is sampled: the water's task and mesh stages, and the
+// waterline and fog in compute. A reader anywhere else declares its read and
+// gets its own barrier from the graph.
+constexpr VkPipelineStageFlags2 SURFACE_READERS = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT
+                                                | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT
+                                                | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
 VkImageMemoryBarrier2 mip_barrier(VkImage image, std::uint32_t first_mip, std::uint32_t mip_count,
                                   VkImageLayout old_layout, VkImageLayout new_layout,
@@ -185,6 +192,9 @@ Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
                               "water_fft_still"); !r) {
         return r;
     }
+    if (auto r = seed_still(resources); !r) {
+        return r;
+    }
 
     const char* verify = std::getenv("FJELL_VERIFY_WATER_FFT");
     if (verify != nullptr && verify[0] != '\0' && verify[0] != '0') {
@@ -215,7 +225,6 @@ void WaterFftPass::destroy() {
     if (still_.top != VK_NULL_HANDLE) vkDestroyImageView(device_, still_.top, nullptr);
     destroy_vma_image(allocator_, still_.image, still_.memory);
     still_ = {};
-    still_ready_ = false;
 
     if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, sampler_, nullptr);
     sampler_ = VK_NULL_HANDLE;
@@ -371,10 +380,96 @@ PassSetup WaterFftPass::setup() const {
     };
 }
 
-void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
-    // Its images live outside the graph, so nothing the graph can see depends
-    // on it; without this it would be culled as dead.
-    builder.has_side_effects();
+void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Steps once a frame, in the first run that keeps it; with no sea running
+    // the still texel is all there is and nothing is written.
+    if (stepped_this_frame_ || !active()) { return; }
+    // The graph moves both surfaces into GENERAL for the transform's write;
+    // the step's own mip chain leaves them where their readers sample them,
+    // which final_layout reports.
+    for (const char* name : {"water_displacement", "water_derivatives"}) {
+        auto image = builder.import_named(ctx, name);
+        builder.write(image, ResourceAccess::storage_write_compute);
+        builder.final_layout(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                             SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
+    // New images: last frame's surface is cleared to still water.
+    if (images_fresh_) {
+        auto previous = builder.import_named(ctx, "water_displacement_prev");
+        builder.write(previous, ResourceAccess::transfer_dst);
+        builder.final_layout(previous, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                             SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
+}
+
+void WaterFftPass::collect_exports(DeclareContext& ctx) {
+    auto add = [&](std::string_view name, const Image& image, std::uint32_t mips,
+                   VkImageLayout rest) {
+        ImportedImage img{};
+        img.image = image.image;
+        img.view = image.sampled;
+        img.mip_count = mips;
+        img.persistent = true;   // this frame's surface is the next frame's previous one
+        img.initial_layout = rest;
+        ctx.imports.emplace(fg_name_hash(name), img);
+    };
+    if (!active()) {
+        if (still_.image == VK_NULL_HANDLE) { return; }
+        for (const char* name : {"water_displacement", "water_displacement_prev",
+                                 "water_derivatives"}) {
+            add(name, still_, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        return;
+    }
+    // Fresh images hold nothing until the first step; after it every one of
+    // them rests where its readers sample it.
+    const VkImageLayout rest = images_fresh_ ? VK_IMAGE_LAYOUT_UNDEFINED
+                                             : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const std::uint32_t written = written_index();
+    add("water_displacement", displacement_[written], mips_, rest);
+    add("water_displacement_prev", displacement_[1 - written], mips_, rest);
+    add("water_derivatives", derivatives_, mips_, rest);
+}
+
+Result<> WaterFftPass::seed_still(const PassResources& resources) {
+    VkCommandBufferAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc.commandPool = resources.command_pool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd{};
+    vk_check(vkAllocateCommandBuffers(device_, &alloc, &cmd),
+             "Failed to allocate the still water seed command buffer");
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vk_check(vkBeginCommandBuffer(cmd, &begin), "Failed to begin the still water seed");
+
+    auto to_clear = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                                VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    submit_barriers(cmd, &to_clear, 1);
+    const VkClearColorValue zero{};
+    const VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, still_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1,
+                         &whole);
+    auto to_read = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    submit_barriers(cmd, &to_read, 1);
+
+    vk_check(vkEndCommandBuffer(cmd), "Failed to end the still water seed");
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vk_check(vkQueueSubmit(resources.graphics_queue, 1, &submit, VK_NULL_HANDLE),
+             "Failed to submit the still water seed");
+    vk_check(vkQueueWaitIdle(resources.graphics_queue), "Failed to wait for the still water seed");
+    vkFreeCommandBuffers(device_, resources.command_pool, 1, &cmd);
+    return {};
 }
 
 void WaterFftPass::generate_mips(VkCommandBuffer cmd, const Image& image) const {
@@ -409,6 +504,7 @@ void WaterFftPass::generate_mips(VkCommandBuffer cmd, const Image& image) const 
     auto to_read = mip_barrier(image.image, 0, mips_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    to_read.dstStageMask = SURFACE_READERS;
     submit_barriers(cmd, &to_read, 1);
 }
 
@@ -417,22 +513,6 @@ void WaterFftPass::record(const FrameContext& ctx) {
     stepped_this_frame_ = true;
 
     VkCommandBuffer cmd = ctx.cmd;
-    if (!still_ready_) {
-        auto to_clear = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED,
-                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
-                                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
-        submit_barriers(cmd, &to_clear, 1);
-        const VkClearColorValue zero{};
-        const VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(cmd, still_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1,
-                             &whole);
-        auto to_read = mip_barrier(still_.image, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        submit_barriers(cmd, &to_read, 1);
-        still_ready_ = true;
-    }
     if (!active()) return;
 
     FJELL_PROFILE_SCOPE_N("record_water_fft");
@@ -455,9 +535,10 @@ void WaterFftPass::record(const FrameContext& ctx) {
     const std::uint32_t groups = (resolution_ + 7) / 8;
     const auto log2_resolution = static_cast<std::uint32_t>(std::countr_zero(resolution_));
 
-    // Everything written here is written whole, so what it held before is of
-    // no interest and every target can start from an undefined layout.
-    std::array<VkImageMemoryBarrier2, 6> to_write{};
+    // The spectra are written whole, so what they held before is of no
+    // interest and they start from an undefined layout. The graph has the
+    // surface and its derivatives in GENERAL already.
+    std::array<VkImageMemoryBarrier2, 4> to_write{};
     std::uint32_t barrier_count = 0;
     for (std::uint32_t i = 0; i < 2; ++i) {
         to_write[barrier_count++] = mip_barrier(spectra_a_[i].image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -467,22 +548,14 @@ void WaterFftPass::record(const FrameContext& ctx) {
             VK_IMAGE_LAYOUT_GENERAL, 0,
             VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     }
-    to_write[barrier_count++] = mip_barrier(displacement_[cur_].image, 0, 1,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-    to_write[barrier_count++] = mip_barrier(derivatives_.image, 0, 1,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     submit_barriers(cmd, to_write.data(), barrier_count);
 
     if (images_fresh_) {
         // Nothing has been simulated into last frame's surface yet. Still
         // water is the honest thing for it to hold: the surface then appears
         // to have risen out of a flat sea over one frame, not out of whatever
-        // was in the memory.
+        // was in the memory. The graph has it in TRANSFER_DST_OPTIMAL.
         const Image& previous = displacement_[1 - cur_];
-        auto to_clear = mip_barrier(previous.image, 0, mips_, VK_IMAGE_LAYOUT_UNDEFINED,
-                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
-                                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
-        submit_barriers(cmd, &to_clear, 1);
         const VkClearColorValue still{};
         const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, mips_, 0, 1};
         vkCmdClearColorImage(cmd, previous.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &still, 1,
@@ -491,6 +564,7 @@ void WaterFftPass::record(const FrameContext& ctx) {
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                    VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        to_read.dstStageMask = SURFACE_READERS;
         submit_barriers(cmd, &to_read, 1);
         images_fresh_ = false;
     }

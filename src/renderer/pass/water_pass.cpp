@@ -808,6 +808,18 @@ void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     declare_lit_surface_reads(builder, ctx);
     builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_fragment);
     builder.read(builder.import_named(ctx, "screen_color"), ResourceAccess::sampled_fragment);
+    // The simulated sea, which the mesh stage moves the surface by.
+    declare_simulation_reads(builder, ctx, ResourceAccess::sampled_mesh);
+}
+
+void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
+                                         ResourceAccess access) {
+    for (const char* name : {"water_displacement", "water_displacement_prev",
+                             "water_derivatives"}) {
+        if (auto image = builder.import_named_optional(ctx, name); image.valid()) {
+            builder.read(image, access);
+        }
+    }
 }
 
 void WaterPass::record(const FrameContext& ctx) {
