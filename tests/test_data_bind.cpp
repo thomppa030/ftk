@@ -3,6 +3,7 @@
 #include "ui/game_ui/widget_asset.hpp"
 #include "core/log.hpp"
 
+#include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
@@ -1390,4 +1391,42 @@ TEST_CASE("Repeats stamped for a longer list are bound in the same frame", "[dat
     bind.resolve(*root, ctx);
     REQUIRE(bind.work().applied == 0);
     REQUIRE(bind.work().evaluated == 4); // the repeat and three texts
+}
+
+// --- Cost ---
+
+// A UI with `count` text bindings on show, mixed as a HUD mixes them: a bare
+// value, a value in a sentence, and a value through a pipe.
+static std::unique_ptr<UiNode> bound_tree(int count, UiContext& ctx) {
+    auto root = make_element("div");
+    for (int i = 0; i < count; ++i) {
+        const std::string key = "v" + std::to_string(i);
+        ctx.set(key, UiValue(static_cast<float>(i) + 0.5f));
+        switch (i % 3) {
+            case 0: add_child(*root, make_text("{" + key + "}")); break;
+            case 1: add_child(*root, make_text("HP {" + key + "} / 100")); break;
+            default: add_child(*root, make_text("{" + key + "|round}")); break;
+        }
+    }
+    return root;
+}
+
+TEST_CASE("What binding costs a frame", "[.bench][databind]") {
+    for (const int count : {70, 1200, 5000}) {
+        UiPipes pipes;
+        UiContext ctx;
+        ctx.set_pipes(&pipes);
+        auto root = bound_tree(count, ctx);
+        UiDataBind bind;
+        bind.resolve(*root, ctx);
+
+        BENCHMARK("quiet frame, " + std::to_string(count) + " bindings") {
+            return bind.resolve(*root, ctx).any();
+        };
+        int n = 0;
+        BENCHMARK("one value changed, " + std::to_string(count) + " bindings") {
+            ctx.set("v0", UiValue(++n));
+            return bind.resolve(*root, ctx).any();
+        };
+    }
 }

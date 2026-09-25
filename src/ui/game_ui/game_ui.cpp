@@ -384,6 +384,7 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 8. Shape and upload text for all text nodes
     if (fonts_ && fonts_->fallback().valid()) {
+        FJELL_PROFILE_SCOPE_N("ui_shape_text");
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
 }
