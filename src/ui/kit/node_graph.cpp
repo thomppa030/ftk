@@ -162,7 +162,7 @@ void NodeGraph::clear_selection() {
 
 const NodeGraph::LaidNode* NodeGraph::find_node(uint64_t id) const {
     for (const auto& node : laid_) {
-        if (node.desc->id == id) return &node;
+        if (node.id == id) return &node;
     }
     return nullptr;
 }
@@ -171,15 +171,18 @@ const NodeGraph::LaidPin* NodeGraph::find_pin(const NodeEnd& end) const {
     const LaidNode* node = find_node(end.node);
     if (node == nullptr || end.pin == 0) return nullptr;
     for (const auto& pin : node->pins) {
-        if (pin.pin->id == end.pin) return &pin;
+        if (pin.id == end.pin) return &pin;
     }
     return nullptr;
 }
 
 ImVec2 NodeGraph::end_position(const NodeEnd& end) const {
-    if (const LaidPin* pin = find_pin(end)) return view_.to_screen(pin->at);
-    if (const LaidNode* node = find_node(end.node)) return view_.to_screen(node->centre());
-    return {};
+    if (end.pin != 0) {
+        const LaidPin* pin = find_pin(end);
+        return pin != nullptr ? view_.to_screen(pin->at) : ImVec2{};
+    }
+    const LaidNode* node = find_node(end.node);
+    return node != nullptr ? view_.to_screen(node->centre()) : ImVec2{};
 }
 
 bool NodeGraph::kit_allows(const NodeEnd& from, const NodeEnd& to) const {
@@ -198,6 +201,8 @@ void NodeGraph::lay_out(const NodeGraphDesc& desc) {
     laid_.reserve(desc.nodes.size());
     for (const NodeDesc& node : desc.nodes) {
         LaidNode laid;
+        laid.id = node.id;
+        laid.connect = node.connect;
         laid.desc = &node;
         // Laid out from its top-left at the origin, then moved to its place.
         const float left = FIELD_INSET;
@@ -206,8 +211,8 @@ void NodeGraph::lay_out(const NodeGraphDesc& desc) {
         for (const NodeRow& row : node.rows) {
             const float middle = y + ROW_H * 0.5f;
             const float field_y = y + (ROW_H - FIELD_H) * 0.5f;
-            if (row.input) laid.pins.push_back({&*row.input, false, {0.0f, middle}});
-            if (row.output) laid.pins.push_back({&*row.output, true, {node.width, middle}});
+            if (row.input) laid.pins.push_back({row.input->id, false, {0.0f, middle}, &*row.input});
+            if (row.output) laid.pins.push_back({row.output->id, true, {node.width, middle}, &*row.output});
 
             const NodeValue& value = row.value;
             const bool beside = row.input.has_value();
@@ -363,13 +368,13 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     if (hovered || active) {
         float best = CANVAS_HIT_RADIUS;
         for (const auto& node : laid_) {
-            if (node.desc->connect != NodeConnect::Pins) continue;
+            if (node.connect != NodeConnect::Pins) continue;
             for (const auto& pin : node.pins) {
                 const ImVec2 p = view_.to_screen(pin.at);
                 const float d = std::hypot(mouse.x - p.x, mouse.y - p.y);
                 if (d <= best) {
                     best = d;
-                    hot_pin = {node.desc->id, pin.pin->id};
+                    hot_pin = {node.id, pin.id};
                 }
             }
         }
@@ -384,10 +389,10 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         if (hot_pin.node == 0 && hot_link == 0) {
             // The last drawn is on top.
             for (auto it = laid_.rbegin(); it != laid_.rend(); ++it) {
-                const bool edge_node = it->desc->connect == NodeConnect::Edge;
+                const bool edge_node = it->connect == NodeConnect::Edge;
                 const float grow = edge_node ? EDGE / zoom : 0.0f;
                 if (!in_box(it->min, it->max, mouse_graph, grow)) continue;
-                hot_node = it->desc->id;
+                hot_node = it->id;
                 hot_edge = edge_node && !in_box(it->min, it->max, mouse_graph, -EDGE / zoom);
                 break;
             }
@@ -642,7 +647,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         // Pins: the type's colour, hollow until linked; ringed when a
         // dragged link could be let go on them, faded when not.
         for (const LaidPin& pin : node.pins) {
-            const NodeEnd self{nd.id, pin.pin->id};
+            const NodeEnd self{nd.id, pin.id};
             const ImVec2 p = view_.to_screen(pin.at);
             const bool pin_takes = dragged_pin != nullptr && link_to(self).has_value();
             const float alpha = dragged_pin != nullptr && !pin_takes && !(self == drag_end_) ? 0.3f : 1.0f;
