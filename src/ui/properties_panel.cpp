@@ -194,6 +194,7 @@ void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
             history_->execute(std::make_unique<RemoveScriptCommand>(*scene_, *scripts_, node.id, remove));
         } else {
             scripts_->remove_script(node, remove);
+            scene_->mark_structure_changed();
             scene_->mark_dirty();
         }
     }
@@ -318,6 +319,7 @@ void PropertiesPanel::add_to_node(Node3D& node, const std::string& value, const 
         } else if (auto r = scripts_->add_script(node, type_name); !r) {
             FJELL_CORE_ERROR("{}", r.error());
         } else {
+            scene_->mark_structure_changed();
             scene_->mark_dirty();
         }
     } else {

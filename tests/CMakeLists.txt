@@ -50,6 +50,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_value.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_pipes.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_models.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_bar_dynamics.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
@@ -249,6 +250,7 @@ add_executable(fjell-tests
     test_data_bind.cpp
     test_ui_pipes.cpp
     test_ui_paths.cpp
+    test_ui_models.cpp
     test_ui_animation.cpp
     test_ui_bar_dynamics.cpp
     test_spline.cpp

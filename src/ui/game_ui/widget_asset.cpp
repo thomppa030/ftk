@@ -3,8 +3,10 @@
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/ui_pipes.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -115,6 +117,29 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
             }
 
             asset.props.push_back(std::move(prop));
+        } else if (child->tag == "model") {
+            ModelDecl model;
+            if (auto it = child->attributes.find("name"); it != child->attributes.end()) {
+                model.name = it->second;
+            }
+            if (auto it = child->attributes.find("component"); it != child->attributes.end()) {
+                model.component = it->second;
+            }
+            model.source_file = path;
+            model.source_line = child->source_line;
+            if (model.name.empty() || model.component.empty()) {
+                FJELL_CORE_WARN("{}:{}: <model> needs a name and a component", path, child->source_line);
+                continue;
+            }
+            if (auto it = child->attributes.find("from"); it != child->attributes.end()) {
+                if (it->second == "local") {
+                    model.from = ModelSource::local;
+                } else if (it->second != "self") {
+                    FJELL_CORE_WARN("{}:{}: <model> from=\"{}\" is neither self nor local; reading self",
+                                    path, child->source_line, it->second);
+                }
+            }
+            asset.models.push_back(std::move(model));
         } else if (child->type == UiNodeType::element) {
             // Skip whitespace text nodes between <prop> and markup elements
             child->parent = body.get();
@@ -130,18 +155,22 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
         asset.markup_root = std::move(body);
     }
 
-    // Validate {key} references against declared props
+    // Validate {path} references against declared props: each starts at a
+    // prop or a model, or names a prop whole (a prop may have a dot in its
+    // name). The pipes after it format the value and are not checked here.
     if (asset.markup_root && !asset.props.empty()) {
         std::vector<std::string> keys;
         collect_key_references(*asset.markup_root, keys);
 
         for (const auto& key : keys) {
-            bool found = false;
-            for (const auto& prop : asset.props) {
-                if (prop.name == key) { found = true; break; }
-            }
+            const std::string value = parse_expression(key).path;
+            const std::string first = value.substr(0, value.find('.'));
+            auto declared = [&](const std::string& name) { return name == value || name == first; };
+            const bool found =
+                std::ranges::any_of(asset.props, [&](const PropDecl& p) { return declared(p.name); }) ||
+                std::ranges::any_of(asset.models, [&](const ModelDecl& m) { return declared(m.name); });
             if (!found) {
-                FJELL_CORE_WARN("Widget '{}': {{{}}} does not match any declared <prop>",
+                FJELL_CORE_WARN("Widget '{}': {{{}}} does not match any declared <prop> or <model>",
                                 std::filesystem::path(path).stem().string(), key);
             }
         }
@@ -182,8 +211,14 @@ std::string widget_asset_text(const WidgetAsset& asset, const UiNode* markup) {
         file << "/>\n";
     }
 
+    for (const auto& model : asset.models) {
+        file << "    <model name=\"" << model.name << "\" component=\"" << model.component << "\"";
+        if (model.from == ModelSource::local) file << " from=\"local\"";
+        file << "/>\n";
+    }
+
     if (markup) {
-        if (!asset.props.empty()) file << "\n";
+        if (!asset.props.empty() || !asset.models.empty()) file << "\n";
         // The body is written at its own top level, then indented into the
         // <widget> element line by line.
         std::istringstream body(FjuiSerializer::serialize(*markup));

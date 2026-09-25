@@ -4,6 +4,7 @@
 #include "core/subsystem.hpp"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/ui_models.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 
@@ -15,6 +16,7 @@
 
 namespace fjell {
 
+class NetManager;
 class Scene;
 class ScriptManager;
 class VulkanContext;
@@ -30,6 +32,9 @@ public:
     UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager);
 
     void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
+    /// Who controls which node, for `from="local"` Models. Without one,
+    /// the local player controls every node.
+    void set_net_manager(const NetManager* net) { net_manager_ = net; }
 
     [[nodiscard]] std::string_view name() const override { return "GameUI"; }
 
@@ -44,6 +49,12 @@ public:
     // world-space UI reads the same transform the mesh it's attached to
     // renders with this frame, not last frame's.
     void update_world_records(const TickContext& ctx);
+
+    // Puts each instance's Models into their scopes as the scene holds them
+    // now. A Model points into its component, so this runs after the last
+    // destroy of the frame and before anything reads the UI (drawing and
+    // input both happen at record time).
+    void bind_models(const TickContext& ctx);
 
     struct WidgetInstance {
         std::unique_ptr<UiWidget> widget;
@@ -60,6 +71,7 @@ public:
         std::vector<std::string> style_classes;
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
+        UiModels models; // the components the instance's widgets read
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
         uint64_t tick_counter{0};
         // World-space only: this widget's mvp from the previous frame, so the
@@ -87,6 +99,9 @@ private:
     // controllers are torn down first.
     void apply_widget(UiInstance& inst, const WidgetAsset& widget_asset);
     void create_controllers(UiInstance& inst, const WidgetAsset& widget_asset);
+    // Every <model> in the instance's tree, each bound into the scope of the
+    // widget that declares it.
+    void collect_models(UiInstance& inst, const WidgetAsset& widget_asset);
     void destroy_controllers(UiInstance& inst);
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.
@@ -99,6 +114,7 @@ private:
     VulkanContext& vulkan_context_;
     ScriptManager* script_manager_{nullptr};
     ResourceManager* resource_manager_{nullptr};
+    const NetManager* net_manager_{nullptr};
     std::vector<UiInstance> instances_;
     std::vector<WorldUiRecord> world_records_;
 

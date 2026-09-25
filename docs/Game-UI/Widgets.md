@@ -25,11 +25,46 @@ data. Raw FJUI does not compose; widgets do.
 - `class` names the C++ `UiWidget` controller, `style` the sheet next to the file.
 - `<prop>` declares what a placement may pass: `string`, `float`, `int`, `bool`,
   with an optional default. A placement passing an undeclared prop is warned about;
-  a `{key}` in the markup that matches no prop is warned about at load.
+  a `{key}` in the markup that matches no prop or Model is warned about at load.
+- `<model>` names a game component the widget reads in place (see Models).
 - The rest is the markup. Widgets live in `widgets/` next to the root UI and are
   used by tag: `<health-bar stat="mana" color="#4477cc"/>`.
 - The markup's own text lives here. A same-named `.fjui` beside a widget is a
   leftover from before that move; nothing reads it, and the loader says so.
+
+## Models
+
+A Model is a game component the widget reads directly, with nothing copying its
+values into the UI:
+
+```html
+<widget style="vitals.fjss">
+    <model name="player" component="PlayerStats" from="local"/>
+    <text>{player.hp} / {player.max_hp}</text>
+    <div class="vitals" class:low="player.low_health"/>
+</widget>
+```
+
+`component` is a script component's type, and `{player.hp}` a path into it: fields
+marked `[[fj::state]]` or `[[fj::property]]`, `[[fj::state]]` getters, nested structs
+(`{player.stats.armor}`), enum labels and vector components (`{player.velocity.y}`).
+A path is read from the component where it lives, as it is now; a getter runs every
+time it is read. A prop may carry a whole Model on to a nested widget:
+`<vitals-panel stats="{player}"/>`.
+
+`from` picks the node the component is read from:
+
+- `self` (the default) is the node the widget is placed on: a nameplate reading
+  its own unit.
+- `local` is the node carrying that component which the local player controls; in
+  a single-player game, the first node that has one.
+
+While nothing is found the Model is empty: `if="player"` is false and its paths show
+nothing. A `local` Model is found by one walk over the scene and then kept. It is
+looked for again when its node is destroyed or changes hands, and, while nothing is
+found, only once nodes have been added, destroyed or given a script since the last
+look, never every frame. A component that is not a loaded script component is
+reported once, with the file and line of its `<model>`.
 
 ## Styling a widget
 
@@ -91,5 +126,5 @@ the old ones are rebound. A file that fails to parse mid-edit leaves the last go
 tree on screen and reports why.
 
 The UI editor opens a `.fjwidget` directly and previews it at the design
-resolution. Ctrl+S writes the header, the `<prop>` lines and the markup back, and
+resolution. Ctrl+S writes the header, the `<prop>` and `<model>` lines and the markup back, and
 the sheet next to it. `fjlint` checks widget files and their sheets from the shell.

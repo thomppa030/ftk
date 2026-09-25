@@ -202,6 +202,7 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
     clone->widget_tag = source.widget_tag;
     clone->widget_class = source.widget_class;
     clone->widget_props = source.widget_props;
+    clone->widget_models = source.widget_models;
     clone->prop_map = source.prop_map;
     clone->event_map = source.event_map;
 

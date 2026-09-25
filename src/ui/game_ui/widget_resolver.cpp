@@ -162,8 +162,10 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         child.widget_class = widget_asset->class_name; // from <widget class="...">
         child.classes.push_back(scope_class);
 
-        // Store prop declarations on the node for typed sync
+        // Store prop declarations on the node for typed sync, and the
+        // Models the UI finds and binds into this widget's scope.
         child.widget_props = widget_asset->props;
+        child.widget_models = widget_asset->models;
 
         child.scoped_context = std::make_unique<UiContext>(&parent_context);
 

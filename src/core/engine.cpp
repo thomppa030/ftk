@@ -294,6 +294,7 @@ void Engine::init_resources() {
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     sprite_anim_subsystem_->set_resource_manager(resource_manager_.get());
     ui_subsystem_->set_resource_manager(resource_manager_.get());
+    ui_subsystem_->set_net_manager(net_manager_.get());
 
     auto& ss = script_services();
     ss.input = &input_;
@@ -2277,7 +2278,10 @@ void Engine::run() {
         // scripts and physics have moved anything this frame — if this were
         // built there instead, it would render one frame behind whatever
         // it's anchored to, most visible as a lag/smear while that node moves.
+        // A UI's Models point into components, so they are bound here too:
+        // after the frame's last destroy, before the UI is read at record.
         if (play_controller_.playing()) {
+            ui_subsystem_->bind_models(ctx);
             ui_subsystem_->update_world_records(ctx);
         }
 

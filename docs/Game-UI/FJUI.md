@@ -56,6 +56,12 @@ Any element takes `src="path"` to draw a texture, resolved against the project, 
 Comments are `<!-- -->`, elements self-close with `/>`, and attribute values are
 double-quoted. Whitespace-only text between elements is dropped.
 
+A `key` may be a path: `{player.hp}` reads the field `hp` of whatever `player` is,
+a widget's Model or a struct inside one ([Widgets](Widgets.md#models)). The first
+name is found in the nearest scope that has it; each later one is read from the
+value before it. A name no scope holds is read whole, dots and all, so values
+published as `player.pos` are still found.
+
 ## Pipes
 
 A binding may format its value on the way into the markup: `{stamina|round}`,

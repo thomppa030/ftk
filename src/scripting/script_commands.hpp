@@ -86,6 +86,7 @@ public:
         fields_ = scripts_.fields_of(*entry);
         index_ = static_cast<std::size_t>(entry - node->scripts.data());
         node->scripts.erase(node->scripts.begin() + static_cast<std::ptrdiff_t>(index_));
+        scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
     void undo() override {
@@ -97,6 +98,7 @@ public:
         if (Node3D* spatial = node->as_spatial()) scripts_.instantiate(*spatial, entry);
         const std::size_t at = std::min(index_, node->scripts.size());
         node->scripts.insert(node->scripts.begin() + static_cast<std::ptrdiff_t>(at), std::move(entry));
+        scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
     [[nodiscard]] std::string description() const override { return "Remove " + type_name_; }
@@ -126,6 +128,7 @@ public:
         entry.serialized = fields_;
         scripts_.instantiate(*spatial, entry);
         spatial->scripts.push_back(std::move(entry));
+        scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
     void undo() override {
@@ -134,6 +137,7 @@ public:
         if (entry == nullptr) return;
         fields_ = scripts_.fields_of(*entry);
         node->scripts.erase(node->scripts.begin() + (entry - node->scripts.data()));
+        scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
     [[nodiscard]] std::string description() const override { return "Add " + type_name_; }

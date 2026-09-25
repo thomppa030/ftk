@@ -103,6 +103,7 @@ struct UiNode {
     std::unordered_map<std::string, std::string> prop_map; // inner key → outer expression
     std::unordered_map<std::string, std::string> event_map; // child event → parent action
     std::vector<PropDecl> widget_props; // typed prop declarations (from .fjwidget)
+    std::vector<ModelDecl> widget_models; // components the widget reads (from .fjwidget)
 
     // Foreach directive
     bool is_foreach_template{false}; // hidden template node, preserved for cloning

@@ -2,7 +2,9 @@
 #include "core/base_path.hpp"
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "core/project.hpp"
+#include "net/net_manager.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -33,6 +35,29 @@ static Result<WidgetAsset> load_instance_widget(const std::string& path) {
     }
     return result;
 }
+
+/// The running game as a UI's Models see it: script components from the
+/// loaded module, and who controls which node from the network session.
+class GameModelWorld final : public UiModelWorld {
+public:
+    GameModelWorld(const ScriptManager& scripts, const NetManager* net) : scripts_{scripts}, net_{net} {}
+
+    [[nodiscard]] std::optional<UiComponentType> component_type(const std::string& name) const override {
+        const auto* type = scripts_.is_loaded() ? scripts_.find_script_type(name) : nullptr;
+        if (type == nullptr || !type->loaded) return std::nullopt;
+        return UiComponentType{type->name, type->fields};
+    }
+    [[nodiscard]] bool owned_by_local(uint32_t node_id) const override {
+        return net_ == nullptr || net_->is_owned_by_local(net_->net_id_for(node_id));
+    }
+    [[nodiscard]] uint64_t possession_revision() const override {
+        return net_ != nullptr ? net_->possession_revision() : 0;
+    }
+
+private:
+    const ScriptManager& scripts_;
+    const NetManager* net_;
+};
 
 /// The design frame a placement is scaled by (see UiDesignFrame). Only
 /// screen-space placements scale: a world-space widget lays out in its own
@@ -123,8 +148,10 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
 
     // Controllers bind actions on contexts owned by the tree that is about
     // to be replaced, so they go first — their connections must detach
-    // while those contexts still exist.
+    // while those contexts still exist. Models are bound into those
+    // contexts, and go with them.
     destroy_controllers(inst);
+    inst.models.clear();
 
     // Deep-clone the markup tree (each instance needs its own mutable copy)
     auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
@@ -144,10 +171,32 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
     // widgets get this via widget_resolver; the root widget's context is
     // game_ui's top-level one, so we do it here.
     set_prop_defaults(widget_asset.props, inst.game_ui->context());
+    collect_models(inst, widget_asset);
 
     inst.game_ui->mark_dirty();
 
     create_controllers(inst, widget_asset);
+}
+
+void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_asset) {
+    // The placed widget's own Models live in the UI's root scope; a nested
+    // widget's in the scope WidgetResolver made for it.
+    for (const auto& model : widget_asset.models) inst.models.add(model, inst.game_ui->context());
+    auto walk = [&](auto& self, UiNode& node) -> void {
+        if (node.is_widget && node.scoped_context) {
+            for (const auto& model : node.widget_models) inst.models.add(model, *node.scoped_context);
+        }
+        for (auto& child : node.children) self(self, *child);
+    };
+    if (auto* root = inst.game_ui->root()) walk(walk, *root);
+}
+
+void UiSubsystem::bind_models(const TickContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("ui_bind_models");
+    const GameModelWorld world(*script_manager_, net_manager_);
+    for (auto& inst : instances_) {
+        if (!inst.models.empty()) inst.models.bind(ctx.scene, world, inst.node_id);
+    }
 }
 
 void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget_asset) {
@@ -344,12 +393,13 @@ void UiSubsystem::tick(const TickContext& ctx) {
             sync_bind_fields(wi);
         }
         // Bump root context generation so data_bind doesn't short-circuit
-        // when widget scoped contexts have been updated by sync_bind_fields.
+        // when widget scoped contexts have been updated by sync_bind_fields,
+        // or a Model's component has changed in place, which no scope sees.
         // Must be a value that actually changes each call — set() no-ops
         // when the new value matches the old, so a constant here would only
         // bump the generation once and then silently stop propagating any
         // bound-field updates from frame 2 onward.
-        if (inst.game_ui && !inst.widgets.empty()) {
+        if (inst.game_ui && (!inst.widgets.empty() || !inst.models.empty())) {
             inst.game_ui->context().set("__tick", std::to_string(++inst.tick_counter));
         }
     }

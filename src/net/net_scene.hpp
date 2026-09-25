@@ -26,13 +26,23 @@ namespace fjell {
 
 class NetScene {
 public:
-    // Reset to the just-constructed state (called on shutdown).
+    // Reset to the just-constructed state (called on shutdown). The
+    // possession revision keeps counting, so nothing that remembered an
+    // earlier one mistakes the emptied registry for the one it saw.
     void clear() {
         next_net_id_ = 1;
         net_to_node_.clear();
         node_to_net_.clear();
         ownership_.clear();
+        ++possession_revision_;
     }
+
+    // Moves whenever is_owned_by_local() may answer differently for some
+    // node: an object registered or dropped, an owner set, or the session's
+    // role or local peer changing (local_player_changed()). Something that
+    // found the local player's node keeps its answer until this moves.
+    [[nodiscard]] uint64_t possession_revision() const { return possession_revision_; }
+    void local_player_changed() { ++possession_revision_; }
 
     // ── NetId assignment (server only) ──────────────────────────────────
     [[nodiscard]] NetId assign_net_id() { return next_net_id_++; }
@@ -41,6 +51,7 @@ public:
     void register_object(NetId net_id, uint32_t node_id) {
         net_to_node_[net_id] = node_id;
         node_to_net_[node_id] = net_id;
+        ++possession_revision_;
     }
 
     // Drop the identity + ownership entry for an object. Other per-object state
@@ -53,6 +64,7 @@ public:
             net_to_node_.erase(it);
         }
         ownership_.erase(net_id);
+        ++possession_revision_;
     }
 
     [[nodiscard]] uint32_t node_id_for(NetId net_id) const {
@@ -70,7 +82,10 @@ public:
     }
 
     // ── Ownership ───────────────────────────────────────────────────────
-    void set_owner(NetId net_id, PeerId peer) { ownership_[net_id] = peer; }
+    void set_owner(NetId net_id, PeerId peer) {
+        ownership_[net_id] = peer;
+        ++possession_revision_;
+    }
 
     [[nodiscard]] PeerId owner_of(NetId net_id) const {
         auto it = ownership_.find(net_id);
@@ -110,6 +125,7 @@ private:
     std::unordered_map<NetId, uint32_t> net_to_node_;
     std::unordered_map<uint32_t, NetId> node_to_net_;
     std::unordered_map<NetId, PeerId>   ownership_;
+    uint64_t possession_revision_{0};
 };
 
 } // namespace fjell

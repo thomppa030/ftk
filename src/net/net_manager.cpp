@@ -59,6 +59,7 @@ void NetManager::host(uint16_t port, uint32_t max_clients) {
     transport_  = std::move(transport);
     role_       = NetRole::server;
     local_peer_ = SERVER_PEER;
+    net_scene_.local_player_changed();
     FJELL_CORE_INFO("NetManager: hosting (server peer {})", local_peer_);
 }
 
@@ -82,6 +83,7 @@ void NetManager::join(const std::string& address, uint16_t port) {
     // The client's own PeerId is assigned by the server post-handshake; until
     // then it is unknown. SERVER_PEER here just means "not yet a distinct peer".
     local_peer_ = SERVER_PEER;
+    net_scene_.local_player_changed();
     FJELL_CORE_INFO("NetManager: joining {}:{}", address, port);
 }
 
@@ -268,6 +270,7 @@ void NetManager::apply_welcome(std::span<const uint8_t> data) {
     if (!take(data, assigned)) return;
     if (role_ != NetRole::client) return;  // only a client adopts a server-assigned id
     local_peer_ = assigned;
+    net_scene_.local_player_changed();
     FJELL_CORE_INFO("NetManager: assigned peer id {}", local_peer_);
 }
 

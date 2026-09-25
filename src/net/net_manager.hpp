@@ -130,6 +130,9 @@ public:
     // authoritative over every object, but the host player only *possesses* the
     // ones it owns. Use this for camera/input possession, NOT is_local_authority.
     [[nodiscard]] bool is_owned_by_local(NetId net_id) const;
+    // Moves whenever is_owned_by_local() may answer differently for some
+    // object (see NetScene::possession_revision).
+    [[nodiscard]] uint64_t possession_revision() const { return net_scene_.possession_revision(); }
 
     // Connection events surfaced to scripts (wired to ScriptComponent in Step 7).
     // PR 1 just logs; the engine sets these to forward into script callbacks later.

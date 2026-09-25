@@ -151,6 +151,7 @@ extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id,
     if (!spatial || !mgr) return nullptr;
     auto result = mgr->add_script(*spatial, type_name);
     if (!result) return nullptr;
+    scene->mark_structure_changed();
     auto& scripts = spatial->scripts;
     if (!scripts.empty() && scripts.back().instance)
         return scripts.back().instance.get();

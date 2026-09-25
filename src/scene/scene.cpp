@@ -106,6 +106,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(node));
     if (tracking_added_) added_.push_back(id);
+    ++structure_revision_;
     return id;
 }
 
@@ -122,6 +123,7 @@ std::vector<uint32_t> Scene::flush_spawned() {
     pending_spawn_.clear();
     index_dirty_ = true;
     dirty_ = true;
+    ++structure_revision_;
     return spawned;
 }
 
@@ -153,6 +155,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     objects_.erase(objects_.begin() + idx);
     rebuild_id_index();
     dirty_ = true;
+    ++structure_revision_;
     return result;
 }
 
@@ -163,6 +166,7 @@ void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
     rebuild_id_index();
     dirty_ = true;
+    ++structure_revision_;
 }
 
 int Scene::index_of(uint32_t id) {
@@ -223,6 +227,7 @@ void Scene::clear() {
     pending_destroy_.clear();
     id_to_index_.clear();
     index_dirty_ = false;
+    ++structure_revision_;
 }
 
 uint32_t Scene::generation_of(uint32_t id) const {
@@ -277,6 +282,7 @@ void Scene::flush_destroyed() {
 
     pending_destroy_.clear();
     dirty_ = true;
+    ++structure_revision_;
 }
 
 void Scene::rebuild_id_index() {

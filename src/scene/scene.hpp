@@ -134,6 +134,13 @@ public:
     /// scene state compares it to know whether the copy is still current.
     [[nodiscard]] uint64_t revision() const { return revision_; }
 
+    /// Moves whenever nodes join or leave the scene, or a node gains or
+    /// loses a script. Something that found a node by what it carries (a
+    /// UI Model) looks again only once this has moved.
+    [[nodiscard]] uint64_t structure_revision() const { return structure_revision_; }
+    /// A script was added to or removed from a node already in the scene.
+    void mark_structure_changed() { ++structure_revision_; }
+
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
     [[nodiscard]] auto& objects() { return objects_; }
     [[nodiscard]] const auto& objects() const { return objects_; }
@@ -218,6 +225,7 @@ private:
     uint64_t scene_id_{next_scene_id()};
     bool dirty_{false};
     uint64_t revision_{0};
+    uint64_t structure_revision_{0};
     bool index_dirty_{true};
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
     std::unordered_map<uint32_t, uint32_t> id_generation_;

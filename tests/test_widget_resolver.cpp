@@ -128,6 +128,29 @@ TEST_CASE("Two instances get separate scopes", "[widget]") {
     REQUIRE(find_by_class(second, "row")->style.width == UiLength::pixels(10.0f));
 }
 
+TEST_CASE("A nested widget carries its Models to its scope", "[widget]") {
+    WidgetFixture fx;
+    fx.write("widgets/stat_row.fjwidget",
+             "<widget>\n"
+             "    <model name=\"unit\" component=\"Stats\"/>\n"
+             "    <div><text>{unit.hp}</text></div>\n"
+             "</widget>\n");
+    auto root = FjuiParser::parse("<panel><stat-row/></panel>");
+    REQUIRE(root);
+
+    Stylesheet sheet;
+    UiContext context;
+    WidgetResolver resolver;
+    resolver.resolve(*root, fx.base.string(), sheet, context);
+
+    auto* row = find_widget(*root, "stat-row");
+    REQUIRE(row != nullptr);
+    REQUIRE(row->scoped_context != nullptr);
+    REQUIRE(row->widget_models.size() == 1);
+    REQUIRE(row->widget_models[0].name == "unit");
+    REQUIRE(row->widget_models[0].component == "Stats");
+}
+
 TEST_CASE("Resolver reports every widget file it read", "[widget]") {
     WidgetFixture fx;
     auto root = FjuiParser::parse("<panel><my-widget/><my-widget/></panel>");
