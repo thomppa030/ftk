@@ -128,11 +128,16 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // A barrier may name the task and mesh stages only on a device that has
     // them, so passes with a mesh and a vertex path declare by this.
     decl_ctx.mesh_shader_supported = ctx.draw_mesh_tasks_indirect_fn != nullptr;
-    // Feature flags sourced from pass enable state — let passes that need
-    // to cross-check (e.g. tonemap declaring a read on bloom_mip0) see
-    // the canonical toggle without reaching into the PassRegistry.
-    if (auto* bloom = passes.try_get<BloomCore>("bloom_ds_0")) {
-        decl_ctx.bloom_enabled = bloom->enabled();
+    // Whether this run builds the bloom, for the post pass that reads it:
+    // bloom is on and this viewport's graph runs the chain to its last
+    // upsample. A graph without the chain would otherwise be handed a
+    // bloom_mip0 nothing wrote, whatever the recycled image last held.
+    {
+        const auto* bloom = passes.try_get<BloomCore>("bloom_ds_0");
+        const bool runs_chain = viewport_graph == nullptr
+            ? state_for("bloom_us_0").enabled
+            : viewport_enabled.contains(fg_name_hash("bloom_us_0"));
+        decl_ctx.bloom_enabled = bloom != nullptr && bloom->enabled() && runs_chain;
     }
     // Whether this run builds the fog volume, for passes outside the fog that
     // sample it: the fog is on and this viewport's graph integrates it.

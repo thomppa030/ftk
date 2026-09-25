@@ -12,7 +12,6 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
@@ -395,13 +394,10 @@ void TonemapPass::record(const FrameContext& ctx) {
     auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->tonemap() : nullptr;
     if (output == nullptr || ctx.registry == nullptr) return;
 
-    VkImageView bloom_view = VK_NULL_HANDLE;
-    if (ctx.passes != nullptr) {
-        auto* bloom = ctx.passes->try_get<BloomCore>("bloom_ds_0");
-        if (bloom != nullptr && bloom->enabled()) {
-            bloom_view = ctx.registry->image_view("bloom_mip0");
-        }
-    }
+    // bloom_mip0 is a transient of this run, registered only when declare()
+    // asked for it, which it does only when this viewport's graph builds the
+    // bloom.
+    const VkImageView bloom_view = ctx.registry->image_view("bloom_mip0");
 
     // Use TAA-resolved color when available, otherwise raw scene color.
     VkImageView color_source = ctx.target->color_view();

@@ -90,8 +90,11 @@ struct DeclareContext {
     bool has_world_environment{false};
     bool skip_shadows{false};
 
+    /// Whether this run builds the bloom: bloom is on and this viewport's
+    /// graph runs its chain. Off unless the render pipeline says so, so a
+    /// reader never declares a bloom nothing writes.
+    bool bloom_enabled{false};
     // Feature toggles resolved from engine settings
-    bool bloom_enabled{true};
     bool ssr_enabled{true};
     bool gtao_enabled{true};
     bool taa_enabled{true};
