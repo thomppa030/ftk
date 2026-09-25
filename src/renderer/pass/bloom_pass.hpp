@@ -38,7 +38,7 @@ namespace fjell {
 //                     mip[dst]. dst=0 is the final node — it claims
 //                     final_layout(SHADER_READ_ONLY) and flags
 //                     has_side_effects() so the graph keeps it alive
-//                     (tonemap samples bloom_mip0 through the registry
+//                     (the post pass samples bloom_mip0 through the registry
 //                     at record time, so the DAG can't see the reader).
 //
 // Resource flow:
@@ -46,7 +46,7 @@ namespace fjell {
 //     upsample node re-create()s the mip it reads + the mip it writes so
 //     the graph dedupes by name and sees the producer→consumer edges.
 //   • No bloom_output: the monolithic pass used to composite scene+mip0
-//     into an unused buffer; tonemap samples mip0 directly.
+//     into an unused buffer; the post pass samples mip0 directly.
 //
 // Barrier contract: each node declares only the reads/writes it actually
 // performs. The graph emits one merged barrier per image per node. No node
@@ -122,7 +122,7 @@ private:
 
 // Upsample node: reads bloom_mip<dst+1>, additively blends into
 // bloom_mip<dst>. dst=0 claims the final_layout and flags
-// has_side_effects() since tonemap's consumption isn't visible to the DAG.
+// has_side_effects() since the post pass's consumption isn't visible to the DAG.
 class BloomUsPass : public RenderPass {
 public:
     explicit BloomUsPass(uint32_t dst_mip) : dst_mip_(dst_mip) {}

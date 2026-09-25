@@ -97,7 +97,7 @@ Each pass is its own class. They're instantiated and orchestrated by `VulkanCont
 | `transparent_pass` | Alpha-blended objects (back-to-front) |
 | `sky_pass` | Procedural sky rendering |
 | `bloom_pass` | Multi-stage bloom (downsample + upsample + composite) |
-| `tonemap_pass` | The post pass: the scene colour to what the viewport shows, through a `shader_type post` shader (`shaders/post.fjsl` by default) |
+| `post_pass` | The post pass: the scene colour to what the viewport shows, through a `shader_type post` shader (`shaders/post.fjsl` by default) |
 | `light_cull_pass` | Forward+ tiled light culling (compute) |
 | `debug_pass` | Debug line rendering |
 | `depth_viz_pass` | Depth buffer visualization |

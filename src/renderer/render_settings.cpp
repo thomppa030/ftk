@@ -6,7 +6,7 @@
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/vulkan_context.hpp"
 
@@ -192,9 +192,9 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ssr.max_trace_dist = ctx.rt_reflection_pass().max_trace_dist();
 
     // Tonemap
-    out.tonemap.auto_exposure    = ctx.tonemap_pass().auto_exposure();
-    out.tonemap.exposure_ev      = ctx.tonemap_pass().exposure();
-    out.tonemap.adaptation_speed = ctx.tonemap_pass().adaptation_speed();
+    out.tonemap.auto_exposure    = ctx.post_pass().auto_exposure();
+    out.tonemap.exposure_ev      = ctx.post_pass().exposure();
+    out.tonemap.adaptation_speed = ctx.post_pass().adaptation_speed();
 
     // Frame graph
     out.frame_graph_aliasing = ctx.render_pipeline().aliasing_enabled();

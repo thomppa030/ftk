@@ -13,7 +13,7 @@ class VulkanContext;
 /// Editor screenshot capture. Two modes:
 ///   - Scene: temporarily resizes the active editor viewport panel to the
 ///     requested resolution so the next frame renders at capture size through
-///     the normal pipeline, then reads back the tonemap output to PNG.
+///     the normal pipeline, then reads back the post output to PNG.
 ///   - Pane: copies a rectangle out of the just-presented swapchain image
 ///     to PNG.
 ///
@@ -50,7 +50,7 @@ public:
     /// Called right after apply_resize, BEFORE draw_ui. If a scene capture
     /// is armed/warming, resizes the editor viewport's offscreen + PP to
     /// the capture resolution so the upcoming draw_ui's ImGui::Image picks
-    /// up the resized tonemap descriptor. Drains the GPU first because
+    /// up the resized post output's descriptor. Drains the GPU first because
     /// PP::resize touches descriptors that may be referenced by in-flight
     /// CBs.
     void resize_for_capture(VulkanContext& vk, ViewportManager& viewports);

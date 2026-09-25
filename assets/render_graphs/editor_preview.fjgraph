@@ -1,6 +1,6 @@
 // Lightweight pipeline for editor preview viewports (material thumbnails,
 // animation preview, camera preview). Drops DDGI, SS-GI, SSR, volumetric
-// fog, bloom, GTAO, distortion, debug viz — keeps shadows + tonemap so
+// fog, bloom, GTAO, distortion, debug viz — keeps shadows + post so
 // what you see in the preview matches roughly what you'd see in the main
 // viewport at low quality.
 {
@@ -40,8 +40,8 @@
         // Forward+ tile cull — opaque needs the tile SSBO.
         { "class": "LightCullPass",    "name": "light_cull" },
 
-        // Auto-exposure + tonemap — always on.
+        // Auto-exposure + post — always on.
         { "class": "ExposurePass",     "name": "exposure" },
-        { "class": "TonemapPass",      "name": "tonemap" }
+        { "class": "PostPass",         "name": "post" }
     ]
 }

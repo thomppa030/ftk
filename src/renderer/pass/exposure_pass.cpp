@@ -294,7 +294,7 @@ PassSetup ExposurePass::setup() const {
     return {
         .name = "exposure",
         .phase = RenderPhase::PostProcess,
-        .sub_order = 25,  // after bloom (0), before tonemap (30)
+        .sub_order = 25,  // after bloom (0), before the post pass (300)
     };
 }
 

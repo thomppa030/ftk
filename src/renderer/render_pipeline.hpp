@@ -27,7 +27,7 @@ enum class RenderPhase : uint32_t {
     DepthPrepass = 200,   // depth rendering, hi-z build
     GpuDriven    = 400,   // meshlet cull, GTAO, light cull, subsystem compute
     Color        = 600,   // opaque, DDGI, screen color copy, distortion, transparent
-    PostProcess  = 700,   // SSR, volumetric fog, bloom, tonemap
+    PostProcess  = 700,   // SSR, volumetric fog, bloom, post
     Debug        = 1100,  // debug visualization passes
 };
 

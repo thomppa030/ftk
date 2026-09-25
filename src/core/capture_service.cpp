@@ -101,7 +101,7 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     // Called BEFORE draw_ui. Resizes the editor viewport's offscreen + PP
     // to the capture resolution if a scene capture is active. Must run
     // before ImGui draws the editor viewport panel so the ImGui texture
-    // descriptor reflects the resized tonemap output — resizing AFTER
+    // descriptor reflects the resized post output — resizing AFTER
     // draw_ui would leave ImGui referencing a freed descriptor.
     if (state_ != State::armed && state_ != State::warming
             && state_ != State::capture_ready) {
@@ -125,8 +125,8 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
         warmup_remaining_ = kWarmupFrames;
         state_ = State::warming;
         // Through the warmup too, so exposure settles on the frame taken.
-        saved_ungraded_ = vk.tonemap_pass().ungraded();
-        if (request_.ungraded) vk.tonemap_pass().set_ungraded(true);
+        saved_ungraded_ = vk.post_pass().ungraded();
+        if (request_.ungraded) vk.post_pass().set_ungraded(true);
     }
 
     // Pin panel size so this frame's record path uses capture-res aspect
@@ -135,7 +135,7 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     panel->size.y = static_cast<float>(request_.height);
 
     // Resize the offscreen + PP. PP::resize touches ImGui descriptors via
-    // TonemapPass::Images::resize → destroy → invalidate_imgui_texture.
+    // PostPass::Images::resize → destroy → invalidate_imgui_texture.
     // wait_idle ensures no in-flight CB references them.
     if (panel->offscreen) {
         if (panel->offscreen->extent().width != request_.width
@@ -173,7 +173,7 @@ void CaptureService::finish_after_present(VulkanContext& vk,
     switch (request_.mode) {
     case Mode::scene:
         do_scene_capture(vk, viewports);
-        vk.tonemap_pass().set_ungraded(saved_ungraded_);
+        vk.post_pass().set_ungraded(saved_ungraded_);
         break;
     case Mode::pane:  do_pane_capture(vk); break;
     }
@@ -190,18 +190,18 @@ void CaptureService::do_scene_capture(VulkanContext& vk,
     }
 
     // The panel was resized to the capture dimensions; it just rendered at
-    // that resolution and tonemap output now holds the result.
-    auto* tonemap = vk.default_pp().tonemap();
-    if (tonemap == nullptr || tonemap->image == VK_NULL_HANDLE) {
-        FJELL_CORE_ERROR("Capture: tonemap output unavailable");
+    // that resolution and the post output now holds the result.
+    auto* output = vk.default_pp().post();
+    if (output == nullptr || output->image == VK_NULL_HANDLE) {
+        FJELL_CORE_ERROR("Capture: post output unavailable");
         return;
     }
 
-    uint32_t w = tonemap->extent.width;
-    uint32_t h = tonemap->extent.height;
+    uint32_t w = output->extent.width;
+    uint32_t h = output->extent.height;
 
-    // Tonemap output sits in SHADER_READ_ONLY_OPTIMAL after the frame.
-    ImageReadback readback(readback_queue(vk), tonemap->image,
+    // The post output sits in SHADER_READ_ONLY_OPTIMAL after the frame.
+    ImageReadback readback(readback_queue(vk), output->image,
                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, w, h);
 
     auto path = next_output_path("scene");

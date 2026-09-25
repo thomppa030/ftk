@@ -216,4 +216,4 @@ with infinite bounds and set its operator to that curve to keep the look.
   from the nodes each tick with their material's values, the node's own and
   the tracks folded in. Which apply is left to the pass, because it depends on
   the camera.
-- The pass is still the class `TonemapPass`, named `tonemap` in the graphs.
+- The pass is `PostPass` (`src/renderer/pass/post_pass.cpp`), named `post` in the graphs.

@@ -35,6 +35,6 @@
         { "class": "ScreenColorCopyPass", "name": "screen_color_copy" },
         { "class": "SkyPass",          "name": "sky" },
 
-        { "class": "TonemapPass",      "name": "tonemap" }
+        { "class": "PostPass",         "name": "post" }
     ]
 }

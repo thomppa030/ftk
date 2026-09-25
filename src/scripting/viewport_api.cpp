@@ -18,7 +18,7 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_viewport_create(const char* name, uin
     cfg.name = name;
     cfg.width = width;
     cfg.height = height;
-    cfg.pp_config.tonemap        = (flags & VP_TONEMAP) != 0;
+    cfg.pp_config.post           = (flags & VP_TONEMAP) != 0;
     cfg.pp_config.bloom          = (flags & VP_BLOOM) != 0;
     cfg.pp_config.gtao           = (flags & VP_GTAO) != 0;
     cfg.pp_config.ssr            = (flags & VP_SSR) != 0;

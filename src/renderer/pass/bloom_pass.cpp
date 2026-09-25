@@ -444,10 +444,10 @@ void BloomUsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     declare_mip(builder, dst_mip_ + 1, ResourceAccess::sampled_fragment);
     declare_mip_read_write(builder, dst_mip_);
-    // No final_layout/has_side_effects on dst_mip 0: tonemap declares a
+    // No final_layout/has_side_effects on dst_mip 0: the post pass declares a
     // read on "bloom_mip0" (when bloom is enabled), so the DAG sees the
     // consumer edge and emits the COLOR_ATTACHMENT → SHADER_READ barrier
-    // between this pass and tonemap automatically.
+    // between this pass and the post pass automatically.
 }
 
 void BloomUsPass::record(const FrameContext& ctx) {

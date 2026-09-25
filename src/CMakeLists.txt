@@ -169,7 +169,7 @@ add_executable(fjell
     renderer/pass/taa_resolve_pass.cpp
     renderer/pass/terrain_pass.cpp
     renderer/pass/water_pass.cpp
-    renderer/pass/tonemap_pass.cpp
+    renderer/pass/post_pass.cpp
     renderer/pass/transparent_pass.cpp
     renderer/pass/normal_pass.cpp
     renderer/pass/overdraw_pass.cpp

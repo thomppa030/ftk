@@ -35,7 +35,7 @@ inline constexpr std::string_view SKY_TOP = "sky_top";                   // colo
 inline constexpr std::string_view SKY_BOTTOM = "sky_bottom";             // color, gradient sky horizon
 inline constexpr std::string_view FOG_COLOR = "fog_color";               // color
 inline constexpr std::string_view FOG_DENSITY = "fog_density";           // float, × fog density
-inline constexpr std::string_view EXPOSURE_BIAS = "exposure_bias";       // float, EV added to the tonemap
+inline constexpr std::string_view EXPOSURE_BIAS = "exposure_bias";       // float, EV added to the exposure
 inline constexpr std::string_view STAR_INTENSITY = "star_intensity";     // float, sky built-in STARS
 
 /// Every built-in track name, for editors that offer them.

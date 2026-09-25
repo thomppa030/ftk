@@ -175,7 +175,7 @@ void GridPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Depth-tested against scene geometry, but never written: the grid must
     // not occlude anything drawn after it.
     builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    // The backward cull walk starts at tonemap and follows readers of
+    // The backward cull walk starts at the post pass and follows readers of
     // `color`. With MSAA on, `msaa_color` is a distinct image nothing
     // samples, so the grid has no path back to a root and would be culled
     // despite being the whole point of the pass.

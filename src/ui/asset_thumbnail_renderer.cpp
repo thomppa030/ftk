@@ -16,7 +16,7 @@
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/gpu/image_readback.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/material.hpp"
@@ -853,7 +853,7 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
                                               SIZE, SIZE, vk.msaa_samples());
     PostProcessResources::PassRefs refs{
         vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
-        vk.tonemap_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
+        vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
         vk.rt_reflection_pass()};
     pp_ = std::make_unique<PostProcessResources>(vk.device(), vk.allocator(), SIZE, SIZE,
                                                  pp_config_from_graph(*graph_), refs);
@@ -901,24 +901,24 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     req.global_set = global_set_;
     req.backdrop = options.backdrop;
 
-    auto& tonemap = vk.tonemap_pass();
-    const float saved_exposure = tonemap.exposure();
-    const bool saved_auto = tonemap.auto_exposure();
+    auto& post = vk.post_pass();
+    const float saved_exposure = post.exposure();
+    const bool saved_auto = post.auto_exposure();
     if (options.pin_exposure) {
-        tonemap.set_auto_exposure(false);
-        tonemap.set_exposure(0.0F);
+        post.set_auto_exposure(false);
+        post.set_exposure(0.0F);
     }
     // The stage's own scene carries its own sun; the environment comes from it,
     // never from whatever scene the editor has open.
     const EnvironmentState environment = resolve_environment(scene);
     vk.render_preview(req, environment, &scene, dt, 0, *deps.thread_pool);
-    tonemap.set_exposure(saved_exposure);
-    tonemap.set_auto_exposure(saved_auto);
+    post.set_exposure(saved_exposure);
+    post.set_auto_exposure(saved_auto);
     if (out == nullptr) return true;
 
-    auto* output = pp_->tonemap();
+    auto* output = pp_->post();
     if (output == nullptr || output->image == VK_NULL_HANDLE) {
-        FJELL_CORE_ERROR("Scene thumbnail: tonemap output unavailable");
+        FJELL_CORE_ERROR("Scene thumbnail: post output unavailable");
         return false;
     }
     ImageReadback readback({.device = vk.device(), .allocator = vk.allocator(),

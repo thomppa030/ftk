@@ -149,7 +149,7 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ss_gi = true;
     default_config.taa = true;
     default_config.rt_reflection = gpu_.device_ref().ray_tracing_supported();
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(), rt_reflection_pass()};
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), post_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(), rt_reflection_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -175,9 +175,9 @@ void VulkanContext::set_resource_manager(ResourceManager* rm) {
     // The post pass builds its default look's material row itself, and fills
     // the shader's samplers with what an unset slot reads, the neutral table
     // for its grade among them.
-    tonemap_pass().set_texture_fallbacks(
-        rm == nullptr ? TonemapPass::TextureFallbacks{}
-                      : TonemapPass::TextureFallbacks{[rm](UniformHint hint) {
+    post_pass().set_texture_fallbacks(
+        rm == nullptr ? PostPass::TextureFallbacks{}
+                      : PostPass::TextureFallbacks{[rm](UniformHint hint) {
                             return rm->fallback_texture_index(hint);
                         }});
 }
@@ -249,10 +249,10 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     rt_reflection_pass().set_max_trace_dist(s.ssr.max_trace_dist);
     sun_shafts_pass().set_upsample_depth_tolerance(s.sun_shafts.upsample_depth_tolerance);
 
-    // Tonemap
-    tonemap_pass().set_auto_exposure(s.tonemap.auto_exposure);
-    tonemap_pass().set_exposure(s.tonemap.exposure_ev);
-    tonemap_pass().set_adaptation_speed(s.tonemap.adaptation_speed);
+    // Exposure
+    post_pass().set_auto_exposure(s.tonemap.auto_exposure);
+    post_pass().set_exposure(s.tonemap.exposure_ev);
+    post_pass().set_adaptation_speed(s.tonemap.adaptation_speed);
 
     // Frame graph
     render_pipeline_.set_aliasing_enabled(s.frame_graph_aliasing);
@@ -409,7 +409,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = view.skip_shadows;
-    ctx.flip_tonemap_y = view.flip_tonemap_y;
+    ctx.flip_output_y = view.flip_output_y;
     ctx.backdrop = view.backdrop;
     ctx.show_grid = view.show_grid;
 
@@ -655,7 +655,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 ao_view, gtao_pass().ao_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "screen_color",
-                req.target->screen_color_view(), tonemap_pass().output_sampler(),
+                req.target->screen_color_view(), post_pass().output_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "gi_indirect",
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
@@ -675,7 +675,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 ao_view, gtao_pass().ao_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image(current_frame_, "screen_color",
-                req.target->screen_color_view(), tonemap_pass().output_sampler(),
+                req.target->screen_color_view(), post_pass().output_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image(current_frame_, "gi_indirect",
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
@@ -777,7 +777,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         // is built during recording.
         prep_ctx.mega_buffer = gpu_.mega_buffer();
         // For a pass that configures another before anything records: the
-        // tonemap switches the exposure histogram on or off here.
+        // post pass switches the exposure histogram on or off here.
         prep_ctx.passes = &passes_;
         if (!viewports.empty() && viewports[0].target) {
             prep_ctx.view = viewports[0].view;
@@ -804,7 +804,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         // right way up, whatever a request says.
         ViewportRenderRequest view = vp;
         view.global_set = VK_NULL_HANDLE;
-        view.flip_tonemap_y = false;
+        view.flip_output_y = false;
         render_scene_to(cmd, view, scene, dt, selected_id, pool, pp);
     }
 
@@ -1884,7 +1884,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         gb.write_image(current_frame_, "screen_color",
-            viewports[0].target->screen_color_view(), tonemap_pass().output_sampler(),
+            viewports[0].target->screen_color_view(), post_pass().output_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // GI indirect: DDGI handles sun bounce indirect.
@@ -1978,7 +1978,7 @@ void VulkanContext::apply_pending_ddgi_toggle() {
 
     // Get current viewport size
     uint32_t w = 256, h = 256;
-    auto* tm = default_pp_->tonemap();
+    auto* tm = default_pp_->post();
     if (tm && tm->extent.width > 0) {
         w = tm->extent.width;
         h = tm->extent.height;
@@ -2000,7 +2000,7 @@ void VulkanContext::rebuild_ddgi_resources() {
     }
 
     uint32_t w = 256, h = 256;
-    auto* tm = default_pp_->tonemap();
+    auto* tm = default_pp_->post();
     if (tm && tm->extent.width > 0) {
         w = tm->extent.width;
         h = tm->extent.height;
@@ -2127,7 +2127,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
 
     PostProcessResources::PassRefs refs{
         hiz_pass(), gtao_pass(), volumetric_fog_pass(),
-        tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(),
+        post_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(),
         rt_reflection_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(

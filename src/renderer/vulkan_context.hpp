@@ -39,7 +39,7 @@
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/sky_cubemap_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/opaque_pass.hpp"
 #include "renderer/pass/screen_color_copy_pass.hpp"
@@ -230,7 +230,7 @@ public:
   /// grid re-fit. Assumes the caller is at a point where waiting the
   /// device idle is acceptable.
   void rebuild_ddgi_resources();
-  [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }
+  [[nodiscard]] PostPass &post_pass() { return passes_.get<PostPass>("post"); }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
   [[nodiscard]] MeshletVizPass *meshlet_viz_pass() { return passes_.try_get<MeshletVizPass>("meshlet_viz"); }

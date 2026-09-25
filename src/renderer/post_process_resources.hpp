@@ -8,7 +8,7 @@
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/view_history.hpp"
 
@@ -26,7 +26,7 @@ struct PostProcessConfig {
     bool bloom{true};
     bool ssr{false};
     bool volumetric_fog{false};
-    bool tonemap{true};
+    bool post{true};
     bool ddgi{false};
     bool ss_gi{false};
     bool taa{false};
@@ -57,7 +57,7 @@ public:
         HizPass& hiz;
         AoPass& gtao;
         VolumetricFogPass& fog;
-        TonemapPass& tonemap;
+        PostPass& post;
         DdgiPass& ddgi;
         SsGiPass& ss_gi;
         TaaResolvePass& taa;
@@ -81,7 +81,7 @@ public:
     [[nodiscard]] HizPass::Images* hiz() { return config_.hiz ? &hiz_images_ : nullptr; }
     [[nodiscard]] AoPass::Images* gtao() { return config_.gtao ? &gtao_images_ : nullptr; }
     [[nodiscard]] VolumetricFogPass::Images* volumetric_fog() { return config_.volumetric_fog ? &fog_images_ : nullptr; }
-    [[nodiscard]] TonemapPass::Images* tonemap() { return config_.tonemap ? &tonemap_images_ : nullptr; }
+    [[nodiscard]] PostPass::Images* post() { return config_.post ? &post_images_ : nullptr; }
     [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
     [[nodiscard]] SsGiPass::Images* ss_gi() { return config_.ss_gi ? &ss_gi_images_ : nullptr; }
     [[nodiscard]] TaaResolvePass::Images* taa() { return config_.taa ? &taa_images_ : nullptr; }
@@ -108,7 +108,7 @@ private:
     HizPass::Images hiz_images_;
     AoPass::Images gtao_images_;
     VolumetricFogPass::Images fog_images_;
-    TonemapPass::Images tonemap_images_;
+    PostPass::Images post_images_;
     DdgiPass::Images ddgi_images_;
     SsGiPass::Images ss_gi_images_;
     TaaResolvePass::Images taa_images_;

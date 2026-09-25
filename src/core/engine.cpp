@@ -2156,7 +2156,7 @@ void Engine::run() {
         if (!vulkan_context_->begin_frame(thread_pool_)) continue;
 
         // If a capture was pending from the previous frame, the slot's
-        // fence has settled and the rendered tonemap output is now safe
+        // fence has settled and the rendered post output is now safe
         // to read back.
         capture_service_.finish_after_present(*vulkan_context_,
                                               scene_context_->viewport_manager());
@@ -2169,7 +2169,7 @@ void Engine::run() {
 
         // Editor capture: resize the editor viewport + PP to the capture
         // resolution BEFORE draw_ui, so ImGui::Image picks up the new
-        // tonemap descriptor instead of one we're about to free.
+        // post output's descriptor instead of one we're about to free.
         capture_service_.resize_for_capture(*vulkan_context_,
                                             scene_context_->viewport_manager());
 

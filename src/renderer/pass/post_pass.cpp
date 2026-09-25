@@ -1,4 +1,4 @@
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -35,7 +35,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
+void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
                                   uint32_t width, uint32_t height) {
     extent = {width, height};
 
@@ -49,7 +49,7 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    // TRANSFER_SRC lets the editor screenshot tool read back the tonemapped
+    // TRANSFER_SRC lets the editor screenshot tool read back the finished
     // output. Universally supported on R8G8B8A8_SRGB OPTIMAL tiling.
     ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -57,7 +57,7 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (create_vma_image(allocator, &ci, &image, &memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap output image");
+        throw std::runtime_error("Failed to create post output image");
     }
 
     VkImageViewCreateInfo view_ci{};
@@ -67,11 +67,11 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
     view_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap output view");
+        throw std::runtime_error("Failed to create post output view");
     }
 }
 
-void TonemapPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
+void PostPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
     destroy_vma_image(allocator, image, memory);
@@ -79,7 +79,7 @@ void TonemapPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     extent = {};
 }
 
-void TonemapPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void PostPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                   uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
@@ -88,7 +88,7 @@ void TonemapPass::Images::resize(VkDevice device, VmaAllocator allocator,
     if (width > 0 && height > 0) create(device, allocator, width, height);
 }
 
-VkDescriptorSet TonemapPass::Images::imgui_texture(VkSampler sampler) {
+VkDescriptorSet PostPass::Images::imgui_texture(VkSampler sampler) {
     if (imgui_descriptor == VK_NULL_HANDLE && view != VK_NULL_HANDLE) {
         imgui_descriptor = ImGui_ImplVulkan_AddTexture(
             sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -96,14 +96,14 @@ VkDescriptorSet TonemapPass::Images::imgui_texture(VkSampler sampler) {
     return imgui_descriptor;
 }
 
-void TonemapPass::Images::invalidate_imgui_texture() {
+void PostPass::Images::invalidate_imgui_texture() {
     if (imgui_descriptor != VK_NULL_HANDLE) {
         ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
         imgui_descriptor = VK_NULL_HANDLE;
     }
 }
 
-// ── TonemapPass (singleton) ─────────────────────────────────────────────────
+// ── PostPass (singleton) ────────────────────────────────────────────────────
 
 namespace {
 
@@ -132,7 +132,7 @@ std::unique_ptr<Buffer> make_value_buffer(VmaAllocator allocator, uint32_t float
 
 } // namespace
 
-Result<> TonemapPass::create(Device& device, const PassResources& resources) {
+Result<> PostPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
@@ -191,7 +191,7 @@ Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     return {};
 }
 
-void TonemapPass::destroy() {
+void PostPass::destroy() {
     destroy_material_pipelines();
     for (auto& buffer : value_buffers_) buffer.reset();
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
@@ -200,7 +200,7 @@ void TonemapPass::destroy() {
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
-void TonemapPass::destroy_material_pipelines() {
+void PostPass::destroy_material_pipelines() {
     for (auto& [id, mp] : material_pipelines_) {
         if (mp.base != VK_NULL_HANDLE) vkDestroyPipeline(device_, mp.base, nullptr);
         if (mp.over != VK_NULL_HANDLE) vkDestroyPipeline(device_, mp.over, nullptr);
@@ -209,7 +209,7 @@ void TonemapPass::destroy_material_pipelines() {
     default_.ready = false;
 }
 
-void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
+void PostPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // The frame that last wrote this slot's values has finished: its fence
     // was waited on before anything records.
     values_used_[ctx.frame_index] = 0;
@@ -258,7 +258,7 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     exposure_ += (target_ev - exposure_) * std::min(speed, 1.0f);
 }
 
-void TonemapPass::ensure_default() {
+void PostPass::ensure_default() {
     if (pipeline_cache_ == nullptr || bindless_ == nullptr) return;
 
     const uint32_t pid = pipeline_cache_->register_shader(std::string(DEFAULT_POST_SHADER));
@@ -320,7 +320,7 @@ void TonemapPass::ensure_default() {
     default_.ready = true;
 }
 
-PostLook TonemapPass::look_for(const PostVolume& volume) const {
+PostLook PostPass::look_for(const PostVolume& volume) const {
     const bool own = volume.pipeline_id != FogSettings::NO_MATERIAL
                   && volume.material_id != FogSettings::NO_MATERIAL
                   && material_pipelines_.contains(volume.pipeline_id);
@@ -341,7 +341,7 @@ PostLook TonemapPass::look_for(const PostVolume& volume) const {
     return look;
 }
 
-const TonemapPass::MaterialPipeline* TonemapPass::ensure_material_pipeline(uint32_t pipeline_id) {
+const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pipeline_id) {
     if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
         return nullptr;
     }
@@ -418,7 +418,7 @@ const TonemapPass::MaterialPipeline* TonemapPass::ensure_material_pipeline(uint3
     return &slot;
 }
 
-uint32_t TonemapPass::write_values(uint32_t frame_index, const PostLayer& layer) {
+uint32_t PostPass::write_values(uint32_t frame_index, const PostLayer& layer) {
     if (pipeline_cache_ == nullptr || layer.look.pipeline_id >= pipeline_cache_->shader_count()) {
         return 0;
     }
@@ -446,11 +446,11 @@ uint32_t TonemapPass::write_values(uint32_t frame_index, const PostLayer& layer)
     return base;
 }
 
-void TonemapPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_tonemap");
-    FJELL_GPU_ZONE(ctx, "Tonemap");
+void PostPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_post");
+    FJELL_GPU_ZONE(ctx, "Post");
 
-    auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->tonemap() : nullptr;
+    auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->post() : nullptr;
     if (output == nullptr || ctx.registry == nullptr) return;
 
     // bloom_mip0 is a transient of this run, registered only when declare()
@@ -489,7 +489,7 @@ void TonemapPass::record(const FrameContext& ctx) {
                 exposure, layers);
 }
 
-void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
+void PostPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
                               VkImageView bloom_view, VkImageView depth_view, float exposure,
                               std::span<const PostLayer> layers) {
     if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE || depth_view == VK_NULL_HANDLE) return;
@@ -545,7 +545,7 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
 
     VkViewport vp{};
     vp.width = static_cast<float>(imgs.extent.width);
-    if (ctx.flip_tonemap_y) {
+    if (ctx.flip_output_y) {
         // Negative-height viewport flips the image vertically so render-to-texture
         // outputs have V=0 at bottom (standard texture convention).
         vp.y = static_cast<float>(imgs.extent.height);
@@ -587,15 +587,15 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     vk_utils::finish_color_attachment(cmd, imgs.image);
 }
 
-PassSetup TonemapPass::setup() const {
+PassSetup PostPass::setup() const {
     return {
-        .name = "tonemap",
+        .name = "post",
         .phase = RenderPhase::PostProcess,
         .sub_order = 300,
     };
 }
 
-void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
 
@@ -605,7 +605,7 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     // What the viewport shows. The pass hands it to ImGui itself, after
     // the graph, with a transition to a fragment-shader read.
-    if (auto output = builder.import_named_optional(ctx, "tonemap_output"); output.valid()) {
+    if (auto output = builder.import_named_optional(ctx, "post_output"); output.valid()) {
         builder.write(output, ResourceAccess::color_attachment);
         builder.final_layout(output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -613,12 +613,12 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                              VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
-    // With TAA on, what gets tonemapped is the history slot TAA just wrote.
+    // With TAA on, what the post pass reads is the history slot TAA just wrote.
     if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {
         builder.read(taa, ResourceAccess::sampled_fragment);
     }
 
-    // Declared read on bloom_mip0 so the DAG sees the tonemap ← bloom_us_0
+    // Declared read on bloom_mip0 so the DAG sees the post ← bloom_us_0
     // edge. Resolving the view happens at record time through the
     // registry; declaring the access lets the graph emit the
     // COLOR_ATTACHMENT → SHADER_READ barrier for us. Name + desc must
@@ -634,7 +634,7 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         builder.read(bloom_mip0, ResourceAccess::sampled_fragment);
     }
 
-    // Tonemap is the frame terminator: its output (the tonemap pp
+    // The post pass is the frame terminator: its output (the post pp
     // image) goes to the present/ImGui step outside the graph, so
     // mark never_cull so it anchors the backward walk.
     builder.never_cull();

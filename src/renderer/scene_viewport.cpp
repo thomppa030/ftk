@@ -41,10 +41,10 @@ void SceneViewport::resize(uint32_t width, uint32_t height) {
 }
 
 VkImageView SceneViewport::output_view() const {
-    if (!config_.expose_hdr && config_.pp_config.tonemap) {
-        auto* tonemap = pp_->tonemap();
-        if (tonemap && tonemap->view != VK_NULL_HANDLE) {
-            return tonemap->view;
+    if (!config_.expose_hdr && config_.pp_config.post) {
+        auto* output = pp_->post();
+        if (output && output->view != VK_NULL_HANDLE) {
+            return output->view;
         }
     }
     return offscreen_->color_view();
@@ -66,7 +66,7 @@ ViewportRenderRequest SceneViewport::build_request() const {
     req.camera_position = view_.camera_position;
     req.pp_resources = pp_.get();
     req.skip_shadows = config_.skip_shadows;
-    req.flip_tonemap_y = true;
+    req.flip_output_y = true;
     req.viewport_graph = config_.viewport_graph;
     return req;
 }

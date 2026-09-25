@@ -362,7 +362,7 @@ void ProjectSettingsWindow::draw_rendering() {
             } else {
                 // Auto exposure drives the value; the panel only sets how
                 // fast it adapts, and reads the result back.
-                readout_row("Exposure", std::format("{:.2f} EV", vk_->tonemap_pass().exposure()));
+                readout_row("Exposure", std::format("{:.2f} EV", vk_->post_pass().exposure()));
                 ui::row("Adaptation speed", [&] {
                     edit |= ui::slider("##adaptation", s.tonemap.adaptation_speed, 0.1f, 5.0f);
                 });
@@ -374,9 +374,9 @@ void ProjectSettingsWindow::draw_rendering() {
                     "is in: the frame as it is before a grade, to capture and grade elsewhere. "
                     "Not saved.",
                     [&] {
-                        bool ungraded = vk_->tonemap_pass().ungraded();
+                        bool ungraded = vk_->post_pass().ungraded();
                         if (ui::checkbox("##ungraded", ungraded).changed) {
-                            vk_->tonemap_pass().set_ungraded(ungraded);
+                            vk_->post_pass().set_ungraded(ungraded);
                         }
                     });
         }

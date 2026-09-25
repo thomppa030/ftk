@@ -182,7 +182,7 @@ void DebugPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Depth-tested so colliders are occluded by the geometry they sit in,
     // but never written.
     builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    // The backward cull walk starts at tonemap and follows readers of the
+    // The backward cull walk starts at the post pass and follows readers of the
     // resolved `color`. With MSAA on, `msaa_color` is a separate image
     // nothing samples, so without this anchor the overlay is culled.
     builder.has_side_effects();

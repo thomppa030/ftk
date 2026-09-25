@@ -63,7 +63,7 @@
         { "class": "SubsystemComputePass","name": "subsystem_compute" },
         { "class": "TaaResolvePass",      "name": "taa_resolve" },
         { "class": "ExposurePass",        "name": "exposure" },
-        { "class": "TonemapPass",         "name": "tonemap" },
+        { "class": "PostPass",            "name": "post" },
 
         // ── Screen-space effects ───────────────────────────────────────
         { "class": "GtaoTracePass",    "name": "ao_trace" },

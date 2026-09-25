@@ -210,7 +210,7 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
     auto& pp = ctx.default_pp();
     switch (panel->source) {
         case ViewportSource::final_color:
-            return pp.tonemap() ? pp.tonemap()->imgui_texture(ctx.tonemap_pass().output_sampler()) : VK_NULL_HANDLE;
+            return pp.post() ? pp.post()->imgui_texture(ctx.post_pass().output_sampler()) : VK_NULL_HANDLE;
         case ViewportSource::ao:
             return pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE;
         case ViewportSource::depth:        return ctx.depth_viz_pass().imgui_texture();
@@ -299,7 +299,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             auto& pp = ctx.default_pp();
             switch (panel.source) {
                 case ViewportSource::final_color:
-                    tex = pp.tonemap() ? pp.tonemap()->imgui_texture(ctx.tonemap_pass().output_sampler()) : VK_NULL_HANDLE; break;
+                    tex = pp.post() ? pp.post()->imgui_texture(ctx.post_pass().output_sampler()) : VK_NULL_HANDLE; break;
                 case ViewportSource::ao:
                     tex = pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE; break;
                 case ViewportSource::depth:        tex = ctx.depth_viz_pass().imgui_texture(); break;

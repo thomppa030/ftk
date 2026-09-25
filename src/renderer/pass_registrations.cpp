@@ -52,7 +52,7 @@
 #include "renderer/pass/subsystem_compute_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
@@ -115,7 +115,7 @@ FJELL_REGISTER_PASS(SunShaftsCompositePass)
 FJELL_REGISTER_PASS(SunShaftsPass)
 FJELL_REGISTER_PASS(SunShaftsResolvePass)
 FJELL_REGISTER_PASS(TaaResolvePass)
-FJELL_REGISTER_PASS(TonemapPass)
+FJELL_REGISTER_PASS(PostPass)
 FJELL_REGISTER_PASS(TransparentPass)
 FJELL_REGISTER_PASS(UvVizPass)
 FJELL_REGISTER_PASS(WireframePass)

@@ -321,11 +321,11 @@ void SceneEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
 
     // Camera preview PIP overlay (only after preview has rendered at least once)
-    if (camera_preview_skip_frames_ < 0 && camera_preview_pp_ && camera_preview_pp_->tonemap()) {
+    if (camera_preview_skip_frames_ < 0 && camera_preview_pp_ && camera_preview_pp_->post()) {
         auto* vp = viewport_manager_.active_panel();
         if (vp && vp->img_size.x > 0 && vp->img_size.y > 0) {
-            auto tex = camera_preview_pp_->tonemap()->imgui_texture(
-                deps_.vulkan_context->tonemap_pass().output_sampler());
+            auto tex = camera_preview_pp_->post()->imgui_texture(
+                deps_.vulkan_context->post_pass().output_sampler());
             if (tex) {
                 bool visible = ImGui::Begin(vp->title.c_str());
                 if (visible) {
@@ -1342,7 +1342,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
 
         PostProcessResources::PassRefs refs{
             vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
-            vk.tonemap_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
+            vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
             vk.rt_reflection_pass()};
 
         camera_preview_pp_ = std::make_unique<PostProcessResources>(

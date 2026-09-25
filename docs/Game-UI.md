@@ -348,7 +348,7 @@ MSDF (Multi-channel Signed Distance Field) text via FreeType + msdfgen:
 
 ### Frame Graph Integration
 
-The `game_ui` pass runs after `tonemap` and before the debug visualization passes. It renders into the tone-mapped output with `VK_ATTACHMENT_LOAD_OP_LOAD` so the 3D scene is preserved underneath.
+The `game_ui` pass runs after `post` and before the debug visualization passes. It renders into the tone-mapped output with `VK_ATTACHMENT_LOAD_OP_LOAD` so the 3D scene is preserved underneath.
 
 ### Hot Reload
 

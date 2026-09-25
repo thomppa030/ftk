@@ -5,7 +5,7 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
-#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
@@ -284,7 +284,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             decl_ctx.imports.emplace(fg_name_hash("ss_gi_output"), img);
         }
         // TAA's history ping-pong: the slot it writes this frame, which the
-        // tonemap then reads, and the one it reads back from the frame
+        // post pass then reads, and the one it reads back from the frame
         // before. Persistent: each slot is next frame's read.
         if (auto* taa = pp_resources->taa();
             taa != nullptr && taa->history[0] != VK_NULL_HANDLE && taa->history[1] != VK_NULL_HANDLE) {
@@ -298,14 +298,14 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             add_history_slot("taa_history_write", taa->write_index);
             add_history_slot("taa_history_read", 1 - taa->write_index);
         }
-        // The tonemap's output, what the viewport shows: written as a colour
+        // The post pass's output, what the viewport shows: written as a colour
         // attachment and left for ImGui to sample after the graph.
-        if (auto* tonemap = pp_resources->tonemap();
-            tonemap != nullptr && tonemap->image != VK_NULL_HANDLE) {
+        if (auto* output = pp_resources->post();
+            output != nullptr && output->image != VK_NULL_HANDLE) {
             ImportedImage img{};
-            img.image = tonemap->image;
-            img.view = tonemap->view;
-            decl_ctx.imports.emplace(fg_name_hash("tonemap_output"), img);
+            img.image = output->image;
+            img.view = output->view;
+            decl_ctx.imports.emplace(fg_name_hash("post_output"), img);
         }
     }
 

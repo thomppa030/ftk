@@ -278,7 +278,7 @@ void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Depth-tested so the sky only fills pixels no geometry reached, but
     // never written.
     builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    // The backward cull walk starts at tonemap and follows readers of the
+    // The backward cull walk starts at the post pass and follows readers of the
     // resolved `color`. With MSAA on, `msaa_color` is a separate image
     // nothing samples, so without this anchor the sky is culled entirely.
     builder.has_side_effects();

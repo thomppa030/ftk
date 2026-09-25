@@ -38,7 +38,7 @@ class PipelineCache;
 // write a material row's params: it writes each layer's values into a buffer
 // of its own per frame in flight, one slice per draw, and pushes where the
 // slice starts. The material row supplies the textures.
-class TonemapPass : public RenderPass {
+class PostPass : public RenderPass {
 public:
     /// The bindless index a sampler with this hint reads when nothing is
     /// bound: what the engine default's row holds in its texture slots, the

@@ -40,7 +40,7 @@ layout(set = 2, binding = 3) readonly buffer PostParams {
     float post_params[];
 };
 
-// Mirrors the push block in TonemapPass::record_into.
+// Mirrors the push block in PostPass::record_into.
 layout(push_constant) uniform PushConstants {
     uint  material_id;
     uint  param_base;

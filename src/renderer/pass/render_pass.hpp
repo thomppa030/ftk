@@ -125,9 +125,9 @@ struct FrameContext {
     // Skip shadow pass for this viewport (e.g. camera preview uses main viewport's shadows)
     bool skip_shadows{false};
 
-    // Flip tonemap output vertically so render-to-texture viewports produce
+    // Flip the output vertically so render-to-texture viewports produce
     // images with V=0 at bottom (standard texture convention).
-    bool flip_tonemap_y{false};
+    bool flip_output_y{false};
     // Drawn in place of the scene's sky when set (see ViewportRenderRequest).
     const SkyBackdrop* backdrop{nullptr};
 

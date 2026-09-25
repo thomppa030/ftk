@@ -107,7 +107,7 @@ VulkanContext
   ├── TransparentPass      Back-to-front sorted
   ├── ParticleSystem       GPU compute particles
   ├── BloomPass            Downscale chain + composite
-  ├── TonemapPass          Post: shader_type post, blended by post process volumes
+  ├── PostPass             shader_type post, blended by post process volumes
   ├── OutlinePass          Selection outline
   ├── DebugDraw            Collider wireframes
   ├── [Debug viz passes]   Depth, normals, UV, overdraw, wireframe,
