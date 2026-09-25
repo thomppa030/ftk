@@ -5,7 +5,6 @@
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
 
-#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -13,6 +12,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 namespace fjell {
@@ -175,140 +175,39 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
             std::string all_output;
 
             // ── fjreflect codegen ────────────────────────────────────
-            bool has_codegen = false;
-            if (fs::exists(fjreflect_path)) {
-                std::string source_list;
-                for (const auto& entry : fs::directory_iterator(scripts_dir)) {
-                    if (!entry.is_regular_file()) continue;
-                    auto name = entry.path().filename().string();
-                    if (!name.ends_with(".hpp")) continue;
-                    source_list += " " + quoted(entry.path());
-                }
-
-                if (!source_list.empty()) {
-                    auto reflect_cmd = quoted(fjreflect_path) +
-                        " --output-dir " + quoted(generated_dir) + source_list + " 2>&1";
-
-                    std::string reflect_output;
-                    int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
-                    if (reflect_ret != 0) {
-                        return {.success = false,
-                                .output = "[fjreflect] codegen failed:\n" + reflect_output,
-                                .so_path = so_path};
-                    }
-                    all_output += reflect_output;
-                    has_codegen = true;
-                }
+            // fjreflect writes the generated tables and register_all.cpp, the
+            // module's entry points, from the same parse, so the two always
+            // agree. Without it (or without headers) the module registers its
+            // types unreflected through FJELL_REGISTER().
+            const auto register_path = scripts_dir / "register_all.cpp";
+            std::string source_list;
+            for (const auto& entry : fs::directory_iterator(scripts_dir)) {
+                if (!entry.is_regular_file()) continue;
+                auto name = entry.path().filename().string();
+                if (!name.ends_with(".hpp")) continue;
+                source_list += " " + quoted(entry.path());
             }
 
-            // ── Generate register_all.cpp ────────────────────────────
-            {
-                std::ofstream reg(scripts_dir / "register_all.cpp");
-                if (reg.is_open()) {
-                    reg << "// Auto-generated -- do not edit.\n";
-                    reg << "#include \"fjell/registry.hpp\"\n\n";
+            if (fs::exists(fjreflect_path) && !source_list.empty()) {
+                auto reflect_cmd = quoted(fjreflect_path) + " --output-dir " + quoted(generated_dir) +
+                                   " --register " + quoted(register_path) + source_list + " 2>&1";
 
-                    auto manifest_path = generated_dir / "manifest.json";
-                    if (has_codegen && fs::exists(manifest_path)) {
-                        std::ifstream mf(manifest_path);
-                        auto manifest = nlohmann::json::parse(mf, nullptr, false);
-                        if (manifest.is_object() && manifest.contains("types")) {
-                            std::vector<nlohmann::json> script_types;
-                            std::vector<nlohmann::json> ui_types;
-                            for (const auto& t : manifest["types"]) {
-                                bool is_ui = t.value("is_ui_component", false);
-                                if (is_ui) {
-                                    ui_types.push_back(t);
-                                } else {
-                                    script_types.push_back(t);
-                                }
-                            }
-
-                            for (const auto& t : manifest["types"]) {
-                                auto name = t["name"].get<std::string>();
-                                auto fields_sym = t["fields_symbol"].get<std::string>();
-                                reg << "extern \"C\" const FjellFieldDesc " << fields_sym << "[];\n";
-                                reg << "extern \"C\" const uint32_t fjreflect_" << name << "_field_count;\n";
-                                if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                                    reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
-                                        << "(void*, void*);\n";
-                                }
-                                if (t.value("rpc_count", 0u) > 0) {
-                                    reg << "extern \"C\" const FjellRpcDesc fjreflect_" << name << "_rpcs[];\n";
-                                }
-                            }
-
-                            if (!script_types.empty()) {
-                                reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
-                                for (const auto& t : script_types) {
-                                    auto name = t["name"].get<std::string>();
-                                    auto fields_sym = t["fields_symbol"].get<std::string>();
-                                    auto count = t["field_count"].get<uint32_t>();
-                                    auto rpc_count = t.value("rpc_count", 0u);
-                                    reg << "    {\"" << name << "\", " << fields_sym
-                                        << ", " << count << ", ";
-                                    if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                                        reg << t["trace_symbol"].get<std::string>();
-                                    } else {
-                                        reg << "nullptr";
-                                    }
-                                    if (rpc_count > 0) {
-                                        reg << ", fjreflect_" << name << "_rpcs, " << rpc_count;
-                                    } else {
-                                        reg << ", nullptr, 0";
-                                    }
-                                    reg << "},\n";
-                                }
-                                reg << "};\n";
-                            }
-
-                            if (!ui_types.empty()) {
-                                reg << "\n#include \"fjell/ui_registry.hpp\"\n";
-                                reg << "static const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
-                                for (const auto& t : ui_types) {
-                                    auto name = t["name"].get<std::string>();
-                                    auto fields_sym = t["fields_symbol"].get<std::string>();
-                                    auto count = t["field_count"].get<uint32_t>();
-                                    auto action_count = t.value("action_count", 0u);
-                                    reg << "    {\"" << name << "\", "
-                                        << fields_sym << ", " << count << ", ";
-                                    if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                                        reg << t["trace_symbol"].get<std::string>();
-                                    } else {
-                                        reg << "nullptr";
-                                    }
-                                    reg << ", ";
-                                    if (action_count > 0) {
-                                        reg << "fjreflect_" << name << "_ui_actions, " << action_count;
-                                    } else {
-                                        reg << "nullptr, 0";
-                                    }
-                                    reg << "},\n";
-                                }
-                                reg << "};\n";
-                            }
-
-                            reg << "\nextern \"C\" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
-                            reg << "FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS()\n";
-                            reg << "extern \"C\" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) {\n";
-                            if (!script_types.empty()) {
-                                reg << "    fjell_set_generated_table(fjreflect_generated, "
-                                    << script_types.size() << ");\n";
-                            }
-                            if (!ui_types.empty()) {
-                                reg << "    fjell_set_ui_generated_table(fjreflect_ui_generated, "
-                                    << ui_types.size() << ");\n";
-                            }
-                            reg << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
-                            reg << "    for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
-                            reg << "}\n";
-                        } else {
-                            reg << "FJELL_REGISTER()\n";
-                        }
-                    } else {
-                        reg << "FJELL_REGISTER()\n";
-                    }
+                std::string reflect_output;
+                int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
+                if (reflect_ret != 0) {
+                    return {.success = false,
+                            .output = "[fjreflect] codegen failed:\n" + reflect_output,
+                            .so_path = so_path};
                 }
+                all_output += reflect_output;
+            } else {
+                const std::string fallback = "// register_all.cpp: no reflection, so the plain entry points.\n"
+                                             "#include \"fjell/registry.hpp\"\n"
+                                             "FJELL_REGISTER()\n";
+                std::ifstream in(register_path);
+                const std::string existing((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                in.close();
+                if (existing != fallback) std::ofstream(register_path) << fallback;
             }
 
             // ── cmake configure + build ──────────────────────────────

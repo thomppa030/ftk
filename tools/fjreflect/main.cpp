@@ -11,16 +11,20 @@ static void print_usage() {
     std::cerr << "Usage: fjreflect [options] <source files...>\n"
               << "Options:\n"
               << "  --output-dir <dir>    Output directory for generated files\n"
+              << "  --register <file>     Also write the game module's register_all.cpp\n"
               << "  --help                Show this message\n";
 }
 
 int main(int argc, char* argv[]) {
     std::string output_dir = "generated";
+    std::string register_path;
     std::vector<std::string> source_files;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--output-dir") == 0 && i + 1 < argc) {
             output_dir = argv[++i];
+        } else if (std::strcmp(argv[i], "--register") == 0 && i + 1 < argc) {
+            register_path = argv[++i];
         } else if (std::strcmp(argv[i], "--help") == 0) {
             print_usage();
             return 0;
@@ -79,6 +83,11 @@ int main(int argc, char* argv[]) {
     fjreflect::WriteReport report;
     if (!fjreflect::write_outputs(output_dir, files, report)) {
         std::cerr << "fjreflect: aborting: the output directory could not be updated\n";
+        return 1;
+    }
+    if (!register_path.empty() &&
+        fjreflect::write_if_changed(register_path, fjreflect::register_file(all_components)) ==
+            fjreflect::WriteResult::failed) {
         return 1;
     }
 

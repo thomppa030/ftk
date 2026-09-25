@@ -6,6 +6,7 @@ add_executable(fjreflect
 )
 
 target_compile_features(fjreflect PRIVATE cxx_std_23)
+target_link_libraries(fjreflect PRIVATE nlohmann_json::nlohmann_json)
 if(MSVC)
     target_compile_options(fjreflect PRIVATE /W4 /WX)
 else()

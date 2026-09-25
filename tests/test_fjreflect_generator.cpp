@@ -3,6 +3,7 @@
 #include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -84,8 +85,6 @@ public:
             "\"Node3D\", nullptr, nullptr, 0, 0, nullptr},\n"
             "};\n"
             "\n"
-            "extern \"C\" const uint32_t fjreflect_Mover_field_count = 2;\n"
-            "\n"
             "extern \"C\" void fjreflect_Mover_trace(void* instance, void* visitor) {\n"
             "    char* base = static_cast<char*>(instance);\n"
             "    (void)visitor;\n"
@@ -156,5 +155,66 @@ TEST_CASE("Outputs no header produced any more are removed, and nothing else", "
     REQUIRE_FALSE(fs::exists(dir / "gone.verify.cpp"));
     REQUIRE(fs::exists(dir / "notes.txt"));
     REQUIRE(fs::exists(dir / "kept.generated.cpp"));
+    fs::remove_all(dir);
+}
+
+TEST_CASE("register_all.cpp hands over every table and registers every kind", "[fjreflect]") {
+    const auto dir = scratch_dir("register");
+    const auto comps = parse_components(dir, "kinds.hpp", R"(
+class Mover : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Mover)
+public:
+  [[fj::property]] float speed = 2.0f;
+  [[fj::rpc(server)]] void jump();
+};
+class Panel : public fjell::UiWidget {
+  FJELL_UI_WIDGET(Panel)
+public:
+  [[fj::action]] void close();
+};
+struct Step : fjell::AnimNotify {
+  FJELL_NOTIFY(Step)
+  [[fj::property]] float volume = 1.0f;
+};
+)");
+    const auto reg = fjreflect::register_file(comps);
+
+    REQUIRE(reg.find("{\"Mover\", fjreflect_Mover_fields, 1, nullptr, fjreflect_Mover_rpcs, 1},") !=
+            std::string::npos);
+    REQUIRE(reg.find("{\"Step\", fjreflect_Step_fields, 1, nullptr, nullptr, 0},") != std::string::npos);
+    // A widget without fields has no table to point at.
+    REQUIRE(reg.find("{\"Panel\", nullptr, 0, nullptr, fjreflect_Panel_ui_actions, 1},") != std::string::npos);
+    REQUIRE(reg.find("fjreflect_Panel_fields") == std::string::npos);
+    REQUIRE(fjreflect::generate(comps).at("kinds.generated.cpp").find("fjreflect_Panel_fields") ==
+            std::string::npos);
+    // The three lists FJELL_REGISTER() walks, notifies included.
+    REQUIRE(reg.find("fjell_auto_reg_head()") != std::string::npos);
+    REQUIRE(reg.find("fjell_ui_auto_reg_head()") != std::string::npos);
+    REQUIRE(reg.find("fjell_notify_auto_reg_head()") != std::string::npos);
+    fs::remove_all(dir);
+}
+
+TEST_CASE("The manifest describes every field, escaped", "[fjreflect]") {
+    const auto dir = scratch_dir("manifest");
+    const auto comps = parse_components(dir, "quoted.hpp", R"(
+class Sign : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Sign)
+public:
+  [[fj::property, fj::tooltip("Say \"hi\" \\ wave"), fj::range(0.0, 2.0)]] float reach = 1.0f;
+  [[fj::enum(Low, High)]] int level = 0;
+};
+)");
+    const auto manifest = nlohmann::json::parse(fjreflect::generate(comps).at("manifest.json"));
+
+    const auto& type = manifest["types"][0];
+    REQUIRE(type["name"] == "Sign");
+    REQUIRE(type["kind"] == "component");
+    REQUIRE(type["header"] == "quoted.hpp");
+    const auto& reach = type["fields"][0];
+    REQUIRE(reach["name"] == "reach");
+    REQUIRE(reach["kind"] == "float");
+    REQUIRE(reach["tooltip"] == R"(Say "hi" \ wave)");
+    REQUIRE(reach["range"][1] == 2.0);
+    REQUIRE(type["fields"][1]["enum"][1] == "High");
     fs::remove_all(dir);
 }

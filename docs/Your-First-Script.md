@@ -81,7 +81,7 @@ In the editor, click **Build & Reload** in the toolbar (or your project's build 
 
 What happens behind the scenes:
 1. The engine calls `end_play()` on every existing component and unloads `game.so`.
-2. `fjreflect` scans your headers for `[[fj::property]]` annotations and writes/updates `scripts/generated/*.generated.cpp`.
+2. `fjreflect` reads your headers' `[[fj::property]]` annotations and updates `scripts/generated/*.generated.cpp` and `scripts/register_all.cpp`.
 3. CMake rebuilds the project — output goes to `<project>/game.so` (the engine looks there).
 4. Engine reloads the `.so`, re-registers types, recreates components from the scene file, calls `begin_play()` on each.
 

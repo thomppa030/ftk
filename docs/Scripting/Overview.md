@@ -88,7 +88,19 @@ Supported field types (from `FjellFieldType` in `fjell/api.h`):
 | `WEAK_REF` | `fjell::WeakRef<T>` | scene-object picker |
 
 ### When fjreflect runs
-fjreflect parses your headers and writes a `register_all.cpp` next to your scripts that exports a table of generated field descriptors. CMake calls it automatically as part of the build. The takeaway: if you add an annotated field and the inspector doesn't show it, run a full rebuild — incremental builds occasionally miss header changes.
+Build & Reload runs fjreflect over every header in `scripts/` before it builds the
+module. It writes one `scripts/generated/<header>.generated.cpp` per header, holding
+the field tables of every component in it, and `scripts/register_all.cpp`, the
+module's entry points that hand those tables to the engine. A file is rewritten
+only when its content changes, so an unchanged header costs no recompile, and the
+outputs of a header you delete or rename are removed. Offsets come from the
+compiler that builds the module (`offsetof` in the generated code), so a
+reflected field may be private.
+
+A plain `cmake --build` in `scripts/` does not run fjreflect; use Build & Reload
+after changing a header. Anything fjreflect cannot reflect (an unknown `fj::`
+attribute, an attribute on a function or a static, a type it has no field kind
+for) stops the build with the file and line.
 
 ## Reference types
 

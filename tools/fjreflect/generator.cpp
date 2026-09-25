@@ -1,5 +1,7 @@
 #include "generator.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -89,8 +91,9 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         out << "\n";
     }
 
-    // Field table
-    out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
+    // Field table. A class without fields has none: a zero-length array is not
+    // C++, and register_all.cpp passes nullptr for it.
+    if (!comp.fields.empty()) out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
     for (const auto& f : comp.fields) {
         out << "    {\"" << f.name << "\", " << f.fj_field_type << ", " << access << "offset_" << f.name
             << ", ";
@@ -128,11 +131,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         }
         out << "},\n";
     }
-    out << "};\n\n";
-
-    // Field count
-    out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
-        << "_field_count = " << comp.fields.size() << ";\n\n";
+    if (!comp.fields.empty()) out << "};\n\n";
 
     // Trace function
     if (kinds.any()) {
@@ -327,61 +326,196 @@ bool is_generated_name(const std::string& name) {
            name.ends_with(".verify.cpp");
 }
 
-std::string manifest(const std::vector<ComponentInfo>& components) {
-    std::ostringstream out;
-    out << "{\n  \"types\": [\n";
-    for (size_t i = 0; i < components.size(); ++i) {
-        const auto& comp = components[i];
-        bool has_refs = false;
-        for (const auto& f : comp.fields) {
-            if (f.fj_field_type.find("REF") != std::string::npos) {
-                has_refs = true;
-                break;
-            }
-        }
-
-        out << "    {\n";
-        out << "      \"name\": \"" << comp.class_name << "\",\n";
-        if (comp.is_ui_component) {
-            out << "      \"is_ui_component\": true,\n";
-        }
-        if (comp.is_notify) {
-            out << "      \"is_notify\": true,\n";
-        }
-        out << "      \"fields_symbol\": \"fjreflect_" << comp.class_name << "_fields\",\n";
-        out << "      \"field_count\": " << comp.fields.size() << ",\n";
-        if (has_refs) {
-            out << "      \"trace_symbol\": \"fjreflect_" << comp.class_name << "_trace\",\n";
-        } else {
-            out << "      \"trace_symbol\": null,\n";
-        }
-        out << "      \"action_count\": " << comp.actions.size() << ",\n";
-        // Action details for runtime table generation
-        out << "      \"actions\": [";
-        for (size_t a = 0; a < comp.actions.size(); ++a) {
-            const auto& action = comp.actions[a];
-            int param_type = 0;
-            switch (action.param) {
-                case ActionParamType::none:        param_type = 0; break;
-                case ActionParamType::int_param:   param_type = 1; break;
-                case ActionParamType::float_param: param_type = 2; break;
-                case ActionParamType::vec2_param:  param_type = 3; break;
-            }
-            out << "{\"name\":\"" << action.name << "\",\"param\":" << param_type << "}";
-            if (a + 1 < comp.actions.size()) out << ",";
-        }
-        out << "],\n";
-        out << "      \"rpc_count\": " << comp.rpcs.size() << "\n";
-        out << "    }";
-        if (i + 1 < components.size()) out << ",";
-        out << "\n";
+const char* field_kind(const FieldInfo& f) {
+    static const std::pair<const char*, const char*> kinds[] = {
+        {"FJELL_FIELD_FLOAT", "float"},       {"FJELL_FIELD_INT", "int"},
+        {"FJELL_FIELD_BOOL", "bool"},         {"FJELL_FIELD_VEC2", "vec2"},
+        {"FJELL_FIELD_VEC3", "vec3"},         {"FJELL_FIELD_VEC4", "vec4"},
+        {"FJELL_FIELD_COLOR3", "color3"},     {"FJELL_FIELD_COLOR4", "color4"},
+        {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
+        {"FJELL_FIELD_REF", "ref"},           {"FJELL_FIELD_SHARED_REF", "shared_ref"},
+        {"FJELL_FIELD_WIDGET_PTR", "widget_ptr"}, {"FJELL_FIELD_STD_STRING", "string"},
+    };
+    for (const auto& [name, kind] : kinds) {
+        if (f.fj_field_type == name) return kind;
     }
-    out << "  ]\n}\n";
-    return out.str();
+    return "unknown";
 }
 
+const char* param_name(ActionParamType param) {
+    switch (param) {
+        case ActionParamType::none:        return "none";
+        case ActionParamType::int_param:   return "int";
+        case ActionParamType::float_param: return "float";
+        case ActionParamType::vec2_param:  return "vec2";
+    }
+    return "none";
+}
+
+const char* trigger_name(ActionTriggerMode trigger) {
+    switch (trigger) {
+        case ActionTriggerMode::triggered: return "triggered";
+        case ActionTriggerMode::pressed:   return "pressed";
+        case ActionTriggerMode::released:  return "released";
+        case ActionTriggerMode::completed: return "completed";
+    }
+    return "triggered";
+}
+
+const char* target_name(RpcTarget target) {
+    switch (target) {
+        case RpcTarget::server:  return "server";
+        case RpcTarget::clients: return "clients";
+        case RpcTarget::all:     return "all";
+    }
+    return "server";
+}
+
+/// The value of a C++ string literal's body: fields keep tooltips, categories
+/// and labels as written, because the generated code writes them back into
+/// literals, but a tool reading the manifest wants the text itself.
+std::string unescape(const std::string& body) {
+    std::string out;
+    for (std::size_t i = 0; i < body.size(); ++i) {
+        if (body[i] != '\\' || i + 1 == body.size()) {
+            out += body[i];
+            continue;
+        }
+        switch (const char c = body[++i]) {
+            case 'n': out += '\n'; break;
+            case 't': out += '\t'; break;
+            case 'r': out += '\r'; break;
+            default: out += c; break; // \\ \" \' and anything rarer, as itself
+        }
+    }
+    return out;
+}
+
+/// Everything fjreflect read, for tools that check a project against its
+/// scripts (the lint, the editor). Nothing in the build reads it.
+std::string manifest(const std::vector<ComponentInfo>& components) {
+    using Json = nlohmann::ordered_json;
+    Json types = Json::array();
+    for (const auto& comp : components) {
+        Json type;
+        type["name"] = comp.class_name;
+        type["qualified_name"] = comp.qualified_name;
+        type["kind"] = comp.is_ui_component ? "ui_widget" : comp.is_notify ? "notify" : "component";
+        type["header"] = std::filesystem::path(comp.source_file).filename().string();
+        Json fields = Json::array();
+        for (const auto& f : comp.fields) {
+            Json field;
+            field["name"] = f.name;
+            field["type"] = f.cpp_type;
+            field["kind"] = field_kind(f);
+            field["line"] = f.line;
+            if (f.is_bind) field["bind"] = true;
+            if (f.is_readonly) field["readonly"] = true;
+            if (f.is_replicated) field["replicated"] = true;
+            if (f.has_range) field["range"] = {f.hint_min, f.hint_max};
+            if (f.hint_speed != 0.0f) field["step"] = f.hint_speed;
+            if (!f.tooltip.empty()) field["tooltip"] = unescape(f.tooltip);
+            if (!f.category.empty()) field["category"] = unescape(f.category);
+            if (!f.enum_labels.empty()) {
+                Json labels = Json::array();
+                for (const auto& label : f.enum_labels) labels.push_back(unescape(label));
+                field["enum"] = std::move(labels);
+            }
+            if (!f.ref_target.empty()) field["ref"] = f.ref_target;
+            if (!f.shader_types.empty()) field["shader_types"] = f.shader_types;
+            fields.push_back(std::move(field));
+        }
+        type["fields"] = std::move(fields);
+        Json actions = Json::array();
+        for (const auto& a : comp.actions) {
+            actions.push_back({{"name", a.name}, {"param", param_name(a.param)}, {"trigger", trigger_name(a.trigger)}});
+        }
+        type["actions"] = std::move(actions);
+        Json rpcs = Json::array();
+        for (const auto& rpc : comp.rpcs) {
+            Json params = Json::array();
+            for (const auto& p : rpc.params) params.push_back({{"type", p.cpp_type}, {"name", p.name}});
+            rpcs.push_back({{"name", rpc.method_name}, {"target", target_name(rpc.target)}, {"params", std::move(params)}});
+        }
+        type["rpcs"] = std::move(rpcs);
+        types.push_back(std::move(type));
+    }
+    Json root;
+    root["version"] = 1;
+    root["types"] = std::move(types);
+    return root.dump(2) + "\n";
+}
 
 } // namespace
+
+std::string register_file(const std::vector<ComponentInfo>& components) {
+    std::ostringstream out;
+    out << "// register_all.cpp — Generated by fjreflect. Do not edit.\n";
+    out << "#include \"fjell/registry.hpp\"\n";
+
+    std::vector<const ComponentInfo*> scripts, widgets;
+    for (const auto& comp : components) (comp.is_ui_component ? widgets : scripts).push_back(&comp);
+    if (!widgets.empty()) out << "#include \"fjell/ui_registry.hpp\"\n";
+    out << "\n";
+
+    for (const auto& comp : components) {
+        const auto& n = comp.class_name;
+        if (!comp.fields.empty()) out << "extern \"C\" const FjellFieldDesc fjreflect_" << n << "_fields[];\n";
+        if (ref_kinds(comp).any()) out << "extern \"C\" void fjreflect_" << n << "_trace(void*, void*);\n";
+        if (!comp.rpcs.empty()) out << "extern \"C\" const FjellRpcDesc fjreflect_" << n << "_rpcs[];\n";
+        if (comp.is_ui_component && !comp.actions.empty()) {
+            out << "extern \"C\" const FjellUiActionDesc fjreflect_" << n << "_ui_actions[];\n";
+        }
+    }
+
+    auto fields = [](const ComponentInfo& comp) {
+        return comp.fields.empty() ? std::string("nullptr") : "fjreflect_" + comp.class_name + "_fields";
+    };
+    auto trace = [](const ComponentInfo& comp) {
+        return ref_kinds(comp).any() ? "fjreflect_" + comp.class_name + "_trace" : std::string("nullptr");
+    };
+    if (!scripts.empty()) {
+        out << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
+        for (const auto* comp : scripts) {
+            const auto& n = comp->class_name;
+            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", "
+                << trace(*comp) << ", ";
+            if (comp->rpcs.empty()) out << "nullptr, 0";
+            else out << "fjreflect_" << n << "_rpcs, " << comp->rpcs.size();
+            out << "},\n";
+        }
+        out << "};\n";
+    }
+    if (!widgets.empty()) {
+        out << "\nstatic const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
+        for (const auto* comp : widgets) {
+            const auto& n = comp->class_name;
+            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", "
+                << trace(*comp) << ", ";
+            if (comp->actions.empty()) out << "nullptr, 0";
+            else out << "fjreflect_" << n << "_ui_actions, " << comp->actions.size();
+            out << "},\n";
+        }
+        out << "};\n";
+    }
+
+    // FJELL_REGISTER()'s entry points, with the generated tables handed over
+    // before the types register.
+    out << "\nextern \"C\" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+    out << "FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS()\n";
+    out << "extern \"C\" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) {\n";
+    if (!scripts.empty()) {
+        out << "    fjell_set_generated_table(fjreflect_generated, " << scripts.size() << ");\n";
+    }
+    if (!widgets.empty()) {
+        out << "    fjell_set_ui_generated_table(fjreflect_ui_generated, " << widgets.size() << ");\n";
+    }
+    out << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+    out << "    for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+    out << "    for (auto* r = fjell_notify_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+    out << "}\n";
+    return out.str();
+}
 
 GeneratedFiles generate(const std::vector<ComponentInfo>& components) {
     // Components grouped by the header that declares them, in the order the
@@ -406,6 +540,22 @@ GeneratedFiles generate(const std::vector<ComponentInfo>& components) {
     return files;
 }
 
+WriteResult write_if_changed(const std::string& path, const std::string& content) {
+    std::ifstream in(path, std::ios::binary);
+    if (in) {
+        const std::string existing((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (existing == content) return WriteResult::unchanged;
+    }
+    in.close();
+    std::ofstream out(path, std::ios::binary);
+    out << content;
+    if (!out) {
+        std::cerr << "fjreflect: cannot write " << path << "\n";
+        return WriteResult::failed;
+    }
+    return WriteResult::written;
+}
+
 bool write_outputs(const std::string& output_dir, const GeneratedFiles& files, WriteReport& report) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -413,21 +563,11 @@ bool write_outputs(const std::string& output_dir, const GeneratedFiles& files, W
 
     bool ok = true;
     for (const auto& [name, content] : files) {
-        const auto path = fs::path(output_dir) / name;
-        std::ifstream in(path, std::ios::binary);
-        if (in) {
-            const std::string existing((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (existing == content) continue;
+        switch (write_if_changed((fs::path(output_dir) / name).string(), content)) {
+            case WriteResult::unchanged: break;
+            case WriteResult::written: report.written.push_back(name); break;
+            case WriteResult::failed: ok = false; break;
         }
-        in.close();
-        std::ofstream out(path, std::ios::binary);
-        out << content;
-        if (!out) {
-            std::cerr << "fjreflect: cannot write " << path.string() << "\n";
-            ok = false;
-            continue;
-        }
-        report.written.push_back(name);
     }
 
     // A header that was deleted or renamed, or that no longer declares a
