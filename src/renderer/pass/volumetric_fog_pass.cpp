@@ -775,8 +775,10 @@ GroupRange froxel_groups(const glm::mat4& transform, const glm::mat4& view,
 PassSetup FogMediumPass::setup() const {
     return {
         .name = "fog_medium",
-        .phase = RenderPhase::PostProcess,
-        .sub_order = 100,
+        // The volume is built before the water shades, which reads it for the
+        // water behind the surface; the surface depth is final by then.
+        .phase = RenderPhase::Color,
+        .sub_order = 40,
     };
 }
 
@@ -984,8 +986,8 @@ void FogLightPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
 PassSetup FogLightPass::setup() const {
     return {
         .name = "fog_light",
-        .phase = RenderPhase::PostProcess,
-        .sub_order = 101,
+        .phase = RenderPhase::Color,
+        .sub_order = 41,
     };
 }
 
@@ -1077,8 +1079,8 @@ void FogTemporalPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
 PassSetup FogTemporalPass::setup() const {
     return {
         .name = "fog_temporal",
-        .phase = RenderPhase::PostProcess,
-        .sub_order = 102,
+        .phase = RenderPhase::Color,
+        .sub_order = 42,
     };
 }
 
@@ -1153,8 +1155,8 @@ void FogIntegratePass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
 PassSetup FogIntegratePass::setup() const {
     return {
         .name = "fog_integrate",
-        .phase = RenderPhase::PostProcess,
-        .sub_order = 103,
+        .phase = RenderPhase::Color,
+        .sub_order = 43,
     };
 }
 
@@ -1233,6 +1235,9 @@ void FogCompositePass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
 PassSetup FogCompositePass::setup() const {
     return {
         .name = "fog_composite",
+        // Stays after the transparents: it fogs the resolved colour for the
+        // distance to what is seen, and a transparent drawn after it would
+        // go over that fog unfogged.
         .phase = RenderPhase::PostProcess,
         .sub_order = 104,
     };

@@ -199,7 +199,7 @@ PassSetup TaaResolvePass::setup() const {
     return {
         .name = "taa_resolve",
         .phase = RenderPhase::PostProcess,
-        .sub_order = 150, // after volumetric fog (100), before bloom (200)
+        .sub_order = 150, // after the fog composite (104), before bloom (200)
     };
 }
 

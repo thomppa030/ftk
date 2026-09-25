@@ -42,10 +42,13 @@ class PipelineCache;
 //                    single-frame transient fog_integrated.
 //   fog_composite  — apply fog_integrated over the scene color.
 //
-// With each dispatch as its own RenderPass, the FrameGraph emits one
-// merged barrier per image per node, and the single-frame transients
-// collapse to [medium..light] and [integrate..composite] (alias-eligible
-// with other single-frame transients of matching shape).
+// The first four run in the Color phase, between the water's depth
+// prepass and the water, which samples fog_integrated for the water behind
+// its surface; the composite runs in PostProcess, after the transparents.
+// With each dispatch as its own RenderPass, the FrameGraph emits one merged
+// barrier per image per node, and the single-frame transients collapse to
+// [medium..light] and [integrate..composite] (alias-eligible with other
+// single-frame transients of matching shape).
 //
 // Layering:
 //   • FogCore          — abstract base. Owns sampler, descriptor layouts,
