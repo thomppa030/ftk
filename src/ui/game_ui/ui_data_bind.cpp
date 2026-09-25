@@ -7,174 +7,392 @@
 
 namespace fjell {
 
-/// If the string is exactly one binding, "{key}" or "{key|pipe}", return what
-/// its braces hold. Returns nullopt for compound expressions like "{a} / {b}"
-/// or plain text.
-static std::optional<std::string> extract_single_key(const std::string& s) {
-    if (s.size() < 3 || s.front() != '{' || s.back() != '}') return std::nullopt;
-    // Check no inner braces (would indicate compound expression)
-    if (s.find('{', 1) != std::string::npos) return std::nullopt;
-    return s.substr(1, s.size() - 2);
+// ── Templates ───────────────────────────────────────────────────────────
+
+UiDataBind::Template UiDataBind::compile(const std::string& text) {
+    Template out;
+    std::string literal;
+    for (std::size_t i = 0; i < text.size();) {
+        const std::size_t end = text[i] == '{' ? text.find('}', i + 1) : std::string::npos;
+        if (end == std::string::npos) { // plain text, or a brace that never closes
+            literal += text[i++];
+            continue;
+        }
+        if (!literal.empty()) out.parts.push_back({.literal = std::move(literal)});
+        literal.clear();
+        out.parts.push_back({.expression = parse_expression(std::string_view(text).substr(i + 1, end - i - 1)),
+                             .is_expression = true});
+        i = end + 1;
+    }
+    if (!literal.empty()) out.parts.push_back({.literal = std::move(literal)});
+    out.single = out.parts.size() == 1 && out.parts.front().is_expression;
+    return out;
 }
 
-void UiDataBind::forget_tree() {
-    has_resolved_ = false;
-    last_generation_ = 0;
+UiDataBind::Template UiDataBind::compile_expression(std::string_view expression) {
+    Template out;
+    out.parts.push_back({.expression = parse_expression(expression), .is_expression = true});
+    out.single = true;
+    return out;
 }
+
+void UiDataBind::Template::evaluate(const UiContext& scope, std::vector<UiValue>& out) const {
+    for (const auto& part : parts) {
+        if (part.is_expression) out.push_back(scope.evaluate(part.expression));
+    }
+}
+
+std::string UiDataBind::Template::text(std::span<const UiValue> values) const {
+    std::string out;
+    std::size_t next = 0;
+    for (const auto& part : parts) out += part.is_expression ? values[next++].text() : part.literal;
+    return out;
+}
+
+std::size_t UiDataBind::Template::expressions() const {
+    return static_cast<std::size_t>(
+        std::ranges::count_if(parts, [](const Part& part) { return part.is_expression; }));
+}
+
+std::string UiDataBind::resolve_template(const std::string& tmpl, const UiContext& context) {
+    const Template compiled = compile(tmpl);
+    std::vector<UiValue> values;
+    compiled.evaluate(context, values);
+    return compiled.text(values);
+}
+
+// ── The table ───────────────────────────────────────────────────────────
+
+void UiDataBind::forget_tree() {
+    nodes_.clear();
+    bindings_.clear();
+    skipped_.clear();
+    built_root_ = nullptr;
+    built_context_ = nullptr;
+}
+
+void UiDataBind::build(UiNode& root, UiContext& context) {
+    nodes_.clear();
+    bindings_.clear();
+    skipped_.clear();
+    built_root_ = &root;
+    built_context_ = &context;
+    add_node(root, context);
+}
+
+void UiDataBind::add_node(UiNode& node, UiContext& outer) {
+    // A repeat reads its list item, a widget its own scope, anything else
+    // the scope around it.
+    UiContext& scope = node.foreach_context ? *node.foreach_context
+                     : node.scoped_context  ? *node.scoped_context
+                                            : outer;
+    const std::size_t index = nodes_.size();
+    nodes_.push_back({.node = &node,
+                      .scope = &scope,
+                      .outer = &outer,
+                      .first_binding = static_cast<uint32_t>(bindings_.size()),
+                      .gate_end = 0,
+                      .end_binding = 0,
+                      .subtree_end = 0});
+
+    // A widget's props, read in the scope around it, as the types the
+    // widget declares. A prop bound to one value (`{key}`) takes that value
+    // itself; anything longer is text.
+    if (node.is_widget && node.scoped_context) {
+        for (const auto& [inner, outer_expression] : node.prop_map) {
+            Binding binding{.kind = Kind::prop, .name = inner, .value = compile(outer_expression)};
+            for (const auto& prop : node.widget_props) {
+                if (prop.name == inner) binding.type = prop.type;
+            }
+            bindings_.push_back(std::move(binding));
+        }
+    }
+    if (auto it = node.attributes.find("if"); it != node.attributes.end()) {
+        bindings_.push_back({.kind = Kind::visible, .value = compile_expression(it->second)});
+    }
+    for (const auto& [attr, condition] : node.attributes) {
+        if (attr.size() <= 6 || !attr.starts_with("class:")) continue;
+        Binding binding{.kind = Kind::class_toggle, .name = attr.substr(6)};
+        if (const auto eq = condition.find("=="); eq != std::string::npos) {
+            binding.value = compile_expression(std::string_view(condition).substr(0, eq));
+            binding.other = compile(condition.substr(eq + 2));
+            binding.compares = true;
+        } else {
+            binding.value = compile_expression(condition);
+        }
+        bindings_.push_back(std::move(binding));
+    }
+    nodes_[index].gate_end = static_cast<uint32_t>(bindings_.size());
+
+    for (const auto& [attr, text] : node.attributes) {
+        if (attr.starts_with("style-")) {
+            bindings_.push_back({.kind = Kind::style, .name = attr.substr(6), .value = compile(text)});
+        }
+    }
+    // A src or material that names an asset outright is the loader's.
+    for (auto [attr, kind] : {std::pair{"src", Kind::src}, std::pair{"material", Kind::material}}) {
+        auto it = node.attributes.find(attr);
+        if (it == node.attributes.end() || it->second.find('{') == std::string::npos) continue;
+        bindings_.push_back({.kind = kind, .value = compile(it->second)});
+    }
+    if (node.type == UiNodeType::text && !node.text_template.empty()) {
+        bindings_.push_back({.kind = Kind::text, .value = compile(node.text_template)});
+    }
+    if (node.tag == "bar") {
+        auto value = node.attributes.find("value");
+        auto max = node.attributes.find("max");
+        if (value != node.attributes.end() && max != node.attributes.end()) {
+            bindings_.push_back({.kind = Kind::bar, .value = compile(value->second), .other = compile(max->second)});
+        }
+    }
+    // A child with foreach is the template its repeats are stamped from:
+    // never shown, never bound itself.
+    for (auto& child : node.children) {
+        auto it = child->attributes.find("foreach");
+        if (it == child->attributes.end()) continue;
+        if (!child->is_foreach_template) {
+            child->is_foreach_template = true;
+            child->hidden_by_if = true;
+            templates_marked_ = true;
+        }
+        bindings_.push_back({.kind = Kind::repeat, .name = it->second, .repeated = child.get()});
+    }
+    nodes_[index].end_binding = static_cast<uint32_t>(bindings_.size());
+
+    for (auto& child : node.children) {
+        if (!child->is_foreach_template) add_node(*child, scope);
+    }
+    nodes_[index].subtree_end = static_cast<uint32_t>(nodes_.size());
+}
+
+// ── Evaluation ──────────────────────────────────────────────────────────
+
+namespace {
+
+bool hidden(const UiNode& node) {
+    return node.hidden_by_if || node.style.display == UiDisplay::none;
+}
+
+} // namespace
 
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
-    uint64_t gen = context.generation();
-    // A context that has never been written to sits at generation 0, so the
-    // generation alone cannot tell "unchanged" apart from "not yet resolved".
-    if (has_resolved_ && gen == last_generation_) return {}; // nothing changed
-    last_generation_ = gen;
-    has_resolved_ = true;
-    DataBindResult result{};
-    resolve_node(root, context, result);
+    work_ = {};
+    DataBindResult result;
+    if (built_root_ != &root || built_context_ != &context) build(root, context);
+    skipped_.clear();
+    if (!evaluate_nodes(0, nodes_.size(), result)) rebuild_and_evaluate(result);
+    if (templates_marked_) {
+        templates_marked_ = false;
+        result.layout_changed = true;
+    }
     return result;
 }
 
-void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& result) {
-    // Determine which context to use for this node and its children.
-    // Priority: foreach item context > widget scoped context > parent context
-    UiContext& ctx = node.foreach_context ? *node.foreach_context
-                   : node.scoped_context  ? *node.scoped_context
-                   : context;
+DataBindResult UiDataBind::resolve_revealed(bool& revealed) {
+    FJELL_PROFILE_SCOPE_N("ui_data_bind_revealed");
+    revealed = false;
+    DataBindResult result;
+    const std::vector<std::size_t> skipped = std::move(skipped_);
+    skipped_.clear();
+    for (const std::size_t index : skipped) {
+        const NodeEntry& entry = nodes_[index];
+        if (hidden(*entry.node)) {
+            skipped_.push_back(index);
+            continue;
+        }
+        revealed = true;
+        if (!evaluate_rest(entry, result) || !evaluate_nodes(index + 1, entry.subtree_end, result)) {
+            rebuild_and_evaluate(result);
+            break;
+        }
+    }
+    if (templates_marked_) {
+        templates_marked_ = false;
+        result.layout_changed = true;
+    }
+    return result;
+}
 
-    // Sync props: resolve outer expressions against parent context, write
-    // the results into the widget's scoped context as the types the widget
-    // declares. A prop bound to one value (`{key}`) takes that value itself;
-    // anything longer is text.
-    // Always resolve — even when a controller exists, parent props are inputs.
-    if (node.is_widget && node.scoped_context && !node.prop_map.empty()) {
-        for (const auto& [inner_key, outer_expr] : node.prop_map) {
-            UiValue value;
-            if (auto key = extract_single_key(outer_expr)) {
-                value = context.evaluate(*key);
+void UiDataBind::rebuild_and_evaluate(DataBindResult& result) {
+    do {
+        build(*built_root_, *built_context_);
+    } while (!evaluate_nodes(0, nodes_.size(), result));
+}
+
+bool UiDataBind::evaluate_nodes(std::size_t first, std::size_t end, DataBindResult& result) {
+    for (std::size_t i = first; i < end;) {
+        const NodeEntry& entry = nodes_[i];
+        for (uint32_t b = entry.first_binding; b < entry.gate_end; ++b) evaluate(bindings_[b], entry, result);
+        if (hidden(*entry.node)) {
+            // `if=` was settled just now; a style can still reveal it this frame.
+            if (!entry.node->hidden_by_if) skipped_.push_back(i);
+            i = entry.subtree_end;
+            continue;
+        }
+        if (!evaluate_rest(entry, result)) return false;
+        ++i;
+    }
+    return true;
+}
+
+bool UiDataBind::evaluate_rest(const NodeEntry& entry, DataBindResult& result) {
+    for (uint32_t b = entry.gate_end; b < entry.end_binding; ++b) {
+        Binding& binding = bindings_[b];
+        if (binding.kind != Kind::repeat) {
+            evaluate(binding, entry, result);
+        } else if (repeat(binding, entry, result)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void UiDataBind::evaluate(Binding& binding, const NodeEntry& entry, DataBindResult& result) {
+    ++work_.evaluated;
+    const UiContext& scope = binding.kind == Kind::prop ? *entry.outer : *entry.scope;
+    scratch_.clear();
+    binding.value.evaluate(scope, scratch_);
+    binding.other.evaluate(scope, scratch_);
+    if (binding.applied && scratch_ == binding.last) return;
+    std::swap(binding.last, scratch_);
+    binding.applied = true;
+    ++work_.applied;
+    apply(binding, *entry.node, result);
+}
+
+void UiDataBind::apply(const Binding& binding, UiNode& node, DataBindResult& result) const {
+    const std::span<const UiValue> values = binding.last;
+    const std::span<const UiValue> first = values.first(binding.value.expressions());
+    const std::span<const UiValue> second = values.subspan(first.size());
+    switch (binding.kind) {
+        case Kind::prop: {
+            UiValue value = binding.value.single ? first.front() : UiValue(binding.value.text(first));
+            node.scoped_context->set(binding.name, binding.type.empty() ? std::move(value) : value.as(binding.type));
+            break;
+        }
+        case Kind::visible: {
+            const bool hide = !first.front().truthy();
+            if (node.hidden_by_if != hide) {
+                node.hidden_by_if = hide;
+                result.layout_changed = true;
+            }
+            break;
+        }
+        case Kind::class_toggle: {
+            const bool want = binding.compares ? first.front().text() == binding.other.text(second)
+                                               : first.front().truthy();
+            if (want == node.has_class(binding.name)) break;
+            if (want) {
+                node.classes.push_back(binding.name);
             } else {
-                value = UiValue(resolve_template(outer_expr, context));
+                std::erase(node.classes, binding.name);
             }
-            for (const auto& prop : node.widget_props) {
-                if (prop.name == inner_key) value = value.as(prop.type);
+            result.layout_changed = true;
+            break;
+        }
+        case Kind::style: {
+            // A changed value means a re-resolve of the cascade.
+            auto& current = node.inline_styles[binding.name];
+            if (std::string text = binding.value.text(first); text != current) {
+                current = std::move(text);
+                result.layout_changed = true;
             }
-            node.scoped_context->set(inner_key, std::move(value));
+            break;
         }
-    }
-
-    // Evaluate if="key" directive — visibility change affects layout
-    auto if_it = node.attributes.find("if");
-    if (if_it != node.attributes.end()) {
-        const bool visible = ctx.evaluate(if_it->second).truthy();
-        if (node.hidden_by_if != !visible) {
-            node.hidden_by_if = !visible;
-            result.layout_changed = true;
+        case Kind::src:
+        case Kind::material: {
+            // Loading what they name takes the resource manager, which
+            // binding does not have: the node is handed back for its owner
+            // to load.
+            std::string& bound = binding.kind == Kind::src ? node.bound_src : node.bound_material;
+            if (std::string text = binding.value.text(first); text != bound) {
+                bound = std::move(text);
+                if (std::ranges::find(result.asset_changes, &node) == result.asset_changes.end()) {
+                    result.asset_changes.push_back(&node);
+                }
+            }
+            break;
         }
-    }
-
-    // Evaluate class:name="key==value" bindings — class change affects style/layout
-    for (const auto& [attr, condition] : node.attributes) {
-        if (attr.size() <= 6 || attr.substr(0, 6) != "class:") continue;
-        auto class_name = attr.substr(6);
-
-        bool should_have = false;
-        auto eq_pos = condition.find("==");
-        if (eq_pos != std::string::npos) {
-            auto key = condition.substr(0, eq_pos);
-            auto expected = condition.substr(eq_pos + 2);
-            auto resolved = resolve_template(expected, ctx);
-            should_have = ctx.evaluate(key).text() == resolved;
-        } else {
-            should_have = ctx.evaluate(condition).truthy();
+        case Kind::text: {
+            if (std::string text = binding.value.text(first); text != node.text_content) {
+                node.text_content = std::move(text);
+                result.text_changed = true;
+            }
+            break;
         }
-
-        bool has_it = node.has_class(class_name);
-        if (should_have && !has_it) {
-            node.classes.push_back(class_name);
-            result.layout_changed = true;
-        } else if (!should_have && has_it) {
-            node.classes.erase(
-                std::remove(node.classes.begin(), node.classes.end(), class_name),
-                node.classes.end());
-            result.layout_changed = true;
-        }
-    }
-
-    // Resolve {key} templates in style-* attributes. A changed value means a
-    // re-resolve of the cascade, which the layout_changed flag triggers.
-    for (const auto& [attr, tmpl] : node.attributes) {
-        if (!attr.starts_with("style-")) continue;
-        auto resolved = resolve_template(tmpl, ctx);
-        auto& current = node.inline_styles[attr.substr(6)];
-        if (current != resolved) {
-            current = std::move(resolved);
-            result.layout_changed = true;
-        }
-    }
-
-    // Resolve {key} templates in src and material. Loading what they name
-    // takes the resource manager, which binding does not have, so a node
-    // whose reference changed is handed back for its owner to load.
-    bool asset_changed = false;
-    for (auto [attr, bound] : {std::pair{"src", &node.bound_src},
-                               std::pair{"material", &node.bound_material}}) {
-        auto it = node.attributes.find(attr);
-        if (it == node.attributes.end() || it->second.find('{') == std::string::npos) continue;
-        auto resolved = resolve_template(it->second, ctx);
-        if (resolved != *bound) {
-            *bound = std::move(resolved);
-            asset_changed = true;
-        }
-    }
-    if (asset_changed) result.asset_changes.push_back(&node);
-
-    // Resolve {key} templates in text content — text only, no layout change
-    if (node.type == UiNodeType::text && !node.text_template.empty()) {
-        auto resolved = resolve_template(node.text_template, ctx);
-        if (resolved != node.text_content) {
-            node.text_content = std::move(resolved);
-            result.text_changed = true;
-        }
-    }
-
-    // Update bar element fill width from value/max attributes — redraw only
-    if (node.tag == "bar") {
-        auto val_it = node.attributes.find("value");
-        auto max_it = node.attributes.find("max");
-        if (val_it != node.attributes.end() && max_it != node.attributes.end()) {
+        case Kind::bar: {
             // A bound value is read as the number it holds; anything else as
             // the number its text starts with.
-            auto read = [&](const std::string& expr, float fallback) {
-                std::optional<float> number;
-                if (auto key = extract_single_key(expr)) {
-                    number = ctx.evaluate(*key).number();
-                } else {
-                    number = UiValue(resolve_template(expr, ctx)).number();
-                }
-                return number.value_or(fallback);
+            auto number = [](const Template& t, std::span<const UiValue> v, float fallback) {
+                const std::optional<float> n = t.single ? v.front().number() : UiValue(t.text(v)).number();
+                return n.value_or(fallback);
             };
-            const float val = read(val_it->second, 0.0f);
-            float max = read(max_it->second, 1.0f);
-
+            const float value = number(binding.value, first, 0.0f);
+            float max = number(binding.other, second, 1.0f);
             if (max <= 0.0f) max = 1.0f;
-            float pct = val / max;
-            if (pct < 0.0f) pct = 0.0f;
-            if (pct > 1.0f) pct = 1.0f;
-            if (pct != node.fill_fraction) {
-                node.fill_fraction = pct;
-                result.text_changed = true; // bar fill is a visual-only change
+            const float fraction = std::clamp(value / max, 0.0f, 1.0f);
+            if (fraction != node.fill_fraction) {
+                node.fill_fraction = fraction;
+                result.text_changed = true; // a bar's fill is a visual-only change
             }
+            break;
         }
-    }
-
-    // Process foreach directives — structural, affects layout
-    resolve_foreach(node, ctx, result);
-
-    for (auto& child : node.children) {
-        if (child->is_foreach_template) continue;
-        resolve_node(*child, ctx, result);
+        case Kind::repeat:
+            break; // repeat() handles its own
     }
 }
+
+bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result) {
+    ++work_.evaluated;
+    UiNode& parent = *entry.node;
+    UiList* list = entry.scope->get_list(binding.name);
+    const std::size_t count = list != nullptr ? list->size() : 0;
+
+    std::size_t at = 0;
+    while (at < parent.children.size() && parent.children[at].get() != binding.repeated) ++at;
+    if (at == parent.children.size()) return false; // the template is gone: nothing to stamp from
+    const std::size_t first = at + 1;
+    std::size_t existing = 0; // repeats sit right after their template
+    while (first + existing < parent.children.size() && parent.children[first + existing]->foreach_item_index >= 0) {
+        ++existing;
+    }
+
+    bool changed = false;
+    if (existing != count) {
+        changed = true;
+        result.layout_changed = true;
+        if (existing > count) {
+            parent.children.erase(parent.children.begin() + static_cast<std::ptrdiff_t>(first + count),
+                                  parent.children.begin() + static_cast<std::ptrdiff_t>(first + existing));
+        }
+        for (std::size_t j = existing; j < count; ++j) {
+            auto clone = clone_node(*binding.repeated, &parent);
+            clone->is_foreach_template = false;
+            clone->hidden_by_if = false;
+            clone->foreach_item_index = static_cast<int>(j);
+            clone->attributes.erase("foreach");
+            parent.children.insert(parent.children.begin() + static_cast<std::ptrdiff_t>(first + j),
+                                   std::move(clone));
+        }
+    }
+    // Each repeat reads its own item. A list refilled into new items moves
+    // them, and the repeats have to follow; `__index` is set on every pass,
+    // as refilling an item replaces its values.
+    for (std::size_t j = 0; j < count; ++j) {
+        UiContext& item = (*list)[j];
+        UiNode& repeat_node = *parent.children[first + j];
+        if (repeat_node.foreach_context != &item) {
+            repeat_node.foreach_context = &item;
+            changed = true;
+        }
+        item.set("__index", std::to_string(j));
+    }
+    if (changed) ++work_.applied;
+    return changed;
+}
+
+// ── Cloning ─────────────────────────────────────────────────────────────
 
 std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new_parent) {
     auto clone = std::make_unique<UiNode>();
@@ -209,99 +427,6 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
         clone->children.push_back(clone_node(*child, clone.get()));
     }
     return clone;
-}
-
-void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result) {
-    for (size_t i = 0; i < parent.children.size(); ++i) {
-        auto& child = *parent.children[i];
-        auto foreach_it = child.attributes.find("foreach");
-        if (foreach_it == child.attributes.end()) continue;
-
-        const auto& list_key = foreach_it->second;
-
-        // First time: mark as template and hide
-        if (!child.is_foreach_template) {
-            child.is_foreach_template = true;
-            child.hidden_by_if = true;
-            result.layout_changed = true;
-        }
-
-        // Get list from context (mutable — we need to set __index on items)
-        UiList* list = context.get_list(list_key);
-        size_t list_count = list ? list->size() : 0;
-
-        // Count existing foreach clones after the template
-        size_t clone_start = i + 1;
-        size_t existing_clones = 0;
-        for (size_t j = clone_start; j < parent.children.size(); ++j) {
-            if (parent.children[j]->foreach_item_index >= 0) {
-                ++existing_clones;
-            } else {
-                break; // clones are contiguous after template
-            }
-        }
-
-        if (existing_clones != list_count) {
-            result.layout_changed = true;
-
-            // Remove excess clones
-            if (existing_clones > list_count) {
-                auto erase_begin = parent.children.begin()
-                    + static_cast<ptrdiff_t>(clone_start + list_count);
-                auto erase_end = parent.children.begin()
-                    + static_cast<ptrdiff_t>(clone_start + existing_clones);
-                parent.children.erase(erase_begin, erase_end);
-            }
-
-            // Add missing clones
-            for (size_t j = existing_clones; j < list_count; ++j) {
-                auto clone = clone_node(child, &parent);
-                clone->is_foreach_template = false;
-                clone->hidden_by_if = false;
-                clone->foreach_item_index = static_cast<int>(j);
-                clone->attributes.erase("foreach");
-                parent.children.insert(
-                    parent.children.begin() + static_cast<ptrdiff_t>(clone_start + j),
-                    std::move(clone));
-            }
-        }
-
-        // Point each clone's scoped context at the corresponding list item.
-        // List items are non-const UiContexts with parent = &context (set by set_list).
-        // The clone's scoped_context is a pointer wrapper — the item context IS the scope.
-        if (list) {
-            for (size_t j = 0; j < list_count; ++j) {
-                auto& clone = *parent.children[clone_start + j];
-                auto& item_ctx = (*list)[j];
-                item_ctx.set("__index", std::to_string(j));
-                // Point clone at the item context (non-owning)
-                clone.foreach_context = &item_ctx;
-            }
-        }
-    }
-}
-
-std::string UiDataBind::resolve_template(const std::string& tmpl, const UiContext& context) {
-    std::string result;
-    result.reserve(tmpl.size());
-
-    size_t i = 0;
-    while (i < tmpl.size()) {
-        if (tmpl[i] == '{') {
-            size_t end = tmpl.find('}', i + 1);
-            if (end != std::string::npos) {
-                result += context.evaluate(std::string_view(tmpl).substr(i + 1, end - i - 1)).text();
-                i = end + 1;
-            } else {
-                result += tmpl[i];
-                i++;
-            }
-        } else {
-            result += tmpl[i];
-            i++;
-        }
-    }
-    return result;
 }
 
 } // namespace fjell

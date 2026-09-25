@@ -35,12 +35,15 @@ UiValue UiContext::lookup(std::string_view path) const {
 }
 
 UiValue UiContext::evaluate(std::string_view expression) const {
-    const UiExpression expr = parse_expression(expression);
-    UiValue value = lookup(expr.path);
-    if (expr.pipes.empty()) return value;
+    return evaluate(parse_expression(expression));
+}
+
+UiValue UiContext::evaluate(const UiExpression& expression) const {
+    UiValue value = lookup(expression.path);
+    if (expression.pipes.empty()) return value;
     const UiPipes* formatters = pipes();
     if (formatters == nullptr) return value;
-    for (const auto& call : expr.pipes) value = formatters->apply(value, call);
+    for (const auto& call : expression.pipes) value = formatters->apply(value, call);
     return value;
 }
 

@@ -1,17 +1,23 @@
 #pragma once
 
 #include "ui/game_ui/ui_node.hpp"
+#include "ui/game_ui/ui_pipes.hpp"
+#include "ui/game_ui/ui_value.hpp"
 
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace fjell {
 
 class UiContext;
 
-/// Result of data bind resolution — distinguishes text-only from layout changes.
+/// What an evaluation of the bindings changed.
 struct DataBindResult {
-    bool text_changed{false};    // text content updated (redraw only)
-    bool layout_changed{false};  // visibility/class/structure changed (needs layout recompute)
+    bool text_changed{false};    // text content or a bar's fill (redraw only)
+    bool layout_changed{false};  // visibility, classes, inline styles or repeats (style and layout again)
     // Nodes whose templated src or material now names something else. The
     // caller loads those; the pointers hold until the tree next changes.
     std::vector<UiNode*> asset_changes;
@@ -19,20 +25,39 @@ struct DataBindResult {
     operator bool() const { return any(); } // NOLINT — implicit for test compat
 };
 
-/// Resolves {key} placeholders in text content from UiContext values,
-/// and evaluates if="condition" attributes to toggle node visibility.
-/// Supports scoped widget contexts: when a node has a scoped_context,
-/// its children resolve against that context instead of the root.
-/// Handles foreach directives: stamps out cloned nodes per list entry.
+/// How much the last resolve() did: the bindings it evaluated, and those
+/// whose value had changed and were applied. A quiet frame evaluates every
+/// binding on show and applies none. For tests and profiling.
+struct DataBindWork {
+    uint32_t evaluated{0};
+    uint32_t applied{0};
+};
+
+/// Keeps a tree's bound values current. The first resolve() of a tree
+/// compiles its bindings: per node, the scope it reads and each thing a
+/// value drives (a widget's props, `if=`, `class:`, `style-*`, `src`,
+/// `material`, text, a bar, a `foreach`), every expression parsed once.
+/// Every resolve() then evaluates the bindings on show and applies only
+/// those whose values differ from the last ones applied. A subtree hidden by
+/// `if=`, or by `display: none` in the last style pass, evaluates only its
+/// root's props, `if=` and `class:`. A `foreach` whose list changed length
+/// stamps or removes repeats, and the tree's bindings are compiled again.
 class UiDataBind {
 public:
-    /// Resolve all bindings in the tree.
+    /// Evaluate the bindings on show and apply the ones that changed.
     DataBindResult resolve(UiNode& root, UiContext& context);
 
-    /// The tree was replaced: whatever was resolved belonged to the old one.
-    /// The next resolve() runs in full even if the context has not changed,
-    /// so a freshly loaded tree gets its props and placeholders filled in.
+    /// After a style pass: evaluate what the last resolve() skipped as
+    /// `display: none` and is shown now, so it appears with this frame's
+    /// values. `revealed` says whether anything was; the caller styles what
+    /// changed and asks again until nothing is.
+    DataBindResult resolve_revealed(bool& revealed);
+
+    /// The tree was replaced: its bindings go, and the next resolve()
+    /// compiles the new one.
     void forget_tree();
+
+    [[nodiscard]] const DataBindWork& work() const { return work_; }
 
     /// Resolve {key} placeholders in a template string against a context.
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
@@ -43,10 +68,75 @@ public:
     static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
 
 private:
-    void resolve_node(UiNode& node, UiContext& context, DataBindResult& result);
-    void resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result);
-    uint64_t last_generation_{0};
-    bool has_resolved_{false};
+    /// Text with `{expression}`s in it, parsed once: literal runs and
+    /// expressions, in order.
+    struct Template {
+        struct Part {
+            std::string literal{};
+            UiExpression expression{};
+            bool is_expression{false};
+        };
+        std::vector<Part> parts{};
+        /// `{x}` and nothing else: the value itself rather than its text.
+        bool single{false};
+
+        /// Appends one value per expression, as `scope` reads them now.
+        void evaluate(const UiContext& scope, std::vector<UiValue>& out) const;
+        /// The text, with `values` in place of the expressions.
+        [[nodiscard]] std::string text(std::span<const UiValue> values) const;
+        [[nodiscard]] std::size_t expressions() const;
+    };
+
+    enum class Kind : uint8_t { prop, visible, class_toggle, style, src, material, text, bar, repeat };
+
+    struct Binding {
+        Kind kind{Kind::text};
+        std::string name{};      ///< a prop, class or style property; a repeat's list
+        std::string type{};      ///< a prop's declared type ("" keeps the value as it is)
+        Template value{};        ///< what it shows; a condition's left side; a bar's value
+        Template other{};        ///< a `class:` comparison's right side; a bar's max
+        bool compares{false};    ///< `class:name="a==b"` rather than a truth test
+        UiNode* repeated{nullptr}; ///< a repeat's template node
+        std::vector<UiValue> last{}; ///< the values last applied, one per expression
+        bool applied{false};
+    };
+
+    struct NodeEntry {
+        UiNode* node;
+        UiContext* scope;       ///< what its bindings read
+        UiContext* outer;       ///< what its props read: the scope around the widget
+        uint32_t first_binding; ///< its props, `if=` and `class:` come first
+        uint32_t gate_end;      ///< the rest are skipped while it is hidden
+        uint32_t end_binding;
+        uint32_t subtree_end;   ///< the entry after its last descendant's
+    };
+
+    static Template compile(const std::string& text);
+    static Template compile_expression(std::string_view expression);
+
+    void build(UiNode& root, UiContext& context);
+    void add_node(UiNode& node, UiContext& outer);
+    /// Evaluates entries [first, end), skipping hidden subtrees. False when
+    /// a repeat changed the tree and the table has to be compiled again.
+    bool evaluate_nodes(std::size_t first, std::size_t end, DataBindResult& result);
+    /// A shown node's bindings after its gate, repeats among them.
+    bool evaluate_rest(const NodeEntry& entry, DataBindResult& result);
+    void evaluate(Binding& binding, const NodeEntry& entry, DataBindResult& result);
+    void apply(const Binding& binding, UiNode& node, DataBindResult& result) const;
+    /// Stamps or removes repeats to match the list and points each at its
+    /// item. True when the tree changed.
+    bool repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result);
+    /// Compile the table again and evaluate all of it.
+    void rebuild_and_evaluate(DataBindResult& result);
+
+    std::vector<NodeEntry> nodes_;
+    std::vector<Binding> bindings_;
+    std::vector<std::size_t> skipped_; ///< entries skipped as display: none
+    std::vector<UiValue> scratch_;
+    UiNode* built_root_{nullptr};
+    UiContext* built_context_{nullptr};
+    bool templates_marked_{false}; ///< build hid new foreach templates: a layout change
+    DataBindWork work_;
 };
 
 } // namespace fjell

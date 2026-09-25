@@ -310,6 +310,20 @@ void GameUi::update(float viewport_width, float viewport_height,
         needs_redraw_ = true;
     }
 
+    // What the style pass has just shown was skipped by binding while it was
+    // display: none. It is bound now, so it appears with this frame's
+    // values, and whatever that changes is styled in turn; each round can
+    // only reveal what sits deeper.
+    for (bool revealed = true; revealed;) {
+        auto more = data_bind_.resolve_revealed(revealed);
+        apply_bound_assets(more);
+        if (more.layout_changed) {
+            style_resolver_.resolve(*root_, stylesheet_);
+            layout_dirty_ = true;
+        }
+        if (revealed || more.any()) needs_redraw_ = true;
+    }
+
     // 3. Process input: hit test, update hover/active/focus state
     if (input != nullptr) {
         bool input_changed = ui_input_.process(*root_, *input, context_,

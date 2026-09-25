@@ -16,6 +16,7 @@ namespace fjell {
 
 class UiContext;
 class UiPipes;
+struct UiExpression;
 
 /// The items of a list, for `foreach`. A deque, because each repeat the
 /// markup stamps out keeps a pointer to its item: a deque grown or shrunk at
@@ -58,16 +59,9 @@ public:
     void set_self(UiObject object) { self_ = object; }
     [[nodiscard]] const UiObject& self() const { return self_; }
 
-    /// Publish a value; `{key}` shows it and `if=`/`class:` test it. An
-    /// unchanged value (the same type holding the same value) changes nothing.
-    void set(const std::string& key, UiValue value) {
-        auto it = values_.find(key);
-        if (it != values_.end() && it->second == value) return; // no change
-        values_.insert_or_assign(key, std::move(value));
-        ++generation_;
-    }
-
-    [[nodiscard]] uint64_t generation() const { return generation_; }
+    /// Publish a value; `{key}` shows it and `if=`/`class:` test it. The UI
+    /// notices a change by comparing what it shows with what it showed.
+    void set(const std::string& key, UiValue value) { values_.insert_or_assign(key, std::move(value)); }
 
     /// The value published under exactly this name here, or in the nearest
     /// parent that has one; null when no scope does. Paths, and a
@@ -93,6 +87,8 @@ public:
     /// value, formatted by its pipes left to right. No value when the path
     /// reaches nothing.
     [[nodiscard]] UiValue evaluate(std::string_view expression) const;
+    /// The same for an expression already parsed, as a binding keeps it.
+    [[nodiscard]] UiValue evaluate(const UiExpression& expression) const;
 
     /// The pipes bindings format with: this scope's, or the nearest parent's.
     /// The root scope of a UI gets its UI's.
@@ -160,7 +156,6 @@ public:
             list[i] = std::move(items[i]);
             list[i].set_parent(this);
         }
-        ++generation_;
     }
 
     /// Grow or shrink a list at its end. Surviving items keep their values
@@ -168,22 +163,16 @@ public:
     /// context. Resizing to the current size changes nothing.
     void set_list_size(const std::string& key, size_t count) {
         auto& list = lists_[key];
-        if (list.size() == count) return;
         while (list.size() > count) list.pop_back();
         while (list.size() < count) list.emplace_back(this);
-        ++generation_;
     }
 
     /// Set a value on one item of a list. Ignored when the list does not
-    /// exist or the index is past its end; an unchanged value changes
-    /// nothing, here or on the item.
+    /// exist or the index is past its end.
     void set_item(const std::string& key, size_t index, const std::string& field, UiValue value) {
         auto it = lists_.find(key);
         if (it == lists_.end() || index >= it->second.size()) return;
-        auto& item = it->second[index];
-        uint64_t before = item.generation();
-        item.set(field, std::move(value));
-        if (item.generation() != before) ++generation_;
+        it->second[index].set(field, std::move(value));
     }
 
     /// Get a list by key, or nullptr if not found.
@@ -212,7 +201,6 @@ private:
     UiContext* parent_{nullptr};
     const UiPipes* pipes_{nullptr};
     UiObject self_{};
-    uint64_t generation_{0};
     std::unordered_map<std::string, UiValue, UiNameHash, std::equal_to<>> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;

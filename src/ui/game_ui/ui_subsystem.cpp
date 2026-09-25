@@ -390,16 +390,6 @@ void UiSubsystem::tick(const TickContext& ctx) {
         for (auto& wi : inst.widgets) {
             if (wi.widget) wi.widget->tick(ctx.dt);
         }
-        // Bump root context generation so data_bind doesn't short-circuit
-        // when a controller's fields or a Model's component have changed in
-        // place, which no scope sees.
-        // Must be a value that actually changes each call — set() no-ops
-        // when the new value matches the old, so a constant here would only
-        // bump the generation once and then silently stop propagating any
-        // bound-field updates from frame 2 onward.
-        if (inst.game_ui && (!inst.widgets.empty() || !inst.game_ui->models().empty())) {
-            inst.game_ui->context().set("__tick", std::to_string(++inst.tick_counter));
-        }
     }
 
     // Scripts hold raw pointers to root widgets; a rebuilt instance has new ones.

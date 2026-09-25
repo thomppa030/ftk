@@ -74,7 +74,6 @@ public:
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
-        uint64_t tick_counter{0};
         // World-space only: this widget's mvp from the previous frame, so the
         // velocity attachment reflects its own motion rather than whatever
         // was already under its pixels. Identity until the first frame it's

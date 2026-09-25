@@ -561,11 +561,9 @@ TEST_CASE("No change reports neither flag", "[databind]") {
     REQUIRE(result.any() == false);
 }
 
-// --- Generation gate ---
+// --- Comparing with last frame ---
 
 TEST_CASE("First resolve runs against an untouched context", "[databind]") {
-    // A fresh UiContext sits at generation 0; the gate must not mistake that
-    // for "already resolved at generation 0" and skip the whole tree.
     auto root = make_element("div");
     auto* text = add_child(*root, make_text("[{missing}]"));
 
@@ -576,7 +574,7 @@ TEST_CASE("First resolve runs against an untouched context", "[databind]") {
     REQUIRE(text->text_content == "[]");
 }
 
-TEST_CASE("Resolve is skipped while generation is unchanged", "[databind]") {
+TEST_CASE("A binding whose values have not changed is not applied again", "[databind]") {
     auto root = make_element("div");
     auto* text = add_child(*root, make_text("{val}"));
 
@@ -587,7 +585,7 @@ TEST_CASE("Resolve is skipped while generation is unchanged", "[databind]") {
     REQUIRE(text->text_content == "first");
 
     // Mutating the node behind the binder's back is not undone while the
-    // generation is static — proof the early-out is actually taken.
+    // value is the same — proof nothing is applied on a quiet frame.
     text->text_content = "stale";
     bind.resolve(*root, ctx);
     REQUIRE(text->text_content == "stale");
@@ -595,16 +593,6 @@ TEST_CASE("Resolve is skipped while generation is unchanged", "[databind]") {
     ctx.set("val", "second");
     bind.resolve(*root, ctx);
     REQUIRE(text->text_content == "second");
-}
-
-TEST_CASE("Setting a key to its current value does not bump generation", "[databind]") {
-    UiContext ctx;
-    ctx.set("val", "x");
-    auto gen = ctx.generation();
-    ctx.set("val", "x");
-    REQUIRE(ctx.generation() == gen);
-    ctx.set("val", "y");
-    REQUIRE(ctx.generation() > gen);
 }
 
 // --- Typed values ---
@@ -686,14 +674,11 @@ TEST_CASE("class: with == compares the value as markup shows it", "[databind]") 
     REQUIRE_FALSE(slot->has_class("active"));
 }
 
-TEST_CASE("An unchanged value of the same type changes nothing", "[databind]") {
-    UiContext ctx;
-    ctx.set("v", UiValue(7));
-    const auto gen = ctx.generation();
-    ctx.set("v", UiValue(7));
-    REQUIRE(ctx.generation() == gen);
-    ctx.set("v", UiValue(8));
-    REQUIRE(ctx.generation() > gen);
+TEST_CASE("A value is the same only as the same type holding the same value", "[databind]") {
+    REQUIRE(UiValue(7) == UiValue(7));
+    REQUIRE_FALSE(UiValue(7) == UiValue(8));
+    REQUIRE_FALSE(UiValue(7) == UiValue(7.0f)); // the same text, another type
+    REQUIRE_FALSE(UiValue(7) == UiValue("7"));
 }
 
 TEST_CASE("A prop bound to a value keeps the type its widget declares", "[databind]") {
@@ -865,13 +850,6 @@ TEST_CASE("clone_node is a deep copy", "[databind]") {
 
 // --- foreach ---
 
-// Forces the next resolve to run when nothing changed, the way
-// UiSubsystem::tick nudges each instance every frame.
-static void bump(UiContext& ctx) {
-    static int n = 0;
-    ctx.set("__tick", std::to_string(++n));
-}
-
 static std::vector<UiContext> make_items(const std::vector<std::string>& names) {
     std::vector<UiContext> items;
     items.reserve(names.size());
@@ -1006,10 +984,7 @@ TEST_CASE("foreach clone count is stable across repeated resolves", "[databind]"
     bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 3);
 
-    for (int i = 0; i < 5; ++i) {
-        bump(ctx);
-        bind.resolve(*root, ctx);
-    }
+    for (int i = 0; i < 5; ++i) bind.resolve(*root, ctx);
     REQUIRE(root->children.size() == 3);
 }
 
@@ -1107,7 +1082,7 @@ TEST_CASE("foreach honours if directives inside the template", "[databind]") {
     REQUIRE(root->children[2]->children[0]->hidden_by_if == true);
 }
 
-TEST_CASE("forget_tree makes the next resolve run for an unchanged context", "[bind]") {
+TEST_CASE("A new tree is bound on its first resolve, forgotten or not", "[bind]") {
     UiContext ctx;
     ctx.set("k", "1");
     UiDataBind bind;
@@ -1118,18 +1093,20 @@ TEST_CASE("forget_tree makes the next resolve run for an unchanged context", "[b
     bind.resolve(*first, ctx);
     REQUIRE(first->text_content == "1");
 
-    // A replacement tree loaded against the same, untouched context: without
-    // being told, the binder would consider it already resolved and leave
-    // the placeholder in place.
+    // A replacement tree: its bindings are compiled when it is first
+    // resolved, whether the old tree was forgotten first or not.
     auto second = std::make_unique<UiNode>();
     second->type = UiNodeType::text;
     second->text_template = "{k}";
     bind.resolve(*second, ctx);
-    REQUIRE(second->text_content.empty());
-
-    bind.forget_tree();
-    bind.resolve(*second, ctx);
     REQUIRE(second->text_content == "1");
+
+    auto third = std::make_unique<UiNode>();
+    third->type = UiNodeType::text;
+    third->text_template = "[{k}]";
+    bind.forget_tree();
+    bind.resolve(*third, ctx);
+    REQUIRE(third->text_content == "[1]");
 }
 
 TEST_CASE("style-* attributes resolve their {key} templates into inline styles", "[bind]") {
@@ -1167,13 +1144,6 @@ TEST_CASE("style-* attributes resolve their {key} templates into inline styles",
 
 // --- Lists on the context ---
 
-TEST_CASE("set_list bumps the generation", "[lists]") {
-    UiContext ctx;
-    auto before = ctx.generation();
-    ctx.set_list("items", make_items({"a"}));
-    REQUIRE(ctx.generation() != before);
-}
-
 TEST_CASE("set_list refills the items where they are", "[lists]") {
     UiContext ctx;
     ctx.set_list("items", make_items({"a", "b"}));
@@ -1202,9 +1172,7 @@ TEST_CASE("set_list_size shrinks from the end and keeps the rest", "[lists]") {
     ctx.set_list("items", make_items({"a", "b", "c"}));
     UiContext* first = &ctx.get_list("items")->at(0);
 
-    auto before = ctx.generation();
     ctx.set_list_size("items", 1);
-    REQUIRE(ctx.generation() != before);
     REQUIRE(ctx.get_list("items")->size() == 1);
     REQUIRE(&ctx.get_list("items")->at(0) == first);
     REQUIRE(first->get("name") == "a");
@@ -1213,36 +1181,30 @@ TEST_CASE("set_list_size shrinks from the end and keeps the rest", "[lists]") {
 TEST_CASE("set_list_size to the current size changes nothing", "[lists]") {
     UiContext ctx;
     ctx.set_list_size("items", 3);
-    auto before = ctx.generation();
+    ctx.set_item("items", 2, "name", "c");
+    const UiContext* last = &ctx.get_list("items")->at(2);
     ctx.set_list_size("items", 3);
-    REQUIRE(ctx.generation() == before);
+    REQUIRE(&ctx.get_list("items")->at(2) == last);
+    REQUIRE(last->get("name") == "c");
 }
 
-TEST_CASE("set_item bumps the owner only when a value changes", "[lists]") {
+TEST_CASE("set_item sets a value on one item", "[lists]") {
     UiContext ctx;
-    ctx.set_list_size("items", 1);
-    auto start = ctx.generation();
-
-    ctx.set_item("items", 0, "name", "a");
-    auto after_set = ctx.generation();
-    REQUIRE(after_set != start);
-
-    ctx.set_item("items", 0, "name", "a");
-    REQUIRE(ctx.generation() == after_set);
+    ctx.set_list_size("items", 2);
+    ctx.set_item("items", 1, "name", "a");
+    REQUIRE(ctx.get_list("items")->at(1).get("name") == "a");
+    REQUIRE(ctx.get_list("items")->at(0).get("name").empty());
 }
 
 TEST_CASE("set_item ignores a missing list and an index past the end", "[lists]") {
     UiContext ctx;
-    auto start = ctx.generation();
     ctx.set_item("nothing", 0, "name", "a");
     REQUIRE(ctx.get_list("nothing") == nullptr);
 
     ctx.set_list_size("items", 1);
-    auto sized = ctx.generation();
     ctx.set_item("items", 1, "name", "a");
     REQUIRE(ctx.get_list("items")->size() == 1);
-    REQUIRE(ctx.generation() == sized);
-    REQUIRE(sized != start);
+    REQUIRE(ctx.get_list("items")->at(0).get("name").empty());
 }
 
 // --- src and material templates ---
@@ -1258,7 +1220,6 @@ TEST_CASE("A templated src is reported when it resolves and when it changes", "[
     REQUIRE(first.asset_changes == std::vector<UiNode*>{root.get()});
     REQUIRE(root->bound_src == "a.png");
 
-    bump(ctx);
     REQUIRE(bind.resolve(*root, ctx).asset_changes.empty());
 
     ctx.set("icon", "b.png");
@@ -1305,4 +1266,128 @@ TEST_CASE("Each repeat binds its own item's src and material", "[databind][asset
     ctx.set_item("effects", 1, "icon", "poison.png");
     auto changed = bind.resolve(*root, ctx);
     REQUIRE(changed.asset_changes == std::vector<UiNode*>{root->children[2].get()});
+}
+
+// --- Work done per frame ---
+
+TEST_CASE("A quiet frame evaluates each binding on show once and applies none", "[databind][work]") {
+    auto root = make_element("div");
+    add_child(*root, make_text("{a}"));
+    add_child(*root, make_text("HP {a} / {b}"));
+    auto* bar = add_child(*root, make_element("bar"));
+    bar->attributes["value"] = "{a}";
+    bar->attributes["max"] = "{b}";
+
+    UiContext ctx;
+    ctx.set("a", UiValue(3));
+    ctx.set("b", UiValue(10));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(bind.work().applied == 3);
+
+    const auto quiet = bind.resolve(*root, ctx);
+    REQUIRE(bind.work().evaluated == 3);
+    REQUIRE(bind.work().applied == 0);
+    REQUIRE_FALSE(quiet.any());
+}
+
+TEST_CASE("A changed value applies exactly the bindings that read it", "[databind][work]") {
+    auto root = make_element("div");
+    auto* one = add_child(*root, make_text("{a}"));
+    auto* two = add_child(*root, make_text("a is {a}"));
+    auto* other = add_child(*root, make_text("{b}"));
+
+    UiContext ctx;
+    ctx.set("a", UiValue(1));
+    ctx.set("b", UiValue(2));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    ctx.set("a", UiValue(5));
+    const auto result = bind.resolve(*root, ctx);
+    REQUIRE(bind.work().evaluated == 3);
+    REQUIRE(bind.work().applied == 2);
+    REQUIRE(result.text_changed);
+    REQUIRE(one->text_content == "5");
+    REQUIRE(two->text_content == "a is 5");
+    REQUIRE(other->text_content == "2");
+}
+
+TEST_CASE("A subtree hidden by if= evaluates only its root's if= and class:", "[databind][work]") {
+    auto root = make_element("div");
+    auto* panel = add_child(*root, make_element("div"));
+    panel->attributes["if"] = "open";
+    panel->attributes["class:warm"] = "warm";
+    auto* first = add_child(*panel, make_text("{a}"));
+    add_child(*panel, make_text("{b}"));
+    add_child(*panel, make_text("{c}"));
+
+    UiContext ctx;
+    ctx.set("open", UiValue(false));
+    ctx.set("a", "x");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    bind.resolve(*root, ctx);
+    REQUIRE(bind.work().evaluated == 2);
+    REQUIRE(first->text_content == "{a}"); // never bound while hidden
+
+    // Shown again, the subtree is bound in the same frame.
+    ctx.set("open", UiValue(true));
+    const auto shown = bind.resolve(*root, ctx);
+    REQUIRE(bind.work().evaluated == 5);
+    REQUIRE(shown.layout_changed);
+    REQUIRE(first->text_content == "x");
+}
+
+TEST_CASE("A subtree the last style pass hid is bound once the style pass shows it", "[databind][work]") {
+    auto root = make_element("div");
+    auto* panel = add_child(*root, make_element("div"));
+    auto* text = add_child(*panel, make_text("{a}"));
+
+    UiContext ctx;
+    ctx.set("a", "one");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(text->text_content == "one");
+
+    panel->style.display = UiDisplay::none; // what the style pass decided
+    ctx.set("a", "two");
+    bind.resolve(*root, ctx);
+    REQUIRE(bind.work().evaluated == 0);
+    REQUIRE(text->text_content == "one");
+
+    bool revealed = true;
+    (void)bind.resolve_revealed(revealed);
+    REQUIRE_FALSE(revealed); // still hidden: nothing to do
+
+    panel->style.display = UiDisplay::flex; // the next style pass shows it
+    const auto late = bind.resolve_revealed(revealed);
+    REQUIRE(revealed);
+    REQUIRE(late.text_changed);
+    REQUIRE(text->text_content == "two");
+    (void)bind.resolve_revealed(revealed);
+    REQUIRE_FALSE(revealed);
+}
+
+TEST_CASE("Repeats stamped for a longer list are bound in the same frame", "[databind][work]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("div"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 2);
+
+    ctx.set_list("items", make_items({"a", "b", "c"}));
+    const auto grown = bind.resolve(*root, ctx);
+    REQUIRE(grown.layout_changed);
+    REQUIRE(root->children.size() == 4);
+    REQUIRE(root->children[3]->children[0]->text_content == "c");
+
+    bind.resolve(*root, ctx);
+    REQUIRE(bind.work().applied == 0);
+    REQUIRE(bind.work().evaluated == 4); // the repeat and three texts
 }

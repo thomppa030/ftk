@@ -75,10 +75,15 @@ controller can simply assign to a field.
 
 ## Change tracking
 
-`set()` with an unchanged value costs a lookup and nothing else, so calling it from
-`tick()` is fine. Every real change bumps the context's generation; the UI resolves
-templates only when a generation moved, and a resolved template that changed size
-triggers a relayout.
+Nothing has to announce a change. When a tree loads, every binding in it (text,
+`if=`, `class:`, `style-*`, `src`, `material`, a bar, a prop, a `foreach`) is parsed
+once into a table. Each frame the UI evaluates the bindings on show and compares
+what they read with what they read last frame; only a binding whose values changed
+is applied, and a change that moves classes, visibility or styles triggers a
+relayout. A subtree hidden by `if=` or `display: none` evaluates only its root's
+props, `if=` and `class:`, so a closed menu costs almost nothing. `set()` from
+`tick()` is fine: it replaces a value, and the next frame's comparison finds out
+whether anything shows it.
 
 ## Lifetime
 

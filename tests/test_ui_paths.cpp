@@ -206,14 +206,8 @@ TEST_CASE("Objects are the same value only at the same address", "[ui_paths]") {
     const PlayerTypes types;
     Player first;
     Player second;
-    UiContext ctx;
-    ctx.set("player", types.object(&first));
-    const auto before = ctx.generation();
-
-    ctx.set("player", types.object(&first));
-    REQUIRE(ctx.generation() == before);
-    ctx.set("player", types.object(&second));
-    REQUIRE(ctx.generation() != before);
+    REQUIRE(types.object(&first) == types.object(&first));
+    REQUIRE_FALSE(types.object(&first) == types.object(&second));
 }
 
 TEST_CASE("A scope reads its own object after its values and before its parent", "[ui_paths]") {
