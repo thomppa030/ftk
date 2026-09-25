@@ -40,6 +40,7 @@ inline constexpr const char* point_light       = ICON_LC_LIGHTBULB;
 inline constexpr const char* spot_light        = ICON_LC_FLASHLIGHT;
 inline constexpr const char* volumetric_fog    = ICON_LC_CLOUD;
 inline constexpr const char* fog_volume        = ICON_LC_CLOUD_FOG;
+inline constexpr const char* post_process_volume = ICON_LC_BLEND;
 inline constexpr const char* world_environment = ICON_LC_GLOBE;
 inline constexpr const char* folder            = ICON_LC_FOLDER;
 inline constexpr const char* source            = ICON_LC_LINK;
