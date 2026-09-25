@@ -91,11 +91,17 @@ int main(int argc, char* argv[]) {
         std::cout << "fjreflect: no components with [[fj::property]] found\n";
     }
 
-    fjreflect::GenerateOptions opts;
-    opts.output_dir = output_dir;
-    fjreflect::generate(all_components, opts);
+    const auto files = fjreflect::generate(all_components);
+    fjreflect::WriteReport report;
+    if (!fjreflect::write_outputs(output_dir, files, report)) {
+        std::cerr << "fjreflect: aborting: the output directory could not be updated\n";
+        return 1;
+    }
 
     std::cout << "fjreflect: generated " << all_components.size()
-              << " component(s) in " << output_dir << "/\n";
+              << " component(s) in " << output_dir << "/ (" << report.written.size() << " of "
+              << files.size() << " files changed";
+    if (!report.removed.empty()) std::cout << ", " << report.removed.size() << " stale removed";
+    std::cout << ")\n";
     return 0;
 }

@@ -210,8 +210,10 @@ add_executable(fjell-tests
     test_glyph_outline.cpp
     test_utf8.cpp
     test_fjreflect_parser.cpp
+    test_fjreflect_generator.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/lexer.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/parser.cpp
+    ${CMAKE_SOURCE_DIR}/tools/fjreflect/generator.cpp
     test_fjterrain_io.cpp
     test_fjinst_io.cpp
     test_fjwater.cpp
