@@ -2,6 +2,8 @@
 #include "scripting/timer_manager.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <utility>
 
 namespace fjell {
 
@@ -56,25 +58,33 @@ void TimerManager::cancel_owned(const void* owner) {
 }
 
 void TimerManager::tick(float dt) {
-    for (auto& e : entries_) {
-        if (e.generation == 0) continue;
+    // By index and over the timers there were when the tick began: a callback
+    // may set a timer, which can grow entries_ under a reference, or cancel
+    // one, its own included. A timer set now first counts down next tick.
+    const std::size_t count = entries_.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        if (entries_[i].generation == 0) continue;
 
-        e.remaining -= dt;
-        if (e.remaining <= 0.0f) {
-            // Fire callback
-            if (e.callback) {
-                e.callback();
-            }
+        entries_[i].remaining -= dt;
+        if (entries_[i].remaining > 0.0f) continue;
 
-            if (e.interval > 0.0f) {
-                // Repeating — reset with leftover time
-                e.remaining += e.interval;
-                if (e.remaining < 0.0f) e.remaining = 0.0f;
-            } else {
-                // One-shot — mark as free
-                e.generation = 0;
-                e.callback = nullptr;
-            }
+        // The callback is moved out while it runs, so the slot can change
+        // under it without the function it is running going away.
+        const uint32_t generation = entries_[i].generation;
+        Callback callback = std::move(entries_[i].callback);
+        if (callback) callback();
+
+        Entry& e = entries_[i];
+        if (e.generation != generation) continue;   // cancelled from its own callback
+        if (e.interval > 0.0f) {
+            // Repeating — reset with leftover time
+            e.callback = std::move(callback);
+            e.remaining += e.interval;
+            if (e.remaining < 0.0f) e.remaining = 0.0f;
+        } else {
+            // One-shot — mark as free
+            e.generation = 0;
+            e.owner = nullptr;
         }
     }
 }
