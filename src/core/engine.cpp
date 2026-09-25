@@ -1772,6 +1772,7 @@ void Engine::run_fixed_steps() {
     FixedTimestep& timestep = play_controller_.fixed_timestep();
     const int steps = timestep.advance(clock_.game_delta_time());
     stats.steps = steps;
+    if (steps > 0) physics_subsystem_->keep_frame_intents(scene_);
     for (int i = 0; i < steps; ++i) {
         FJELL_PROFILE_SCOPE_N("fixed_step");
         const auto step_start = StepClock::now();

@@ -43,6 +43,13 @@ public:
     /// one leaves it zero, without a script having to reset it.
     void clear_move_intents(Scene& scene);
 
+    /// Keep every character's move intent as the frame left it — from input
+    /// handlers and tick() — before the frame's steps. Each step starts from
+    /// it: the frame's intent steers every step of the frame, and one a
+    /// script sets in fixed_tick() steers its own step and no other, wherever
+    /// the frame boundaries fall.
+    void keep_frame_intents(Scene& scene);
+
 protected:
     void fixed_tick(const FixedTickContext& ctx) override {
         if (!world_) return;
@@ -50,6 +57,7 @@ protected:
         apply_wind(ctx);
         apply_buoyancy(ctx);
         world_->step(ctx.dt, ctx.scene, ctx.frame_steps_left);
+        restore_frame_intents(ctx.scene);
     }
 
 private:
@@ -57,6 +65,11 @@ private:
     /// character that lets it. A force, not an impulse, so a steady wind
     /// holds a body against gravity rather than kicking it once.
     void apply_wind(const FixedTickContext& ctx);
+
+    /// Once a step has steered by it, put back the intent the frame left, so
+    /// the next step starts from it. A character spawned during the frame had
+    /// none and goes back to zero.
+    void restore_frame_intents(Scene& scene);
 
     /// Float every body that has buoyancy on the water it is in, sampling the
     /// wave field at each of its points so a hull pitches and rolls with the
@@ -78,6 +91,9 @@ private:
         bool any_submerged{false};
     };
     std::vector<Floating> floating_;
+
+    // Each character's intent as the frame left it, by node id, sorted.
+    std::vector<std::pair<uint32_t, glm::vec3>> frame_intents_;
 
     std::unique_ptr<PhysicsWorld> world_;
     const EnvironmentSubsystem* environment_{nullptr};

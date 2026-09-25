@@ -195,6 +195,13 @@ public:
         physics_.run_fixed(ctx);
     }
 
+    /// Before a frame's steps, as the engine does: intents cleared, then
+    /// what the frame set kept for each step to start from.
+    void begin_frame_steps() {
+        physics_.clear_move_intents(scene_);
+        physics_.keep_frame_intents(scene_);
+    }
+
     [[nodiscard]] StepState state() { return state_of(scene_, *physics_.world()); }
     [[nodiscard]] Scene& scene() { return scene_; }
     [[nodiscard]] const PhysicsWorld& physics() { return *physics_.world(); }
@@ -245,6 +252,7 @@ std::vector<StepState> play_frames(DeterminismWorld& world, std::size_t steps,
     while (states.size() < steps) {
         clock.advance(static_cast<float>(next_frame()));
         const int frame_steps = timestep.advance(clock.game_delta_time());
+        if (frame_steps > 0) world.begin_frame_steps();
         for (int i = 0; i < frame_steps; ++i) {
             world.step(timestep.next_step(), frame_steps - i);
             states.push_back(world.state());

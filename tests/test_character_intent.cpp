@@ -1,6 +1,10 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "core/clock.hpp"
+#include "core/frame_context.hpp"
+#include "core/input.hpp"
+#include "physics/physics_subsystem.hpp"
 #include "physics/physics_types.hpp"
 #include "physics/physics_world.hpp"
 #include "scene/scene.hpp"
@@ -184,4 +188,99 @@ TEST_CASE("A character moved by velocity ignores its intent", "[character_intent
     // Half a second at the 2 m/s the script wrote, not at the intent's 5.
     const float x1 = world.scene.find_spatial(world.character)->transform.position.x;
     CHECK(x1 - x0 == Approx(1.0f).margin(0.05f));
+}
+
+namespace {
+
+// A character on a floor, stepped through the engine's physics subsystem the
+// way the engine's frames step it: intents cleared before the frame, what the
+// frame set kept before its steps, each step steered.
+struct IntentFrames {
+    Scene scene;
+    Input input;
+    Clock clock;
+    PhysicsSubsystem physics;
+    uint32_t character{0};
+    uint64_t index{0};
+
+    IntentFrames() {
+        Transform floor_at;
+        floor_at.position = {0.0f, -0.5f, 0.0f};
+        const uint32_t floor = scene.add_empty(floor_at, "floor");
+        auto& collider = scene.find_spatial(floor)->components.add<ColliderComponent>();
+        collider.shape = ColliderShape::Box;
+        collider.half_extents = {10.0f, 0.5f, 10.0f};
+
+        Transform start;
+        start.position = {0.0f, 0.05f, 0.0f};
+        character = scene.add_empty(start, "character");
+        scene.find_spatial(character)->components.add<CharacterComponent>();
+
+        scene.compute_world_matrices();
+        physics.notify_play_start(TickContext{.scene = scene, .input = input, .clock = clock, .dt = 0.0f});
+        for (int i = 0; i < 60; ++i) frame(1, [] {}, [](int) {});
+    }
+
+    [[nodiscard]] CharacterComponent& cc() {
+        return *scene.find_spatial(character)->components.get<CharacterComponent>();
+    }
+    [[nodiscard]] float x() { return scene.find_spatial(character)->transform.position.x; }
+
+    /// One frame: `tick` sets what the frame sets, then `steps` steps, each
+    /// running `in_step(i)` where a script's fixed_tick would.
+    template <typename Tick, typename InStep>
+    void frame(int steps, Tick tick, InStep in_step) {
+        physics.clear_move_intents(scene);
+        tick();
+        physics.keep_frame_intents(scene);
+        for (int i = 0; i < steps; ++i) {
+            scene.begin_fixed_step(index);
+            in_step(i);
+            const FixedTickContext ctx{
+                .scene = scene,
+                .dt = STEP_DT,
+                .time = static_cast<double>(index) * STEP_DT,
+                .index = index,
+                .frame_steps_left = steps - i,
+                .physics = physics.world(),
+                .project = nullptr,
+                .resources = nullptr,
+                .workers = nullptr,
+            };
+            physics.run_fixed(ctx);
+            ++index;
+        }
+    }
+};
+
+} // namespace
+
+TEST_CASE("An intent a step sets steers that step and no other", "[character_intent]") {
+    // A script steering in fixed_tick for one step and then letting go moves
+    // the character one step's worth, whether the next step falls in the same
+    // frame or in the next one.
+    IntentFrames one_frame;
+    REQUIRE(one_frame.cc().ground_state == CharacterGroundState::OnGround);
+    const float start_one = one_frame.x();
+    one_frame.frame(2, [] {}, [&](int i) {
+        if (i == 0) one_frame.cc().move_intent = {1.0f, 0.0f, 0.0f};
+    });
+
+    IntentFrames two_frames;
+    const float start_two = two_frames.x();
+    two_frames.frame(1, [] {}, [&](int) { two_frames.cc().move_intent = {1.0f, 0.0f, 0.0f}; });
+    two_frames.frame(1, [] {}, [](int) {});
+
+    const float one_step = two_frames.cc().max_speed * STEP_DT;
+    CHECK(two_frames.x() - start_two == Approx(one_step).margin(0.01f));
+    CHECK(one_frame.x() - start_one == two_frames.x() - start_two);
+}
+
+TEST_CASE("The frame's intent steers every step of the frame", "[character_intent]") {
+    // Input and tick() set intent once a frame; at 30 fps that frame runs
+    // two steps and the character walks on both.
+    IntentFrames world;
+    const float start = world.x();
+    world.frame(2, [&] { world.cc().move_intent = {1.0f, 0.0f, 0.0f}; }, [](int) {});
+    CHECK(world.x() - start == Approx(2.0f * world.cc().max_speed * STEP_DT).margin(0.01f));
 }

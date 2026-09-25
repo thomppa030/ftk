@@ -10,6 +10,7 @@
 #include "renderer/resources/water_surface.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <span>
 #include <utility>
@@ -20,6 +21,29 @@ namespace fjell {
 void PhysicsSubsystem::clear_move_intents(Scene& scene) {
     for (const auto& obj : scene.objects()) {
         if (auto* cc = obj->components.get<CharacterComponent>()) cc->move_intent = glm::vec3{0.0f};
+    }
+}
+
+void PhysicsSubsystem::keep_frame_intents(Scene& scene) {
+    frame_intents_.clear();
+    for (const auto& obj : scene.objects()) {
+        if (const auto* cc = obj->components.get<CharacterComponent>()) {
+            frame_intents_.emplace_back(obj->id, cc->move_intent);
+        }
+    }
+    std::sort(frame_intents_.begin(), frame_intents_.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+}
+
+void PhysicsSubsystem::restore_frame_intents(Scene& scene) {
+    for (const auto& obj : scene.objects()) {
+        auto* cc = obj->components.get<CharacterComponent>();
+        if (cc == nullptr) continue;
+        const auto kept = std::lower_bound(
+            frame_intents_.begin(), frame_intents_.end(), obj->id,
+            [](const auto& entry, uint32_t id) { return entry.first < id; });
+        const bool found = kept != frame_intents_.end() && kept->first == obj->id;
+        cc->move_intent = found ? kept->second : glm::vec3{0.0f};
     }
 }
 
