@@ -11,10 +11,8 @@
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
-#include "renderer/pass/cull_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
-#include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -237,8 +235,6 @@ public:
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
   [[nodiscard]] MeshletVizPass *meshlet_viz_pass() { return passes_.try_get<MeshletVizPass>("meshlet_viz"); }
-  [[nodiscard]] CullVizPass *cull_viz_pass() { return passes_.try_get<CullVizPass>("cull_viz"); }
-  [[nodiscard]] CullPass *cull_pass() { return passes_.try_get<CullPass>("cull"); }
   [[nodiscard]] GridPass &grid_pass() { return passes_.get<GridPass>("grid"); }
   [[nodiscard]] OpaquePass &opaque_pass() { return passes_.get<OpaquePass>("opaque"); }
   [[nodiscard]] ScreenColorCopyPass &screen_color_copy_pass() { return passes_.get<ScreenColorCopyPass>("screen_color_copy"); }

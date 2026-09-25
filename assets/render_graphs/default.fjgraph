@@ -23,10 +23,6 @@
         { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2", "enabled_if": "mesh_shaders" },
         { "class": "MeshShaderDepthPass", "name": "mesh_shader_depth",  "enabled_if": "mesh_shaders" },
         { "class": "MeshletVizPass",      "name": "meshlet_viz",        "enabled_if": "mesh_shaders" },
-        { "class": "CullVizPass",         "name": "cull_viz",           "enabled_if": "mesh_shaders" },
-        // Plain compute, no mesh-shader dependency; currently unused by any
-        // caller (kept alive from an earlier occlusion-culling attempt).
-        { "class": "CullPass",            "name": "cull" },
 
         // ── Shadow ─────────────────────────────────────────────────────
         { "class": "ShadowPass",       "name": "shadow" },

@@ -162,9 +162,6 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             if (active(ViewportSource::meshlet_viz)) {
                 if (auto* mv = ctx.meshlet_viz_pass()) { mv->resize(vp_w, vp_h); }
             }
-            if (active(ViewportSource::gpu_cull)) {
-                if (auto* cv = ctx.cull_viz_pass()) { cv->resize(vp_w, vp_h); }
-            }
         }
     }
 }
@@ -226,10 +223,6 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
         case ViewportSource::meshlet_viz: {
             auto* mv = ctx.meshlet_viz_pass();
             return mv ? mv->imgui_texture() : VK_NULL_HANDLE;
-        }
-        case ViewportSource::gpu_cull: {
-            auto* cv = ctx.cull_viz_pass();
-            return cv ? cv->imgui_texture() : VK_NULL_HANDLE;
         }
         case ViewportSource::gi_indirect: {
             auto* si = ctx.default_pp().ss_gi();
@@ -319,10 +312,6 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 case ViewportSource::meshlet_viz: {
                     auto* mv = ctx.meshlet_viz_pass();
                     tex = mv ? mv->imgui_texture() : VK_NULL_HANDLE;
-                } break;
-                case ViewportSource::gpu_cull: {
-                    auto* cv = ctx.cull_viz_pass();
-                    tex = cv ? cv->imgui_texture() : VK_NULL_HANDLE;
                 } break;
                 case ViewportSource::gi_indirect: {
                     auto* si = ctx.default_pp().ss_gi();

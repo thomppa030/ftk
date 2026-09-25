@@ -1,7 +1,6 @@
 #pragma once
 
 #include "renderer/gpu/buffer.hpp"
-#include "renderer/pass/cull_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
@@ -150,10 +149,6 @@ public:
         return data[draw_index].meshlet_count;
     }
 
-    [[nodiscard]] const GpuDrawAABB* aabb_data(uint32_t frame_index) const {
-        return aabb_data_[frame_index].empty() ? nullptr : aabb_data_[frame_index].data();
-    }
-
     [[nodiscard]] const std::vector<uint32_t>& skinned_draw_indices(uint32_t frame_index) const {
         return skinned_draw_indices_[frame_index];
     }
@@ -236,7 +231,6 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_meshlet_instances_{};
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> pipeline_bin_buffers_;
-    std::array<std::vector<GpuDrawAABB>, MAX_FRAMES_IN_FLIGHT> aabb_data_;
 
     // CPU-side staging buffers (avoid scattered writes to write-combined GPU memory)
     std::vector<VkDrawIndexedIndirectCommand> staged_indirect_;

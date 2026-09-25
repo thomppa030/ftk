@@ -24,7 +24,6 @@ enum class ViewportSource : uint8_t {
     light_grid,
     meshlet_viz,
     ao,
-    gpu_cull,
     gi_indirect,
     gi_irradiance,
     motion_field,
@@ -34,7 +33,7 @@ enum class ViewportSource : uint8_t {
 // enum would have to be handled by every switch over it. The assert below
 // is what catches it falling behind: bump both together, and the view menu
 // (ui/viewport_view.cpp) then asks for the new source's entry.
-constexpr int VIEWPORT_SOURCE_COUNT = 14;
+constexpr int VIEWPORT_SOURCE_COUNT = 13;
 static_assert(static_cast<int>(ViewportSource::motion_field) == VIEWPORT_SOURCE_COUNT - 1,
               "VIEWPORT_SOURCE_COUNT must match the last ViewportSource");
 

@@ -135,11 +135,9 @@ add_executable(fjell
     renderer/systems/tilemap_renderer.cpp
     renderer/pass/render_pass.cpp
     renderer/pass/bloom_pass.cpp
-    renderer/pass/cull_pass.cpp
     renderer/pass/instance_cull_pass.cpp
     renderer/pass/ddgi_pass.cpp
     renderer/pass/ss_gi_pass.cpp
-    renderer/pass/cull_viz_pass.cpp
     renderer/pass/gtao_pass.cpp
     renderer/pass/ssr_pass.cpp
     renderer/pass/rt_reflection_pass.cpp

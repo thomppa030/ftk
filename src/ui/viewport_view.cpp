@@ -76,7 +76,6 @@ constexpr BufferView BUFFERS[] = {
     {ViewportSource::light_grid, "Light grid"},
     {ViewportSource::meshlet_viz, "Meshlets"},
     {ViewportSource::ao, "Ambient occlusion"},
-    {ViewportSource::gpu_cull, "GPU cull"},
     {ViewportSource::gi_indirect, "GI indirect"},
     {ViewportSource::gi_irradiance, "GI irradiance"},
     {ViewportSource::motion_field, "Motion field"},

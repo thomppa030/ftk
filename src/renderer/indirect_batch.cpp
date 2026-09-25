@@ -211,9 +211,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t triangles = 0;
     uint32_t total_meshlets = 0;
 
-    auto& aabbs = aabb_data_[frame_index];
-    aabbs.resize(total_draws);
-
     auto& skinned_indices = skinned_draw_indices_[frame_index];
     skinned_indices.clear();
 
@@ -311,18 +308,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 data.instance_count = seg_count;
                 data.first_instance = 0;
                 data.spline_segment_offset = seg_offset;
-
-                if (do_lod) {
-                    const AABB& world_aabb = dc.world_aabb;
-                    aabbs[draw_index].min_x = world_aabb.min.x;
-                    aabbs[draw_index].min_y = world_aabb.min.y;
-                    aabbs[draw_index].min_z = world_aabb.min.z;
-                    aabbs[draw_index].pad0 = 0.0F;
-                    aabbs[draw_index].max_x = world_aabb.max.x;
-                    aabbs[draw_index].max_y = world_aabb.max.y;
-                    aabbs[draw_index].max_z = world_aabb.max.z;
-                    aabbs[draw_index].pad1 = 0.0F;
-                }
 
                 total_meshlets += entry.meshlet_count * seg_count;
                 triangles      += (entry.index_count / 3) * seg_count;
@@ -463,23 +448,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.instance_count = bucket_count;
                     data.first_instance = bucket_first_instance;
 
-                    if (do_lod) {
-                        // GpuDrawAABB feeds CullPass (dead path) and RT TLAS. For
-                        // instanced draws, InstanceCullPass handles per-instance
-                        // frustum testing — the per-bucket union here would be
-                        // wasted work. Record the DrawCommand's whole-patch AABB
-                        // so any downstream consumer still gets a valid bounds.
-                        const AABB& world_aabb = dc.world_aabb;
-                        aabbs[draw_index].min_x = world_aabb.min.x;
-                        aabbs[draw_index].min_y = world_aabb.min.y;
-                        aabbs[draw_index].min_z = world_aabb.min.z;
-                        aabbs[draw_index].pad0 = 0.0f;
-                        aabbs[draw_index].max_x = world_aabb.max.x;
-                        aabbs[draw_index].max_y = world_aabb.max.y;
-                        aabbs[draw_index].max_z = world_aabb.max.z;
-                        aabbs[draw_index].pad1 = 0.0f;
-                    }
-
                     total_meshlets += entry.meshlet_count * bucket_count;
                     triangles += (entry.index_count / 3) * bucket_count;
                     draw_index++;
@@ -515,18 +483,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.vertex_offset = entry.vertex_offset;
             data.instance_count = 1;
             data.first_instance = 0;
-
-            if (do_lod) {
-                const AABB& world_aabb = dc.world_aabb;
-                aabbs[draw_index].min_x = world_aabb.min.x;
-                aabbs[draw_index].min_y = world_aabb.min.y;
-                aabbs[draw_index].min_z = world_aabb.min.z;
-                aabbs[draw_index].pad0 = 0.0f;
-                aabbs[draw_index].max_x = world_aabb.max.x;
-                aabbs[draw_index].max_y = world_aabb.max.y;
-                aabbs[draw_index].max_z = world_aabb.max.z;
-                aabbs[draw_index].pad1 = 0.0f;
-            }
 
             total_meshlets += entry.meshlet_count;
             triangles += entry.index_count / 3;

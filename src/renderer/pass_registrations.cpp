@@ -17,8 +17,6 @@
 #include "renderer/pass/water_fft_pass.hpp"
 #include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
-#include "renderer/pass/cull_pass.hpp"
-#include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
@@ -69,8 +67,6 @@ FJELL_REGISTER_PASS(CloudShadowPass)
 FJELL_REGISTER_PASS(MotionFieldPass)
 FJELL_REGISTER_PASS(FogDensityFieldPass)
 FJELL_REGISTER_PASS(WaterFftPass)
-FJELL_REGISTER_PASS(CullPass)
-FJELL_REGISTER_PASS(CullVizPass)
 FJELL_REGISTER_PASS(DdgiPass)
 FJELL_REGISTER_PASS(DebugPass)
 FJELL_REGISTER_PASS(DepthPrePass)

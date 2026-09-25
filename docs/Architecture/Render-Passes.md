@@ -9,7 +9,6 @@ A reference of every pass under `src/renderer/pass/` — what it does, what it r
 
 ### Visibility & culling
 - `instance_cull_pass` — coarse object cull
-- `cull_pass` — per-draw cull
 - `meshlet_instance_pass` — populate meshlet instances
 - `meshlet_cull_pass2` — two-pass meshlet cull (frustum + Hi-Z + cone)
 - `light_cull_pass` — forward+ tile cull
@@ -47,7 +46,7 @@ A reference of every pass under `src/renderer/pass/` — what it does, what it r
 
 ### Debug / dev
 - `debug_pass` — debug draw queue
-- `cull_viz_pass`, `meshlet_viz_pass`, `light_viz_pass`, `depth_viz_pass`
+- `meshlet_viz_pass`, `light_viz_pass`, `depth_viz_pass`
 - `grid_pass` — editor grid
 
 Each entry will list: inputs, outputs, conditional toggles, perf rough numbers.

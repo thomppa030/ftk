@@ -172,10 +172,6 @@ VulkanContext::~VulkanContext() {
 }
 
 void VulkanContext::set_render_settings(const RenderSettings& s) {
-    // Quality
-    if (auto* cp = cull_pass()) {
-        cp->set_enabled(s.gpu_cull);
-    }
     // MSAA intentionally not applied — requires pipeline + offscreen
     // recreation we don't support yet. Project's stored value becomes
     // effective on next engine launch via gpu_context's init-time read.
@@ -1956,7 +1952,6 @@ void VulkanContext::release_imgui_textures() {
     overdraw_pass().invalidate_imgui_texture();
     uv_viz_pass().invalidate_imgui_texture();
     if (auto* mv = passes_.try_get<MeshletVizPass>("meshlet_viz")) mv->invalidate_imgui_texture();
-    if (auto* cv = passes_.try_get<CullVizPass>("cull_viz")) cv->invalidate_imgui_texture();
     light_heatmap_pass().invalidate_imgui_texture();
     light_grid_pass().invalidate_imgui_texture();
 }

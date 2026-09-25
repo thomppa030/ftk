@@ -240,7 +240,6 @@ void ProjectSettingsWindow::draw_rendering() {
             // recreation we don't support yet. Stored value applies on next launch.
             readout_row("MSAA", std::format("{}x", static_cast<uint32_t>(s.msaa_samples)));
             ui::hint("Fixed at launch");
-            ui::row("GPU culling", [&] { edit |= ui::checkbox("##gpu_cull", s.gpu_cull); });
         }
     }
 
