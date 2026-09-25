@@ -351,16 +351,26 @@ void GpuContext::create_descriptor_resources() {
         begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(init_cmd, &begin);
-        vk_utils::transition_image(init_cmd, gi_fallback_image_,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT);
-        vk_utils::transition_image(init_cmd, volume_fallback_image_,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT);
+        // Cleared to zero before anything samples them. A reader multiplies
+        // what it samples by a strength that is zero when the real image is
+        // missing, and zero times whatever garbage new memory holds is not
+        // zero when that garbage is a NaN.
+        for (VkImage fallback : {gi_fallback_image_, volume_fallback_image_}) {
+            vk_utils::transition_image(init_cmd, fallback,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_PIPELINE_STAGE_2_NONE, 0,
+                VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT);
+            const VkClearColorValue zero{};
+            const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdClearColorImage(init_cmd, fallback, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                 &zero, 1, &all);
+            vk_utils::transition_image(init_cmd, fallback,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT);
+        }
         vkEndCommandBuffer(init_cmd);
         VkSubmitInfo submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
