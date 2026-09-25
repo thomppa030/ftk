@@ -96,7 +96,12 @@ void StandaloneWindow::frame(const std::function<void(float width, float height)
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vk_check(vkBeginCommandBuffer(cmd, &begin), "standalone window command begin");
 
-    vk_utils::prepare_color_attachment(cmd, swapchain_->image(img_idx));
+    // After the acquire, which the submit waits for at the colour output stage.
+    vk_utils::transition_image(cmd, swapchain_->image(img_idx), VK_IMAGE_LAYOUT_UNDEFINED,
+                               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     VkRenderingAttachmentInfo color{};
     color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
