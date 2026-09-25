@@ -114,6 +114,10 @@ struct Node;
 
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
 
+// Who moves a character: the engine from its intent, or a script through its
+// velocity. See CharacterComponent::movement.
+enum class CharacterMovement : uint8_t { Intent, Velocity };
+
 // A capsule that walks. Field order is mirrored by the script SDK's copy of
 // this struct; change both together.
 struct CharacterComponent : NodeComponent {
@@ -144,6 +148,29 @@ struct CharacterComponent : NodeComponent {
     // the capsule there so rays and bodies still find the character. That is
     // what a networked character driven by another peer needs. Runtime only.
     bool simulate{true};
+
+    // Who moves the character. Intent: the engine, each fixed step, turns
+    // move_intent and jump() into velocity with the tuning below, so a script
+    // only says where to go. Velocity: a script writes velocity itself (in
+    // fixed_tick, to replay), and the intent fields are unused. A scene saved
+    // before this existed loads as Velocity, which is what its scripts did.
+    CharacterMovement movement{CharacterMovement::Intent};
+    // Where the character wants to go this frame, world space, length 0..1 (a
+    // stick's deflection); only the horizontal part is used. Cleared before
+    // input each frame, so it is set from an input handler or tick while
+    // there is input. Runtime only.
+    glm::vec3 move_intent{0.0f};
+    float max_speed{5.0f};            // speed at full intent, m/s
+    float ground_acceleration{0.0f};  // m/s² toward the intended speed on the ground; 0 is instant
+    float air_control{0.35f};         // share of air_acceleration available in the air
+    float air_acceleration{12.0f};    // m/s² of steering at full air_control
+    float jump_speed{5.0f};           // upward speed a jump starts with, m/s
+    // Set by jump(), taken by the next fixed step. Runtime only.
+    bool jump_requested{false};
+
+    // Ask for a jump: the next fixed step jumps if the character is on the
+    // ground, and drops the request either way.
+    void jump() { jump_requested = true; }
 
     // The velocity to move with, written by gameplay before the step, and the
     // velocity the solver ended up with, written back after it. Horizontal
@@ -176,6 +203,14 @@ struct CharacterCapsule {
     float height;
     glm::vec3 center;
 };
+
+// One fixed step of an Intent character's steering: its horizontal velocity
+// moves toward move_intent at max_speed (at once, or at ground_acceleration,
+// on the ground; at air_acceleration * air_control in the air, and not at all
+// there without intent, so a jump commits to its arc), and a pending jump
+// leaves the ground at jump_speed. Gravity, the ground's own motion and
+// collision are the physics step's.
+void steer_by_intent(CharacterComponent& character, float dt);
 
 [[nodiscard]] inline CharacterCapsule scaled_capsule(const CharacterComponent& character,
                                                      const glm::vec3& scale) {

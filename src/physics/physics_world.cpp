@@ -1389,6 +1389,10 @@ void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
             continue;
         }
 
+        // Moved by intent, the character's velocity comes from it here, with
+        // the step's length; moved by velocity, it is what the script wrote.
+        if (cc->movement == CharacterMovement::Intent) steer_by_intent(*cc, dt);
+
         glm::vec3 vel = cc->velocity;
         if (cc->ground_state == CharacterGroundState::OnGround) {
             // Standing on something: vertical velocity is at least whatever the

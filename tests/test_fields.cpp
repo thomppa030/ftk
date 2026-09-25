@@ -146,6 +146,7 @@ TEST_CASE("A checkbox commits on the click that changes it", "[ui][kit]") {
 TEST_CASE("Every unit but none has a symbol", "[ui][kit]") {
     CHECK(std::string(ui::unit_symbol(ui::Unit::None)).empty());
     for (auto unit : {ui::Unit::Metres, ui::Unit::SquareMetres, ui::Unit::MetresPerSecond,
+                      ui::Unit::MetresPerSecondSquared,
                       ui::Unit::Degrees, ui::Unit::Radians, ui::Unit::Milliseconds, ui::Unit::Seconds, ui::Unit::Minutes,
                       ui::Unit::Kilograms, ui::Unit::Pixels, ui::Unit::Percent, ui::Unit::ExposureValue,
                       ui::Unit::Times}) {

@@ -50,6 +50,9 @@ struct CharacterWorld {
         auto* node = scene.find_spatial(id);
         node->parent_id = parent;
         auto& cc = node->components.add<CharacterComponent>();
+        // These tests drive the controller by writing its velocity, the way a
+        // script with its own movement does.
+        cc.movement = CharacterMovement::Velocity;
         cc.capsule_radius = RADIUS;
         cc.capsule_height = HEIGHT;
         return id;

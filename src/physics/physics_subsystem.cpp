@@ -17,6 +17,12 @@
 
 namespace fjell {
 
+void PhysicsSubsystem::clear_move_intents(Scene& scene) {
+    for (const auto& obj : scene.objects()) {
+        if (auto* cc = obj->components.get<CharacterComponent>()) cc->move_intent = glm::vec3{0.0f};
+    }
+}
+
 void PhysicsSubsystem::apply_wind(const FixedTickContext& ctx) {
     if (environment_ == nullptr) return;
     const glm::vec3 wind = environment_->fixed_wind();

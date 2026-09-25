@@ -2046,6 +2046,9 @@ void Engine::run() {
         asset_loader_->poll();
         input_.update();
         window_.poll_events();
+        // A character's move intent is the frame's, and input sets it: clear it
+        // first, so a released stick leaves it zero.
+        if (play_controller_.playing()) physics_subsystem_->clear_move_intents(scene_);
         // After poll_events, so the action map sees this frame's mouse and
         // scroll deltas: the callbacks accumulate them during the poll, and
         // Input::update() clears them for the next frame. Reading before the

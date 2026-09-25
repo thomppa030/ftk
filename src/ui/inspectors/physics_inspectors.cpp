@@ -39,6 +39,11 @@ constexpr ui::Choice<BodyType> BODY_TYPES[] = {
     {BodyType::Dynamic, "Dynamic"},
 };
 
+constexpr ui::Choice<CharacterMovement> MOVEMENTS[] = {
+    {CharacterMovement::Intent, "Intent"},
+    {CharacterMovement::Velocity, "Velocity"},
+};
+
 constexpr ui::Choice<ColliderShape> SHAPES[] = {
     {ColliderShape::Box, "Box"},
     {ColliderShape::Sphere, "Sphere"},
@@ -247,6 +252,45 @@ ui::Edit draw_character(Node3D& node, void* component, const InspectorContext& /
         });
     }
     edit |= draw_collision_filter(cc.filter);
+
+    ui::subheading("Movement");
+    if (auto t = ui::PropertyTable("##movement")) {
+        ui::row("Moved by",
+                "Intent: the engine moves it each step from move_intent and jump(). "
+                "Velocity: a script writes its velocity.",
+                [&] { edit |= ui::choice("##movement", cc.movement, MOVEMENTS); });
+        if (cc.movement == CharacterMovement::Intent) {
+            ui::row("Max speed", "Speed at full intent.", [&] {
+                edit |= ui::drag("##max_speed", cc.max_speed,
+                                 {.speed = 0.05f, .min = 0.0f, .max = 50.0f,
+                                  .unit = ui::Unit::MetresPerSecond});
+            });
+            ui::row("Ground acceleration",
+                    "How fast it reaches its intended speed on the ground. 0 reaches it at once.",
+                    [&] {
+                        edit |= ui::drag("##ground_acceleration", cc.ground_acceleration,
+                                         {.speed = 0.1f, .min = 0.0f, .max = 200.0f,
+                                          .unit = ui::Unit::MetresPerSecondSquared});
+                    });
+            ui::row("Air control",
+                    "Share of the air acceleration it can steer with in the air. "
+                    "With no intent it keeps its momentum.",
+                    [&] {
+                        edit |= ui::slider("##air_control", cc.air_control, 0.0f, 1.0f,
+                                           ui::Unit::None, "%.2f");
+                    });
+            ui::row("Air acceleration", "Steering in the air at full air control.", [&] {
+                edit |= ui::drag("##air_acceleration", cc.air_acceleration,
+                                 {.speed = 0.1f, .min = 0.0f, .max = 100.0f,
+                                  .unit = ui::Unit::MetresPerSecondSquared});
+            });
+            ui::row("Jump speed", "The upward speed a jump leaves the ground with.", [&] {
+                edit |= ui::drag("##jump_speed", cc.jump_speed,
+                                 {.speed = 0.05f, .min = 0.0f, .max = 50.0f,
+                                  .unit = ui::Unit::MetresPerSecond});
+            });
+        }
+    }
 
     ui::subheading("State");
     if (auto t = ui::PropertyTable("##state")) {

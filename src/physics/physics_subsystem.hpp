@@ -17,6 +17,7 @@
 namespace fjell {
 
 class EnvironmentSubsystem;
+class Scene;
 
 class PhysicsSubsystem : public Subsystem {
 public:
@@ -36,6 +37,11 @@ public:
     }
 
     [[nodiscard]] PhysicsWorld* world() { return world_.get(); }
+
+    /// Clear every character's move intent. A frame's intent is that frame's:
+    /// cleared before input fires, a held stick sets it again and a released
+    /// one leaves it zero, without a script having to reset it.
+    void clear_move_intents(Scene& scene);
 
 protected:
     void fixed_tick(const FixedTickContext& ctx) override {

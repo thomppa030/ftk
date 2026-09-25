@@ -25,6 +25,7 @@ enum class Unit {
     Kilometres,
     SquareMetres,
     MetresPerSecond,
+    MetresPerSecondSquared,
     Degrees,
     Radians,
     Milliseconds,

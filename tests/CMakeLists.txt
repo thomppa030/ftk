@@ -219,6 +219,7 @@ add_executable(fjell-tests
     test_scene_lifecycle.cpp
     test_step_input_latch.cpp
     test_kinematic_spread.cpp
+    test_character_intent.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

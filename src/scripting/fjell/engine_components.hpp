@@ -168,15 +168,26 @@ enum class CharacterGroundState : uint8_t {
     InAir,          ///< Not touching ground at all.
 };
 
+/// Who moves a character. See `CharacterComponent::movement`.
+enum class CharacterMovement : uint8_t {
+    Intent,    ///< The engine, each fixed step, from `move_intent` and `jump()`.
+    Velocity,  ///< A script, by writing `velocity` itself.
+};
+
 /// Character controller for players and NPCs — walks, climbs steps, and slides
 /// off slopes without the instability of pushing a dynamic rigidbody around.
 /// Use this instead of a RigidbodyComponent for anything that walks.
 ///
+/// Say where it should go and the engine moves it, the same at any frame rate:
+///
 /// @code
-/// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
-///     if (c->ground_state == fjell::CharacterGroundState::OnGround) {
-///         c->velocity.y = jump_speed_;
+/// void on_move(glm::vec2 stick) {
+///     if (auto* c = self().get_component<fjell::CharacterComponent>()) {
+///         c->move_intent = glm::vec3{stick.x, 0.0f, -stick.y};
 ///     }
+/// }
+/// void on_jump() {
+///     if (auto* c = self().get_component<fjell::CharacterComponent>()) c->jump();
 /// }
 /// @endcode
 struct CharacterComponent {
@@ -225,11 +236,52 @@ struct CharacterComponent {
     /// characters driven by another peer.
     bool simulate{true};
 
-    /// The velocity to move with, in world units per second. Write it before
-    /// the physics step; the solver writes back what it actually did.
-    /// Horizontal components persist until rewritten, so set them every tick,
-    /// to zero when there is no input. Vertical is gravity's: write a positive
-    /// value while `OnGround` to jump, and otherwise leave it alone.
+    /// Who moves the character. `Intent` (the default): set `move_intent` and
+    /// call `jump()`, and the engine turns them into velocity every fixed step
+    /// with the tuning below. `Velocity`: write `velocity` yourself, in
+    /// `fixed_tick()` to replay exactly; `move_intent` and `jump()` are then
+    /// ignored. A scene saved before this field existed loads as `Velocity`,
+    /// which is how its scripts moved the character.
+    CharacterMovement movement{CharacterMovement::Intent};
+
+    /// Where the character wants to go, world space, with a length from 0 to
+    /// 1 like a stick's deflection; only the horizontal part is used. It is
+    /// cleared before input each frame, so set it from an input handler or
+    /// `tick()` while there is input, and leave it when there is none.
+    glm::vec3 move_intent{0.0f};
+
+    /// Speed at full intent, in metres per second.
+    float max_speed{5.0f};
+
+    /// How fast the character reaches its intended speed on the ground, in
+    /// m/s². Zero reaches it at once.
+    float ground_acceleration{0.0f};
+
+    /// How much steering the character has in the air, as a share of
+    /// `air_acceleration`. With no intent in the air it keeps its momentum,
+    /// so a jump commits to its arc.
+    float air_control{0.35f};
+
+    /// Steering in the air at full `air_control`, in m/s².
+    float air_acceleration{12.0f};
+
+    /// The upward speed a jump leaves the ground with, in metres per second.
+    float jump_speed{5.0f};
+
+    /// Set by `jump()` and taken by the next fixed step. Read-only.
+    bool jump_requested{false};
+
+    /// Ask for a jump. The next fixed step jumps if the character is on the
+    /// ground and drops the request either way.
+    void jump() { jump_requested = true; }
+
+    /// The velocity to move with, in world units per second; the solver
+    /// writes back what it actually did. Moved by `Intent`, the engine sets
+    /// its horizontal part each step and a jump its vertical one. Moved by
+    /// `Velocity`, write it before the physics step: horizontal components
+    /// persist until rewritten, so set them every step, to zero when there
+    /// is no input; vertical is gravity's, so write a positive value while
+    /// `OnGround` to jump, and otherwise leave it alone.
     glm::vec3 velocity{0.0f};
 
     /// Whether the character is grounded. Read-only output, refreshed each
