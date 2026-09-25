@@ -817,10 +817,12 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
     // --- Render ImGui to swapchain ---
     {
-        // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+        // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL.
+        // The submit waits for the acquire at the colour output stage, and the
+        // transition has to come after that wait: the source scope names it.
         transition_image(swap_cmd, gpu_.swapchain().image(image_index),
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
