@@ -8,6 +8,7 @@ FJELL_SDK_EXPORT void  fjell_time_set_scale(float scale);
 FJELL_SDK_EXPORT float fjell_time_get_scale();
 FJELL_SDK_EXPORT void  fjell_time_set_paused(int paused);
 FJELL_SDK_EXPORT int   fjell_time_is_paused();
+FJELL_SDK_EXPORT float fjell_time_fixed_delta();
 }
 
 namespace fjell {
@@ -33,6 +34,10 @@ struct Time {
 
     /// Whether gameplay is currently paused.
     [[nodiscard]] static bool is_paused() { return fjell_time_is_paused() != 0; }
+
+    /// The simulation's step length in seconds: what `fixed_tick()` receives
+    /// as `step.dt`, the same for every step of a session.
+    [[nodiscard]] static float fixed_delta() { return fjell_time_fixed_delta(); }
 };
 
 } // namespace fjell

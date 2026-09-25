@@ -1,5 +1,7 @@
 #include "core/input.hpp"
 #include "core/input_action_map.hpp"
+#include "core/log.hpp"
+#include "core/step_input_latch.hpp"
 #include "core/delegate.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scripting/fjell/api.h"
@@ -99,6 +101,63 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id
 
 extern "C" FJELL_SDK_EXPORT void fjell_input_clear_connections() {
     s_input_connections.clear();
+}
+
+// ── Step input ──────────────────────────────────────────────────────────
+
+namespace {
+
+/// The action's name, if it is read where step input means something: inside
+/// a fixed step. Anywhere else the read is reported once and answered as if
+/// nothing were pressed, rather than with whatever the last step saw.
+const char* step_action(uint32_t action_handle_id) {
+    auto& services = fjell::script_services();
+    if (!services.in_fixed_step) {
+        static bool reported = false;
+        if (!reported) {
+            reported = true;
+            FJELL_CORE_WARN("Step input read outside fixed_tick(): it is the input of one fixed "
+                            "step, and outside one there is none. Bind the action with "
+                            "InputAPI::bind() to react to it every frame instead");
+        }
+        return nullptr;
+    }
+    return resolve_action_name(action_handle_id);
+}
+
+} // namespace
+
+extern "C" FJELL_SDK_EXPORT int fjell_step_input_pressed(uint32_t action_handle_id) {
+    const char* name = step_action(action_handle_id);
+    const auto* input = fjell::script_services().step_input;
+    return name != nullptr && input != nullptr && input->pressed(name) ? 1 : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT int fjell_step_input_released(uint32_t action_handle_id) {
+    const char* name = step_action(action_handle_id);
+    const auto* input = fjell::script_services().step_input;
+    return name != nullptr && input != nullptr && input->released(name) ? 1 : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT int fjell_step_input_held(uint32_t action_handle_id) {
+    const char* name = step_action(action_handle_id);
+    auto* iam = get_iam();
+    return name != nullptr && iam != nullptr && iam->is_held(name) ? 1 : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT float fjell_step_input_axis1d(uint32_t action_handle_id) {
+    const char* name = step_action(action_handle_id);
+    auto* iam = get_iam();
+    return name != nullptr && iam != nullptr ? iam->axis1d(name) : 0.0f;
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_step_input_axis2d(uint32_t action_handle_id, float* x,
+                                                         float* y) {
+    const char* name = step_action(action_handle_id);
+    auto* iam = get_iam();
+    const glm::vec2 value = name != nullptr && iam != nullptr ? iam->axis2d(name) : glm::vec2{0.0f};
+    *x = value.x;
+    *y = value.y;
 }
 
 namespace fjell {

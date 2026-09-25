@@ -9,6 +9,7 @@ class CameraSubsystem;
 class Clock;
 class DebugDrawQueue;
 class EnvironmentSubsystem;
+class FixedTimestep;
 class Input;
 class InputActionMap;
 class NetManager;
@@ -18,6 +19,7 @@ class ResourceManager;
 class Scene;
 class ScreenDebugQueue;
 class ScriptManager;
+class StepInputLatch;
 class TimerManager;
 class VfxSubsystem;
 class VulkanContext;
@@ -38,8 +40,13 @@ struct ScriptServices {
     ScreenDebugQueue* screen_debug_queue{};
     NetManager* net{};
 
+    // The simulation's clock and the button edges each of its steps sees.
+    const FixedTimestep* fixed_timestep{};
+    const StepInputLatch* step_input{};
     // Per-play: the physics world only exists while play mode runs.
     PhysicsWorld* physics{};
+    // Set while scripts run a fixed step, the one place step input is valid.
+    bool in_fixed_step{false};
 
     // Per-frame (set by ScriptManager::prepare/update)
     Scene* scene{};

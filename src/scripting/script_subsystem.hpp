@@ -2,6 +2,7 @@
 
 #include "core/frame_context.hpp"
 #include "core/subsystem.hpp"
+#include "scripting/fjell/fixed_step.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <string_view>
@@ -14,6 +15,11 @@ public:
 
     void tick(const TickContext& ctx) override {
         manager_.update(ctx.scene, ctx.input, ctx.clock, ctx.physics);
+    }
+
+    void fixed_tick(const FixedTickContext& ctx) override {
+        manager_.fixed_update(ctx.scene,
+                              FixedStep{.dt = ctx.dt, .time = ctx.time, .index = ctx.index});
     }
 
     void on_play_start(const TickContext& ctx) override {

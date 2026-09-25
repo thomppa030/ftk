@@ -164,6 +164,14 @@ void PlayController::begin_frame() {
     // the script that asked never sees focus change.
     s_.input->apply_cursor_lock(focused);
 
+    // This frame's button edges, kept for the next fixed step that begins,
+    // however many frames that is from now.
+    if (playing()) {
+        for (const auto& [action, state] : s_.input_map->states()) {
+            step_input_.record(action, state.pressed, state.released);
+        }
+    }
+
     if (!stepping_) return;
     stepping_ = false;
     // The frame this unlocked is about to tick; re-pause so the next one
@@ -382,6 +390,7 @@ void PlayController::start() {
     // game time (the water shaders) and the simulation agree from the first
     // step. A frame counts for no more game time than the steps it may run.
     fixed_timestep_.reset(1.0 / FixedTimestep::DEFAULT_TICK_RATE, s_.clock->game_elapsed());
+    step_input_.reset();
     s_.clock->set_max_game_delta(static_cast<float>(fixed_timestep_.max_frame_seconds()));
 
     session_ = std::make_unique<PlaySession>(std::move(snapshot));

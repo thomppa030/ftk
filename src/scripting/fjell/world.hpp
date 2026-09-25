@@ -3,6 +3,8 @@
 
 #include "fjell/input.hpp"
 
+#include <cstdint>
+
 namespace fjell {
 
 /// Per-frame runtime state shared by every script, reached through
@@ -16,11 +18,22 @@ struct World {
     const Input* input_{nullptr};
 
     /// Seconds since the previous frame, scaled by `Time::set_scale()` and 0
-    /// while paused. Same value `tick(dt)` receives.
+    /// while paused. Same value `tick(dt)` receives. Inside `fixed_tick()` it
+    /// is the step's length instead, so code that reads it there is right.
     float delta_time{0.0f};
 
-    /// Seconds since play started, scaled and frozen while paused.
+    /// Seconds since play started, scaled and frozen while paused. Inside
+    /// `fixed_tick()` it is the step's own time.
     float elapsed_time{0.0f};
+
+    /// The simulation's step length in seconds, the same for every step.
+    float fixed_delta_time{0.0f};
+
+    /// Simulation time at the start of the latest fixed step.
+    double fixed_time{0.0};
+
+    /// How many fixed steps this session took before the latest one.
+    uint64_t fixed_step_index{0};
 
     /// Keyboard and mouse state for this frame.
     [[nodiscard]] const Input& input() const { return *input_; }

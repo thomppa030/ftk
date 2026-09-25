@@ -2,6 +2,7 @@
 
 #include "core/delegate.hpp"
 #include "core/fixed_timestep.hpp"
+#include "core/step_input_latch.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -117,6 +118,10 @@ public:
     /// The simulation's clock for the session: how many fixed steps each
     /// frame runs. Reset when play starts.
     [[nodiscard]] FixedTimestep& fixed_timestep() { return fixed_timestep_; }
+
+    /// The button edges each fixed step sees, recorded frame by frame in
+    /// begin_frame(). Reset when play starts.
+    [[nodiscard]] StepInputLatch& step_input() { return step_input_; }
 
     void set_time_scale(float scale);
     [[nodiscard]] float time_scale() const;
@@ -239,6 +244,7 @@ private:
     bool stepping_{false};
 
     FixedTimestep fixed_timestep_;
+    StepInputLatch step_input_;
 
     // Docked-only: true unless the player has released focus with Shift+Esc
     // and not yet clicked the viewport to take it back. Starts true on

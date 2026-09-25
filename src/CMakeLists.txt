@@ -38,6 +38,7 @@ add_executable(fjell
     core/base_path.cpp
     core/clock.cpp
     core/fixed_timestep.cpp
+    core/step_input_latch.cpp
     core/game_builder.cpp
     core/capture_service.cpp
     core/engine.cpp

@@ -158,7 +158,9 @@ void Engine::init_subsystems() {
     // it resolves before anything renders: the frame's sun, sky and fog come
     // from it, not from the scene's nodes.
     play_phase_1_.push_back(environment_subsystem_);
-    // The simulation, run once per fixed step rather than once per frame.
+    // The simulation, run once per fixed step rather than once per frame:
+    // scripts' fixed_tick first, so what they set moves with this step.
+    play_fixed_.push_back(script_subsystem_);
     play_fixed_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     // Animation is an input to physics — bone-driven colliders have to be at
@@ -298,6 +300,8 @@ void Engine::init_resources() {
     ss.input_actions = &input_action_map_;
     ss.timers = &script_subsystem_->manager().timers();
     ss.clock = &clock_;
+    ss.fixed_timestep = &play_controller_.fixed_timestep();
+    ss.step_input = &play_controller_.step_input();
     ss.net = net_manager_.get();
     debug_draw_queue_ = std::make_unique<DebugDrawQueue>();
     ss.debug_queue = debug_draw_queue_.get();
@@ -1748,6 +1752,7 @@ void Engine::run_fixed_steps() {
     for (int i = 0; i < steps; ++i) {
         FJELL_PROFILE_SCOPE_N("fixed_step");
         const FixedStepTime step = timestep.next_step();
+        play_controller_.step_input().begin_step();
         scene_.begin_fixed_step(step.index);
         const FixedTickContext ctx{
             .scene = scene_,
@@ -2125,6 +2130,11 @@ void Engine::run() {
             const FixedTimestep& timestep = play_controller_.fixed_timestep();
             scene_.interpolate(static_cast<float>(timestep.alpha()));
             vulkan_context_->set_time(static_cast<float>(timestep.render_time()));
+
+            // Everything now sits where it will be drawn, so what follows it
+            // on screen (cameras above all) places itself in late_tick.
+            script_subsystem_->manager().late_update(scene_, clock_.game_delta_time());
+            flush_pending();
 
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->run(ctx);

@@ -575,9 +575,49 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
         });
     }
 
-    // Tick timers only when unpaused (timers freeze during pause)
-    if (dt > 0.0f) {
-        timers_.tick(dt);
+}
+
+void ScriptManager::fixed_update(Scene& scene, const FixedStep& step) {
+    FJELL_PROFILE_SCOPE_N("script_fixed_update");
+    if (!is_loaded()) return;
+
+    // Inside the step, the time a script reads is the step's: code that asks
+    // for delta_time() in fixed_tick() gets the step length, not the frame's.
+    const float frame_delta = world_.delta_time;
+    const float frame_elapsed = world_.elapsed_time;
+    world_.delta_time = step.dt;
+    world_.elapsed_time = static_cast<float>(step.time);
+    world_.fixed_delta_time = step.dt;
+    world_.fixed_time = step.time;
+    world_.fixed_step_index = step.index;
+    s_services.in_fixed_step = true;
+    {
+        // Spawns from fixed_tick and from timers wait for the flush that
+        // follows the step.
+        Scene::TickLock tick_lock(scene);
+        for (auto& obj : scene.objects()) {
+            run_hook(*obj, "fixed_tick", [&](ScriptComponent& script) {
+                script.world_ = &world_;
+                script.fixed_tick(step);
+            });
+        }
+        timers_.tick(step.dt);
+    }
+    s_services.in_fixed_step = false;
+    world_.delta_time = frame_delta;
+    world_.elapsed_time = frame_elapsed;
+}
+
+void ScriptManager::late_update(Scene& scene, float dt) {
+    FJELL_PROFILE_SCOPE_N("script_late_update");
+    if (!is_loaded()) return;
+
+    Scene::TickLock tick_lock(scene);
+    for (auto& obj : scene.objects()) {
+        run_hook(*obj, "late_tick", [&](ScriptComponent& script) {
+            script.world_ = &world_;
+            script.late_tick(dt);
+        });
     }
 }
 

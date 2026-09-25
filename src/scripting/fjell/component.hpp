@@ -2,6 +2,7 @@
 #pragma once
 
 #include "fjell/environment_api.hpp"
+#include "fjell/fixed_step.hpp"
 #include "fjell/world.hpp"
 #include "fjell/transform.hpp"
 
@@ -53,14 +54,35 @@ public:
     /// attached to a node (`transform()` and `self()` are not usable there).
     virtual void begin_play() {}
 
-    /// Called every frame while play is running.
+    /// Called every frame while play is running, before the simulation
+    /// steps: react to input and set what things should do here, so this
+    /// frame's steps already see it. Move things by physics in `fixed_tick()`,
+    /// and follow things on screen in `late_tick()`.
     /// @param dt Seconds since the previous frame, already scaled by
     ///           `Time::set_scale()`. Zero while `Time::pause()` is active.
     virtual void tick(float dt) { (void)dt; }
 
+    /// Called once per fixed step of the simulation while play is running,
+    /// before physics moves anything: none, one or several times a frame,
+    /// always with the same step length. Custom movement, forces, abilities
+    /// and anything that has to replay exactly belong here. Timers fire in
+    /// these steps too.
+    /// @param step The step's length, time and index, and `step.input`, the
+    ///             input this step sees. `delta_time()` reads the step's
+    ///             length here.
+    virtual void fixed_tick(const FixedStep& step) { (void)step; }
+
+    /// Called every frame after the simulation has stepped, when every node
+    /// sits where it will be drawn. Cameras and anything that follows what is
+    /// on screen belong here: read other nodes through `render_transform()`,
+    /// not `position()`, or the follower runs up to a step ahead of what it
+    /// follows and judders.
+    /// @param dt Seconds since the previous frame, as `tick()` receives.
+    virtual void late_tick(float dt) { (void)dt; }
+
     /// Called when play stops, the node is destroyed, or scripts hot-reload.
-    /// Release anything that outlives the component here — cancel repeating
-    /// timers in particular, since they are not cancelled automatically.
+    /// Release anything that outlives the component here. Its own input
+    /// bindings and timers go with it without help.
     virtual void end_play() {}
 
     /// Called when this node's collider begins touching a solid (non-trigger)

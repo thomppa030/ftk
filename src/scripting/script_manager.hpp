@@ -34,6 +34,7 @@ class PhysicsWorld;
 struct Node;
 struct Node3D;
 struct ScriptEntry;
+struct FixedStep;
 
 struct OwnedFieldDesc {
     std::string name;
@@ -105,6 +106,15 @@ public:
                  PhysicsWorld* physics = nullptr);
     void update(Scene& scene, const Input& input, const Clock& clock,
                 PhysicsWorld* physics = nullptr);
+
+    /// Run one fixed step's worth of scripting: every script's fixed_tick(),
+    /// then the timers, advanced by the step. Timers are gameplay, and
+    /// stepping them with the simulation is what lets them replay.
+    void fixed_update(Scene& scene, const FixedStep& step);
+
+    /// Run every script's late_tick(), once the frame's steps have run and
+    /// what they moved is blended where it will be drawn.
+    void late_update(Scene& scene, float dt);
 
     /// Add a script to the node. While the game is running it starts at once:
     /// its begin_play runs before this returns.
