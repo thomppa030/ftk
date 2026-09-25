@@ -18,6 +18,7 @@
 namespace fjell {
 
 class BindlessTextures;
+class FogCore;
 class OffscreenPass;
 class PipelineCache;
 class WaterFftPass;
@@ -70,10 +71,15 @@ struct WaterPushConstants {
     /// close enough to the camera for the near plane to cut its surface, so
     /// the mask is worth working out; zero writes an empty mask.
     uint32_t line_active;
-    uint32_t _pad_b;
-    uint32_t _pad_c;
+    /// The fog's froxel volume, for the water behind the surface: where its
+    /// slices begin and end in metres of view depth, and how many there are.
+    /// A far of zero means no medium in this draw, and the fragment stage
+    /// leaves MEDIUM_TRANSMITTANCE at one and MEDIUM_INSCATTER at zero.
+    float medium_near;
+    float medium_far;
+    uint32_t medium_slices;
 };
-static_assert(sizeof(WaterPushConstants) == 96, "push block layout must match the shaders");
+static_assert(sizeof(WaterPushConstants) == 100, "push block layout must match the shaders");
 
 /// Draws water. The surface is generated in the mesh shader from the node's
 /// `.fjwater` wave field, so this pass uploads that field and dispatches one
@@ -157,11 +163,13 @@ private:
     /// Write the clipmap level table into this frame's clipmap buffer.
     void upload_clipmap(const FrameContext& ctx);
     /// The water's own set for one node this frame: its field, the clipmap,
-    /// the simulated sea's textures and the wakes. Per frame because those
-    /// textures swap every frame, which a set written once could not
+    /// the simulated sea's textures, the wakes and the fog's integrated
+    /// volume (`medium`, or the empty volume when null). Per frame because
+    /// those textures swap every frame, which a set written once could not
     /// follow; per node because each reads its own field record.
     [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx,
-                                                    VkDeviceSize field_offset) const;
+                                                    VkDeviceSize field_offset,
+                                                    VkImageView medium) const;
 
     /// Pack every water node's wakes into this frame's wake buffer and note
     /// where each node's begin.
@@ -206,8 +214,10 @@ private:
     /// Bind, push and draw every water node with a usable material, with its
     /// material's colour pipeline, or with `depth_only` for all of them when
     /// that is given. One loop for both, so the prepass and the colour draw
-    /// always cover the same nodes. Inside a rendering scope.
-    void draw_nodes(const FrameContext& ctx, VkPipeline depth_only);
+    /// always cover the same nodes. `medium` is the fog's integrated volume
+    /// when this run built one, for the nodes that name a medium. Inside a
+    /// rendering scope.
+    void draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkImageView medium);
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a
@@ -248,6 +258,11 @@ private:
     /// The simulated sea's textures, which every water draw samples. Owned by
     /// the registry; null only if the render graph lists no water_fft pass.
     WaterFftPass* simulation_{nullptr};
+    /// The volumetric fog, whose froxel range the water maps its medium
+    /// samples by; null when the graph has no fog.
+    FogCore* fog_{nullptr};
+    /// Bound in place of the fog's volume where there is none.
+    VkImageView fallback_volume_{VK_NULL_HANDLE};
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};

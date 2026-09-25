@@ -58,8 +58,9 @@ layout(push_constant) uniform PushConstants {
     uint  wake_count;
     uint  camera_below;
     uint  line_active;
-    uint  _pad_b;
-    uint  _pad_c;
+    float medium_near;     // unread here: the fragment stage's froxel range
+    float medium_far;
+    uint  medium_slices;
 } push;
 
 void main() {

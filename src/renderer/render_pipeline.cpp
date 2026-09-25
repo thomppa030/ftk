@@ -6,6 +6,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
 #include "renderer/pass_registry.hpp"
@@ -132,6 +133,15 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // the canonical toggle without reaching into the PassRegistry.
     if (auto* bloom = passes.try_get<BloomCore>("bloom_ds_0")) {
         decl_ctx.bloom_enabled = bloom->enabled();
+    }
+    // Whether this run builds the fog volume, for passes outside the fog that
+    // sample it: the fog is on and this viewport's graph integrates it.
+    {
+        const auto* fog = passes.try_get<FogCore>("fog_medium");
+        const bool integrates = viewport_graph == nullptr
+            ? state_for("fog_integrate").enabled
+            : viewport_enabled.contains(fg_name_hash("fog_integrate"));
+        decl_ctx.volumetric_fog_enabled = fog != nullptr && fog->enabled() && integrates;
     }
 
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);

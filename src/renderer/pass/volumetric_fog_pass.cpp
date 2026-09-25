@@ -664,7 +664,7 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
 
     PushConstants push{};
     push.volume_dims = glm::uvec4(vol_w, vol_h, vol_d, imgs.frame_counter);
-    push.near_plane = 0.1F;
+    push.near_plane = NEAR_PLANE;
     push.far_plane = max_distance_;
     push.temporal_blend = temporal_blend_;
     push.motion_response = motion_response_;
@@ -684,19 +684,19 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     return push;
 }
 
-// ── FogMediumPass ───────────────────────────────────────────────────────────
-
-namespace {
-
-TextureDesc medium_desc() {
+TextureDesc FogCore::volume_desc() {
     TextureDesc desc{};
-    desc.format = FogCore::VOLUME_FORMAT;
+    desc.format = VOLUME_FORMAT;
     desc.size_class = SizeClass::viewport;
-    desc.viewport_divisor = FogCore::SCREEN_DIVISOR;
-    desc.depth = FogCore::DEPTH_SLICES;
+    desc.viewport_divisor = SCREEN_DIVISOR;
+    desc.depth = DEPTH_SLICES;
     desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
     return desc;
 }
+
+// ── FogMediumPass ───────────────────────────────────────────────────────────
+
+namespace {
 
 // The range of workgroups a volume's medium dispatch has to cover: the
 // froxels its bounds project to, padded by one on every side for the sample
@@ -785,7 +785,7 @@ PassSetup FogMediumPass::setup() const {
 void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled()) { return; }
 
-    auto medium = builder.create(MEDIUM_NAME, medium_desc());
+    auto medium = builder.create(MEDIUM_NAME, volume_desc());
     builder.write(medium, ResourceAccess::storage_write_compute);
     // The surface depth, for which froxels lie inside a body of water. Read
     // whether or not a water draws this frame, so the set is one shape.
@@ -994,7 +994,7 @@ PassSetup FogLightPass::setup() const {
 void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
-    auto medium = builder.create(FogCore::MEDIUM_NAME, medium_desc());
+    auto medium = builder.create(FogCore::MEDIUM_NAME, FogCore::volume_desc());
     builder.read(medium, ResourceAccess::storage_read_compute);
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
@@ -1166,13 +1166,7 @@ void FogIntegratePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
     builder.read(scatter_cur, ResourceAccess::sampled_compute);
 
-    TextureDesc integrated_desc{};
-    integrated_desc.format = FogCore::VOLUME_FORMAT;
-    integrated_desc.size_class = SizeClass::viewport;
-    integrated_desc.viewport_divisor = FogCore::SCREEN_DIVISOR;
-    integrated_desc.depth = FogCore::DEPTH_SLICES;
-    integrated_desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
-    auto integrated = builder.create("fog_integrated", integrated_desc);
+    auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
     builder.write(integrated, ResourceAccess::storage_write_compute);
 }
 
@@ -1183,7 +1177,7 @@ void FogIntegratePass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
 
-    const auto* integrated_res = ctx.registry->find_image("fog_integrated");
+    const auto* integrated_res = ctx.registry->find_image(FogCore::INTEGRATED_NAME);
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_fog_integrate");
@@ -1246,13 +1240,7 @@ PassSetup FogCompositePass::setup() const {
 void FogCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
-    TextureDesc integrated_desc{};
-    integrated_desc.format = FogCore::VOLUME_FORMAT;
-    integrated_desc.size_class = SizeClass::viewport;
-    integrated_desc.viewport_divisor = FogCore::SCREEN_DIVISOR;
-    integrated_desc.depth = FogCore::DEPTH_SLICES;
-    integrated_desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
-    auto integrated = builder.create("fog_integrated", integrated_desc);
+    auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
     builder.read(integrated, ResourceAccess::sampled_compute);
 
     auto depth = builder.import_named(ctx, FogCore::COMPOSITE_DEPTH_NAME);
@@ -1272,7 +1260,7 @@ void FogCompositePass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
 
-    const auto* integrated_res = ctx.registry->find_image("fog_integrated");
+    const auto* integrated_res = ctx.registry->find_image(FogCore::INTEGRATED_NAME);
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
     const VkImageView composite_depth = ctx.registry->image_view(FogCore::COMPOSITE_DEPTH_NAME);

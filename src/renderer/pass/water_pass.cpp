@@ -15,6 +15,8 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
+#include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -60,7 +62,7 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     // per-node resource. Only the mesh stage reads it — the fragment stage
     // is handed what it needs through varyings rather than solving the field
     // a second time per pixel.
-    std::array<VkDescriptorSetLayoutBinding, 6> set_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 7> set_bindings{};
     set_bindings[0].binding = 0;
     set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     set_bindings[0].descriptorCount = 1;
@@ -89,6 +91,12 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
     set_bindings[5].descriptorCount = 1;
     set_bindings[5].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT
                                | VK_SHADER_STAGE_COMPUTE_BIT;
+    // The fog integrated front to back, which the fragment stage samples at
+    // the surface and at the bed for the medium between them.
+    set_bindings[6].binding = 6;
+    set_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    set_bindings[6].descriptorCount = 1;
+    set_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo set_layout_info{};
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -345,6 +353,8 @@ void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     pipeline_cache_ = gpu.pipeline_cache();
     bindless_ = &gpu.bindless_textures();
     simulation_ = passes.try_get<WaterFftPass>("water_fft");
+    fog_ = passes.try_get<FogCore>("fog_medium");
+    fallback_volume_ = gpu.volume_fallback_view();
     if (simulation_ == nullptr) {
         FJELL_CORE_ERROR("WaterPass: no water_fft pass in the render graph. Water samples the "
                          "simulated sea's textures whether or not a field has one, so without "
@@ -741,7 +751,8 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
         ctx.descriptor_cache->acquire(line_set_layout_, std::span{&mask_binding, 1});
 
     std::array<VkDescriptorSet, 4> sets = {ctx.global_descriptor_set, ctx.bindless_set,
-                                          acquire_water_set(ctx, field_offset), mask_set};
+                                          acquire_water_set(ctx, field_offset, VK_NULL_HANDLE),
+                                          mask_set};
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_layout_, 0,
                             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
@@ -768,7 +779,8 @@ void WaterPass::upload_wakes(const FrameContext& ctx) {
 }
 
 VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
-                                             VkDeviceSize field_offset) const {
+                                             VkDeviceSize field_offset,
+                                             VkImageView medium) const {
     auto sampled = [this](std::uint32_t binding, VkImageView view) {
         FrameCacheBinding b{};
         b.binding = binding;
@@ -797,15 +809,22 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
         return b;
     };
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    const FrameCacheBinding bindings[6]{
+    FrameCacheBinding volume{};
+    volume.binding = 6;
+    volume.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    volume.image.sampler = fog_ != nullptr ? fog_->fog_sampler() : simulation_->sampler();
+    volume.image.imageView = medium != VK_NULL_HANDLE ? medium : fallback_volume_;
+    volume.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const FrameCacheBinding bindings[7]{
         uniform(0, field_buffers_[slot]->handle(), field_offset, sizeof(GpuWaterField)),
         uniform(1, clipmap_buffers_[slot]->handle(), 0, sizeof(GpuWaterClipmap)),
         sampled(2, simulation_->displacement_view()),
         sampled(3, simulation_->previous_displacement_view()),
         sampled(4, simulation_->derivatives_view()),
         storage(5, wake_buffers_[slot]->handle(), WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource)),
+        volume,
     };
-    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 6});
+    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 7});
 }
 
 void WaterPass::upload_clipmap(const FrameContext& ctx) {
@@ -873,6 +892,13 @@ void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(builder.import_named(ctx, "screen_color"), ResourceAccess::sampled_fragment);
     // The simulated sea, which the mesh stage moves the surface by.
     declare_simulation_reads(builder, ctx, ResourceAccess::sampled_mesh);
+    // The fog integrated front to back, for the medium behind the surface.
+    // A transient: read by re-creating it by name, which is also what keeps
+    // it from being aliased before this reads it.
+    if (ctx.volumetric_fog_enabled) {
+        builder.read(builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc()),
+                     ResourceAccess::sampled_fragment);
+    }
 }
 
 void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
@@ -885,7 +911,7 @@ void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareCont
     }
 }
 
-void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only) {
+void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkImageView medium) {
     // Its own scope means its own viewport and scissor.
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
@@ -917,7 +943,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only) {
         // Each node reads its own field record, so the set is per node.
         std::array<VkDescriptorSet, 3> sets = {
             ctx.global_descriptor_set, ctx.bindless_set,
-            acquire_water_set(ctx, field->second.offset)};
+            acquire_water_set(ctx, field->second.offset, medium)};
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
                                 static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
         if (pipeline != current) {
@@ -953,6 +979,13 @@ void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only) {
             push.wake_count = range->second.count;
         }
         push.camera_below = camera_below(node->id) ? 1U : 0U;
+        // The froxel range to map the medium's samples by, for a water that
+        // names a medium, in a run that built the fog volume.
+        if (medium != VK_NULL_HANDLE && fog_ != nullptr && wc->medium_material != nullptr) {
+            push.medium_near = FogCore::NEAR_PLANE;
+            push.medium_far = fog_->far_plane();
+            push.medium_slices = FogCore::DEPTH_SLICES;
+        }
 
         vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
         draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,
@@ -994,7 +1027,7 @@ void WaterPass::record_depth(const FrameContext& ctx) {
     ri.layerCount = 1;
     ri.pDepthAttachment = &depth_attachment;
     vkCmdBeginRendering(ctx.cmd, &ri);
-    draw_nodes(ctx, depth_pipeline_);
+    draw_nodes(ctx, depth_pipeline_, VK_NULL_HANDLE);
     vkCmdEndRendering(ctx.cmd);
 
     depth_drawn_for_ = target;
@@ -1061,8 +1094,16 @@ void WaterPass::record(const FrameContext& ctx) {
     ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
     ri.pColorAttachments = color_attachments.data();
     ri.pDepthAttachment = &depth_attachment;
+    // The fog integrated front to back, when this run built it.
+    VkImageView medium = VK_NULL_HANDLE;
+    if (ctx.registry != nullptr) {
+        if (const auto* volume = ctx.registry->find_image(FogCore::INTEGRATED_NAME)) {
+            medium = volume->view;
+        }
+    }
+
     vkCmdBeginRendering(ctx.cmd, &ri);
-    draw_nodes(ctx, VK_NULL_HANDLE);
+    draw_nodes(ctx, VK_NULL_HANDLE, medium);
     vkCmdEndRendering(ctx.cmd);
 }
 

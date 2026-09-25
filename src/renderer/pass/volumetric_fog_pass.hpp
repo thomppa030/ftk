@@ -131,6 +131,17 @@ public:
     /// The catalog name of the accumulated medium the medium pass writes and
     /// the light pass reads.
     static constexpr const char* MEDIUM_NAME = "fog_medium";
+    /// The catalog name of the fog integrated front to back: what the
+    /// composite lays over the scene, and what the water samples for the
+    /// water behind its surface.
+    static constexpr const char* INTEGRATED_NAME = "fog_integrated";
+    /// The froxel grid, the shape of every transient in the chain; a reader
+    /// re-creating one by name passes this.
+    [[nodiscard]] static TextureDesc volume_desc();
+    /// Where the froxel slices begin, in metres of view depth. They end at
+    /// far_plane() and are spaced exponentially between the two.
+    static constexpr float NEAR_PLANE = 0.1F;
+    [[nodiscard]] float far_plane() const { return max_distance_; }
     /// The catalog name of the waterline mask: one texel per froxel column,
     /// 1 where the column begins on the other side of a water's surface from
     /// the camera. Written by the water pass at the medium node's request.

@@ -38,8 +38,10 @@ layout(push_constant) uniform PushConstants {
     // Unread by this stage: whether the camera is under this water.
     uint  camera_below;
     uint  line_active;   // the waterline dispatch alone reads it
-    uint  _pad_b;
-    uint  _pad_c;
+    // Unread by this stage: the fog's froxel range, for the fragment stage.
+    float medium_near;
+    float medium_far;
+    uint  medium_slices;
 } push;
 
 // Set 2 is the water's own. Binding 1 is the clipmap's level table, read by

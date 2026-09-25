@@ -167,6 +167,8 @@ public:
     [[nodiscard]] Buffer& fog_volume_ssbo(uint32_t frame_index) { return *fog_volume_ssbo_[frame_index]; }
     [[nodiscard]] VkSampler depth_sampler() const { return depth_sampler_; }
     [[nodiscard]] VkImageView gi_fallback_view() const { return gi_fallback_view_; }
+    /// A 1x1x1 volume, readable, for a 3D binding with nothing to hold.
+    [[nodiscard]] VkImageView volume_fallback_view() const { return volume_fallback_view_; }
     [[nodiscard]] VkSampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
