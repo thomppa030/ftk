@@ -7,6 +7,7 @@
 #include "scripting/timer_manager.hpp"
 #include "platform/shared_library.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
+#include "scripting/reflected_types.hpp"
 
 #ifndef NDEBUG
 #include "platform/file_watcher.hpp"
@@ -38,23 +39,6 @@ struct Node;
 struct Node3D;
 struct ScriptEntry;
 struct FixedStep;
-
-struct OwnedFieldDesc {
-    std::string name;
-    FjellFieldType type;
-    uint32_t offset;
-    uint32_t size;
-    std::vector<std::string> enum_labels;
-    float min;
-    float max;
-    float speed;
-    std::string ref_type_name;  // for WEAK_REF/REF/SHARED_REF: target type name
-    std::string tooltip;        // hover help (empty if none)
-    std::string category;       // group header (empty if none)
-    bool readonly{false};
-    bool replicated{false};     // [[fj::replicated]] — synced over the network
-    std::vector<ShaderType> shader_types{}; // Ref<Material>: [[fj::shader_type]] (empty = any)
-};
 
 struct OwnedScriptType {
     std::string name;
@@ -211,6 +195,9 @@ public:
     [[nodiscard]] const OwnedUiWidgetType* find_ui_widget_type(const std::string& name) const;
     [[nodiscard]] const OwnedUiWidgetType* find_ui_type_by_tag(const std::string& tag) const; // backward compat
     [[nodiscard]] const std::vector<OwnedUiWidgetType>& ui_types() const { return ui_type_list_; }
+    /// The module's reflected structs (widget Models and what they hold) and
+    /// pipes. Valid until the next load.
+    [[nodiscard]] const ReflectedTypes& reflected_types() const { return reflected_types_; }
 
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
@@ -269,6 +256,7 @@ private:
     std::filesystem::path loaded_temp_path_;
 
     std::unordered_map<uint32_t, std::size_t> script_type_map_;
+    ReflectedTypes reflected_types_; // what script_type_list_'s struct fields point into
     std::vector<OwnedScriptType> script_type_list_;
     std::vector<OwnedUiComponentType> ui_type_list_;
 

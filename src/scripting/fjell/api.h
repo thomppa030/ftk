@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 28
+#define FJELL_API_VERSION 29
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -73,8 +73,26 @@ typedef enum FjellFieldType {
     FJELL_FIELD_WIDGET_PTR,    // [[fj::bind]] WidgetType* — resolved by UiSubsystem
     // New enumerators go at the end: inserting one mid-enum renumbers the rest
     // and silently misreads every already-compiled game module.
-    FJELL_FIELD_STD_STRING     // std::string, owned by the component
+    FJELL_FIELD_STD_STRING,    // std::string, owned by the component
+    FJELL_FIELD_STRUCT,        // a reflected struct held by value; `type_desc` describes it
+    FJELL_FIELD_VECTOR         // a std::vector; `vector` describes its elements and reads it
 } FjellFieldType;
+
+// What a field is for, beyond its type. A field with none of these is a
+// property: authored, saved with the scene, edited in the inspector.
+enum {
+    // Runtime state the UI may read: shown in the inspector during play and
+    // never saved. The members of a reflected struct are all state.
+    FJELL_FIELD_FLAG_STATE = 1u << 0,
+    // A const member function, not a member: its value is read through `get`,
+    // and `offset` means nothing. Always also state.
+    FJELL_FIELD_FLAG_GETTER = 1u << 1,
+    // A UI widget's Model: a struct the widget's markup binds by the field's name.
+    FJELL_FIELD_FLAG_MODEL = 1u << 2
+};
+
+struct FjellTypeDesc;
+struct FjellVectorDesc;
 
 typedef struct FjellFieldDesc {
     const char*        name;
@@ -91,7 +109,46 @@ typedef struct FjellFieldDesc {
     uint8_t            readonly;     // 1 = inspector shows but disables editing
     uint8_t            replicated;   // 1 = [[fj::replicated]], synced over the network
     const char*        shader_types; // Ref<Material>: [[fj::shader_type]] names, comma-separated (null = any)
+    uint32_t           flags;        // FJELL_FIELD_FLAG_* (0 = a property)
+    const struct FjellTypeDesc*   type_desc; // STRUCT: the struct (null otherwise)
+    const struct FjellVectorDesc* vector;    // VECTOR: its elements (null otherwise)
+    // GETTER: writes the value into `out`, which holds the field's type
+    // (std::string for STD_STRING). Null otherwise.
+    void (*get)(const void* object, void* out);
 } FjellFieldDesc;
+
+// A struct fjreflect reflects so the UI can read it: the type of a widget's
+// Model, of a field inside one, or of a vector's elements.
+typedef struct FjellTypeDesc {
+    const char*           name;           // as spelled in the header, e.g. "SlotModel"
+    const char*           qualified_name; // with its namespaces, e.g. "game::SlotModel"
+    uint32_t              size;
+    uint32_t              align;
+    const FjellFieldDesc* fields;         // every data member, each flagged STATE
+    uint32_t              field_count;
+    void (*construct)(void* at);          // default-constructs one at `at` (size/align bytes)
+    void (*destruct)(void* at);
+} FjellTypeDesc;
+
+// A std::vector's elements, read through functions generated for its exact
+// type: the engine never assumes a vector's layout.
+typedef struct FjellVectorDesc {
+    FjellFieldType       element;         // the elements' kind
+    const FjellTypeDesc* element_type;    // STRUCT elements: their type (null otherwise)
+    uint32_t             element_size;
+    uint32_t    (*size)(const void* vector);
+    const void* (*at)(const void* vector, uint32_t index);
+} FjellVectorDesc;
+
+// A game's formatting pipe, [[fj::pipe]]: `{value|name:arg}` in markup.
+typedef struct FjellPipeDesc {
+    const char*           name;
+    FjellFieldType        input;          // the value's kind
+    const FjellFieldType* arg_types;      // the literal arguments' kinds, in order
+    uint32_t              arg_count;
+    // Formats *input with the arguments into `out`, a std::string.
+    void (*call)(const void* input, const void* const* args, void* out);
+} FjellPipeDesc;
 
 // ── Action types for [[fj::action]] input binding ────────────────────
 

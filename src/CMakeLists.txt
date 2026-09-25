@@ -268,6 +268,7 @@ add_executable(fjell
     scene/component_registry.cpp
     core/input_component_meta.cpp
     scripting/script_manager.cpp
+    scripting/reflected_types.cpp
     scripting/test_runner.cpp
     scripting/script_globals.cpp
     scripting/asset_type_registrations.cpp

@@ -60,6 +60,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/core/step_input_latch.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
@@ -211,6 +212,7 @@ add_executable(fjell-tests
     test_utf8.cpp
     test_fjreflect_parser.cpp
     test_fjreflect_generator.cpp
+    test_reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/lexer.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/parser.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/generator.cpp

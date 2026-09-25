@@ -764,6 +764,10 @@ void UiEditorContext::draw_inspector() {
                             case FJELL_FIELD_VEC2: type_name = "vec2"; break;
                             case FJELL_FIELD_VEC3: type_name = "vec3"; break;
                             case FJELL_FIELD_VEC4: type_name = "vec4"; break;
+                            case FJELL_FIELD_STRUCT:
+                                type_name = f.struct_type != nullptr ? f.struct_type->name.c_str() : "struct";
+                                break;
+                            case FJELL_FIELD_VECTOR: type_name = "list"; break;
                             default: break;
                         }
                         ui::row(f.name.c_str(), "A field the controller publishes as {key}.",

@@ -319,6 +319,7 @@ void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
     auto* base = reinterpret_cast<const uint8_t*>(wi.widget.get());
 
     for (const auto& field : wi.type->fields) {
+        if (field.is_getter()) continue; // no storage at an offset
         const void* ptr = base + field.offset;
         const char* key = field.name.c_str();
 

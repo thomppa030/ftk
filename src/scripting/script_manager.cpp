@@ -23,7 +23,6 @@
 
 extern "C" void fjell_input_clear_connections();
 
-#include <ranges>
 #include <string_view>
 
 #include <algorithm>
@@ -36,6 +35,7 @@ extern "C" void fjell_input_clear_connections();
 // ── Type registry (engine-side, filled by game .so) ─────────────────────
 
 struct FjellTypeRegistry {
+    fjell::ReflectedTypes* types{nullptr}; // the ScriptManager's: owns the module's structs
     std::vector<fjell::OwnedScriptType> scripts;
     std::vector<fjell::OwnedUiComponentType> ui_components;
     std::vector<fjell::NotifyTypeInfo> notifies;
@@ -114,77 +114,6 @@ static void run_hook(Node& node, const char* hook_name, Hook&& hook) {
     for (std::size_t i = 0; i < count; ++i) run_hook_on(node, i, hook_name, hook);
 }
 
-/// The Types a [[fj::shader_type]] names. A word naming none is dropped and
-/// reported against the field; the rest still narrow the slot.
-static std::vector<ShaderType> parse_shader_types(const char* names, const char* type_name,
-                                                  const char* field_name) {
-    std::vector<ShaderType> types;
-    if (names == nullptr) return types;
-    for (auto part : std::string_view(names) | std::views::split(',')) {
-        std::string_view word(part.begin(), part.end());
-        if (auto type = shader_type_from_name(word)) {
-            types.push_back(*type);
-        } else {
-            FJELL_CORE_ERROR("Script '{}': [[fj::shader_type]] on '{}' names '{}', which is not "
-                             "a shader type (spatial, sky, ui, terrain, water, fog)",
-                             type_name ? type_name : "<unnamed>", field_name, word);
-        }
-    }
-    return types;
-}
-
-static OwnedFieldDesc copy_field(const FjellFieldDesc& fd, const char* type_name) {
-    OwnedFieldDesc ofd;
-    ofd.name = fd.name;
-    ofd.type = fd.type;
-    ofd.offset = fd.offset;
-    ofd.size = fd.size;
-    ofd.min = fd.min;
-    ofd.max = fd.max;
-    ofd.speed = fd.speed;
-    ofd.readonly = fd.readonly != 0;
-    ofd.replicated = fd.replicated != 0;
-    if (fd.ref_type_name) {
-        ofd.ref_type_name = fd.ref_type_name;
-    }
-    if (fd.tooltip) {
-        ofd.tooltip = fd.tooltip;
-    }
-    if (fd.category) {
-        ofd.category = fd.category;
-    }
-    ofd.shader_types = parse_shader_types(fd.shader_types, type_name, fd.name);
-    if (fd.type == FJELL_FIELD_ENUM && fd.enum_labels && fd.size > 0) {
-        for (uint32_t e = 0; e < fd.size; ++e) {
-            if (fd.enum_labels[e]) {
-                ofd.enum_labels.emplace_back(fd.enum_labels[e]);
-            }
-        }
-    }
-    return ofd;
-}
-
-/// Copy a generated field table into `out`, stopping at the first null name.
-///
-/// A null name means `field_count` overruns the descriptor array, which happens
-/// when register_all.cpp's hardcoded count is older than the regenerated table.
-/// Walking off the end segfaults somewhere unrelated, so stop at the boundary
-/// and name the type whose codegen is stale.
-static void copy_fields(const FjellFieldDesc* fields, uint32_t count,
-                        const char* type_name,
-                        std::vector<OwnedFieldDesc>& out) {
-    for (uint32_t i = 0; i < count; ++i) {
-        if (fields == nullptr || fields[i].name == nullptr) {
-            FJELL_CORE_ERROR(
-                "Script '{}' declares {} reflected fields but its table ends at "
-                "{} — generated code is stale. Rebuild scripts from the editor.",
-                type_name ? type_name : "<unnamed>", count, i);
-            return;
-        }
-        out.push_back(copy_field(fields[i], type_name));
-    }
-}
-
 } // namespace fjell
 
 // ── C exports called by game .so during registration ────────────────────
@@ -209,6 +138,17 @@ extern "C" FJELL_SDK_EXPORT const FjellGeneratedInfo* fjell_find_generated(const
     return nullptr;
 }
 
+extern "C" FJELL_SDK_EXPORT void fjell_reg_types(FjellTypeRegistry* reg, const FjellTypeDesc* const* types,
+                                                 uint32_t count) {
+    if (!reg || !reg->types) return;
+    reg->types->add_types(types, count);
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_reg_pipes(FjellTypeRegistry* reg, const FjellPipeDesc* pipes, uint32_t count) {
+    if (!reg || !reg->types) return;
+    reg->types->add_pipes(pipes, count);
+}
+
 extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
     if (!reg || !desc) return;
     fjell::OwnedScriptType owned;
@@ -218,7 +158,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.trace = desc->trace;
     owned.loaded = true;
     owned.is_functional_test = desc->is_functional_test;
-    fjell::copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
+    reg->types->copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     // Attach the generated RPC table (same .so), if this type declares any.
     if (const auto* gen = fjell_find_generated(desc->name)) {
         owned.rpcs = gen->rpcs;
@@ -236,7 +176,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const 
     };
     info.trace = desc->trace;
     info.is_state = desc->is_state;
-    fjell::copy_fields(desc->fields, desc->field_count, desc->name, info.fields);
+    reg->types->copy_fields(desc->fields, desc->field_count, desc->name, info.fields);
     reg->notifies.push_back(std::move(info));
 }
 
@@ -266,7 +206,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_ui_component(FjellTypeRegistry* reg, 
     owned.create = desc->create;
     owned.trace = desc->trace;
     owned.loaded = true;
-    fjell::copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
+    reg->types->copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     for (uint32_t i = 0; i < desc->action_count; ++i) {
         fjell::OwnedUiActionDesc a;
         a.name = desc->actions[i].name;
@@ -438,7 +378,9 @@ void ScriptManager::build_registry() {
         return;
     }
 
+    reflected_types_.clear();
     FjellTypeRegistry registry;
+    registry.types = &reflected_types_;
     reg_fn(&registry);
 
     for (auto& ct : registry.scripts) {
@@ -936,6 +878,7 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                                            const void* data, nlohmann::json& out) const {
     const auto* base = static_cast<const uint8_t*>(data);
     for (const auto& f : fields) {
+        if (!f.is_property()) continue; // runtime state, getters and Models are not saved
         const void* ptr = base + f.offset;
         switch (f.type) {
             case FJELL_FIELD_FLOAT:
@@ -991,6 +934,9 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_WIDGET_PTR:
                 // Resolved at runtime by UiSubsystem, not serialized
                 break;
+            case FJELL_FIELD_STRUCT:
+            case FJELL_FIELD_VECTOR:
+                break; // never properties, skipped above
         }
     }
 }
@@ -999,6 +945,7 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                                               void* data, const nlohmann::json& in) const {
     auto* base = static_cast<uint8_t*>(data);
     for (const auto& f : fields) {
+        if (!f.is_property()) continue;
         void* ptr = base + f.offset;
         if (!in.contains(f.name)) continue;
 
@@ -1079,6 +1026,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
             case FJELL_FIELD_WIDGET_PTR:
                 // Resolved at runtime by UiSubsystem, not serialized
                 break;
+            case FJELL_FIELD_STRUCT:
+            case FJELL_FIELD_VECTOR:
+                break; // never properties, skipped above
         }
     }
 }

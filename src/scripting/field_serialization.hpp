@@ -12,11 +12,13 @@ namespace fjell {
 
 // Serialize reflected fields to JSON. Handles value types (float, int, bool,
 // vec2/3/4, color3/4, string, enum). Ref types are skipped — use the full
-// ScriptManager serializer for components with object references.
+// ScriptManager serializer for components with object references. Runtime
+// state, getters and Models are not saved.
 inline void serialize_reflected_fields(const std::vector<OwnedFieldDesc>& fields,
                                        const void* data, nlohmann::json& out) {
     const auto* base = static_cast<const uint8_t*>(data);
     for (const auto& f : fields) {
+        if (!f.is_property()) continue;
         const void* ptr = base + f.offset;
         switch (f.type) {
             case FJELL_FIELD_FLOAT:
@@ -63,6 +65,7 @@ inline void deserialize_reflected_fields(const std::vector<OwnedFieldDesc>& fiel
                                           void* data, const nlohmann::json& in) {
     auto* base = static_cast<uint8_t*>(data);
     for (const auto& f : fields) {
+        if (!f.is_property()) continue;
         void* ptr = base + f.offset;
         if (!in.contains(f.name)) continue;
 

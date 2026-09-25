@@ -68,6 +68,12 @@ struct FjellTypeRegistry;
 extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc);
 extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc);
 extern "C" FJELL_SDK_EXPORT void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count);
+// The module's reflected structs and pipes. register_all.cpp hands them over
+// first, so the components registered after them can refer to the structs.
+extern "C" FJELL_SDK_EXPORT void fjell_reg_types(FjellTypeRegistry* reg, const FjellTypeDesc* const* types,
+                                                 uint32_t count);
+extern "C" FJELL_SDK_EXPORT void fjell_reg_pipes(FjellTypeRegistry* reg, const FjellPipeDesc* pipes,
+                                                 uint32_t count);
 extern "C" FJELL_SDK_EXPORT const FjellGeneratedInfo* fjell_find_generated(const char* name);
 
 namespace fjell {

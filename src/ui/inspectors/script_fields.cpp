@@ -175,6 +175,9 @@ ui::Edit draw_field(const OwnedFieldDesc& f, void* ptr, const InspectorContext& 
             ui::readout(*static_cast<void**>(ptr) != nullptr ? f.ref_type_name.c_str()
                                                              : "Bound when playing");
             return {};
+        case FJELL_FIELD_STRUCT:
+        case FJELL_FIELD_VECTOR:
+            return {}; // the UI's to show; draw_script_fields gives them no row
     }
     return {};
 }
@@ -188,9 +191,14 @@ ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* ins
     std::optional<ui::PropertyTable> table;
     std::string category;
     bool open = true;
+    bool first = true;
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const auto& f = fields[i];
-        if (i == 0 || f.category != category) {
+        // A getter has no storage to edit, and a struct or list is the UI's
+        // to show; neither has an inspector row.
+        if (f.is_getter() || f.type == FJELL_FIELD_STRUCT || f.type == FJELL_FIELD_VECTOR) continue;
+        if (first || f.category != category) {
+            first = false;
             table.reset();
             category = f.category;
             open = category.empty() || ui::subheading_foldable(category.c_str());
@@ -201,7 +209,8 @@ ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* ins
         const std::string label = label_of(f.name);
         ImGui::PushID(static_cast<int>(i));
         ui::row(label.c_str(), f.tooltip.empty() ? nullptr : f.tooltip.c_str(), [&] {
-            ImGui::BeginDisabled(f.readonly);
+            // Runtime state is shown, never edited: the game writes it.
+            ImGui::BeginDisabled(f.readonly || f.is_state());
             edit |= draw_field(f, base + f.offset, ctx, scene);
             ImGui::EndDisabled();
         });

@@ -129,6 +129,8 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
             }
             out << "\"";
         }
+        // flags, type_desc, vector, get: a component field is a property
+        out << ", 0, nullptr, nullptr, nullptr";
         out << "},\n";
     }
     if (!comp.fields.empty()) out << "};\n\n";
