@@ -11,15 +11,21 @@ namespace fjreflect {
 /// Every file fjreflect writes, by name within its output directory.
 using GeneratedFiles = std::map<std::string, std::string>;
 
-/// The files for these components: one `<stem>.generated.cpp` per header,
-/// holding every component it declares, and `manifest.json`. Field offsets
-/// are left to the compiler that builds the game: the tables use `offsetof`.
-[[nodiscard]] GeneratedFiles generate(const std::vector<ComponentInfo>& components);
+/// The files for everything reflected: one `<stem>.generated.cpp` per header,
+/// holding every component, reflected struct and pipe it declares, and
+/// `manifest.json`. Field offsets are left to the compiler that builds the
+/// game: the tables use `offsetof`.
+[[nodiscard]] GeneratedFiles generate(const std::vector<ComponentInfo>& components,
+                                      const std::vector<StructInfo>& structs = {},
+                                      const std::vector<PipeInfo>& pipes = {});
 
 /// `register_all.cpp`: the game module's entry points, which hand the engine
-/// every generated table and then register every component, UI widget and
-/// notify, as FJELL_REGISTER() does without codegen.
-[[nodiscard]] std::string register_file(const std::vector<ComponentInfo>& components);
+/// the reflected structs and pipes and every generated table, then register
+/// every component, UI widget and notify, as FJELL_REGISTER() does without
+/// codegen.
+[[nodiscard]] std::string register_file(const std::vector<ComponentInfo>& components,
+                                        const std::vector<StructInfo>& structs = {},
+                                        const std::vector<PipeInfo>& pipes = {});
 
 enum class WriteResult { unchanged, written, failed };
 

@@ -212,9 +212,12 @@ add_executable(fjell-tests
     test_utf8.cpp
     test_fjreflect_parser.cpp
     test_fjreflect_generator.cpp
+    test_fjreflect_models.cpp
     test_reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/lexer.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/parser.cpp
+    ${CMAKE_SOURCE_DIR}/tools/fjreflect/types.cpp
+    ${CMAKE_SOURCE_DIR}/tools/fjreflect/linker.cpp
     ${CMAKE_SOURCE_DIR}/tools/fjreflect/generator.cpp
     test_fjterrain_io.cpp
     test_fjinst_io.cpp

@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include "lexer.hpp"
+#include "types.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,55 +11,6 @@
 #include <string_view>
 
 namespace fjreflect {
-
-// ── Type mapping ────────────────────────────────────────────────────────
-
-static std::string map_field_type(const std::string& cpp_type,
-                                   std::string& ref_target) {
-    ref_target.clear();
-
-    // Strip leading namespaces for matching
-    auto bare = cpp_type;
-    if (bare.starts_with("fjell::")) bare = bare.substr(7);
-
-    if (bare == "float") return "FJELL_FIELD_FLOAT";
-    if (bare == "int" || bare == "int32_t") return "FJELL_FIELD_INT";
-    if (bare == "bool") return "FJELL_FIELD_BOOL";
-    if (bare == "glm::vec2") return "FJELL_FIELD_VEC2";
-    if (bare == "glm::vec3") return "FJELL_FIELD_VEC3";
-    if (bare == "glm::vec4") return "FJELL_FIELD_VEC4";
-    if (bare == "std::string") return "FJELL_FIELD_STD_STRING";
-
-    // WeakRef<T>, Ref<T>, SharedRef<T>: the target's bare name
-    static const std::pair<const char*, const char*> refs[] = {
-        {"WeakRef<", "FJELL_FIELD_WEAK_REF"},
-        {"Ref<", "FJELL_FIELD_REF"},
-        {"SharedRef<", "FJELL_FIELD_SHARED_REF"},
-    };
-    for (const auto& [prefix, kind] : refs) {
-        if (!bare.starts_with(prefix)) continue;
-        auto start = bare.find('<') + 1;
-        auto end = bare.rfind('>');
-        ref_target = bare.substr(start, end - start);
-        if (auto pos = ref_target.rfind("::"); pos != std::string::npos)
-            ref_target = ref_target.substr(pos + 2);
-        return kind;
-    }
-
-    return {}; // Unknown
-}
-
-static bool is_engine_pointer(const std::string& type) {
-    static const char* engine_types[] = {
-        "Node3D", "Node", "SceneNode", "Component", "ScriptComponent",
-        "Material", "Model", "Texture", "AudioClip", "Skeleton", "AnimationClip",
-    };
-    if (!type.ends_with("*")) return false;
-    for (const auto* et : engine_types) {
-        if (type.find(et) != std::string::npos) return true;
-    }
-    return false;
-}
 
 /// Why a field's [[fj::shader_type]] cannot stand, or empty when it can. The
 /// Type names themselves are the engine's to check when it loads the module:
@@ -149,6 +101,8 @@ struct Member {
     bool several_declarators{false};
     bool unsupported_declarator{false}; // a function pointer or parenthesised name
     bool has_body{false};
+    bool is_const{false};               // a const member function
+    bool is_public{true};
     std::string name;
     unsigned line{0};
     std::string type;                   // data type, or the function's return type
@@ -162,6 +116,7 @@ struct ClassScope {
     std::string name;
     std::string qualified_name;
     unsigned line{0};
+    bool is_struct{false};    // members are public until an access specifier says otherwise
     ComponentMacro macro{ComponentMacro::none};
     std::string macro_name;   // the class name the macro was given
     std::string widget_tag;
@@ -440,7 +395,15 @@ private:
             } else if (is("using") || is("typedef") || is("static_assert")) {
                 skip_to_semicolon();
             } else if (at_attribute()) {
-                for (const auto& a : parse_attributes()) {
+                auto attrs = parse_attributes();
+                const bool pipe = std::any_of(attrs.begin(), attrs.end(), [](const Attribute& a) {
+                    return a.scope == "fj" && a.name == "pipe";
+                });
+                if (pipe) {
+                    parse_pipe(ns, std::move(attrs));
+                    continue;
+                }
+                for (const auto& a : attrs) {
                     if (a.scope == "fj") {
                         error(a.line, "[[fj::" + a.name + "]] only means something inside a component");
                     }
@@ -484,6 +447,7 @@ private:
     void parse_class(const std::string& outer) {
         ClassScope cls;
         cls.line = tok().line;
+        cls.is_struct = !is("class");
         next();
         parse_attributes();
         while (tok().kind == TokenKind::identifier || is("::")) {
@@ -519,6 +483,7 @@ private:
 
     /// Members until the class's closing brace, which it consumes.
     void parse_class_body(ClassScope& cls) {
+        bool public_access = cls.is_struct;
         while (true) {
             if (at_end()) {
                 error(cls.line, "unexpected end of file: class " + cls.name + " is never closed");
@@ -531,11 +496,13 @@ private:
             if (is(";")) {
                 next();
             } else if ((is("public") || is("private") || is("protected")) && is(":", 1)) {
+                public_access = is("public");
                 next();
                 next();
             } else if (is("FJELL_COMPONENT") || is("FJELL_UI_WIDGET") || is("FJELL_UI_COMPONENT") ||
                        is("FJELL_NOTIFY")) {
                 parse_component_macro(cls);
+                public_access = true; // each macro ends in `public:`
             } else if (is_macro_name(tok()) && is("(", 1)) {
                 skip_macro_invocation();
             } else if ((is("class") || is("struct") || is("union")) && class_head_is_definition()) {
@@ -547,7 +514,10 @@ private:
             } else if (is("template")) {
                 skip_template();
             } else {
-                parse_member(cls);
+                Member m;
+                m.attrs = parse_attributes();
+                m.is_public = public_access;
+                if (read_declaration(m)) cls.members.push_back(std::move(m));
             }
         }
     }
@@ -600,11 +570,9 @@ private:
 
     // ── Members ─────────────────────────────────────────────────────────
 
-    /// One member declaration: attributes, then a data member or a function.
-    void parse_member(ClassScope& cls) {
-        Member m;
-        m.attrs = parse_attributes();
-
+    /// The declaration after `m.attrs`: a data member or a function, in a
+    /// class or at namespace level. False when it could not be read.
+    bool read_declaration(Member& m) {
         const std::size_t start = pos_;
         std::size_t name_index = std::string::npos;
         int angle = 0;
@@ -615,11 +583,11 @@ private:
         while (true) {
             if (at_end()) {
                 error(tokens_[start].line, "unexpected end of file in a declaration");
-                return;
+                return false;
             }
             if (is("}") && angle == 0) {
                 error(tok().line, "expected ';' after the declaration");
-                return;
+                return false;
             }
             if (at_attribute()) {
                 for (const auto& a : parse_attributes()) {
@@ -641,7 +609,7 @@ private:
             }
             if (angle > 0) {
                 if (is("(") || is("[") || is("{")) {
-                    if (!skip_balanced()) return;
+                    if (!skip_balanced()) return false;
                 } else {
                     next();
                 }
@@ -674,7 +642,7 @@ private:
                     break;
                 }
                 m.unsupported_declarator = true;
-                if (!skip_balanced()) return;
+                if (!skip_balanced()) return false;
                 continue;
             }
             if (is(";") || is("=") || is("{") || is(",") || is(":") || is("[")) break;
@@ -686,7 +654,7 @@ private:
         } else {
             parse_data_rest(m, start);
         }
-        cls.members.push_back(std::move(m));
+        return true;
     }
 
     /// Specifiers that say how a member is stored or bound, not what it is.
@@ -772,6 +740,7 @@ private:
             } else if (is("(")) {
                 skip_balanced(); // noexcept(...), throw(...)
             } else {
+                if (is("const")) m.is_const = true;
                 next();
             }
         }
@@ -844,10 +813,13 @@ private:
     // ── What a class contributes ────────────────────────────────────────
 
     void finish_class(const ClassScope& cls) {
+        record_declaration(cls);
         if (cls.macro == ComponentMacro::none) {
+            // A plain struct may be a Model's type; the linker reflects it if
+            // one reaches it. Only [[fj::state]] means something there.
             for (const auto& m : cls.members) {
                 for (const auto& a : m.attrs) {
-                    if (a.scope != "fj") continue;
+                    if (a.scope != "fj" || a.name == "state") continue;
                     error(a.line, "[[fj::" + a.name + "]] on '" + m.name + "' in class " + cls.name +
                                       ", which is not a component: add FJELL_COMPONENT, "
                                       "FJELL_UI_WIDGET or FJELL_NOTIFY to it");
@@ -873,12 +845,44 @@ private:
         }
     }
 
+    /// The class as declared, for the linker.
+    void record_declaration(const ClassScope& cls) {
+        ClassDecl decl;
+        decl.name = cls.name;
+        decl.qualified_name = cls.qualified_name;
+        decl.source_file = path_;
+        decl.line = cls.line;
+        decl.is_component = cls.macro != ComponentMacro::none;
+        for (const auto& m : cls.members) {
+            MemberDecl md;
+            md.name = m.name;
+            md.type = m.type;
+            md.line = m.line;
+            md.is_function = m.is_function;
+            md.is_static = m.is_static;
+            md.is_const = m.is_const;
+            md.is_public = m.is_public;
+            md.is_readable = !m.is_array && !m.several_declarators && !m.unsupported_declarator && !m.name.empty();
+            md.param_types = m.param_types;
+            for (const auto& a : m.attrs) {
+                if (a.scope == "fj") md.fj_attributes.push_back(a.name);
+            }
+            decl.members.push_back(std::move(md));
+        }
+        result_.classes.push_back(std::move(decl));
+    }
+
     static bool is_field_attribute(const std::string& name) {
-        static const char* names[] = {"property", "bind", "bind_list", "range", "step",
+        static const char* names[] = {"property", "bind", "state", "model", "range", "step",
                                       "tooltip", "category", "color", "enum", "readonly",
                                       "replicated", "shader_type"};
         return std::any_of(std::begin(names), std::end(names),
                            [&](const char* n) { return name == n; });
+    }
+
+    static bool has_attribute(const Member& m, const char* name) {
+        return std::any_of(m.attrs.begin(), m.attrs.end(),
+                           [&](const Attribute& a) { return a.scope == "fj" && a.name == name; });
     }
 
     void add_member(ComponentInfo& comp, const Member& m) {
@@ -926,7 +930,57 @@ private:
             }
             return;
         }
+        if (m.is_function && has_attribute(m, "state")) {
+            add_getter(comp, m);
+            return;
+        }
         add_field(comp, m);
+    }
+
+    /// `[[fj::state]] bool low_health() const`: a computed value the UI reads
+    /// through a generated trampoline.
+    void add_getter(ComponentInfo& comp, const Member& m) {
+        FieldInfo fi;
+        fi.name = m.name;
+        fi.line = m.line;
+        fi.scope = comp.qualified_name;
+        if (!read_getter_type(m, fi)) return;
+        for (const auto& a : m.attrs) {
+            if (a.scope != "fj" || a.name == "state" || a.name == "tooltip" || a.name == "category") continue;
+            error(a.line, "[[fj::" + a.name + "]] cannot go on getter '" + m.name +
+                              "'; a getter takes only [[fj::state]], a tooltip and a category");
+            return;
+        }
+        if (!apply_attributes(fi, m.attrs)) return;
+        comp.fields.push_back(std::move(fi));
+    }
+
+    /// Fills a getter's type; false, after reporting, when `m` cannot be one.
+    bool read_getter_type(const Member& m, FieldInfo& fi) {
+        if (m.is_static) {
+            error(m.line, "getter '" + m.name + "' is static; [[fj::state]] reads a member function");
+            return false;
+        }
+        if (!m.is_const) {
+            error(m.line, "getter '" + m.name + "' must be const: the UI calls it every frame and "
+                          "must not change what it reads");
+            return false;
+        }
+        if (!m.param_types.empty()) {
+            error(m.line, "getter '" + m.name + "' must take no parameters");
+            return false;
+        }
+        fi.cpp_type = value_type_of(m.type);
+        std::string ref;
+        fi.fj_field_type = map_field_type(fi.cpp_type, ref);
+        if (!is_plain_value(fi.fj_field_type)) {
+            error(m.line, "getter '" + m.name + "' returns '" + m.type + "'; a getter returns bool, int, "
+                          "float, glm::vec2/3/4 or std::string");
+            return false;
+        }
+        fi.is_getter = true;
+        fi.is_state = true;
+        return true;
     }
 
     void add_field(ComponentInfo& comp, const Member& m) {
@@ -955,12 +1009,29 @@ private:
         fi.name = m.name;
         fi.cpp_type = m.type;
         fi.line = m.line;
-        for (const auto& a : m.attrs) {
-            if (a.scope != "fj") continue;
-            if (a.name == "bind") fi.is_bind = true;
-            else if (a.name == "bind_list") fi.is_bind_list = true;
-        }
+        fi.scope = comp.qualified_name;
+        fi.is_bind = has_attribute(m, "bind");
+        fi.is_state = has_attribute(m, "state");
+        fi.is_model = has_attribute(m, "model");
         if (!apply_attributes(fi, m.attrs)) return;
+
+        if (fi.is_model) {
+            if (!comp.is_ui_component) {
+                error(m.line, "[[fj::model]] on '" + m.name + "' belongs in a UI widget: a Model is what "
+                              "a widget's markup binds");
+                return;
+            }
+            fi.is_state = true;
+        }
+        if (fi.is_state && (has_attribute(m, "property") || fi.is_bind)) {
+            error(m.line, "'" + m.name + "' is either authored ([[fj::property]]) or runtime state "
+                          "([[fj::state]]), not both");
+            return;
+        }
+        if (fi.is_state) {
+            add_state_field(comp, m, std::move(fi));
+            return;
+        }
 
         // [[fj::bind]] on a pointer to a widget: resolved by the UI subsystem.
         if (fi.is_bind && m.type.ends_with("*") && !is_engine_pointer(m.type)) {
@@ -989,6 +1060,44 @@ private:
             error(m.line, "unsupported type '" + m.type + "' for [[fj::property]] on '" + m.name + "'");
             return;
         }
+        if (!finish_value_field(fi, m)) return;
+        comp.fields.push_back(std::move(fi));
+    }
+
+    /// Runtime state or a Model: a value, a struct or a list. Structs are
+    /// resolved by the linker once every header has been read.
+    void add_state_field(ComponentInfo& comp, const Member& m, FieldInfo fi) {
+        const auto value = classify_value(m.type);
+        if (!value.error.empty()) {
+            error(m.line, "'" + m.name + "': " + value.error);
+            return;
+        }
+        fi.fj_field_type = value.fj;
+        fi.ref_target = value.ref_target;
+        fi.struct_type = value.struct_name;
+        fi.element_cpp_type = value.element_cpp;
+        fi.element_fj_type = value.element_fj;
+        fi.element_struct = value.element_struct;
+        if (fi.is_model && fi.fj_field_type != "FJELL_FIELD_STRUCT") {
+            error(m.line, "[[fj::model]] on '" + m.name + "' needs a struct; '" + m.type + "' is not one");
+            return;
+        }
+        const bool compound = fi.fj_field_type == "FJELL_FIELD_STRUCT" || fi.fj_field_type == "FJELL_FIELD_VECTOR";
+        if (compound && fi.is_replicated) {
+            error(m.line, "'" + m.name + "' holds a struct or a list, which cannot be replicated");
+            return;
+        }
+        if (compound && (fi.is_color || !fi.enum_labels.empty())) {
+            error(m.line, "[[fj::color]] and [[fj::enum]] need a value, and '" + m.name + "' holds a " +
+                              (fi.fj_field_type == "FJELL_FIELD_STRUCT" ? "struct" : "list"));
+            return;
+        }
+        if (!compound && !finish_value_field(fi, m)) return;
+        comp.fields.push_back(std::move(fi));
+    }
+
+    /// Colour, enum and shader-type checks every value field goes through.
+    bool finish_value_field(FieldInfo& fi, const Member& m) {
         if (fi.is_color) {
             if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
                 fi.fj_field_type = "FJELL_FIELD_COLOR3";
@@ -996,21 +1105,78 @@ private:
                 fi.fj_field_type = "FJELL_FIELD_COLOR4";
             } else {
                 error(m.line, "[[fj::color]] requires vec3 or vec4, got '" + m.type + "' on '" + m.name + "'");
-                return;
+                return false;
             }
         }
         if (!fi.enum_labels.empty()) {
             if (fi.fj_field_type != "FJELL_FIELD_INT") {
                 error(m.line, "[[fj::enum]] requires int field, got '" + m.type + "' on '" + m.name + "'");
-                return;
+                return false;
             }
             fi.fj_field_type = "FJELL_FIELD_ENUM";
         }
         if (auto message = shader_type_error(fi); !message.empty()) {
             error(m.line, message);
+            return false;
+        }
+        return true;
+    }
+
+    /// `[[fj::pipe]] std::string coins(int copper)` at namespace level.
+    void parse_pipe(const std::string& ns, std::vector<Attribute> attrs) {
+        Member m;
+        m.attrs = std::move(attrs);
+        if (!read_declaration(m)) return;
+        for (const auto& a : m.attrs) {
+            if (a.scope == "fj" && a.name != "pipe") {
+                error(a.line, "[[fj::" + a.name + "]] cannot go on pipe '" + m.name + "'");
+                return;
+            }
+            if (a.scope == "fj" && a.has_args) {
+                error(a.line, "[[fj::pipe]] takes no arguments; the pipe is named after its function");
+                return;
+            }
+        }
+        if (!m.is_function) {
+            error(m.line, "[[fj::pipe]] marks a function; '" + m.name + "' is not one");
             return;
         }
-        comp.fields.push_back(std::move(fi));
+        if (value_type_of(m.type) != "std::string") {
+            error(m.line, "pipe '" + m.name + "' must return std::string: it formats a value for display");
+            return;
+        }
+        if (m.param_types.empty()) {
+            error(m.line, "pipe '" + m.name + "' needs a first parameter: the value it formats");
+            return;
+        }
+        PipeInfo pipe;
+        pipe.name = m.name;
+        pipe.qualified_name = ns.empty() ? m.name : ns + "::" + m.name;
+        pipe.source_file = path_;
+        pipe.line = m.line;
+        for (std::size_t i = 0; i < m.param_types.size(); ++i) {
+            std::string ref;
+            const auto type = value_type_of(m.param_types[i]);
+            const auto kind = map_field_type(type, ref);
+            const bool literal = kind == "FJELL_FIELD_INT" || kind == "FJELL_FIELD_FLOAT" ||
+                                 kind == "FJELL_FIELD_STD_STRING";
+            if (i == 0 ? !is_plain_value(kind) : !literal) {
+                error(m.line, i == 0 ? "pipe '" + m.name + "' formats bool, int, float, glm::vec2/3/4 or "
+                                       "std::string, not '" + type + "'"
+                                     : "pipe '" + m.name + "': argument " + std::to_string(i) +
+                                           " is a literal in markup, so int, float or std::string, not '" +
+                                           type + "'");
+                return;
+            }
+            if (i == 0) {
+                pipe.input_cpp_type = type;
+                pipe.input_fj_type = kind;
+            } else {
+                pipe.arg_cpp_types.push_back(type);
+                pipe.arg_fj_types.push_back(kind);
+            }
+        }
+        result_.pipes.push_back(std::move(pipe));
     }
 
     // ── Attribute arguments ─────────────────────────────────────────────
@@ -1091,8 +1257,9 @@ private:
                 error(a.line, "[[fj::" + a.name + "]] on '" + fi.name + "' expects " + expected);
                 return false;
             };
-            const bool takes_none = a.name == "property" || a.name == "bind" || a.name == "bind_list" ||
-                                    a.name == "color" || a.name == "readonly" || a.name == "replicated";
+            const bool takes_none = a.name == "property" || a.name == "bind" || a.name == "state" ||
+                                    a.name == "model" || a.name == "color" || a.name == "readonly" ||
+                                    a.name == "replicated";
             if (takes_none) {
                 if (a.has_args) return bad("no arguments");
                 if (a.name == "color") fi.is_color = true;

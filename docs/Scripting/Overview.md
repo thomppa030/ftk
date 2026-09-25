@@ -52,9 +52,9 @@ void on_trigger_exit(uint32_t other_id);
 
 `other_id` is the other node's id — pass it to `SceneAPI::find_node` or look up a component on the node.
 
-## Reflection — `[[fj::property]]`, `[[fj::bind]]`, `[[fj::action]]`
+## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::bind]]`, `[[fj::action]]`
 
-Fields you annotate are picked up by the `fjreflect` codegen (runs as part of your project's CMake) and surfaced in the editor's properties panel, serialized to `.fjscene`, and traced by the GC.
+Fields you annotate are picked up by the `fjreflect` codegen (run by Build & Reload) and surfaced in the editor's properties panel, serialized to `.fjscene`, and traced by the GC.
 
 ```cpp
 class Coin : public fjell::ScriptComponent {
@@ -72,6 +72,20 @@ What gets reflected depends on context:
 - **`[[fj::property]]`** — on `ScriptComponent` fields. Shows up in the scene properties panel.
 - **`[[fj::bind]]`** — on `UiWidget` fields. Shows up in `.fjwidget` props blocks; bound by the UI system.
 - **`[[fj::action]]`** — on `UiWidget` methods. Callable from `.fjui` markup via `on:click="name"`.
+- **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
+
+An authored value is a property and a value the game changes while playing is state. Either may be private:
+
+```cpp
+class PlayerStats : public fjell::ScriptComponent {
+    FJELL_COMPONENT(PlayerStats)
+public:
+    [[fj::state]] bool low_health() const { return hp * 4 < max_hp; }
+private:
+    [[fj::property]] int max_hp = 100; // authored, saved with the scene
+    [[fj::state]] int hp = 100;        // runtime: shown, never saved
+};
+```
 
 Supported field types (from `FjellFieldType` in `fjell/api.h`):
 

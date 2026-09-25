@@ -2,6 +2,8 @@ add_executable(fjreflect
     main.cpp
     lexer.cpp
     parser.cpp
+    types.cpp
+    linker.cpp
     generator.cpp
 )
 

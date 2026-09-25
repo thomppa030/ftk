@@ -44,6 +44,8 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<fjreflect::ComponentInfo> all_components;
+    std::vector<fjreflect::ClassDecl> all_classes;
+    std::vector<fjreflect::PipeInfo> all_pipes;
     bool had_errors = false;
 
     for (const auto& file : source_files) {
@@ -68,6 +70,20 @@ int main(int argc, char* argv[]) {
                       << " (" << comp.fields.size() << " properties)\n";
             all_components.push_back(std::move(comp));
         }
+        for (auto& decl : result.classes) all_classes.push_back(std::move(decl));
+        for (auto& pipe : result.pipes) all_pipes.push_back(std::move(pipe));
+    }
+
+    // The structs components hold can be declared in any header, so they are
+    // resolved once every header has been read.
+    fjreflect::LinkResult linked;
+    if (!had_errors) {
+        linked = fjreflect::link(all_components, all_classes, all_pipes);
+        for (const auto& w : linked.warnings) std::cerr << w << "\n";
+        for (const auto& e : linked.errors) {
+            std::cerr << e << "\n";
+            had_errors = true;
+        }
     }
 
     if (had_errors) {
@@ -79,20 +95,23 @@ int main(int argc, char* argv[]) {
         std::cout << "fjreflect: no components with [[fj::property]] found\n";
     }
 
-    const auto files = fjreflect::generate(all_components);
+    const auto files = fjreflect::generate(all_components, linked.structs, all_pipes);
     fjreflect::WriteReport report;
     if (!fjreflect::write_outputs(output_dir, files, report)) {
         std::cerr << "fjreflect: aborting: the output directory could not be updated\n";
         return 1;
     }
     if (!register_path.empty() &&
-        fjreflect::write_if_changed(register_path, fjreflect::register_file(all_components)) ==
+        fjreflect::write_if_changed(register_path,
+                                    fjreflect::register_file(all_components, linked.structs, all_pipes)) ==
             fjreflect::WriteResult::failed) {
         return 1;
     }
 
-    std::cout << "fjreflect: generated " << all_components.size()
-              << " component(s) in " << output_dir << "/ (" << report.written.size() << " of "
+    std::cout << "fjreflect: generated " << all_components.size() << " component(s)";
+    if (!linked.structs.empty()) std::cout << ", " << linked.structs.size() << " struct(s)";
+    if (!all_pipes.empty()) std::cout << ", " << all_pipes.size() << " pipe(s)";
+    std::cout << " in " << output_dir << "/ (" << report.written.size() << " of "
               << files.size() << " files changed";
     if (!report.removed.empty()) std::cout << ", " << report.removed.size() << " stale removed";
     std::cout << ")\n";

@@ -32,26 +32,67 @@ RefKinds ref_kinds(const ComponentInfo& comp) {
     return kinds;
 }
 
-std::string stem_of(const ComponentInfo& comp) {
-    return std::filesystem::path(comp.source_file).stem().string();
+/// A qualified name as part of a C identifier: `game::Slot` → `game__Slot`.
+std::string mangle(const std::string& qualified) {
+    std::string out;
+    for (std::size_t i = 0; i < qualified.size(); ++i) {
+        if (qualified.compare(i, 2, "::") == 0) {
+            out += "__";
+            ++i;
+        } else {
+            out += qualified[i];
+        }
+    }
+    return out;
 }
 
-/// The friend every component macro declares, specialised for this class:
-/// the offset and size of each reflected field, measured by the compiler
-/// that builds the game with the game's own flags, and the shims through
-/// which generated code reaches private members.
-void emit_access(std::ostream& out, const ComponentInfo& comp) {
-    if (comp.fields.empty() && comp.rpcs.empty()) return;
-    const auto& q = comp.qualified_name;
+std::string type_symbol(const std::string& qualified) { return "fjreflect_type_" + mangle(qualified); }
+
+std::string stem_of(const std::string& source_file) {
+    return std::filesystem::path(source_file).stem().string();
+}
+
+std::string flags_of(const FieldInfo& f) {
+    std::string out;
+    auto add = [&](const char* flag) { out += (out.empty() ? "" : " | ") + std::string(flag); };
+    if (f.is_state) add("FJELL_FIELD_FLAG_STATE");
+    if (f.is_getter) add("FJELL_FIELD_FLAG_GETTER");
+    if (f.is_model) add("FJELL_FIELD_FLAG_MODEL");
+    return out.empty() ? "0" : out;
+}
+
+/// The friend every component macro declares, specialised for a reflected
+/// class: the offset and size of each field, measured by the compiler that
+/// builds the game with the game's own flags; trampolines for getters and for
+/// reading vectors; and the shims through which RPCs reach private handlers.
+void emit_access(std::ostream& out, const std::string& q, const std::vector<FieldInfo>& fields,
+                 const std::vector<RpcInfo>& rpcs) {
+    if (fields.empty() && rpcs.empty()) return;
     out << "namespace fjell { template <> struct FjellAccess<" << q << "> {\n";
-    for (const auto& f : comp.fields) {
+    for (const auto& f : fields) {
+        if (f.is_getter) {
+            out << "    static constexpr uint32_t size_" << f.name << " = static_cast<uint32_t>(sizeof("
+                << f.cpp_type << "));\n";
+            out << "    static void get_" << f.name << "(const void* self, void* out) { *static_cast<"
+                << f.cpp_type << "*>(out) = static_cast<const " << q << "*>(self)->" << f.name << "(); }\n";
+            continue;
+        }
         out << "    static constexpr uint32_t offset_" << f.name << " = static_cast<uint32_t>(offsetof("
             << q << ", " << f.name << "));\n";
         out << "    static constexpr uint32_t size_" << f.name << " = static_cast<uint32_t>(sizeof("
             << q << "::" << f.name << "));\n";
+        if (f.fj_field_type == "FJELL_FIELD_VECTOR") {
+            const auto list = "decltype(" + q + "::" + f.name + ")";
+            out << "    static constexpr uint32_t element_size_" << f.name << " = static_cast<uint32_t>(sizeof("
+                << list << "::value_type));\n";
+            out << "    static uint32_t length_" << f.name << "(const void* v) { return static_cast<uint32_t>("
+                << "static_cast<const " << list << "*>(v)->size()); }\n";
+            out << "    static const void* item_" << f.name << "(const void* v, uint32_t i) { return &(*static_cast<const "
+                << list << "*>(v))[i]; }\n";
+        }
     }
     // Handlers are private `_impl` methods more often than not.
-    for (const auto& rpc : comp.rpcs) {
+    for (const auto& rpc : rpcs) {
         out << "    static void " << rpc.method_name << "(" << q << "* self";
         for (size_t p = 0; p < rpc.params.size(); ++p) out << ", " << rpc.params[p].cpp_type << " a" << p;
         out << ") { self->" << rpc.method_name << "_impl(";
@@ -64,49 +105,60 @@ void emit_access(std::ostream& out, const ComponentInfo& comp) {
     out << "}; }\n\n";
 }
 
-/// One component's field table, trace function, action trampolines and RPC
-/// code, in that order.
-void emit_component(std::ostream& out, const ComponentInfo& comp) {
-    const auto kinds = ref_kinds(comp);
-    const auto access = "fjell::FjellAccess<" + comp.qualified_name + ">::";
+/// Symbols a class's tables are written under: the component's own names,
+/// which register_all.cpp and the engine know, or a struct's mangled ones.
+struct TableNames {
+    std::string access;        // "fjell::FjellAccess<Q>::"
+    std::string labels_prefix; // + field name + "_labels"
+    std::string vector_prefix; // + field name
+};
 
-    emit_access(out, comp);
+/// A vector field's element description, read through its trampolines.
+void emit_vector_descs(std::ostream& out, const std::vector<FieldInfo>& fields, const TableNames& names) {
+    bool any = false;
+    for (const auto& f : fields) {
+        if (f.fj_field_type != "FJELL_FIELD_VECTOR") continue;
+        any = true;
+        out << "static const FjellVectorDesc " << names.vector_prefix << f.name << " = {" << f.element_fj_type
+            << ", ";
+        if (f.element_fj_type == "FJELL_FIELD_STRUCT") out << "&" << type_symbol(f.element_struct);
+        else out << "nullptr";
+        out << ", " << names.access << "element_size_" << f.name << ", " << names.access << "length_" << f.name
+            << ", " << names.access << "item_" << f.name << "};\n";
+    }
+    if (any) out << "\n";
+}
 
-    // Static enum label arrays (one per ENUM field)
-    out << std::fixed;
-    auto label_symbol = [&](const std::string& field_name) {
-        return "fjreflect_" + comp.class_name + "_" + field_name + "_labels";
-    };
-    for (const auto& f : comp.fields) {
+void emit_labels(std::ostream& out, const std::vector<FieldInfo>& fields, const TableNames& names) {
+    bool any = false;
+    for (const auto& f : fields) {
         if (f.enum_labels.empty()) continue;
-        out << "static const char* const " << label_symbol(f.name) << "[] = {";
+        any = true;
+        out << "static const char* const " << names.labels_prefix << f.name << "_labels[] = {";
         for (std::size_t e = 0; e < f.enum_labels.size(); ++e) {
             if (e) out << ", ";
             out << "\"" << f.enum_labels[e] << "\"";
         }
         out << "};\n";
     }
-    if (std::any_of(comp.fields.begin(), comp.fields.end(),
-                    [](const auto& f) { return !f.enum_labels.empty(); })) {
-        out << "\n";
-    }
+    if (any) out << "\n";
+}
 
-    // Field table. A class without fields has none: a zero-length array is not
-    // C++, and register_all.cpp passes nullptr for it.
-    if (!comp.fields.empty()) out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
-    for (const auto& f : comp.fields) {
-        out << "    {\"" << f.name << "\", " << f.fj_field_type << ", " << access << "offset_" << f.name
-            << ", ";
+/// One `FjellFieldDesc` initializer per field.
+void emit_field_entries(std::ostream& out, const std::vector<FieldInfo>& fields, const TableNames& names) {
+    out << std::fixed;
+    for (const auto& f : fields) {
+        out << "    {\"" << f.name << "\", " << f.fj_field_type << ", ";
+        if (f.is_getter) out << "0"; // nothing is stored: the value comes from `get`
+        else out << names.access << "offset_" << f.name;
+        out << ", ";
         // An enum field's size is its label count, so the runtime can bound-check
         // without a separate count.
-        if (f.enum_labels.empty()) out << access << "size_" << f.name;
+        if (f.enum_labels.empty()) out << names.access << "size_" << f.name;
         else out << f.enum_labels.size();
         out << ", ";
-        if (f.enum_labels.empty()) {
-            out << "nullptr";
-        } else {
-            out << label_symbol(f.name);
-        }
+        if (f.enum_labels.empty()) out << "nullptr";
+        else out << names.labels_prefix << f.name << "_labels";
         out << ", " << f.hint_min << "f, " << f.hint_max << "f, " << f.hint_speed << "f, ";
         if (f.ref_target.empty()) out << "nullptr";
         else out << "\"" << f.ref_target << "\"";
@@ -129,11 +181,38 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
             }
             out << "\"";
         }
-        // flags, type_desc, vector, get: a component field is a property
-        out << ", 0, nullptr, nullptr, nullptr";
+        out << ", " << flags_of(f) << ", ";
+        if (f.fj_field_type == "FJELL_FIELD_STRUCT") out << "&" << type_symbol(f.struct_type);
+        else out << "nullptr";
+        out << ", ";
+        if (f.fj_field_type == "FJELL_FIELD_VECTOR") out << "&" << names.vector_prefix << f.name;
+        else out << "nullptr";
+        out << ", ";
+        if (f.is_getter) out << names.access << "get_" << f.name;
+        else out << "nullptr";
         out << "},\n";
     }
-    if (!comp.fields.empty()) out << "};\n\n";
+}
+
+/// One component's field table, trace function, action trampolines and RPC
+/// code, in that order.
+void emit_component(std::ostream& out, const ComponentInfo& comp) {
+    const auto kinds = ref_kinds(comp);
+    const TableNames names{"fjell::FjellAccess<" + comp.qualified_name + ">::", "fjreflect_" + comp.class_name + "_",
+                           "fjreflect_vector_" + mangle(comp.qualified_name) + "_"};
+    const auto& access = names.access;
+
+    emit_access(out, comp.qualified_name, comp.fields, comp.rpcs);
+    emit_labels(out, comp.fields, names);
+    emit_vector_descs(out, comp.fields, names);
+
+    // Field table. A class without fields has none: a zero-length array is not
+    // C++, and register_all.cpp passes nullptr for it.
+    if (!comp.fields.empty()) {
+        out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
+        emit_field_entries(out, comp.fields, names);
+        out << "};\n\n";
+    }
 
     // Trace function
     if (kinds.any()) {
@@ -155,7 +234,6 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         // No ref fields — emit a null-able trace (won't be registered)
         out << "// No reference fields — no trace function needed.\n";
     }
-
     // UI widget action trampolines (original format — void(void*) and void(void*,int))
     if (comp.is_ui_component && !comp.actions.empty()) {
         out << "\n// ── UI action trampolines ──\n\n";
@@ -280,30 +358,80 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
     }
 }
 
-/// `<stem>.generated.cpp`: every component its header declares.
-std::string generated_file(const std::string& stem, const std::vector<const ComponentInfo*>& comps) {
+/// A reflected struct's field table and type description, which the engine
+/// registers before the components that hold it.
+void emit_struct(std::ostream& out, const StructInfo& info) {
+    const auto& q = info.qualified_name;
+    const auto symbol = mangle(q);
+    const TableNames names{"fjell::FjellAccess<" + q + ">::", "fjreflect_" + symbol + "_",
+                           "fjreflect_vector_" + symbol + "_"};
+
+    emit_access(out, q, info.fields, {});
+    emit_vector_descs(out, info.fields, names);
+    if (!info.fields.empty()) {
+        out << "static const FjellFieldDesc fjreflect_fields_" << symbol << "[] = {\n";
+        emit_field_entries(out, info.fields, names);
+        out << "};\n\n";
+    }
+    out << "static_assert(std::is_default_constructible_v<" << q << ">, \"fjreflect: " << info.name
+        << " is a Model's struct, which the editor makes with its default constructor\");\n";
+    out << "extern \"C\" const FjellTypeDesc " << type_symbol(q) << " = {\"" << info.name << "\", \"" << q
+        << "\", sizeof(" << q << "), alignof(" << q << "), ";
+    if (info.fields.empty()) out << "nullptr, 0, ";
+    else out << "fjreflect_fields_" << symbol << ", " << info.fields.size() << ", ";
+    out << "[](void* at) { ::new (at) " << q << "(); }, [](void* at) { std::destroy_at(static_cast<" << q
+        << "*>(at)); }};\n\n";
+}
+
+/// A pipe's trampoline: the engine hands it the value and the literal
+/// arguments by address and gets the text back in a std::string.
+void emit_pipe(std::ostream& out, const PipeInfo& pipe) {
+    out << "extern \"C\" void fjreflect_pipe_" << pipe.name
+        << "(const void* input, const void* const* args, void* out) {\n";
+    out << "    (void)args;\n";
+    out << "    *static_cast<std::string*>(out) = " << pipe.qualified_name << "(*static_cast<const "
+        << pipe.input_cpp_type << "*>(input)";
+    for (std::size_t i = 0; i < pipe.arg_cpp_types.size(); ++i) {
+        out << ", *static_cast<const " << pipe.arg_cpp_types[i] << "*>(args[" << i << "])";
+    }
+    out << ");\n}\n\n";
+}
+
+/// Everything one header contributes.
+struct HeaderOutput {
+    std::string source_file;
+    std::vector<const ComponentInfo*> components;
+    std::vector<const StructInfo*> structs;
+    std::vector<const PipeInfo*> pipes;
+};
+
+/// `<stem>.generated.cpp`: every component, reflected struct and pipe its
+/// header declares.
+std::string generated_file(const std::string& stem, const HeaderOutput& header) {
     std::ostringstream out;
     out << "// " << stem << ".generated.cpp — Generated by fjreflect. Do not edit.\n";
     out << "#include \"fjell/api.h\"\n";
-    auto source_filename = std::filesystem::path(comps.front()->source_file).filename().string();
-    out << "#include \"" << source_filename << "\"\n";
-    const bool has_rpcs = std::any_of(comps.begin(), comps.end(), [](const ComponentInfo* c) {
-        return !c->rpcs.empty();
-    });
-    if (has_rpcs) {
-        out << "#include \"fjell/net_api.hpp\"\n";
-    }
+    out << "#include \"" << std::filesystem::path(header.source_file).filename().string() << "\"\n";
+    const bool has_rpcs = std::any_of(header.components.begin(), header.components.end(),
+                                      [](const ComponentInfo* c) { return !c->rpcs.empty(); });
+    if (has_rpcs) out << "#include \"fjell/net_api.hpp\"\n";
     out << "#include <cstddef>\n";
     out << "#include <cstdint>\n";
-    out << "#include <cstring>\n\n";
+    out << "#include <cstring>\n";
+    if (!header.structs.empty()) out << "#include <memory>\n#include <new>\n#include <type_traits>\n";
+    if (!header.pipes.empty()) out << "#include <string>\n";
+    out << "\n";
     // Components are not standard-layout (they have a base and virtuals), for
     // which offsetof is conditionally supported: GCC, Clang and MSVC all
     // support it for single, non-virtual inheritance, and GCC warns.
     out << "#if defined(__GNUC__)\n#pragma GCC diagnostic ignored \"-Winvalid-offsetof\"\n#endif\n\n";
+    // A header of plain Model structs includes nothing from the SDK, and the
+    // tables are specialisations of this.
+    if (!header.structs.empty()) out << "namespace fjell { template <class T> struct FjellAccess; }\n\n";
 
     // Declare trace bridge functions if needed
     RefKinds kinds;
-    for (const auto* comp : comps) {
+    for (const auto* comp : header.components) {
         const auto k = ref_kinds(*comp);
         kinds.weak = kinds.weak || k.weak;
         kinds.ref = kinds.ref || k.ref;
@@ -314,10 +442,38 @@ std::string generated_file(const std::string& stem, const std::vector<const Comp
     if (kinds.shared) out << "extern \"C\" void fjell_gc_trace_shared(void*, void*);\n";
     if (kinds.any()) out << "\n";
 
-    for (std::size_t i = 0; i < comps.size(); ++i) {
-        if (i > 0) out << "\n";
-        emit_component(out, *comps[i]);
+    // Every struct description this file names, wherever it is defined: a
+    // table may name one defined further down, or in another header's file.
+    std::vector<std::string> named;
+    auto name_struct = [&](const std::string& q) {
+        if (!q.empty() && std::find(named.begin(), named.end(), q) == named.end()) named.push_back(q);
+    };
+    auto name_fields = [&](const std::vector<FieldInfo>& fields) {
+        for (const auto& f : fields) {
+            if (f.fj_field_type == "FJELL_FIELD_STRUCT") name_struct(f.struct_type);
+            if (f.element_fj_type == "FJELL_FIELD_STRUCT") name_struct(f.element_struct);
+        }
+    };
+    for (const auto* comp : header.components) name_fields(comp->fields);
+    for (const auto* info : header.structs) {
+        name_struct(info->qualified_name);
+        name_fields(info->fields);
     }
+    for (const auto& q : named) out << "extern \"C\" const FjellTypeDesc " << type_symbol(q) << ";\n";
+    if (!named.empty()) out << "\n";
+
+    bool first = true;
+    for (const auto* comp : header.components) {
+        if (!first) out << "\n";
+        first = false;
+        emit_component(out, *comp);
+    }
+    for (const auto* info : header.structs) {
+        if (!first) out << "\n";
+        first = false;
+        emit_struct(out, *info);
+    }
+    for (const auto* pipe : header.pipes) emit_pipe(out, *pipe);
     return out.str();
 }
 
@@ -337,11 +493,18 @@ const char* field_kind(const FieldInfo& f) {
         {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
         {"FJELL_FIELD_REF", "ref"},           {"FJELL_FIELD_SHARED_REF", "shared_ref"},
         {"FJELL_FIELD_WIDGET_PTR", "widget_ptr"}, {"FJELL_FIELD_STD_STRING", "string"},
+        {"FJELL_FIELD_STRUCT", "struct"},     {"FJELL_FIELD_VECTOR", "list"},
     };
     for (const auto& [name, kind] : kinds) {
         if (f.fj_field_type == name) return kind;
     }
     return "unknown";
+}
+
+const char* element_kind(const FieldInfo& f) {
+    FieldInfo element;
+    element.fj_field_type = f.element_fj_type;
+    return field_kind(element);
 }
 
 const char* param_name(ActionParamType param) {
@@ -393,10 +556,43 @@ std::string unescape(const std::string& body) {
     return out;
 }
 
+using Json = nlohmann::ordered_json;
+
+Json field_json(const FieldInfo& f) {
+    Json field;
+    field["name"] = f.name;
+    field["type"] = f.cpp_type;
+    field["kind"] = field_kind(f);
+    field["line"] = f.line;
+    if (f.is_state) field["state"] = true;
+    if (f.is_getter) field["getter"] = true;
+    if (f.is_model) field["model"] = true;
+    if (f.fj_field_type == "FJELL_FIELD_STRUCT") field["struct"] = f.struct_type;
+    if (f.fj_field_type == "FJELL_FIELD_VECTOR") {
+        field["element"] = element_kind(f);
+        if (f.element_fj_type == "FJELL_FIELD_STRUCT") field["element_struct"] = f.element_struct;
+    }
+    if (f.is_bind) field["bind"] = true;
+    if (f.is_readonly) field["readonly"] = true;
+    if (f.is_replicated) field["replicated"] = true;
+    if (f.has_range) field["range"] = {f.hint_min, f.hint_max};
+    if (f.hint_speed != 0.0f) field["step"] = f.hint_speed;
+    if (!f.tooltip.empty()) field["tooltip"] = unescape(f.tooltip);
+    if (!f.category.empty()) field["category"] = unescape(f.category);
+    if (!f.enum_labels.empty()) {
+        Json labels = Json::array();
+        for (const auto& label : f.enum_labels) labels.push_back(unescape(label));
+        field["enum"] = std::move(labels);
+    }
+    if (!f.ref_target.empty()) field["ref"] = f.ref_target;
+    if (!f.shader_types.empty()) field["shader_types"] = f.shader_types;
+    return field;
+}
+
 /// Everything fjreflect read, for tools that check a project against its
 /// scripts (the lint, the editor). Nothing in the build reads it.
-std::string manifest(const std::vector<ComponentInfo>& components) {
-    using Json = nlohmann::ordered_json;
+std::string manifest(const std::vector<ComponentInfo>& components, const std::vector<StructInfo>& structs,
+                     const std::vector<PipeInfo>& pipes) {
     Json types = Json::array();
     for (const auto& comp : components) {
         Json type;
@@ -405,28 +601,7 @@ std::string manifest(const std::vector<ComponentInfo>& components) {
         type["kind"] = comp.is_ui_component ? "ui_widget" : comp.is_notify ? "notify" : "component";
         type["header"] = std::filesystem::path(comp.source_file).filename().string();
         Json fields = Json::array();
-        for (const auto& f : comp.fields) {
-            Json field;
-            field["name"] = f.name;
-            field["type"] = f.cpp_type;
-            field["kind"] = field_kind(f);
-            field["line"] = f.line;
-            if (f.is_bind) field["bind"] = true;
-            if (f.is_readonly) field["readonly"] = true;
-            if (f.is_replicated) field["replicated"] = true;
-            if (f.has_range) field["range"] = {f.hint_min, f.hint_max};
-            if (f.hint_speed != 0.0f) field["step"] = f.hint_speed;
-            if (!f.tooltip.empty()) field["tooltip"] = unescape(f.tooltip);
-            if (!f.category.empty()) field["category"] = unescape(f.category);
-            if (!f.enum_labels.empty()) {
-                Json labels = Json::array();
-                for (const auto& label : f.enum_labels) labels.push_back(unescape(label));
-                field["enum"] = std::move(labels);
-            }
-            if (!f.ref_target.empty()) field["ref"] = f.ref_target;
-            if (!f.shader_types.empty()) field["shader_types"] = f.shader_types;
-            fields.push_back(std::move(field));
-        }
+        for (const auto& f : comp.fields) fields.push_back(field_json(f));
         type["fields"] = std::move(fields);
         Json actions = Json::array();
         for (const auto& a : comp.actions) {
@@ -442,15 +617,44 @@ std::string manifest(const std::vector<ComponentInfo>& components) {
         type["rpcs"] = std::move(rpcs);
         types.push_back(std::move(type));
     }
+    Json structs_json = Json::array();
+    for (const auto& info : structs) {
+        Json fields = Json::array();
+        for (const auto& f : info.fields) fields.push_back(field_json(f));
+        structs_json.push_back({{"name", info.name},
+                                {"qualified_name", info.qualified_name},
+                                {"header", std::filesystem::path(info.source_file).filename().string()},
+                                {"line", info.line},
+                                {"fields", std::move(fields)}});
+    }
+    Json pipes_json = Json::array();
+    for (const auto& pipe : pipes) {
+        FieldInfo input;
+        input.fj_field_type = pipe.input_fj_type;
+        Json args = Json::array();
+        for (const auto& kind : pipe.arg_fj_types) {
+            FieldInfo arg;
+            arg.fj_field_type = kind;
+            args.push_back(field_kind(arg));
+        }
+        pipes_json.push_back({{"name", pipe.name},
+                              {"input", field_kind(input)},
+                              {"args", std::move(args)},
+                              {"header", std::filesystem::path(pipe.source_file).filename().string()},
+                              {"line", pipe.line}});
+    }
     Json root;
-    root["version"] = 1;
+    root["version"] = 2;
     root["types"] = std::move(types);
+    root["structs"] = std::move(structs_json);
+    root["pipes"] = std::move(pipes_json);
     return root.dump(2) + "\n";
 }
 
 } // namespace
 
-std::string register_file(const std::vector<ComponentInfo>& components) {
+std::string register_file(const std::vector<ComponentInfo>& components, const std::vector<StructInfo>& structs,
+                          const std::vector<PipeInfo>& pipes) {
     std::ostringstream out;
     out << "// register_all.cpp — Generated by fjreflect. Do not edit.\n";
     out << "#include \"fjell/registry.hpp\"\n";
@@ -501,11 +705,44 @@ std::string register_file(const std::vector<ComponentInfo>& components) {
         out << "};\n";
     }
 
+    if (!structs.empty()) {
+        out << "\n";
+        for (const auto& info : structs) {
+            out << "extern \"C\" const FjellTypeDesc " << type_symbol(info.qualified_name) << ";\n";
+        }
+        out << "static const FjellTypeDesc* const fjreflect_types[] = {\n";
+        for (const auto& info : structs) out << "    &" << type_symbol(info.qualified_name) << ",\n";
+        out << "};\n";
+    }
+    if (!pipes.empty()) {
+        out << "\n";
+        for (const auto& pipe : pipes) {
+            out << "extern \"C\" void fjreflect_pipe_" << pipe.name << "(const void*, const void* const*, void*);\n";
+            if (pipe.arg_fj_types.empty()) continue;
+            out << "static const FjellFieldType fjreflect_pipe_" << pipe.name << "_args[] = {";
+            for (std::size_t i = 0; i < pipe.arg_fj_types.size(); ++i) {
+                out << (i ? ", " : "") << pipe.arg_fj_types[i];
+            }
+            out << "};\n";
+        }
+        out << "static const FjellPipeDesc fjreflect_pipes[] = {\n";
+        for (const auto& pipe : pipes) {
+            out << "    {\"" << pipe.name << "\", " << pipe.input_fj_type << ", ";
+            if (pipe.arg_fj_types.empty()) out << "nullptr, 0, ";
+            else out << "fjreflect_pipe_" << pipe.name << "_args, " << pipe.arg_fj_types.size() << ", ";
+            out << "fjreflect_pipe_" << pipe.name << "},\n";
+        }
+        out << "};\n";
+    }
+
     // FJELL_REGISTER()'s entry points, with the generated tables handed over
-    // before the types register.
+    // before the types register: structs and pipes first, because components
+    // hold structs.
     out << "\nextern \"C\" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
     out << "FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS()\n";
     out << "extern \"C\" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) {\n";
+    if (!structs.empty()) out << "    fjell_reg_types(registry, fjreflect_types, " << structs.size() << ");\n";
+    if (!pipes.empty()) out << "    fjell_reg_pipes(registry, fjreflect_pipes, " << pipes.size() << ");\n";
     if (!scripts.empty()) {
         out << "    fjell_set_generated_table(fjreflect_generated, " << scripts.size() << ");\n";
     }
@@ -519,26 +756,28 @@ std::string register_file(const std::vector<ComponentInfo>& components) {
     return out.str();
 }
 
-GeneratedFiles generate(const std::vector<ComponentInfo>& components) {
-    // Components grouped by the header that declares them, in the order the
-    // headers were given.
-    std::vector<std::pair<std::string, std::vector<const ComponentInfo*>>> by_header;
-    for (const auto& comp : components) {
-        const auto stem = stem_of(comp);
-        auto it = std::find_if(by_header.begin(), by_header.end(),
-                               [&](const auto& entry) { return entry.first == stem; });
-        if (it == by_header.end()) {
-            by_header.emplace_back(stem, std::vector<const ComponentInfo*>{});
-            it = std::prev(by_header.end());
-        }
-        it->second.push_back(&comp);
-    }
+GeneratedFiles generate(const std::vector<ComponentInfo>& components, const std::vector<StructInfo>& structs,
+                        const std::vector<PipeInfo>& pipes) {
+    // What each header contributes, headers in the order they first appear.
+    std::vector<HeaderOutput> headers;
+    auto header_for = [&](const std::string& source_file) -> HeaderOutput& {
+        auto it = std::find_if(headers.begin(), headers.end(),
+                               [&](const HeaderOutput& h) { return h.source_file == source_file; });
+        if (it != headers.end()) return *it;
+        HeaderOutput& header = headers.emplace_back();
+        header.source_file = source_file;
+        return header;
+    };
+    for (const auto& comp : components) header_for(comp.source_file).components.push_back(&comp);
+    for (const auto& info : structs) header_for(info.source_file).structs.push_back(&info);
+    for (const auto& pipe : pipes) header_for(pipe.source_file).pipes.push_back(&pipe);
 
     GeneratedFiles files;
-    for (const auto& [stem, comps] : by_header) {
-        files[stem + ".generated.cpp"] = generated_file(stem, comps);
+    for (const auto& header : headers) {
+        const auto stem = stem_of(header.source_file);
+        files[stem + ".generated.cpp"] = generated_file(stem, header);
     }
-    files["manifest.json"] = manifest(components);
+    files["manifest.json"] = manifest(components, structs, pipes);
     return files;
 }
 

@@ -28,8 +28,62 @@ struct FieldInfo {
 
     // UI bind flags
     bool is_bind{false};       // [[fj::bind]] — auto-sync to widget context
-    bool is_bind_list{false};  // [[fj::bind_list]] — sync vector<T> to foreach list
-    std::string bind_key;      // explicit key override (empty = use field name)
+
+    // Runtime state and Models
+    bool is_state{false};      // [[fj::state]], or any member of a reflected struct: bindable, never saved
+    bool is_model{false};      // [[fj::model]] on a UI widget: a Model its markup binds
+    bool is_getter{false};     // a const member function, read through a generated trampoline
+    std::string scope;         // qualified name of the declaring class, to resolve struct names in
+    std::string struct_type;   // STRUCT: the struct as written; its qualified name once linked
+    std::string element_cpp_type; // VECTOR: the element type as written
+    std::string element_fj_type;  // VECTOR: the element's kind
+    std::string element_struct;   // VECTOR of structs: as written; qualified once linked
+};
+
+/// A struct fjreflect reflects because a Model reaches it: every data member,
+/// all of them state, and its [[fj::state]] getters.
+struct StructInfo {
+    std::string name;
+    std::string qualified_name;
+    std::string source_file;
+    unsigned line{0};
+    std::vector<FieldInfo> fields;
+};
+
+/// A [[fj::pipe]] free function: formats a value for markup, `{value|name:arg}`.
+struct PipeInfo {
+    std::string name;           // as markup writes it
+    std::string qualified_name; // as generated code calls it
+    std::string source_file;
+    unsigned line{0};
+    std::string input_cpp_type; // const and references stripped
+    std::string input_fj_type;
+    std::vector<std::string> arg_cpp_types; // the literal arguments', likewise
+    std::vector<std::string> arg_fj_types;
+};
+
+/// A member as declared, kept so the linker can reflect a class a Model reaches.
+struct MemberDecl {
+    std::string name;
+    std::string type;          // a data member's type, or a function's return type
+    unsigned line{0};
+    bool is_function{false};
+    bool is_static{false};
+    bool is_const{false};      // a const member function
+    bool is_public{false};
+    bool is_readable{true};    // one plain declarator: not an array, not several names
+    std::vector<std::string> param_types;
+    std::vector<std::string> fj_attributes; // names of its [[fj::...]] attributes
+};
+
+/// Every class a header declares, components included.
+struct ClassDecl {
+    std::string name;
+    std::string qualified_name;
+    std::string source_file;
+    unsigned line{0};
+    bool is_component{false};  // declared with FJELL_COMPONENT, FJELL_UI_WIDGET or FJELL_NOTIFY
+    std::vector<MemberDecl> members;
 };
 
 enum class ActionParamType : uint8_t {
@@ -91,6 +145,8 @@ struct ComponentInfo {
 
 struct ParseResult {
     std::vector<ComponentInfo> components;
+    std::vector<ClassDecl> classes;
+    std::vector<PipeInfo> pipes;
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
 };
@@ -103,6 +159,20 @@ struct ParseResult {
 /// reflect, or an fj attribute where none belongs, is an error with the file
 /// and line; code outside reflected classes is skipped.
 ParseResult parse_file(const std::string& filepath);
+
+struct LinkResult {
+    std::vector<StructInfo> structs;
+    std::vector<std::string> errors;
+    std::vector<std::string> warnings;
+};
+
+/// Resolve what the components of every header refer to: the struct each
+/// state field, Model or vector holds is found by name across all headers
+/// (from the declaring class's scope outwards) and reflected in full, with
+/// every struct it reaches in turn. Fills in the qualified names on the
+/// components' fields. Also rejects two pipes of one name.
+[[nodiscard]] LinkResult link(std::vector<ComponentInfo>& components, const std::vector<ClassDecl>& classes,
+                              const std::vector<PipeInfo>& pipes);
 
 
 } // namespace fjreflect
