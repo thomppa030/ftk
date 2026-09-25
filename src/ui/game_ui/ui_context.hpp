@@ -1,11 +1,10 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "ui/game_ui/ui_value.hpp"
 
-#include <charconv>
 #include <deque>
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -38,67 +37,29 @@ public:
     void set_parent(UiContext* parent) { parent_ = parent; }
     [[nodiscard]] UiContext* parent() const { return parent_; }
 
-    void set(const std::string& key, const std::string& value) {
+    /// Publish a value; `{key}` shows it and `if=`/`class:` test it. An
+    /// unchanged value (the same type holding the same value) changes nothing.
+    void set(const std::string& key, UiValue value) {
         auto it = values_.find(key);
         if (it != values_.end() && it->second == value) return; // no change
-        values_[key] = value;
+        values_.insert_or_assign(key, std::move(value));
         ++generation_;
-    }
-
-    void set_float(const std::string& key, float value) {
-        typed_floats_[key] = value;
-        typed_ints_.erase(key);
-        typed_bools_.erase(key);
-        char buf[32];
-        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
-        set(key, std::string(buf, ptr));
-    }
-
-    void set_int(const std::string& key, int value) {
-        typed_ints_[key] = value;
-        typed_floats_.erase(key);
-        typed_bools_.erase(key);
-        set(key, std::to_string(value));
-    }
-
-    void set_bool(const std::string& key, bool value) {
-        typed_bools_[key] = value;
-        typed_floats_.erase(key);
-        typed_ints_.erase(key);
-        set(key, value ? "1" : "0");
     }
 
     [[nodiscard]] uint64_t generation() const { return generation_; }
 
-    [[nodiscard]] std::string get(const std::string& key) const {
+    /// The value for key here, or in the nearest parent that has one; null
+    /// when no scope does.
+    [[nodiscard]] const UiValue* find(const std::string& key) const {
         auto it = values_.find(key);
-        if (it != values_.end()) return it->second;
-        if (parent_) return parent_->get(key);
-        return "";
+        if (it != values_.end()) return &it->second;
+        return parent_ ? parent_->find(key) : nullptr;
     }
 
-    [[nodiscard]] std::optional<float> get_float(const std::string& key) const {
-        auto it = typed_floats_.find(key);
-        if (it != typed_floats_.end()) return it->second;
-        // Fall back to int (controllers often use [[fj::bind]] int for values)
-        auto iit = typed_ints_.find(key);
-        if (iit != typed_ints_.end()) return static_cast<float>(iit->second);
-        if (parent_) return parent_->get_float(key);
-        return std::nullopt;
-    }
-
-    [[nodiscard]] std::optional<int> get_int(const std::string& key) const {
-        auto it = typed_ints_.find(key);
-        if (it != typed_ints_.end()) return it->second;
-        if (parent_) return parent_->get_int(key);
-        return std::nullopt;
-    }
-
-    [[nodiscard]] std::optional<bool> get_bool(const std::string& key) const {
-        auto it = typed_bools_.find(key);
-        if (it != typed_bools_.end()) return it->second;
-        if (parent_) return parent_->get_bool(key);
-        return std::nullopt;
+    /// The value for key as markup shows it, or "" when no scope has one.
+    [[nodiscard]] std::string get(const std::string& key) const {
+        const UiValue* value = find(key);
+        return value != nullptr ? value->text() : std::string();
     }
 
     template <typename F>
@@ -176,13 +137,12 @@ public:
     /// Set a value on one item of a list. Ignored when the list does not
     /// exist or the index is past its end; an unchanged value changes
     /// nothing, here or on the item.
-    void set_item(const std::string& key, size_t index, const std::string& field,
-                  const std::string& value) {
+    void set_item(const std::string& key, size_t index, const std::string& field, UiValue value) {
         auto it = lists_.find(key);
         if (it == lists_.end() || index >= it->second.size()) return;
         auto& item = it->second[index];
         uint64_t before = item.generation();
-        item.set(field, value);
+        item.set(field, std::move(value));
         if (item.generation() != before) ++generation_;
     }
 
@@ -199,9 +159,6 @@ public:
 
     void clear() {
         values_.clear();
-        typed_floats_.clear();
-        typed_ints_.clear();
-        typed_bools_.clear();
         actions_.clear();
         param_actions_.clear();
         lists_.clear();
@@ -210,10 +167,7 @@ public:
 private:
     UiContext* parent_{nullptr};
     uint64_t generation_{0};
-    std::unordered_map<std::string, std::string> values_;
-    std::unordered_map<std::string, float> typed_floats_;
-    std::unordered_map<std::string, int> typed_ints_;
-    std::unordered_map<std::string, bool> typed_bools_;
+    std::unordered_map<std::string, UiValue> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
     std::unordered_map<std::string, UiList> lists_;

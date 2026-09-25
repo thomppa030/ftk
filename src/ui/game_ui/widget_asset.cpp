@@ -2,6 +2,7 @@
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_node.hpp"
+#include "ui/game_ui/ui_context.hpp"
 #include "core/log.hpp"
 
 #include <filesystem>
@@ -41,6 +42,13 @@ static void collect_key_references(const UiNode& node, std::vector<std::string>&
     }
     for (const auto& child : node.children) {
         collect_key_references(*child, keys);
+    }
+}
+
+void set_prop_defaults(const std::vector<PropDecl>& props, UiContext& context) {
+    for (const auto& prop : props) {
+        if (prop.default_value.empty()) continue;
+        context.set(prop.name, UiValue::parse(prop.default_value, prop.type));
     }
 }
 

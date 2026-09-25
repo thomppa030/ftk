@@ -41,26 +41,32 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
                    : node.scoped_context  ? *node.scoped_context
                    : context;
 
-    // Sync props: resolve outer expressions against parent context,
-    // write results into the widget's scoped context.
+    // Sync props: resolve outer expressions against parent context, write
+    // the results into the widget's scoped context as the types the widget
+    // declares. A prop bound to one value (`{key}`) takes that value itself;
+    // anything longer is text.
     // Always resolve — even when a controller exists, parent props are inputs.
     // The controller's [[fj::bind]] fields can override specific keys via sync_bind_fields.
     if (node.is_widget && node.scoped_context && !node.prop_map.empty()) {
         for (const auto& [inner_key, outer_expr] : node.prop_map) {
-            auto resolved = resolve_template(outer_expr, context);
-            node.scoped_context->set(inner_key, resolved);
+            UiValue value;
+            if (auto key = extract_single_key(outer_expr)) {
+                if (const UiValue* bound = context.find(*key)) value = *bound;
+            } else {
+                value = UiValue(resolve_template(outer_expr, context));
+            }
+            for (const auto& prop : node.widget_props) {
+                if (prop.name == inner_key) value = value.as(prop.type);
+            }
+            node.scoped_context->set(inner_key, std::move(value));
         }
     }
 
     // Evaluate if="key" directive — visibility change affects layout
     auto if_it = node.attributes.find("if");
     if (if_it != node.attributes.end()) {
-        const auto& key = if_it->second;
-        bool visible = false;
-        auto val = ctx.get(key);
-        if (!val.empty() && val != "0" && val != "false") {
-            visible = true;
-        }
+        const UiValue* value = ctx.find(if_it->second);
+        const bool visible = value != nullptr && value->truthy();
         if (node.hidden_by_if != !visible) {
             node.hidden_by_if = !visible;
             result.layout_changed = true;
@@ -80,8 +86,8 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
             auto resolved = resolve_template(expected, ctx);
             should_have = (ctx.get(key) == resolved);
         } else {
-            auto val = ctx.get(condition);
-            should_have = !val.empty() && val != "0" && val != "false";
+            const UiValue* value = ctx.find(condition);
+            should_have = value != nullptr && value->truthy();
         }
 
         bool has_it = node.has_class(class_name);
@@ -138,23 +144,19 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
         auto val_it = node.attributes.find("value");
         auto max_it = node.attributes.find("max");
         if (val_it != node.attributes.end() && max_it != node.attributes.end()) {
-            float val = 0.0f;
-            float max = 1.0f;
-
-            // Try typed path for simple {key} references (common case)
-            if (auto key = extract_single_key(val_it->second)) {
-                if (auto f = ctx.get_float(*key)) val = *f;
-                else { try { val = std::stof(ctx.get(*key)); } catch (...) {} }
-            } else {
-                try { val = std::stof(resolve_template(val_it->second, ctx)); } catch (...) {}
-            }
-
-            if (auto key = extract_single_key(max_it->second)) {
-                if (auto f = ctx.get_float(*key)) max = *f;
-                else { try { max = std::stof(ctx.get(*key)); } catch (...) {} }
-            } else {
-                try { max = std::stof(resolve_template(max_it->second, ctx)); } catch (...) {}
-            }
+            // A bound value is read as the number it holds; anything else as
+            // the number its text starts with.
+            auto read = [&](const std::string& expr, float fallback) {
+                std::optional<float> number;
+                if (auto key = extract_single_key(expr)) {
+                    if (const UiValue* value = ctx.find(*key)) number = value->number();
+                } else {
+                    number = UiValue(resolve_template(expr, ctx)).number();
+                }
+                return number.value_or(fallback);
+            };
+            const float val = read(val_it->second, 0.0f);
+            float max = read(max_it->second, 1.0f);
 
             if (max <= 0.0f) max = 1.0f;
             float pct = val / max;

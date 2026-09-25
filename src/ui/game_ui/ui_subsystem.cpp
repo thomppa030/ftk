@@ -142,22 +142,7 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
     // Apply <prop> defaults from the .fjwidget to the root context. Child
     // widgets get this via widget_resolver; the root widget's context is
     // game_ui's top-level one, so we do it here.
-    auto& ctx_out = inst.game_ui->context();
-    for (const auto& prop : widget_asset.props) {
-        if (prop.default_value.empty()) continue;
-        if (prop.type == "float") {
-            try { ctx_out.set_float(prop.name, std::stof(prop.default_value)); }
-            catch (...) { ctx_out.set(prop.name, prop.default_value); }
-        } else if (prop.type == "int") {
-            try { ctx_out.set_int(prop.name, std::stoi(prop.default_value)); }
-            catch (...) { ctx_out.set(prop.name, prop.default_value); }
-        } else if (prop.type == "bool") {
-            ctx_out.set_bool(prop.name,
-                prop.default_value != "0" && prop.default_value != "false");
-        } else {
-            ctx_out.set(prop.name, prop.default_value);
-        }
-    }
+    set_prop_defaults(widget_asset.props, inst.game_ui->context());
 
     inst.game_ui->mark_dirty();
 
@@ -325,15 +310,13 @@ void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
 
         switch (field.type) {
             case FJELL_FIELD_FLOAT:
-                wi.widget_context->set_float(key, *static_cast<const float*>(ptr));
+                wi.widget_context->set(key, UiValue(*static_cast<const float*>(ptr)));
                 break;
-            case FJELL_FIELD_INT: {
-                int val = *static_cast<const int*>(ptr);
-                wi.widget_context->set_int(key, val);
+            case FJELL_FIELD_INT:
+                wi.widget_context->set(key, UiValue(*static_cast<const int*>(ptr)));
                 break;
-            }
             case FJELL_FIELD_BOOL:
-                wi.widget_context->set_bool(key, *static_cast<const bool*>(ptr));
+                wi.widget_context->set(key, UiValue(*static_cast<const bool*>(ptr)));
                 break;
             case FJELL_FIELD_STRING:
                 wi.widget_context->set(key, static_cast<const char*>(ptr));

@@ -47,6 +47,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_value.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_bar_dynamics.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp

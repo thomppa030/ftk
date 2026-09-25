@@ -9,6 +9,7 @@
 namespace fjell {
 
 struct UiNode;
+class UiContext;
 
 /// Typed property declaration from <prop> tags in .fjwidget files.
 struct PropDecl {
@@ -32,6 +33,10 @@ struct WidgetAsset {
 };
 
 [[nodiscard]] Result<WidgetAsset> load_widget_asset(const std::string& path);
+
+/// Every declared prop that has a default, into the context as its declared
+/// type: what a widget shows before anything binds its props.
+void set_prop_defaults(const std::vector<PropDecl>& props, UiContext& context);
 
 /// Writes the widget header, its <prop> declarations and its markup. The
 /// markup is passed separately because the tree being saved is usually the

@@ -55,6 +55,19 @@
 
 namespace fjell {
 
+namespace {
+
+/// A mock value as the widget's markup will see it: as the type its <prop>
+/// declares, or text for a key no prop declares.
+UiValue mock_value(const WidgetAsset& widget, const std::string& key, const std::string& text) {
+    for (const auto& prop : widget.props) {
+        if (prop.name == key) return UiValue::parse(text, prop.type);
+    }
+    return UiValue(text);
+}
+
+} // namespace
+
 namespace fs = std::filesystem;
 
 UiEditorContext::UiEditorContext(UiEditorDeps deps)
@@ -284,7 +297,7 @@ void UiEditorContext::open_ui(const std::string& path) {
     // Mock data goes in before the load: material="{prop}" attributes are
     // resolved once, while loading, against whatever the context holds then
     for (const auto& [key, value] : mock_entries_) {
-        preview_ui_->context().set(key, value);
+        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
     }
 
     // Load the UI — either from inline markup tree or from .fjui file
@@ -449,7 +462,7 @@ void UiEditorContext::draw_preview(float dt) {
 
     // Re-apply mock data each frame (ensures values persist after hot-reload)
     for (const auto& [key, value] : mock_entries_) {
-        preview_ui_->context().set(key, value);
+        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
     }
     sync_mock_lists();
 
@@ -1277,8 +1290,8 @@ void UiEditorContext::draw_mock_values() {
                         float f = 0.0f;
                         try { f = std::stof(value); } catch (...) {}
                         if (ui::drag("##float", f).changed) {
-                            value = std::to_string(f);
-                            preview_ui_->context().set_float(key, f);
+                            value = UiValue(f).text(); // reads back as exactly f
+                            preview_ui_->context().set(key, UiValue(f));
                             changed = true;
                         }
                     } else if (type == "int") {
@@ -1286,18 +1299,18 @@ void UiEditorContext::draw_mock_values() {
                         try { n = std::stoi(value); } catch (...) {}
                         if (ui::drag_int("##int", n).changed) {
                             value = std::to_string(n);
-                            preview_ui_->context().set_int(key, n);
+                            preview_ui_->context().set(key, UiValue(n));
                             changed = true;
                         }
                     } else if (type == "bool") {
                         bool b = value != "0" && value != "false";
                         if (ui::checkbox("##bool", b).changed) {
                             value = b ? "1" : "0";
-                            preview_ui_->context().set_bool(key, b);
+                            preview_ui_->context().set(key, UiValue(b));
                             changed = true;
                         }
                     } else if (ui::text_field("##text", value).committed) {
-                        preview_ui_->context().set(key, value);
+                        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
                         changed = true;
                     }
                     if (changed) preview_ui_->mark_dirty();
@@ -1320,7 +1333,7 @@ void UiEditorContext::draw_mock_values() {
             auto abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
             preview_ui_->load(abs_path, fjss_path_);
             for (const auto& [key, value] : mock_entries_) {
-                preview_ui_->context().set(key, value);
+                preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
             }
         }
     }

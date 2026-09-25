@@ -1,5 +1,6 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -608,62 +609,131 @@ TEST_CASE("Setting a key to its current value does not bump generation", "[datab
 
 // --- Typed values ---
 
-TEST_CASE("Bar reads typed float value", "[databind]") {
+TEST_CASE("A bar reads a number however it was published", "[databind]") {
     auto root = make_element("bar");
     root->attributes["value"] = "{hp}";
     root->attributes["max"] = "{max_hp}";
-
     UiContext ctx;
-    ctx.set_float("hp", 25.0f);
-    ctx.set_float("max_hp", 100.0f);
-    // Overwrite the stringified mirror so only the typed lookup gives 0.25 —
-    // a stof() of the string form would read 90.
-    ctx.set("hp", "90");
     UiDataBind bind;
-    bind.resolve(*root, ctx);
 
-    REQUIRE(ctx.get_float("hp") == Catch::Approx(25.0f));
+    ctx.set("hp", UiValue(25.0f));
+    ctx.set("max_hp", UiValue(100));
+    bind.resolve(*root, ctx);
     REQUIRE(root->fill_fraction == Catch::Approx(0.25f));
-}
 
-TEST_CASE("Bar reads typed int value", "[databind]") {
-    auto root = make_element("bar");
-    root->attributes["value"] = "{hp}";
-    root->attributes["max"] = "{max_hp}";
-
-    UiContext ctx;
-    ctx.set_int("hp", 3);
-    ctx.set_int("max_hp", 4);
-    UiDataBind bind;
+    // One value per name: publishing text replaces the float, it does not sit
+    // beside it.
+    ctx.set("hp", "90");
     bind.resolve(*root, ctx);
-
-    REQUIRE(root->fill_fraction == Catch::Approx(0.75f));
+    REQUIRE(root->fill_fraction == Catch::Approx(0.9f));
 }
 
-TEST_CASE("set_bool writes a template-visible string", "[databind]") {
+TEST_CASE("Values show as text the way they always have", "[databind]") {
     auto root = make_element("div");
-    auto* text = add_child(*root, make_text("{on}/{off}"));
+    auto* text = add_child(*root, make_text("{on}/{off} {n} {f} {whole}"));
 
     UiContext ctx;
-    ctx.set_bool("on", true);
-    ctx.set_bool("off", false);
+    ctx.set("on", UiValue(true));
+    ctx.set("off", UiValue(false));
+    ctx.set("n", UiValue(7));
+    ctx.set("f", UiValue(0.1f));
+    ctx.set("whole", UiValue(25.0f));
     UiDataBind bind;
     bind.resolve(*root, ctx);
 
-    REQUIRE(text->text_content == "1/0");
-    REQUIRE(ctx.get_bool("on") == true);
-    REQUIRE(ctx.get_bool("off") == false);
+    REQUIRE(text->text_content == "1/0 7 0.1 25");
 }
 
-TEST_CASE("Typed setters retract the previously typed kind", "[databind]") {
-    UiContext ctx;
-    ctx.set_int("v", 7);
-    REQUIRE(ctx.get_int("v") == 7);
-    REQUIRE(ctx.get_float("v") == Catch::Approx(7.0f)); // int falls back to float
+TEST_CASE("if= and class: test each type for truth", "[databind]") {
+    struct Case {
+        UiValue value;
+        bool truthy;
+    };
+    const Case cases[] = {
+        {UiValue(), false},        {UiValue(true), true},     {UiValue(false), false},
+        {UiValue(3), true},        {UiValue(0), false},       {UiValue(0.5f), true},
+        {UiValue(0.0f), false},    {UiValue("yes"), true},    {UiValue(""), false},
+        {UiValue("0"), false},     {UiValue("false"), false},
+    };
+    for (const auto& c : cases) {
+        auto root = make_element("div");
+        auto* shown = add_child(*root, make_element("div"));
+        shown->attributes["if"] = "v";
+        shown->attributes["class:on"] = "v";
+        UiContext ctx;
+        ctx.set("v", c.value);
+        UiDataBind bind;
+        bind.resolve(*root, ctx);
+        INFO("value shows as '" << c.value.text() << "'");
+        REQUIRE(shown->hidden_by_if == !c.truthy);
+        REQUIRE(shown->has_class("on") == c.truthy);
+    }
+}
 
-    ctx.set_float("v", 1.5f);
-    REQUIRE(ctx.get_float("v") == Catch::Approx(1.5f));
-    REQUIRE_FALSE(ctx.get_int("v").has_value());
+TEST_CASE("class: with == compares the value as markup shows it", "[databind]") {
+    auto root = make_element("div");
+    auto* slot = add_child(*root, make_element("div"));
+    slot->attributes["class:active"] = "selected==2";
+    UiContext ctx;
+    UiDataBind bind;
+
+    ctx.set("selected", UiValue(2));
+    bind.resolve(*root, ctx);
+    REQUIRE(slot->has_class("active"));
+
+    ctx.set("selected", "3");
+    bind.resolve(*root, ctx);
+    REQUIRE_FALSE(slot->has_class("active"));
+}
+
+TEST_CASE("An unchanged value of the same type changes nothing", "[databind]") {
+    UiContext ctx;
+    ctx.set("v", UiValue(7));
+    const auto gen = ctx.generation();
+    ctx.set("v", UiValue(7));
+    REQUIRE(ctx.generation() == gen);
+    ctx.set("v", UiValue(8));
+    REQUIRE(ctx.generation() > gen);
+}
+
+TEST_CASE("A prop bound to a value keeps the type its widget declares", "[databind]") {
+    auto root = make_element("div");
+    auto* widget = add_child(*root, make_element("health-bar"));
+    widget->is_widget = true;
+    widget->scoped_context = std::make_unique<UiContext>();
+    widget->widget_props = {{"value", "float", "100"}, {"count", "int", ""}, {"label", "string", ""}};
+    set_prop_defaults(widget->widget_props, *widget->scoped_context);
+    widget->prop_map["value"] = "{hp}";
+    widget->prop_map["count"] = "{stack}";
+    widget->prop_map["label"] = "HP {hp}";
+    auto* bar = add_child(*widget, make_element("bar"));
+    bar->attributes["value"] = "{value}";
+    bar->attributes["max"] = "100";
+
+    UiContext ctx;
+    ctx.set("hp", "72");
+    ctx.set("stack", UiValue(3.9f));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    // The bound value replaces the default: a bar never reads a stale one.
+    REQUIRE(bar->fill_fraction == Catch::Approx(0.72f));
+    REQUIRE(*widget->scoped_context->find("value") == UiValue(72.0f));
+    REQUIRE(*widget->scoped_context->find("count") == UiValue(3));
+    REQUIRE(*widget->scoped_context->find("label") == UiValue("HP 72"));
+}
+
+TEST_CASE("Prop defaults take their declared types", "[databind]") {
+    UiContext ctx;
+    set_prop_defaults({{"a", "float", "2.5"}, {"b", "int", "4"}, {"c", "bool", "false"},
+                       {"d", "string", "hi"}, {"e", "float", "wide"}, {"f", "int", ""}},
+                      ctx);
+    REQUIRE(*ctx.find("a") == UiValue(2.5f));
+    REQUIRE(*ctx.find("b") == UiValue(4));
+    REQUIRE(*ctx.find("c") == UiValue(false));
+    REQUIRE(*ctx.find("d") == UiValue("hi"));
+    REQUIRE(*ctx.find("e") == UiValue("wide")); // not a number: kept as written
+    REQUIRE(ctx.find("f") == nullptr);           // no default: nothing set
 }
 
 // --- Parent context chaining ---
@@ -671,13 +741,13 @@ TEST_CASE("Typed setters retract the previously typed kind", "[databind]") {
 TEST_CASE("Child context falls back to parent for missing keys", "[databind]") {
     UiContext parent;
     parent.set("name", "root");
-    parent.set_float("hp", 10.0f);
+    parent.set("hp", UiValue(10.0f));
 
     UiContext child;
     child.set_parent(&parent);
 
     REQUIRE(child.get("name") == "root");
-    REQUIRE(child.get_float("hp") == Catch::Approx(10.0f));
+    REQUIRE(*child.find("hp")->number() == Catch::Approx(10.0f));
 
     child.set("name", "own");
     REQUIRE(child.get("name") == "own");

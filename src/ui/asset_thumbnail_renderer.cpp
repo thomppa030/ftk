@@ -604,9 +604,7 @@ public:
             // before the load, which is when material="{prop}" is resolved,
             // and replace whatever the previous thumbnail left behind.
             ui_->context().clear();
-            for (const auto& prop : asset->props) {
-                if (!prop.default_value.empty()) ui_->context().set(prop.name, prop.default_value);
-            }
+            set_prop_defaults(asset->props, ui_->context());
             ui_->load_from_tree(UiDataBind::clone_node(*asset->markup_root, nullptr), fjss,
                                 markup.parent_path().string(), path);
         } else {

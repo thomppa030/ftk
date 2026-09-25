@@ -7,14 +7,23 @@ Declared in `ui_context.hpp`; widgets reach it through `UiWidget::ui()`.
 ## The API
 
 ```cpp
-ctx.set("player.health", "72");        // values are strings
-ctx.set_int("hp", 72);                  // "72"
-ctx.set_float("ratio", 0.5f);           // "0.5"
-ctx.set_bool("show_debug", true);       // "1"
-std::string hp = ctx.get("player.health");   // "" when never set
+ctx.set("player.health", "72");         // text
+ctx.set("hp", UiValue(72));             // an int: {hp} shows "72", a bar reads 72
+ctx.set("ratio", UiValue(0.5f));        // a float: shows "0.5"
+ctx.set("show_debug", UiValue(true));   // a bool: shows "1", true for if=
+std::string hp = ctx.get("player.health");   // as markup shows it; "" when never set
+const UiValue* ratio = ctx.find("ratio");    // the value itself; null when never set
 ctx.dispatch("use_item");               // fire an action from code
 ctx.dispatch("select_slot", {"3"});     // with arguments
 ```
+
+Each name holds one `UiValue` (`ui_value.hpp`), which keeps the type it was given:
+text, a bool, an int or a float. Markup reads it as text for `{key}`, as a number
+for a bar's `value` and `max`, and as true or false for `if=` and `class:`, where
+false is no value, `false`, zero, and the texts `""`, `"0"` and `"false"`. Setting
+the same type and value again changes nothing. A widget's props are stored as the
+types its `<prop>` declarations name, whether they come from a default or from the
+placement: `value="{hp}"` on a `float` prop hands over the number itself.
 
 Bindings:
 
@@ -83,8 +92,8 @@ that drives a UI without the subsystem) owns its own root context, reached with
 ## When to use it
 
 Push what the UI reads, and nothing else. A HUD needs the health value, not the
-`Player`; convert at the boundary and keep formatting on the game side, since values
-are strings.
+`Player`; convert at the boundary and keep formatting on the game side: a script
+publishes text through `ui().set()`.
 
 ```cpp
 void hud_controller::begin_play() {
@@ -94,7 +103,7 @@ void hud_controller::begin_play() {
     fjell::Node3D player(fjell::SceneAPI::find_node_with<PlayerStats>());
     if (auto* stats = player.get_component<PlayerStats>()) {
         health_connection_ = stats->on_health_changed.bind(
-            [this](int, int hp) { ui().set_int("player.health", hp); });
+            [this](int, int hp) { ui().set("player.health", std::to_string(hp)); });
     }
 }
 ```

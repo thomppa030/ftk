@@ -167,23 +167,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
 
         child.scoped_context = std::make_unique<UiContext>(&parent_context);
 
-        // Set prop defaults in the scoped context
-        for (const auto& prop : widget_asset->props) {
-            if (!prop.default_value.empty()) {
-                if (prop.type == "float") {
-                    try { child.scoped_context->set_float(prop.name, std::stof(prop.default_value)); }
-                    catch (...) { child.scoped_context->set(prop.name, prop.default_value); }
-                } else if (prop.type == "int") {
-                    try { child.scoped_context->set_int(prop.name, std::stoi(prop.default_value)); }
-                    catch (...) { child.scoped_context->set(prop.name, prop.default_value); }
-                } else if (prop.type == "bool") {
-                    child.scoped_context->set_bool(prop.name,
-                        prop.default_value != "0" && prop.default_value != "false");
-                } else {
-                    child.scoped_context->set(prop.name, prop.default_value);
-                }
-            }
-        }
+        set_prop_defaults(widget_asset->props, *child.scoped_context);
 
         // Build prop_map and validate against declared props
         for (const auto& [attr, value] : child.attributes) {

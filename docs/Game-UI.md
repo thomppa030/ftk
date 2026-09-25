@@ -295,8 +295,8 @@ auto& ctx = vulkan_context_.game_ui().context();
 // Set values (read by {key} bindings, if directives, class: bindings)
 ctx.set("player.health", "72");
 ctx.set("player.max_health", "100");
-ctx.set_int("score", 1500);
-ctx.set_float("stamina", 0.85f);
+ctx.set("score", UiValue(1500));     // keeps its type: a bar reads the number
+ctx.set("stamina", UiValue(0.85f));
 ctx.set("show_debug", "1");          // truthy for if="show_debug"
 ctx.set("active_slot", "2");         // drives class:active="active_slot==2"
 
