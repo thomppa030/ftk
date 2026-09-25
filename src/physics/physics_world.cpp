@@ -13,6 +13,7 @@
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/model.hpp"
 #include "scene/scene.hpp"
+#include "scene/transform_blend.hpp"
 
 #include <Jolt/Jolt.h>
 
@@ -453,6 +454,11 @@ struct PhysicsWorld::Impl {
         uint32_t object_id;
         int32_t bone;
         JPH::BodyID body;
+        // The bone's model-space pose the body was last placed at. Animation
+        // is sampled once a frame, and a frame's steps close the gap from here
+        // to the new pose evenly between them.
+        Transform pose{};
+        bool has_pose{false};
     };
     std::vector<BoneBody> bone_bodies;
 
@@ -1227,7 +1233,7 @@ void sort_events(std::vector<std::pair<uint32_t, CollisionEvent>>& events) {
 
 } // namespace
 
-void PhysicsWorld::step(float dt, Scene& scene) {
+void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
     FJELL_PROFILE_SCOPE_N("physics_step");
     if (dt <= 0.0f) return;
     impl_->contact_listener.clear();
@@ -1259,8 +1265,12 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     // Move bone bodies onto their bones. MoveKinematic rather than a teleport
     // so each body carries the velocity implied by the motion — a limb sweeping
     // through a dynamic object pushes it instead of passing through.
+    //
+    // The share of the way to a target the frame set that this step covers:
+    // all of it on a frame's last step, an even part of what is left before.
+    const float share = 1.0f / static_cast<float>(std::max(steps_left, 1));
     if (!impl_->bone_bodies.empty()) {
-        for (const auto& entry : impl_->bone_bodies) {
+        for (auto& entry : impl_->bone_bodies) {
             auto* node = scene.find_spatial(entry.object_id);
             if (node == nullptr) continue;
             auto* anim = node->components.get<AnimatorComponent>();
@@ -1271,9 +1281,15 @@ void PhysicsWorld::step(float dt, Scene& scene) {
                 continue;
             }
 
-            // Bone transforms are model-space, so the node's world matrix puts
-            // them where the character actually is.
-            glm::mat4 world = node->world_matrix_ * bones[static_cast<size_t>(entry.bone)];
+            // The frame's pose, reached a share at a time over its steps.
+            const Transform target = decompose_matrix(bones[static_cast<size_t>(entry.bone)]);
+            entry.pose = entry.has_pose ? blend(entry.pose, target, share) : target;
+            entry.has_pose = true;
+
+            // Bone transforms are model-space, so the node's placement puts
+            // them where the character is: in the simulation, this step, not
+            // where it was last drawn.
+            glm::mat4 world = scene.current_world_matrix(*node) * entry.pose.matrix();
             glm::vec3 position{world[3]};
             // The shape already baked the node's scale, so the rotation has to
             // come from a normalized basis or it would be scaled twice.
@@ -1297,9 +1313,22 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
-        bi.MoveKinematic(it->second,
-                         to_jolt(spatial->transform.position),
-                         to_jolt_quat(spatial->transform.rotation),
+        // Moved inside this step (a script's fixed_tick), the target is this
+        // step's and is reached now. Set once a frame (in tick, or from
+        // outside), it is shared out over the frame's steps, so the body moves
+        // on each of them instead of covering the frame on the first and
+        // standing still for the rest, stalling what rides on it.
+        const Transform& target = spatial->transform;
+        const bool moved_in_step = target.position != spatial->step_start_transform_.position ||
+                                   target.rotation != spatial->step_start_transform_.rotation;
+        Transform goal = target;
+        if (!moved_in_step) {
+            const Transform current{.position = to_glm(bi.GetPosition(it->second)),
+                                    .rotation = to_glm_quat(bi.GetRotation(it->second)),
+                                    .scale = target.scale};
+            goal = blend(current, target, share);
+        }
+        bi.MoveKinematic(it->second, to_jolt(goal.position), to_jolt_quat(goal.rotation),
                          std::max(dt, 1.0f / 120.0f));
     }
 

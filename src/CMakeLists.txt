@@ -44,6 +44,7 @@ add_executable(fjell
     core/engine.cpp
     core/subsystem.cpp
     environment/environment_resolver.cpp
+    environment/environment_fixed.cpp
     environment/material_track.cpp
     environment/material_track_scene.cpp
     environment/environment_subsystem.cpp

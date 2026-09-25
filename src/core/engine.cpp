@@ -159,7 +159,9 @@ void Engine::init_subsystems() {
     // from it, not from the scene's nodes.
     play_phase_1_.push_back(environment_subsystem_);
     // The simulation, run once per fixed step rather than once per frame:
-    // scripts' fixed_tick first, so what they set moves with this step.
+    // the environment's side first (the wind and the water physics reads),
+    // then scripts' fixed_tick, so what they set moves with this step.
+    play_fixed_.push_back(environment_subsystem_);
     play_fixed_.push_back(script_subsystem_);
     play_fixed_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
@@ -1759,6 +1761,7 @@ void Engine::run_fixed_steps() {
             .dt = static_cast<float>(step.dt),
             .time = step.time,
             .index = step.index,
+            .frame_steps_left = steps - i,
             .physics = physics_subsystem_->world(),
             .project = project_mgr_.active(),
             .resources = resource_manager_.get(),

@@ -38,6 +38,11 @@ struct FixedTickContext {
     double         time;
     /// How many steps this session took before this one.
     std::uint64_t  index;
+    /// How many of this frame's steps are left, this one included. For a
+    /// target the frame set (a kinematic moved in tick, a pose animation
+    /// sampled per frame) to be spread evenly over the frame's steps rather
+    /// than reached on the first. Nothing else in a step may depend on it.
+    int            frame_steps_left{1};
 
     PhysicsWorld*    physics{nullptr};
     const Project*   project{nullptr};

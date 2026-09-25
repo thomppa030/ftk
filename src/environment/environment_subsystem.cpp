@@ -78,7 +78,16 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     update_lightning(ctx);
     dispatch_changes(ctx);
 
-    update_water(ctx);
+    update_water_media(ctx);
+    // While the game runs, the simulation advances the water in its own
+    // steps (see fixed_tick). Outside play the frame does it: a sea's answer
+    // to the wind is something an artist tunes by watching it, and the
+    // weather editor scrubs a front past a scene precisely so they can;
+    // stopping at the play boundary would leave that dial blind.
+    if (!playing()) {
+        advance_water(ctx.scene, state_.motion_sources, ctx.dt, ctx.clock.game_elapsed(),
+                      ctx.workers);
+    }
     update_breathing(ctx);
 
     // The sun light is driven, not authored, while a time of day runs: keep
@@ -501,39 +510,11 @@ void EnvironmentSubsystem::stop_lightning(Scene& scene) {
     pending_thunder_.clear();
 }
 
-void EnvironmentSubsystem::update_water(const TickContext& ctx) {
-    // The sustained wind, deliberately without the gust that a sail or a
-    // leaf gets. A gust breathes on about a one-second cycle, and a sea that
-    // answered it would swing its whole height with it — measured at a gale,
-    // between 0.93x and 2.27x every second, the entire ocean heaving. Real
-    // water does not work that way: wind takes minutes to hours to raise a
-    // sea, and what a gust does meanwhile is ruffle the surface, which is the
-    // material's business and not the wave field's.
-    const glm::vec3 wind = state_.weather.wind_direction * state_.weather.wind_speed;
-    const glm::vec2 blowing{wind.x, wind.z};
-
-    // Water has mass: the field follows the wind rather than tracking it, so
-    // a front raises a sea over its passage instead of at its arrival. The
-    // curve and its rates live beside the evaluator, where they are tested.
-    if (!sea_wind_.has_value()) {
-        // First tick: start at what is already blowing, so a scene opens with
-        // the sea its weather implies instead of building one up from calm.
-        sea_wind_ = blowing;
-    }
-    sea_wind_ = water::advance_sea_wind(*sea_wind_, blowing, ctx.dt);
-
-    const glm::vec2 wind_xz = *sea_wind_;
-
-    // Unlike rain and lightning this runs in the editor as well as in play.
-    // A sea's answer to the wind is something an artist tunes by watching it,
-    // and the weather editor scrubs a front past a scene precisely so they
-    // can; stopping at the play boundary would leave that dial blind.
-    const float time = ctx.clock.game_elapsed();
+void EnvironmentSubsystem::update_water_media(const TickContext& ctx) {
     state_.water_media.clear();
     for (const auto& obj : ctx.scene.objects()) {
         auto* water = obj->components.get<WaterComponent>();
         if (water == nullptr) continue;
-        water->effective_water = water->derivation.derive(water->water, wind_xz, ctx.workers);
 
         // What the body of the water is made of, for the fog pass. The
         // material is followed through its handle, which a reload of the
@@ -555,23 +536,6 @@ void EnvironmentSubsystem::update_water(const TickContext& ctx) {
             medium.uniforms = water->medium_values_;
             state_.water_media.push_back(std::move(medium));
         }
-
-        // What has moved through it, on top of the sea the wind made. The
-        // trails are laid against that sea, since whether a wader's feet are
-        // in the water depends on where the waves have put it.
-        const auto* spatial = obj->as_spatial();
-        if (spatial == nullptr) continue;
-        const glm::vec3 centre{spatial->world_matrix_[3]};
-        water::WakePlacement placement;
-        placement.surface_y = centre.y;
-        placement.vertex_spacing = water->vertex_spacing();
-        if (water->extent == WaterComponent::Extent::bounded) {
-            const glm::vec2 half(water->size * 0.5f);
-            placement.square = std::make_pair(glm::vec2(centre.x, centre.z) - half,
-                                              glm::vec2(centre.x, centre.z) + half);
-        }
-        water->wakes.advance(state_.motion_sources, water->effective_water, placement, time);
-        water->effective_water.wakes = water->wakes.sources();
     }
 }
 

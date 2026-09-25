@@ -21,12 +21,6 @@ float approach(float value, float target, float dt, float seconds) {
     return value + (target - value) * k;
 }
 
-// A steady, deterministic gust: a few sines that never line up, so the wind
-// breathes without repeating in a way anyone notices. Returns roughly -1..1.
-float gust_noise(float t) {
-    return 0.5f * std::sin(t * 1.3f) + 0.3f * std::sin(t * 2.7f + 1.0f) + 0.2f * std::sin(t * 5.1f + 2.0f);
-}
-
 glm::vec3 heading_direction(float degrees) {
     const float yaw = glm::radians(degrees);
     return glm::vec3{std::sin(yaw), 0.0f, std::cos(yaw)};
@@ -43,6 +37,14 @@ glm::vec3 weighted_multiplier(const glm::vec3& value, float weight) {
 }
 
 } // namespace
+
+float wind_gust_at(float strength, float time) {
+    // A few sines that never line up, so the wind breathes without repeating
+    // in a way anyone notices: roughly -1..1.
+    const float noise = 0.5f * std::sin(time * 1.3f) + 0.3f * std::sin(time * 2.7f + 1.0f)
+                      + 0.2f * std::sin(time * 5.1f + 2.0f);
+    return std::max(1.0f + strength * 0.6f * noise, 0.0f);
+}
 
 float WeatherPlayer::Playing::progress() const {
     const float duration = durations[static_cast<size_t>(phase)];
@@ -262,7 +264,8 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
     if (wind_dir_weight > 0.0f && glm::length(wind_dir) > 1e-4f) {
         w.wind_direction = glm::normalize(wind_dir);
     }
-    w.wind_gust = std::max(1.0f + wind_gust_strength * 0.6f * gust_noise(gust_time_), 0.0f);
+    w.wind_gust_strength = wind_gust_strength;
+    w.wind_gust = wind_gust_at(wind_gust_strength, gust_time_);
     wind_drift_ += glm::vec2(w.wind_direction.x, w.wind_direction.z) * (w.wind_speed * w.wind_gust * dt);
     w.wind_drift = wind_drift_;
 

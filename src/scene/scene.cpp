@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/transform_blend.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "scripting/fjell/component.hpp"
@@ -565,11 +566,8 @@ void Scene::interpolate(float alpha) {
     for (auto& obj : objects_) {
         auto* spatial = obj->as_spatial();
         if (spatial == nullptr || !spatial->interpolated_) continue;
-        const Transform& from = spatial->step_start_transform_;
-        const Transform& to = spatial->step_end_transform_;
-        spatial->interpolated_transform_.position = glm::mix(from.position, to.position, alpha);
-        spatial->interpolated_transform_.rotation = glm::slerp(from.rotation, to.rotation, alpha);
-        spatial->interpolated_transform_.scale = glm::mix(from.scale, to.scale, alpha);
+        spatial->interpolated_transform_ =
+            blend(spatial->step_start_transform_, spatial->step_end_transform_, alpha);
     }
 }
 

@@ -6,10 +6,15 @@
 #include "environment/weather_player.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
+#include <glm/glm.hpp>
+
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -20,6 +25,7 @@ class AudioSubsystem;
 class ScriptSubsystem;
 class VfxSubsystem;
 class ResourceManager;
+class ThreadPool;
 class Scene;
 struct DayProfileAsset;
 struct WeatherAsset;
@@ -43,6 +49,12 @@ public:
     void tick(const TickContext& ctx) override;
 
     [[nodiscard]] const EnvironmentState& state() const { return state_; }
+
+    /// The wind the simulation pushes with in the current fixed step: the
+    /// frame's weather, its gust taken at the step's own time so the push is
+    /// the same whatever the frame rate. What is drawn blows with
+    /// `state().weather` instead.
+    [[nodiscard]] glm::vec3 fixed_wind() const { return fixed_wind_; }
 
     // ── Time of day control ──
     // For scripts and the editor. Each writes the ticked scene's world
@@ -100,6 +112,11 @@ public:
     void set_vfx(VfxSubsystem* vfx) { vfx_ = vfx; }
 
 protected:
+    /// What the simulation reads from the environment, advanced by the step:
+    /// the wind it pushes with, the sea's lag behind the wind, the wave field
+    /// that makes, and the wakes laid in it. What is only drawn stays in
+    /// tick(). Lives in environment_fixed.cpp.
+    void fixed_tick(const FixedTickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;
 
 private:
@@ -121,9 +138,16 @@ private:
     /// Light the world from a strike and set its thunder on its way.
     void update_lightning(const TickContext& ctx);
     void stop_lightning(Scene& scene);
+    /// Keep what each body of water is made of, for the fog pass.
+    void update_water_media(const TickContext& ctx);
     /// Blow the resolved wind through every body of water, so each one's
-    /// effective wave field is the sea the weather is making of it.
-    void update_water(const TickContext& ctx);
+    /// effective wave field is the sea the weather is making of it, and lay
+    /// the wakes of what moves through it: advanced `dt` to `time`, with the
+    /// movers where `sources` puts them. The simulation does it once per step
+    /// while playing; outside play the frame does, so the editor's sea still
+    /// answers the weather.
+    void advance_water(Scene& scene, std::span<const MotionSource> sources, float dt, float time,
+                       ThreadPool* workers);
     /// Fire the script hooks for whatever changed since last frame.
     void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);
@@ -156,6 +180,13 @@ private:
     /// until the first tick, which starts it at whatever is already blowing
     /// rather than building the sea up from a calm the scene never had.
     std::optional<glm::vec2> sea_wind_;
+
+    /// The simulation's side, refreshed each fixed step: the wind it pushes
+    /// with, what stirs the water and where each of those was last step, to
+    /// tell how fast a mover without a stated velocity goes.
+    glm::vec3 fixed_wind_{0.0f};
+    std::vector<MotionSource> fixed_sources_;
+    std::unordered_map<uint32_t, glm::vec3> fixed_source_positions_;
 
     /// Breath, from whoever has their head under a water surface: every few
     /// seconds a cluster of larger bubbles and a short stream of small ones

@@ -19,8 +19,7 @@ namespace fjell {
 
 void PhysicsSubsystem::apply_wind(const FixedTickContext& ctx) {
     if (environment_ == nullptr) return;
-    const auto& weather = environment_->state().weather;
-    const glm::vec3 wind = weather.wind_direction * (weather.wind_speed * weather.wind_gust);
+    const glm::vec3 wind = environment_->fixed_wind();
     // Below a breeze there is nothing to feel, and walking every body to
     // push it by nothing is not worth the frame.
     if (glm::length(wind) < 0.1f) return;

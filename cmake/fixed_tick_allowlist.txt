@@ -1,6 +1,3 @@
 # Simulation files that still read the frame. cmake/FixedTickCheck.cmake skips
 # these. When a file is fixed, delete its line here: the check fails while a
 # listed file has nothing left to allow, so the list only shrinks.
-#
-# Bone bodies are placed from the node's rendered world matrix.
-src/physics/physics_world.cpp

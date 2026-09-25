@@ -127,6 +127,33 @@ void blend_profiled(EnvironmentState& from, const EnvironmentState& to, float t)
 
 } // namespace
 
+std::optional<MotionSource> motion_source_of(const Node& node) {
+    const auto* explicit_source = node.components.get<MotionSourceComponent>();
+    const auto* character = node.components.get<CharacterComponent>();
+    if (explicit_source == nullptr && character == nullptr) return std::nullopt;
+
+    // Where the node's own size answers, when the component does not: a
+    // capsule's girth and how far it stands above its feet.
+    const float default_radius = character != nullptr ? character->capsule_radius : 0.5f;
+    const float default_height =
+        character == nullptr ? 1.8f
+        : (character->feet_at_origin ? character->capsule_height
+                                     : character->capsule_height * 0.5f);
+    const float default_bottom =
+        character != nullptr && !character->feet_at_origin ? character->capsule_height * 0.5f
+                                                           : 0.0f;
+
+    MotionSource source;
+    source.node_id = node.id;
+    source.radius = explicit_source != nullptr && explicit_source->radius > 0.0f
+                        ? explicit_source->radius : default_radius;
+    source.height = explicit_source != nullptr && explicit_source->height > 0.0f
+                        ? explicit_source->height : default_height;
+    source.bottom = default_bottom;
+    source.strength = explicit_source != nullptr ? explicit_source->strength : 1.0f;
+    return source;
+}
+
 EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
                                     const WeatherSkyOverride* weather_sky_override, float dt) {
     EnvironmentState state;
@@ -255,42 +282,20 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
         // mean the ground under someone's feet is unmarked until they move, so
         // a first step begins a stride away from where they were standing.
         if (const auto* spatial = obj->as_spatial()) {
-            const auto* explicit_source = obj->components.get<MotionSourceComponent>();
-            const auto* character = obj->components.get<CharacterComponent>();
-            if (explicit_source != nullptr || character != nullptr) {
-                // Where the node's own size answers, when the component does
-                // not: a capsule's girth and how far it stands above its feet.
-                const float default_radius = character != nullptr ? character->capsule_radius : 0.5f;
-                const float default_height =
-                    character == nullptr ? 1.8f
-                    : (character->feet_at_origin ? character->capsule_height
-                                                 : character->capsule_height * 0.5f);
-                const float default_bottom =
-                    character != nullptr && !character->feet_at_origin
-                        ? character->capsule_height * 0.5f : 0.0f;
-
-                MotionSource source;
-                source.node_id = obj->id;
-                source.position = glm::vec3(spatial->world_matrix_[3]);
+            if (auto source = motion_source_of(*obj)) {
+                source->position = glm::vec3(spatial->world_matrix_[3]);
                 // A character states its velocity; anything else is measured
                 // by where it was. `prev_world_matrix_` is kept for motion
                 // vectors and costs nothing to read, so a rigid body, an
                 // animated prop and a scripted mover all stir the world
                 // without physics having to reach into this.
-                source.velocity = glm::vec3(0.0f);
-                if (character != nullptr) {
-                    source.velocity = character->velocity;
+                if (const auto* character = obj->components.get<CharacterComponent>()) {
+                    source->velocity = character->velocity;
                 } else if (dt > 0.0f) {
-                    source.velocity = (glm::vec3(spatial->world_matrix_[3]) -
-                                       glm::vec3(spatial->prev_world_matrix_[3])) / dt;
+                    source->velocity = (glm::vec3(spatial->world_matrix_[3]) -
+                                        glm::vec3(spatial->prev_world_matrix_[3])) / dt;
                 }
-                source.radius = explicit_source != nullptr && explicit_source->radius > 0.0f
-                                    ? explicit_source->radius : default_radius;
-                source.height = explicit_source != nullptr && explicit_source->height > 0.0f
-                                    ? explicit_source->height : default_height;
-                source.bottom = default_bottom;
-                source.strength = explicit_source != nullptr ? explicit_source->strength : 1.0f;
-                state.motion_sources.push_back(source);
+                state.motion_sources.push_back(*source);
             }
         }
 

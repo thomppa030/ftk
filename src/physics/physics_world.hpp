@@ -39,7 +39,11 @@ public:
     /// Destroys a node's body. A no-op when it has none.
     void destroy_body(uint32_t object_id);
 
-    void step(float dt, Scene& scene);
+    /// Advance the world one step of `dt`. `steps_left` is how many of the
+    /// frame's steps are left, this one included: a target the frame set for
+    /// a kinematic or bone body is spread evenly over them, so a body the
+    /// frame moves once still moves on every step. 1 reaches it now.
+    void step(float dt, Scene& scene, int steps_left = 1);
 
     void apply_force(uint32_t object_id, const glm::vec3& force);
     /// Apply a force at a world-space point rather than at the centre of

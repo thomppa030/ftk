@@ -14,3 +14,4 @@ src/renderer/resources/water_wake.cpp
 src/renderer/resources/water_wake.hpp
 src/core/fixed_timestep.cpp
 src/core/fixed_timestep.hpp
+src/environment/environment_fixed.cpp

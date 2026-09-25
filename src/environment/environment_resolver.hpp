@@ -2,9 +2,12 @@
 
 #include "environment/environment_state.hpp"
 
+#include <optional>
+
 namespace fjell {
 
 class Scene;
+struct Node;
 struct WorldEnvironmentNode;
 struct VolumetricFogNode;
 struct WeatherSkyOverride;
@@ -51,6 +54,13 @@ struct WeatherSkyOverride;
 /// `dt` is how long the frame took, for measuring what a node without a
 /// stated velocity did by where it was. Zero leaves those sources still,
 /// which is what a caller resolving outside the frame loop wants.
+/// The motion source a node carries, sized by its MotionSourceComponent or,
+/// failing that, by its character capsule; nothing for a node with neither.
+/// It comes without a position or a velocity: the frame places a source where
+/// it is drawn, the simulation where it is this step, and each says how fast
+/// it moves its own way.
+[[nodiscard]] std::optional<MotionSource> motion_source_of(const Node& node);
+
 [[nodiscard]] EnvironmentState resolve_environment(const Scene& scene, bool moon_led = false,
                                                    const WeatherSkyOverride* weather_sky_override = nullptr,
                                                    float dt = 0.0f);

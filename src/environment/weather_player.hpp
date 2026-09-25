@@ -17,6 +17,12 @@ struct EnvironmentState;
 
 /// How fast surfaces take on and shed the weather, in seconds to move most
 /// of the way to the target. Project settings; the same for every event.
+/// The multiplier on the wind's speed a gust of `strength` gives at `time`.
+/// A steady, deterministic breathing from a few sines that never line up, so
+/// the same time always gives the same gust: the frame reads it for what is
+/// drawn, and the simulation at its own step's time for what the wind pushes.
+[[nodiscard]] float wind_gust_at(float strength, float time);
+
 struct WeatherRates {
     float wetting_seconds{60.0f};
     float drying_seconds{600.0f};

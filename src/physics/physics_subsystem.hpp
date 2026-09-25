@@ -43,7 +43,7 @@ protected:
         FJELL_PROFILE_SCOPE_N("physics_step");
         apply_wind(ctx);
         apply_buoyancy(ctx);
-        world_->step(ctx.dt, ctx.scene);
+        world_->step(ctx.dt, ctx.scene, ctx.frame_steps_left);
     }
 
 private:
