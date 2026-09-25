@@ -1246,7 +1246,7 @@ void UiEditorContext::draw_mock_data() {
     const char* title = prompt_for_ == MockPrompt::Value ? "New value"
                       : prompt_for_ == MockPrompt::List  ? "New list"
                                                          : "New field";
-    const char* hint = prompt_for_ == MockPrompt::Value ? "Its key, e.g. player.health"
+    const char* hint = prompt_for_ == MockPrompt::Value ? "Its key, e.g. health"
                      : prompt_for_ == MockPrompt::List  ? "The key foreach= names, e.g. inventory"
                                                         : "Its key within the item, e.g. name";
     if (ui::prompt_dialog("##mock_prompt", {.title = title, .hint = hint, .confirm = "Add"}, prompt_text_) ==
