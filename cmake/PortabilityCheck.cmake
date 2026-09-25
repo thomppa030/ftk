@@ -37,12 +37,6 @@ function(fjell_check_posix_includes)
             if(source MATCHES "/platform/(linux|windows)/")
                 continue()
             endif()
-            # fjreflect runs inside a project's script build and depends on
-            # nothing from the engine, so it carries its own popen/_popen
-            # shim instead of linking fjell-platform.
-            if(source MATCHES "/tools/fjreflect/")
-                continue()
-            endif()
             file(STRINGS "${source}" hits REGEX "${pattern}")
             foreach(hit IN LISTS hits)
                 string(STRIP "${hit}" hit)
