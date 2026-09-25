@@ -389,7 +389,12 @@ void PlayController::start() {
     // The simulation starts where game time is, so anything that follows
     // game time (the water shaders) and the simulation agree from the first
     // step. A frame counts for no more game time than the steps it may run.
-    fixed_timestep_.reset(1.0 / FixedTimestep::DEFAULT_TICK_RATE, s_.clock->game_elapsed());
+    const Project* project = s_.project_mgr->active();
+    const std::uint32_t tick_rate = project != nullptr ? project->config().simulation.fixed_tick_rate
+                                                       : FixedTimestep::DEFAULT_TICK_RATE;
+    fixed_timestep_.reset(1.0 / tick_rate, s_.clock->game_elapsed());
+    step_stats_ = {};
+    step_stats_.tick_rate = tick_rate;
     step_input_.reset();
     s_.clock->set_max_game_delta(static_cast<float>(fixed_timestep_.max_frame_seconds()));
 
@@ -452,6 +457,7 @@ void PlayController::stop() {
 
     session_.reset();
     state_ = PlayState::stopped;
+    step_stats_ = {};
     s_.vulkan->set_playing(false);
     // The request dies with the session that made it: scripts are gone, so
     // nothing is left to ask again, and a stale one would start the next

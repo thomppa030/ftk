@@ -1,5 +1,6 @@
 #include "ui/project_settings_window.hpp"
 
+#include "core/fixed_timestep.hpp"
 #include "core/project_manager.hpp"
 #include "core/project.hpp"
 #include "renderer/render_settings.hpp"
@@ -73,6 +74,7 @@ void ProjectSettingsWindow::draw() {
         {ui::icon::rendering, "Rendering"},
         {ui::icon::ui_layout, "Game UI"},
         {ui::icon::world_environment, "Environment"},
+        {ui::icon::simulation, "Simulation"},
     };
 
     Project* project = projects_ != nullptr ? projects_->active() : nullptr;
@@ -139,6 +141,7 @@ void ProjectSettingsWindow::draw_page(Page page) {
         case Page::Rendering: draw_rendering(); break;
         case Page::GameUi: draw_game_ui(); break;
         case Page::Environment: draw_environment(); break;
+        case Page::Simulation: draw_simulation(); break;
     }
 }
 
@@ -146,7 +149,8 @@ bool ProjectSettingsWindow::unsaved() const {
     const Project* project = projects_->active();
     const ProjectConfig& now = project->config();
     const ProjectConfig& saved = project->saved_config();
-    return now.render != saved.render || now.ui != saved.ui || now.environment != saved.environment;
+    return now.render != saved.render || now.ui != saved.ui || now.environment != saved.environment ||
+           now.simulation != saved.simulation;
 }
 
 void ProjectSettingsWindow::revert() {
@@ -156,6 +160,7 @@ void ProjectSettingsWindow::revert() {
     config.render = saved.render;
     config.ui = saved.ui;
     config.environment = saved.environment;
+    config.simulation = saved.simulation;
     vk_->set_render_settings(config.render);
 }
 
@@ -213,6 +218,30 @@ void ProjectSettingsWindow::draw_environment() {
                            {.speed = 1.0f, .min = 1.0f, .max = 7200.0f, .unit = ui::Unit::Seconds, .format = "%.0f"});
         });
         ui::hint("How long surfaces take to take on and shed the weather");
+    }
+}
+
+void ProjectSettingsWindow::draw_simulation() {
+    auto& simulation = projects_->active()->config().simulation;
+    constexpr int MIN_RATE = static_cast<int>(FixedTimestep::MIN_TICK_RATE);
+    constexpr int MAX_RATE = static_cast<int>(FixedTimestep::MAX_TICK_RATE);
+    if (auto t = ui::PropertyTable("##simulation")) {
+        ui::row("Fixed tick rate",
+                "How many fixed steps the simulation takes per second of game time. Physics, "
+                "scripts' fixed_tick and the environment's simulated half run at this rate, and "
+                "drawing blends between their steps. Takes effect the next time play starts.",
+                [&] {
+                    int rate = static_cast<int>(simulation.fixed_tick_rate);
+                    if (ui::drag_int("##fixed_tick_rate", rate, 0.5f, MIN_RATE, MAX_RATE, ui::Unit::Hertz)
+                            .changed) {
+                        simulation.fixed_tick_rate = static_cast<uint32_t>(std::clamp(rate, MIN_RATE, MAX_RATE));
+                    }
+                });
+        const double slowest = static_cast<double>(simulation.fixed_tick_rate) /
+                               FixedTimestep::MAX_STEPS_PER_FRAME;
+        ui::hint(std::format("Below {:g} fps the game slows down: a frame runs at most {} steps",
+                             slowest, FixedTimestep::MAX_STEPS_PER_FRAME)
+                     .c_str());
     }
 }
 

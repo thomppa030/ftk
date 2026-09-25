@@ -4,6 +4,7 @@
 
 #include "core/asset_database.hpp"
 #include "core/asset_remap.hpp"
+#include "core/fixed_timestep.hpp"
 #include "renderer/render_settings.hpp"
 
 #include <cstdint>
@@ -38,6 +39,16 @@ struct ProjectConfig {
         uint32_t tick_rate{30};  // state-update send rate, Hz
         uint16_t port{7777};
     } network;
+
+    struct SimulationConfig {
+        // How many fixed steps the simulation takes per second of game time:
+        // physics, scripts' fixed_tick and the environment's simulated half
+        // all run at this rate, and drawing blends between their steps. Read
+        // when play starts; a session keeps its rate to the end.
+        uint32_t fixed_tick_rate{FixedTimestep::DEFAULT_TICK_RATE};
+
+        bool operator==(const SimulationConfig&) const = default;
+    } simulation;
 
     struct PlayConfig {
         // Whether F11 (during play) leaves the docked viewport for a

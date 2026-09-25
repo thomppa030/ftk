@@ -17,6 +17,11 @@ struct Node;
 struct Node3D;
 class Scene;
 
+/// How many collision passes Jolt makes in one step of `step_seconds`: one
+/// per sixtieth of a second, Jolt's guidance, so a project stepping slower
+/// than 60 Hz does not let fast bodies pass through thin ones.
+[[nodiscard]] int collision_steps_for(float step_seconds);
+
 class PhysicsWorld {
 public:
     PhysicsWorld();

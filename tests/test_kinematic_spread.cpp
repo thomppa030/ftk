@@ -87,3 +87,13 @@ TEST_CASE("A frame of one step reaches the target on it", "[kinematic_spread]") 
     const std::vector<float> v = world.frame(1, [](int) {});
     CHECK(v[0] == Approx(1.0f / STEP_DT));
 }
+
+TEST_CASE("A step longer than a sixtieth of a second takes more collision passes",
+          "[kinematic_spread]") {
+    CHECK(collision_steps_for(1.0f / 60.0f) == 1);
+    CHECK(collision_steps_for(1.0f / 120.0f) == 1);
+    CHECK(collision_steps_for(1.0f / 240.0f) == 1);
+    CHECK(collision_steps_for(1.0f / 50.0f) == 2);
+    CHECK(collision_steps_for(1.0f / 30.0f) == 2);
+    CHECK(collision_steps_for(1.0f / 10.0f) == 6);
+}

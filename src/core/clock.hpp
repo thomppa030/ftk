@@ -41,7 +41,11 @@ public:
     void clear_max_game_delta() { max_game_delta_ = std::numeric_limits<float>::infinity(); }
 
     /// Whether the limit cut this frame's game delta short.
-    [[nodiscard]] bool game_delta_limited() const { return game_delta_limited_; }
+    [[nodiscard]] bool game_delta_limited() const { return game_delta_dropped_ > 0.0f; }
+
+    /// How much game time the limit cut from this frame: what the frame
+    /// stood for, scaled, less what it counted for.
+    [[nodiscard]] float game_delta_dropped() const { return game_delta_dropped_; }
 
 private:
     using SteadyClock = std::chrono::steady_clock;
@@ -56,7 +60,7 @@ private:
     float time_scale_{1.0f};
     float max_game_delta_{std::numeric_limits<float>::infinity()};
     bool paused_{false};
-    bool game_delta_limited_{false};
+    float game_delta_dropped_{0.0f};
 };
 
 } // namespace fjell

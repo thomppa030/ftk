@@ -24,7 +24,12 @@ struct FixedStepTime {
 /// for more than a handful of steps.
 class FixedTimestep {
 public:
-    static constexpr double DEFAULT_TICK_RATE = 60.0;
+    /// Steps per second a project runs at unless it sets its own
+    /// (`ProjectConfig::SimulationConfig::fixed_tick_rate`), and the range it
+    /// may set.
+    static constexpr std::uint32_t DEFAULT_TICK_RATE = 60;
+    static constexpr std::uint32_t MIN_TICK_RATE = 10;
+    static constexpr std::uint32_t MAX_TICK_RATE = 240;
 
     /// The most steps one frame runs. A frame is not allowed to count for
     /// more game time than this many steps cover: the clock limits it before

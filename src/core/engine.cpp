@@ -71,6 +71,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -1743,6 +1744,8 @@ TickContext Engine::make_frame_context() {
 }
 
 void Engine::run_fixed_steps() {
+    FixedStepStats& stats = play_controller_.step_stats();
+
     // A frame over the limit counts for less game time than it took, and the
     // game runs slower through it. Said once as it starts, not every frame.
     if (clock_.game_delta_limited() && !game_time_limited_) {
@@ -1750,13 +1753,28 @@ void Engine::run_fixed_steps() {
                         "most {} simulation steps, so the game slows down until frames catch up",
                         clock_.delta_time() * 1000.0f, clock_.game_delta_time() * 1000.0f,
                         FixedTimestep::MAX_STEPS_PER_FRAME);
+        ++stats.slowdowns;
     }
     game_time_limited_ = clock_.game_delta_limited();
+    stats.dropped_seconds += clock_.game_delta_dropped();
+
+    using StepClock = std::chrono::steady_clock;
+    const auto seconds_since = [](StepClock::time_point start) {
+        return std::chrono::duration<double>(StepClock::now() - start).count();
+    };
+    if (stats.parts.size() != play_fixed_.size()) {
+        stats.parts.clear();
+        for (const auto* s : play_fixed_) stats.parts.push_back({.name = s->name()});
+    }
+    for (auto& part : stats.parts) part.seconds = 0.0;
+    stats.seconds = 0.0;
 
     FixedTimestep& timestep = play_controller_.fixed_timestep();
     const int steps = timestep.advance(clock_.game_delta_time());
+    stats.steps = steps;
     for (int i = 0; i < steps; ++i) {
         FJELL_PROFILE_SCOPE_N("fixed_step");
+        const auto step_start = StepClock::now();
         const FixedStepTime step = timestep.next_step();
         play_controller_.step_input().begin_step();
         scene_.begin_fixed_step(step.index);
@@ -1771,7 +1789,11 @@ void Engine::run_fixed_steps() {
             .resources = resource_manager_.get(),
             .workers = &thread_pool_,
         };
-        for (auto* s : play_fixed_) s->run_fixed(ctx);
+        for (std::size_t k = 0; k < play_fixed_.size(); ++k) {
+            const auto part_start = StepClock::now();
+            play_fixed_[k]->run_fixed(ctx);
+            stats.parts[k].seconds += seconds_since(part_start);
+        }
 
         // A step's collisions are answered, and whatever the answers spawned
         // or destroyed is settled, before the next step moves anything.
@@ -1780,6 +1802,7 @@ void Engine::run_fixed_steps() {
                 scene_, *physics_subsystem_->world());
         }
         flush_pending();
+        stats.seconds += seconds_since(step_start);
     }
     if (steps > 0) scene_.end_fixed_steps(timestep.index() - 1);
 }

@@ -29,13 +29,14 @@ public:
     Delegate<void()> on_save;
 
 private:
-    enum class Page { Rendering, GameUi, Environment };
-    static constexpr std::size_t PAGE_COUNT = 3;
+    enum class Page { Rendering, GameUi, Environment, Simulation };
+    static constexpr std::size_t PAGE_COUNT = 4;
 
     void draw_page(Page page);
     void draw_rendering();
     void draw_game_ui();
     void draw_environment();
+    void draw_simulation();
 
     /// Whether any page's settings differ from what project.fjell holds.
     [[nodiscard]] bool unsaved() const;

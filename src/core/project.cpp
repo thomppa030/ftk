@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <fstream>
 
 namespace fjell {
@@ -67,6 +68,11 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
             config.network.max_players = n.value("max_players", 16U);
             config.network.tick_rate   = n.value("tick_rate", 30U);
             config.network.port        = static_cast<uint16_t>(n.value("port", 7777U));
+        }
+        if (j.contains("simulation")) {
+            config.simulation.fixed_tick_rate =
+                std::clamp(j["simulation"].value("fixed_tick_rate", FixedTimestep::DEFAULT_TICK_RATE),
+                           FixedTimestep::MIN_TICK_RATE, FixedTimestep::MAX_TICK_RATE);
         }
         if (j.contains("ui")) {
             const auto& u = j["ui"];
@@ -170,6 +176,10 @@ void Project::save() {
         {"max_players", config_.network.max_players},
         {"tick_rate", config_.network.tick_rate},
         {"port", config_.network.port},
+    };
+
+    j["simulation"] = {
+        {"fixed_tick_rate", config_.simulation.fixed_tick_rate},
     };
 
     j["ui"] = {

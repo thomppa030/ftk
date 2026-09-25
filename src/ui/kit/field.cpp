@@ -181,6 +181,7 @@ const char* unit_symbol(Unit unit) {
         case Unit::Milliseconds:    return "ms";
         case Unit::Seconds:         return "s";
         case Unit::Minutes:         return "min";
+        case Unit::Hertz:           return "Hz";
         case Unit::Kilograms:       return "kg";
         case Unit::Pixels:          return "px";
         case Unit::Percent:         return "%";

@@ -49,6 +49,7 @@ inline constexpr const char* nothing_selected  = ICON_LC_MOUSE_POINTER_CLICK;
 inline constexpr const char* console           = ICON_LC_TERMINAL;
 inline constexpr const char* content_browser   = ICON_LC_FOLDER_OPEN;
 inline constexpr const char* stats             = ICON_LC_GAUGE;
+inline constexpr const char* simulation        = ICON_LC_TIMER;   // the fixed-step clock
 inline constexpr const char* history           = ICON_LC_HISTORY;
 inline constexpr const char* network           = ICON_LC_NETWORK;
 inline constexpr const char* bandwidth         = ICON_LC_ACTIVITY;

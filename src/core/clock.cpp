@@ -16,8 +16,8 @@ void Clock::advance(float real_delta) {
     delta_time_ = real_delta;
 
     const float scaled = paused_ ? 0.0f : delta_time_ * time_scale_;
-    game_delta_limited_ = scaled > max_game_delta_;
     game_delta_time_ = std::min(scaled, max_game_delta_);
+    game_delta_dropped_ = scaled - game_delta_time_;
     game_elapsed_ += game_delta_time_;
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "core/fixed_step_stats.hpp"
 #include "core/fixed_timestep.hpp"
 #include "core/step_input_latch.hpp"
 
@@ -116,8 +117,13 @@ public:
     void step();
 
     /// The simulation's clock for the session: how many fixed steps each
-    /// frame runs. Reset when play starts.
+    /// frame runs. Reset when play starts, at the project's fixed tick rate.
     [[nodiscard]] FixedTimestep& fixed_timestep() { return fixed_timestep_; }
+
+    /// How the session's steps are going: filled in by the engine's step
+    /// loop, read by the stats panel. Reset when play starts and stops.
+    [[nodiscard]] FixedStepStats& step_stats() { return step_stats_; }
+    [[nodiscard]] const FixedStepStats& step_stats() const { return step_stats_; }
 
     /// The button edges each fixed step sees, recorded frame by frame in
     /// begin_frame(). Reset when play starts.
@@ -244,6 +250,7 @@ private:
     bool stepping_{false};
 
     FixedTimestep fixed_timestep_;
+    FixedStepStats step_stats_;
     StepInputLatch step_input_;
 
     // Docked-only: true unless the player has released focus with Shift+Esc

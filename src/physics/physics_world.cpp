@@ -51,6 +51,7 @@
 #include <cstdarg>
 #include <mutex>
 #include <algorithm>
+#include <cmath>
 #include <tuple>
 #include <unordered_set>
 #include <thread>
@@ -75,6 +76,14 @@ static bool jolt_assert_failed(const char* expression, const char* message,
 #endif
 
 namespace fjell {
+
+int collision_steps_for(float step_seconds) {
+    constexpr float JOLT_COLLISION_STEP = 1.0f / 60.0f;
+    // A 60 Hz step is one pass, not two: float rounding puts 1/60 a hair
+    // over a whole sixtieth.
+    constexpr float ROUNDING = 1e-3f;
+    return std::max(1, static_cast<int>(std::ceil((step_seconds / JOLT_COLLISION_STEP) - ROUNDING)));
+}
 
 // ── Broadphase layers ───────────────────────────────────────────────────
 
@@ -1462,8 +1471,7 @@ void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
     }
 
     // Step physics
-    constexpr int collision_steps = 1;
-    impl_->physics_system->Update(dt, collision_steps,
+    impl_->physics_system->Update(dt, collision_steps_for(dt),
                                    impl_->temp_allocator.get(),
                                    impl_->job_system.get());
 

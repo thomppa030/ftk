@@ -303,6 +303,7 @@ void SceneEditorContext::init() {
         }));
 
     init_shared_panels(deps_.vulkan_context);
+    stats_panel().set_simulation(&deps_.play->step_stats());
     history_panel().init(&command_history());
     net_panel_.init(deps_.net_manager);
 }

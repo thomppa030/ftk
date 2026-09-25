@@ -46,6 +46,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LIST_X             "\xee\x89\x80"  // U+E240
 #define ICON_LC_TERMINAL           "\xee\x86\x81"  // U+E181
 #define ICON_LC_HISTORY            "\xee\x87\xb5"  // U+E1F5
+#define ICON_LC_TIMER              "\xee\x87\xa0"  // U+E1E0
 #define ICON_LC_GAUGE              "\xee\x86\xbf"  // U+E1BF
 #define ICON_LC_MONITOR            "\xee\x84\x9d"  // U+E11D
 #define ICON_LC_WORKFLOW           "\xee\x90\xa5"  // U+E425

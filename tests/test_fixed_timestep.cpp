@@ -171,6 +171,7 @@ TEST_CASE("The clock limits how much game time a frame counts for", "[fixed_time
     clock.advance(0.5f);
     REQUIRE(clock.game_delta_time() == limit);
     REQUIRE(clock.game_delta_limited());
+    REQUIRE(clock.game_delta_dropped() == Approx(0.5f - limit));
     REQUIRE(clock.delta_time() == 0.5f);
     REQUIRE(clock.game_elapsed() == Approx(0.010f + limit));
 
@@ -179,6 +180,7 @@ TEST_CASE("The clock limits how much game time a frame counts for", "[fixed_time
 
     clock.advance(0.010f);
     REQUIRE_FALSE(clock.game_delta_limited());
+    REQUIRE(clock.game_delta_dropped() == 0.0f);
 }
 
 TEST_CASE("The limit applies to scaled game time", "[fixed_timestep]") {
