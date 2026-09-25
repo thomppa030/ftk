@@ -97,6 +97,8 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
     }
 
     first_frame = true;
+    // A new history image holds nothing to accumulate onto.
+    history_valid = false;
 }
 
 void SsGiPass::Images::resize(VkDevice device, VmaAllocator allocator,
@@ -917,11 +919,14 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
-    // History to SHADER_READ_ONLY for sampling
-    barrier_image(imgs.history_image,
-                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    // The history rests where the resolve samples it once a frame has copied
+    // into it; a new image is moved there once, holding nothing yet.
+    if (!imgs.history_valid) {
+        barrier_image(imgs.history_image,
+                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_NONE, 0,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    }
 
     // prev_depth holds last frame's depth and must be readable by the resolve.
     // On the first frame after (re)create it has no data yet — seed the layout
@@ -979,6 +984,10 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                        imgs.resolved_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        imgs.history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        1, &copy_region);
+        barrier_image(imgs.history_image,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
     }
 
     // The resolve has consumed prev_view_proj; the history it just wrote
