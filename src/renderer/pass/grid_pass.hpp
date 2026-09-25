@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/output_overlay.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <vulkan/vulkan.h>
@@ -44,9 +45,9 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    OutputOverlay overlay_;
     GridSettings settings_;
 };
 

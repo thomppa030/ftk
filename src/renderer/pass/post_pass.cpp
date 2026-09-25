@@ -43,7 +43,7 @@ void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.format = OUTPUT_FORMAT;
     ci.extent = {width, height, 1};
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
@@ -64,7 +64,7 @@ void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_ci.image = image;
     view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    view_ci.format = OUTPUT_FORMAT;
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create post output view");
@@ -381,7 +381,7 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
             .layout = layout_,
             .vert_module = vert_module,
             .frag_module = frag_module,
-            .color_format = VK_FORMAT_R8G8B8A8_SRGB,
+            .color_format = OUTPUT_FORMAT,
             .pipeline_cache = vk_pipeline_cache_,
         };
         built.base = vk_utils::create_fullscreen_pipeline(info);
@@ -603,6 +603,14 @@ void PostPass::record_into(const FrameContext& ctx, Images& imgs, const Inputs& 
     vk_utils::finish_color_attachment(cmd, imgs.image);
 }
 
+void PostPass::declare_output_handoff(PassBuilder& builder, FgTexture output) {
+    builder.final_layout(output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
 PassSetup PostPass::setup() const {
     return {
         .name = "post",
@@ -623,15 +631,10 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(builder.import_named(ctx, "normal"), ResourceAccess::sampled_fragment);
     builder.read(builder.import_named(ctx, "velocity"), ResourceAccess::sampled_fragment);
 
-    // What the viewport shows. The pass hands it to ImGui itself, after
-    // the graph, with a transition to a fragment-shader read.
+    // What the viewport shows, handed to ImGui after the graph.
     if (auto output = builder.import_named_optional(ctx, "post_output"); output.valid()) {
         builder.write(output, ResourceAccess::color_attachment);
-        builder.final_layout(output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        declare_output_handoff(builder, output);
     }
     // With TAA on, what the post pass reads is the history slot TAA just wrote.
     if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {

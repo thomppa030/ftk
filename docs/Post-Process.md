@@ -109,6 +109,12 @@ starting point for a stylised look, as `post.fjsl` is for the plain one.
 A uniform named like a helper (`uniform float vignette`) hides that helper in
 the shader, and nothing else breaks.
 
+### Editor overlays
+
+The grid and the debug lines draw after the post pass, over what it wrote, so
+no post shader grades, outlines or paints them. They are tested against the
+scene's depth in their own shaders and drawn without TAA's jitter.
+
 ## Post Process Volumes
 
 The hierarchy's **+** menu has **Post process volume**. It is a box or a sphere from the
@@ -245,6 +251,13 @@ with infinite bounds and set its operator to that curve to keep the look.
   it is written without swizzles and with literals in vector arithmetic
   wrapped in constructors. `sharpen` and `kuwahara` weigh their samples in
   `fjell_luma_weight.glsl`, the space TAA clamps in.
+- The grid and debug lines draw into the post output after the pass, through
+  `OutputOverlay` (`src/renderer/pass/output_overlay.hpp`): each takes the
+  output back as a colour attachment, draws, and hands it back to ImGui as the
+  post pass does, declaring that only in a frame it draws in
+  (`DeclareContext::grid_shown`, `debug_lines`). Their shaders project with
+  `unjittered_vp` and test depth with `behind_scene()` in
+  `fjell_overlay_depth.glsl`.
 - A post shader's values are per viewport, and one frame renders several
   viewports while the material params buffer is one buffer. So the pass never
   writes a material row's params: it writes each layer's values into a buffer

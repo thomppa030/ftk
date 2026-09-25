@@ -40,6 +40,16 @@ class PipelineCache;
 // slice starts. The material row supplies the textures.
 class PostPass : public RenderPass {
 public:
+    /// The format of what the viewport shows, which the editor overlays draw
+    /// into after this pass.
+    static constexpr VkFormat OUTPUT_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
+
+    /// Declare that a pass writing the output leaves it as ImGui samples it
+    /// after the graph: shader-readable, its colour writes made visible to
+    /// fragment reads. The pass transitions it itself, at the end of its
+    /// record(), with vk_utils::finish_color_attachment().
+    static void declare_output_handoff(PassBuilder& builder, FgTexture output);
+
     /// The bindless index a sampler with this hint reads when nothing is
     /// bound: what the engine default's row holds in its texture slots, the
     /// neutral table for its grade among them.

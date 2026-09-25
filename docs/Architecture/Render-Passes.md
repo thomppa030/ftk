@@ -42,11 +42,11 @@ A reference of every pass under `src/renderer/pass/` — what it does, what it r
 - `exposure_pass` (auto-exposure pipeline)
 - Volumetric fog
 - TAA (motion vectors)
-- AgX tone map
+- `post_pass` (`shader_type post`, blended by post process volumes)
 
 ### Debug / dev
-- `debug_pass` — debug draw queue
+- `debug_pass` — debug draw queue, over the post output
 - `meshlet_viz_pass`, `light_viz_pass`, `depth_viz_pass`
-- `grid_pass` — editor grid
+- `grid_pass` — editor grid, over the post output
 
 Each entry will list: inputs, outputs, conditional toggles, perf rough numbers.

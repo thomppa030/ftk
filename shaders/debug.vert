@@ -11,8 +11,13 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) in vec3 in_position;
 layout(location = 0) out vec4 frag_color;
+layout(location = 1) out vec4 clip_position;
 
 void main() {
-    gl_Position = ubo.projection * ubo.view * push.model * vec4(in_position, 1.0);
+    // Drawn over the finished frame, after TAA, so without the jitter the
+    // scene was rendered with: a jittered line would move by up to half a
+    // pixel from one frame to the next.
+    gl_Position = ubo.unjittered_vp * push.model * vec4(in_position, 1.0);
+    clip_position = gl_Position;
     frag_color = push.color;
 }

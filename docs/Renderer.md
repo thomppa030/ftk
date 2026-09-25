@@ -130,7 +130,8 @@ VulkanContext
 9. Particle compute (emit, simulate, indirect) + particle rendering
 10. Debug passes (only if the active viewport requests a debug visualization)
 11. Bloom (downscale chain + upsample composite)
-12. Post (`shader_type post`, per post process volume; see [Post-Process.md](Post-Process.md))
+12. Post (`shader_type post`, per post process volume; see [Post-Process.md](Post-Process.md)),
+    then the editor grid and debug lines over its output, ungraded
 13. Outline pass (selection highlight)
 14. ImGui overlay rendered to swapchain
 

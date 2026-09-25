@@ -1,4 +1,5 @@
 #include "renderer/render_pipeline.hpp"
+#include "renderer/debug_draw.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
@@ -125,6 +126,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
     decl_ctx.active_sources  = active_sources;
+    decl_ctx.grid_shown      = ctx.show_grid;
+    decl_ctx.debug_lines     = ctx.debug_draw != nullptr && !ctx.debug_draw->empty();
     // A barrier may name the task and mesh stages only on a device that has
     // them, so passes with a mesh and a vertex path declare by this.
     decl_ctx.mesh_shader_supported = ctx.draw_mesh_tasks_indirect_fn != nullptr;

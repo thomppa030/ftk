@@ -154,6 +154,7 @@ add_executable(fjell
     renderer/pass/water_fft_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
+    renderer/pass/output_overlay.cpp
     renderer/pass/depth_prepass.cpp
     renderer/pass/depth_resolve_pass.cpp
     renderer/pass/depth_viz_pass.cpp

@@ -18,6 +18,7 @@ layout(set = SET, binding = BIND) uniform GlobalUbo {                          \
     mat4 inv_view_proj;                                                        \
     mat4 prev_view_proj;                                                       \
     mat4 unjittered_vp;                                                        \
+    mat4 inv_unjittered_vp;     /* for what draws after TAA, on the output */  \
     mat4 prev_unjittered_vp;                                                   \
     mat4 prev_view;                                                            \
     float time;                                                                \

@@ -940,6 +940,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.view = view;
     ubo.projection = jittered_projection;
     ubo.unjittered_vp = projection * view;
+    ubo.inv_unjittered_vp = glm::inverse(ubo.unjittered_vp);
     ubo.prev_unjittered_vp = history.unjittered_view_proj;
     ubo.jitter_x = jx;
     ubo.jitter_y = jy;

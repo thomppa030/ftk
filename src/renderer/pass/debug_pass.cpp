@@ -4,7 +4,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/gpu/device.hpp"
-#include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/post_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/base_path.hpp"
@@ -18,6 +18,7 @@ namespace fjell {
 Result<> DebugPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
+    if (auto made = overlay_.create(device_); !made) return made;
 
     auto vert_code = read_spirv(base_path::resolve("shaders/debug.vert.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/debug.frag.spv"));
@@ -77,27 +78,24 @@ Result<> DebugPass::create(Device& device, const PassResources& resources) {
     rasterizer.cullMode = VK_CULL_MODE_NONE;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
+    // Over the post pass's single-sampled output.
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = resources.sample_count;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+    // The line colour replaces what is there; the output's alpha is left
+    // opaque, since ImGui blends the viewport image by it.
     VkPipelineColorBlendAttachmentState blend_attachment{};
     blend_attachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &blend_attachment;
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkDescriptorSetLayout set_layout = resources.global_set_layout;
+    // No depth attachment: the fragment shader tests against the scene depth.
+    std::array set_layouts = {resources.global_set_layout, overlay_.depth_set_layout()};
 
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -106,8 +104,8 @@ Result<> DebugPass::create(Device& device, const PassResources& resources) {
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = 1;
-    layout_info.pSetLayouts = &set_layout;
+    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    layout_info.pSetLayouts = set_layouts.data();
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;
 
@@ -117,13 +115,12 @@ Result<> DebugPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create debug pipeline layout");
     }
 
-    VkFormat color_format = resources.color_format;
+    VkFormat color_format = PostPass::OUTPUT_FORMAT;
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 1;
     rendering_info.pColorAttachmentFormats = &color_format;
-    rendering_info.depthAttachmentFormat = resources.depth_format;
 
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -135,7 +132,6 @@ Result<> DebugPass::create(Device& device, const PassResources& resources) {
     pipeline_info.pViewportState = &viewport_state;
     pipeline_info.pRasterizationState = &rasterizer;
     pipeline_info.pMultisampleState = &multisampling;
-    pipeline_info.pDepthStencilState = &depth_stencil;
     pipeline_info.pColorBlendState = &color_blending;
     pipeline_info.pDynamicState = &dynamic_state;
     pipeline_info.layout = layout_;
@@ -164,81 +160,37 @@ void DebugPass::destroy() {
         vkDestroyPipelineLayout(device_, layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
     }
+    overlay_.destroy();
 }
 
 PassSetup DebugPass::setup() const {
     return {
         .name = "debug",
-        .phase = RenderPhase::Color,
-        .sub_order = 12, // over the sky (8) and the grid (10), under
-                         // transparent geometry (50)
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 320, // over the post pass's output (300) and the grid
+                          // (310), so no post shader grades or outlines it
     };
 }
 
 void DebugPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto msaa_color = builder.import_named(ctx, "msaa_color");
-    auto msaa_depth = builder.import_named(ctx, "msaa_depth");
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    // Depth-tested so colliders are occluded by the geometry they sit in,
-    // but never written.
-    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    // The backward cull walk starts at the post pass and follows readers of the
-    // resolved `color`. With MSAA on, `msaa_color` is a separate image
-    // nothing samples, so without this anchor the overlay is culled.
-    builder.has_side_effects();
+    if (!ctx.debug_lines) return;
+    OutputOverlay::declare(builder, ctx);
 }
 
 void DebugPass::record(const FrameContext& ctx) {
-    if (!ctx.debug_draw || ctx.debug_draw->empty() || !ctx.target) return;
+    if (!ctx.debug_draw || ctx.debug_draw->empty()) return;
 
     FJELL_PROFILE_SCOPE_N("record_debug");
     FJELL_GPU_ZONE(ctx, "Viz: Debug");
 
-    auto* target = ctx.target;
-    auto extent = target->extent();
-
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = target->msaa_color_view();
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->msaa_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = extent;
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &color_attachment;
-    ri.pDepthAttachment = &depth_attachment;
-
-    vkCmdBeginRendering(ctx.cmd, &ri);
-
-    // DebugDraw::draw binds only the vertex buffer, so the viewport and
-    // scissor this pipeline needs are set here rather than inherited.
-    VkViewport vp{};
-    vp.width = static_cast<float>(extent.width);
-    vp.height = static_cast<float>(extent.height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = extent;
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+    if (!overlay_.begin(ctx, layout_)) return;
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
     ctx.debug_draw->draw(ctx.cmd, layout_, ctx.frame_index);
 
-    vkCmdEndRendering(ctx.cmd);
+    overlay_.end(ctx);
 }
 
 } // namespace fjell

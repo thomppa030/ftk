@@ -111,6 +111,13 @@ struct DeclareContext {
     bool ss_gi_enabled{true};
     bool contact_shadows_enabled{true};
 
+    /// Whether this viewport shows the editor grid, and whether there are
+    /// debug lines to draw. Each overlay draws over the post pass's output
+    /// and hands it back to ImGui afterwards, so it declares that only in a
+    /// frame it draws in.
+    bool grid_shown{false};
+    bool debug_lines{false};
+
     /// Bitmask of ViewportSource enum values: which debug visualizations
     /// are currently showing somewhere (viewport tabs, overlays). Viz
     /// passes check their bit in declare() and flag side-effects only

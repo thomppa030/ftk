@@ -1,6 +1,7 @@
 #version 460
 
 #include "fjell_global_ubo.glsl"
+#include "fjell_overlay_depth.glsl"
 
 layout(push_constant) uniform GridPush {
     float cell_size;
@@ -34,12 +35,12 @@ float grid_line(vec2 p, float scale, vec2 fw, float thickness) {
     return max(line.x, line.y);
 }
 
-// World-space ray through this pixel, from the inverse of the same jittered
-// view-projection the geometry was rendered with, so the depth written below
-// is directly comparable to the depth buffer.
+// World-space ray through this pixel. The grid draws over the finished
+// frame, after TAA, so it takes the camera without the jitter: a jittered ray
+// would move every line by up to half a pixel from one frame to the next.
 vec3 ray_direction() {
-    vec4 near_h = ubo.inv_view_proj * vec4(ndc, 0.0, 1.0);
-    vec4 far_h  = ubo.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    vec4 near_h = ubo.inv_unjittered_vp * vec4(ndc, 0.0, 1.0);
+    vec4 far_h  = ubo.inv_unjittered_vp * vec4(ndc, 1.0, 1.0);
     return normalize(far_h.xyz / far_h.w - near_h.xyz / near_h.w);
 }
 
@@ -56,10 +57,9 @@ void main() {
     vec3 hit = origin + dir * t;
     vec2 p = hit.xz;
 
-    // Depth of the hit point, so the hardware depth test occludes the grid
-    // per sample against real geometry instead of against a quad.
-    vec4 clip = ubo.projection * ubo.view * vec4(hit, 1.0);
-    gl_FragDepth = clip.z / clip.w;
+    // Hidden where the scene stands in front of the plane.
+    vec4 clip = ubo.unjittered_vp * vec4(hit, 1.0);
+    if (behind_scene(ndc * 0.5 + 0.5, clip.z / clip.w)) { discard; }
 
     vec2 fw = fwidth(p);
     float pixel_size = max(fw.x, fw.y);
