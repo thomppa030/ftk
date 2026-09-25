@@ -48,8 +48,11 @@ layout(push_constant) uniform PushConstants {
     uint  patch_quads;
     uint  view_index;   // 0 camera, 1..3 shadow cascade; unused by the fragment
     uint  terrain_material_id;
-    uint  _pad1;
-    uint  _pad2;
+    // The LOD selection the task stage reads. Unused here, but every stage
+    // declares the whole block: a member the fragment leaves out shifts the
+    // offsets of everything after it and it samples the wrong material.
+    vec2  viewport;
+    vec3  lod_thresholds;
     uint  _pad3;
     uvec4 layer_material_ids;
     vec4  layer_uv_scales;      // metres per texture repeat, per layer
