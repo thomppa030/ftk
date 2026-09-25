@@ -97,6 +97,13 @@ struct TaskPayload {
 
 taskPayloadSharedEXT TaskPayload payload;
 
+// The depth prepass and the colour draw run this shader in two pipelines, and
+// the colour draw tests LESS_OR_EQUAL against the depth the prepass wrote: the
+// two positions have to agree to the bit, which invariant promises.
+out gl_MeshPerVertexEXT {
+    invariant vec4 gl_Position;
+} gl_MeshVerticesEXT[];
+
 // Matches mesh.vert's interface so water shares the scene's fragment
 // conventions, plus the two the wave field alone can answer.
 layout(location = 0) out vec3 frag_color[];

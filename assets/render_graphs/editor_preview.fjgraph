@@ -28,8 +28,9 @@
         // Color.
         { "class": "OpaquePass",       "name": "opaque" },
         { "class": "TransparentPass",  "name": "transparent" },
-        // The water, against its depth seeded from the scene.
+        // The water: its depth seeded from the scene, then drawn, then shaded.
         { "class": "WaterDepthSeedPass", "name": "water_depth_seed" },
+        { "class": "WaterDepthPrepass",  "name": "water_depth_prepass" },
         { "class": "WaterPass",          "name": "water" },
         { "class": "SkyPass",          "name": "sky" },
 

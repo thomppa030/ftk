@@ -58,6 +58,7 @@
         // ── Color ──────────────────────────────────────────────────────
         { "class": "WaterPass",           "name": "water" },
         { "class": "WaterDepthSeedPass",  "name": "water_depth_seed" },
+        { "class": "WaterDepthPrepass",   "name": "water_depth_prepass" },
         { "class": "TransparentPass",     "name": "transparent" },
         { "class": "OpaquePass",          "name": "opaque" },
         { "class": "ScreenColorCopyPass", "name": "screen_color_copy" },

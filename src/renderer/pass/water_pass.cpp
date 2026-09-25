@@ -169,6 +169,69 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create water pipeline layout");
     }
 
+    // The prepass: the surface's depth and nothing else. The same task and
+    // mesh stages as every colour pipeline, so the depth is the displaced
+    // surface to the bit; no fragment stage, since nothing it would compute
+    // is kept. Tests and writes LESS against the seeded scene depth.
+    {
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+        stages[0].module = task_module_;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+        stages[1].module = mesh_module_;
+        stages[1].pName = "main";
+
+        VkPipelineViewportStateCreateInfo viewport_state{};
+        viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewport_state.viewportCount = 1;
+        viewport_state.scissorCount = 1;
+        std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamic_state{};
+        dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
+        dynamic_state.pDynamicStates = dynamic_states.data();
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0F;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;   // as the colour pipelines: seen from both sides
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.rasterizationSamples = resources.sample_count;
+
+        VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+        depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth_stencil.depthTestEnable = VK_TRUE;
+        depth_stencil.depthWriteEnable = VK_TRUE;
+        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+
+        VkPipelineRenderingCreateInfo rendering_info{};
+        rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+        rendering_info.depthAttachmentFormat = resources.depth_format;
+
+        VkGraphicsPipelineCreateInfo pipeline_ci{};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipeline_ci.pNext = &rendering_info;
+        pipeline_ci.stageCount = static_cast<uint32_t>(stages.size());
+        pipeline_ci.pStages = stages.data();
+        pipeline_ci.pViewportState = &viewport_state;
+        pipeline_ci.pRasterizationState = &rasterizer;
+        pipeline_ci.pMultisampleState = &multisampling;
+        pipeline_ci.pDepthStencilState = &depth_stencil;
+        pipeline_ci.pDynamicState = &dynamic_state;
+        pipeline_ci.layout = layout_;
+        if (vkCreateGraphicsPipelines(device_, resources.pipeline_cache, 1, &pipeline_ci, nullptr,
+                                      &depth_pipeline_) != VK_SUCCESS) {
+            return make_error("Failed to create water depth prepass pipeline");
+        }
+    }
+
     // The waterline: a compute dispatch over the froxel columns that asks the
     // wave field, for each, whether the near plane's point lies on the other
     // side of the surface from the camera. Its set 2 is the water set the mesh
@@ -227,6 +290,10 @@ Result<> WaterPass::create(Device& device, const PassResources& resources) {
 
 void WaterPass::destroy() {
     destroy_material_pipelines();
+    if (depth_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, depth_pipeline_, nullptr);
+        depth_pipeline_ = VK_NULL_HANDLE;
+    }
     for (auto& buffer : field_buffers_) buffer.reset();
     for (auto& buffer : clipmap_buffers_) buffer.reset();
     for (auto& buffer : wake_buffers_) buffer.reset();
@@ -286,6 +353,7 @@ void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
 }
 
 void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    depth_drawn_for_ = nullptr;
     if (ctx.scene == nullptr || pipeline_cache_ == nullptr) return;
 
     // The levels follow the camera, not any particular body of water, so
@@ -499,30 +567,30 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     color_blending.attachmentCount = static_cast<uint32_t>(blend_attachments.size());
     color_blending.pAttachments = blend_attachments.data();
 
-    // Tests depth so the sea is hidden by what stands in front of it, and
-    // writes it so the sea can hide itself.
+    // Tests against the depth the prepass wrote, and writes none: only the
+    // nearest surface at each pixel passes, so the sea is hidden by what
+    // stands in front of it and hides itself.
     //
     // A Gerstner surface displaces horizontally, and where the trains pinch
     // past their limit it folds through itself: a crest then genuinely stands
-    // in front of the water behind it. Without a depth write nothing ordered
-    // the two and the fragments composited in submission order, which reads as
-    // geometry going missing at the crests.
+    // in front of the water behind it, and without the depth the sheets would
+    // composite in submission order, which reads as geometry going missing at
+    // the crests. Two bodies of water overlapping on screen resolve the same
+    // way: the nearer one shades.
     //
-    // The attachment this writes is the water's own — `water_depth`, seeded
-    // from the scene depth before the scope opens — and not the depth the rest
-    // of the frame samples. That separation is the whole design: a dozen
-    // shaders read `depth_texture` meaning "the opaque scene", and a
-    // transparent surface does not belong in it.
+    // The attachment is the water's own — `water_depth`, seeded from the scene
+    // depth — and not the depth the rest of the frame samples. That separation
+    // is the whole design: a dozen shaders read `depth_texture` meaning "the
+    // opaque scene", and a transparent surface does not belong in it.
     //
-    // LESS rather than LESS_OR_EQUAL: with writes on, LESS gives a
-    // deterministic winner where two folded sheets land on the same depth,
-    // while LESS_OR_EQUAL would hand the decision back to submission order —
-    // which is the bug.
+    // LESS_OR_EQUAL because the prepass wrote this surface's own depth, which
+    // LESS would reject; the mesh stage's invariant position makes the two
+    // draws agree to the bit.
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_TRUE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
     std::array<VkFormat, 4> color_formats = {resources_.color_format, VK_FORMAT_R8G8_UNORM,
                                              OffscreenPass::NORMAL_FORMAT,
@@ -794,14 +862,9 @@ void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     for (const char* name : {"msaa_color", "msaa_mr", "msaa_normal", "msaa_velocity"}) {
         builder.write(builder.import_named(ctx, name), ResourceAccess::color_attachment);
     }
-    // Its own depth attachment, seeded from the scene: tested and written.
-    // Under MSAA it resolves into the surface depth as the rendering ends;
-    // without MSAA the two are one image.
-    builder.write(builder.import_named(ctx, "msaa_surface_depth"),
-                  ResourceAccess::depth_attachment);
-    builder.write(builder.import_named(ctx, "surface_depth"),
-                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? ResourceAccess::depth_resolve
-                                                            : ResourceAccess::depth_attachment);
+    // The depth the prepass wrote, tested and not written.
+    builder.read(builder.import_named(ctx, "msaa_surface_depth"),
+                 ResourceAccess::depth_attachment_read);
     // What the surface shader samples through the global set: the lighting,
     // the scene depth behind it for WATER_DEPTH, and the copy of the scene
     // it refracts.
@@ -822,80 +885,16 @@ void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareCont
     }
 }
 
-void WaterPass::record(const FrameContext& ctx) {
-    if (!draws(ctx)) return;
-
-    FJELL_PROFILE_SCOPE_N("record_water");
-    FJELL_GPU_ZONE(ctx, "Water");
-
-    auto* target = ctx.target;
-    const bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-
-    // The sea draws with a depth attachment of its own, because it needs one
-    // it may write and the transparent pass binds the scene depth read-only —
-    // a dozen shaders sample that image meaning "the opaque scene", which the
-    // water is not part of. Same colour targets, loaded and stored, so the
-    // transparent pass that follows carries on over the top of the water.
-    //
-    // No colour resolve here: the transparent pass resolves the same
-    // attachments at its end, and that resolve sees the water's contribution
-    // because it resolves the whole image. Resolving twice would be correct
-    // and wasted.
-    std::array<VkRenderingAttachmentInfo, 4> color_attachments{};
-    const std::array<VkImageView, 4> views = {
-        target->msaa_color_view(), target->msaa_mr_view(),
-        target->msaa_normal_view(), target->msaa_velocity_view()};
-    for (std::size_t i = 0; i < color_attachments.size(); ++i) {
-        color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachments[i].imageView = views[i];
-        color_attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
-    }
-
-    // The water's own depth, holding the scene depth the seed copied into it:
-    // loaded so the sea is still hidden by what stands in front of it.
-    //
-    // What is left in it at the end is the surface depth — the opaque scene
-    // with the sea laid over it — for whatever asks how far away a pixel is
-    // once the water is drawn. Under MSAA that leaves by a resolve and the
-    // multisampled image itself is not kept; at one sample the attachment is
-    // the surface depth and has to be stored.
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->water_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    if (msaa) {
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth_attachment.resolveImageView = target->resolve_water_depth_view();
-        depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-    } else {
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-    }
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.offset = {0, 0};
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-    ri.pColorAttachments = color_attachments.data();
-    ri.pDepthAttachment = &depth_attachment;
-    vkCmdBeginRendering(ctx.cmd, &ri);
-
+void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only) {
     // Its own scope means its own viewport and scissor.
     VkViewport vp{};
-    vp.width = static_cast<float>(target->extent().width);
-    vp.height = static_cast<float>(target->extent().height);
+    vp.width = static_cast<float>(ctx.target->extent().width);
+    vp.height = static_cast<float>(ctx.target->extent().height);
     vp.maxDepth = 1.0F;
     vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
 
     VkRect2D sc{};
-    sc.extent = target->extent();
+    sc.extent = ctx.target->extent();
     vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
 
     VkPipeline current = VK_NULL_HANDLE;
@@ -907,10 +906,13 @@ void WaterPass::record(const FrameContext& ctx) {
         const auto field = field_slots_.find(wc);
         if (field == field_slots_.end()) continue;
 
+        // A node without a usable colour pipeline is not drawn at all, its
+        // depth included, so the surface depth never holds water nobody sees.
         VkPipeline pipeline = VK_NULL_HANDLE;
         uint32_t material_id = 0;
         resolve_node_material(*wc, pipeline, material_id);
         if (pipeline == VK_NULL_HANDLE) continue;
+        if (depth_only != VK_NULL_HANDLE) pipeline = depth_only;
 
         // Each node reads its own field record, so the set is per node.
         std::array<VkDescriptorSet, 3> sets = {
@@ -960,7 +962,107 @@ void WaterPass::record(const FrameContext& ctx) {
             ctx.render_stats->draw_calls++;
         }
     }
+}
 
+void WaterPass::record_depth(const FrameContext& ctx) {
+    if (!draws(ctx) || depth_pipeline_ == VK_NULL_HANDLE) return;
+
+    FJELL_PROFILE_SCOPE_N("record_water_depth");
+    FJELL_GPU_ZONE(ctx, "Water Depth");
+
+    auto* target = ctx.target;
+
+    // Loaded, because the seed filled it with the scene depth that hides the
+    // water behind the opaque scene; stored, because the colour draw tests
+    // against it. Under MSAA it also resolves into the surface depth the
+    // rest of the frame samples; at one sample it is that image.
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->water_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (target->sample_count() != VK_SAMPLE_COUNT_1_BIT) {
+        depth_attachment.resolveImageView = target->resolve_water_depth_view();
+        depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    }
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.extent = target->extent();
+    ri.layerCount = 1;
+    ri.pDepthAttachment = &depth_attachment;
+    vkCmdBeginRendering(ctx.cmd, &ri);
+    draw_nodes(ctx, depth_pipeline_);
+    vkCmdEndRendering(ctx.cmd);
+
+    depth_drawn_for_ = target;
+}
+
+void WaterPass::record(const FrameContext& ctx) {
+    if (!draws(ctx)) return;
+    // Without the prepass the attachment holds only the seeded scene, and
+    // the water would draw untested against itself; a graph that lists the
+    // water without it shows none.
+    if (depth_drawn_for_ != ctx.target) {
+        if (!warned_no_prepass_) {
+            FJELL_GFX_WARN("WaterPass: water_depth_prepass did not draw before the water, so "
+                           "the water is skipped. A render graph with the water node needs "
+                           "water_depth_seed and water_depth_prepass too.");
+            warned_no_prepass_ = true;
+        }
+        return;
+    }
+    depth_drawn_for_ = nullptr;
+
+    FJELL_PROFILE_SCOPE_N("record_water");
+    FJELL_GPU_ZONE(ctx, "Water");
+
+    auto* target = ctx.target;
+
+    // The sea draws with a depth attachment of its own, because the
+    // transparent pass binds the scene depth — a dozen shaders sample that
+    // image meaning "the opaque scene", which the water is not part of. Same
+    // colour targets, loaded and stored, so the transparent pass that follows
+    // carries on over the top of the water.
+    //
+    // No colour resolve here: the transparent pass resolves the same
+    // attachments at its end, and that resolve sees the water's contribution
+    // because it resolves the whole image. Resolving twice would be correct
+    // and wasted.
+    std::array<VkRenderingAttachmentInfo, 4> color_attachments{};
+    const std::array<VkImageView, 4> views = {
+        target->msaa_color_view(), target->msaa_mr_view(),
+        target->msaa_normal_view(), target->msaa_velocity_view()};
+    for (std::size_t i = 0; i < color_attachments.size(); ++i) {
+        color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        color_attachments[i].imageView = views[i];
+        color_attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color_attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
+    }
+
+    // The depth the prepass left: tested, not written, and kept as it is,
+    // since it already is the surface depth.
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->water_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.offset = {0, 0};
+    ri.renderArea.extent = target->extent();
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+    ri.pColorAttachments = color_attachments.data();
+    ri.pDepthAttachment = &depth_attachment;
+    vkCmdBeginRendering(ctx.cmd, &ri);
+    draw_nodes(ctx, VK_NULL_HANDLE);
     vkCmdEndRendering(ctx.cmd);
 }
 
@@ -992,6 +1094,44 @@ void WaterDepthSeedPass::declare(PassBuilder& builder, const DeclareContext& ctx
 
 void WaterDepthSeedPass::record(const FrameContext& ctx) {
     if (water_ != nullptr) { water_->seed_water_depth(ctx); }
+}
+
+// ── WaterDepthPrepass ───────────────────────────────────────────────────────
+
+Result<> WaterDepthPrepass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void WaterDepthPrepass::destroy() {}
+
+void WaterDepthPrepass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    water_ = passes.try_get<WaterPass>("water");
+}
+
+PassSetup WaterDepthPrepass::setup() const {
+    return {
+        .name = "water_depth_prepass",
+        .phase = RenderPhase::Color,
+        .sub_order = 21,   // right after the seed
+    };
+}
+
+void WaterDepthPrepass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (!ctx.water_draws) { return; }
+    // The seeded attachment, tested and written; under MSAA it resolves into
+    // the surface depth as the rendering ends, and without MSAA the two are
+    // one image.
+    builder.write(builder.import_named(ctx, "msaa_surface_depth"),
+                  ResourceAccess::depth_attachment);
+    builder.write(builder.import_named(ctx, "surface_depth"),
+                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? ResourceAccess::depth_resolve
+                                                            : ResourceAccess::depth_attachment);
+    // The simulated sea, which the mesh stage moves the surface by.
+    WaterPass::declare_simulation_reads(builder, ctx, ResourceAccess::sampled_mesh);
+}
+
+void WaterDepthPrepass::record(const FrameContext& ctx) {
+    if (water_ != nullptr) { water_->record_depth(ctx); }
 }
 
 } // namespace fjell

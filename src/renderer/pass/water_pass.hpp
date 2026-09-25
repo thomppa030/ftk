@@ -18,6 +18,7 @@
 namespace fjell {
 
 class BindlessTextures;
+class OffscreenPass;
 class PipelineCache;
 class WaterFftPass;
 struct WaterComponent;
@@ -103,6 +104,13 @@ public:
     /// fog medium. Absent when the graph has no water_fft pass.
     static void declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
                                          ResourceAccess access);
+
+    /// Draw every water node's depth, and nothing else, into the water's
+    /// depth attachment the seed filled, resolving it into the surface depth
+    /// under MSAA. Recorded by WaterDepthPrepass. The colour draw then tests
+    /// against it and does not write it, so from here on the surface depth
+    /// is final.
+    void record_depth(const FrameContext& ctx);
 
     /// Copy the scene depth into the water's own depth image, so the sea is
     /// still hidden by whatever opaque geometry stands in front of it.
@@ -195,6 +203,12 @@ private:
     VkPipelineLayout line_layout_{VK_NULL_HANDLE};
     VkPipeline line_pipeline_{VK_NULL_HANDLE};
 
+    /// Bind, push and draw every water node with a usable material, with its
+    /// material's colour pipeline, or with `depth_only` for all of them when
+    /// that is given. One loop for both, so the prepass and the colour draw
+    /// always cover the same nodes. Inside a rendering scope.
+    void draw_nodes(const FrameContext& ctx, VkPipeline depth_only);
+
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns null when the entry failed to compile or is not a
     /// water shader, in which case the fallback pipeline draws instead.
@@ -223,6 +237,13 @@ private:
     /// Kept alive after create(): every material pipeline is built from them.
     VkShaderModule task_module_{VK_NULL_HANDLE};
     VkShaderModule mesh_module_{VK_NULL_HANDLE};
+    /// The prepass pipeline: the same task and mesh stages, no fragment stage,
+    /// no colour attachments.
+    VkPipeline depth_pipeline_{VK_NULL_HANDLE};
+    /// The target the prepass drew into this frame, or null. The colour draw
+    /// tests against that depth, and does not draw without it.
+    const OffscreenPass* depth_drawn_for_{nullptr};
+    bool warned_no_prepass_{false};
     VkDescriptorSetLayout water_set_layout_{VK_NULL_HANDLE};
     /// The simulated sea's textures, which every water draw samples. Owned by
     /// the registry; null only if the render graph lists no water_fft pass.
@@ -286,6 +307,21 @@ private:
 /// graph node of its own so the graph moves both images into the copy's
 /// layouts and on to where their next readers want them.
 class WaterDepthSeedPass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+
+private:
+    WaterPass* water_{nullptr};
+};
+
+/// Draws the water's depth, and only its depth, once the seed has filled the
+/// attachment: the surface depth the fog volume and the colour draw read.
+class WaterDepthPrepass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
