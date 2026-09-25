@@ -50,6 +50,15 @@ struct TaskPayload {
     // it already draws that level's surface, so the flip is invisible.
     float morph;
     uint neighbour_level[4];
+    // Each neighbour's morph too: two patches at one level morph by
+    // different amounts when they sit at different distances, and a
+    // shared edge has to be built from the same numbers on both sides
+    // or it cracks.
+    float neighbour_morph[4];
+    uint prev_level;
+    float prev_morph;
+    uint prev_neighbour_level[4];
+    float prev_neighbour_morph[4];
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -71,14 +80,49 @@ float sample_height(vec2 uv) {
 
 // Normals come from height differences rather than stored data, so they follow
 // edits to the height texture with no extra work.
-vec3 compute_normal(vec2 uv, vec2 texel, float metres_per_uv) {
-    float hl = sample_height(uv - vec2(texel.x, 0.0));
-    float hr = sample_height(uv + vec2(texel.x, 0.0));
-    float hd = sample_height(uv - vec2(0.0, texel.y));
-    float hu = sample_height(uv + vec2(0.0, texel.y));
-    float dx = 2.0 * texel.x * metres_per_uv;
-    float dz = 2.0 * texel.y * metres_per_uv;
-    return normalize(vec3(-(hr - hl) / dx, 1.0, -(hu - hd) / dz));
+//
+// The difference is taken between NEIGHBOURING VERTICES OF THIS PATCH, placed
+// by the same terrain_vertex() that placed this one — not between texels. A
+// coarse patch, a morphing one and an edge stitched to a neighbour all draw a
+// surface that departs from the height texture, and a normal read from the
+// texture describes ground that is not the ground being drawn. The error
+// reaches 17 degrees at a ridge, which is most of the band the default
+// terrain shader uses to choose between its slope layers, so it shows up as
+// specks of the wrong material along coarse edges and on hilltops.
+//
+// Differencing the placed surface instead costs four more terrain_vertex()
+// calls per vertex and is exact at every level: the shaded normal is the
+// surface the triangles actually have.
+vec3 patch_height_at(int ix, int iz, uint quads,
+                     vec2 patch_uv_min, vec2 patch_uv_size) {
+    // Step outside the patch and the clamp keeps the difference one-sided at
+    // the border, where the neighbour's own edge rule takes over anyway.
+    uint cx = uint(clamp(ix, 0, int(quads)));
+    uint cz = uint(clamp(iz, 0, int(quads)));
+    vec2 uv;
+    float h;
+    terrain_vertex(cx, cz, quads, payload.level, payload.morph,
+                   payload.neighbour_level[0], payload.neighbour_level[1],
+                   payload.neighbour_level[2], payload.neighbour_level[3],
+                   payload.neighbour_morph[0], payload.neighbour_morph[1],
+                   payload.neighbour_morph[2], payload.neighbour_morph[3],
+                   patch_uv_min, patch_uv_size, uv, h);
+    return vec3(float(cx), h, float(cz));
+}
+
+vec3 compute_normal(uint ix, uint iz, uint quads, float metres_per_uv,
+                    vec2 patch_uv_min, vec2 patch_uv_size) {
+    vec3 l = patch_height_at(int(ix) - 1, int(iz), quads, patch_uv_min, patch_uv_size);
+    vec3 r = patch_height_at(int(ix) + 1, int(iz), quads, patch_uv_min, patch_uv_size);
+    vec3 d = patch_height_at(int(ix), int(iz) - 1, quads, patch_uv_min, patch_uv_size);
+    vec3 u = patch_height_at(int(ix), int(iz) + 1, quads, patch_uv_min, patch_uv_size);
+
+    // Metres between the two samples actually taken: the clamp above can make
+    // a difference one-sided, so this is measured, not assumed.
+    float spacing = patch_uv_size.x / float(quads) * metres_per_uv;
+    float dx = max(r.x - l.x, 1.0) * spacing;
+    float dz = max(u.z - d.z, 1.0) * spacing;
+    return normalize(vec3(-(r.y - l.y) / dx, 1.0, -(u.y - d.y) / dz));
 }
 
 void main() {
@@ -88,7 +132,6 @@ void main() {
     uint tri_count = quads * quads * 2u;
     SetMeshOutputsEXT(vert_count, tri_count);
 
-    vec2 texel = 1.0 / vec2(textureSize(height_tex, 0));
     vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
     vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
 
@@ -103,11 +146,38 @@ void main() {
         terrain_vertex(ix, iz, quads, payload.level, payload.morph,
                        payload.neighbour_level[0], payload.neighbour_level[1],
                        payload.neighbour_level[2], payload.neighbour_level[3],
+                       payload.neighbour_morph[0], payload.neighbour_morph[1],
+                       payload.neighbour_morph[2], payload.neighbour_morph[3],
                        patch_uv_min, patch_uv_size, uv, height);
 
         vec3 world_pos = vec3(push.world_origin.x + uv.x * push.world_size,
                               height,
                               push.world_origin.y + uv.y * push.world_size);
+
+        // Where this same point on the patch sat last frame. Terrain does not
+        // move, but its surface does: a patch that changed level or morph slid
+        // its vertices, and reporting no motion for that makes the temporal
+        // passes reproject to the wrong history and fleck the LOD boundary.
+        //
+        // The point is identified by its position ACROSS THE PATCH, not by
+        // vertex index: at a different level the patch has a different vertex
+        // count, so index i is a different place on the ground. Scaling the
+        // index into last frame's grid keeps it the same material point, and
+        // a fractional result is fine — terrain_vertex() interpolates the
+        // edge and the morph continuously.
+        uint prev_quads = terrain_quads_at(payload.prev_level);
+        vec2 prev_grid = vec2(float(ix), float(iz)) / float(quads) * float(prev_quads);
+        vec2 prev_uv;
+        float prev_height;
+        terrain_vertex_at(prev_grid, prev_quads, payload.prev_level, payload.prev_morph,
+                          payload.prev_neighbour_level[0], payload.prev_neighbour_level[1],
+                          payload.prev_neighbour_level[2], payload.prev_neighbour_level[3],
+                          payload.prev_neighbour_morph[0], payload.prev_neighbour_morph[1],
+                          payload.prev_neighbour_morph[2], payload.prev_neighbour_morph[3],
+                          patch_uv_min, patch_uv_size, prev_uv, prev_height);
+        vec3 prev_world_pos = vec3(push.world_origin.x + prev_uv.x * push.world_size,
+                                   prev_height,
+                                   push.world_origin.y + prev_uv.y * push.world_size);
 
         // A shadow draw projects into its cascade; everything else into the
         // camera. The rest of the outputs stay in world space and are the same
@@ -120,11 +190,10 @@ void main() {
         frag_color[i] = vec3(1.0);
         frag_tex_coord[i] = uv;
         frag_world_pos[i] = world_pos;
-        frag_world_normal[i] = compute_normal(uv, texel, push.world_size);
+        frag_world_normal[i] = compute_normal(ix, iz, quads, push.world_size,
+                                              patch_uv_min, patch_uv_size);
         frag_clip_pos[i] = ubo.unjittered_vp * vec4(world_pos, 1.0);
-        // Terrain is static, so the previous frame's position is this one's;
-        // velocity resolves to the camera's motion alone.
-        frag_prev_clip_pos[i] = ubo.prev_unjittered_vp * vec4(world_pos, 1.0);
+        frag_prev_clip_pos[i] = ubo.prev_unjittered_vp * vec4(prev_world_pos, 1.0);
     }
 
     // Triangles: fixed grid topology, pure index arithmetic, no index buffer.

@@ -50,6 +50,17 @@ struct TaskPayload {
     uint level;
     float morph;
     uint neighbour_level[4];
+    // Each neighbour's morph too: two patches at one level morph by different
+    // amounts when they sit at different distances, and an edge between them
+    // has to be built from the same numbers on both sides or it cracks.
+    float neighbour_morph[4];
+    // The same, as of last frame, so the mesh stage can place each vertex
+    // where it was and report the motion. Terrain does not move, but its
+    // surface does: a patch that changed level or morph slid.
+    uint prev_level;
+    float prev_morph;
+    uint prev_neighbour_level[4];
+    float prev_neighbour_morph[4];
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -110,11 +121,19 @@ vec2 patch_box(uint px, uint pz, out vec3 lo, out vec3 hi) {
     return bounds;
 }
 
-uint level_of(mat4 vp, uint px, uint pz) {
+uint level_of(mat4 vp, uint px, uint pz, out float out_morph) {
     vec3 lo;
     vec3 hi;
     patch_box(px, pz, lo, hi);
-    return terrain_patch_level(vp, lo, hi, push.viewport, push.lod_thresholds);
+    return terrain_patch_level_morph(vp, lo, hi, push.viewport, push.lod_thresholds, out_morph);
+}
+
+// Last frame's camera, for the velocity the mesh stage writes. A shadow view
+// has no history to reproject and no velocity buffer, so it reuses its own
+// matrix and every patch reports that it did not move.
+mat4 prev_vp() {
+    return push.view_index == 0u ? ubo.prev_unjittered_vp
+                                 : ubo.cascade_vp[push.view_index - 1u];
 }
 
 void main() {
@@ -146,9 +165,21 @@ void main() {
     // Neighbours across each edge, in the order the mesh shader expects.
     // Each is the same pure function of that patch's own box, so the patch on
     // the other side of the seam reaches the same number for us.
-    payload.neighbour_level[0] = level_of(vp, px - 1u, pz);
-    payload.neighbour_level[1] = level_of(vp, px + 1u, pz);
-    payload.neighbour_level[2] = level_of(vp, px, pz - 1u);
-    payload.neighbour_level[3] = level_of(vp, px, pz + 1u);
+    payload.neighbour_level[0] = level_of(vp, px - 1u, pz, payload.neighbour_morph[0]);
+    payload.neighbour_level[1] = level_of(vp, px + 1u, pz, payload.neighbour_morph[1]);
+    payload.neighbour_level[2] = level_of(vp, px, pz - 1u, payload.neighbour_morph[2]);
+    payload.neighbour_level[3] = level_of(vp, px, pz + 1u, payload.neighbour_morph[3]);
+
+    // The same selection against last frame's camera. Recomputing it is
+    // cheaper than storing a per-patch history and cannot go stale.
+    mat4 pvp = prev_vp();
+    float pmorph;
+    payload.prev_level = terrain_patch_level_morph(pvp, lo, hi, push.viewport,
+                                                   push.lod_thresholds, pmorph);
+    payload.prev_morph = pmorph;
+    payload.prev_neighbour_level[0] = level_of(pvp, px - 1u, pz, payload.prev_neighbour_morph[0]);
+    payload.prev_neighbour_level[1] = level_of(pvp, px + 1u, pz, payload.prev_neighbour_morph[1]);
+    payload.prev_neighbour_level[2] = level_of(pvp, px, pz - 1u, payload.prev_neighbour_morph[2]);
+    payload.prev_neighbour_level[3] = level_of(pvp, px, pz + 1u, payload.prev_neighbour_morph[3]);
     EmitMeshTasksEXT(1, 1, 1);
 }

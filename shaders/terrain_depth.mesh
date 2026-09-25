@@ -49,6 +49,18 @@ struct TaskPayload {
     // it already draws that level's surface, so the flip is invisible.
     float morph;
     uint neighbour_level[4];
+    // Each neighbour's morph too: two patches at one level morph by
+    // different amounts when they sit at different distances, and a
+    // shared edge has to be built from the same numbers on both sides
+    // or it cracks.
+    float neighbour_morph[4];
+    // The depth pass writes no velocity and never reads these, but every
+    // stage sharing a payload declares the whole of it: a member left out
+    // shifts the offsets of everything after it.
+    uint prev_level;
+    float prev_morph;
+    uint prev_neighbour_level[4];
+    float prev_neighbour_morph[4];
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -81,6 +93,8 @@ void main() {
         terrain_vertex(ix, iz, quads, payload.level, payload.morph,
                        payload.neighbour_level[0], payload.neighbour_level[1],
                        payload.neighbour_level[2], payload.neighbour_level[3],
+                       payload.neighbour_morph[0], payload.neighbour_morph[1],
+                       payload.neighbour_morph[2], payload.neighbour_morph[3],
                        patch_uv_min, patch_uv_size, uv, height);
 
         vec3 world_pos = vec3(push.world_origin.x + uv.x * push.world_size,
