@@ -56,8 +56,11 @@ ImageUsage image_usage_for(ResourceAccess a) {
         case ResourceAccess::input_attachment:
             return ImageUsage::depth_attachment_read;
         case ResourceAccess::sampled_fragment:
-        case ResourceAccess::sampled_vertex:
             return ImageUsage::shader_read;
+        case ResourceAccess::sampled_vertex:
+            return ImageUsage::vertex_read;
+        case ResourceAccess::sampled_mesh:
+            return ImageUsage::mesh_read;
         case ResourceAccess::sampled_compute:
             return ImageUsage::compute_read;
         // A storage image is only ever read in GENERAL, whatever the access:
@@ -93,6 +96,7 @@ ImageUsage image_usage_for(ResourceAccess a) {
         case ResourceAccess::input_attachment:
         case ResourceAccess::sampled_fragment:
         case ResourceAccess::sampled_vertex:
+        case ResourceAccess::sampled_mesh:
         case ResourceAccess::sampled_compute:
         case ResourceAccess::storage_read_compute:
         case ResourceAccess::storage_write_compute:
@@ -488,6 +492,8 @@ VkImageUsageFlags usage_flag_for(ImageUsage u) {
         case ImageUsage::depth_resolve:
         case ImageUsage::depth_attachment_read:  return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         case ImageUsage::shader_read:
+        case ImageUsage::vertex_read:
+        case ImageUsage::mesh_read:
         case ImageUsage::compute_read:
         case ImageUsage::raytracing_read:        return VK_IMAGE_USAGE_SAMPLED_BIT;
         case ImageUsage::compute_storage_read:
@@ -731,6 +737,8 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
         case ImageUsage::depth_attachment_read:
             return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         case ImageUsage::shader_read:
+        case ImageUsage::vertex_read:
+        case ImageUsage::mesh_read:
         case ImageUsage::compute_read:
         case ImageUsage::raytracing_read:
             if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) {
@@ -764,6 +772,10 @@ VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
         case ImageUsage::shader_read:
             return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        case ImageUsage::vertex_read:
+            return VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+        case ImageUsage::mesh_read:
+            return VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
         case ImageUsage::compute_read:
         case ImageUsage::compute_storage_read:
         case ImageUsage::compute_write:
@@ -828,6 +840,8 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
         case ImageUsage::depth_attachment_read:
             return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         case ImageUsage::shader_read:
+        case ImageUsage::vertex_read:
+        case ImageUsage::mesh_read:
         case ImageUsage::compute_read:
         case ImageUsage::raytracing_read:
             return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;

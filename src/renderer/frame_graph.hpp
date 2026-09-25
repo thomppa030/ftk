@@ -24,6 +24,8 @@ enum class ImageUsage : uint8_t {
     depth_resolve,          // written by a multisample depth resolve at the end of rendering
     depth_attachment_read,  // read depth (no write) during rendering
     shader_read,            // sample in a fragment shader
+    vertex_read,            // sample in a vertex shader
+    mesh_read,              // sample in a task or mesh shader
     compute_read,           // sample in a compute shader
     compute_storage_read,   // read as a storage image in a compute shader (GENERAL)
     compute_write,          // write as a storage image in a compute shader
