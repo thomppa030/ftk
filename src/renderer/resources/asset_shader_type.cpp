@@ -96,12 +96,25 @@ bool shader_type_accepted(const fs::path& file, const Project* project,
 }
 
 std::span<const ShaderType> only_shader_type(ShaderType type) {
-    static constexpr std::array ALL = {ShaderType::Spatial, ShaderType::Sky,   ShaderType::Ui,
-                                       ShaderType::Terrain, ShaderType::Water, ShaderType::Fog};
-    for (const auto& each : ALL) {
-        if (each == type) return {&each, 1};
-    }
-    return {};
+    static constexpr std::array ALL = {ShaderType::Spatial, ShaderType::Sky,     ShaderType::Ui,
+                                       ShaderType::Terrain, ShaderType::Water,   ShaderType::Fog,
+                                       ShaderType::Post};
+    // A switch with no default, so a new Type does not compile until it has a
+    // place here: a Type missing from the list would leave its slots
+    // unfiltered, offering every material in the project.
+    const size_t index = [type] {
+        switch (type) {
+            case ShaderType::Spatial: return 0U;
+            case ShaderType::Sky:     return 1U;
+            case ShaderType::Ui:      return 2U;
+            case ShaderType::Terrain: return 3U;
+            case ShaderType::Water:   return 4U;
+            case ShaderType::Fog:     return 5U;
+            case ShaderType::Post:    return 6U;
+        }
+        return 0U;
+    }();
+    return {&ALL[index], 1};
 }
 
 std::string describe_shader_types(std::span<const ShaderType> accepted) {
