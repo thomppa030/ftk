@@ -9,12 +9,16 @@ add_executable(fjlint
     main.cpp
     log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_value.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_context.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_pipes.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
 )
