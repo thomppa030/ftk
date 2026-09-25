@@ -31,6 +31,7 @@ enum class Unit {
     Milliseconds,
     Seconds,
     Minutes,
+    Hertz,
     Kilograms,
     Pixels,
     Percent,

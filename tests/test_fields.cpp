@@ -148,6 +148,7 @@ TEST_CASE("Every unit but none has a symbol", "[ui][kit]") {
     for (auto unit : {ui::Unit::Metres, ui::Unit::SquareMetres, ui::Unit::MetresPerSecond,
                       ui::Unit::MetresPerSecondSquared,
                       ui::Unit::Degrees, ui::Unit::Radians, ui::Unit::Milliseconds, ui::Unit::Seconds, ui::Unit::Minutes,
+                      ui::Unit::Hertz,
                       ui::Unit::Kilograms, ui::Unit::Pixels, ui::Unit::Percent, ui::Unit::ExposureValue,
                       ui::Unit::Times}) {
         CHECK_FALSE(std::string(ui::unit_symbol(unit)).empty());
