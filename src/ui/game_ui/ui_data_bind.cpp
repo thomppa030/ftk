@@ -47,7 +47,6 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
     // declares. A prop bound to one value (`{key}`) takes that value itself;
     // anything longer is text.
     // Always resolve — even when a controller exists, parent props are inputs.
-    // The controller's [[fj::bind]] fields can override specific keys via sync_bind_fields.
     if (node.is_widget && node.scoped_context && !node.prop_map.empty()) {
         for (const auto& [inner_key, outer_expr] : node.prop_map) {
             UiValue value;

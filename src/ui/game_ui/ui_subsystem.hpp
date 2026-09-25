@@ -26,7 +26,7 @@ struct WidgetAsset;
 
 /// Manages runtime game UI instances. Finds nodes with UiWidgetComponent in
 /// the scene on play start, creates a GameUi per node, and tears them down
-/// on stop. Creates UiWidget instances and auto-syncs bind fields.
+/// on stop. Creates UiWidget instances, whose fields their markup reads.
 class UiSubsystem : public Subsystem {
 public:
     UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager);
@@ -103,14 +103,14 @@ private:
     // Every <model> in the instance's tree, each bound into the scope of the
     // widget that declares it.
     void collect_models(UiInstance& inst, const WidgetAsset& widget_asset);
-    // A controller's [[fj::model]] fields into its scope, by field name.
-    static void bind_controller_models(WidgetInstance& wi);
+    // Lets a controller's scope read its fields and getters by name, where
+    // they are; a prop of the same name is reported.
+    static void read_controller_in_place(WidgetInstance& wi);
     void destroy_controllers(UiInstance& inst);
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.
     void reload_instance(UiInstance& inst);
     void collect_widgets(UiNode& node, UiInstance& instance);
-    void sync_bind_fields(WidgetInstance& wi);
     void resolve_widget_bindings(Scene& scene);
     void validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type);
 

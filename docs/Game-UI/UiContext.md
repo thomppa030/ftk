@@ -69,9 +69,9 @@ child widget may read the HUD's `{fps}` without it being passed as a prop, and a
 prop shadows an inherited key of the same name. `dispatch()` bubbles the same way:
 the nearest context with a handler wins.
 
-A widget's props land in its context before `begin_play()`. `[[fj::bind]]` fields
-of a `UiWidget` are published into its context every tick, so a controller can
-simply assign to a field.
+A widget's props land in its context before `begin_play()`. The fields of a
+`UiWidget` are read from the controller itself, after the context's own values, so a
+controller can simply assign to a field.
 
 ## Change tracking
 

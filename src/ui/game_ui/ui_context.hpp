@@ -4,7 +4,9 @@
 #include "ui/game_ui/ui_value.hpp"
 
 #include <deque>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -20,11 +22,22 @@ class UiPipes;
 /// the back leaves every surviving item where it was.
 using UiList = std::deque<UiContext>;
 
+/// Hashes a name as text, so a scope is searched with a string_view and no
+/// std::string is built to look one up.
+struct UiNameHash {
+    using is_transparent = void;
+    [[nodiscard]] std::size_t operator()(std::string_view name) const noexcept {
+        return std::hash<std::string_view>{}(name);
+    }
+};
+
 /// Bridge between game logic and UI. Game code sets values and registers
 /// action callbacks; the UI reads values via {key} and dispatches actions.
 ///
-/// Supports scoped parent chain: get() walks up to parent if key not found
-/// locally, dispatch() bubbles up to parent if action not found locally.
+/// A name is read from the nearest scope that has it: its published values
+/// (props, Models), then the fields of its own object (the widget's
+/// controller), then its parent. dispatch() bubbles up to the parent if the
+/// action is not bound here.
 class UiContext {
 public:
     UiContext() = default;
@@ -39,6 +52,12 @@ public:
     void set_parent(UiContext* parent) { parent_ = parent; }
     [[nodiscard]] UiContext* parent() const { return parent_; }
 
+    /// The object whose fields and getters this scope reads by name, after
+    /// its published values: a widget's controller. It is read in place, so
+    /// it must outlive the scope or be cleared first.
+    void set_self(UiObject object) { self_ = object; }
+    [[nodiscard]] const UiObject& self() const { return self_; }
+
     /// Publish a value; `{key}` shows it and `if=`/`class:` test it. An
     /// unchanged value (the same type holding the same value) changes nothing.
     void set(const std::string& key, UiValue value) {
@@ -51,8 +70,9 @@ public:
     [[nodiscard]] uint64_t generation() const { return generation_; }
 
     /// The value published under exactly this name here, or in the nearest
-    /// parent that has one; null when no scope does. Paths go through lookup().
-    [[nodiscard]] const UiValue* find(const std::string& key) const {
+    /// parent that has one; null when no scope does. Paths, and a
+    /// controller's fields, go through lookup().
+    [[nodiscard]] const UiValue* find(std::string_view key) const {
         auto it = values_.find(key);
         if (it != values_.end()) return &it->second;
         return parent_ ? parent_->find(key) : nullptr;
@@ -60,10 +80,10 @@ public:
 
     /// The value a path reaches: `name`, or `name.field.field` into an
     /// object (a Model, a struct, a getter's result) or a vector. The first
-    /// name is looked up through the scopes, each later one read from the
-    /// value before it. A name no scope holds reads the whole path as one
-    /// name, so a value published under a dotted name is still found. No
-    /// value when nothing is there.
+    /// name is read through the scopes, each later one from the value before
+    /// it. A name no scope holds reads the whole path as one name, so a value
+    /// published under a dotted name is still found. No value when nothing
+    /// is there.
     [[nodiscard]] UiValue lookup(std::string_view path) const;
 
     /// The value a path reaches as markup shows it, or "" when there is none.
@@ -185,10 +205,15 @@ public:
     }
 
 private:
+    /// A name's value in the nearest scope that holds it, as lookup() reads
+    /// the first part of a path; nothing when no scope does.
+    [[nodiscard]] std::optional<UiValue> read_name(std::string_view name) const;
+
     UiContext* parent_{nullptr};
     const UiPipes* pipes_{nullptr};
+    UiObject self_{};
     uint64_t generation_{0};
-    std::unordered_map<std::string, UiValue> values_;
+    std::unordered_map<std::string, UiValue, UiNameHash, std::equal_to<>> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
     std::unordered_map<std::string, UiList> lists_;

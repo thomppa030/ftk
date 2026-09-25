@@ -97,10 +97,10 @@ A prop bound through a pipe is still stored as its declared type:
 
 ## Data flow
 
-Values arrive through a `UiContext` (see [UiContext](UiContext.md)): a widget's
-`[[fj::bind]]` fields, its `ui().set()` calls, and the props its placement passes.
-Contexts nest: a widget instance resolves `{key}` in its own context first, then its
-parent's, up to the root. A `foreach` item is a context of its own with `{__index}`
+Values arrive through a `UiContext` (see [UiContext](UiContext.md)): the props a
+widget's placement passes, its Models, its `ui().set()` calls, and its controller's
+fields. Contexts nest: a widget instance resolves `{key}` in its own context first
+(its values, then its controller's fields), then its parent's, up to the root. A `foreach` item is a context of its own with `{__index}`
 set to its position.
 
 Actions go the other way. A click bubbles from the hit element upward until an

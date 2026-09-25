@@ -215,3 +215,23 @@ TEST_CASE("Objects are the same value only at the same address", "[ui_paths]") {
     ctx.set("player", types.object(&second));
     REQUIRE(ctx.generation() != before);
 }
+
+TEST_CASE("A scope reads its own object after its values and before its parent", "[ui_paths]") {
+    const PlayerTypes types;
+    Player player;
+    UiContext root;
+    UiContext widget(&root);
+    widget.set_self(*types.object(&player).object()); // the widget's controller
+
+    root.set("name", "Root");
+    root.set("score", UiValue(7));
+    REQUIRE(widget.get("name") == "Ada");               // the controller's field, before the parent
+    REQUIRE(widget.lookup("stats.hp") == UiValue(40.0f)); // and a path through it
+    REQUIRE(widget.lookup("score") == UiValue(7));       // what the controller lacks, from the parent
+
+    player.name = "Grace";
+    REQUIRE(widget.get("name") == "Grace"); // read where it is, not copied
+
+    widget.set("name", "Prop");
+    REQUIRE(widget.get("name") == "Prop"); // a value published here, before the controller
+}

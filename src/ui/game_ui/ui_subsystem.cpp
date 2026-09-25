@@ -204,15 +204,19 @@ void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_ass
     if (auto* root = inst.game_ui->root()) walk(walk, *root);
 }
 
-void UiSubsystem::bind_controller_models(WidgetInstance& wi) {
-    // A controller is created after the tree and destroyed before it, so a
-    // scope never holds a Model whose controller is gone.
-    const auto* base = reinterpret_cast<const uint8_t*>(wi.widget.get());
+void UiSubsystem::read_controller_in_place(WidgetInstance& wi) {
+    // A controller is created after the tree and destroyed before it, so its
+    // scope never reads one that is gone. A prop of the same name as one of
+    // its fields is what markup reads, so the field would never show.
+    UiContext& scope = *wi.widget_context;
     for (const auto& field : wi.type->fields) {
-        if (!field.is_model() || field.struct_type == nullptr) continue;
-        wi.widget_context->set(field.name, UiValue(UiObject{field.struct_type->name, field.struct_type->fields,
-                                                            base + field.offset}));
+        if (scope.find(field.name) != nullptr) {
+            FJELL_CORE_WARN("Widget '{}': the prop '{}' hides the controller's field of that name; "
+                            "markup reads the prop",
+                            wi.type->name, field.name);
+        }
     }
+    scope.set_self(UiObject{wi.type->name, wi.type->fields, wi.widget.get()});
 }
 
 void UiSubsystem::bind_models(const TickContext& /*ctx*/) {
@@ -259,14 +263,14 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
         }
     }
 
-    // Set connections pointers now that the vector is done growing, and
-    // give each controller its Models: the ones its markup declares, and its
-    // own [[fj::model]] fields.
+    // Set connections pointers now that the vector is done growing, give
+    // each controller the Models its markup declares, and let its scope read
+    // its fields where they are.
     for (auto& wi : inst.widgets) {
         wi.widget->ui_context_.connections_ = &wi.connections;
         wi.widget->models_.models_ = &inst.game_ui->models();
         wi.widget->models_.scope_ = wi.widget_context;
-        bind_controller_models(wi);
+        read_controller_in_place(wi);
     }
 
     for (auto& wi : inst.widgets) {
@@ -376,38 +380,6 @@ void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
     }
 }
 
-void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
-    if (!wi.widget || !wi.type || !wi.widget_context) return;
-
-    auto* base = reinterpret_cast<const uint8_t*>(wi.widget.get());
-
-    for (const auto& field : wi.type->fields) {
-        if (field.is_getter()) continue; // no storage at an offset
-        const void* ptr = base + field.offset;
-        const char* key = field.name.c_str();
-
-        switch (field.type) {
-            case FJELL_FIELD_FLOAT:
-                wi.widget_context->set(key, UiValue(*static_cast<const float*>(ptr)));
-                break;
-            case FJELL_FIELD_INT:
-                wi.widget_context->set(key, UiValue(*static_cast<const int*>(ptr)));
-                break;
-            case FJELL_FIELD_BOOL:
-                wi.widget_context->set(key, UiValue(*static_cast<const bool*>(ptr)));
-                break;
-            case FJELL_FIELD_STRING:
-                wi.widget_context->set(key, static_cast<const char*>(ptr));
-                break;
-            case FJELL_FIELD_STD_STRING:
-                wi.widget_context->set(key, *static_cast<const std::string*>(ptr));
-                break;
-            default:
-                break;
-        }
-    }
-}
-
 void UiSubsystem::tick(const TickContext& ctx) {
     bool any_reloaded = false;
     for (auto& inst : instances_) {
@@ -416,13 +388,11 @@ void UiSubsystem::tick(const TickContext& ctx) {
             any_reloaded = true;
         }
         for (auto& wi : inst.widgets) {
-            if (!wi.widget) continue;
-            wi.widget->tick(ctx.dt);
-            sync_bind_fields(wi);
+            if (wi.widget) wi.widget->tick(ctx.dt);
         }
         // Bump root context generation so data_bind doesn't short-circuit
-        // when widget scoped contexts have been updated by sync_bind_fields,
-        // or a Model's component has changed in place, which no scope sees.
+        // when a controller's fields or a Model's component have changed in
+        // place, which no scope sees.
         // Must be a value that actually changes each call — set() no-ops
         // when the new value matches the old, so a constant here would only
         // bump the generation once and then silently stop propagating any

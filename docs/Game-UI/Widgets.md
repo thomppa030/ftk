@@ -122,7 +122,8 @@ class health_bar_controller : public fjell::UiWidget {
 };
 ```
 
-`[[fj::bind]]` fields publish themselves into the widget's context every tick;
+`[[fj::bind]]` fields are read by name where they are, each time markup shows them;
+a prop of the same name hides the field and is reported;
 `[[fj::action]]` methods and `ui().bind_action()` answer `on:click` and parameterized
 actions such as `on:activate="select_slot(3)"`. Lists for `foreach` are published
 with `ui().set_list_size()` and `ui().set_item()` (see [UiContext](UiContext.md)),

@@ -109,8 +109,8 @@ private:
 /// stylesheet the look.
 ///
 /// Derive, add `FJELL_UI_WIDGET(T)`, and reference the type from a `.fjwidget`
-/// asset. `[[fj::bind]]` fields publish themselves to the template
-/// automatically; `[[fj::action]]` methods become callable from `on:click`.
+/// asset. The template reads `[[fj::bind]]` fields where they are, by name;
+/// `[[fj::action]]` methods become callable from `on:click`.
 ///
 /// This is the in-game UI system, separate from the ImGui editor chrome.
 ///
