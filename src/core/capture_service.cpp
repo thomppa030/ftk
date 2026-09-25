@@ -124,6 +124,9 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
         saved_panel_size_y_ = panel->size.y;
         warmup_remaining_ = kWarmupFrames;
         state_ = State::warming;
+        // Through the warmup too, so exposure settles on the frame taken.
+        saved_ungraded_ = vk.tonemap_pass().ungraded();
+        if (request_.ungraded) vk.tonemap_pass().set_ungraded(true);
     }
 
     // Pin panel size so this frame's record path uses capture-res aspect
@@ -168,7 +171,10 @@ void CaptureService::finish_after_present(VulkanContext& vk,
     if (state_ != State::capture_ready) { return; }
 
     switch (request_.mode) {
-    case Mode::scene: do_scene_capture(vk, viewports); break;
+    case Mode::scene:
+        do_scene_capture(vk, viewports);
+        vk.tonemap_pass().set_ungraded(saved_ungraded_);
+        break;
     case Mode::pane:  do_pane_capture(vk); break;
     }
 

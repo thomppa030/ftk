@@ -101,6 +101,9 @@ void CapturePopup::draw(CaptureService& capture, ViewportManager& viewports) {
             }
             ui::row("Editor overlays", "Draw the grid, the gizmos and the debug views into the picture.",
                     [&] { (void)ui::checkbox("##overlays", include_overlays_); });
+            ui::row("Ungraded", "The engine's default look, whatever post process volumes the camera "
+                                "is in: a frame to grade in an image editor.",
+                    [&] { (void)ui::checkbox("##ungraded", ungraded_); });
         } else if (!pane_options_.empty()) {
             ui::row("Pane", [&] {
                 std::vector<const char*> names;
@@ -132,6 +135,7 @@ void CapturePopup::draw(CaptureService& capture, ViewportManager& viewports) {
         req.width = preset.w != 0 ? preset.w : static_cast<uint32_t>(std::max(16, custom_w_));
         req.height = preset.h != 0 ? preset.h : static_cast<uint32_t>(std::max(16, custom_h_));
         req.include_overlays = include_overlays_;
+        req.ungraded = ungraded_;
     } else {
         req.mode = CaptureService::Mode::pane;
         req.pane_name = pane_options_[static_cast<size_t>(pane_index_)];

@@ -477,7 +477,7 @@ void TonemapPass::record(const FrameContext& ctx) {
     std::vector<PostLayer> layers;
     if (default_.ready) {
         std::vector<PostCandidate> candidates;
-        if (ctx.environment != nullptr) {
+        if (ctx.environment != nullptr && !ungraded_) {
             candidates.reserve(ctx.environment->post_volumes.size());
             for (const PostVolume& volume : ctx.environment->post_volumes) {
                 candidates.push_back({&volume, look_for(volume)});

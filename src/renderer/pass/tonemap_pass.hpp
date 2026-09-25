@@ -46,6 +46,12 @@ public:
     using TextureFallbacks = std::function<uint32_t(UniformHint)>;
     void set_texture_fallbacks(TextureFallbacks fallbacks) { texture_fallbacks_ = std::move(fallbacks); }
 
+    /// Draw the engine default only, whatever volumes the camera is in: the
+    /// frame as it is before any grade, to capture and grade elsewhere.
+    /// Runtime state, never saved.
+    void set_ungraded(bool on) { ungraded_ = on; }
+    [[nodiscard]] bool ungraded() const { return ungraded_; }
+
 
     // Per-viewport output image. Input descriptor sets are not owned per
     // viewport: record_into() acquires them from FrameContext::descriptor_cache
@@ -151,6 +157,7 @@ private:
     std::unordered_set<uint32_t> reported_entries_;
     Fallback default_;
     TextureFallbacks texture_fallbacks_;
+    bool ungraded_{false};
 
     /// This frame's layer values: host-written, read by the fragment
     /// shader at the pushed base. Reset in prepare_frame(), once the frame

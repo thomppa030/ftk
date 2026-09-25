@@ -35,6 +35,9 @@ public:
         uint32_t width{1920};
         uint32_t height{1080};
         bool include_overlays{false};   // scene mode: keep grid/gizmos
+        /// Scene mode: the engine's default look, whatever post process
+        /// volumes the camera is in, for a frame to grade elsewhere.
+        bool ungraded{false};
         std::string pane_name;
     };
 
@@ -84,6 +87,9 @@ private:
     const Project* project_{nullptr};
     State state_{State::idle};
     Request request_;
+
+    // What the post pass drew before an ungraded capture, to go back to.
+    bool saved_ungraded_{false};
 
     // Saved editor panel state to restore after capture.
     int saved_panel_id_{0};

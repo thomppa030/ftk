@@ -367,6 +367,18 @@ void ProjectSettingsWindow::draw_rendering() {
                     edit |= ui::slider("##adaptation", s.tonemap.adaptation_speed, 0.1f, 5.0f);
                 });
             }
+            // Runtime only, like the debug light channel: a way of looking,
+            // not a project setting, so it is never saved.
+            ui::row("Ungraded",
+                    "Draw the engine's default look, whatever post process volumes the camera "
+                    "is in: the frame as it is before a grade, to capture and grade elsewhere. "
+                    "Not saved.",
+                    [&] {
+                        bool ungraded = vk_->tonemap_pass().ungraded();
+                        if (ui::checkbox("##ungraded", ungraded).changed) {
+                            vk_->tonemap_pass().set_ungraded(ungraded);
+                        }
+                    });
         }
     }
 

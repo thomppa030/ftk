@@ -33,6 +33,7 @@ private:
     int  custom_w_{1920};
     int  custom_h_{1080};
     bool include_overlays_{false};
+    bool ungraded_{false};
 
     int  pane_index_{0};
     std::vector<std::string> pane_options_;
