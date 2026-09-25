@@ -93,21 +93,73 @@ float sample_height(vec2 uv) {
 // Differencing the placed surface instead costs four more terrain_vertex()
 // calls per vertex and is exact at every level: the shaded normal is the
 // surface the triangles actually have.
+// The drawn height one step off the patch grid, following the surface across a
+// patch border rather than stopping at it.
+//
+// A sample outside this patch is placed on the NEIGHBOUR's surface, at the
+// neighbour's level and morph. Clamping back inside instead makes the two
+// patches either side of an edge measure their slope over different intervals
+// — one leaning in from the left, one from the right — so they disagree about
+// the normal at the same piece of ground by as much as a right angle. Matte
+// ground hides it; the moment rain drops roughness the highlight turns that
+// disagreement into a lit line along every patch edge.
+//
+// Only ±x and ±z are ever asked for, never a diagonal, so a corner needs its
+// two edge neighbours and never the one across the corner — which is why the
+// payload's four neighbours are enough.
 vec3 patch_height_at(int ix, int iz, uint quads,
                      vec2 patch_uv_min, vec2 patch_uv_size) {
-    // Step outside the patch and the clamp keeps the difference one-sided at
-    // the border, where the neighbour's own edge rule takes over anyway.
-    uint cx = uint(clamp(ix, 0, int(quads)));
-    uint cz = uint(clamp(iz, 0, int(quads)));
+    // Which patch the sample lands in, and where it sits in that patch's own
+    // grid. Stepping one of our cells is a fraction of a coarser neighbour's
+    // cell, which terrain_vertex_at() takes without rounding.
+    vec2 local = vec2(float(ix), float(iz)) / float(quads);
+    vec2 patch_step = vec2(0.0);
+    uint level = payload.level;
+    float morph = payload.morph;
+
+    if (ix < 0) {
+        patch_step.x = -1.0;
+        level = payload.neighbour_level[0];
+        morph = payload.neighbour_morph[0];
+    } else if (ix > int(quads)) {
+        patch_step.x = 1.0;
+        level = payload.neighbour_level[1];
+        morph = payload.neighbour_morph[1];
+    } else if (iz < 0) {
+        patch_step.y = -1.0;
+        level = payload.neighbour_level[2];
+        morph = payload.neighbour_morph[2];
+    } else if (iz > int(quads)) {
+        patch_step.y = 1.0;
+        level = payload.neighbour_level[3];
+        morph = payload.neighbour_morph[3];
+    }
+
+    uint nb_quads = terrain_quads_at(level);
+    vec2 nb_uv_min = patch_uv_min + patch_step * patch_uv_size;
+    // Our position relative to the neighbour's origin, in the neighbour's
+    // cells. `local` is still measured from our own patch, so the step moves
+    // it into theirs.
+    vec2 nb_grid = (local - patch_step) * float(nb_quads);
+
+    // A neighbour so much coarser that the sample would land beyond its far
+    // edge would need that patch's own far neighbour to place it, which is not
+    // carried. It takes a cliff many times taller than a patch is wide for two
+    // adjacent patches to sit that far apart in level, and clamping there only
+    // shortens the difference rather than crossing into a third patch.
+    nb_grid = clamp(nb_grid, vec2(0.0), vec2(float(nb_quads)));
+
     vec2 uv;
     float h;
-    terrain_vertex(cx, cz, quads, payload.level, payload.morph,
-                   payload.neighbour_level[0], payload.neighbour_level[1],
-                   payload.neighbour_level[2], payload.neighbour_level[3],
-                   payload.neighbour_morph[0], payload.neighbour_morph[1],
-                   payload.neighbour_morph[2], payload.neighbour_morph[3],
-                   patch_uv_min, patch_uv_size, uv, h);
-    return vec3(float(cx), h, float(cz));
+    terrain_vertex_at(nb_grid, nb_quads, level, morph,
+                      payload.neighbour_level[0], payload.neighbour_level[1],
+                      payload.neighbour_level[2], payload.neighbour_level[3],
+                      payload.neighbour_morph[0], payload.neighbour_morph[1],
+                      payload.neighbour_morph[2], payload.neighbour_morph[3],
+                      nb_uv_min, patch_uv_size, uv, h);
+    // Report the position in OUR grid units so the caller's spacing is right:
+    // the sample sits one of our cells away whichever patch answered it.
+    return vec3(float(ix), h, float(iz));
 }
 
 vec3 compute_normal(uint ix, uint iz, uint quads, float metres_per_uv,
@@ -117,11 +169,12 @@ vec3 compute_normal(uint ix, uint iz, uint quads, float metres_per_uv,
     vec3 d = patch_height_at(int(ix), int(iz) - 1, quads, patch_uv_min, patch_uv_size);
     vec3 u = patch_height_at(int(ix), int(iz) + 1, quads, patch_uv_min, patch_uv_size);
 
-    // Metres between the two samples actually taken: the clamp above can make
-    // a difference one-sided, so this is measured, not assumed.
+    // Samples sit one cell either side in this patch's own grid, on whichever
+    // patch's surface answered them, so the interval is the full two cells
+    // everywhere including the border.
     float spacing = patch_uv_size.x / float(quads) * metres_per_uv;
-    float dx = max(r.x - l.x, 1.0) * spacing;
-    float dz = max(u.z - d.z, 1.0) * spacing;
+    float dx = (r.x - l.x) * spacing;
+    float dz = (u.z - d.z) * spacing;
     return normalize(vec3(-(r.y - l.y) / dx, 1.0, -(u.y - d.y) / dz));
 }
 
