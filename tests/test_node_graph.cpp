@@ -158,6 +158,37 @@ TEST_CASE("A node is never linked to itself, nor an input to an input", "[ui][no
     CHECK_FALSE(g.linked.has_value());
 }
 
+TEST_CASE("Ctrl and a click on a pin breaks every link on it", "[ui][node_graph]") {
+    PinGraph g;
+    g.desc.links.push_back({.id = 7, .from = PinGraph::SOURCE_OUT, .to = PinGraph::TARGET_AMOUNT});
+    g.desc.links.push_back({.id = 8, .from = PinGraph::SOURCE_OUT, .to = PinGraph::MIDDLE_IN});
+    g.desc.links.push_back({.id = 9, .from = PinGraph::MIDDLE_OUT, .to = PinGraph::TARGET_AMOUNT});
+    ui::NodeGraph graph;
+    std::vector<uint64_t> unlinked;
+    ImGuiHarness h;
+    h.set_ui([&] {
+        const auto events = graph.draw(g.desc);
+        unlinked.insert(unlinked.end(), events.unlinked.begin(), events.unlinked.end());
+    });
+    h.step(2);
+
+    // A plain click on the pin starts a link and breaks nothing.
+    const ImVec2 amount = graph.end_position(PinGraph::TARGET_AMOUNT);
+    h.drag(amount, amount);
+    CHECK(unlinked.empty());
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_LeftCtrl, true);
+    h.step();
+    h.drag(amount, amount);
+    io.AddKeyEvent(ImGuiKey_LeftCtrl, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    h.step();
+    std::sort(unlinked.begin(), unlinked.end());
+    CHECK(unlinked == std::vector<uint64_t>{7, 9});
+}
+
 TEST_CASE("A node dragged by its body is reported at its snapped place", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;

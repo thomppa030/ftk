@@ -332,7 +332,7 @@ void KitGallery::lists() {
 void KitGallery::graphs() {
     if (!section_foldable("Node graphs", icon::node_graph)) return;
     // What both samples do with what the user did: move a node, add a link,
-    // remove the selected link. Their nodes stay.
+    // remove the selected link or a pin's. Their nodes stay.
     const auto apply = [this](NodeGraph& graph, const NodeGraphEvents& events, std::vector<glm::vec2>& places,
                               std::vector<NodeLink>& links) {
         if (events.moved) places[static_cast<std::size_t>(events.moved->node - 1)] = events.moved->position;
@@ -342,6 +342,9 @@ void KitGallery::graphs() {
         }
         if (events.remove && graph.selected_link() != 0) {
             std::erase_if(links, [&](const NodeLink& l) { return l.id == graph.selected_link(); });
+        }
+        for (const uint64_t id : events.unlinked) {
+            std::erase_if(links, [&](const NodeLink& l) { return l.id == id; });
         }
     };
     const auto menu = [](const NodeGraphMenu& target) {
