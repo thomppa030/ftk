@@ -108,7 +108,11 @@ Three levels, the same as the material system's:
 The node references a `.fjmat` by path, as terrain and water do, and holds
 `params`: per-node values for individual uniforms, for the one instance that
 differs from the thirty sharing the material. The inspector shows the material
-field, the material's own inspector under it, then "This Node" with Reset.
+field, the material's own inspector under it, then "This Node": only the
+values the node holds, each with a revert, and "Override for this node" to take
+another, so no uniform is shown twice. With no material, "This Node" lists
+every uniform of the default shader. Changing the material clears the node's
+values, which were set against the old look.
 
 Values are `NamedValue`s (`core/named_value.hpp`), colours in sRGB as the
 picker shows them, with `srgb` set so a track can scale or blend them in

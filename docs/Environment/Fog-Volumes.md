@@ -22,7 +22,7 @@ that wireframe is the only way to see where it actually reaches.
 | Field | What it does |
 |---|---|
 | **Material** | The `.fjmat` the bank draws with, a [fog shader](Fog-Shaders.md). Empty draws the engine's `fog_volume.fjsl`: one colour, broken into wisps by a drifting noise field. Its values are edited right under the field and save with the material. |
-| **This Node** | The node's own values for the material's uniforms, for the one bank thicker than the thirty that share its material. |
+| **This Node** | The node's own values for the material's uniforms, for the one bank thicker than the thirty that share its material. Beside a material it lists only these, and **Override for this node** takes another. Changing the material clears them. |
 | **Shape** | Box or Sphere. Under a non-uniform scale a sphere is an ellipsoid. |
 | **Edge Falloff** | How much of the volume's extent the edge fades across, as a fraction. 0 is a hard edge and looks like one. 0.2 is the default. |
 | **Group** | Ties the volume to `fog.<group>.<uniform>` tracks in a day profile or a weather event, so the hour can drive it. Empty means nothing but the scene does. See below. |

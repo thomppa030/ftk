@@ -32,6 +32,7 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
+#include "ui/kit/menu.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
@@ -152,12 +153,35 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     return changed;
 }
 
-// A material-carrying node's uniforms as rows (the fog, a fog volume, a post
-// process volume): each shows the node's own value when it has one and the
-// material's otherwise, and an edit stores the node's value in `params`. A day
-// profile or weather track of the same name folds over both while it is bound.
-// `type` is the shader_type the node draws with and `icon` heads the box.
-// Returns whether the node's values changed.
+// A material-carrying node's Material field, as a row. A new material is a new
+// look, and the node's own values were set against the old one: kept, they
+// would silently cover what the new material says, so they go with it. Undo
+// brings both back, since an edit's snapshot holds the node's whole state.
+bool node_material_row(std::string& material_path, std::vector<NamedValue>& params,
+                       ShaderType type, const InspectorContext& ictx) {
+    static const std::string exts[] = {".fjmat"};
+    bool changed = false;
+    ui::row("Material", [&] {
+        changed = asset_slot({.label = "Material",
+                              .id = "##material",
+                              .extensions = exts,
+                              .ctx = &ictx,
+                              .shader_types = only_shader_type(type)},
+                             material_path);
+    });
+    if (changed) params.clear();
+    return changed;
+}
+
+// A material-carrying node's own values (the fog, a fog volume, a post process
+// volume). With a material, its inspector above already shows every uniform
+// and edits the shared asset, so this lists only the values this node holds
+// of its own, each with a revert, and offers the rest through "Override for
+// this node". With none, the engine's default shader is not an asset to edit,
+// so every uniform is listed here and an edit becomes the node's. A day
+// profile or weather track of the same name folds over both while it is
+// bound. `type` is the shader_type the node draws with and `icon` heads the
+// box. Returns whether the node's values changed.
 bool draw_node_values(const Material* material, std::string_view default_shader, ShaderType type,
                       const char* icon, std::vector<NamedValue>& params,
                       const std::vector<NamedValue>& material_values,
@@ -181,48 +205,90 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     const auto& meta = ictx.pipeline_cache->metadata(pid);
     if (meta.shader_type != type) return false;
 
-    bool any = false;
-    for (const auto& u : meta.uniforms) any |= u.type != UniformType::Sampler2D;
-    if (!any && !ictx.pipeline_cache->has_compile_error(pid)) return false;
+    const bool material_shown = material != nullptr;
+    auto listed = [&](const FjslUniform& u) {
+        return u.type != UniformType::Sampler2D
+            && (!material_shown || find_named(params, u.name) != nullptr);
+    };
+    bool any_listed = false;
+    bool any_to_add = false;
+    for (const auto& u : meta.uniforms) {
+        any_listed |= listed(u);
+        any_to_add |= u.type != UniformType::Sampler2D && find_named(params, u.name) == nullptr;
+    }
 
-    auto box = node_box();
-    if (!box) return false;
-    shader_error_callout(*ictx.pipeline_cache, pid, project);
-    ui::hint("The material's values for this node alone; the material and other nodes sharing it keep their own");
     std::string revert_name;
-    if (auto t = ui::PropertyTable("##node_values")) {
-        for (const auto& u : meta.uniforms) {
-            if (u.type == UniformType::Sampler2D) continue;
-            const uint32_t count = uniform_float_count(u.type);
-            const NamedValue* override = find_named(params, u.name);
-            const NamedValue* base = find_named(material_values, u.name);
+    if (any_listed || ictx.pipeline_cache->has_compile_error(pid)) {
+        auto box = node_box();
+        if (!box) return false;
+        shader_error_callout(*ictx.pipeline_cache, pid, project);
+        ui::hint(material_shown
+                     ? "This node's own values, over the material's; the material and other nodes "
+                       "sharing it keep theirs"
+                     : "Values for this node, over the engine default's");
+        if (auto t = ui::PropertyTable("##node_values")) {
+            for (const auto& u : meta.uniforms) {
+                if (!listed(u)) continue;
+                const uint32_t count = uniform_float_count(u.type);
+                const NamedValue* override = find_named(params, u.name);
+                const NamedValue* base = find_named(material_values, u.name);
 
-            std::array<float, 4> temp{};
-            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
-            if (base != nullptr) {
-                for (uint32_t i = 0; i < count && i < base->count; ++i) temp[i] = base->values[i];
-            }
-            if (override != nullptr) {
-                for (uint32_t i = 0; i < count && i < override->count; ++i) temp[i] = override->values[i];
-            }
+                std::array<float, 4> temp{};
+                for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) temp[i] = u.default_value[i];
+                if (base != nullptr) {
+                    for (uint32_t i = 0; i < count && i < base->count; ++i) temp[i] = base->values[i];
+                }
+                if (override != nullptr) {
+                    for (uint32_t i = 0; i < count && i < override->count; ++i) temp[i] = override->values[i];
+                }
 
-            bool revert = false;
-            if (override_row(u, std::span{temp}.first(count), override != nullptr, "Use the material's value",
-                             revert)) {
-                NamedValue value;
-                value.name = u.name;
-                value.count = count;
-                value.values = temp;
-                value.srgb = u.hint == UniformHint::Color;
-                set_named(params, std::move(value));
-                changed = true;
+                bool revert = false;
+                if (override_row(u, std::span{temp}.first(count), override != nullptr,
+                                 "Use the material's value", revert)) {
+                    NamedValue value;
+                    value.name = u.name;
+                    value.count = count;
+                    value.values = temp;
+                    value.srgb = u.hint == UniformHint::Color;
+                    set_named(params, std::move(value));
+                    changed = true;
+                }
+                if (revert) revert_name = u.name;
             }
-            if (revert) revert_name = u.name;
         }
     }
     if (!revert_name.empty()) {
         std::erase_if(params, [&](const NamedValue& v) { return v.name == revert_name; });
         changed = true;
+    }
+
+    // One value made the node's own, starting where the material has it, so
+    // taking it changes nothing until it is moved.
+    if (material_shown && any_to_add) {
+        if (ui::action(ui::icon::add, "Override for this node", ui::ButtonKind::Ghost)) {
+            ImGui::OpenPopup("##override_for_node");
+        }
+        if (ImGui::BeginPopup("##override_for_node")) {
+            for (const auto& u : meta.uniforms) {
+                if (u.type == UniformType::Sampler2D || find_named(params, u.name) != nullptr) continue;
+                const std::string label = display_name(u.name);
+                if (!ui::menu_item({.label = label.c_str()})) continue;
+                NamedValue value;
+                value.name = u.name;
+                value.count = uniform_float_count(u.type);
+                value.srgb = u.hint == UniformHint::Color;
+                if (const NamedValue* base = find_named(material_values, u.name)) {
+                    value.values = base->values;
+                } else {
+                    for (uint32_t i = 0; i < value.count && i < u.default_value.size(); ++i) {
+                        value.values[i] = u.default_value[i];
+                    }
+                }
+                set_named(params, std::move(value));
+                changed = true;
+            }
+            ImGui::EndPopup();
+        }
     }
     return changed;
 }
@@ -522,16 +588,8 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
     ui::section("Volumetric fog", ui::icon::volumetric_fog);
     // How the haze looks is its material; the node keeps where it is, how
     // far it reaches and how it answers movement.
-    static const std::string fog_mat_exts[] = {".fjmat"};
     if (auto t = ui::PropertyTable("##fog_material")) {
-        ui::row("Material", [&] {
-            changed |= asset_slot({.label = "Material",
-                                   .id = "##material",
-                                   .extensions = fog_mat_exts,
-                                   .ctx = &ictx,
-                                   .shader_types = only_shader_type(ShaderType::Fog)},
-                                  fog.material_path);
-        });
+        changed |= node_material_row(fog.material_path, fog.params, ShaderType::Fog, ictx);
     }
     if (fog.material != nullptr) {
         draw_material_inspector_for(fog.material);
@@ -600,16 +658,8 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
     ui::section("Fog volume", ui::icon::fog_volume);
     // What the bank looks like is its material; the node keeps the shape,
     // how the bank drifts and how it answers movement.
-    static const std::string volume_mat_exts[] = {".fjmat"};
     if (auto t = ui::PropertyTable("##volume_material")) {
-        ui::row("Material", [&] {
-            changed |= asset_slot({.label = "Material",
-                                   .id = "##material",
-                                   .extensions = volume_mat_exts,
-                                   .ctx = &ictx,
-                                   .shader_types = only_shader_type(ShaderType::Fog)},
-                                  volume.material_path);
-        });
+        changed |= node_material_row(volume.material_path, volume.params, ShaderType::Fog, ictx);
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);
@@ -681,16 +731,8 @@ bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
     ui::section("Post process volume", ui::icon::post_process_volume);
     // How the frame looks is the material; the node keeps where the look
     // applies, over which others and how much.
-    static const std::string post_mat_exts[] = {".fjmat"};
     if (auto t = ui::PropertyTable("##post_material")) {
-        ui::row("Material", [&] {
-            changed |= asset_slot({.label = "Material",
-                                   .id = "##material",
-                                   .extensions = post_mat_exts,
-                                   .ctx = &ictx,
-                                   .shader_types = only_shader_type(ShaderType::Post)},
-                                  volume.material_path);
-        });
+        changed |= node_material_row(volume.material_path, volume.params, ShaderType::Post, ictx);
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);

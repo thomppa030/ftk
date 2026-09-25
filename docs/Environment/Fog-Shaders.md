@@ -153,9 +153,13 @@ for the haze and for a bank:
 
 - The **material** holds the values thirty banks share. Edit them under the
   Material field on the node; they save with the `.fjmat`.
-- **This Node**, below it in the inspector, is the node's own value for a
-  uniform, for the one bank thicker than the rest. Reset returns it to the
-  material's.
+- **This Node**, below it in the inspector, holds the node's own value for a
+  uniform, for the one bank thicker than the rest. With a material it lists
+  only those, and **Override for this node** takes another; revert returns it
+  to the material's. With no material every uniform is listed there, since the
+  engine's default shader is not an asset to edit. Changing the node's
+  material clears them: they were set against the old look, and kept they
+  would hide what the new one says.
 - **Tracks** in a [day profile](Day-Profiles.md) or a
   [weather event](Weather.md) name a uniform: `fog.density` or
   `fog.wisp_contrast` for the haze, `fog.valley.density` for every bank
