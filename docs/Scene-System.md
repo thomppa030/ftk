@@ -10,10 +10,11 @@ Every object in the scene is a `RenderObject`. It holds everything needed to pla
 |---|---|
 | `id` | Unique identifier within the scene |
 | `parent_id` | ID of the parent object, or `-1` for root objects |
-| `world_matrix_` | Computed each frame from the transform hierarchy |
+| `world_matrix_` | Computed each frame from the hierarchy, from where each node is drawn — for drawing only |
 | `model_handle` / `material_handle` | Bindless resource handles into `ResourceManager` |
 | `model` / `material` | Resolved raw pointers (cached after handle lookup) |
-| `transform` | Local-space position, rotation, scale |
+| `transform` | Local-space position, rotation, scale — the simulation's exact state |
+| `interpolated_transform_` | Where a node the last fixed step moved is drawn: its transform blended between that step's start and end |
 | `name` | Display name (shown in hierarchy panel) |
 | `source` | Where this object came from (e.g. a glTF file path) |
 | `material_name` | Material identifier from the source asset |
@@ -56,7 +57,11 @@ Quaternions avoid gimbal lock and make interpolation reliable. The Euler helpers
 
 **Hierarchy:**
 - `reparent` — move an object under a new parent. World position is preserved — the local transform is adjusted so the object doesn't visually jump.
-- `compute_world_matrices` — walks the hierarchy top-down and writes each object's `world_matrix_`. Called once per frame before rendering.
+- `compute_world_matrices` — walks the hierarchy top-down and writes each object's `world_matrix_`, from `interpolated_transform_` for a node the last fixed step moved and from `transform` otherwise. Called once per frame before rendering.
+- `current_world_matrix` — a node's world matrix from the transforms as they are now, through its parents. What the simulation reads: `world_matrix_` is the drawn placement and trails the simulation by up to a step.
+- `teleport` — move a node to a world placement at once, with no blend, and its physics body or character with it.
+
+**Fixed steps:** `begin_fixed_step` keeps every node's transform before a step, `end_fixed_steps` notes what the last step moved, and `interpolate(alpha)` blends those nodes for drawing (position, rotation and scale each only while still where the step left it). See [Main Loop](Main-Loop.md#the-fixed-step).
 
 **Lights:**
 - Point and spot lights are managed separately from the object list.

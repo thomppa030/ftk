@@ -109,11 +109,34 @@ A few things to notice that you'll rely on for every future component:
 
 **The transform is yours to write.** `transform()` returns a reference. Writing to `transform().rotation` (or `position`, `scale`) takes effect immediately. See [`Transform`](Scripting/API/Transform.md).
 
-**`dt` is the scaled gameplay clock.** Animations, timers, and your `tick` all use it. If the game is paused, `tick` is not called at all.
+**`dt` is the scaled gameplay clock.** Animations and your `tick` use it. While the game is paused, `tick` still runs, with a `dt` of zero, so a spinner simply stops.
 
 **The inspector reads your annotations.** `[[fj::property]] float speed = 90.0f;` becomes a labeled slider with `90` as the default. Adding richer hints — `[[fj::property, fj::range(0, 360), fj::tooltip("degrees per second")]]` — refines the UI without code changes. See [`Components`](Scripting/Components.md) for the full annotation set.
 
 **Component instances are per-node.** Drop the same component onto five nodes and each gets its own `speed`. State is per-instance.
+
+### Which tick?
+
+`Spinner` turns its node in `tick()`, once a frame, and that is right for it:
+nothing simulates the node, so it turns by each frame's `dt` and looks smooth.
+The simulation — physics, characters, timers — works differently. It advances
+in fixed steps, 60 a second whatever the frame rate, so it behaves the same on
+a slow machine as on a fast one. A component has three hooks to fit that:
+
+| Hook | Runs | Use it for |
+|---|---|---|
+| `tick(float dt)` | Once a frame, before the simulation steps | Input, game logic, deciding what things should do. Most components need only this. |
+| `fixed_tick(const fjell::FixedStep& step)` | Once per simulation step: none, one or several times a frame | Forces, custom movement, anything that has to come out the same at any frame rate |
+| `late_tick(float dt)` | Once a frame, after the simulation has stepped | Cameras and anything that follows what is on screen |
+
+Two rules come with it. A camera or marker following a moving thing reads
+`Node3D::render_transform()` in `late_tick()`, not `position()` — the thing is
+drawn between two steps, and `position()` is where the last step left it. And
+a physics body is moved by forces or its velocity, not by writing its
+position, which physics puts back; `teleport()` moves it at once. The editor
+reports a script that moves a body by its position; a camera following
+`position()` it cannot catch, and it shows as judder. The whole picture is in
+[Scripting Overview](Scripting/Overview.md#the-three-ticks).
 
 ## Next steps
 

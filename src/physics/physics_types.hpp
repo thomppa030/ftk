@@ -155,10 +155,12 @@ struct CharacterComponent : NodeComponent {
     // fixed_tick, to replay), and the intent fields are unused. A scene saved
     // before this existed loads as Velocity, which is what its scripts did.
     CharacterMovement movement{CharacterMovement::Intent};
-    // Where the character wants to go this frame, world space, length 0..1 (a
-    // stick's deflection); only the horizontal part is used. Cleared before
-    // input each frame, so it is set from an input handler or tick while
-    // there is input. Runtime only.
+    // Where the character wants to go, world space, length 0..1 (a stick's
+    // deflection); only the horizontal part is used. Cleared before input
+    // each frame, so it is set from an input handler or tick while there is
+    // input, and what the frame sets steers each of its steps; set in
+    // fixed_tick, it steers that step only (PhysicsSubsystem keeps the
+    // frame's and puts it back after each step). Runtime only.
     glm::vec3 move_intent{0.0f};
     float max_speed{5.0f};            // speed at full intent, m/s
     float ground_acceleration{0.0f};  // m/s² toward the intended speed on the ground; 0 is instant

@@ -25,6 +25,9 @@ struct Node3D {
     [[nodiscard]] glm::vec3& scale()    const;
     [[nodiscard]] glm::quat& rotation() const;
 
+    [[nodiscard]] Transform render_transform() const;
+    void teleport(const glm::vec3& world_position, const glm::quat& world_rotation) const;
+
     template <typename T> [[nodiscard]] T* get_component() const;
     template <typename T>               T* add_component() const;
 
@@ -61,9 +64,11 @@ The transform accessors return references into engine memory. They're safe to wr
 |---|---|
 | [`id`](#node3did) | The wrapped node ID |
 | [`valid`](#node3dvalid) | `true` if `node_id != 0` |
-| [`position`](#node3dposition) | World position (reference) |
-| [`scale`](#node3dscale) | Scale (reference) |
-| [`rotation`](#node3drotation) | Rotation (reference) |
+| [`position`](#node3dposition) | Local position (reference), the simulation's state |
+| [`scale`](#node3dscale) | Local scale (reference) |
+| [`rotation`](#node3drotation) | Local rotation (reference) |
+| [`render_transform`](#node3drender_transform) | Where the node is drawn this frame, in world space |
+| [`teleport`](#node3dteleport) | Move the node somewhere at once, body and all |
 | [`get_component`](#node3dget_component) | Look up a component by type |
 | [`add_component`](#node3dadd_component) | Add a component to the node |
 | [`destroy`](#node3ddestroy) | Remove the node from the scene |
@@ -105,10 +110,17 @@ A cheap structural check. Does **not** verify that the node still exists in the 
 ```
 
 ### Return value
-Reference to the node's position in world space.
+Reference to the node's position relative to its parent.
 
 ### Remarks
 Writeable — assigning to the returned reference mutates the node's transform directly. The change is visible to other systems the next time they read the transform (typically the next frame).
+
+This is the simulation's state. A node the fixed steps move — a physics body, a
+character — is where the last step left it here, and drawn up to a step behind,
+blended between the last two steps; to follow it on screen, read
+[`render_transform`](#node3drender_transform). A dynamic body written here is
+put back by physics at its next step; push it with forces or its velocity, or
+move it with [`teleport`](#node3dteleport).
 
 The `const` on the method refers to the *handle* being const, not the underlying transform. The handle is just an ID.
 
@@ -145,6 +157,61 @@ Reference to the node's rotation quaternion. Same semantics as `position()`.
 ### Example
 ```cpp
 node.rotation() = glm::angleAxis(glm::radians(90.0f), glm::vec3{0, 1, 0});
+```
+
+---
+
+## Node3D::render_transform
+
+### Syntax
+```cpp
+[[nodiscard]] Transform render_transform() const;
+```
+
+### Return value
+Where the node is drawn this frame, in world space: position, rotation and
+scale. An identity transform if the node no longer resolves.
+
+### Remarks
+The simulation moves nodes in fixed steps, and each frame draws what the last
+step moved blended between that step's start and end, so it moves smoothly at
+any frame rate. This is that drawn placement; `position()` is the simulation's
+own, up to a step ahead. A camera, marker or trail following a node reads this,
+from [`late_tick`](ScriptComponent.md#scriptcomponentlate_tick), or it steps
+while the node glides. Called from `tick()`, which runs before the steps, it is
+where the node was drawn last frame.
+
+### Example
+```cpp
+void late_tick(float /*dt*/) override {
+    transform().position = fjell::Node3D{target_id_}.render_transform().position + offset_;
+}
+```
+
+---
+
+## Node3D::teleport
+
+### Syntax
+```cpp
+void teleport(const glm::vec3& world_position, const glm::quat& world_rotation) const;
+```
+
+### Parameters
+| Name | Type | Description |
+|---|---|---|
+| `world_position` | `const glm::vec3&` | Where to put the node, in world space. |
+| `world_rotation` | `const glm::quat&` | Its rotation, in world space. |
+
+### Remarks
+Moves the node at once: it is drawn there this frame rather than blended there
+from where it was, and a physics body or character on it moves with it,
+keeping its velocity. Use it for respawns, portals and resets. Writing
+`position()` moves a node too, but a dynamic body's physics would put it back.
+
+### Example
+```cpp
+self().teleport(spawn_point, glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
 ```
 
 ---

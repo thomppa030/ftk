@@ -9,7 +9,7 @@ This page is the mental model. For the call-by-call catalog, see [Engine API](En
 There are two things you'll subclass.
 
 ### `ScriptComponent` (alias: `Component`)
-Attached to a `SceneNode`. Has a transform, runs lifecycle hooks, can access engine state via `world()`, `input()`, `physics()`. **This is the one you'll use 95% of the time.**
+Attached to a `SceneNode`. Has a transform, runs lifecycle hooks, can access engine state via `world()` and `input()`. **This is the one you'll use 95% of the time.**
 
 ```cpp
 #include "fjell/component.hpp"
@@ -33,13 +33,15 @@ There's also an `Actor` base class in `fjell/actor.hpp`, but in practice you'll 
 
 ## Lifecycle
 
-Every component (and widget) gets the same three hooks:
-
 | Hook | When |
 |---|---|
-| `begin_play()` | Once, after the scene is loaded and the component is wired in. Inputs are ready, refs are resolved. |
-| `tick(float dt)` | Every frame while playing. `dt` is scaled gameplay time (see `Time::set_scale`). |
-| `end_play()` | Once, before the component is destroyed or the scene unloads. Mirror cleanups here. |
+| `begin_play()` | Once, after the scene is loaded and the component is wired in, or at once when it is added to a running game. Inputs are ready, refs are resolved. |
+| `tick(float dt)` | Every frame while playing, before the simulation steps. `dt` is scaled gameplay time (see `Time::set_scale`); 0 while paused. |
+| `fixed_tick(const FixedStep& step)` | Every fixed step of the simulation, before physics moves anything: none, one or several times a frame, always `step.dt` long. |
+| `late_tick(float dt)` | Every frame, after the simulation has stepped and everything sits where it will be drawn. |
+| `end_play()` | Once, when play stops, the node is destroyed or scripts reload. Its input bindings and timers go with it. |
+
+`UiWidget`s get `begin_play()`, `tick()` and `end_play()`.
 
 Plus collision callbacks on `ScriptComponent`:
 
@@ -51,6 +53,95 @@ void on_trigger_exit(uint32_t other_id);
 ```
 
 `other_id` is the other node's id — pass it to `SceneAPI::find_node` or look up a component on the node.
+
+## The three ticks
+
+The simulation — physics, characters, timers — advances in fixed steps, 60 a
+second unless the project sets another rate, whatever the frame rate is.
+Frames and steps don't line up: at 144 fps most frames run no step, at 30 each
+runs two. Each hook has its job:
+
+| Hook | Runs | Put here | Don't |
+|---|---|---|---|
+| `tick(dt)` | Once a frame, before the steps | Reacting to input, game logic, deciding what things should do: set a character's `move_intent`, start an ability, change state | Integrate motion the simulation owns with `dt` |
+| `fixed_tick(step)` | Once per step | Custom movement, forces, anything that has to come out the same at any frame rate or replay exactly | Follow things on screen |
+| `late_tick(dt)` | Once a frame, after the steps | Cameras, and anything that follows what is drawn | Move things the simulation owns |
+
+Most scripts need only `tick()`, input handlers and a character's intent.
+Custom physics wants `fixed_tick()`; followers want `late_tick()`.
+
+```cpp
+class Rocket : public fjell::ScriptComponent {
+    FJELL_COMPONENT(Rocket)
+
+    [[fj::property]] float thrust = 40.0f;
+    [[fj::property]] fjell::Ref<fjell::InputAction> boost;
+
+    void fixed_tick(const fjell::FixedStep& step) override {
+        // A force acts on the step it is applied in: apply it in every step.
+        fjell::PhysicsAPI::apply_force(id(), {0.0f, thrust, 0.0f});
+        if (step.input.pressed(boost)) {
+            fjell::PhysicsAPI::apply_impulse(id(), {0.0f, 8.0f, 0.0f});
+        }
+    }
+};
+
+class ChaseCamera : public fjell::ScriptComponent {
+    FJELL_COMPONENT(ChaseCamera)
+
+    [[fj::property]] std::string target = "Rocket";
+
+    void begin_play() override { target_id_ = fjell::SceneAPI::find_node(target.c_str()); }
+
+    void late_tick(float /*dt*/) override {
+        if (target_id_ == 0) return;
+        // Where the rocket is drawn this frame, not where the last step left it.
+        transform().position = fjell::Node3D{target_id_}.render_transform().position + offset_;
+    }
+
+private:
+    uint32_t target_id_{0};
+    glm::vec3 offset_{0.0f, 2.0f, -6.0f};
+};
+```
+
+**Where a node is, and where it is drawn.** `position()` and `transform()` are
+the simulation's state: where the last step left a node. A node the steps
+moved is drawn blended between the last two steps, so it glides at any frame
+rate; `Node3D::render_transform()` is that drawn placement, in world space. A
+camera or marker that follows `position()` steps while its target glides —
+follow `render_transform()` from `late_tick()`.
+
+**Moving without a blend.** `Node3D::teleport(position, rotation)` puts a node
+somewhere at once: it is drawn there rather than slid there, and a body or
+character on it moves along, keeping its velocity. Use it for respawns and
+doors to elsewhere. Writing `position()` on a dynamic body does nothing
+lasting — physics puts it back at the next step.
+
+**Input in a step.** `step.input` is the input that step sees:
+`pressed(action)`, `released(action)`, `held(action)`, `axis1d(action)`,
+`axis2d(action)`. A press is seen by exactly one step, the first to begin
+after it, even when its frame ran no step or several. Handlers bound with
+`InputAPI::bind` still fire once a frame, before `tick()`.
+
+**Characters.** A `CharacterComponent` moved by intent needs no `fixed_tick()`:
+set `move_intent` from an input handler or `tick()` and call `jump()`, and the
+engine steers it every step. What the frame sets steers every step that frame
+runs; set in `fixed_tick()`, it steers that step only. See
+[Physics](../Physics.md#moving-it).
+
+**Time inside a step.** `delta_time()`, `world()->delta_time` and
+`world()->elapsed_time` read the step's own length and time inside
+`fixed_tick()`, so code that reads them there is right. `Time::fixed_delta()`
+and `world()->fixed_delta_time`, `fixed_time`, `fixed_step_index` read the
+step from anywhere. Timers fire inside the steps.
+
+**What the editor tells you.** A script whose `tick()` or `late_tick()` moves
+a dynamic body, or writes a character's velocity against its movement mode,
+is reported once in the console with what to do instead, and fails a
+functional test. `fjell <project> --run-tests --pacing 30,144,jitter` plays the
+game's tests at several frame rates and reports the first step where they
+differ (see [Functional Tests](Functional-Tests.md#pacing)).
 
 ## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::bind]]`, `[[fj::action]]`
 
@@ -161,8 +252,9 @@ Inside a `ScriptComponent`:
 | `self()` | The `Node3D` handle for your own node |
 | `id()` | `uint32_t` node id (e.g. for `Animator::set_param`) |
 | `input()` | Const ref to the current `Input` state |
-| `delta_time()`, `elapsed_time()` | Scaled gameplay clock |
-| `physics()` | `PhysicsWorld*` for raycasts (when wired in) |
+| `delta_time()`, `elapsed_time()` | Scaled gameplay clock; the step's own inside `fixed_tick()` |
+
+Physics queries and forces go through `fjell::PhysicsAPI` (`fjell/physics_api.hpp`).
 
 To find or spawn nodes anywhere in the scene, use `fjell::SceneAPI` (see [Engine API](Engine-API.md)).
 
@@ -224,10 +316,11 @@ All under `src/scripting/fjell/`. The shape of the SDK:
 |---|---|
 | `api.h` | C ABI: field types, action types, key codes (`FJELL_KEY_*`, `FJELL_MOUSE_*`), `EInputTrigger` |
 | `component.hpp` | `ScriptComponent`, lifecycle, collision hooks |
+| `fixed_step.hpp` | `FixedStep`, `StepInput` — what `fixed_tick()` receives |
 | `actor.hpp` | `Actor` base for non-component objects |
 | `node.hpp` | `Node3D` handle, `get_component<T>` |
 | `transform.hpp` | `Transform` struct, euler helpers, `decompose_matrix` |
-| `world.hpp` | `World` — frame state (input, physics, delta_time) |
+| `world.hpp` | `World` — frame state (input, delta_time, the fixed step's time) |
 | `input.hpp` | `Input` class — `is_key_pressed`, mouse position, cursor capture |
 | `ref.hpp`, `weak_ref.hpp` | `Ref<T>`, `WeakRef<T>` |
 | `delegate.hpp` | `Delegate<>`, `Connection` |

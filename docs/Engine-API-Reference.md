@@ -1,5 +1,9 @@
 # Engine API Reference
 
+> **Out of date.** This page describes an earlier script API. The current one
+> is catalogued in [Engine API](Scripting/Engine-API.md), with the three ticks
+> in [Scripting Overview](Scripting/Overview.md#the-three-ticks).
+
 ## Component
 
 Base class for all game components. Defined in `scripting/fjell_component.hpp`.

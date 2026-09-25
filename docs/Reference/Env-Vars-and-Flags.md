@@ -29,6 +29,7 @@ Setting them in your shell does nothing.
 
 ```
 ./build/src/fjell [<project-path>] [--scene <name>] [--play] [--create-project <name>]
+                  [--run-tests [filter]] [--pacing <list>]
 ```
 
 | Argument | What it does |
@@ -38,6 +39,8 @@ Setting them in your shell does nothing.
 | `--scene <name>` | Opens this scene instead of the project's start scene. |
 | `--play` | Enters play mode as soon as the project is open. Pairs with `--scene` to launch straight into one scene. |
 | `--create-project <name>` | Creates a project of that name before opening. |
+| `--run-tests [filter]` | Plays the project's functional tests (scenes under `Tests/`, only those whose name contains the filter if one is given), prints a report and exits non-zero unless every test passed. Editor build only. See [Functional Tests](../Scripting/Functional-Tests.md). |
+| `--pacing <list>` | With `--run-tests`: plays every test once per pacing — frame rates and `jitter`, comma separated, as in `30,144,jitter` — and fails a run whose simulation steps differently from the first pacing's. See [Pacing](../Scripting/Functional-Tests.md#pacing). |
 
 `--scene` and `--create-project` each consume the argument after them, and
 are ignored if nothing follows.

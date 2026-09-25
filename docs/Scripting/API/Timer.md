@@ -32,11 +32,11 @@ struct Timer {
 
 ## Remarks
 
-Timers run on the main thread between ticks. Their delays are measured in the **gameplay clock** — when [`Time::set_scale(0.5f)`](Time.md) is active, timer countdowns run at half real-time. When [`Time::pause()`](Time.md) is active, all timers are frozen.
+Timers advance with the simulation's fixed steps and fire inside them, before physics moves anything, so they fire at the same moment of the simulation at any frame rate; a delay is honoured to within one step. Their delays are measured in the **gameplay clock** — when [`Time::set_scale(0.5f)`](Time.md) is active, timer countdowns run at half real-time. When [`Time::pause()`](Time.md) is active, no steps run and all timers are frozen.
 
 Handles are `(index, generation)` packed into 64 bits. The generation bumps when a slot is recycled, so calling `cancel()` on an expired or already-cancelled handle is safe — the engine sees the stale generation and ignores it.
 
-Timers are **not auto-cancelled** when your component is destroyed. If a timer fires after `end_play()` and calls a member function on a deleted `this`, you'll crash. Cancel in `end_play()` (or store handles in a `WeakRef`-style structure if you need to outlive the owner).
+A timer set on `this` belongs to it: every timer a component set is cancelled when it goes away — its node destroyed, play stopped, scripts reloaded — so none fires into a freed object. Keep the handle only to stop one earlier. A timer set on any other object has to be cancelled before that object goes away.
 
 ## Types
 

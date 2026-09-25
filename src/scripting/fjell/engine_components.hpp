@@ -247,7 +247,9 @@ struct CharacterComponent {
     /// Where the character wants to go, world space, with a length from 0 to
     /// 1 like a stick's deflection; only the horizontal part is used. It is
     /// cleared before input each frame, so set it from an input handler or
-    /// `tick()` while there is input, and leave it when there is none.
+    /// `tick()` while there is input, and leave it when there is none: what
+    /// the frame sets steers every step the frame runs. Set in `fixed_tick()`,
+    /// it steers that step only.
     glm::vec3 move_intent{0.0f};
 
     /// Speed at full intent, in metres per second.
@@ -285,7 +287,7 @@ struct CharacterComponent {
     glm::vec3 velocity{0.0f};
 
     /// Whether the character is grounded. Read-only output, refreshed each
-    /// frame — check it before allowing a jump.
+    /// fixed step — check it before allowing a jump.
     CharacterGroundState ground_state{CharacterGroundState::InAir};
 
     /// Surface normal underfoot; `(0,1,0)` when airborne. Read-only output,

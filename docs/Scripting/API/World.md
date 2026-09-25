@@ -1,6 +1,6 @@
 # fjell::World
 
-Per-frame runtime state passed to game scripts. Plain struct — input, physics, and frame timings.
+Per-frame runtime state passed to game scripts. Plain struct — input, frame timings and the fixed step's time.
 
 | | |
 |---|---|
@@ -13,13 +13,14 @@ Per-frame runtime state passed to game scripts. Plain struct — input, physics,
 namespace fjell {
 
 struct World {
-    const Input*  input_{nullptr};
-    PhysicsWorld* physics_{nullptr};
-    float         delta_time{0.0f};
-    float         elapsed_time{0.0f};
+    const Input* input_{nullptr};
+    float        delta_time{0.0f};
+    float        elapsed_time{0.0f};
+    float        fixed_delta_time{0.0f};
+    double       fixed_time{0.0};
+    uint64_t     fixed_step_index{0};
 
-    [[nodiscard]] const Input&  input() const;
-    [[nodiscard]] PhysicsWorld* physics();
+    [[nodiscard]] const Input& input() const;
 };
 
 }
@@ -29,25 +30,28 @@ struct World {
 
 `World` is the catch-all "frame context" struct the engine populates before calling `tick()` on scripts. Components access it via [`ScriptComponent::world()`](ScriptComponent.md#scriptcomponentworld); widgets via [`UiWidget::world()`](UiWidget.md).
 
-In practice you'll usually go through the convenience accessors on `ScriptComponent` / `UiWidget` (`input()`, `delta_time()`, `physics()`) which dereference `world()` for you. Touch `World` directly only when you need to pass per-frame state into helper functions.
+In practice you'll usually go through the convenience accessors on `ScriptComponent` / `UiWidget` (`input()`, `delta_time()`, `elapsed_time()`) which dereference `world()` for you. Touch `World` directly only when you need to pass per-frame state into helper functions.
 
 `delta_time` is **already scaled** by [`Time::scale`](Time.md#timescale) and is `0` while paused. `elapsed_time` accumulates scaled time since the play session started.
+
+Inside [`fixed_tick`](ScriptComponent.md#scriptcomponentfixed_tick), `delta_time` and `elapsed_time` are the step's own length and time, so a helper that reads them is right whichever hook calls it. The `fixed_` members describe the simulation's latest step from anywhere.
 
 ## Members
 
 | Name | Type | Description |
 |---|---|---|
 | `input_` | `const Input*` | Pointer to this frame's input state. Use `input()` instead. |
-| `physics_` | `PhysicsWorld*` | Pointer to the physics world, or `nullptr` if physics is disabled. Use `physics()` instead. |
-| `delta_time` | `float` | Scaled gameplay dt for this frame. |
-| `elapsed_time` | `float` | Scaled gameplay seconds since the play session started. |
+| `delta_time` | `float` | Scaled gameplay dt for this frame; the step's length inside `fixed_tick`. |
+| `elapsed_time` | `float` | Scaled gameplay seconds since the play session started; the step's time inside `fixed_tick`. |
+| `fixed_delta_time` | `float` | The simulation's step length in seconds, the same for every step. |
+| `fixed_time` | `double` | Simulation time at the start of the latest fixed step. |
+| `fixed_step_index` | `uint64_t` | How many fixed steps the session took before the latest one. |
 
 ## Functions
 
 | Name | Description |
 |---|---|
 | `input()` | Dereferences `input_`. Crashes if the engine left it null — should never happen in normal flow. |
-| `physics()` | Returns the raw `physics_` pointer (may be null). |
 
 ## Example
 

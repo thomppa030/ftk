@@ -18,13 +18,15 @@ struct Time {
     static void  pause();
     static void  resume();
     static bool  is_paused();
+
+    static float fixed_delta();
 };
 }
 ```
 
 ## Remarks
 
-The gameplay clock drives `tick(dt)`, [`Timer`](Timer.md) callbacks, VFX simulation, and animation. Rendering, editor UI, and input polling continue regardless.
+The gameplay clock drives `tick(dt)`, the simulation's fixed steps (and so `fixed_tick`, physics and [`Timer`](Timer.md) callbacks), VFX simulation, and animation. Scale and pause change how much game time each frame feeds the steps, never the step's length: at half speed the steps come half as often. Rendering, editor UI, and input polling continue regardless.
 
 `set_scale(0.0f)` is allowed but has the same observable effect as `pause()` for most systems — prefer `pause()` for clarity. Negative scales are accepted but most systems don't define reverse-time behavior; results are implementation-defined.
 
@@ -39,6 +41,7 @@ The scale is multiplicative with the engine's own dt. The `dt` value handed to `
 | [`pause`](#timepause) | Pause gameplay |
 | [`resume`](#timeresume) | Resume gameplay |
 | [`is_paused`](#timeis_paused) | Query pause state |
+| [`fixed_delta`](#timefixed_delta) | The simulation's step length |
 
 ---
 
@@ -105,12 +108,29 @@ Clears the pause flag. The prior `scale` value (set via `set_scale`) is restored
 ### Return value
 `true` if the pause flag is set.
 
+---
+
+## Time::fixed_delta
+
+### Syntax
+```cpp
+[[nodiscard]] static float fixed_delta();
+```
+
+### Return value
+The simulation's step length in seconds: what `fixed_tick()` receives as
+`step.dt`, the same for every step of a session. 1/60 unless the project sets
+another rate under Project Settings > Simulation.
+
+---
+
 ## Example
 
 ```cpp
-// Hit-stop on damage taken
+// Hit-stop on damage taken: a tenth of speed for a moment. Timers run on game
+// time, so 0.05 s of it is about half a second of real time at a tenth.
 fjell::Time::set_scale(0.1f);
-fjell::Timer::set<&Game::end_hitstop>(0.2f, this);  // wall-clock; see Timer remarks
+fjell::Timer::set<&Game::end_hitstop>(0.05f, this);
 
 // Pause menu
 fjell::Time::pause();

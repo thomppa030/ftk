@@ -163,18 +163,16 @@ public:
     /// bindings stay remappable.
     [[nodiscard]] const Input& input() const { return world_->input(); }
 
-    /// Physics world, for raycasts and queries. Null if physics is disabled.
-
-
     /// Seconds since the previous frame — the same value passed to `tick()`.
-    /// Useful from handlers that don't receive it as an argument.
+    /// Inside `fixed_tick()` it is the step's length. Useful from handlers
+    /// that don't receive it as an argument.
     [[nodiscard]] float delta_time() const { return world_->delta_time; }
 
     /// Seconds since play started, scaled by `Time::set_scale()` and frozen
-    /// while paused.
+    /// while paused. Inside `fixed_tick()` it is the step's time.
     [[nodiscard]] float elapsed_time() const { return world_->elapsed_time; }
 
-    /// Shared per-frame runtime state (input, physics, timing).
+    /// Shared per-frame runtime state (input, timing, the fixed step's time).
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 

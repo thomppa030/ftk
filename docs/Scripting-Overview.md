@@ -1,5 +1,10 @@
 # Scripting Overview
 
+> **Out of date.** This page was written for an earlier script API (`actor()`,
+> `reflect()`, `world()->physics()`) and a simulation that stepped once a frame.
+> For how scripts work now — `tick`, `fixed_tick`, `late_tick`, `PhysicsAPI` —
+> see [Scripting Overview](Scripting/Overview.md) and [Physics](Physics.md).
+
 Components are C++ classes compiled into a shared library (`.so`). The engine loads the library at runtime, discovers your types through auto-registration, and calls into them each frame during play mode.
 
 ## How It Works

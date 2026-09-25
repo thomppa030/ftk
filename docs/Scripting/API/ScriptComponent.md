@@ -19,6 +19,8 @@ public:
     // Lifecycle (override these in subclasses)
     virtual void begin_play();
     virtual void tick(float dt);
+    virtual void fixed_tick(const FixedStep& step);
+    virtual void late_tick(float dt);
     virtual void end_play();
 
     // Collision hooks
@@ -40,7 +42,6 @@ public:
 
     // World state
     [[nodiscard]] const Input&      input()        const;
-    [[nodiscard]] PhysicsWorld*     physics();
     [[nodiscard]] float             delta_time()   const;
     [[nodiscard]] float             elapsed_time() const;
     [[nodiscard]] World*            world();
@@ -65,7 +66,10 @@ Reflected fields are declared with `[[fj::property]]` and processed by the `fjre
 1. **Construction** — default constructor only. Don't access `transform()`, `input()`, etc. here; the engine hasn't wired them up.
 2. **Field deserialization** — `[[fj::property]]` fields are written from `.fjscene` data.
 3. **`begin_play()`** — engine has wired `world_`, `transform_`, `id_`. All members are valid. Bind input actions, set up timers, query other components, etc.
-4. **`tick(dt)`** — every frame while the scene is playing.
+4. **Each frame while the scene is playing:** `tick(dt)`, then
+   `fixed_tick(step)` once per fixed step the frame runs (often none or
+   several), then `late_tick(dt)`. See
+   [the three ticks](../Overview.md#the-three-ticks).
 5. **`end_play()`** — exactly once. Cancel timers, clear delegate connections, destroy viewports. Members are still valid; you can still call engine APIs.
 6. **Destruction**.
 
@@ -78,7 +82,9 @@ Reflected fields are declared with `[[fj::property]]` and processed by the `fjre
 | Name | Description |
 |---|---|
 | [`begin_play`](#scriptcomponentbegin_play) | One-time init after the engine wires everything up |
-| [`tick`](#scriptcomponenttick) | Per-frame update |
+| [`tick`](#scriptcomponenttick) | Per-frame update, before the simulation steps |
+| [`fixed_tick`](#scriptcomponentfixed_tick) | Per simulation step, before physics moves anything |
+| [`late_tick`](#scriptcomponentlate_tick) | Per-frame update, after the simulation has stepped |
 | [`end_play`](#scriptcomponentend_play) | One-time teardown before destruction |
 
 ## Collision functions
@@ -99,8 +105,7 @@ Reflected fields are declared with `[[fj::property]]` and processed by the `fjre
 | [`self`](#scriptcomponentself) | `Node3D` handle for the owning node |
 | [`transform`](#scriptcomponenttransform) | Owning node's transform |
 | [`input`](#scriptcomponentinput) | Frame's input state |
-| [`physics`](#scriptcomponentphysics) | Physics world (raycasts, queries) |
-| [`delta_time`](#scriptcomponentdelta_time) | Scaled gameplay dt this frame |
+| [`delta_time`](#scriptcomponentdelta_time) | Scaled gameplay dt this frame, or the step's inside `fixed_tick` |
 | [`elapsed_time`](#scriptcomponentelapsed_time) | Scaled gameplay time since session start |
 | [`world`](#scriptcomponentworld) | Full `World` struct |
 
@@ -117,7 +122,7 @@ virtual void begin_play();
 Called once after the component is fully wired and field values are loaded. Override and do not call the base — there's nothing in the base body to chain.
 
 By the time `begin_play` runs:
-- `transform()`, `input()`, `world()`, `physics()` are valid.
+- `transform()`, `input()` and `world()` are valid.
 - `[[fj::property]]` fields hold their serialized values.
 - Other components on the same node may or may not have had `begin_play` called yet — don't assume order.
 
@@ -142,17 +147,86 @@ virtual void tick(float dt);
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `dt` | `float` | Seconds since the last tick, scaled by [`Time::scale`](Time.md#timescale). |
+| `dt` | `float` | Seconds since the last frame, scaled by [`Time::scale`](Time.md#timescale). 0 while [`Time::is_paused()`](Time.md#timeis_paused). |
 
 ### Remarks
-Called every frame while the scene is playing. Returns immediately if [`Time::is_paused()`](Time.md#timeis_paused) is true.
+Called every frame while the scene is playing, before the simulation's fixed
+steps: react to input and decide what things should do here, and this frame's
+steps see it. Motion the simulation owns — a physics body, a character moved
+by `Velocity` — belongs in [`fixed_tick`](#scriptcomponentfixed_tick); the
+editor reports a `tick` that moves a dynamic body or writes such a velocity.
 
 `dt` matches `delta_time()` and `world().delta_time` — they're all the same value.
 
 ### Example
 ```cpp
 void tick(float dt) override {
-    transform().position += velocity_ * dt;
+    // A node nothing simulates: turn it by the frame's time.
+    transform().rotation = glm::rotate(transform().rotation, spin_ * dt, glm::vec3{0, 1, 0});
+}
+```
+
+---
+
+## ScriptComponent::fixed_tick
+
+### Syntax
+```cpp
+virtual void fixed_tick(const FixedStep& step);
+```
+
+### Parameters
+| Name | Type | Description |
+|---|---|---|
+| `step` | `const FixedStep&` | The step: `dt` (its length, the same for every step), `time` (simulation time at its start), `index`, and `input`, the input this step sees. From `fjell/fixed_step.hpp`. |
+
+### Remarks
+Called once per fixed step of the simulation while the scene is playing,
+before physics moves anything: none, one or several times a frame, always
+with the same `step.dt`. Forces, custom movement, abilities and anything that
+has to come out the same at any frame rate, or replay exactly, belong here.
+Timers fire in these steps too.
+
+Inside it `delta_time()` reads `step.dt` and `elapsed_time()` the step's time.
+`step.input.pressed(action)` is true on exactly one step after a press, even
+when the frame the press arrived on ran no step or several.
+
+### Example
+```cpp
+void fixed_tick(const fjell::FixedStep& step) override {
+    if (step.input.held(thrust_action)) {
+        fjell::PhysicsAPI::apply_force(id(), {0.0f, thrust, 0.0f});
+    }
+}
+```
+
+---
+
+## ScriptComponent::late_tick
+
+### Syntax
+```cpp
+virtual void late_tick(float dt);
+```
+
+### Parameters
+| Name | Type | Description |
+|---|---|---|
+| `dt` | `float` | As `tick` receives it. |
+
+### Remarks
+Called every frame after the simulation has stepped, when every node sits
+where it will be drawn. Cameras and anything that follows what is on screen
+belong here. Read the followed node through
+[`Node3D::render_transform()`](Node3D.md#node3drender_transform), not
+`position()`: `position()` is where the last step left it, up to a step ahead
+of where it is drawn, and a follower reading it judders.
+
+### Example
+```cpp
+void late_tick(float /*dt*/) override {
+    const fjell::Transform drawn = fjell::Node3D{target_id_}.render_transform();
+    transform().position = drawn.position + offset_;
 }
 ```
 
@@ -331,18 +405,6 @@ For one-off polling. Prefer [action bindings](InputAPI.md) for game-facing contr
 
 ---
 
-## ScriptComponent::physics
-
-### Syntax
-```cpp
-[[nodiscard]] PhysicsWorld* physics();
-```
-
-### Return value
-The physics world for raycasts and queries, or `nullptr` if physics isn't enabled in this project.
-
----
-
 ## ScriptComponent::delta_time
 
 ### Syntax
@@ -351,7 +413,7 @@ The physics world for raycasts and queries, or `nullptr` if physics isn't enable
 ```
 
 ### Return value
-Same value as the `dt` argument to `tick(dt)`. Provided for convenience in non-`tick` methods.
+Same value as the `dt` argument to `tick(dt)`; inside `fixed_tick()`, the step's length. Provided for convenience in methods that don't receive it.
 
 ---
 
@@ -363,7 +425,7 @@ Same value as the `dt` argument to `tick(dt)`. Provided for convenience in non-`
 ```
 
 ### Return value
-Scaled gameplay seconds since the play session started. Reset when the scene reloads.
+Scaled gameplay seconds since the play session started; inside `fixed_tick()`, the step's time. Reset when the scene reloads.
 
 ---
 
@@ -376,7 +438,7 @@ Scaled gameplay seconds since the play session started. Reset when the scene rel
 ```
 
 ### Return value
-Pointer to the [`World`](World.md) struct — input + physics + dt + elapsed_time. The individual accessors above are convenience wrappers around this.
+Pointer to the [`World`](World.md) struct — input, dt, elapsed_time and the fixed step's time. The individual accessors above are convenience wrappers around this.
 
 ## Full example
 
