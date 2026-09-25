@@ -95,17 +95,20 @@ void PipelineCache::load_includes() {
     // files agree. It keys the SPIR-V cache: what a shader pulls in with
     // #include is not in its generated source, so without this an edited
     // include would find the old binary under an unchanged key.
+    //
+    // Subdirectories count: include/tonemap/ holds the tone curves, and an
+    // edit there has to rebuild a shader that includes them like any other.
     {
+        const std::filesystem::path root = shader_source_dir_ + "/include";
         std::vector<std::filesystem::path> includes;
         std::error_code ec;
-        for (const auto& entry :
-             std::filesystem::directory_iterator(shader_source_dir_ + "/include", ec)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
             if (entry.is_regular_file(ec)) includes.push_back(entry.path());
         }
         std::sort(includes.begin(), includes.end());
         uint64_t h = FNV_OFFSET;
         for (const auto& path : includes) {
-            h = hash_bytes(path.filename().string(), h);
+            h = hash_bytes(path.lexically_relative(root).generic_string(), h);
             h = hash_bytes(read_file(path.string()), h);
         }
         include_hash_ = h;
