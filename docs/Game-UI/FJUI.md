@@ -71,7 +71,7 @@ text; put one in single quotes to keep its spaces: `{copper|coins:' gold'}`.
 
 | Pipe | Makes | Example |
 |---|---|---|
-| `round` | the nearest whole number | `117.6` → `118` |
+| `round` | the nearest whole number, halves away from zero | `117.6` → `118`, `2.5` → `3` |
 | `fixed:n` | `n` decimals (0–9) | `fixed:1`: `0.25` → `0.3` |
 | `seconds` | a countdown: whole seconds rounded up, `m:ss` from a minute | `2.4` → `3`, `125` → `2:05` |
 | `times` | a count with `×` | `3` → `×3` |

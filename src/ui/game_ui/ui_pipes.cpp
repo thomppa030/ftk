@@ -94,7 +94,9 @@ UiValue UiPipes::apply(const UiValue& value, const UiPipeCall& call) const {
         if (name == "times") return UiValue("×" + value.text());
         const auto number = value.number();
         if (!number) return value; // formats numbers; text that is not one stays
-        if (name == "round") return UiValue(fixed(*number, 0));
+        // Halves away from zero, as a player reads 2.5; printf alone would
+        // round them to even. Adding zero turns -0 into 0.
+        if (name == "round") return UiValue(fixed(std::round(*number) + 0.0f, 0));
         if (name == "fixed" || name == "percent") {
             const auto decimals = int_argument(call, 0, 0);
             if (!decimals) {

@@ -47,6 +47,20 @@ TEST_CASE("The engine's pipes format numbers", "[ui_pipes]") {
     REQUIRE(show("{stamina|round|times}", ctx) == "×117"); // left to right
 }
 
+TEST_CASE("round takes halves away from zero", "[ui_pipes]") {
+    UiPipes pipes;
+    UiContext ctx;
+    ctx.set_pipes(&pipes);
+    const std::pair<float, const char*> cases[] = {
+        {116.5f, "117"}, {2.5f, "3"}, {3.5f, "4"}, {-2.5f, "-3"}, {-0.4f, "0"}, {0.49f, "0"},
+    };
+    for (const auto& [value, text] : cases) {
+        ctx.set("v", UiValue(value));
+        INFO(value);
+        REQUIRE(show("{v|round}", ctx) == text);
+    }
+}
+
 TEST_CASE("seconds counts down in whole seconds, minutes from 60", "[ui_pipes]") {
     UiPipes pipes;
     UiContext ctx;
