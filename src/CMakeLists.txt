@@ -115,7 +115,6 @@ add_executable(fjell
     renderer/offscreen_pass.cpp
     renderer/scene_viewport.cpp
     renderer/gpu/pipeline.cpp
-    renderer/render_target_pool.cpp
     renderer/post_process_resources.cpp
     renderer/pipeline_cache.cpp
     renderer/shader_diagnostic.cpp

@@ -48,7 +48,6 @@
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/post_process_resources.hpp"
-#include "renderer/render_target_pool.hpp"
 #include "renderer/systems/sprite_renderer.hpp"
 #include "renderer/systems/tilemap_renderer.hpp"
 #include "renderer/scene_viewport.hpp"
@@ -345,7 +344,6 @@ public:
   /// recording when their source bit is not set.
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
   [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
-  [[nodiscard]] RenderTargetPool& target_pool() { return target_pool_; }
   [[nodiscard]] RenderPipeline& render_pipeline() { return render_pipeline_; }
   [[nodiscard]] PostProcessResources& default_pp() { return *default_pp_; }
 
@@ -426,7 +424,6 @@ private:
   GpuContext gpu_;
   RenderPipeline render_pipeline_;
   ResourceRegistry resource_registry_;
-  RenderTargetPool target_pool_;
   FrameContext current_ctx_{};
   // The environment of the scene being recorded, handed to every FrameContext
   // built until the next record_frame or render_preview call replaces it.

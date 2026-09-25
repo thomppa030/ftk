@@ -27,7 +27,6 @@ struct SkyBackdrop;
 class PassRegistry;
 class RenderQueue;
 class RenderSubsystem;
-class RenderTargetPool;
 class ResourceRegistry;
 class Scene;
 class UploadContext;
@@ -106,9 +105,6 @@ struct FrameContext {
     // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
     VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
     uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
-
-    // Transient render target pool
-    RenderTargetPool* target_pool{nullptr};
 
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};

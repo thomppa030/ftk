@@ -51,8 +51,7 @@
 namespace fjell {
 
 VulkanContext::VulkanContext(Window& window)
-    : gpu_{window}
-    , target_pool_{gpu_.device(), gpu_.allocator()} {
+    : gpu_{window} {
     FJELL_GFX_INFO("Initializing Vulkan context");
 
     // Finalize global descriptor layout/pool/sets (builtins already declared
@@ -405,7 +404,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.flip_tonemap_y = view.flip_tonemap_y;
     ctx.backdrop = view.backdrop;
     ctx.show_grid = view.show_grid;
-    ctx.target_pool = &target_pool_;
 
     // Read inv_view_proj from the already-written GlobalUbo
     auto* ubo_data = static_cast<const GlobalUbo*>(gpu_.uniform_buffer(current_frame_).mapped());
@@ -1531,7 +1529,6 @@ void VulkanContext::submit_and_present() {
         FJELL_GFX_CRITICAL("vkQueuePresentKHR failed: {}", static_cast<int>(result));
     }
 
-    target_pool_.end_frame();
     has_recorded_frame_ = false;
 }
 
