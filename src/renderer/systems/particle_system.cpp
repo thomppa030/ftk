@@ -1726,11 +1726,33 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         }
     };
 
-    // Clear sub-emitter event counters
+    // Clear sub-emitter event counters. One buffer serves every frame, so the
+    // clear waits for the last step's shaders and clear to be done with it,
+    // and the shaders here wait for the clear.
     if (sub_event_counter_buffer_) {
+        auto memory_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                                  VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
+            VkMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = src_stage;
+            barrier.srcAccessMask = src_access;
+            barrier.dstStageMask = dst_stage;
+            barrier.dstAccessMask = dst_access;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        };
+        constexpr VkAccessFlags2 SHADER_ACCESS =
+            VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        memory_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                       SHADER_ACCESS | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                       VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
         vkCmdFillBuffer(cmd, sub_event_counter_buffer_->handle(),
                         0, sub_event_counter_buffer_->size(), 0);
-        compute_barrier();
+        memory_barrier(VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, SHADER_ACCESS);
     }
 
     // ── Phase 1: Emit normal emitters (sub_emit_pass=0, skip children) ──
