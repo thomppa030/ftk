@@ -154,12 +154,19 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         add_import("color",        target.color_image(),        target.color_view());
         add_import("depth",        target.depth_image(),        target.depth_view(),
                    VK_IMAGE_ASPECT_DEPTH_BIT);
+        // The water's own depth attachment, multisampled with the target, is
+        // "msaa_surface_depth"; like the other msaa_* names it is the same image
+        // as the resolved one without MSAA, and the scene's where no water draws.
         if (water_draws) {
             add_import("surface_depth", target.surface_depth_image(),
                        target.surface_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_surface_depth", target.water_depth_image(),
+                       target.water_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
         } else {
             add_import("surface_depth", target.depth_image(), target.depth_view(),
                        VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_surface_depth", target.msaa_depth_image(),
+                       target.msaa_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
         }
         add_import("mr",           target.mr_image(),           target.mr_view());
         add_import("normal",       target.normal_image(),       target.normal_view());

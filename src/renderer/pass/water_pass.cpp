@@ -767,43 +767,8 @@ void WaterPass::seed_water_depth(const FrameContext& ctx) {
     const VkImage water_depth = ctx.target->water_depth_image();
     if (scene_depth == VK_NULL_HANDLE || water_depth == VK_NULL_HANDLE) return;
 
+    FJELL_PROFILE_SCOPE_N("record_water_depth_seed");
     FJELL_GPU_ZONE(ctx, "Water Depth Seed");
-
-    const VkImageSubresourceRange depth_range{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-
-    // The scene depth arrives read-only — the transparent pass declares it as
-    // something it samples — and has to leave in the same layout, because the
-    // scope that follows binds it that way and the framegraph believes it is
-    // still there.
-    std::array<VkImageMemoryBarrier2, 2> to_transfer{};
-    to_transfer[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    to_transfer[0].srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
-                                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    to_transfer[0].srcAccessMask = 0;
-    to_transfer[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    to_transfer[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    to_transfer[0].oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    to_transfer[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    to_transfer[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_transfer[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_transfer[0].image = scene_depth;
-    to_transfer[0].subresourceRange = depth_range;
-
-    // Last frame's water depth is of no use to this one, so it is discarded
-    // rather than transitioned: UNDEFINED tells the driver not to preserve it.
-    to_transfer[1] = to_transfer[0];
-    to_transfer[1].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    to_transfer[1].srcAccessMask = 0;
-    to_transfer[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    to_transfer[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    to_transfer[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    to_transfer[1].image = water_depth;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = static_cast<uint32_t>(to_transfer.size());
-    dep.pImageMemoryBarriers = to_transfer.data();
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
@@ -811,35 +776,6 @@ void WaterPass::seed_water_depth(const FrameContext& ctx) {
     region.extent = {ctx.target->extent().width, ctx.target->extent().height, 1};
     vkCmdCopyImage(ctx.cmd, scene_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    water_depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    std::array<VkImageMemoryBarrier2, 2> to_use{};
-    to_use[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    to_use[0].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    to_use[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    to_use[0].dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    to_use[0].dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    to_use[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    to_use[0].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    to_use[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_use[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_use[0].image = water_depth;
-    to_use[0].subresourceRange = depth_range;
-
-    // And the scene depth back where it was found.
-    to_use[1] = to_use[0];
-    to_use[1].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    to_use[1].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-    to_use[1].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-    to_use[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    to_use[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    to_use[1].image = scene_depth;
-
-    dep.pImageMemoryBarriers = to_use.data();
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
 }
 
 void WaterPass::record(const FrameContext& ctx) {
@@ -982,6 +918,36 @@ void WaterPass::record(const FrameContext& ctx) {
     }
 
     vkCmdEndRendering(ctx.cmd);
+}
+
+// ── WaterDepthSeedPass ──────────────────────────────────────────────────────
+
+Result<> WaterDepthSeedPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void WaterDepthSeedPass::destroy() {}
+
+void WaterDepthSeedPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    water_ = passes.try_get<WaterPass>("water");
+}
+
+PassSetup WaterDepthSeedPass::setup() const {
+    return {
+        .name = "water_depth_seed",
+        .phase = RenderPhase::Color,
+        .sub_order = 20,   // once the opaque scene and its overlays are drawn
+    };
+}
+
+void WaterDepthSeedPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (!ctx.water_draws) { return; }
+    builder.read(builder.import_named(ctx, "msaa_depth"), ResourceAccess::transfer_src);
+    builder.write(builder.import_named(ctx, "msaa_surface_depth"), ResourceAccess::transfer_dst);
+}
+
+void WaterDepthSeedPass::record(const FrameContext& ctx) {
+    if (water_ != nullptr) { water_->seed_water_depth(ctx); }
 }
 
 } // namespace fjell

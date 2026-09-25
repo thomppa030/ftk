@@ -193,17 +193,10 @@ void TransparentPass::record(const FrameContext& ctx) {
     // Water before the transparent scope opens, not inside it. It is the
     // surface the rest of them float on or stand in, and it samples the opaque
     // scene behind it, which nothing drawn here has touched yet — so it still
-    // goes first. What changed is that it now draws in a scope of its own,
-    // against a depth attachment it may write, and a rendering scope cannot
-    // nest inside another.
-    //
-    // The seed is a transfer and has to be outside a scope for that reason too.
-    // Both do nothing when the scene holds no water.
-    {
-        auto& water = ctx.passes->get<WaterPass>("water");
-        water.seed_water_depth(ctx);
-        water.record(ctx);
-    }
+    // goes first. It draws in a scope of its own, against a depth attachment
+    // it may write, and a rendering scope cannot nest inside another. Nothing
+    // when the scene holds no water.
+    ctx.passes->get<WaterPass>("water").record(ctx);
 
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -413,12 +406,15 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // scene depth, which this pass samples, and a write declared on it would
     // have the graph move the image out from under its own reader.
     if (ctx.water_draws) {
-        // Under MSAA the sea's depth resolves into the surface depth as its
-        // rendering ends; without it the surface depth is the attachment.
-        auto surface_depth = builder.import_named(ctx, "surface_depth");
-        builder.write(surface_depth, ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
-                                         ? ResourceAccess::depth_resolve
-                                         : ResourceAccess::depth_attachment);
+        // The sea tests and writes its own depth attachment, seeded from the
+        // scene; under MSAA it resolves into the surface depth as its rendering
+        // ends, and without MSAA the two are one image.
+        builder.write(builder.import_named(ctx, "msaa_surface_depth"),
+                      ResourceAccess::depth_attachment);
+        builder.write(builder.import_named(ctx, "surface_depth"),
+                      ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
+                          ? ResourceAccess::depth_resolve
+                          : ResourceAccess::depth_attachment);
     }
 
     // Glass, water, lit particles and sprites.

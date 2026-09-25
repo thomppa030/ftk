@@ -99,10 +99,9 @@ public:
 
     /// Copy the scene depth into the water's own depth image, so the sea is
     /// still hidden by whatever opaque geometry stands in front of it.
-    ///
-    /// Must be called outside a rendering scope — it is a transfer — and
-    /// before the water draws. Leaves the scene depth in the layout it found
-    /// it in, so the framegraph's tracker stays honest.
+    /// Recorded by WaterDepthSeedPass, which declares both images: the scene
+    /// depth must be in TRANSFER_SRC_OPTIMAL and the water's in
+    /// TRANSFER_DST_OPTIMAL.
     void seed_water_depth(const FrameContext& ctx);
 
     /// Whether the sea draws into this target this frame: the scene holds
@@ -274,6 +273,22 @@ private:
     uint32_t fallback_pipeline_id_{0};
     uint32_t fallback_material_id_{0};
     bool fallback_ready_{false};
+};
+
+/// Seeds the water's depth attachment from the finished opaque scene, as a
+/// graph node of its own so the graph moves both images into the copy's
+/// layouts and on to where their next readers want them.
+class WaterDepthSeedPass : public RenderPass {
+public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+
+private:
+    WaterPass* water_{nullptr};
 };
 
 } // namespace fjell
