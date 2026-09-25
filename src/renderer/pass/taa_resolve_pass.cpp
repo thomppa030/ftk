@@ -189,25 +189,10 @@ Result<> TaaResolvePass::create(Device& device, const PassResources& resources) 
 }
 
 void TaaResolvePass::destroy() {
-    default_images_.destroy(device_, allocator_);
     if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
     if (set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr); set_layout_ = VK_NULL_HANDLE; }
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
-}
-
-void TaaResolvePass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, set_layout_, width, height);
-}
-
-VkImageView TaaResolvePass::output_view() const {
-    // The write target from the current frame becomes the read source next frame,
-    // but downstream passes this frame read the just-written image.
-    return default_images_.history_view[default_images_.write_index];
-}
-
-VkImage TaaResolvePass::output_image() const {
-    return default_images_.history[default_images_.write_index];
 }
 
 PassSetup TaaResolvePass::setup() const {

@@ -38,11 +38,6 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
     void record_into(const FrameContext& ctx, Images& imgs);
-    void resize(uint32_t width, uint32_t height);
-
-    // The resolved output that downstream passes (tonemap) should read
-    [[nodiscard]] VkImageView output_view() const;
-    [[nodiscard]] VkImage output_image() const;
 
     [[nodiscard]] VkDescriptorSetLayout image_set_layout() const { return set_layout_; }
     [[nodiscard]] VkSampler sampler() const { return sampler_; }
@@ -56,8 +51,6 @@ private:
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
-
-    Images default_images_;
 };
 
 } // namespace fjell
