@@ -101,8 +101,9 @@ TEST_CASE("A self Model reads the component on the node the UI is placed on", "[
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, placed);
     models.add(model("unit", ModelSource::self), scope);
-    models.bind(scene, world, placed);
+    models.bind();
 
     REQUIRE(scope.lookup("unit.hp") == UiValue(70.0f));
     REQUIRE(models.searches() == 0); // one node looked up, no walk
@@ -117,18 +118,19 @@ TEST_CASE("A local Model walks the scene once and then reads in place", "[ui_mod
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, 0);
     models.add(model("player", ModelSource::local), scope);
-    for (int frame = 0; frame < 100; ++frame) models.bind(scene, world, 0);
+    for (int frame = 0; frame < 100; ++frame) models.bind();
 
     REQUIRE(scope.lookup("player.hp") == UiValue(80.0f));
     REQUIRE(models.searches() == 1);
 
     stats_of(scene, player).hp = 12.0f;
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.lookup("player.hp") == UiValue(12.0f));
 
     (void)spawn(scene, "crate", 0.0f); // the scene changes; what was found stands
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(models.searches() == 1);
 }
 
@@ -139,18 +141,19 @@ TEST_CASE("A destroyed node empties its Model, and a respawned one reconnects", 
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, 0);
     models.add(model("player", ModelSource::local), scope);
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.evaluate("player").truthy());
 
     destroy(scene, player);
-    for (int frame = 0; frame < 100; ++frame) models.bind(scene, world, 0);
+    for (int frame = 0; frame < 100; ++frame) models.bind();
     REQUIRE_FALSE(scope.evaluate("player").truthy());
     REQUIRE(scope.lookup("player.hp").empty());
     REQUIRE(models.searches() == 2); // once when it went, not once a frame
 
     const uint32_t again = spawn(scene, "player", 100.0f);
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.lookup("player.hp") == UiValue(100.0f));
     REQUIRE(models.searches() == 3);
     REQUIRE(again != player);
@@ -165,13 +168,14 @@ TEST_CASE("A Model follows its component when the node changes hands", "[ui_mode
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, 0);
     models.add(model("player", ModelSource::local), scope);
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.lookup("player.hp") == UiValue(10.0f));
 
     world.give_away(first, true);
     world.give_away(second, false);
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.lookup("player.hp") == UiValue(20.0f));
 }
 
@@ -182,9 +186,10 @@ TEST_CASE("A script added to a node already in the scene is found", "[ui_models]
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, 0);
     models.add(model("player", ModelSource::local), scope);
-    models.bind(scene, world, 0);
-    models.bind(scene, world, 0);
+    models.bind();
+    models.bind();
     REQUIRE_FALSE(scope.evaluate("player").truthy());
     REQUIRE(models.searches() == 1);
 
@@ -193,7 +198,7 @@ TEST_CASE("A script added to a node already in the scene is found", "[ui_models]
     entry.instance = std::make_unique<Stats>();
     scene.find(id)->scripts.push_back(std::move(entry));
     scene.mark_structure_changed();
-    models.bind(scene, world, 0);
+    models.bind();
     REQUIRE(scope.evaluate("player").truthy());
 }
 
@@ -204,10 +209,77 @@ TEST_CASE("A Model of a component the game lacks is no value", "[ui_models]") {
 
     UiContext scope;
     UiModels models;
+    models.attach(scene, world, placed);
     models.add(model("mana", ModelSource::self, "Mana"), scope);
-    models.bind(scene, world, placed);
+    models.bind();
     REQUIRE_FALSE(scope.evaluate("mana").truthy());
     REQUIRE(scope.lookup("mana.hp").empty());
+}
+
+TEST_CASE("A Controller binds a Model to a node it chose, until it clears it", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t hud = scene.add_empty({}, "hud"); // carries no Stats
+    const uint32_t goblin = spawn(scene, "goblin", 15.0f);
+    const uint32_t troll = spawn(scene, "troll", 90.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, hud);
+    models.add(model("target", ModelSource::self), scope);
+    models.bind();
+    REQUIRE_FALSE(scope.evaluate("target").truthy()); // nothing targeted
+
+    REQUIRE(models.bind_node(scope, "target", goblin));
+    models.bind();
+    REQUIRE(scope.lookup("target.hp") == UiValue(15.0f));
+
+    REQUIRE(models.bind_node(scope, "target", troll));
+    models.bind();
+    REQUIRE(scope.lookup("target.hp") == UiValue(90.0f));
+
+    destroy(scene, troll); // the choice holds, and reads nothing
+    models.bind();
+    REQUIRE_FALSE(scope.evaluate("target").truthy());
+
+    REQUIRE(models.bind_node(scope, "target", 0)); // back to from="self"
+    models.bind();
+    REQUIRE_FALSE(scope.evaluate("target").truthy());
+    REQUIRE(models.searches() == 0);
+}
+
+TEST_CASE("Only a Model the widget declares can be bound", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t goblin = spawn(scene, "goblin", 15.0f);
+
+    UiContext scope;
+    UiContext other;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("target", ModelSource::self), scope);
+
+    REQUIRE_FALSE(models.bind_node(scope, "focus", goblin));
+    REQUIRE_FALSE(models.bind_node(other, "target", goblin)); // another widget's scope
+}
+
+TEST_CASE("A Controller reads the component its markup shows, of the declared type", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t player = spawn(scene, "player", 80.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("player", ModelSource::local), scope);
+
+    const void* read = models.component(scope, "player", "Stats");
+    REQUIRE(read == scene.find(player)->scripts.front().instance.get());
+    REQUIRE(models.component(scope, "player", "Mana") == nullptr); // another type
+    REQUIRE(models.component(scope, "enemy", "Stats") == nullptr);  // undeclared
+
+    destroy(scene, player);
+    REQUIRE(models.component(scope, "player", "Stats") == nullptr);
 }
 
 TEST_CASE("A widget declares its Models and writes them back", "[ui_models]") {

@@ -5,6 +5,8 @@
 #include "scene/scene.hpp"
 #include "ui/game_ui/ui_context.hpp"
 
+#include <algorithm>
+
 namespace fjell {
 
 namespace {
@@ -19,6 +21,12 @@ const void* script_on(const Node& node, const std::string& type) {
 
 } // namespace
 
+void UiModels::attach(const Scene& scene, const UiModelWorld& world, uint32_t self_node) {
+    scene_ = &scene;
+    world_ = &world;
+    self_node_ = self_node;
+}
+
 void UiModels::add(const ModelDecl& decl, UiContext& scope) {
     Entry entry;
     entry.decl = decl;
@@ -26,26 +34,21 @@ void UiModels::add(const ModelDecl& decl, UiContext& scope) {
     entries_.push_back(std::move(entry));
 }
 
-void UiModels::bind(const Scene& scene, const UiModelWorld& world, uint32_t self_node) {
-    for (auto& entry : entries_) {
-        const auto type = world.component_type(entry.decl.component);
-        if (!type) {
-            if (!entry.reported) {
-                entry.reported = true;
-                FJELL_CORE_WARN("{}:{}: model '{}' reads '{}', which is not a loaded script component",
-                                entry.decl.source_file, entry.decl.source_line, entry.decl.name,
-                                entry.decl.component);
-            }
-            entry.scope->set(entry.decl.name, UiValue());
-            continue;
-        }
+void UiModels::clear() {
+    entries_.clear();
+    reported_.clear();
+}
 
-        const void* component = nullptr;
-        if (entry.decl.from == ModelSource::self) {
-            const Node* node = scene.find(self_node);
-            component = node != nullptr ? script_on(*node, entry.decl.component) : nullptr;
-        } else {
-            component = find_local(scene, world, entry);
+void UiModels::bind() {
+    if (scene_ == nullptr || world_ == nullptr) return;
+    for (auto& entry : entries_) {
+        const auto type = world_->component_type(entry.decl.component);
+        const void* component = type ? resolve(entry) : nullptr;
+        if (!type && !entry.reported) {
+            entry.reported = true;
+            FJELL_CORE_WARN("{}:{}: model '{}' reads '{}', which is not a loaded script component",
+                            entry.decl.source_file, entry.decl.source_line, entry.decl.name,
+                            entry.decl.component);
         }
         entry.scope->set(entry.decl.name, component != nullptr
                                               ? UiValue(UiObject{type->name, type->fields, component})
@@ -53,9 +56,60 @@ void UiModels::bind(const Scene& scene, const UiModelWorld& world, uint32_t self
     }
 }
 
-const void* UiModels::find_local(const Scene& scene, const UiModelWorld& world, Entry& entry) {
+bool UiModels::bind_node(const UiContext& scope, std::string_view name, uint32_t node) {
+    Entry* entry = find(scope, name);
+    if (entry == nullptr) {
+        report_once("models().bind(\"" + std::string(name) + "\"): the widget declares no <model name=\"" +
+                    std::string(name) + "\">");
+        return false;
+    }
+    entry->bound = node;
+    entry->bound_generation = 0;
+    return true;
+}
+
+const void* UiModels::component(const UiContext& scope, std::string_view name, std::string_view type) {
+    Entry* entry = find(scope, name);
+    if (entry == nullptr) {
+        report_once("model<" + std::string(type) + ">(\"" + std::string(name) +
+                    "\"): the widget declares no <model name=\"" + std::string(name) + "\">");
+        return nullptr;
+    }
+    if (entry->decl.component != type) {
+        report_once("model<" + std::string(type) + ">(\"" + std::string(name) + "\"): that Model reads '" +
+                    entry->decl.component + "'");
+        return nullptr;
+    }
+    if (scene_ == nullptr || world_ == nullptr) return nullptr;
+    return resolve(*entry);
+}
+
+UiModels::Entry* UiModels::find(const UiContext& scope, std::string_view name) {
+    for (auto& entry : entries_) {
+        if (entry.scope == &scope && entry.decl.name == name) return &entry;
+    }
+    return nullptr;
+}
+
+const void* UiModels::resolve(Entry& entry) {
+    if (entry.bound != 0) {
+        // The node a Controller chose, for as long as that node lives.
+        if (entry.bound_generation == 0) entry.bound_generation = scene_->generation_of(entry.bound);
+        if (scene_->generation_of(entry.bound) != entry.bound_generation) return nullptr;
+        const Node* node = scene_->find(entry.bound);
+        return node != nullptr ? script_on(*node, entry.decl.component) : nullptr;
+    }
+    if (entry.decl.from == ModelSource::self) {
+        const Node* node = scene_->find(self_node_);
+        return node != nullptr ? script_on(*node, entry.decl.component) : nullptr;
+    }
+    return find_local(entry);
+}
+
+const void* UiModels::find_local(Entry& entry) {
+    const Scene& scene = *scene_;
     const std::string& type = entry.decl.component;
-    const uint64_t possession = world.possession_revision();
+    const uint64_t possession = world_->possession_revision();
     const bool same_scene = entry.searched && entry.searched_scene == scene.id();
 
     // What was found stays while its node stands, still carries the
@@ -82,12 +136,18 @@ const void* UiModels::find_local(const Scene& scene, const UiModelWorld& world, 
     entry.node = 0;
     for (const auto& node : scene.objects()) {
         const void* component = script_on(*node, type);
-        if (component == nullptr || !world.owned_by_local(node->id)) continue;
+        if (component == nullptr || !world_->owned_by_local(node->id)) continue;
         entry.node = node->id;
         entry.generation = scene.generation_of(node->id);
         return component;
     }
     return nullptr;
+}
+
+void UiModels::report_once(const std::string& message) {
+    if (std::ranges::find(reported_, message) != reported_.end()) return;
+    reported_.push_back(message);
+    FJELL_CORE_WARN("Game UI: {}", message);
 }
 
 } // namespace fjell

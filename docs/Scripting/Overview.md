@@ -143,7 +143,7 @@ functional test. `fjell <project> --run-tests --pacing 30,144,jitter` plays the
 game's tests at several frame rates and reports the first step where they
 differ (see [Functional Tests](Functional-Tests.md#pacing)).
 
-## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::bind]]`, `[[fj::action]]`
+## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::model]]`, `[[fj::bind]]`, `[[fj::action]]`
 
 Fields you annotate are picked up by the `fjreflect` codegen (run by Build & Reload) and surfaced in the editor's properties panel, serialized to `.fjscene`, and traced by the GC.
 
@@ -164,6 +164,7 @@ What gets reflected depends on context:
 - **`[[fj::bind]]`** — on `UiWidget` fields. Shows up in `.fjwidget` props blocks; bound by the UI system.
 - **`[[fj::action]]`** — on `UiWidget` methods. Callable from `.fjui` markup via `on:click="name"`.
 - **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
+- **`[[fj::model]]`** — on `UiWidget` fields holding a struct: a Model the widget's markup reads by the field's name, `{hud.selected}` for `[[fj::model]] HudModel hud`. The struct is reflected in full, every public member with no attribute needed (see [Widgets](../Game-UI/Widgets.md#models)).
 
 An authored value is a property and a value the game changes while playing is state. Either may be private:
 

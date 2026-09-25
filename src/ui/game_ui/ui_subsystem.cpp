@@ -80,6 +80,8 @@ static UiDesignFrame design_frame_for(const UiWidgetComponent& wc, const Project
 void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();
     world_records_.clear();
+    scene_ = &ctx.scene;
+    model_world_ = std::make_unique<GameModelWorld>(*script_manager_, net_manager_);
 
     for (const auto& obj : ctx.scene.objects()) {
         const auto* wc = obj->components.get<UiWidgetComponent>();
@@ -151,7 +153,7 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
     // while those contexts still exist. Models are bound into those
     // contexts, and go with them.
     destroy_controllers(inst);
-    inst.models.clear();
+    inst.game_ui->models().clear();
 
     // Deep-clone the markup tree (each instance needs its own mutable copy)
     auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
@@ -179,23 +181,36 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
 }
 
 void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_asset) {
+    auto& models = inst.game_ui->models();
+    if (scene_ != nullptr && model_world_) models.attach(*scene_, *model_world_, inst.node_id);
+
     // The placed widget's own Models live in the UI's root scope; a nested
     // widget's in the scope WidgetResolver made for it.
-    for (const auto& model : widget_asset.models) inst.models.add(model, inst.game_ui->context());
+    for (const auto& model : widget_asset.models) models.add(model, inst.game_ui->context());
     auto walk = [&](auto& self, UiNode& node) -> void {
         if (node.is_widget && node.scoped_context) {
-            for (const auto& model : node.widget_models) inst.models.add(model, *node.scoped_context);
+            for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);
         }
         for (auto& child : node.children) self(self, *child);
     };
     if (auto* root = inst.game_ui->root()) walk(walk, *root);
 }
 
-void UiSubsystem::bind_models(const TickContext& ctx) {
+void UiSubsystem::bind_controller_models(WidgetInstance& wi) {
+    // A controller is created after the tree and destroyed before it, so a
+    // scope never holds a Model whose controller is gone.
+    const auto* base = reinterpret_cast<const uint8_t*>(wi.widget.get());
+    for (const auto& field : wi.type->fields) {
+        if (!field.is_model() || field.struct_type == nullptr) continue;
+        wi.widget_context->set(field.name, UiValue(UiObject{field.struct_type->name, field.struct_type->fields,
+                                                            base + field.offset}));
+    }
+}
+
+void UiSubsystem::bind_models(const TickContext& /*ctx*/) {
     FJELL_PROFILE_SCOPE_N("ui_bind_models");
-    const GameModelWorld world(*script_manager_, net_manager_);
     for (auto& inst : instances_) {
-        if (!inst.models.empty()) inst.models.bind(ctx.scene, world, inst.node_id);
+        if (inst.game_ui) inst.game_ui->models().bind();
     }
 }
 
@@ -236,9 +251,14 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
         }
     }
 
-    // Set connections pointers now that the vector is done growing
+    // Set connections pointers now that the vector is done growing, and
+    // give each controller its Models: the ones its markup declares, and its
+    // own [[fj::model]] fields.
     for (auto& wi : inst.widgets) {
         wi.widget->ui_context_.connections_ = &wi.connections;
+        wi.widget->models_.models_ = &inst.game_ui->models();
+        wi.widget->models_.scope_ = wi.widget_context;
+        bind_controller_models(wi);
     }
 
     for (auto& wi : inst.widgets) {
@@ -399,7 +419,7 @@ void UiSubsystem::tick(const TickContext& ctx) {
         // when the new value matches the old, so a constant here would only
         // bump the generation once and then silently stop propagating any
         // bound-field updates from frame 2 onward.
-        if (inst.game_ui && (!inst.widgets.empty() || !inst.models.empty())) {
+        if (inst.game_ui && (!inst.widgets.empty() || !inst.game_ui->models().empty())) {
             inst.game_ui->context().set("__tick", std::to_string(++inst.tick_counter));
         }
     }
@@ -479,6 +499,8 @@ void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
         inst.game_ui->destroy();
     }
     instances_.clear();
+    model_world_.reset();
+    scene_ = nullptr;
 }
 
 void UiSubsystem::validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type) {

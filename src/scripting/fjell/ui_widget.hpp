@@ -13,7 +13,9 @@
 
 namespace fjell {
 
+class ScriptComponent;
 class UiContext;
+class UiModels;
 class UiSubsystem;
 
 /// The widget's connection to its `.fjui` template — the data it displays and
@@ -73,6 +75,35 @@ private:
     std::vector<Connection>* connections_{nullptr};
 };
 
+/// The widget's Models as its controller sees them: which node each reads,
+/// for choices made at runtime. A Model is declared in the widget's markup,
+/// `<model name="target" component="EnemyStats"/>`, and reached through
+/// `UiWidget::models()`.
+class UiWidgetModels {
+public:
+    /// Read the Model `name` from this node instead of by its `from` rule,
+    /// until `clear()` or another `bind()`: a target frame showing whatever
+    /// the player has targeted. A node that is destroyed, or does not carry
+    /// the Model's component, leaves it empty.
+    /// @param name    As declared in the widget's `<model name>`. A name the
+    ///                widget does not declare is reported once and ignored.
+    /// @param node_id The node, as `Node3D::id()` gives it.
+    FJELL_SDK_EXPORT void bind(const std::string& name, uint32_t node_id);
+
+    /// Return the Model `name` to its `from` rule.
+    FJELL_SDK_EXPORT void clear(const std::string& name);
+
+private:
+    friend class UiSubsystem;
+    friend class UiWidget;
+    /// The component the Model reads now if it is a `type_name`; null
+    /// otherwise.
+    [[nodiscard]] FJELL_SDK_EXPORT const ScriptComponent* component(const std::string& name,
+                                                                     const char* type_name) const;
+    UiModels* models_{nullptr};
+    const UiContext* scope_{nullptr};
+};
+
 /// Base class for game UI — HUDs, menus, inventories. A widget supplies the
 /// data and behavior; a `.fjui` template supplies the markup and a `.fjss`
 /// stylesheet the look.
@@ -127,10 +158,26 @@ public:
     /// markup actions with `ui().bind_action()`.
     [[nodiscard]] UiWidgetContext& ui() { return ui_context_; }
 
+    /// The widget's Models: bind one to a node chosen at runtime.
+    [[nodiscard]] UiWidgetModels& models() { return models_; }
+
+    /// The component the Model `name` reads now, the same instance the markup
+    /// shows. Read-only, as Models are. Null while the Model finds nothing,
+    /// and, reported once, when the widget declares no Model `name` or that
+    /// Model reads another type.
+    /// @code
+    /// if (const auto* stats = model<PlayerStats>("player")) calm_ = stats->full();
+    /// @endcode
+    template <class T>
+    [[nodiscard]] const T* model(const std::string& name) const {
+        return static_cast<const T*>(models_.component(name, T::type_name));
+    }
+
 private:
     friend class UiSubsystem;
     World* world_{nullptr};
     UiWidgetContext ui_context_;
+    UiWidgetModels models_;
     uint32_t id_{0};
 };
 

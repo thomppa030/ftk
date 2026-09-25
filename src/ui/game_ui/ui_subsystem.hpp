@@ -71,7 +71,6 @@ public:
         std::vector<std::string> style_classes;
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
-        UiModels models; // the components the instance's widgets read
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
         uint64_t tick_counter{0};
         // World-space only: this widget's mvp from the previous frame, so the
@@ -102,6 +101,8 @@ private:
     // Every <model> in the instance's tree, each bound into the scope of the
     // widget that declares it.
     void collect_models(UiInstance& inst, const WidgetAsset& widget_asset);
+    // A controller's [[fj::model]] fields into its scope, by field name.
+    static void bind_controller_models(WidgetInstance& wi);
     void destroy_controllers(UiInstance& inst);
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.
@@ -115,6 +116,10 @@ private:
     ScriptManager* script_manager_{nullptr};
     ResourceManager* resource_manager_{nullptr};
     const NetManager* net_manager_{nullptr};
+    // The scene and game the instances' Models are found in, for one play
+    // session.
+    const Scene* scene_{nullptr};
+    std::unique_ptr<UiModelWorld> model_world_;
     std::vector<UiInstance> instances_;
     std::vector<WorldUiRecord> world_records_;
 

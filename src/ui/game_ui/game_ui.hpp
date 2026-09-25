@@ -9,6 +9,7 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_input.hpp"
 #include "ui/game_ui/ui_layout.hpp"
+#include "ui/game_ui/ui_models.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_pipes.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
@@ -134,6 +135,9 @@ public:
     /// The pipes this UI's bindings format with; the game module's are added
     /// once it has loaded.
     [[nodiscard]] UiPipes& pipes() { return pipes_; }
+    /// The game components this UI's widgets read, bound into their scopes
+    /// by whoever runs the UI against a scene.
+    [[nodiscard]] UiModels& models() { return models_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
@@ -182,6 +186,7 @@ private:
     UiLayout layout_;
     UiPipes pipes_; // before context_, which points at it
     UiContext context_;
+    UiModels models_;
     UiRenderer renderer_;
     UiInput ui_input_;
     UiDataBind data_bind_;

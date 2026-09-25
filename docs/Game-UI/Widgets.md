@@ -59,6 +59,16 @@ time it is read. A prop may carry a whole Model on to a nested widget:
 - `local` is the node carrying that component which the local player controls; in
   a single-player game, the first node that has one.
 
+A controller can choose a Model's node at runtime, for a target frame showing
+whatever the player has targeted: `models().bind("target", node.id())` reads that
+node until `models().clear("target")` returns the Model to its `from` rule. A
+destroyed node leaves the Model empty. `model<PlayerStats>("player")` hands the
+controller the component its markup shows now, read-only, or null.
+
+A controller's own `[[fj::model]]` fields are Models too, by their field name:
+`[[fj::model]] HudModel hud;` is `{hud.selected}` in the markup, read in place from
+the controller.
+
 While nothing is found the Model is empty: `if="player"` is false and its paths show
 nothing. A `local` Model is found by one walk over the scene and then kept. It is
 looked for again when its node is destroyed or changes hands, and, while nothing is
