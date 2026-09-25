@@ -14,29 +14,15 @@ namespace fjell {
 /// what order, with what overrides). Pass **behavior** (shaders, draws,
 /// dispatches, descriptor wiring) stays in C++ in the `RenderPass`
 /// subclass. The `class` field is the binding key into `PassFactory`.
-///
-/// In v1 the `resources` block is parsed for forward-compat (Step 6 buffer
-/// tracking will use it) but per-pass `declare()` still drives actual
-/// resource topology in the DAG.
-
-/// One declared resource. v1 stores the raw fields; the engine does not
-/// yet allocate from these — `declare()` is still the source of truth.
-struct FjGraphResource {
-    std::string name;
-    std::string format;        // e.g. "RGBA8_SRGB", "D32F"
-    std::string size{"viewport"}; // "viewport", "viewport/2", "[w,h]", "$msaa", "match:color"
-    int samples{1};
-    int mips{1};
-    int array_layers{1};
-    bool persistent{false};
-};
+/// What a pass reads and writes comes from its `declare()`, and where it
+/// runs from its `setup()`.
 
 /// One pass entry from the graph's `passes` block.
 ///
 /// `class` is the C++ class name for `PassFactory::make`. `name` defaults
 /// to a class-derived key (lowercase + underscores) if omitted, matching
-/// the registry's existing string keys. The remaining fields are optional
-/// per-pass overrides — when absent, the pass's own `setup()` value wins.
+/// the registry's existing string keys. `params` reach the pass's
+/// constructor.
 struct FjGraphPass {
     std::string class_name;
     std::string name;          // registry key (defaults from class_name + index)
@@ -47,11 +33,8 @@ struct FjGraphPass {
     /// as fast as saving the file.
     bool enabled{true};
 
-    std::optional<std::string> queue;       // "graphics" or "async_compute"
-    std::optional<std::string> phase;       // RenderPhase enum name
-    std::optional<int> sub_order;
-    /// Feature-flag key — `enabled_if`. Reserved for v2 once the engine
-    /// has a unified feature registry; today, use the static `enabled`.
+    /// A device feature the pass needs, `mesh_shaders` today. Without it
+    /// the pass is not constructed at all.
     std::optional<std::string> enabled_if;
 };
 
@@ -59,7 +42,6 @@ struct FjGraphPass {
 /// turns this into a populated `PassRegistry` + `RenderPipeline`.
 struct FjGraph {
     std::string name;
-    std::vector<FjGraphResource> resources;
     std::vector<FjGraphPass> passes;
     std::string source_path;   // where the graph was loaded from (for hot-reload + errors)
 };

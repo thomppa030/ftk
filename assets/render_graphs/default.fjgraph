@@ -1,11 +1,7 @@
 // Default render pipeline — port of pass_setup.cpp::create_all_passes.
 // Adding a pass = implement the C++ behavior + add a line here.
-//
-// Resources block is parsed but informational in v1; per-pass declare()
-// drives DAG topology. Fully wired in Step 6 (buffer tracking).
 {
     "name": "default",
-    "resources": {},
 
     "passes": [
         // ── Core geometry ──────────────────────────────────────────────

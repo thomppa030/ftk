@@ -308,9 +308,6 @@ bool params_equal(const PassParams& a, const PassParams& b) {
 bool entries_shape_equal(const FjGraphPass& a, const FjGraphPass& b) {
     return a.class_name == b.class_name &&
            a.name       == b.name &&
-           a.queue      == b.queue &&
-           a.phase      == b.phase &&
-           a.sub_order  == b.sub_order &&
            a.enabled_if == b.enabled_if &&
            params_equal(a.params, b.params);
 }

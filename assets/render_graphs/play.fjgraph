@@ -7,7 +7,6 @@
 // pass — only the chrome entries should differ.
 {
     "name": "play",
-    "resources": {},
 
     "passes": [
         // ── Core geometry ──────────────────────────────────────────────

@@ -5,7 +5,6 @@
 // viewport at low quality.
 {
     "name": "editor_preview",
-    "resources": {},
 
     "passes": [
         // Core geometry — required. Static opaque geometry only has a

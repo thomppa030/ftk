@@ -1,9 +1,8 @@
 #include "renderer/fjgraph_parser.hpp"
+#include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
-#include <array>
 #include <fstream>
 #include <sstream>
 #include <unordered_set>
@@ -11,9 +10,6 @@
 namespace fjell {
 
 namespace {
-
-constexpr std::array<std::string_view, 6> kPhaseNames{
-    "Environment", "DepthPrepass", "GpuDriven", "Color", "PostProcess", "Debug"};
 
 /// Format an error with `path:line` when nlohmann reports a byte offset.
 std::string format_error(const std::string& path,
@@ -54,15 +50,6 @@ Result<PassParamValue> param_from_json(const nlohmann::json& v,
         path, "param '" + key + "': arrays/objects are not allowed in v1"));
 }
 
-bool is_valid_phase(std::string_view name) {
-    return std::ranges::any_of(kPhaseNames,
-                               [&](std::string_view p) { return p == name; });
-}
-
-bool is_valid_queue(std::string_view name) {
-    return name == "graphics" || name == "async_compute";
-}
-
 } // namespace
 
 Result<FjGraph> FjGraphParser::load(const std::string& path) {
@@ -99,41 +86,11 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
     graph.source_path = std::move(source_path);
     graph.name = j.value("name", "");
 
-    // ── resources block (optional, informational in v1) ──────────────
+    // Keys that pass for settings and are not read: resources come from each
+    // pass's declare(), order and queue from its setup().
     if (j.contains("resources")) {
-        const auto& res = j["resources"];
-        if (!res.is_object()) {
-            return make_error(format_error(graph.source_path,
-                "'resources' must be an object"));
-        }
-        for (const auto& [name, body] : res.items()) {
-            if (!body.is_object()) {
-                return make_error(format_error(graph.source_path,
-                    "resource '" + name + "' must be an object"));
-            }
-            FjGraphResource r;
-            r.name = name;
-            r.format = body.value("format", "");
-            r.samples = body.value("samples", 1);
-            r.mips = body.value("mips", 1);
-            r.array_layers = body.value("array_layers", 1);
-            r.persistent = body.value("persistent", false);
-
-            // 'size' is permissive: string DSL or [w,h] array.
-            if (body.contains("size")) {
-                const auto& sz = body["size"];
-                if (sz.is_string()) {
-                    r.size = sz.get<std::string>();
-                } else if (sz.is_array()) {
-                    r.size = sz.dump(); // store as "[w,h]"; resolver decides
-                } else {
-                    return make_error(format_error(graph.source_path,
-                        "resource '" + name + "': 'size' must be string or [w,h]"));
-                }
-            }
-
-            graph.resources.push_back(std::move(r));
-        }
+        FJELL_GFX_WARN("{}: 'resources' is not read; each pass declares its own",
+                       graph.source_path);
     }
 
     // ── passes block (required) ──────────────────────────────────────
@@ -179,14 +136,11 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
         if (entry.contains("enabled")) {
             p.enabled = entry["enabled"].get<bool>();
         }
-        if (entry.contains("queue")) {
-            p.queue = entry["queue"].get<std::string>();
-        }
-        if (entry.contains("phase")) {
-            p.phase = entry["phase"].get<std::string>();
-        }
-        if (entry.contains("sub_order")) {
-            p.sub_order = entry["sub_order"].get<int>();
+        for (const char* key : {"queue", "phase", "sub_order"}) {
+            if (entry.contains(key)) {
+                FJELL_GFX_WARN("{}: passes[{}].{} is not read; the pass's setup() decides it",
+                               graph.source_path, i, key);
+            }
         }
         if (entry.contains("enabled_if")) {
             p.enabled_if = entry["enabled_if"].get<std::string>();
@@ -221,16 +175,6 @@ Result<FjGraph> FjGraphParser::validate(FjGraph graph) {
             return make_error(format_error(graph.source_path,
                 locus + ": duplicate pass name '" + p.name +
                 "' — set 'name' explicitly to disambiguate"));
-        }
-
-        if (p.queue.has_value() && !is_valid_queue(*p.queue)) {
-            return make_error(format_error(graph.source_path,
-                locus + ": invalid 'queue' value '" + *p.queue +
-                "' — expected 'graphics' or 'async_compute'"));
-        }
-        if (p.phase.has_value() && !is_valid_phase(*p.phase)) {
-            return make_error(format_error(graph.source_path,
-                locus + ": invalid 'phase' value '" + *p.phase + "'"));
         }
     }
 

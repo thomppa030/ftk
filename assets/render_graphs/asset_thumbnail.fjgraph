@@ -4,7 +4,6 @@
 // second object to matter (shadows, GI, occlusion) is worth its cost here.
 {
     "name": "asset_thumbnail",
-    "resources": {},
 
     "passes": [
         // Static opaque geometry only has a mesh-shader path, so the meshlet

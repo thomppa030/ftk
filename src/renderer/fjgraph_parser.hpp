@@ -24,9 +24,8 @@ public:
 
 private:
     /// Validate a parsed graph against the runtime: every `class` resolves
-    /// in `PassFactory`; per-pass `phase`/`queue`/`enabled_if` strings
-    /// match known enums or known feature keys. Returns the same graph on
-    /// success, otherwise an error.
+    /// in `PassFactory` and every pass name is unique. Returns the same graph
+    /// on success, otherwise an error.
     [[nodiscard]] static Result<FjGraph> validate(FjGraph graph);
 };
 
