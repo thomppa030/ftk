@@ -209,16 +209,21 @@ public:
 
     /// Where a point of the graph is on screen, as last drawn.
     [[nodiscard]] ImVec2 screen_position(glm::vec2 graph_point) const { return view_.to_screen(graph_point); }
-    /// Where an end is on screen as last drawn: a pin, or a node's centre.
+    /// Where an end is on screen as last drawn: a pin, or with no pin a
+    /// node's centre. (0, 0) for an end that was not drawn.
     [[nodiscard]] ImVec2 end_position(const NodeEnd& end) const;
 
 private:
     enum class Drag : uint8_t { None, Move, Link };
 
+    // The last frame's layout. Ids, sides and places outlive draw() and
+    // answer end_position(); the pointers point into the description being
+    // drawn and are read only inside draw().
     struct LaidPin {
-        const NodePin* pin{nullptr};
+        uint64_t id{0};
         bool output{false};
         glm::vec2 at{0.0f};
+        const NodePin* pin{nullptr};
     };
     struct LaidField {
         const NodeValue* value{nullptr};
@@ -235,6 +240,8 @@ private:
         const NodePin* pin{nullptr};   // the pin it names, faded with it
     };
     struct LaidNode {
+        uint64_t id{0};
+        NodeConnect connect{NodeConnect::Pins};
         const NodeDesc* desc{nullptr};
         glm::vec2 min{0.0f};
         glm::vec2 max{0.0f};
