@@ -121,6 +121,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/save_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/slot.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/status_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/strip.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/tabs.cpp

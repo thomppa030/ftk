@@ -376,6 +376,7 @@ add_executable(fjell
     ui/kit/save_bar.cpp
     ui/kit/search.cpp
     ui/kit/section.cpp
+    ui/kit/slot.cpp
     ui/kit/status_bar.cpp
     ui/kit/strip.cpp
     ui/kit/tabs.cpp

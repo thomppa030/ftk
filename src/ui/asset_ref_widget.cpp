@@ -4,6 +4,7 @@
 #include "ui/kit/edit_record.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/slot.hpp"
 #include "ui/theme.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/content_browser.hpp"
@@ -30,8 +31,7 @@ static std::string s_refused_text;
 static double      s_refused_until{0.0};
 constexpr double REFUSAL_SECONDS = 4.0;
 
-// A texture's picture in its field, and on hover (sheet 19, P3).
-constexpr float FIELD_THUMB = 18.0f;
+// A texture's picture on hover (sheet 19, P3); the field's own is the slot face's.
 constexpr float HOVER_THUMB = 128.0f;
 
 static bool is_image(const std::filesystem::path& path) {
@@ -211,7 +211,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     // A dragged asset is judged while it is still over the field: one that
     // fits lights the field, one that doesn't outlines it red and says why,
     // and is not taken.
-    enum class Drop { None, Fits, Refused } drop = Drop::None;
+    ui::SlotDrop drop = ui::SlotDrop::none;
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload = ImGui::GetDragDropPayload();
         if (payload != nullptr && payload->IsDataType("ASSET_PATH")) {
@@ -219,7 +219,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
             const std::string refusal =
                 drop_refusal(dragged, config.extensions, project, config.shader_types);
             if (refusal.empty()) {
-                drop = Drop::Fits;
+                drop = ui::SlotDrop::fits;
                 if (const auto* taken = ImGui::AcceptDragDropPayload(
                         "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery
                                           | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
@@ -227,17 +227,8 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
                     offer(dragged);
                 }
             } else {
-                drop = Drop::Refused;
-                if (ImGui::BeginTooltip()) {
-                    ImGui::PushTextWrapPos(theme::TOOLTIP_WRAP);
-                    ImGui::PushStyleColor(ImGuiCol_Text, theme::error());
-                    ImGui::TextUnformatted(ui::icon::refused);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine();
-                    ImGui::TextUnformatted(refusal.c_str());
-                    ImGui::PopTextWrapPos();
-                    ImGui::EndTooltip();
-                }
+                drop = ui::SlotDrop::refused;
+                ui::refusal_tooltip(refusal);
             }
         }
         ImGui::EndDragDropTarget();
@@ -277,33 +268,14 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
         text = "missing: " + name;
     }
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float rounding = style.FrameRounding;
-    dl->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
-                      rounding);
-    if (drop == Drop::Fits) {
-        dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::drop_fits()), rounding);
-        dl->AddRect(min, max, ImGui::GetColorU32(theme::accent()), rounding);
-    } else if (drop == Drop::Refused) {
-        dl->AddRect(min, max, ImGui::GetColorU32(theme::error()), rounding);
-    }
-    const float text_y = min.y + style.FramePadding.y;
-    float x = min.x + style.FramePadding.x;
-    if (thumb != VK_NULL_HANDLE && !missing) {
-        const float top = min.y + (height - FIELD_THUMB) * 0.5f;
-        dl->AddImage(reinterpret_cast<ImTextureID>(thumb), {x, top}, {x + FIELD_THUMB, top + FIELD_THUMB});
-        x += FIELD_THUMB + theme::GAP_S + theme::GAP_XS;
-    } else {
-        dl->AddText({x, text_y}, ImGui::GetColorU32(icon_colour), glyph);
-        x += ImGui::CalcTextSize(glyph).x + theme::GAP_S + theme::GAP_XS;
-    }
-    const float chevron = height;
-    dl->PushClipRect({x, min.y}, {max.x - chevron, max.y}, true);
-    dl->AddText({x, text_y}, ImGui::GetColorU32(text_colour), text.c_str());
-    dl->PopClipRect();
-    const float chevron_w = ImGui::CalcTextSize(ui::icon::dropdown).x;
-    dl->AddText({max.x - chevron + (chevron - chevron_w) * 0.5f, text_y},
-                ImGui::GetColorU32(theme::text_secondary()), ui::icon::dropdown);
+    ui::draw_slot_face(min, max, {.glyph = glyph,
+                                  .glyph_colour = icon_colour,
+                                  .picture = thumb != VK_NULL_HANDLE && !missing
+                                                 ? reinterpret_cast<ImTextureID>(thumb) : ImTextureID{0},
+                                  .text = text,
+                                  .text_colour = text_colour,
+                                  .drop = drop,
+                                  .hovered = hovered});
 
     ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
     ImGui::BeginDisabled(!has_value);
