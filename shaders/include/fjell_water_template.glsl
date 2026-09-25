@@ -45,7 +45,9 @@
 // shafts. A material writes `ALBEDO = behind * MEDIUM_TRANSMITTANCE +
 // MEDIUM_INSCATTER` in place of a tint over WATER_DEPTH. They are one and
 // zero with no medium, with the fog off, and from below, where the fog
-// composite already covers the water in front of the eye.
+// composite already covers the water in front of the eye; HAS_MEDIUM is 1
+// where they hold a medium, for a material that keeps its own tint where
+// there is none.
 
 #include "fjell_common.glsl"
 #include "fjell_global_ubo.glsl"
@@ -355,7 +357,8 @@ void main() {
     // the surface afterwards, so the two together are the whole path.
     float MEDIUM_TRANSMITTANCE = 1.0;
     vec3 MEDIUM_INSCATTER = vec3(0.0);
-    if (push.medium_far > 0.0 && BELOW < 0.5) {
+    float HAS_MEDIUM = push.medium_far > 0.0 && BELOW < 0.5 ? 1.0 : 0.0;
+    if (HAS_MEDIUM > 0.5) {
         // Where no bed is behind the water the ray runs to the end of the fog.
         float bed_z = raw_depth >= 1.0 ? push.medium_far : scene_depth;
         vec4 at_surface = fjell_medium_at(SCREEN_UV, surface_depth);

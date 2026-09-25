@@ -13,13 +13,19 @@ uniform float foam_amount : hint_range(0.0, 1.0, 0.01) = 0.6;
 uniform vec3 foam_color : hint_color = vec3(1.0, 1.0, 1.0);
 
 void fragment() {
-    // Beer's law over the corrected depth: how much of what is behind the
-    // water still reaches the eye.
-    float transmitted = exp(-WATER_DEPTH * absorption);
-
+    // How much of what is behind the water still reaches the eye: the
+    // node's medium as the fog built it, with its shadows and shafts, or
+    // Beer's law over the corrected depth where it names none.
     vec3 behind = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
-    vec3 tint = mix(shallow, deep, 1.0 - transmitted);
-    ALBEDO = mix(tint, behind, transmitted * clarity);
+    float transmitted;
+    if (HAS_MEDIUM > 0.5) {
+        transmitted = MEDIUM_TRANSMITTANCE;
+        ALBEDO = behind * MEDIUM_TRANSMITTANCE + MEDIUM_INSCATTER;
+    } else {
+        transmitted = exp(-WATER_DEPTH * absorption);
+        vec3 tint = mix(shallow, deep, 1.0 - transmitted);
+        ALBEDO = mix(tint, behind, transmitted * clarity);
+    }
 
 
     // Whitecaps where the surface has pinched. CREST comes from the wave
