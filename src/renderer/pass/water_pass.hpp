@@ -84,11 +84,10 @@ static_assert(sizeof(WaterPushConstants) == 96, "push block layout must match th
 /// task + mesh + FJSL fragment — so the pass builds one VkPipeline per water
 /// shader it meets and rebuilds it when the shader recompiles.
 ///
-/// Recorded from inside TransparentPass rather than as a pass of its own.
-/// Water is blended and refracts what is behind it, so it has to draw after
-/// the opaque scene and after the copy of it that it samples; being part of
-/// that pass is what puts it there, the same way terrain belongs to the
-/// opaque one.
+/// A graph node of its own, "water", just before the transparent pass. Water
+/// is blended and refracts what is behind it, so it draws after the opaque
+/// scene and the copy of it that it samples; the transparent pass then
+/// carries on over it with the same colour targets.
 class WaterPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
@@ -96,6 +95,8 @@ public:
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// Copy the scene depth into the water's own depth image, so the sea is
     /// still hidden by whatever opaque geometry stands in front of it.

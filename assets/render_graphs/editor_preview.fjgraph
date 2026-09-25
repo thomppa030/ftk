@@ -28,8 +28,9 @@
         // Color.
         { "class": "OpaquePass",       "name": "opaque" },
         { "class": "TransparentPass",  "name": "transparent" },
-        // The water draws inside the transparent pass from its seeded depth.
+        // The water, against its depth seeded from the scene.
         { "class": "WaterDepthSeedPass", "name": "water_depth_seed" },
+        { "class": "WaterPass",          "name": "water" },
         { "class": "SkyPass",          "name": "sky" },
 
         // Forward+ tile cull — opaque needs the tile SSBO.

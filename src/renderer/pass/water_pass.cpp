@@ -11,6 +11,8 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/lit_surface_reads.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -778,6 +780,36 @@ void WaterPass::seed_water_depth(const FrameContext& ctx) {
                    water_depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
+PassSetup WaterPass::setup() const {
+    return {
+        .name = "water",
+        .phase = RenderPhase::Color,
+        .sub_order = 45,   // before the transparent pass (50), which carries on over it
+    };
+}
+
+void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (!ctx.water_draws) { return; }
+    // The colour targets the transparent pass then loads, drawn over.
+    for (const char* name : {"msaa_color", "msaa_mr", "msaa_normal", "msaa_velocity"}) {
+        builder.write(builder.import_named(ctx, name), ResourceAccess::color_attachment);
+    }
+    // Its own depth attachment, seeded from the scene: tested and written.
+    // Under MSAA it resolves into the surface depth as the rendering ends;
+    // without MSAA the two are one image.
+    builder.write(builder.import_named(ctx, "msaa_surface_depth"),
+                  ResourceAccess::depth_attachment);
+    builder.write(builder.import_named(ctx, "surface_depth"),
+                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? ResourceAccess::depth_resolve
+                                                            : ResourceAccess::depth_attachment);
+    // What the surface shader samples through the global set: the lighting,
+    // the scene depth behind it for WATER_DEPTH, and the copy of the scene
+    // it refracts.
+    declare_lit_surface_reads(builder, ctx);
+    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_fragment);
+    builder.read(builder.import_named(ctx, "screen_color"), ResourceAccess::sampled_fragment);
+}
+
 void WaterPass::record(const FrameContext& ctx) {
     if (!draws(ctx)) return;
 
@@ -787,15 +819,16 @@ void WaterPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     const bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
 
-    // The sea draws in a scope of its own, because it needs a depth attachment
+    // The sea draws with a depth attachment of its own, because it needs one
     // it may write and the transparent pass binds the scene depth read-only —
     // a dozen shaders sample that image meaning "the opaque scene", which the
     // water is not part of. Same colour targets, loaded and stored, so the
-    // transparent scope that follows carries on over the top of the water.
+    // transparent pass that follows carries on over the top of the water.
     //
-    // No resolve here: the transparent scope resolves the same attachments at
-    // its end, and that resolve sees the water's contribution because it
-    // resolves the whole image. Resolving twice would be correct and wasted.
+    // No colour resolve here: the transparent pass resolves the same
+    // attachments at its end, and that resolve sees the water's contribution
+    // because it resolves the whole image. Resolving twice would be correct
+    // and wasted.
     std::array<VkRenderingAttachmentInfo, 4> color_attachments{};
     const std::array<VkImageView, 4> views = {
         target->msaa_color_view(), target->msaa_mr_view(),
@@ -842,8 +875,7 @@ void WaterPass::record(const FrameContext& ctx) {
     ri.pDepthAttachment = &depth_attachment;
     vkCmdBeginRendering(ctx.cmd, &ri);
 
-    // Its own scope means its own viewport and scissor; it can no longer rely
-    // on the transparent pass having set them.
+    // Its own scope means its own viewport and scissor.
     VkViewport vp{};
     vp.width = static_cast<float>(target->extent().width);
     vp.height = static_cast<float>(target->extent().height);

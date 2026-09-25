@@ -8,7 +8,6 @@
 #include "renderer/pass/lit_surface_reads.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
-#include "renderer/pass/water_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resource_registry.hpp"
@@ -189,14 +188,6 @@ void TransparentPass::record(const FrameContext& ctx) {
 #endif
     auto* target = ctx.target;
     if (target == nullptr) { return; }
-
-    // Water before the transparent scope opens, not inside it. It is the
-    // surface the rest of them float on or stand in, and it samples the opaque
-    // scene behind it, which nothing drawn here has touched yet — so it still
-    // goes first. It draws in a scope of its own, against a depth attachment
-    // it may write, and a rendering scope cannot nest inside another. Nothing
-    // when the scene holds no water.
-    ctx.passes->get<WaterPass>("water").record(ctx);
 
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -401,23 +392,7 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_fragment);
     builder.read(screen, ResourceAccess::sampled_fragment);
 
-    // The water draws from inside this pass and leaves the surface depth
-    // behind. Declared only when it does: otherwise the name stands for the
-    // scene depth, which this pass samples, and a write declared on it would
-    // have the graph move the image out from under its own reader.
-    if (ctx.water_draws) {
-        // The sea tests and writes its own depth attachment, seeded from the
-        // scene; under MSAA it resolves into the surface depth as its rendering
-        // ends, and without MSAA the two are one image.
-        builder.write(builder.import_named(ctx, "msaa_surface_depth"),
-                      ResourceAccess::depth_attachment);
-        builder.write(builder.import_named(ctx, "surface_depth"),
-                      ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
-                          ? ResourceAccess::depth_resolve
-                          : ResourceAccess::depth_attachment);
-    }
-
-    // Glass, water, lit particles and sprites.
+    // Glass, lit particles and sprites.
     declare_lit_surface_reads(builder, ctx);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
