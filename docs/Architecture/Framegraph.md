@@ -22,6 +22,15 @@ The DAG-based frame builder. Passes declare reads/writes; the framegraph schedul
   - Asset: `fjgraph_asset`
   - Watcher: `fjgraph_watcher`
 - Limitations (current)
-  - RT pass managed manually (compute + RT same stage in graph)
-  - DDGI/SS-GI manage their own layouts
+  - The DAG never reorders: a pass runs at `phase + sub_order`, and the
+    declared edges feed culling and barriers only
+  - The RT reflection output is still transitioned inside its pass
+- Order worth knowing
+  - Water: `water_depth_seed` (Color 20), `water_depth_prepass` (21), the
+    fog volume `fog_medium`..`fog_integrate` (40–43), `water` (45), then
+    `transparent` (50); `fog_composite` stays at PostProcess 104. A graph
+    that draws water lists the seed, the prepass and the water.
+  - SS-GI's `ss_gi_depth_history` and SSR's `ssr_history` copy their
+    histories as nodes of their own; a graph listing SS-GI or SSR lists them
+    too.
 - Roadmap — fine-grained per-dispatch nodes (Phase 3+)

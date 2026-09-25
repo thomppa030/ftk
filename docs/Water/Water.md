@@ -220,6 +220,33 @@ The body of the water is a **Medium** material on the component, a
 the water. Empty is no medium: a surface and nothing else. See
 [Underwater](Underwater.md).
 
+### The medium behind the surface
+
+`MEDIUM_TRANSMITTANCE` and `MEDIUM_INSCATTER` are the water between the
+surface and whatever is behind it, as the volumetric fog built it: of the
+light coming up from the bed, the share that survives, and the light the
+water adds on the way — with the medium's shadows, its darkening with depth
+and its shafts in it. A material uses them in place of a tint over
+`WATER_DEPTH`:
+
+```glsl
+vec3 behind = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
+ALBEDO = behind * MEDIUM_TRANSMITTANCE + MEDIUM_INSCATTER;
+```
+
+They are 1 and 0 where they hold nothing: the node names no medium, the fog
+is off, or the pixel is the underside (`BELOW`), where the fog composite
+already covers the water in front of the eye. `HAS_MEDIUM` is 1 where they
+hold a medium, so a material can keep its own tint elsewhere, as
+`water_default.fjsl` does. `WATER_DEPTH` stays for a material that wants the
+path length.
+
+They work because the fog builds its froxel volume after the water's depth
+prepass and before the water shades: the surface shader samples the
+integrated fog at its own depth and at the bed's and divides one by the
+other, and the fog composite then fogs the air in front of the surface. The
+two together are the whole path.
+
 ### Meeting solid things
 
 `SDF_DISTANCE` is how far the surface is from solid geometry, in metres, read

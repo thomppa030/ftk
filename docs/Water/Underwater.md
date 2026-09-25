@@ -37,18 +37,22 @@ the unit: the fog reads `DENSITY` as a tenth per metre of extinction, so
 water wants values ten times a fog's — 1.5 is clear coastal water with about
 twenty metres of visibility, 3 a harbour.
 
-Which froxels are water is not the shader's question. The fog runs after the
-water pass and reads two depths: the **surface depth** the water pass leaves,
-which is the surface where one was drawn and the scene everywhere else, and
-the opaque scene's own. Where the two differ a surface was drawn in front of
+Which froxels are water is not the shader's question. The fog volume is built
+after the water's depth prepass and before the water is shaded, and reads two
+depths: the **surface depth** the prepass leaves, which is the surface where
+one was drawn and the scene everywhere else, and the opaque scene's own. Where the two differ a surface was drawn in front of
 the scene, and with the camera above the water lies between them: beyond the
 surface, short of the bed. Where they agree nothing was drawn, and beyond an
 object there is no water at all — a rule that filled the column behind every
 character and hilltop with water leaked out around their edges as a dark rim.
 With the camera under the surface a column holds water from the eye to
-whatever ends it, the surface or the bed. So the medium works from a boat as
-well: looking down into deep water gives volumetric depth colour, shadows and
-shafts, inherited from the fog, where the surface shader alone can only tint.
+whatever ends it, the surface or the bed.
+
+From a boat the surface shader reads the water behind it as
+`MEDIUM_TRANSMITTANCE` and `MEDIUM_INSCATTER` (see
+[Water](Water.md#the-medium-behind-the-surface)): looking down into deep water
+gives volumetric depth colour, shadows and shafts, inherited from the fog,
+where Beer's law alone can only tint.
 
 A water with no medium costs nothing. One with a medium costs one full-grid
 dispatch of its `density()`, the same as the haze.
@@ -63,7 +67,8 @@ Under the surface the sun shafts march through the water: the medium's
 because water is already in the fog's unit and its beams live within metres.
 The surface is what the ray stops at, so every step is in water. From above,
 looking down into water, the shafts still stop at the surface: they do not
-enter the water from the air side.
+enter the water from the air side. The medium's own lit in-scatter, shadows
+included, reaches a material that reads `MEDIUM_INSCATTER`.
 
 ## The waterline
 
