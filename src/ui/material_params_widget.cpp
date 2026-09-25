@@ -7,6 +7,7 @@
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/material_gi_params.hpp"
 #include "renderer/uniform_types.hpp"
+#include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/row.hpp"
@@ -14,6 +15,7 @@
 
 #include <imgui.h>
 
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +30,27 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
                 return ui::slider("##val", *v, u.range.min, u.range.max).changed;
             }
             return ui::drag("##val", *v, {.speed = 0.01f}).changed;
+        case UniformType::Int: {
+            // Stored as a float like every scalar; a track or a blend may
+            // leave it between two, and the shader rounds it the same way.
+            int value = static_cast<int>(std::lround(*v));
+            ui::Edit edit;
+            if (u.hint == UniformHint::Enum && !u.enum_options.empty()) {
+                std::vector<ui::Choice<int>> choices;
+                choices.reserve(u.enum_options.size());
+                for (std::size_t i = 0; i < u.enum_options.size(); ++i) {
+                    choices.push_back({static_cast<int>(i), u.enum_options[i].c_str()});
+                }
+                edit = ui::choice("##val", value, std::span<const ui::Choice<int>>(choices));
+            } else if (u.range.declared) {
+                edit = ui::slider_int("##val", value, static_cast<int>(u.range.min),
+                                      static_cast<int>(u.range.max));
+            } else {
+                edit = ui::drag_int("##val", value);
+            }
+            if (edit.changed) *v = static_cast<float>(value);
+            return edit.changed;
+        }
         case UniformType::Vec2: {
             glm::vec2 value{v[0], v[1]};
             const bool changed = ui::vec2("##val", value, {.speed = 0.01f}).changed;

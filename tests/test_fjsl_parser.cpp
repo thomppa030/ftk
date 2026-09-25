@@ -356,6 +356,77 @@ TEST_CASE("Unknown hint is ignored rather than fatal", "[fjsl]") {
     REQUIRE_FALSE(meta.uniforms[0].emission);
 }
 
+TEST_CASE("An int takes one float of the params and hint_enum names its values", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float before = 1.0;
+        uniform int mode : hint_enum("Soft, Hard ,Off") = 2;
+        uniform int steps : hint_range(1, 8) = 4;
+        uniform float after = 0.5;
+        void fragment() {}
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    REQUIRE(meta.diagnostics.empty());
+    REQUIRE(meta.uniforms.size() == 4);
+
+    const auto& mode = meta.uniforms[1];
+    REQUIRE(mode.type == UniformType::Int);
+    REQUIRE(mode.hint == UniformHint::Enum);
+    REQUIRE(mode.enum_options == std::vector<std::string>{"Soft", "Hard", "Off"});
+    REQUIRE(mode.default_value == std::vector<float>{2.0f});
+    REQUIRE(mode.slot == 1);
+
+    const auto& steps = meta.uniforms[2];
+    REQUIRE(steps.hint == UniformHint::None);
+    REQUIRE(steps.range.declared);
+    REQUIRE(steps.slot == 2);
+    REQUIRE(meta.uniforms[3].slot == 3);
+    REQUIRE(meta.custom_param_count == 4);
+    REQUIRE_FALSE(meta.uniforms[0].range.declared);
+}
+
+TEST_CASE("hint_enum belongs on an int and needs its names quoted", "[fjsl]") {
+    auto on_float = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float mode : hint_enum("A,B") = 1.0;
+        void fragment() {}
+    )");
+    REQUIRE_FALSE(on_float.has_errors());
+    REQUIRE(on_float.uniforms[0].hint == UniformHint::None);
+    REQUIRE(on_float.uniforms[0].enum_options.empty());
+    REQUIRE(on_float.diagnostics.size() == 1);
+    REQUIRE(on_float.diagnostics[0].message.find("hint_enum") != std::string::npos);
+
+    auto unquoted = parse_fjsl(R"(
+        shader_type spatial;
+        uniform int mode : hint_enum(A, B) = 1;
+        void fragment() {}
+    )");
+    REQUIRE(unquoted.uniforms[0].hint == UniformHint::None);
+    REQUIRE(unquoted.diagnostics.size() == 1);
+    REQUIRE(unquoted.diagnostics[0].message.find("quoted") != std::string::npos);
+}
+
+TEST_CASE("An int is read rounded, wherever its uniform is read", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform vec2 offset = vec2(0.0);
+        uniform int mode : hint_enum("A,B,C") = 1;
+        void vertex() { VERTEX.y += float(mode); }
+        void fragment() { if (mode == 2) { ALBEDO = vec3(offset, 0.0); } }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    // A track or a blend may leave the stored float between two whole
+    // numbers; the shader must see the nearest, not the truncation.
+    auto frag = generate_fragment_shader(meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_CODE*/\n");
+    REQUIRE(frag.find("#define mode (int(round(custom_params[materials[draws[frag_draw_index]"
+                      ".material_id].param_offset + 2])))") != std::string::npos);
+    REQUIRE(frag.find("#define offset (vec2(custom_params[") != std::string::npos);
+    auto vert = generate_vertex_shader(meta, "/*FJSL_VERTEX_CUSTOM_PARAMS*/\n/*FJSL_VERTEX_USER_CODE*/\n");
+    REQUIRE(vert.find("int mode = int(round(custom_params[mat.param_offset + 2]));")
+            != std::string::npos);
+}
+
 TEST_CASE("Listed hints are stripped from user globals", "[fjsl]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;
@@ -454,6 +525,7 @@ TEST_CASE("Nested braces in function body", "[fjsl]") {
 
 TEST_CASE("uniform_float_count returns correct sizes", "[fjsl]") {
     REQUIRE(uniform_float_count(UniformType::Float) == 1);
+    REQUIRE(uniform_float_count(UniformType::Int) == 1);
     REQUIRE(uniform_float_count(UniformType::Vec2) == 2);
     REQUIRE(uniform_float_count(UniformType::Vec3) == 3);
     REQUIRE(uniform_float_count(UniformType::Vec4) == 4);

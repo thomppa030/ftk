@@ -90,17 +90,27 @@ enum class UniformHint {
     Black,
     Normal,
     DefaultMr,
+    /// hint_enum("A,B,C") on an int: the value is an index into
+    /// FjslUniform::enum_options and the inspector shows a drop-down.
+    Enum,
 };
 
 struct HintRange {
     float min{0.0f};
     float max{1.0f};
     float step{0.01f};
+    /// True when hint_range gave these. A float shows a 0..1 slider either
+    /// way; an int shows a slider only between ends the author chose.
+    bool declared{false};
 };
 
 // Uniform type as declared in .fjsl
 enum class UniformType {
     Float,
+    /// A whole number. It takes one float of the params like a Float, so a
+    /// track or a blend moves it as a number, and the generated GLSL rounds
+    /// it, so the shader sees a whole one.
+    Int,
     Vec2,
     Vec3,
     Vec4,
@@ -113,6 +123,8 @@ struct FjslUniform {
     UniformType type{UniformType::Float};
     UniformHint hint{UniformHint::None};
     HintRange range{};
+    /// hint_enum's names, in index order. Empty for any other hint.
+    std::vector<std::string> enum_options;
     // hint_emission: this uniform is part of what the surface emits. The
     // product of all such uniforms is the material's emission for the GI
     // paths, which cannot run fragment() and need a value they can read.

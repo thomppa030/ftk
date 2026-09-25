@@ -23,7 +23,7 @@ bool product_of_tagged(const ShaderMetadata& meta, const UniformValueReader& rea
         if (!(u.*tag) || u.type == UniformType::Sampler2D) continue;
         auto values = read(u);
         if (values.empty()) continue;
-        if (u.type == UniformType::Float) {
+        if (uniform_float_count(u.type) == 1) {
             product *= values[0];
         } else if (auto rgb = vec3_of(values)) {
             product *= *rgb;

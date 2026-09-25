@@ -130,6 +130,7 @@ std::optional<ShaderType> shader_type_from_name(std::string_view name) {
 std::string_view glsl_type_name(UniformType type) {
     switch (type) {
         case UniformType::Float: return "float";
+        case UniformType::Int: return "int";
         case UniformType::Vec2: return "vec2";
         case UniformType::Vec3: return "vec3";
         case UniformType::Vec4: return "vec4";
@@ -141,6 +142,7 @@ std::string_view glsl_type_name(UniformType type) {
 uint32_t uniform_float_count(UniformType type) {
     switch (type) {
         case UniformType::Float: return 1;
+        case UniformType::Int: return 1;
         case UniformType::Vec2: return 2;
         case UniformType::Vec3: return 3;
         case UniformType::Vec4: return 4;
@@ -263,6 +265,7 @@ void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values) {
 
 static UniformType parse_type(const std::string& t) {
     if (t == "float") return UniformType::Float;
+    if (t == "int") return UniformType::Int;
     if (t == "vec2") return UniformType::Vec2;
     if (t == "vec3") return UniformType::Vec3;
     if (t == "vec4") return UniformType::Vec4;
@@ -409,10 +412,42 @@ static void apply_hint(FjslUniform& u, const std::string& token,
         if (vals.size() >= 2) {
             u.range.min = vals[0];
             u.range.max = vals[1];
+            u.range.declared = true;
         }
         if (vals.size() >= 3) {
             u.range.step = vals[2];
         }
+        return;
+    }
+
+    if (token.rfind("hint_enum", 0) == 0) {
+        // hint_enum("A,B,C") — the names of an int's values, in index order.
+        // One quoted list rather than one string per name, so a name never
+        // needs escaping and the declaration reads like the drop-down it is.
+        const auto open = token.find('"');
+        const auto close = token.rfind('"');
+        if (open == std::string::npos || close == open) {
+            problems.push_back("hint_enum on '" + u.name
+                               + "' has no quoted list of names");
+            return;
+        }
+        std::istringstream names(token.substr(open + 1, close - open - 1));
+        std::string name;
+        u.enum_options.clear();
+        while (std::getline(names, name, ',')) {
+            auto t = trim(name);
+            if (t.empty()) {
+                problems.push_back("hint_enum on '" + u.name + "' has an empty name");
+                u.enum_options.clear();
+                return;
+            }
+            u.enum_options.push_back(std::move(t));
+        }
+        if (u.hint != UniformHint::None && u.hint != UniformHint::Enum) {
+            problems.push_back("uniform '" + u.name + "' declares more than one presentation "
+                               "hint; 'hint_enum' wins");
+        }
+        u.hint = UniformHint::Enum;
         return;
     }
 
@@ -992,6 +1027,13 @@ ShaderMetadata parse_fjsl(const std::string& source) {
                 diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,
                          std::move(problem));
             }
+            if (u.hint == UniformHint::Enum && u.type != UniformType::Int) {
+                diagnose(at + static_cast<size_t>(m.position(3)), FjslSeverity::warning,
+                         "hint_enum on '" + u.name + "' names the values of an int; a "
+                             + std::string(glsl_type_name(u.type)) + " ignores it");
+                u.hint = UniformHint::None;
+                u.enum_options.clear();
+            }
         }
 
         if (m[4].matched) {
@@ -1057,7 +1099,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
             } catch (const std::exception&) {
                 diagnose(offset, FjslSeverity::error,
                          "'" + type_name + "' is not a type a " + std::string(keyword)
-                             + " can carry; expected float, vec2, vec3 or vec4");
+                             + " can carry; expected float, int, vec2, vec3 or vec4");
                 return;
             }
             if (port.type == UniformType::Sampler2D) {
@@ -1474,11 +1516,38 @@ std::string emit_use_calls(const std::vector<FjslUse>& uses,
     return out;
 }
 
+/// Where a generated shader reads its scalar uniforms: an array and the
+/// expression its run starts at.
+struct ParamBlock {
+    std::string array;
+    std::string base;
+
+    [[nodiscard]] std::string at(uint32_t index) const {
+        return array + "[" + base + " + " + std::to_string(index) + "]";
+    }
+};
+
+/// The GLSL expression reading a scalar uniform whose first float is at
+/// `first` in `block`: a float as it is, an int rounded to the whole number a
+/// track or a blend may have left between two, a vector from its components.
+std::string uniform_read(const FjslUniform& u, const ParamBlock& block, uint32_t first) {
+    if (u.type == UniformType::Int) return "int(round(" + block.at(first) + "))";
+    const uint32_t count = uniform_float_count(u.type);
+    if (count == 1) return block.at(first);
+    std::string out = std::string(glsl_type_name(u.type)) + "(";
+    for (uint32_t i = 0; i < count; ++i) {
+        if (i > 0) out += ", ";
+        out += block.at(first + i);
+    }
+    return out + ")";
+}
+
 /// A composed function, emitted at file scope: its globals, its uniforms'
 /// defines, its outputs as variables, and its body wrapped in a function the
 /// consumer calls.
 std::string emit_composed_file(const FjslComposedFile& file,
                                const std::string& mat_expr,
+                               const ParamBlock& params,
                                uint32_t param_base,
                                uint32_t texture_base) {
     const ShaderMetadata& m = file.meta;
@@ -1506,33 +1575,11 @@ std::string emit_composed_file(const FjslComposedFile& file,
                  + "])]\n";
             continue;
         }
-        const uint32_t count = uniform_float_count(u.type);
-        std::string type_str;
-        switch (u.type) {
-            case UniformType::Float: type_str = "float"; break;
-            case UniformType::Vec2:  type_str = "vec2";  break;
-            case UniformType::Vec3:  type_str = "vec3";  break;
-            case UniformType::Vec4:  type_str = "vec4";  break;
-            default: break;
-        }
         // A composed file's uniforms are inlined into the CONSUMER's param
         // block, so its own slots — which its parse numbered from zero — are
         // shifted by where that file's run begins. Without this every file's
         // first uniform reads the consumer's first, silently.
-        out += "#define " + name + " (";
-        if (count == 1) {
-            out += "custom_params[" + mat_expr + ".param_offset + "
-                 + std::to_string(param_base + u.slot) + "]";
-        } else {
-            out += type_str + "(";
-            for (uint32_t i = 0; i < count; ++i) {
-                if (i > 0) out += ", ";
-                out += "custom_params[" + mat_expr + ".param_offset + "
-                     + std::to_string(param_base + u.slot + i) + "]";
-            }
-            out += ")";
-        }
-        out += ")\n";
+        out += "#define " + name + " (" + uniform_read(u, params, param_base + u.slot) + ")\n";
     }
 
     // The file's own helpers and constants, renamed.
@@ -1598,33 +1645,10 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
         return "materials[draws[frag_draw_index].material_id]";
     }();
+    const ParamBlock params{"custom_params", mat_expr + ".param_offset"};
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
-
-        std::string type_str;
-        switch (u.type) {
-            case UniformType::Float: type_str = "float"; break;
-            case UniformType::Vec2:  type_str = "vec2";  break;
-            case UniformType::Vec3:  type_str = "vec3";  break;
-            case UniformType::Vec4:  type_str = "vec4";  break;
-            default: break;
-        }
-
-        uint32_t count = uniform_float_count(u.type);
-        param_defines += "#define " + u.name + " (";
-        if (count == 1) {
-            param_defines += "custom_params[" + mat_expr + ".param_offset + " +
-                             std::to_string(u.slot) + "]";
-        } else {
-            param_defines += type_str + "(";
-            for (uint32_t i = 0; i < count; ++i) {
-                if (i > 0) param_defines += ", ";
-                param_defines += "custom_params[" + mat_expr + ".param_offset + " +
-                                 std::to_string(u.slot + i) + "]";
-            }
-            param_defines += ")";
-        }
-        param_defines += ")\n";
+        param_defines += "#define " + u.name + " (" + uniform_read(u, params, u.slot) + ")\n";
     }
 
     // Texture defines must also be moved to file scope, since the existing
@@ -1704,7 +1728,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         uint32_t texture_base = meta.custom_texture_count;
         for (const auto& file : composition->files) {
             if (file.use_name.empty()) continue;  // the consumer itself
-            globals += emit_composed_file(file, mat_expr, param_base, texture_base) + "\n";
+            globals += emit_composed_file(file, mat_expr, params, param_base, texture_base) + "\n";
             param_base += file.meta.custom_param_count;
             texture_base += file.meta.custom_texture_count;
         }
@@ -1811,32 +1835,11 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
 
     // Generate custom param reads (same SSBO layout as fragment)
     std::string param_reads;
+    const ParamBlock params{"custom_params", "mat.param_offset"};
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
-
-        std::string type_str;
-        switch (u.type) {
-            case UniformType::Float: type_str = "float"; break;
-            case UniformType::Vec2: type_str = "vec2"; break;
-            case UniformType::Vec3: type_str = "vec3"; break;
-            case UniformType::Vec4: type_str = "vec4"; break;
-            default: break;
-        }
-
-        uint32_t count = uniform_float_count(u.type);
-        if (count == 1) {
-            param_reads += "    " + type_str + " " + u.name +
-                           " = custom_params[mat.param_offset + " +
-                           std::to_string(u.slot) + "];\n";
-        } else {
-            param_reads += "    " + type_str + " " + u.name + " = " + type_str + "(";
-            for (uint32_t i = 0; i < count; ++i) {
-                if (i > 0) param_reads += ", ";
-                param_reads += "custom_params[mat.param_offset + " +
-                               std::to_string(u.slot + i) + "]";
-            }
-            param_reads += ");\n";
-        }
+        param_reads += "    " + std::string(glsl_type_name(u.type)) + " " + u.name + " = "
+                     + uniform_read(u, params, u.slot) + ";\n";
     }
 
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {

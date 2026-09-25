@@ -62,10 +62,21 @@ Hints control inspector UI and default textures for samplers.
 |------|--------|
 | `hint_color` | ColorEdit3/4 in inspector |
 | `hint_range(min, max, step)` | SliderFloat in inspector |
+| `hint_enum("A,B,C")` | Drop-down of named values (int) |
 | `hint_white` | Default to white texture (sampler2D) |
 | `hint_black` | Default to black texture (sampler2D) |
 | `hint_normal` | Default to flat normal texture (sampler2D) |
 | `hint_default_mr` | Default to metallic-roughness texture (sampler2D) |
+
+Uniforms are `float`, `vec2`, `vec3`, `vec4`, `int` or `sampler2D`. An `int`
+takes one float of the material's parameters like a `float` does, so a track
+or a blend moves it as a number, and the shader reads it rounded to the
+nearest whole one. Named with `hint_enum`, it is a choice: the `.fjmat` stores
+the index and the inspector shows the names.
+
+```glsl
+uniform int falloff : hint_enum("Linear,Smooth,Sharp") = 1;
+```
 
 ## .fjmat Files
 
