@@ -12,6 +12,8 @@
 #include "platform/file_watcher.hpp"
 #endif
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
@@ -20,6 +22,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -116,6 +119,19 @@ public:
     /// what they moved is blended where it will be drawn.
     void late_update(Scene& scene, float dt);
 
+    /// While on, a script whose tick() or late_tick() writes simulation state
+    /// that the simulation then throws away, or makes depend on the frame
+    /// rate, is reported, once per script and node: a dynamic body's position
+    /// or rotation (physics puts it back), an Intent character's horizontal
+    /// velocity (the engine sets it from move_intent) or a Velocity
+    /// character's velocity (it belongs in fixed_tick). Editor builds turn it
+    /// on; a shipped game does not look.
+    void set_write_reports(bool on) { write_reports_on_ = on; }
+
+    /// The reports raised since the last call, for the test runner, which
+    /// fails the running test with them.
+    [[nodiscard]] std::vector<std::string> take_write_reports();
+
     /// Add a script to the node. While the game is running it starts at once:
     /// its begin_play runs before this returns.
     Result<> add_script(Node3D& obj, const std::string& type_name);
@@ -141,7 +157,14 @@ public:
     /// Whether the game is running. While it is, a script added to a node
     /// starts at once, and a reload ends the scripts it replaces and starts
     /// the new ones.
-    void set_playing(bool playing) { playing_ = playing; }
+    void set_playing(bool playing) {
+        playing_ = playing;
+        // Each session reports afresh.
+        if (playing) {
+            reported_writes_.clear();
+            blamed_writes_.clear();
+        }
+    }
     [[nodiscard]] bool playing() const { return playing_; }
 
     /// End the scripts on nodes about to be destroyed while play goes on:
@@ -200,6 +223,34 @@ public:
 #endif
 
 private:
+    /// What a script outside the step could write that the simulation owns.
+    struct SimulatedState {
+        glm::vec3 position{0.0f};
+        glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+        glm::vec3 velocity{0.0f};
+    };
+    /// A node whose state the simulation owns: a dynamic body or a simulated
+    /// character.
+    [[nodiscard]] static bool simulation_owns(const Node& node);
+    [[nodiscard]] static SimulatedState simulated_state(const Node& node);
+    /// Run a frame hook (tick, late_tick) on the node's scripts, checking
+    /// after each script whether it wrote what the simulation owns.
+    template <typename Hook>
+    void run_frame_hook(Node& node, const char* hook_name, Hook&& hook);
+    /// Report what `script_index` wrote on `node` that the simulation owns,
+    /// judged against the state before it ran.
+    void report_outside_writes(const Node& node, std::size_t script_index, const char* hook_name,
+                               const SimulatedState& before);
+    void report_write(const std::string& key, std::string message);
+    /// The state the simulation owns of every node that has any, taken before
+    /// a frame pass (empty while reports are off). After it,
+    /// report_foreign_writes() catches a script writing another node's, which
+    /// the check after each script, looking at its own node, cannot see.
+    [[nodiscard]] std::vector<std::pair<uint32_t, SimulatedState>> owned_states(Scene& scene) const;
+    void report_foreign_writes(Scene& scene,
+                               std::span<const std::pair<uint32_t, SimulatedState>> before,
+                               const char* hook_name);
+
     void release_address(const void* owner);
     /// Run the script's begin_play, unless it has already run.
     void start_script(Node& node, std::size_t index);
@@ -224,6 +275,13 @@ private:
     World world_{};
     TimerManager timers_;
     bool playing_{false};
+
+    bool write_reports_on_{false};
+    std::vector<std::string> write_reports_;
+    // Script, node and kind of every write already reported this session,
+    // and the node and kind of every one a node's own script was named for.
+    std::unordered_set<std::string> reported_writes_;
+    std::unordered_set<std::string> blamed_writes_;
 
 #ifndef NDEBUG
     platform::FileWatcher watcher_;

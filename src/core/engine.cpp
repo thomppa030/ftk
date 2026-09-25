@@ -208,6 +208,10 @@ void Engine::init_project(const std::filesystem::path& project_path,
         }
     }
 
+    // A script writing what the simulation owns from outside its steps is
+    // reported while a game is made; a shipped game does not look.
+    script_subsystem_->manager().set_write_reports(!game_mode_);
+
     if (!project_path.empty()) {
         project_mgr_.open(project_path);
         if (project_mgr_.active()) {
@@ -1923,6 +1927,17 @@ void Engine::finish_current_test(TestOutcome outcome, const std::string& message
         test_.cleanup_test();
     }
 
+    // A script in the scene that wrote what the simulation owns from outside
+    // its steps fails the test, however its own checks came out: what it
+    // measured may not be what the game does.
+    for (auto& written : script_subsystem_->manager().take_write_reports()) {
+        report.failures.push_back(std::move(written));
+    }
+    if (report.outcome == TestOutcome::passed && !report.failures.empty()) {
+        report.outcome = TestOutcome::failed;
+        report.message = "a script wrote simulation state outside the fixed step";
+    }
+
     test_ = {};
     test_phase_ = TestPhase::teardown;
 }
@@ -1946,6 +1961,8 @@ void Engine::tick_test_runner() {
                 return;
             }
             load_scene(test_scenes_[test_index_]);
+            // What earlier tests' scripts were reported for is theirs.
+            (void)script_subsystem_->manager().take_write_reports();
             // start() is what instantiates the scene's script components:
             // load_scene leaves every ScriptEntry holding only its type name.
             play_controller_.start();

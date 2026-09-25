@@ -29,6 +29,7 @@ extern "C" void fjell_input_clear_connections();
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <format>
 #include <ctime>
 #include <filesystem>
 
@@ -545,6 +546,137 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
     world_.elapsed_time = clock.game_elapsed();
 }
 
+// ── Writes the simulation owns ──────────────────────────────────────────
+
+bool ScriptManager::simulation_owns(const Node& node) {
+    if (const auto* rb = node.components.get<RigidbodyComponent>();
+        rb != nullptr && rb->body_type == BodyType::Dynamic) {
+        return true;
+    }
+    const auto* cc = node.components.get<CharacterComponent>();
+    return cc != nullptr && cc->simulate;
+}
+
+ScriptManager::SimulatedState ScriptManager::simulated_state(const Node& node) {
+    SimulatedState state;
+    if (const auto* spatial = node.as_spatial()) {
+        state.position = spatial->transform.position;
+        state.rotation = spatial->transform.rotation;
+    }
+    if (const auto* cc = node.components.get<CharacterComponent>()) state.velocity = cc->velocity;
+    return state;
+}
+
+namespace {
+
+/// What of the state the simulation owns a frame hook changed, by the
+/// simulation's rules: a dynamic body's placement, an Intent character's
+/// horizontal velocity, a Velocity character's velocity. A character's own
+/// placement is not among them: moved from outside, it is taken as a teleport.
+enum class OutsideWrite : uint8_t { none, body_placement, intent_velocity, character_velocity };
+
+template <typename State>
+[[nodiscard]] OutsideWrite outside_write(const Node& node, const State& before, const State& now) {
+    if (const auto* rb = node.components.get<RigidbodyComponent>();
+        rb != nullptr && rb->body_type == BodyType::Dynamic &&
+        (now.position != before.position || now.rotation != before.rotation)) {
+        return OutsideWrite::body_placement;
+    }
+    const auto* cc = node.components.get<CharacterComponent>();
+    if (cc == nullptr || !cc->simulate) return OutsideWrite::none;
+    if (cc->movement == CharacterMovement::Intent) {
+        return now.velocity.x != before.velocity.x || now.velocity.z != before.velocity.z
+                   ? OutsideWrite::intent_velocity
+                   : OutsideWrite::none;
+    }
+    return now.velocity != before.velocity ? OutsideWrite::character_velocity : OutsideWrite::none;
+}
+
+/// What to do instead, for the report.
+[[nodiscard]] const char* outside_write_advice(OutsideWrite write) {
+    switch (write) {
+        case OutsideWrite::body_placement:
+            return "moved a dynamic body, which physics puts back at its next step: move it "
+                   "with teleport(), or push it with forces or its velocity";
+        case OutsideWrite::intent_velocity:
+            return "wrote the horizontal velocity of a character moved by intent, which the "
+                   "engine sets from move_intent every step: set move_intent, or switch the "
+                   "character's movement to Velocity";
+        case OutsideWrite::character_velocity:
+            return "wrote a character's velocity once a frame, which ties its movement to the "
+                   "frame rate: write it in fixed_tick(), or move the character by intent";
+        case OutsideWrite::none:
+            break;
+    }
+    return "";
+}
+
+} // namespace
+
+template <typename Hook>
+void ScriptManager::run_frame_hook(Node& node, const char* hook_name, Hook&& hook) {
+    if (!write_reports_on_ || !simulation_owns(node)) {
+        run_hook(node, hook_name, hook);
+        return;
+    }
+    // Checked after each script, so the report names the one that wrote.
+    const std::size_t count = node.scripts.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        const SimulatedState before = simulated_state(node);
+        run_hook_on(node, i, hook_name, hook);
+        report_outside_writes(node, i, hook_name, before);
+    }
+}
+
+void ScriptManager::report_outside_writes(const Node& node, std::size_t script_index,
+                                          const char* hook_name, const SimulatedState& before) {
+    const OutsideWrite write = outside_write(node, before, simulated_state(node));
+    if (write == OutsideWrite::none) return;
+    const std::string& type = node.scripts[script_index].type_name;
+    const std::string what = node.name + '|' + std::to_string(static_cast<int>(write));
+    blamed_writes_.insert(what);
+    report_write(type + '|' + what,
+                 std::format("{} on '{}' {} in {}()", type, node.name,
+                             outside_write_advice(write), hook_name));
+}
+
+void ScriptManager::report_write(const std::string& key, std::string message) {
+    if (!reported_writes_.insert(key).second) return;
+    FJELL_CORE_WARN("{}", message);
+    write_reports_.push_back(std::move(message));
+}
+
+std::vector<std::string> ScriptManager::take_write_reports() {
+    return std::exchange(write_reports_, {});
+}
+
+std::vector<std::pair<uint32_t, ScriptManager::SimulatedState>>
+ScriptManager::owned_states(Scene& scene) const {
+    std::vector<std::pair<uint32_t, SimulatedState>> states;
+    if (!write_reports_on_) return states;
+    for (const auto& obj : scene.objects()) {
+        if (simulation_owns(*obj)) states.emplace_back(obj->id, simulated_state(*obj));
+    }
+    return states;
+}
+
+void ScriptManager::report_foreign_writes(Scene& scene,
+                                          std::span<const std::pair<uint32_t, SimulatedState>> before,
+                                          const char* hook_name) {
+    for (const auto& [id, state] : before) {
+        const Node* node = scene.find(id);
+        if (node == nullptr) continue;
+        const OutsideWrite write = outside_write(*node, state, simulated_state(*node));
+        if (write == OutsideWrite::none) continue;
+        // One of the node's own scripts was already named for it.
+        const std::string blamed = node->name + '|' + std::to_string(static_cast<int>(write));
+        if (blamed_writes_.contains(blamed)) continue;
+        report_write("|" + blamed,
+                     std::format("A script on another node {} ('{}') in {}()",
+                                 outside_write_advice(write), node->name, hook_name));
+    }
+}
+
 // ── Prepare / Update ────────────────────────────────────────────────────
 
 void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
@@ -568,12 +700,14 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     // Scripts may spawn nodes during tick(); defer those adds so they don't
     // invalidate this loop's iterator over objects_.
     Scene::TickLock tick_lock(scene);
+    const auto owned_before = owned_states(scene);
     for (auto& obj : scene.objects()) {
-        run_hook(*obj, "tick", [&](ScriptComponent& script) {
+        run_frame_hook(*obj, "tick", [&](ScriptComponent& script) {
             script.world_ = &world_;
             script.tick(dt);
         });
     }
+    report_foreign_writes(scene, owned_before, "tick");
 
 }
 
@@ -613,12 +747,14 @@ void ScriptManager::late_update(Scene& scene, float dt) {
     if (!is_loaded()) return;
 
     Scene::TickLock tick_lock(scene);
+    const auto owned_before = owned_states(scene);
     for (auto& obj : scene.objects()) {
-        run_hook(*obj, "late_tick", [&](ScriptComponent& script) {
+        run_frame_hook(*obj, "late_tick", [&](ScriptComponent& script) {
             script.world_ = &world_;
             script.late_tick(dt);
         });
     }
+    report_foreign_writes(scene, owned_before, "late_tick");
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────
