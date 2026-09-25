@@ -38,7 +38,8 @@ struct DataBindWork {
 /// value drives (a widget's props, `if=`, `class:`, `style-*`, `src`,
 /// `material`, text, a bar, a `foreach`), every expression parsed once.
 /// Every resolve() then evaluates the bindings on show and applies only
-/// those whose values differ from the last ones applied. A subtree hidden by
+/// those whose values differ from the last ones applied. Values are compared
+/// as read, before their pipes, which format them only when they change. A subtree hidden by
 /// `if=`, or by `display: none` in the last style pass, evaluates only its
 /// root's props, `if=` and `class:`. A `foreach` whose list changed length
 /// stamps or removes repeats, and the tree's bindings are compiled again.
@@ -80,8 +81,11 @@ private:
         /// `{x}` and nothing else: the value itself rather than its text.
         bool single{false};
 
-        /// Appends one value per expression, as `scope` reads them now.
-        void evaluate(const UiContext& scope, std::vector<UiValue>& out) const;
+        /// Appends what each expression reads in `scope` now, before its
+        /// pipes: what a binding compares from frame to frame.
+        void read(const UiContext& scope, std::vector<UiValue>& out) const;
+        /// Runs each expression's pipes over what it read, in place.
+        void format(const UiContext& scope, std::span<UiValue> values) const;
         /// The text, with `values` in place of the expressions.
         [[nodiscard]] std::string text(std::span<const UiValue> values) const;
         [[nodiscard]] std::size_t expressions() const;
@@ -97,7 +101,7 @@ private:
         Template other{};        ///< a `class:` comparison's right side; a bar's max
         bool compares{false};    ///< `class:name="a==b"` rather than a truth test
         UiNode* repeated{nullptr}; ///< a repeat's template node
-        std::vector<UiValue> last{}; ///< the values last applied, one per expression
+        std::vector<UiValue> last{}; ///< what the expressions read when last applied, before their pipes
         bool applied{false};
     };
 
@@ -122,7 +126,8 @@ private:
     /// A shown node's bindings after its gate, repeats among them.
     bool evaluate_rest(const NodeEntry& entry, DataBindResult& result);
     void evaluate(Binding& binding, const NodeEntry& entry, DataBindResult& result);
-    void apply(const Binding& binding, UiNode& node, DataBindResult& result) const;
+    /// Applies a binding with its values as shown: read, then formatted.
+    void apply(const Binding& binding, std::span<const UiValue> shown, UiNode& node, DataBindResult& result) const;
     /// Stamps or removes repeats to match the list and points each at its
     /// item. True when the tree changed.
     bool repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result);
@@ -133,6 +138,7 @@ private:
     std::vector<Binding> bindings_;
     std::vector<std::size_t> skipped_; ///< entries skipped as display: none
     std::vector<UiValue> scratch_;
+    std::vector<UiValue> shown_;
     UiNode* built_root_{nullptr};
     UiContext* built_context_{nullptr};
     bool templates_marked_{false}; ///< build hid new foreach templates: a layout change

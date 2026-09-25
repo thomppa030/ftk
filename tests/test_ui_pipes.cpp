@@ -109,6 +109,41 @@ TEST_CASE("A game pipe is called with its declared types", "[ui_pipes]") {
     REQUIRE(show("{copper|round}", ctx) == "1250");         // the engine's round wins
 }
 
+namespace {
+int g_formatted = 0; // calls to the counting pipe below
+} // namespace
+
+TEST_CASE("A pipe runs only when the value it formats changes", "[ui_pipes]") {
+    static const FjellPipeDesc table[] = {
+        {"counted", FJELL_FIELD_FLOAT, nullptr, 0,
+         [](const void* input, const void* const*, void* out) {
+             ++g_formatted;
+             *static_cast<std::string*>(out) = std::to_string(static_cast<int>(*static_cast<const float*>(input)));
+         }},
+    };
+    ReflectedTypes types;
+    types.add_pipes(table, 1);
+    UiPipes pipes;
+    pipes.set_game_pipes(&types);
+    UiContext ctx;
+    ctx.set_pipes(&pipes);
+    ctx.set("v", UiValue(3.0f));
+
+    UiNode text;
+    text.type = UiNodeType::text;
+    text.text_template = "{v|counted}";
+    g_formatted = 0;
+    UiDataBind bind;
+    for (int frame = 0; frame < 5; ++frame) bind.resolve(text, ctx);
+    REQUIRE(text.text_content == "3");
+    REQUIRE(g_formatted == 1);
+
+    ctx.set("v", UiValue(4.0f));
+    bind.resolve(text, ctx);
+    REQUIRE(text.text_content == "4");
+    REQUIRE(g_formatted == 2);
+}
+
 TEST_CASE("A prop bound through a pipe takes its declared type", "[ui_pipes]") {
     auto root = std::make_unique<UiNode>();
     root->type = UiNodeType::element;

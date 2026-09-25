@@ -92,6 +92,9 @@ An engine pipe wins a name both have, and the game is told. A pipe that does not
 exist, or arguments that do not fit it, leave the value unformatted and are
 reported once; a number pipe given text that is not a number leaves it as it is.
 
+A pipe runs when the value it formats changes, not on every frame, so it should
+only format: the same value always gives the same text.
+
 A prop bound through a pipe is still stored as its declared type:
 `shown="{stamina|round}"` on an `int` prop holds the number 118.
 

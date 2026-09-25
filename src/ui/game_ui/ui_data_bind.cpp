@@ -36,9 +36,20 @@ UiDataBind::Template UiDataBind::compile_expression(std::string_view expression)
     return out;
 }
 
-void UiDataBind::Template::evaluate(const UiContext& scope, std::vector<UiValue>& out) const {
+void UiDataBind::Template::read(const UiContext& scope, std::vector<UiValue>& out) const {
     for (const auto& part : parts) {
-        if (part.is_expression) out.push_back(scope.evaluate(part.expression));
+        if (part.is_expression) out.push_back(scope.lookup(part.expression.path));
+    }
+}
+
+void UiDataBind::Template::format(const UiContext& scope, std::span<UiValue> values) const {
+    const UiPipes* pipes = scope.pipes();
+    if (pipes == nullptr) return;
+    std::size_t next = 0;
+    for (const auto& part : parts) {
+        if (!part.is_expression) continue;
+        UiValue& value = values[next++];
+        for (const auto& call : part.expression.pipes) value = pipes->apply(value, call);
     }
 }
 
@@ -57,7 +68,8 @@ std::size_t UiDataBind::Template::expressions() const {
 std::string UiDataBind::resolve_template(const std::string& tmpl, const UiContext& context) {
     const Template compiled = compile(tmpl);
     std::vector<UiValue> values;
-    compiled.evaluate(context, values);
+    compiled.read(context, values);
+    compiled.format(context, values);
     return compiled.text(values);
 }
 
@@ -252,17 +264,25 @@ void UiDataBind::evaluate(Binding& binding, const NodeEntry& entry, DataBindResu
     ++work_.evaluated;
     const UiContext& scope = binding.kind == Kind::prop ? *entry.outer : *entry.scope;
     scratch_.clear();
-    binding.value.evaluate(scope, scratch_);
-    binding.other.evaluate(scope, scratch_);
+    binding.value.read(scope, scratch_);
+    binding.other.read(scope, scratch_);
     if (binding.applied && scratch_ == binding.last) return;
     std::swap(binding.last, scratch_);
     binding.applied = true;
     ++work_.applied;
-    apply(binding, *entry.node, result);
+
+    // Pipes only format, so they run on what changed and never on a quiet
+    // frame: formatting is most of what a binding would cost otherwise.
+    shown_ = binding.last;
+    const std::size_t split = binding.value.expressions();
+    binding.value.format(scope, std::span<UiValue>(shown_).first(split));
+    binding.other.format(scope, std::span<UiValue>(shown_).subspan(split));
+    apply(binding, shown_, *entry.node, result);
 }
 
-void UiDataBind::apply(const Binding& binding, UiNode& node, DataBindResult& result) const {
-    const std::span<const UiValue> values = binding.last;
+void UiDataBind::apply(const Binding& binding, std::span<const UiValue> shown, UiNode& node,
+                       DataBindResult& result) const {
+    const std::span<const UiValue> values = shown;
     const std::span<const UiValue> first = values.first(binding.value.expressions());
     const std::span<const UiValue> second = values.subspan(first.size());
     switch (binding.kind) {
