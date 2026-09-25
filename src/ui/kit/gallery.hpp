@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/kit/edit.hpp"
+#include "ui/kit/node_graph.hpp"
 #include "ui/kit/tree.hpp"
 
 #include <glm/vec2.hpp>
@@ -29,6 +30,7 @@ private:
     void feedback();
     void lists();
     void tree_sample();
+    void graphs();
 
     // Sample enums for the choice fields.
     enum class Shape { Box, Sphere, Capsule, Mesh };
@@ -75,6 +77,19 @@ private:
     // How many edits the sample fields have committed, to see that a drag
     // is one commit.
     int commits_{0};
+    // The node graph samples, one of each way a node connects: by pins
+    // (Time, Multiply, Spawn rate) and by edge (three states).
+    NodeGraph pin_graph_;
+    NodeGraph edge_graph_;
+    std::vector<glm::vec2> pin_places_{{0.0f, 0.0f}, {240.0f, -24.0f}, {480.0f, 12.0f}};
+    std::vector<NodeLink> pin_links_{{.id = 1, .from = {1, 11}, .to = {2, 21}}};
+    float multiply_by_{2.0f};
+    float spawn_rate_{50.0f};
+    std::vector<glm::vec2> state_places_{{0.0f, 0.0f}, {260.0f, 0.0f}, {520.0f, 96.0f}};
+    std::vector<NodeLink> state_links_{{.id = 1, .from = {1, 0}, .to = {2, 0}},
+                                       {.id = 2, .from = {2, 0}, .to = {1, 0}, .marked = true},
+                                       {.id = 3, .from = {2, 0}, .to = {3, 0}}};
+    uint64_t next_link_{10};
 };
 
 } // namespace fjell::ui

@@ -358,6 +358,7 @@ add_executable(fjell
     ui/kit/brand.cpp
     ui/kit/button.cpp
     ui/kit/canvas.cpp
+    ui/kit/node_graph.cpp
     ui/kit/curve_editor.cpp
     ui/kit/choice.cpp
     ui/kit/color_field.cpp

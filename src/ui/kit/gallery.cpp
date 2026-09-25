@@ -21,6 +21,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <iterator>
 #include <optional>
@@ -328,6 +329,91 @@ void KitGallery::lists() {
     }
 }
 
+void KitGallery::graphs() {
+    if (!section_foldable("Node graphs", icon::node_graph)) return;
+    // What both samples do with what the user did: move a node, add a link,
+    // remove the selected link. Their nodes stay.
+    const auto apply = [this](NodeGraph& graph, const NodeGraphEvents& events, std::vector<glm::vec2>& places,
+                              std::vector<NodeLink>& links) {
+        if (events.moved) places[static_cast<std::size_t>(events.moved->node - 1)] = events.moved->position;
+        if (events.linked) {
+            links.push_back({.id = next_link_++, .from = events.linked->from, .to = events.linked->to});
+            graph.select_link(links.back().id);
+        }
+        if (events.remove && graph.selected_link() != 0) {
+            std::erase_if(links, [&](const NodeLink& l) { return l.id == graph.selected_link(); });
+        }
+    };
+    const auto menu = [](const NodeGraphMenu& target) {
+        if (target.link == 0) {
+            (void)menu_item({.label = "Remove link", .enabled = false, .disabled_reason = "Right-click a link"});
+            return false;
+        }
+        return menu_item({.icon = icon::remove, .label = "Remove link", .shortcut = "Del", .destructive = true});
+    };
+
+    subheading("By pins");
+    {
+        const ImVec4 time_hue = theme::category(theme::Category::Logic);
+        const ImVec4 float_colour = theme::category(theme::Category::Rendering);
+        NodeGraphDesc desc;
+        NodeRow time;
+        time.output = NodePin{.id = 11, .label = "Seconds", .colour = float_colour};
+        desc.nodes.push_back({.id = 1, .position = pin_places_[0], .width = 150.0f, .title = "Time",
+                              .hue = time_hue, .rows = {time}});
+        NodeRow a;
+        a.input = NodePin{.id = 21, .label = "A", .colour = float_colour};
+        a.output = NodePin{.id = 23, .label = "Result", .colour = float_colour};
+        NodeRow b;
+        b.input = NodePin{.id = 22, .label = "B", .colour = float_colour};
+        b.value = NodeValue::number(multiply_by_, {.speed = 0.01f});
+        desc.nodes.push_back({.id = 2, .position = pin_places_[1], .width = 150.0f, .title = "Multiply",
+                              .hue = time_hue, .rows = {a, b}});
+        NodeRow rate;
+        rate.input = NodePin{.id = 31, .label = "Rate", .colour = float_colour};
+        const bool rate_linked = std::any_of(pin_links_.begin(), pin_links_.end(),
+                                             [](const NodeLink& l) { return l.to.pin == 31; });
+        if (!rate_linked) rate.value = NodeValue::number(spawn_rate_, {.speed = 1.0f, .lo = 0.0f, .hi = 1000.0f});
+        desc.nodes.push_back({.id = 3, .position = pin_places_[2], .title = "Spawn rate",
+                              .hue = theme::category(theme::Category::Environment), .rows = {rate}});
+        desc.links = pin_links_;
+        desc.can_link = [this](const NodeEnd&, const NodeEnd& to) {
+            // One link into an input.
+            return std::none_of(pin_links_.begin(), pin_links_.end(), [&](const NodeLink& l) { return l.to == to; });
+        };
+        if (ImGui::BeginChild("##pin_graph", {0.0f, 240.0f}, ImGuiChildFlags_Borders)) {
+            apply(pin_graph_, pin_graph_.draw(desc, menu), pin_places_, pin_links_);
+        }
+        ImGui::EndChild();
+    }
+
+    subheading("By edge");
+    {
+        constexpr const char* NAMES[] = {"Idle", "Walk", "Run"};
+        constexpr const char* CLIPS[] = {"idle", "walk_cycle", ""};
+        NodeGraphDesc desc;
+        for (std::size_t i = 0; i < std::size(NAMES); ++i) {
+            NodeRow what;
+            what.text = CLIPS[i][0] != '\0' ? CLIPS[i] : "Nothing to play";
+            what.text_dimmed = CLIPS[i][0] == '\0';
+            desc.nodes.push_back({.id = i + 1,
+                                  .position = state_places_[i],
+                                  .anchor = NodeAnchor::Centre,
+                                  .width = 160.0f,
+                                  .title = NAMES[i],
+                                  .hue = theme::category(theme::Category::Animation),
+                                  .connect = NodeConnect::Edge,
+                                  .rows = {what}});
+        }
+        desc.links = state_links_;
+        desc.start = NodeStart{.node = 1, .label = "Entry"};
+        if (ImGui::BeginChild("##edge_graph", {0.0f, 240.0f}, ImGuiChildFlags_Borders)) {
+            apply(edge_graph_, edge_graph_.draw(desc, menu), state_places_, state_links_);
+        }
+        ImGui::EndChild();
+    }
+}
+
 void KitGallery::tree_sample() {
     using C = theme::Category;
     struct Row {
@@ -430,6 +516,7 @@ void KitGallery::draw(bool* open) {
         fields();
         blocks();
         lists();
+        graphs();
         feedback();
     }
 }

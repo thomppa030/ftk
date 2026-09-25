@@ -103,6 +103,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/brand.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/canvas.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/node_graph.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/curve_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
@@ -293,6 +294,7 @@ add_executable(fjell-tests
     test_node_slot.cpp
     test_fields.cpp
     test_kit.cpp
+    test_node_graph.cpp
     test_texture_channels.cpp
     test_list_editor.cpp
     test_track_lanes.cpp
