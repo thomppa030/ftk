@@ -493,9 +493,6 @@ target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
 
 if(MSVC)
     target_compile_options(fjell PRIVATE /W4 /WX)
-    # Pass the full path to cl.exe so fjreflect can use it at runtime
-    string(REPLACE "\\" "/" _FJELL_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
-    target_compile_definitions(fjell PRIVATE "FJELL_CXX_COMPILER=\"${_FJELL_CXX_COMPILER}\"")
     # Suppress warnings in third-party ImGuizmo source
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()

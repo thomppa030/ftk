@@ -34,11 +34,41 @@ std::string stem_of(const ComponentInfo& comp) {
     return std::filesystem::path(comp.source_file).stem().string();
 }
 
+/// The friend every component macro declares, specialised for this class:
+/// the offset and size of each reflected field, measured by the compiler
+/// that builds the game with the game's own flags, and the shims through
+/// which generated code reaches private members.
+void emit_access(std::ostream& out, const ComponentInfo& comp) {
+    if (comp.fields.empty() && comp.rpcs.empty()) return;
+    const auto& q = comp.qualified_name;
+    out << "namespace fjell { template <> struct FjellAccess<" << q << "> {\n";
+    for (const auto& f : comp.fields) {
+        out << "    static constexpr uint32_t offset_" << f.name << " = static_cast<uint32_t>(offsetof("
+            << q << ", " << f.name << "));\n";
+        out << "    static constexpr uint32_t size_" << f.name << " = static_cast<uint32_t>(sizeof("
+            << q << "::" << f.name << "));\n";
+    }
+    // Handlers are private `_impl` methods more often than not.
+    for (const auto& rpc : comp.rpcs) {
+        out << "    static void " << rpc.method_name << "(" << q << "* self";
+        for (size_t p = 0; p < rpc.params.size(); ++p) out << ", " << rpc.params[p].cpp_type << " a" << p;
+        out << ") { self->" << rpc.method_name << "_impl(";
+        for (size_t p = 0; p < rpc.params.size(); ++p) {
+            out << "a" << p;
+            if (p + 1 < rpc.params.size()) out << ", ";
+        }
+        out << "); }\n";
+    }
+    out << "}; }\n\n";
+}
+
 /// One component's field table, trace function, action trampolines and RPC
 /// code, in that order.
 void emit_component(std::ostream& out, const ComponentInfo& comp) {
     const auto kinds = ref_kinds(comp);
-    const bool has_weak = kinds.weak, has_ref = kinds.ref, has_shared = kinds.shared;
+    const auto access = "fjell::FjellAccess<" + comp.qualified_name + ">::";
+
+    emit_access(out, comp);
 
     // Static enum label arrays (one per ENUM field)
     out << std::fixed;
@@ -62,13 +92,13 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
     // Field table
     out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
     for (const auto& f : comp.fields) {
-        // For enum fields, override size with label count so the runtime can
-        // bound-check without a separate count field.
-        uint32_t size = f.enum_labels.empty() ? f.size
-                                              : static_cast<uint32_t>(f.enum_labels.size());
-
-        out << "    {\"" << f.name << "\", " << f.fj_field_type
-            << ", " << f.offset << ", " << size << ", ";
+        out << "    {\"" << f.name << "\", " << f.fj_field_type << ", " << access << "offset_" << f.name
+            << ", ";
+        // An enum field's size is its label count, so the runtime can bound-check
+        // without a separate count.
+        if (f.enum_labels.empty()) out << access << "size_" << f.name;
+        else out << f.enum_labels.size();
+        out << ", ";
         if (f.enum_labels.empty()) {
             out << "nullptr";
         } else {
@@ -105,19 +135,18 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         << "_field_count = " << comp.fields.size() << ";\n\n";
 
     // Trace function
-    bool has_refs = has_weak || has_ref || has_shared;
-    if (has_refs) {
+    if (kinds.any()) {
         out << "extern \"C\" void fjreflect_" << comp.class_name
             << "_trace(void* instance, void* visitor) {\n";
         out << "    char* base = static_cast<char*>(instance);\n";
         out << "    (void)visitor;\n";
         for (const auto& f : comp.fields) {
-            if (f.fj_field_type == "FJELL_FIELD_WEAK_REF") {
-                out << "    fjell_gc_trace_weak(visitor, base + " << f.offset << ");\n";
-            } else if (f.fj_field_type == "FJELL_FIELD_REF") {
-                out << "    fjell_gc_trace_ref(visitor, base + " << f.offset << ");\n";
-            } else if (f.fj_field_type == "FJELL_FIELD_SHARED_REF") {
-                out << "    fjell_gc_trace_shared(visitor, base + " << f.offset << ");\n";
+            const char* bridge = f.fj_field_type == "FJELL_FIELD_WEAK_REF"     ? "fjell_gc_trace_weak"
+                                 : f.fj_field_type == "FJELL_FIELD_REF"        ? "fjell_gc_trace_ref"
+                                 : f.fj_field_type == "FJELL_FIELD_SHARED_REF" ? "fjell_gc_trace_shared"
+                                                                               : nullptr;
+            if (bridge != nullptr) {
+                out << "    " << bridge << "(visitor, base + " << access << "offset_" << f.name << ");\n";
             }
         }
         out << "}\n";
@@ -166,29 +195,9 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
             << "_ui_action_count = " << comp.actions.size() << ";\n\n";
     }
 
-    // (ScriptComponent action trampolines removed — scripts now use InputAPI::bind() in begin_play)
-
     // ── RPC invoke trampolines + descriptor table ──────────────────────
     if (!comp.rpcs.empty()) {
-        // Access shim: a friend of the component (via FJELL_COMPONENT), so the
-        // generated trampolines can call private _impl handlers.
-        out << "\n// ── RPC access shim (friend of " << comp.class_name << ") ──\n\n";
-        out << "namespace fjell { template <> struct FjellRpcAccess<"
-            << comp.qualified_name << "> {\n";
-        for (const auto& rpc : comp.rpcs) {
-            out << "    static void " << rpc.method_name << "(" << comp.qualified_name << "* self";
-            for (size_t p = 0; p < rpc.params.size(); ++p)
-                out << ", " << rpc.params[p].cpp_type << " a" << p;
-            out << ") { self->" << rpc.method_name << "_impl(";
-            for (size_t p = 0; p < rpc.params.size(); ++p) {
-                out << "a" << p;
-                if (p + 1 < rpc.params.size()) out << ", ";
-            }
-            out << "); }\n";
-        }
-        out << "}; }\n\n";
-
-        out << "// ── RPC invoke trampolines ──\n\n";
+        out << "\n// ── RPC invoke trampolines ──\n\n";
         for (const auto& rpc : comp.rpcs) {
             // Deserialize POD params from `in` and call the handler via the shim.
             out << "static void fjreflect_" << comp.class_name << "_rpc_"
@@ -201,8 +210,8 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
                 out << "    std::memcpy(&a" << p << ", in + off, sizeof("
                     << param.cpp_type << ")); off += sizeof(" << param.cpp_type << ");\n";
             }
-            out << "    fjell::FjellRpcAccess<" << comp.qualified_name << ">::"
-                << rpc.method_name << "(static_cast<" << comp.qualified_name << "*>(self)";
+            out << "    " << access << rpc.method_name << "(static_cast<" << comp.qualified_name
+                << "*>(self)";
             for (size_t p = 0; p < rpc.params.size(); ++p) {
                 out << ", a" << p;
             }
@@ -275,23 +284,21 @@ std::string generated_file(const std::string& stem, const std::vector<const Comp
     std::ostringstream out;
     out << "// " << stem << ".generated.cpp — Generated by fjreflect. Do not edit.\n";
     out << "#include \"fjell/api.h\"\n";
-    const bool calls_members = std::any_of(comps.begin(), comps.end(), [](const ComponentInfo* c) {
-        return !c->actions.empty() || !c->rpcs.empty();
-    });
+    auto source_filename = std::filesystem::path(comps.front()->source_file).filename().string();
+    out << "#include \"" << source_filename << "\"\n";
     const bool has_rpcs = std::any_of(comps.begin(), comps.end(), [](const ComponentInfo* c) {
         return !c->rpcs.empty();
     });
-    if (calls_members) {
-        // Include source header for action/RPC trampoline static_casts and the
-        // generated RPC send-wrapper member definitions.
-        auto source_filename = std::filesystem::path(comps.front()->source_file).filename().string();
-        out << "#include \"" << source_filename << "\"\n";
-    }
     if (has_rpcs) {
         out << "#include \"fjell/net_api.hpp\"\n";
     }
+    out << "#include <cstddef>\n";
     out << "#include <cstdint>\n";
     out << "#include <cstring>\n\n";
+    // Components are not standard-layout (they have a base and virtuals), for
+    // which offsetof is conditionally supported: GCC, Clang and MSVC all
+    // support it for single, non-virtual inheritance, and GCC warns.
+    out << "#if defined(__GNUC__)\n#pragma GCC diagnostic ignored \"-Winvalid-offsetof\"\n#endif\n\n";
 
     // Declare trace bridge functions if needed
     RefKinds kinds;
@@ -313,25 +320,8 @@ std::string generated_file(const std::string& stem, const std::vector<const Comp
     return out.str();
 }
 
-/// `<stem>.verify.cpp`: static assertions that the offsets still hold.
-std::string verify_file(const std::string& stem, const std::vector<const ComponentInfo*>& comps) {
-    std::ostringstream out;
-    out << "// " << stem << ".verify.cpp — Layout verification. Generated by fjreflect.\n";
-    auto source_filename = std::filesystem::path(comps.front()->source_file).filename().string();
-    out << "#include \"" << source_filename << "\"\n";
-    out << "#include <cstddef>\n\n";
-
-    for (const auto* comp : comps) {
-        for (const auto& f : comp->fields) {
-            out << "static_assert(offsetof(" << comp->qualified_name << ", " << f.name
-                << ") == " << f.offset << ", \"fjreflect layout mismatch: "
-                << comp->qualified_name << "::" << f.name << "\");\n";
-        }
-    }
-    return out.str();
-}
-
-/// Output files fjreflect owns in its directory; anything else there is left alone.
+/// Output files fjreflect owns in its directory, including the `.verify.cpp`
+/// files it once wrote; anything else there is left alone.
 bool is_generated_name(const std::string& name) {
     return name == "manifest.json" || name.ends_with(".generated.cpp") ||
            name.ends_with(".verify.cpp");
@@ -411,7 +401,6 @@ GeneratedFiles generate(const std::vector<ComponentInfo>& components) {
     GeneratedFiles files;
     for (const auto& [stem, comps] : by_header) {
         files[stem + ".generated.cpp"] = generated_file(stem, comps);
-        files[stem + ".verify.cpp"] = verify_file(stem, comps);
     }
     files["manifest.json"] = manifest(components);
     return files;

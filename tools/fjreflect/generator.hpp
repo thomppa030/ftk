@@ -11,9 +11,9 @@ namespace fjreflect {
 /// Every file fjreflect writes, by name within its output directory.
 using GeneratedFiles = std::map<std::string, std::string>;
 
-/// The files for these components: one `<stem>.generated.cpp` and one
-/// `<stem>.verify.cpp` per header, holding every component it declares, and
-/// `manifest.json`. Offsets must already be filled in.
+/// The files for these components: one `<stem>.generated.cpp` per header,
+/// holding every component it declares, and `manifest.json`. Field offsets
+/// are left to the compiler that builds the game: the tables use `offsetof`.
 [[nodiscard]] GeneratedFiles generate(const std::vector<ComponentInfo>& components);
 
 struct WriteReport {

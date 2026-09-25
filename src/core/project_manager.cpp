@@ -186,28 +186,8 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                 }
 
                 if (!source_list.empty()) {
-                    auto glm_dir = build_dir / "_deps" / "glm-src";
-
-#ifdef _WIN32
-    #ifdef FJELL_CXX_COMPILER
-                    // The compiler the engine itself was built with.
-                    const std::string compiler = FJELL_CXX_COMPILER;
-    #else
-                    const std::string compiler = "cl";
-    #endif
-#else
-                    const std::string compiler = "g++";
-#endif
                     auto reflect_cmd = quoted(fjreflect_path) +
-                        " --output-dir " + quoted(generated_dir) +
-                        " --include-dir " + quoted(sdk_include) +
-                        " --compiler \"" + compiler + "\"";
-
-                    if (fs::exists(glm_dir)) {
-                        reflect_cmd += " --include-dir " + quoted(glm_dir);
-                    }
-
-                    reflect_cmd += source_list + " 2>&1";
+                        " --output-dir " + quoted(generated_dir) + source_list + " 2>&1";
 
                     std::string reflect_output;
                     int reflect_ret = platform::run_command(reflect_cmd, reflect_output);

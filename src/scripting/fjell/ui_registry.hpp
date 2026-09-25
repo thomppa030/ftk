@@ -88,6 +88,7 @@ void register_ui_component(FjellTypeRegistry* reg) { register_ui_widget<T>(reg);
 /// @endcode
 #define FJELL_UI_WIDGET(T) \
     public: static constexpr const char* type_name = #T; \
+    template <class _FjAccessT> friend struct ::fjell::FjellAccess; \
     private: \
     static inline FjellUiAutoReg _fjell_ui_reg_{ \
         [](FjellTypeRegistry* r) { fjell::register_ui_widget<T>(r); }, \

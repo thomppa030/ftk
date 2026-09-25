@@ -11,24 +11,16 @@ static void print_usage() {
     std::cerr << "Usage: fjreflect [options] <source files...>\n"
               << "Options:\n"
               << "  --output-dir <dir>    Output directory for generated files\n"
-              << "  --include-dir <dir>   Additional include directory (can repeat)\n"
-              << "  --compiler <path>     C++ compiler to use (default: c++)\n"
               << "  --help                Show this message\n";
 }
 
 int main(int argc, char* argv[]) {
     std::string output_dir = "generated";
-    std::string compiler = "c++";
-    std::vector<std::string> include_dirs;
     std::vector<std::string> source_files;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--output-dir") == 0 && i + 1 < argc) {
             output_dir = argv[++i];
-        } else if (std::strcmp(argv[i], "--include-dir") == 0 && i + 1 < argc) {
-            include_dirs.push_back(argv[++i]);
-        } else if (std::strcmp(argv[i], "--compiler") == 0 && i + 1 < argc) {
-            compiler = argv[++i];
         } else if (std::strcmp(argv[i], "--help") == 0) {
             print_usage();
             return 0;
@@ -65,14 +57,6 @@ int main(int argc, char* argv[]) {
         for (const auto& e : result.errors) {
             std::cerr << e << "\n";
             had_errors = true;
-        }
-
-        // Query offsets for components found in this file
-        if (!result.components.empty() && !had_errors) {
-            if (!fjreflect::query_offsets(result.components, file, include_dirs, compiler)) {
-                std::cerr << "fjreflect: offset query failed for " << file << "\n";
-                had_errors = true;
-            }
         }
 
         for (auto& comp : result.components) {

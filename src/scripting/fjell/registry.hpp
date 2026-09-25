@@ -158,10 +158,11 @@ inline FjellNotifyAutoReg*& fjell_notify_auto_reg_head() {
 // ── Macro helpers ───────────────────────────────────────────────────────
 
 namespace fjell {
-// Grants generated RPC invoke trampolines access to private _impl handlers.
-// The generated code calls FjellRpcAccess<T>::invoke(self, args...), which is a
-// friend of T (declared in FJELL_COMPONENT) so it can reach a private handler.
-template <class T> struct FjellRpcAccess;
+/// What fjreflect generates for a class: the offsets of its reflected fields
+/// and shims to its RPC handlers, specialised per class in the generated code.
+/// Every component macro makes it a friend, so a reflected field or an
+/// `_impl` handler may be private.
+template <class T> struct FjellAccess;
 } // namespace fjell
 
 /// Declares a class as a script component. Place it on the first line of the
@@ -183,7 +184,7 @@ template <class T> struct FjellRpcAccess;
 /// @endcode
 #define FJELL_COMPONENT(T) \
     public: static constexpr const char* type_name = #T; \
-    template <class _FjAccessT> friend struct ::fjell::FjellRpcAccess; \
+    template <class _FjAccessT> friend struct ::fjell::FjellAccess; \
     private: \
     static inline FjellAutoReg _fjell_reg_{ \
         [](FjellTypeRegistry* r) { fjell::register_component<T>(r); }, \
@@ -211,6 +212,7 @@ template <class T> struct FjellRpcAccess;
 #define FJELL_NOTIFY(T) \
     public: static constexpr const char* type_name = #T; \
     [[nodiscard]] const char* notify_type_name() const override { return #T; } \
+    template <class _FjAccessT> friend struct ::fjell::FjellAccess; \
     private: \
     static inline FjellNotifyAutoReg _fjell_notify_reg_{ \
         [](FjellTypeRegistry* r) { fjell::register_notify<T>(r); }, \
