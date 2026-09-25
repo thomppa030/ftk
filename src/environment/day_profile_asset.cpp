@@ -1,7 +1,7 @@
 #include "environment/day_profile_asset.hpp"
 
 #include "environment/environment_state.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -50,19 +50,20 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     tracks.apply(EXPOSURE_BIAS, hour, state.exposure_bias);
     tracks.apply(STAR_INTENSITY, hour, state.star_intensity);
 
-    // Fog tracks name a uniform of the haze's material or of a group's
-    // volumes: `fog.density` thickens the haze, `fog.valley.noise_contrast`
-    // breaks the valley's banks into wisps. The hour gives a mist its shape;
-    // a weather event scales what the hour decided, later and on top.
+    // Material tracks name a uniform of a fog or post volume's material:
+    // `fog.density` thickens the haze, `fog.valley.noise_contrast` breaks the
+    // valley's banks into wisps, `post.saturation` drains the colour at dusk.
+    // The hour gives a mist its shape; a weather event scales what the hour
+    // decided, later and on top.
     for (const auto& track : tracks.tracks) {
-        const auto target = fog_track::parse(track.name);
+        const auto target = material_track::parse(track.name);
         if (!target) continue;
         if (track.kind == TrackKind::Color) {
             if (const auto c = tracks.color_of(track.name, hour)) {
-                fog_track::apply(state, *target, track.mode, *c);
+                material_track::apply(state, *target, track.mode, *c);
             }
         } else if (const auto v = tracks.value_of(track.name, hour)) {
-            fog_track::apply(state, *target, track.mode, *v);
+            material_track::apply(state, *target, track.mode, *v);
         }
     }
 
@@ -70,7 +71,7 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     // profile or a node override applied before this, is replaced: the
     // profile is the animated source and wins over a static override.
     for (const auto& track : tracks.tracks) {
-        if (is_builtin(track.name) || fog_track::parse(track.name)) continue;
+        if (is_builtin(track.name) || material_track::parse(track.name)) continue;
         NamedValue value;
         value.name = track.name;
         if (track.kind == TrackKind::Color) {

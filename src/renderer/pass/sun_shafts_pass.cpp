@@ -11,7 +11,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "environment/environment_state.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 #include "renderer/pass/water_pass.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
@@ -333,7 +333,7 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
     threshold_ = shafts.threshold;
     // The march reads one scalar density: the fog material's `density`
     // uniform where its shader declares one, else nothing to march through.
-    fog_density_ = ctx.environment->fog.scalar(fog_track::DENSITY_UNIFORM, 0.0F);
+    fog_density_ = ctx.environment->fog.scalar(material_track::FOG_DENSITY_UNIFORM, 0.0F);
 
     // Each water medium's density, read the way the haze's is: a medium
     // whose shader declares none has nothing for the sun to scatter from.
@@ -342,7 +342,7 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
         WaterMarch march;
         bool has_density = false;
         for (const NamedValue& value : water.uniforms) {
-            if (value.name == fog_track::DENSITY_UNIFORM) {
+            if (value.name == material_track::FOG_DENSITY_UNIFORM) {
                 march.density = value.values[0];
                 has_density = true;
             } else if (value.name == "scattering") {

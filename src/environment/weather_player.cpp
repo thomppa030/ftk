@@ -1,7 +1,7 @@
 #include "environment/weather_player.hpp"
 
 #include "environment/environment_state.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -205,20 +205,20 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         over(PRECIPITATION, w.precipitation);
         over(WIND_SPEED, w.wind_speed);
         over(LIGHTNING_RATE, w.lightning_rate);
-        // Fog tracks name a uniform of the haze's material or of a group's
-        // volumes, on top of whatever the hour's day profile already made of
-        // them: a storm at dawn is thicker than a clear dawn. They ride the
+        // Material tracks name a uniform of a fog or post volume's material,
+        // on top of whatever the hour's day profile already made of them: a
+        // storm at dawn is thicker than a clear dawn. They ride the
         // same weight as every other track, so an event fading out relaxes
         // its hold rather than dropping it.
         for (const auto& track : t.tracks) {
-            const auto target = fog_track::parse(track.name);
+            const auto target = material_track::parse(track.name);
             if (!target) continue;
             if (track.kind == TrackKind::Color) {
                 if (auto c = t.color_of(track.name, x)) {
-                    fog_track::apply(state, *target, track.mode, *c, wt);
+                    material_track::apply(state, *target, track.mode, *c, wt);
                 }
             } else if (auto v = t.value_of(track.name, x)) {
-                fog_track::apply(state, *target, track.mode, *v, wt);
+                material_track::apply(state, *target, track.mode, *v, wt);
             }
         }
         over(SUN_INTENSITY, state.sun.intensity);
@@ -233,7 +233,7 @@ void WeatherPlayer::composite(EnvironmentState& state, float dt, const WeatherRa
         // Anything else is the event's own value: a sky uniform, a gameplay
         // number, read by name.
         for (const auto& track : t.tracks) {
-            if (is_builtin(track.name) || fog_track::parse(track.name)) continue;
+            if (is_builtin(track.name) || material_track::parse(track.name)) continue;
             NamedValue value;
             value.name = track.name;
             if (track.kind == TrackKind::Color) {

@@ -2,7 +2,7 @@
 #include "environment/color_gradient.hpp"
 #include "environment/day_profile_asset.hpp"
 #include "environment/environment_state.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 #include "environment/track_set.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -139,9 +139,11 @@ TEST_CASE("A day profile folds into the environment and leaves the rest alone", 
 }
 
 TEST_CASE("A fog track names a uniform of the haze or of a group", "[tracks][fog]") {
-    using fog_track::parse;
+    using material_track::parse;
+    using material_track::Kind;
     auto t = parse("fog.density");
     REQUIRE(t);
+    REQUIRE(t->kind == Kind::Fog);
     REQUIRE(t->group.empty());
     REQUIRE(t->uniform == "density");
     t = parse("fog.valley.noise_contrast");
@@ -165,8 +167,64 @@ TEST_CASE("A fog track names a uniform of the haze or of a group", "[tracks][fog
     REQUIRE_FALSE(parse("fog."));
     REQUIRE_FALSE(parse("fog..x"));
     REQUIRE_FALSE(parse("foggy.density"));
-    REQUIRE(fog_track::name_for("", "density") == "fog.density");
-    REQUIRE(fog_track::name_for("valley", "color") == "fog.valley.color");
+    REQUIRE(material_track::name_for(Kind::Fog, "", "density") == "fog.density");
+    REQUIRE(material_track::name_for(Kind::Fog, "valley", "color") == "fog.valley.color");
+}
+
+TEST_CASE("A post track names a uniform of the infinite volumes or of a group", "[tracks][post]") {
+    using material_track::parse;
+    using material_track::Kind;
+    auto t = parse("post.saturation");
+    REQUIRE(t);
+    REQUIRE(t->kind == Kind::Post);
+    REQUIRE(t->group.empty());
+    REQUIRE(t->uniform == "saturation");
+    t = parse("post.interior.grade_amount");
+    REQUIRE(t);
+    REQUIRE(t->kind == Kind::Post);
+    REQUIRE(t->group == "interior");
+    REQUIRE(t->uniform == "grade_amount");
+    REQUIRE_FALSE(parse("post"));
+    REQUIRE_FALSE(parse("post."));
+    REQUIRE_FALSE(parse("postal.x"));
+    REQUIRE(material_track::name_for(Kind::Post, "", "saturation") == "post.saturation");
+    REQUIRE(material_track::name_for(Kind::Post, "cave", "exposure") == "post.cave.exposure");
+    REQUIRE(material_track::heading(*parse("post.cave.exposure")) == "Post \xc2\xb7 cave");
+    REQUIRE(material_track::heading(*parse("fog.density")) == "Fog");
+}
+
+TEST_CASE("A post track moves the base look, or only its own group", "[tracks][post]") {
+    DayProfileAsset profile;
+    profile.tracks.add("post.saturation", TrackKind::Float, TrackMode::Override)
+        .curve.keyframes = {{0.5f, 0.25f, 0.0f, 0.0f}};
+    profile.tracks.add("post.interior.bloom_intensity", TrackKind::Float, TrackMode::Multiply)
+        .curve.keyframes = {{0.5f, 2.0f, 0.0f, 0.0f}};
+
+    auto volume = [](bool infinite, const char* group) {
+        return PostVolume{.infinite = infinite,
+                          .group = group,
+                          .uniforms = {NamedValue{.name = "saturation", .count = 1, .values = {1.0f}},
+                                       NamedValue{.name = "bloom_intensity", .count = 1,
+                                                  .values = {0.3f}}}};
+    };
+    EnvironmentState state;
+    state.post_volumes.push_back(volume(true, ""));          // the base look
+    state.post_volumes.push_back(volume(false, ""));         // a room, ungrouped
+    state.post_volumes.push_back(volume(false, "interior")); // a room in the group
+    profile.apply(12.0f, state);
+
+    auto value = [&](size_t i, const char* name) {
+        return find_named(state.post_volumes[i].uniforms, name)->values[0];
+    };
+    // The ungrouped track is the base look's alone.
+    REQUIRE(value(0, "saturation") == Approx(0.25f));
+    REQUIRE(value(1, "saturation") == Approx(1.0f));
+    REQUIRE(value(2, "saturation") == Approx(1.0f));
+    // The grouped one reaches its group, bounded or not.
+    REQUIRE(value(0, "bloom_intensity") == Approx(0.3f));
+    REQUIRE(value(2, "bloom_intensity") == Approx(0.6f));
+    // Neither is a sky uniform.
+    REQUIRE(state.sky_uniforms.empty());
 }
 
 TEST_CASE("A fog track drives any uniform the material declares", "[tracks][fog]") {

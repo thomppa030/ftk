@@ -58,7 +58,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/post_layers.cpp
-    ${CMAKE_SOURCE_DIR}/src/environment/fog_track.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment/material_track.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/color_gradient.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/track_set.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/day_profile_asset.cpp

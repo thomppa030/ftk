@@ -6,7 +6,7 @@
 
 #include "core/log.hpp"
 #include "core/math/color_space.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 #include "environment/weather_asset.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
@@ -305,10 +305,10 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
                                                 .values = {jf.value(key, 0.0f)}});
             }
             if (jf.contains("color") && jf["color"].is_array()
-                && find_named(vf->params, fog_track::COLOR_UNIFORM) == nullptr) {
+                && find_named(vf->params, material_track::FOG_COLOR_UNIFORM) == nullptr) {
                 const auto& c = jf["color"];
                 vf->params.push_back(NamedValue{
-                    .name = std::string(fog_track::COLOR_UNIFORM), .count = 3,
+                    .name = std::string(material_track::FOG_COLOR_UNIFORM), .count = 3,
                     .values = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()},
                     .srgb = true});
             }
@@ -355,10 +355,10 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
                                                 .values = {jv[key].get<float>()}});
             }
             if (jv.contains("color") && jv["color"].is_array()
-                && find_named(fv->params, fog_track::COLOR_UNIFORM) == nullptr) {
+                && find_named(fv->params, material_track::FOG_COLOR_UNIFORM) == nullptr) {
                 const auto& c = jv["color"];
                 fv->params.push_back(NamedValue{
-                    .name = std::string(fog_track::COLOR_UNIFORM), .count = 3,
+                    .name = std::string(material_track::FOG_COLOR_UNIFORM), .count = 3,
                     .values = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()},
                     .srgb = true});
             }

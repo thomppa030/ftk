@@ -177,8 +177,8 @@ struct FogVolume {
 };
 
 /// How a day profile and a weather event reach the fog, haze and volumes
-/// alike, is `environment/fog_track.hpp`: a track names a uniform of the
-/// node's material.
+/// alike, and the post process volumes, is `environment/material_track.hpp`:
+/// a track names a uniform of the node's material.
 
 /// The body of one body of water, as a source of fog: a WaterComponent that
 /// names a medium material. The fog pass draws it into every froxel that lies

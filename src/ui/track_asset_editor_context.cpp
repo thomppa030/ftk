@@ -2,7 +2,7 @@
 
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
-#include "environment/fog_track.hpp"
+#include "environment/material_track.hpp"
 #include "core/string_utils.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/kit/feedback.hpp"
@@ -18,14 +18,14 @@ TrackAssetEditorContext::TrackAssetEditorContext(TrackAssetEditorDeps deps,
     : deps_{deps}, presets_{std::move(presets)} {
     lanes_.set_note([this](std::string_view name) -> std::string {
         if (deps_.scene == nullptr || deps_.vulkan_context == nullptr) return {};
-        return fog_track::problem(name, *deps_.scene, deps_.vulkan_context->pipeline_cache());
+        return material_track::problem(name, *deps_.scene, deps_.vulkan_context->pipeline_cache());
     });
-    // A fog track is listed under the fog it reaches by the uniform it
-    // drives; the asset's own under their preset's group; anything else is
-    // custom.
+    // A material track is listed under the fog or post volumes it reaches,
+    // by the uniform it drives; the asset's own under their preset's group;
+    // anything else is custom.
     lanes_.set_placement([this](std::string_view name) -> TrackLanes::Placement {
-        if (auto fog = fog_track::parse(name)) {
-            return {fog->group.empty() ? std::string("Fog") : "Fog \xc2\xb7 " + fog->group, display_name(fog->uniform)};
+        if (auto target = material_track::parse(name)) {
+            return {material_track::heading(*target), display_name(target->uniform)};
         }
         for (const auto& preset : presets_) {
             if (preset.name == name) return {preset.group, display_name(preset.name)};
@@ -77,19 +77,15 @@ void TrackAssetEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
 
     if (loaded_) {
-        // The fog tracks on offer are whatever uniforms the scene's fog
-        // materials declare right now, so they follow a material swap or a
-        // shader edit without the editor being reopened.
+        // The material tracks on offer are whatever uniforms the scene's fog
+        // and post materials declare right now, so they follow a material
+        // swap or a shader edit without the editor being reopened.
         auto presets = presets_;
         if (deps_.scene != nullptr && deps_.vulkan_context != nullptr) {
-            for (const auto& fog : fog_track::presets(*deps_.scene, deps_.vulkan_context->pipeline_cache())) {
-                const auto target = fog_track::parse(fog.name);
-                presets.push_back({fog.name,
-                                   target && !target->group.empty() ? "Fog \xc2\xb7 " + target->group : "Fog",
-                                   fog.color ? TrackKind::Color : TrackKind::Float,
-                                   fog.name.ends_with(fog_track::DENSITY_UNIFORM) ? TrackMode::Multiply
-                                                                                  : TrackMode::Override,
-                                   fog.range_min, fog.range_max});
+            for (auto& track : material_track::presets(*deps_.scene, deps_.vulkan_context->pipeline_cache())) {
+                presets.push_back({std::move(track.name), std::move(track.heading),
+                                   track.color ? TrackKind::Color : TrackKind::Float, track.mode,
+                                   track.range_min, track.range_max});
             }
         }
         lanes_.set_presets(std::move(presets));
