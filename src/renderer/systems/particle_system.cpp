@@ -39,6 +39,19 @@ constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 // definition for why the enforcement has to live there.
 constexpr uint32_t MODULE_BUDGET_BYTES = 2048;
 
+namespace {
+
+// Whether an emitter draws into the view being recorded: seen by the last
+// simulation, and of the scene this view renders. Every scene's emitters live
+// in one list, and a thumbnail or a camera preview draws without simulating,
+// so the visibility flags alone would put the open scene's effects into a
+// render of another.
+bool draws_in(const ParticleSystem::EmitterGpu& em, const FrameContext& ctx) {
+    return em.active && em.visible && ctx.scene != nullptr && em.scene_id == ctx.scene->id();
+}
+
+} // namespace
+
 // Sub-emitter events a parent may report per frame; matches the GLSL define.
 constexpr uint32_t MAX_SUB_EVENTS_PER_EMITTER = 256;
 
@@ -1004,7 +1017,7 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
 
     bool has_any = false;
     for (const auto& em : emitters_) {
-        if (em.visible && em.is_distortion) { has_any = true; break; }
+        if (draws_in(em, ctx) && em.is_distortion) { has_any = true; break; }
     }
     if (!has_any) return;
     FJELL_GPU_ZONE(ctx, "Particles: Distortion");
@@ -1036,7 +1049,7 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
     constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
 
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!emitters_[i].visible || !emitters_[i].is_distortion) continue;
+        if (!draws_in(emitters_[i], ctx) || !emitters_[i].is_distortion) continue;
 
         float strength = emitters_[i].distortion_strength;
         vkCmdPushConstants(ctx.cmd, render_distortion_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1893,7 +1906,7 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
 
     std::vector<uint32_t> alpha_indices;
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!emitters_[i].visible) continue;
+        if (!draws_in(emitters_[i], ctx)) continue;
         if (emitters_[i].blend_mode == ParticleBlendMode::opaque) continue;
         if (emitters_[i].is_distortion) continue; // drawn in distortion pass
         if (emitters_[i].blend_mode == ParticleBlendMode::additive) {
@@ -1971,7 +1984,7 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
 
     bool any_mesh = false;
     for (const auto& em : emitters_) {
-        if (em.is_mesh && em.visible) { any_mesh = true; break; }
+        if (em.is_mesh && draws_in(em, ctx)) { any_mesh = true; break; }
     }
 
     if (any_mesh && ctx.mega_buffer) {
@@ -2042,7 +2055,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
     // Check if any opaque emitters exist
     bool any_opaque = false;
     for (const auto& em : emitters_) {
-        if (em.visible && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
+        if (draws_in(em, ctx) && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
     }
     if (!any_opaque) return;
     FJELL_GPU_ZONE(ctx, "Particles: Opaque");
@@ -2069,7 +2082,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
     VkPipelineLayout current_layout = render_opaque_layout_;
 
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!emitters_[i].visible) continue;
+        if (!draws_in(emitters_[i], ctx)) continue;
         if (emitters_[i].blend_mode != ParticleBlendMode::opaque) continue;
 
         bool lit = emitters_[i].is_lit;
