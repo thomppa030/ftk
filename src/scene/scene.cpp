@@ -218,7 +218,21 @@ uint32_t Scene::generation_of(uint32_t id) const {
 }
 
 void Scene::queue_destroy(uint32_t id) {
-    pending_destroy_.push_back(id);
+    // The node and everything under it, each once however many times it is
+    // asked for: a parent and its child can both be destroyed in one frame.
+    const std::size_t first = pending_destroy_.size();
+    if (std::ranges::find(pending_destroy_, id) == pending_destroy_.end()) {
+        pending_destroy_.push_back(id);
+    }
+    for (std::size_t i = first; i < pending_destroy_.size(); ++i) {
+        const auto parent = static_cast<int32_t>(pending_destroy_[i]);
+        for (const auto& obj : objects_) {
+            if (obj->parent_id == parent &&
+                std::ranges::find(pending_destroy_, obj->id) == pending_destroy_.end()) {
+                pending_destroy_.push_back(obj->id);
+            }
+        }
+    }
 }
 
 void Scene::flush_destroyed() {

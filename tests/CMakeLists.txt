@@ -215,6 +215,7 @@ add_executable(fjell-tests
     test_fixed_timestep.cpp
     test_fixed_step_blend.cpp
     test_timer_manager.cpp
+    test_scene_lifecycle.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_wake.cpp

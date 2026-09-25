@@ -147,6 +147,7 @@ public:
     [[nodiscard]] uint32_t generation_of(uint32_t id) const;
 
     // Deferred destruction for safe mid-tick removal
+    /// Destroy the node, and every node under it, at the next flush.
     void queue_destroy(uint32_t id);
     void flush_destroyed();
     [[nodiscard]] std::span<const uint32_t> pending_destroy() const { return pending_destroy_; }
