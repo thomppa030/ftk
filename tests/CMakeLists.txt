@@ -1,17 +1,4 @@
-# --- Testable engine subset (no Vulkan, no GLFW, no ImGui) ---
-# Dear ImGui's core without backends, so editor UI code runs headless in
-# tests (imgui_harness.hpp). The engine compiles the same sources together
-# with its GLFW and Vulkan backends.
-add_library(fjell-imgui-headless STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-)
-target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
-
+# --- Testable engine subset (no Vulkan, no GLFW, no ImGui backends) ---
 add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp

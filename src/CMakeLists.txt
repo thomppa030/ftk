@@ -20,6 +20,38 @@ target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(fjell-platform PRIVATE spdlog::spdlog ${CMAKE_DL_LIBS})
 fjell_target_defaults(fjell-platform)
 
+# --- Dear ImGui ---
+# Built once for everything that draws with it. fjell-imgui-headless is the
+# core without a platform or renderer backend, which is what the unit tests
+# run editor UI on (tests/imgui_harness.hpp); fjell-imgui adds the GLFW and
+# Vulkan backends for a window that presents. Warnings are off: the code is
+# third-party, and the stack layout patch leaves unused parameters that only
+# surface once the optimiser runs.
+add_library(fjell-imgui-headless STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
+)
+target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+
+add_library(fjell-imgui STATIC
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(fjell-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless Vulkan::Vulkan PRIVATE glfw)
+
+foreach(imgui_target fjell-imgui-headless fjell-imgui)
+    if(MSVC)
+        target_compile_options(${imgui_target} PRIVATE /w)
+    else()
+        target_compile_options(${imgui_target} PRIVATE -w)
+    endif()
+endforeach()
+
 # --- Main engine ---
 add_executable(fjell
     main.cpp
@@ -424,16 +456,6 @@ add_executable(fjell
     ui/game_ui/font_sample.cpp
     ui/game_ui/text_shaper.cpp
 
-    # ImGui sources
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-
     # ImGuizmo
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
@@ -445,8 +467,6 @@ target_include_directories(fjell PRIVATE
 )
 
 target_include_directories(fjell SYSTEM PRIVATE
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
     ${miniaudio_SOURCE_DIR}
 )
@@ -458,6 +478,7 @@ add_dependencies(fjell fjell-fixed-tick-check)
 
 target_link_libraries(fjell PRIVATE
     fjell-platform
+    fjell-imgui
     fastgltf::fastgltf
     glfw
     glm::glm
@@ -528,32 +549,6 @@ if(MSVC)
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
 else()
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
-endif()
-
-# imgui — third-party, and the stack layout patch leaves unused parameters that
-# only surface once the optimiser runs, so debug builds never saw them.
-if(MSVC)
-    set_source_files_properties(
-        ${imgui_SOURCE_DIR}/imgui.cpp
-        ${imgui_SOURCE_DIR}/imgui_demo.cpp
-        ${imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-        PROPERTIES COMPILE_FLAGS "/w")
-else()
-    set_source_files_properties(
-        ${imgui_SOURCE_DIR}/imgui.cpp
-        ${imgui_SOURCE_DIR}/imgui_demo.cpp
-        ${imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-        PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # Treat fastgltf headers as system headers to suppress warnings from them
@@ -664,14 +659,6 @@ add_executable(fjell-hub
     renderer/gpu/buffer.cpp
     ui/imgui_layer.cpp
     ui/editor_view_settings.cpp
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
@@ -680,8 +667,6 @@ target_include_directories(fjell-hub PRIVATE
     ${stb_SOURCE_DIR}
 )
 target_include_directories(fjell-hub SYSTEM PRIVATE
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
 )
 # The hub draws its ImGui through the same sRGB-decoding fragment stage.
@@ -689,6 +674,7 @@ add_dependencies(fjell-hub fjell_shaders)
 
 target_link_libraries(fjell-hub PRIVATE
     fjell-platform
+    fjell-imgui
     glfw
     glm::glm
     GPUOpen::VulkanMemoryAllocator
