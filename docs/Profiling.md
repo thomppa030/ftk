@@ -28,7 +28,12 @@ python3 tools/fjtrace/fjtrace.py tools
 ```
 
 They land in `build-tracy/tracy-tools/` and `fjtrace` finds them there before
-looking on `PATH`.
+looking on `PATH`. They are built from a copy of that source with the changes
+in `TRACY_PATCHES` (`fjtrace.py`) applied. One is needed today: Tracy's slab
+allocator leaves the arrays a trace is loaded into unaligned, and the tools,
+built with `-march=native`, crashed loading some traces (exit 139 from
+`tracy-csvexport`, on the same trace every time). A newer Tracy that moves the
+patched code stops `fjtrace tools` with a message rather than dropping the fix.
 
 ## Capture
 

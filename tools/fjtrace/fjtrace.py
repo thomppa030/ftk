@@ -104,6 +104,68 @@ def find_tool(name: str, explicit: str | None, build_dir: Path) -> Path:
              f"to build it from the Tracy source the engine uses, or pass --{short}.")
 
 
+# Changes made to the Tracy source before the tools are built from it. Each is
+# (file, text Tracy has, text to put instead). Text that is not found stops the
+# build: a newer Tracy has moved the code, and the change has to be looked at
+# again rather than silently dropped.
+TRACY_PATCHES = [
+    # Slab::AllocBig hands out memory wherever the last allocation ended, so the
+    # arrays a trace is loaded into can start at any byte. Tracy builds the tools
+    # with -march=native, and the compiler vectorises loops over those arrays
+    # with aligned loads: loading a trace whose inline-symbol array happens to
+    # start off an 8-byte boundary faults inside the sort that follows
+    # (TracyWorker.cpp, symbolLocInline). Rounding the offset up gives every
+    # AllocBig block the alignment operator new would. Unalloc() only ever
+    # undoes an AllocRaw, so the padding never has to be taken back.
+    ("server/TracySlab.hpp",
+     "    tracy_force_inline void* AllocBig( size_t size )\n"
+     "    {\n"
+     "        const auto offset = m_offset;\n"
+     "        if( offset + size <= BlockSize )\n"
+     "        {\n"
+     "            void* ret = m_ptr + offset;\n"
+     "            m_offset += size;\n",
+     "    tracy_force_inline void* AllocBig( size_t size )\n"
+     "    {\n"
+     "        constexpr size_t align = __STDCPP_DEFAULT_NEW_ALIGNMENT__;\n"
+     "        const auto offset = ( m_offset + align - 1 ) & ~( align - 1 );\n"
+     "        if( offset + size <= BlockSize )\n"
+     "        {\n"
+     "            void* ret = m_ptr + offset;\n"
+     "            m_offset = offset + size;\n"),
+]
+
+
+def patched_tracy_source(src: Path, dest: Path) -> Path:
+    """Copy the engine's Tracy source to `dest` with TRACY_PATCHES applied.
+
+    The tools are built from this copy, so the source the engine was built
+    from stays exactly as it was fetched.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(".git"))
+    for rel, old, new in TRACY_PATCHES:
+        path = dest / rel
+        text = path.read_text()
+        if old not in text:
+            sys.exit(f"fjtrace: {rel} no longer holds the code fjtrace patches; "
+                     f"this Tracy version needs TRACY_PATCHES looked at again")
+        path.write_text(text.replace(old, new, 1))
+    return dest
+
+
+def configured_source(build: Path) -> Path | None:
+    """The source directory a CMake build directory was configured from."""
+    cache = build / "CMakeCache.txt"
+    if not cache.is_file():
+        return None
+    for line in cache.read_text(errors="replace").splitlines():
+        if line.startswith("CMAKE_HOME_DIRECTORY:"):
+            return Path(line.split("=", 1)[1]).resolve()
+    return None
+
+
 def cmd_tools(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     src = tracy_source_dir(build_dir)
@@ -111,10 +173,13 @@ def cmd_tools(args: argparse.Namespace) -> None:
         sys.exit(f"fjtrace: no Tracy source under {build_dir}/_deps; configure the "
                  f"tracy preset first (cmake --preset tracy).")
     out_root = build_dir / "tracy-tools"
+    patched = patched_tracy_source(src, out_root / "source")
     for tool in ("capture", "csvexport"):
         out = out_root / tool
+        if configured_source(out) not in (None, (patched / tool).resolve()):
+            shutil.rmtree(out)  # configured from another source; CMake would refuse it
         print(f"[fjtrace] building tracy-{tool} -> {out}")
-        subprocess.run(["cmake", "-S", str(src / tool), "-B", str(out),
+        subprocess.run(["cmake", "-S", str(patched / tool), "-B", str(out),
                         "-DCMAKE_BUILD_TYPE=Release"], check=True)
         subprocess.run(["cmake", "--build", str(out), "--parallel"], check=True)
     version = tracy_client_version(build_dir)
