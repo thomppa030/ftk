@@ -74,6 +74,7 @@ struct FjellGeneratedInfo {
     const FjellRpcDesc* rpcs;   // null if the component has no [[fj::rpc]] methods
     uint32_t rpc_count;
     int32_t tick_order;         // [[fj::tick(order = n)]]: lower runs earlier, 0 when unsaid
+    float tick_interval;        // [[fj::tick(interval = s)]]: seconds between tick()s, 0 for every frame
 };
 
 // ── Opaque registry handle (engine-side) ────────────────────────────────

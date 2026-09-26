@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -708,7 +709,7 @@ std::string register_file(const std::vector<ComponentInfo>& components, const st
                 << trace(*comp) << ", ";
             if (comp->rpcs.empty()) out << "nullptr, 0";
             else out << "fjreflect_" << n << "_rpcs, " << comp->rpcs.size();
-            out << ", " << comp->tick_order << "},\n";
+            out << ", " << comp->tick_order << ", " << std::format("{:.6f}f", comp->tick_interval) << "},\n";
         }
         out << "};\n";
     }

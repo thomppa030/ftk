@@ -27,11 +27,13 @@ extern "C" void fjell_input_clear_connections();
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <ctime>
 #include <filesystem>
 #include <span>
+#include <utility>
 
 // ── Type registry (engine-side, filled by game .so) ─────────────────────
 
@@ -168,6 +170,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
         owned.rpcs = gen->rpcs;
         owned.rpc_count = gen->rpc_count;
         owned.tick_order = gen->tick_order;
+        owned.tick_interval = gen->tick_interval;
     }
     reg->scripts.push_back(std::move(owned));
 }
@@ -761,9 +764,21 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     // invalidate this loop's iterator over objects_.
     Scene::TickLock tick_lock(scene);
     const auto owned_before = owned_states(scene);
-    run_polled(scene, FJELL_POLLS_TICK, "tick", [&](ScriptComponent& script, const OwnedScriptType&) {
+    run_polled(scene, FJELL_POLLS_TICK, "tick", [&](ScriptComponent& script, const OwnedScriptType& type) {
         script.world_ = &world_;
-        script.tick(dt);
+        if (type.tick_interval <= 0.0f) {
+            script.tick(dt);
+            return;
+        }
+        // The type ticks at an interval: the instance counts down to its next
+        // tick, which gets all the time since its last.
+        script.tick_since_last_ += dt;
+        script.tick_due_in_ -= dt;
+        if (script.tick_due_in_ > 0.0f) return;
+        script.tick_due_in_ += type.tick_interval;
+        // A frame longer than the interval does not queue ticks up behind it.
+        if (script.tick_due_in_ <= 0.0f) script.tick_due_in_ = type.tick_interval;
+        script.tick(std::exchange(script.tick_since_last_, 0.0f));
     });
     report_foreign_writes(scene, owned_before, "tick");
 
@@ -821,6 +836,16 @@ void ScriptManager::start_script(Node& node, std::size_t index) {
     // Marked before it runs: a begin_play that reaches back into this node
     // must not start the script a second time.
     entry.started = true;
+    // A type that ticks at an interval spreads its scripts across it, so they
+    // do not all tick on one frame: the n-th to start this session first
+    // waits the fraction n·φ (mod 1) of the interval, which lays any number of
+    // them out evenly and depends only on the order they started in.
+    if (const auto* type = find_script_type(entry.type_name); type && type->tick_interval > 0.0f) {
+        const uint32_t n = interval_starts_[type->component.id]++;
+        const double fraction = std::fmod(n * 0.6180339887498949, 1.0);
+        entry.instance->tick_since_last_ = 0.0f;
+        entry.instance->tick_due_in_ = static_cast<float>(fraction) * type->tick_interval;
+    }
     run_hook_on(node, index, "begin_play", [this](ScriptComponent& script) {
         script.world_ = &world_;
         script.begin_play();

@@ -60,6 +60,9 @@ public:
     /// and follow things on screen in `late_tick()`.
     /// @param dt Seconds since the previous frame, already scaled by
     ///           `Time::set_scale()`. Zero while `Time::pause()` is active.
+    ///           For a type with `[[fj::tick(interval = s)]]`, called about
+    ///           every `s` seconds instead, with the game time since its last
+    ///           tick.
     virtual void tick(float dt) { (void)dt; }
 
     /// Called once per fixed step of the simulation while play is running,
@@ -163,9 +166,9 @@ public:
     /// bindings stay remappable.
     [[nodiscard]] const Input& input() const { return world_->input(); }
 
-    /// Seconds since the previous frame — the same value passed to `tick()`.
-    /// Inside `fixed_tick()` it is the step's length. Useful from handlers
-    /// that don't receive it as an argument.
+    /// Seconds since the previous frame — the value `tick()` gets unless its
+    /// type ticks at an interval. Inside `fixed_tick()` it is the step's
+    /// length. Useful from handlers that don't receive it as an argument.
     [[nodiscard]] float delta_time() const { return world_->delta_time; }
 
     /// Seconds since play started, scaled by `Time::set_scale()` and frozen
@@ -183,7 +186,8 @@ public:
     /// an event still reaches a script that does not tick — delegates, input
     /// actions, timers, collision and trigger callbacks, weather, time and
     /// peer events, RPCs and UI actions — so a script can sleep until
-    /// something happens to it.
+    /// something happens to it. Time spent not ticking does not count towards
+    /// the dt of a type that ticks at an interval.
     /// @code
     /// void Door::begin_play() { set_tick_enabled(false); }
     /// void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }  // tick while it opens
@@ -199,6 +203,10 @@ private:
     uint32_t id_{0};
     const char* name_{""};
     bool tick_enabled_{true};
+    // For a type that ticks at an interval: game time since its last tick(),
+    // and until the next one is due.
+    float tick_since_last_{0.0f};
+    float tick_due_in_{0.0f};
 };
 
 using Component = ScriptComponent;

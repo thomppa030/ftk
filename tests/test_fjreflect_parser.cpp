@@ -429,14 +429,21 @@ class Plain : public fjell::ScriptComponent {
   FJELL_COMPONENT(Plain)
   [[fj::property]] int hp = 1;
 };
+class [[fj::tick(interval = 0.25, order = 3)]] Sleeper : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Sleeper)
+};
 )");
     REQUIRE(result.errors.empty());
     REQUIRE(find_component(result, "Follower") != nullptr);
     CHECK(find_component(result, "Follower")->tick_order == 10);
+    CHECK(find_component(result, "Follower")->tick_interval == 0.0f);
     REQUIRE(find_component(result, "Leader") != nullptr);
     CHECK(find_component(result, "Leader")->tick_order == -5);
     CHECK(find_component(result, "Plain")->tick_order == 0);
     CHECK_FALSE(find_component(result, "Plain")->has_tick);
+    REQUIRE(find_component(result, "Sleeper") != nullptr);
+    CHECK(find_component(result, "Sleeper")->tick_interval == 0.25f);
+    CHECK(find_component(result, "Sleeper")->tick_order == 3);
 }
 
 TEST_CASE("fj::tick is reported where it cannot be read or does not belong", "[fjreflect]") {
@@ -446,6 +453,9 @@ class [[fj::tick(speed = 2)]] A : public fjell::ScriptComponent { FJELL_COMPONEN
     CHECK(has_error(parse_header("tick_whole.hpp", R"(
 class [[fj::tick(order = 1.5)]] B : public fjell::ScriptComponent { FJELL_COMPONENT(B) };
 )"), "order is a whole number"));
+    CHECK(has_error(parse_header("tick_interval.hpp", R"(
+class [[fj::tick(interval = 0)]] G : public fjell::ScriptComponent { FJELL_COMPONENT(G) };
+)"), "interval is a number of seconds above 0"));
     CHECK(has_error(parse_header("tick_bare.hpp", R"(
 class [[fj::tick]] C : public fjell::ScriptComponent { FJELL_COMPONENT(C) };
 )"), "takes keys"));

@@ -140,9 +140,11 @@ struct ComponentInfo {
     bool is_notify{false};
 
     // How a script component ticks ([[fj::tick(...)]] on the class): its place
-    // among the types, lower running earlier.
+    // among the types, lower running earlier, and the seconds between its
+    // tick() calls, 0 for every frame.
     bool has_tick{false};
     int tick_order{0};
+    float tick_interval{0.0f};
 };
 
 struct ParseResult {

@@ -152,16 +152,28 @@ class [[fj::tick(order = -10)]] InputRouter : public fjell::ScriptComponent {
 };
 ```
 
-**How often a script ticks.** A script can stop ticking altogether with
-`set_tick_enabled(false)`: no `tick()`, `fixed_tick()` or `late_tick()` until
-it turns ticking back on. Everything that arrives as an event still reaches
-it — delegates, input actions, timers, collision and trigger callbacks,
-weather, time and peer events, RPCs and UI actions — so a door can sleep until
-something enters it and tick only while it opens. Each of the three is called
-only on types that override it, so a type that overrides none costs nothing
-per frame.
+**How often a script ticks.** `[[fj::tick(interval = s)]]` calls a type's
+`tick()` about every `s` seconds instead of every frame, and hands it the game
+time since its last tick, so `position += velocity * dt` still covers the
+distance. The scripts of one type are spread across the interval rather than
+ticking on the same frame. `fixed_tick()` still runs every step and
+`late_tick()` every frame; an interval is for work that does not need either.
+Both keys go in one attribute: `[[fj::tick(order = 5, interval = 0.5)]]`.
+
+A script can stop ticking altogether with `set_tick_enabled(false)`: no
+`tick()`, `fixed_tick()` or `late_tick()` until it turns ticking back on.
+Everything that arrives as an event still reaches it — delegates, input
+actions, timers, collision and trigger callbacks, weather, time and peer
+events, RPCs and UI actions — so a door can sleep until something enters it and
+tick only while it opens. Each of the three is called only on types that
+override it, so a type that overrides none costs nothing per frame.
 
 ```cpp
+class [[fj::tick(interval = 0.5)]] Scanner : public fjell::ScriptComponent {
+    FJELL_COMPONENT(Scanner)
+    void tick(float dt) override;   // about twice a second, dt ≈ 0.5
+};
+
 void Door::begin_play() { set_tick_enabled(false); }
 void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }
 ```

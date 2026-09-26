@@ -1284,7 +1284,8 @@ private:
     }
 
     /// The keys of [[fj::tick(...)]] on a script component: `order = n`, a
-    /// whole number, lower running earlier. An error on anything else.
+    /// whole number, lower running earlier, and `interval = s`, the seconds
+    /// between tick() calls, above 0. An error on anything else.
     void apply_tick(ComponentInfo& comp, const Attribute& a) {
         const std::string what = "[[fj::tick]] on '" + comp.class_name + "'";
         if (!a.has_args) {
@@ -1305,8 +1306,15 @@ private:
                     return;
                 }
                 comp.tick_order = static_cast<int>(order);
+            } else if (key == "interval") {
+                float interval = 0.0f;
+                if (!read_number(value, interval) || !(interval > 0.0f)) {
+                    error(a.line, what + ": interval is a number of seconds above 0");
+                    return;
+                }
+                comp.tick_interval = interval;
             } else {
-                error(a.line, what + " has no key '" + key + "'; it takes: order");
+                error(a.line, what + " has no key '" + key + "'; it takes: order, interval");
                 return;
             }
         }

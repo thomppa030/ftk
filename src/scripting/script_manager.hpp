@@ -58,6 +58,9 @@ struct OwnedScriptType {
     // [[fj::tick(order = n)]]: where the type's scripts run among the others,
     // lower earlier; types of equal order go by name.
     int32_t tick_order{0};
+    // [[fj::tick(interval = s)]]: seconds between an instance's tick()s, 0
+    // for every frame.
+    float tick_interval{0.0f};
     // FjellPolledHook bits: which of tick, fixed_tick and late_tick the type
     // overrides. It is walked only for those.
     uint32_t polls{0};
@@ -166,10 +169,11 @@ public:
     /// the new ones.
     void set_playing(bool playing) {
         playing_ = playing;
-        // Each session reports afresh.
+        // Each session reports afresh, and spreads its interval ticks afresh.
         if (playing) {
             reported_writes_.clear();
             blamed_writes_.clear();
+            interval_starts_.clear();
         }
     }
     [[nodiscard]] bool playing() const { return playing_; }
@@ -312,6 +316,9 @@ private:
     // Each script type name's pool id, kept across reloads so a type keeps its
     // id for the whole session.
     std::unordered_map<std::string, ComponentTypeId> pool_ids_;
+    // How many scripts of each type that ticks at an interval have started
+    // this session; the next one's place in the spread (see start_script).
+    std::unordered_map<ComponentTypeId, uint32_t> interval_starts_;
     std::vector<OwnedUiComponentType> ui_type_list_;
 
     World world_{};
