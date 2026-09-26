@@ -931,9 +931,8 @@ void ParticleSystem::sync_scene(Scene& scene, ResourceManager* resources, const 
 
     // Lazy-resolve mesh particle materials that weren't resolved on load
     if (resources) {
-        for (const auto& obj : scene.objects()) {
-            auto* ec = obj->components.get<EmitterComponent>();
-            if (!ec || !ec->effect) continue;
+        for (auto [obj, ec] : scene.view<EmitterComponent>()) {
+            if (!ec->effect) continue;
             for (auto& sub : ec->effect->emitters) {
                 for (auto& rm : sub.render_modules) {
                     if (rm->type() != ModuleType::mesh_particle) continue;
@@ -1113,9 +1112,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     };
     const uint64_t scene_id = scene.id();
     std::vector<EmitterKey> scene_emitters;
-    for (const auto& obj : scene.objects()) {
-        auto* ec = obj->components.get<EmitterComponent>();
-        if (!ec) continue;
+    for (auto [obj, ec] : scene.view<EmitterComponent>()) {
         if (!ec->effect) continue;
         for (uint32_t i = 0; i < static_cast<uint32_t>(ec->effect->emitters.size()); ++i) {
             auto& sub = ec->effect->emitters[i];
@@ -2148,9 +2145,8 @@ void ParticleSystem::setup_vfx_watcher(const RenderSubsystemContext& ctx) {
     vfx_changed_ = false;
 
     std::unordered_set<std::string> watched_dirs;
-    for (const auto& obj : ctx.scene->objects()) {
-        auto* ec = obj->components.get<EmitterComponent>();
-        if (!ec || ec->vfx_path.empty()) continue;
+    for (auto [obj, ec] : ctx.scene->view<EmitterComponent>()) {
+        if (ec->vfx_path.empty()) continue;
         auto abs = ctx.project->resolve(ec->vfx_path);
         auto dir = std::filesystem::path(abs).parent_path().string();
         if (watched_dirs.contains(dir)) continue;
@@ -2187,9 +2183,7 @@ void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
     // two nodes sharing one would advance it twice a frame and fire once
     // between them.
     int replaced = 0;
-    for (const auto& obj : ctx.scene->objects()) {
-        auto* ec = obj->components.get<EmitterComponent>();
-        if (!ec) continue;
+    for (auto [obj, ec] : ctx.scene->view<EmitterComponent>()) {
         if (ec->vfx_path != vfx_relative_path_ && ec->vfx_path != vfx_changed_path_) continue;
         try {
             auto effect = load_vfx_effect(vfx_changed_path_);
