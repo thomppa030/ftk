@@ -91,6 +91,7 @@ add_executable(fjell
     ui/water_editor_context.cpp
     ui/weather_editor_context.cpp
     ui/track_asset_editor_context.cpp
+    core/math/curve.cpp
     core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp
@@ -131,7 +132,6 @@ add_executable(fjell
     renderer/components/mesh_component.cpp
     renderer/components/water_component.cpp
     renderer/systems/vfx_asset.cpp
-    renderer/systems/vfx_curve.cpp
     renderer/systems/vfx_module.cpp
     renderer/systems/vfx_emitter.cpp
     renderer/systems/vfx_expression.cpp

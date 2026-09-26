@@ -15,6 +15,7 @@ struct CurveKeyframe {
     float tangent_out{0.0f};  // right handle slope
 };
 
+/// A value keyed over normalized time 0..1, cubic Hermite between keys.
 struct Curve {
     std::vector<CurveKeyframe> keyframes;
 

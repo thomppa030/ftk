@@ -1,8 +1,8 @@
 #pragma once
 
 #include "environment/color_gradient.hpp"
-#include "renderer/systems/vfx_curve.hpp"
 
+#include "core/math/curve.hpp"
 #include "core/named_value.hpp"
 
 #include <glm/glm.hpp>

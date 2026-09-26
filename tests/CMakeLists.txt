@@ -5,6 +5,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/math/curve.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
@@ -71,7 +72,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/environment/climate_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/climate_director.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_scenario.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_curve.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/systems/vfx_expression.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/buoyancy.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp

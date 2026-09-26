@@ -1,4 +1,4 @@
-#include "renderer/systems/vfx_curve.hpp"
+#include "core/math/curve.hpp"
 
 #include <nlohmann/json.hpp>
 

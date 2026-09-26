@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/systems/vfx_curve.hpp"
+#include "core/math/curve.hpp"
 #include "renderer/systems/vfx_pin.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 
