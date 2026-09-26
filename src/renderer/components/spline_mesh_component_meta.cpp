@@ -354,6 +354,7 @@ static const bool registered = [] {
     };
 
     InstanceProviderRegistry::instance().add(
+        component_type_id<SplineMeshComponent>(),
         [rebuild_spline_mesh](Node& node, const Node3D& spatial) -> std::optional<DrawCommand> {
             auto* sm = node.components.get<SplineMeshComponent>();
             if (!sm || !sm->model) return std::nullopt;

@@ -5,6 +5,7 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/render_queue.hpp"
+#include "scene/component_type.hpp"
 #include <glm/glm.hpp>
 
 #include <array>
@@ -18,6 +19,7 @@ namespace fjell {
 class AnimationSystem;
 class GpuContext;
 class Scene;
+struct Node;
 class ShadowPass;
 class ThreadPool;
 struct RenderStats;
@@ -91,6 +93,10 @@ private:
     std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
     // Per-chunk scratch for de-duplicating a mesh's material slots
     std::vector<std::vector<uint32_t>> local_slot_scratch_;
+    // Per-gather scratch: the drawable component types, and the nodes that
+    // carry one.
+    std::vector<ComponentTypeId> drawable_types_;
+    std::vector<Node*> candidates_;
     std::vector<uint32_t> local_total_;
     std::vector<uint32_t> local_culled_;
     std::vector<DrawCommand> empty_transparent_;

@@ -98,6 +98,7 @@ static const bool registered = [] {
     // through the generic instance-provider path. Behavior identical to the
     // previous hardcoded branch in SceneGatherer::gather().
     InstanceProviderRegistry::instance().add(
+        component_type_id<InstancedMeshComponent>(),
         [](Node& node, const Node3D& spatial) -> std::optional<DrawCommand> {
             auto* inst = node.components.get<InstancedMeshComponent>();
             if (!inst || !inst->model || inst->instances.empty()) return std::nullopt;

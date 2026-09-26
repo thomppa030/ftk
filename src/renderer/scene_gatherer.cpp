@@ -44,7 +44,6 @@ void SceneGatherer::gather(const GatherInput& input) {
     for (auto& cmds : shadow_commands_) cmds.clear();
     if (input.scene) {
         render_queue_.clear();
-        render_queue_.reserve(input.scene->objects().size());
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
         // Opaque geometry the camera cannot see still has to be in the GI
@@ -66,8 +65,27 @@ void SceneGatherer::gather(const GatherInput& input) {
                 input.shadow_pass->light_matrices()[c]).without_near_plane();
         }
 
-        const auto& objects = input.scene->objects();
-        auto object_count = static_cast<uint32_t>(objects.size());
+        // The nodes something could draw: those carrying an instance
+        // provider's component, a skeletal mesh or a mesh, each once and
+        // sprites left out. A node with several of them is listed under the
+        // first, which is also the order the loop below tries them in.
+        const auto& providers = InstanceProviderRegistry::instance().providers();
+        drawable_types_.clear();
+        for (const auto& provider : providers) drawable_types_.push_back(provider.component);
+        drawable_types_.push_back(component_type_id<SkeletalMeshComponent>());
+        drawable_types_.push_back(component_type_id<MeshComponent>());
+        candidates_.clear();
+        for (std::size_t k = 0; k < drawable_types_.size(); ++k) {
+            input.scene->each_holder(drawable_types_[k], [&](Node& node) {
+                if (node.components.has<SpriteComponent>()) return;
+                for (std::size_t j = 0; j < k; ++j) {
+                    if (node.components.get_by_id(drawable_types_[j]) != nullptr) return;
+                }
+                candidates_.push_back(&node);
+            });
+        }
+        render_queue_.reserve(candidates_.size());
+        auto object_count = static_cast<uint32_t>(candidates_.size());
 
         uint32_t num_chunks = input.pool->thread_count() + 1;
         local_commands_.resize(num_chunks);
@@ -89,8 +107,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                 auto& cascade_cmds = local_shadow_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
-                    const auto& obj = objects[i];
-                    if (obj->components.has<SpriteComponent>()) continue;
+                    Node* obj = candidates_[i];
                     const auto* spatial = obj->as_spatial();
                     if (!spatial) continue;
 
@@ -102,8 +119,8 @@ void SceneGatherer::gather(const GatherInput& input) {
                     // gets it uniformly.
                     {
                         bool claimed = false;
-                        for (const auto& probe : InstanceProviderRegistry::instance().probes()) {
-                            auto result = probe(*obj, *spatial);
+                        for (const auto& provider : providers) {
+                            auto result = provider.probe(*obj, *spatial);
                             if (!result) continue;
                             DrawCommand dc = std::move(*result);
                             local_total_[chunk_id]++;
