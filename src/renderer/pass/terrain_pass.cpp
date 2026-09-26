@@ -353,9 +353,8 @@ void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // distinct terrain.
     auto& sets = terrain_sets_[ctx.frame_index];
     bool any = false;
-    for (const auto& node : ctx.scene->objects()) {
-        auto* tc = node->components.get<TerrainComponent>();
-        if (tc == nullptr || tc->terrain == nullptr) continue;
+    for (auto [node, tc] : ctx.scene->view<TerrainComponent>()) {
+        if (tc->terrain == nullptr) continue;
         any = true;
         if (!frame_sets_.contains(tc->terrain) && frame_sets_.size() < TERRAINS_PER_FRAME) {
             VkDescriptorSet set = sets[frame_sets_.size()];
@@ -644,9 +643,8 @@ bool TerrainPass::scene_has_terrain(const FrameContext& ctx) {
     if (ctx.scene == nullptr) {
         return false;
     }
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* tc = node->components.get<TerrainComponent>();
-        if (tc != nullptr && tc->terrain != nullptr) {
+    for (auto [node, tc] : ctx.scene->view<TerrainComponent>()) {
+        if (tc->terrain != nullptr) {
             return true;
         }
     }
@@ -670,9 +668,8 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, Variant variant,
 
     VkPipeline bound_pipeline = VK_NULL_HANDLE;
 
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* terrain_comp = node->components.get<TerrainComponent>();
-        if (terrain_comp == nullptr || terrain_comp->terrain == nullptr) {
+    for (auto [node, terrain_comp] : ctx.scene->view<TerrainComponent>()) {
+        if (terrain_comp->terrain == nullptr) {
             continue;
         }
         if (variant == Variant::wireframe && !terrain_comp->show_wireframe) {

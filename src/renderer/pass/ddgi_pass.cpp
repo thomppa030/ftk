@@ -1102,9 +1102,8 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // is the hook that carries the scene.
     if (backend_ == DdgiBackend::ray_traced && accel_manager_ != nullptr &&
         ctx.mega_buffer != nullptr) {
-        for (const auto& obj : ctx.scene->objects()) {
-            auto* tc = obj->components.get<TerrainComponent>();
-            if (tc == nullptr || tc->terrain == nullptr) continue;
+        for (auto [obj, tc] : ctx.scene->view<TerrainComponent>()) {
+            if (tc->terrain == nullptr) continue;
             tc->terrain->upload_ray_mesh(*ctx.mega_buffer);
             if (!tc->terrain->ray_mesh_uploaded()) continue;
             // A sculpt moves the ground the rays trace against. The mesh keeps
@@ -1638,9 +1637,8 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             // Terrain generates its render geometry in a mesh shader, so it has
             // no draw to ride in on and is collected from the scene directly.
             if (ctx.scene != nullptr) {
-                for (const auto& obj : ctx.scene->objects()) {
-                    const auto* tc = obj->components.get<TerrainComponent>();
-                    if (tc == nullptr || tc->terrain == nullptr) continue;
+                for (auto [obj, tc] : ctx.scene->view<TerrainComponent>()) {
+                    if (tc->terrain == nullptr) continue;
                     const auto* blas = accel_manager_->find_blas(tc->terrain);
                     if (blas == nullptr) continue;
 

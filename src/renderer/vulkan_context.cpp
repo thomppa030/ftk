@@ -1689,16 +1689,14 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         ss_gi_pass().set_trace_cell_size(0.0F);
 
         auto gather_sdf = [&](Scene& s) {
-            for (const auto& obj : s.objects()) {
+            // Terrain has no Model, so it is not among the meshes below, but
+            // it is the largest thing in most scenes. Leaving it out sizes the
+            // SDF volume and the DDGI probe grid as though the ground were not
+            // there.
+            for (auto [obj, tc] : s.view<TerrainComponent>()) {
                 auto* spatial = obj->as_spatial();
                 if (!spatial) continue;
-
-                // Terrain has no Model, so it never reaches the mesh branch
-                // below, but it is the largest thing in most scenes. Leaving it
-                // out sizes the SDF volume and the DDGI probe grid as though the
-                // ground were not there.
-                if (auto* tc = obj->components.get<TerrainComponent>();
-                    tc != nullptr && tc->terrain != nullptr) {
+                if (tc->terrain != nullptr) {
                     TerrainAsset& terrain = *tc->terrain;
 
                     // Terrain is ray-traced against a coarser mesh than it is
@@ -1758,9 +1756,12 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                             spatial->world_dirty_, inst);
                     }
                 }
+            }
 
-                auto* mesh_comp = obj->components.get<MeshComponent>();
-                if (!mesh_comp || !mesh_comp->model) continue;
+            for (auto [obj, mesh_comp] : s.view<MeshComponent>()) {
+                auto* spatial = obj->as_spatial();
+                if (!spatial) continue;
+                if (!mesh_comp->model) continue;
 
                 auto* model = mesh_comp->model;
 
