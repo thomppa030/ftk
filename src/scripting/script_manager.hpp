@@ -125,10 +125,21 @@ public:
     /// fails the running test with them.
     [[nodiscard]] std::vector<std::string> take_write_reports();
 
-    /// Add a script to the node. While the game is running it starts at once:
-    /// its begin_play runs before this returns.
-    Result<> add_script(Node3D& obj, const std::string& type_name);
-    void remove_script(Node3D& obj, const std::string& type_name);
+    /// Puts a script of `type_name` on the node at `index` (the end when
+    /// past it), with `fields` as its values. It is made live when the library
+    /// has the type and the node is in a scene; a type the library lacks is
+    /// kept as its fields, as a scene file keeps it. While the game is running
+    /// it starts at once: its begin_play runs before this returns.
+    /// @return The live script, or null when there is none: the type isn't
+    ///         loaded, the node is in no scene, or its begin_play took it off
+    ///         the node again.
+    ScriptComponent* add_script(Node3D& obj, const std::string& type_name,
+                                const nlohmann::json& fields = {},
+                                std::size_t index = SIZE_MAX);
+    /// Takes the node's script of `type_name` off it. One that started in a
+    /// running game gets its end_play first and lets go of what it registered
+    /// with the engine (see release()). Nothing when the node has none.
+    void remove_script(Node& node, const std::string& type_name);
 
     /// Makes `entry`'s live instance from its saved fields, replacing any
     /// it had. An entry whose type isn't in the loaded library keeps its

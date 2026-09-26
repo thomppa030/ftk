@@ -316,9 +316,8 @@ void PropertiesPanel::add_to_node(Node3D& node, const std::string& value, const 
         const std::string type_name = value.substr(SCRIPT.size());
         if (history_) {
             history_->execute(std::make_unique<AddScriptCommand>(*scene_, *scripts_, node.id, type_name));
-        } else if (auto r = scripts_->add_script(node, type_name); !r) {
-            FJELL_CORE_ERROR("{}", r.error());
         } else {
+            (void)scripts_->add_script(node, type_name);
             scene_->mark_structure_changed();
             scene_->mark_dirty();
         }

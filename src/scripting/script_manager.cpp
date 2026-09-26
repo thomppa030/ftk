@@ -468,21 +468,25 @@ const OwnedUiWidgetType* ScriptManager::find_ui_type_by_tag(const std::string& t
 
 // ── Component management ────────────────────────────────────────────────
 
-Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
-    const auto* type = find_script_type(type_name);
-    if (!type || !type->loaded || !type->construct) {
-        return make_error("Unknown or unloaded script type: " + type_name);
-    }
-
+ScriptComponent* ScriptManager::add_script(Node3D& obj, const std::string& type_name,
+                                           const nlohmann::json& fields, std::size_t index) {
     ScriptEntry entry;
-    entry.type_name = type->name;
+    entry.type_name = type_name;
+    entry.serialized = fields;
     instantiate(obj, entry);
-    obj.scripts.push_back(std::move(entry));
+    ScriptComponent* made = entry.instance.get();
+    index = std::min(index, obj.scripts.size());
+    obj.scripts.insert(obj.scripts.begin() + static_cast<std::ptrdiff_t>(index), std::move(entry));
 
     // Added to a running game, it starts now, as it would have with the rest
     // at play start.
-    if (playing_) start_script(obj, obj.scripts.size() - 1);
-    return {};
+    if (made == nullptr || !playing_) return made;
+    start_script(obj, index);
+    // Its begin_play may have added scripts to the node, or taken this one
+    // off; the instance itself never moves.
+    const bool kept = std::ranges::any_of(
+        obj.scripts, [made](const ScriptEntry& e) { return e.instance.get() == made; });
+    return kept ? made : nullptr;
 }
 
 void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
@@ -520,11 +524,22 @@ void ScriptManager::set_fields(ScriptEntry& entry, const nlohmann::json& fields)
     }
 }
 
-void ScriptManager::remove_script(Node3D& obj, const std::string& type_name) {
-    auto it = std::find_if(obj.scripts.begin(), obj.scripts.end(),
-                           [&type_name](const ScriptEntry& c) { return c.type_name == type_name; });
-    if (it == obj.scripts.end()) return;
-    obj.scripts.erase(it);
+void ScriptManager::remove_script(Node& node, const std::string& type_name) {
+    auto entry_of = [&node](auto&& match) {
+        return std::ranges::find_if(node.scripts, match);
+    };
+    auto it = entry_of([&](const ScriptEntry& e) { return e.type_name == type_name; });
+    if (it == node.scripts.end()) return;
+
+    if (ScriptComponent* instance = it->instance.get(); instance != nullptr && playing_ && it->started) {
+        const auto index = static_cast<std::size_t>(it - node.scripts.begin());
+        run_hook_on(node, index, "end_play", [](ScriptComponent& script) { script.end_play(); });
+        release(instance);
+        // The end_play may have added scripts to the node and moved the list.
+        it = entry_of([instance](const ScriptEntry& e) { return e.instance.get() == instance; });
+        if (it == node.scripts.end()) return;
+    }
+    node.scripts.erase(it);
 }
 
 // ── World population ────────────────────────────────────────────────────

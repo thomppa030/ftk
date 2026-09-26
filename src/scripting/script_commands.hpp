@@ -73,7 +73,8 @@ private:
 /// Takes a script off a node. Undo puts it back in the same place with the
 /// fields it had. Only the fields are kept, never the instance: a rebuild
 /// while the command waits in the history unloads the code an instance
-/// would need.
+/// would need. In a running game the script ends as it would with its node,
+/// and one put back starts again (ScriptManager::add_script, remove_script).
 class RemoveScriptCommand : public Command {
 public:
     RemoveScriptCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name)
@@ -85,19 +86,15 @@ public:
         if (entry == nullptr) return;
         fields_ = scripts_.fields_of(*entry);
         index_ = static_cast<std::size_t>(entry - node->scripts.data());
-        node->scripts.erase(node->scripts.begin() + static_cast<std::ptrdiff_t>(index_));
+        scripts_.remove_script(*node, type_name_);
         scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
     void undo() override {
         Node* node = scene_.find(node_id_);
-        if (node == nullptr) return;
-        ScriptEntry entry;
-        entry.type_name = type_name_;
-        entry.serialized = fields_;
-        if (Node3D* spatial = node->as_spatial()) scripts_.instantiate(*spatial, entry);
-        const std::size_t at = std::min(index_, node->scripts.size());
-        node->scripts.insert(node->scripts.begin() + static_cast<std::ptrdiff_t>(at), std::move(entry));
+        Node3D* spatial = node != nullptr ? node->as_spatial() : nullptr;
+        if (spatial == nullptr) return;
+        (void)scripts_.add_script(*spatial, type_name_, fields_, index_);
         scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
@@ -114,6 +111,7 @@ private:
 
 /// Adds a script to a node. Undo takes it off keeping its fields, and redo
 /// puts it back with them, so values set in between survive the round trip.
+/// In a running game it starts when added and ends when taken off.
 class AddScriptCommand : public Command {
 public:
     AddScriptCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name)
@@ -123,11 +121,7 @@ public:
         Node* node = scene_.find(node_id_);
         Node3D* spatial = node != nullptr ? node->as_spatial() : nullptr;
         if (spatial == nullptr) return;
-        ScriptEntry entry;
-        entry.type_name = type_name_;
-        entry.serialized = fields_;
-        scripts_.instantiate(*spatial, entry);
-        spatial->scripts.push_back(std::move(entry));
+        (void)scripts_.add_script(*spatial, type_name_, fields_);
         scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
@@ -136,7 +130,7 @@ public:
         ScriptEntry* entry = node != nullptr ? detail::find_script(*node, type_name_) : nullptr;
         if (entry == nullptr) return;
         fields_ = scripts_.fields_of(*entry);
-        node->scripts.erase(node->scripts.begin() + (entry - node->scripts.data()));
+        scripts_.remove_script(*node, type_name_);
         scene_.mark_structure_changed();
         scene_.mark_dirty();
     }
