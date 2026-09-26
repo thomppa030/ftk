@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 33
+#define FJELL_API_VERSION 34
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -130,14 +130,20 @@ typedef struct FjellTypeDesc {
     void (*destruct)(void* at);
 } FjellTypeDesc;
 
-// A std::vector's elements, read through functions generated for its exact
-// type: the engine never assumes a vector's layout.
+// A std::vector's elements, read and edited through functions generated for
+// its exact type: the engine never assumes a vector's layout. `at` points into
+// the vector, and whoever may change the vector may write through it.
 typedef struct FjellVectorDesc {
     FjellFieldType       element;         // the elements' kind
     const FjellTypeDesc* element_type;    // STRUCT elements: their type (null otherwise)
     uint32_t             element_size;
     uint32_t    (*size)(const void* vector);
     const void* (*at)(const void* vector, uint32_t index);
+    // A default-built element goes in before `index` (last when it is the size).
+    void (*insert)(void* vector, uint32_t index);
+    void (*erase)(void* vector, uint32_t index);
+    // The element at `from` moves to `to`; the others keep their order.
+    void (*move)(void* vector, uint32_t from, uint32_t to);
 } FjellVectorDesc;
 
 // A game's formatting pipe, [[fj::pipe]]: `{value|name:arg}` in markup.

@@ -31,6 +31,15 @@ uint32_t slots_size(const void* v) {
     return static_cast<uint32_t>(static_cast<const std::vector<Slot>*>(v)->size());
 }
 const void* slots_at(const void* v, uint32_t i) { return &(*static_cast<const std::vector<Slot>*>(v))[i]; }
+void slots_insert(void* v, uint32_t i) {
+    auto& l = *static_cast<std::vector<Slot>*>(v);
+    l.insert(l.begin() + i, Slot{});
+}
+void slots_erase(void* v, uint32_t i) {
+    auto& l = *static_cast<std::vector<Slot>*>(v);
+    l.erase(l.begin() + i);
+}
+void slots_move(void*, uint32_t, uint32_t) {}
 
 FjellFieldDesc field(const char* name, FjellFieldType type, uint32_t offset, uint32_t flags) {
     FjellFieldDesc f{};
@@ -43,7 +52,8 @@ FjellFieldDesc field(const char* name, FjellFieldType type, uint32_t offset, uin
 
 extern const FjellTypeDesc slot_type;
 
-const FjellVectorDesc slots_vector{FJELL_FIELD_STRUCT, &slot_type, sizeof(Slot), slots_size, slots_at};
+const FjellVectorDesc slots_vector{FJELL_FIELD_STRUCT, &slot_type, sizeof(Slot), slots_size, slots_at,
+                                   slots_insert, slots_erase, slots_move};
 
 FjellFieldDesc hud_fields_init[3];
 const FjellFieldDesc* hud_fields() {
@@ -109,6 +119,15 @@ TEST_CASE("A vector and a getter are read through their functions", "[reflection
     const auto& first_name = *reinterpret_cast<const std::string*>(
         static_cast<const char*>(slots.vector.at(list, 0)) + slot_desc->find_field("name")->offset);
     REQUIRE(first_name == "Potion");
+
+    // The copy edits the list through the module's functions too.
+    void* editable = reinterpret_cast<char*>(&hud) + slots.offset;
+    slots.vector.insert(editable, 1);
+    REQUIRE(hud.slots.size() == 3);
+    REQUIRE(hud.slots[1].name.empty());
+    slots.vector.erase(editable, 0);
+    REQUIRE(hud.slots.size() == 2);
+    REQUIRE(hud.slots[0].name.empty());
 }
 
 TEST_CASE("A struct the module never registered leaves the field without a type", "[reflection]") {

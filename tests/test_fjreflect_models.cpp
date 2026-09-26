@@ -305,8 +305,13 @@ TEST_CASE("Generated tables describe Models, getters, lists and pipes", "[fjrefl
     // The list is read through functions generated for its exact type.
     REQUIRE(model.find("static uint32_t length_slots(const void* v) { return static_cast<uint32_t>("
                        "static_cast<const decltype(game::HudModel::slots)*>(v)->size()); }") != std::string::npos);
+    REQUIRE(model.find("static void erase_slots(void* v, uint32_t i) { auto& l = *static_cast<"
+                       "decltype(game::HudModel::slots)*>(v); l.erase(l.begin() + static_cast<std::ptrdiff_t>(i)); }") !=
+            std::string::npos);
     REQUIRE(model.find("static const FjellVectorDesc fjreflect_vector_game__HudModel_slots = {FJELL_FIELD_STRUCT, "
                        "&fjreflect_type_game__SlotModel,") != std::string::npos);
+    REQUIRE(model.find("fjell::FjellAccess<game::HudModel>::insert_slots, fjell::FjellAccess<game::HudModel>::erase_slots, "
+                       "fjell::FjellAccess<game::HudModel>::move_slots};") != std::string::npos);
     REQUIRE(model.find("static void get_empty(const void* self, void* out) { *static_cast<bool*>(out) = "
                        "static_cast<const game::SlotModel*>(self)->empty(); }") != std::string::npos);
     REQUIRE(model.find("extern \"C\" const FjellTypeDesc fjreflect_type_game__HudModel = {\"HudModel\", "

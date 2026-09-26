@@ -139,6 +139,9 @@ OwnedFieldDesc ReflectedTypes::copy_field(const FjellFieldDesc& fd, const char* 
         ofd.vector.element_size = fd.vector->element_size;
         ofd.vector.size = fd.vector->size;
         ofd.vector.at = fd.vector->at;
+        ofd.vector.insert = fd.vector->insert;
+        ofd.vector.erase = fd.vector->erase;
+        ofd.vector.move = fd.vector->move;
     }
     return ofd;
 }

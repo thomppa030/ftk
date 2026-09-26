@@ -64,8 +64,8 @@ std::string flags_of(const FieldInfo& f) {
 /// The friend every component macro declares, specialised for a reflected
 /// class: the offset and size of each field, measured by the compiler that
 /// builds the game with the game's own flags; trampolines for getters and for
-/// reading vectors; and the shims through which RPCs and UI actions reach
-/// private handlers.
+/// reading and editing vectors; and the shims through which RPCs and UI
+/// actions reach private handlers.
 void emit_access(std::ostream& out, const std::string& q, const std::vector<FieldInfo>& fields,
                  const std::vector<RpcInfo>& rpcs, const std::vector<ActionInfo>& actions) {
     if (fields.empty() && rpcs.empty() && actions.empty()) return;
@@ -90,6 +90,17 @@ void emit_access(std::ostream& out, const std::string& q, const std::vector<Fiel
                 << "static_cast<const " << list << "*>(v)->size()); }\n";
             out << "    static const void* item_" << f.name << "(const void* v, uint32_t i) { return &(*static_cast<const "
                 << list << "*>(v))[i]; }\n";
+            auto at = [](const char* index) {
+                return "l.begin() + static_cast<std::ptrdiff_t>(" + std::string(index) + ")";
+            };
+            out << "    static void insert_" << f.name << "(void* v, uint32_t i) { auto& l = *static_cast<" << list
+                << "*>(v); l.insert(" << at("i") << ", " << list << "::value_type{}); }\n";
+            out << "    static void erase_" << f.name << "(void* v, uint32_t i) { auto& l = *static_cast<" << list
+                << "*>(v); l.erase(" << at("i") << "); }\n";
+            out << "    static void move_" << f.name << "(void* v, uint32_t from, uint32_t to) { auto& l = *static_cast<"
+                << list << "*>(v); if (from < to) std::rotate(" << at("from") << ", " << at("from") << " + 1, "
+                << at("to") << " + 1); else if (to < from) std::rotate(" << at("to") << ", " << at("from") << ", "
+                << at("from") << " + 1); }\n";
         }
     }
     // A UI action is called with its argument behind a pointer, the one
@@ -129,7 +140,8 @@ struct TableNames {
     std::string vector_prefix; // + field name
 };
 
-/// A vector field's element description, read through its trampolines.
+/// A vector field's element description, read and edited through its
+/// trampolines.
 void emit_vector_descs(std::ostream& out, const std::vector<FieldInfo>& fields, const TableNames& names) {
     bool any = false;
     for (const auto& f : fields) {
@@ -140,7 +152,8 @@ void emit_vector_descs(std::ostream& out, const std::vector<FieldInfo>& fields, 
         if (f.element_fj_type == "FJELL_FIELD_STRUCT") out << "&" << type_symbol(f.element_struct);
         else out << "nullptr";
         out << ", " << names.access << "element_size_" << f.name << ", " << names.access << "length_" << f.name
-            << ", " << names.access << "item_" << f.name << "};\n";
+            << ", " << names.access << "item_" << f.name << ", " << names.access << "insert_" << f.name << ", "
+            << names.access << "erase_" << f.name << ", " << names.access << "move_" << f.name << "};\n";
     }
     if (any) out << "\n";
 }
@@ -411,6 +424,16 @@ std::string generated_file(const std::string& stem, const HeaderOutput& header) 
     const bool has_rpcs = std::any_of(header.components.begin(), header.components.end(),
                                       [](const ComponentInfo* c) { return !c->rpcs.empty(); });
     if (has_rpcs) out << "#include \"fjell/net_api.hpp\"\n";
+    // A list is reordered with std::rotate.
+    auto has_list = [](const std::vector<FieldInfo>& fields) {
+        return std::any_of(fields.begin(), fields.end(),
+                           [](const FieldInfo& f) { return f.fj_field_type == "FJELL_FIELD_VECTOR"; });
+    };
+    const bool has_lists =
+        std::any_of(header.components.begin(), header.components.end(),
+                    [&](const ComponentInfo* c) { return has_list(c->fields); }) ||
+        std::any_of(header.structs.begin(), header.structs.end(), [&](const StructInfo* s) { return has_list(s->fields); });
+    if (has_lists) out << "#include <algorithm>\n";
     out << "#include <cstddef>\n";
     out << "#include <cstdint>\n";
     out << "#include <cstring>\n";

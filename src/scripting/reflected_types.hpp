@@ -21,7 +21,12 @@ struct OwnedVectorDesc {
     const OwnedTypeDesc* element_type{nullptr}; ///< STRUCT elements: their type
     uint32_t element_size{0};
     uint32_t (*size)(const void* vector){nullptr};
+    /// Points into the vector; whoever may change the vector may write
+    /// through it.
     const void* (*at)(const void* vector, uint32_t index){nullptr};
+    void (*insert)(void* vector, uint32_t index){nullptr};
+    void (*erase)(void* vector, uint32_t index){nullptr};
+    void (*move)(void* vector, uint32_t from, uint32_t to){nullptr};
 };
 
 /// The engine's copy of one reflected field, owned so it outlives the game
