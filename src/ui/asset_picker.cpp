@@ -1,6 +1,6 @@
 #include "ui/asset_picker.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
-#include "ui/grouped_picker.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "core/asset_type_registry.hpp"
 #include "core/base_path.hpp"
 #include "core/project.hpp"
@@ -223,14 +223,14 @@ ImTextureID thumbnail_for(const Entry& entry, int& requests) {
 /// source and type when the field takes more than one type. The asset
 /// selected in the content browser, when the field takes it, comes first
 /// under a group of its own.
-std::vector<grouped_picker::Group> build_groups(std::span<const std::string> extensions,
+std::vector<ui::grouped_picker::Group> build_groups(std::span<const std::string> extensions,
                                                 std::span<const ShaderType> shader_types,
                                                 std::string_view selected) {
     // Only one accepted type means a type header would say what the field
     // already says.
     const bool split_by_type = extensions.size() != 1;
 
-    std::vector<grouped_picker::Group> groups;
+    std::vector<ui::grouped_picker::Group> groups;
     int requests = 0;
 
     // The entries are sorted by source then extension, so a group starts
@@ -297,7 +297,7 @@ void set_thread_pool(ThreadPool* pool) {
 }
 
 void open(const char* widget_id) {
-    grouped_picker::open(widget_id);
+    ui::grouped_picker::open(widget_id);
 }
 
 void invalidate() {
@@ -317,7 +317,7 @@ void invalidate() {
 bool draw(const char* widget_id, std::span<const std::string> extensions,
           std::span<const ShaderType> shader_types, const Project* project,
           std::string_view selected, std::string& picked) {
-    if (!grouped_picker::is_open(widget_id)) return false;
+    if (!ui::grouped_picker::is_open(widget_id)) return false;
 
     poll_scan();
 
@@ -329,7 +329,7 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         begin_scan(extensions, project);
     }
 
-    const grouped_picker::Config config{
+    const ui::grouped_picker::Config config{
         .search_hint = "Search assets",
         .empty_message = "No matching assets in this project.",
         .loading_message = "Looking for assets...",
@@ -338,7 +338,7 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         .size = {POPUP_WIDTH, POPUP_HEIGHT},
     };
 
-    return grouped_picker::draw(widget_id, build_groups(extensions, shader_types, selected), config,
+    return ui::grouped_picker::draw(widget_id, build_groups(extensions, shader_types, selected), config,
                                picked);
 }
 

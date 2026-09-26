@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
+namespace fjell::ui {
 
 /// The drop-down a field opens when it is clicked: a searchable list of
 /// choices under collapsible group headers, each row optionally carrying a
@@ -105,4 +105,4 @@ bool draw(const char* widget_id, std::span<const Group> groups,
           const Config& config, std::string& picked);
 
 } // namespace grouped_picker
-} // namespace fjell
+} // namespace fjell::ui

@@ -6,10 +6,10 @@
 #include "core/input_source.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "ui/grouped_picker.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/key_cap.hpp"
@@ -107,11 +107,11 @@ bool is_paired_y_source(InputSource s) {
            || s == InputSource::pad_lstick_y || s == InputSource::pad_rstick_y;
 }
 
-std::vector<grouped_picker::Group> build_source_groups() {
+std::vector<ui::grouped_picker::Group> build_source_groups() {
     static constexpr Device ORDER[] = {Device::keyboard, Device::mouse, Device::pad};
-    std::vector<grouped_picker::Group> groups;
+    std::vector<ui::grouped_picker::Group> groups;
     for (Device device : ORDER) {
-        grouped_picker::Group group;
+        ui::grouped_picker::Group group;
         group.label = device_name(device);
         // Keyboard is long enough that an open header buries the other two.
         group.open = device != Device::keyboard;
@@ -539,7 +539,7 @@ std::string InputMappingEditorContext::picker_id(int binding_idx, RebindTarget t
 }
 
 void InputMappingEditorContext::draw_source_picker(int binding_idx, RebindTarget target) {
-    static constexpr grouped_picker::Config PICKER_CONFIG{
+    static constexpr ui::grouped_picker::Config PICKER_CONFIG{
         .search_hint = "Search sources",
         .empty_message = "No matching source.",
         .loading_message = "",
@@ -550,7 +550,7 @@ void InputMappingEditorContext::draw_source_picker(int binding_idx, RebindTarget
     // Gated on is_open(): the source list is built before the call.
     const std::string id = picker_id(binding_idx, target);
     if (std::string picked;
-        grouped_picker::is_open(id.c_str()) && grouped_picker::draw(id.c_str(), build_source_groups(), PICKER_CONFIG, picked)) {
+        ui::grouped_picker::is_open(id.c_str()) && ui::grouped_picker::draw(id.c_str(), build_source_groups(), PICKER_CONFIG, picked)) {
         if (const InputSource chosen = input_source_from_string(picked);
             chosen != InputSource::none && binding_idx < static_cast<int>(context_.bindings.size())) {
             set_source(binding_idx, target, chosen);
@@ -578,7 +578,7 @@ bool InputMappingEditorContext::draw_source_button(const char* id, InputSource s
     // too would have it take the keys typed into the list's search.
     if (cap.list) {
         rebinding_ = false;
-        grouped_picker::open(picker_id(binding_idx, target).c_str());
+        ui::grouped_picker::open(picker_id(binding_idx, target).c_str());
     }
     draw_source_picker(binding_idx, target);
     return clicked;

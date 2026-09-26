@@ -2,10 +2,10 @@
 
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
-#include "ui/grouped_picker.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/edit_record.hpp"
 #include "ui/kit/feedback.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/slot.hpp"
 #include "ui/node_visuals.hpp"
@@ -63,8 +63,8 @@ ui::SlotFace describe(const NodeSlotConfig& config, uint32_t node, const Node* h
 }
 
 /// Every node the slot takes, in scene order, for its picker.
-std::vector<grouped_picker::Group> gather(const NodeSlotConfig& config) {
-    std::vector<grouped_picker::Group> groups(1);
+std::vector<ui::grouped_picker::Group> gather(const NodeSlotConfig& config) {
+    std::vector<ui::grouped_picker::Group> groups(1);
     for (const auto& node : config.scene->objects()) {
         if (config.refusal && !config.refusal(*node).empty()) continue;
         std::string path = node_parent_path(*config.scene, *node);
@@ -114,7 +114,7 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
     const ImVec2 max{min.x + std::max(width - clear_w, height), min.y + height};
 
     // The field is one button: clicking anywhere on it opens the picker.
-    if (ImGui::InvisibleButton("##slot", {max.x - min.x, height})) grouped_picker::open(config.id);
+    if (ImGui::InvisibleButton("##slot", {max.x - min.x, height})) ui::grouped_picker::open(config.id);
     const bool hovered = ImGui::IsItemHovered();
     const Node* held = node != 0 && scene != nullptr ? scene->find(node) : nullptr;
     if (hovered && held != nullptr) {
@@ -150,10 +150,10 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
 
     // The picker hangs under the field, so it draws right after it. Its list
     // is a walk over the scene, taken only while it is open.
-    if (scene != nullptr && grouped_picker::is_open(config.id)) {
+    if (scene != nullptr && ui::grouped_picker::is_open(config.id)) {
         const auto groups = gather(config);
         std::string picked;
-        if (grouped_picker::draw(config.id, groups,
+        if (ui::grouped_picker::draw(config.id, groups,
                                  {.empty_message = "No node in the scene fits.", .hide_group_headers = true},
                                  picked)) {
             uint32_t id = 0;

@@ -1,4 +1,4 @@
-#include "ui/grouped_picker.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/theme.hpp"
@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-namespace fjell::grouped_picker {
+namespace fjell::ui::grouped_picker {
 namespace {
 
 constexpr float PREVIEW_SIZE = 32.0F;
@@ -234,4 +234,4 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     return chose;
 }
 
-} // namespace fjell::grouped_picker
+} // namespace fjell::ui::grouped_picker

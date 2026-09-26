@@ -12,7 +12,6 @@
 #include "scene/scene.hpp"
 #include "scripting/script_commands.hpp"
 #include "scripting/script_manager.hpp"
-#include "ui/grouped_picker.hpp"
 #include "ui/inspectors/inspector_registry.hpp"
 #include "ui/inspectors/script_fields.hpp"
 #include "ui/kit/button.hpp"
@@ -26,6 +25,7 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/material_params_widget.hpp"
 #include "ui/shader_error_callout.hpp"
 
@@ -217,14 +217,14 @@ std::string PropertiesPanel::edit_description(const std::string& subject, const 
 void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
     ImGui::Dummy({0.0f, theme::GAP_M});
     if (ui::action(ui::icon::add, "Add component", ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
-        grouped_picker::open(ADD_PICKER);
+        ui::grouped_picker::open(ADD_PICKER);
     }
     // Gathered only while the picker is up; drawn every frame so it hangs
     // under the button.
-    std::vector<grouped_picker::Group> groups;
-    if (grouped_picker::is_open(ADD_PICKER)) groups = addable_groups(node);
+    std::vector<ui::grouped_picker::Group> groups;
+    if (ui::grouped_picker::is_open(ADD_PICKER)) groups = addable_groups(node);
     std::string picked;
-    if (grouped_picker::draw(ADD_PICKER, groups,
+    if (ui::grouped_picker::draw(ADD_PICKER, groups,
                              {.search_hint = "Search components and scripts",
                               .empty_message = "Nothing matches"},
                              picked)) {
@@ -232,9 +232,9 @@ void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
     }
 }
 
-std::vector<grouped_picker::Group> PropertiesPanel::addable_groups(const Node3D& node) const {
-    using grouped_picker::Group;
-    using grouped_picker::Item;
+std::vector<ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Node3D& node) const {
+    using ui::grouped_picker::Group;
+    using ui::grouped_picker::Item;
     const std::string owner = node.name.empty() ? std::string("This node") : node.name;
 
     // Everything that can be added, by value, with the category it goes under.

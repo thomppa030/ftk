@@ -3,7 +3,7 @@
 #include "scene/transform.hpp"
 #include "core/commands.hpp"
 #include "ui/edit_tracker.hpp"
-#include "ui/grouped_picker.hpp"
+#include "ui/kit/grouped_picker.hpp"
 
 #include <nlohmann/json.hpp>
 #include "ui/kit/text_field.hpp"
@@ -72,7 +72,7 @@ private:
     [[nodiscard]] static std::string edit_description(const std::string& subject, const std::string& scope);
     // The one Add component button and its picker of components and scripts.
     void draw_add(Node3D& node, const InspectorContext& ictx);
-    [[nodiscard]] std::vector<grouped_picker::Group> addable_groups(const Node3D& node) const;
+    [[nodiscard]] std::vector<ui::grouped_picker::Group> addable_groups(const Node3D& node) const;
     void add_to_node(Node3D& node, const std::string& value, const InspectorContext& ictx);
 
     // A node type's own section (properties_node_sections.cpp). Each

@@ -331,7 +331,6 @@ add_executable(fjell
     net/replication_graph.cpp
     net/net_subsystem.cpp
     ui/asset_picker.cpp
-    ui/grouped_picker.cpp
     ui/asset_ref_widget.cpp
     ui/node_slot.cpp
     ui/node_visuals.cpp
@@ -399,6 +398,7 @@ add_executable(fjell
     ui/kit/feedback.cpp
     ui/kit/field.cpp
     ui/kit/gallery.cpp
+    ui/kit/grouped_picker.cpp
     ui/kit/inset_group.cpp
     ui/kit/key_cap.cpp
     ui/kit/overlay.cpp

@@ -83,7 +83,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/document_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/grouped_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_slot.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_visuals.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_header.cpp
@@ -101,6 +100,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/kit/edit_record.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/kit/grouped_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/kit/overlay.cpp

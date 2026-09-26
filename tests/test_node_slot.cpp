@@ -1,7 +1,7 @@
 #include "imgui_harness.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
-#include "ui/grouped_picker.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/node_slot.hpp"
 #include "ui/node_visuals.hpp"
 
@@ -70,7 +70,7 @@ struct SlotUnderTest {
         });
         h.step(2);
     }
-    ~SlotUnderTest() { grouped_picker::close(); }
+    ~SlotUnderTest() { ui::grouped_picker::close(); }
 
     [[nodiscard]] ImVec2 into_field() const { return {field.x + 20.0f, field.y + ImGui::GetFrameHeight() * 0.5f}; }
     [[nodiscard]] ImVec2 source() const {
@@ -84,7 +84,7 @@ struct SlotUnderTest {
 
 TEST_CASE("A node slot's picker offers only the nodes that fit", "[ui][node_slot]") {
     SlotUnderTest t;
-    grouped_picker::open("##target");
+    ui::grouped_picker::open("##target");
     t.h.step(3);
     t.h.press(ImGuiKey_DownArrow); // the crate is not listed: there is nothing past the goblin
     t.h.press(ImGuiKey_Enter);
