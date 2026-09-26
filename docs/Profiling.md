@@ -17,7 +17,9 @@ cmake --build --preset tracy
 
 `build-tracy/` is RelWithDebInfo with `TRACY_ON_DEMAND`, so the engine runs at
 full speed and records only while a capture tool is connected. Rebuild it
-before measuring: a stale tree measures stale code.
+before measuring: a stale tree measures stale code. Call-stack sampling is off
+(`TRACY_NO_SAMPLING`): captures are read for their zones, and sampling only
+added some 300 thousand symbols to every trace and CPU time to the run.
 
 The capture and export tools have to speak the same protocol as the client the
 engine was built with, and a distribution's `tracy-capture` usually does not.

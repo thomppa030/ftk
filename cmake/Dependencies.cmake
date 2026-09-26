@@ -155,6 +155,10 @@ option(FJELL_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
 if(FJELL_ENABLE_TRACY)
     set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
     set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+    # Captures are read for their zones. Call-stack sampling adds some 300
+    # thousand symbols to every trace and CPU time to the run being measured,
+    # and nothing that reads a capture uses it.
+    set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
 else()
     set(TRACY_ENABLE OFF CACHE BOOL "" FORCE)
 endif()
