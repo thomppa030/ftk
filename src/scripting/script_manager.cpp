@@ -935,9 +935,6 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 out[f.name] = {{"asset_path", path}};
                 break;
             }
-            case FJELL_FIELD_WIDGET_PTR:
-                // Resolved at runtime by UiSubsystem, not serialized
-                break;
             case FJELL_FIELD_STRUCT:
             case FJELL_FIELD_VECTOR:
                 break; // never properties, skipped above
@@ -1027,9 +1024,6 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 }
                 break;
             }
-            case FJELL_FIELD_WIDGET_PTR:
-                // Resolved at runtime by UiSubsystem, not serialized
-                break;
             case FJELL_FIELD_STRUCT:
             case FJELL_FIELD_VECTOR:
                 break; // never properties, skipped above

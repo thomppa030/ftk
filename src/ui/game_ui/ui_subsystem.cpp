@@ -117,9 +117,6 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                                   std::to_string(static_cast<int>(design_frame.height))
                             : std::string("native pixels"));
     }
-
-    // Resolve [[fj::bind]] UiWidget* pointers on ScriptComponents
-    resolve_widget_bindings(ctx.scene);
 }
 
 void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset) {
@@ -231,7 +228,6 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
             wi.type = wt;
             wi.widget_context = &inst.game_ui->context();
             wi.widget.reset(wt->create());
-            wi.widget->ui_context_.ctx_ = wi.widget_context;
             inst.widgets.push_back(std::move(wi));
             FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
         }
@@ -390,49 +386,6 @@ void UiSubsystem::reload_instance(UiInstance& inst) {
                     inst.widget_path, inst.widgets.size());
 }
 
-void UiSubsystem::resolve_widget_bindings(Scene& scene) {
-    if (!script_manager_ || !script_manager_->is_loaded()) return;
-
-    // Build lookup: node_id → UiWidget pointer
-    std::unordered_map<uint32_t, UiWidget*> node_to_widget;
-    for (auto& inst : instances_) {
-        if (!inst.widgets.empty()) {
-            node_to_widget[inst.node_id] = inst.widgets.front().widget.get();
-        }
-    }
-
-    for (const auto& obj : scene.objects()) {
-        if (obj->scripts.empty()) continue;
-
-        for (auto& script_entry : obj->scripts) {
-            if (!script_entry.instance) continue;
-
-            auto* script_type = script_manager_->find_script_type(script_entry.type_name);
-            if (!script_type) continue;
-
-            auto* base = reinterpret_cast<uint8_t*>(script_entry.instance.get());
-
-            for (const auto& field : script_type->fields) {
-                if (field.type != FJELL_FIELD_WIDGET_PTR) continue;
-
-                for (const auto& child : scene.objects()) {
-                    if (child->parent_id != static_cast<int32_t>(obj->id)) continue;
-                    if (child->name != field.name) continue;
-
-                    auto it = node_to_widget.find(child->id);
-                    if (it != node_to_widget.end()) {
-                        auto** ptr = reinterpret_cast<UiWidget**>(base + field.offset);
-                        *ptr = it->second;
-                        FJELL_CORE_INFO("UiSubsystem: bound {}.{} -> widget on '{}'",
-                                        script_entry.type_name, field.name, child->name);
-                    }
-                    break;
-                }
-            }
-        }
-    }
-}
-
 void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
     if (node.is_foreach_template || node.foreach_item_index >= 0) return; // repeat_stamped()'s
     if (node.is_widget && node.scoped_context) (void)add_controller(instance, node);
@@ -453,29 +406,19 @@ UiSubsystem::WidgetInstance* UiSubsystem::add_controller(UiInstance& inst, UiNod
     wi.type = ui_type;
     wi.widget_context = node.scoped_context.get();
     wi.widget.reset(ui_type->create());
-    wi.widget->ui_context_.ctx_ = wi.widget_context;
     node.has_controller = true;
     FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>", ui_type->name, node.widget_tag);
     return &inst.widgets.emplace_back(std::move(wi));
 }
 
 void UiSubsystem::tick(const TickContext& ctx) {
-    bool any_reloaded = false;
     for (auto& inst : instances_) {
-        if (inst.game_ui && inst.game_ui->consume_reload_request()) {
-            reload_instance(inst);
-            any_reloaded = true;
-        }
+        if (inst.game_ui && inst.game_ui->consume_reload_request()) reload_instance(inst);
         for (auto& wi : inst.widgets) {
             if (!wi.widget) continue;
             fill_props(wi);
             wi.widget->tick(ctx.dt);
         }
-    }
-
-    // Scripts hold raw pointers to root widgets; a rebuilt instance has new ones.
-    if (any_reloaded) {
-        resolve_widget_bindings(ctx.scene);
     }
 }
 

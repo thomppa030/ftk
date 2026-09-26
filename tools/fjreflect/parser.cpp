@@ -1010,7 +1010,14 @@ private:
         fi.cpp_type = m.type;
         fi.line = m.line;
         fi.scope = comp.qualified_name;
-        fi.is_bind = has_attribute(m, "bind");
+        // What [[fj::bind]] did is done by the markup reading the widget in
+        // place, and a script no longer holds its widgets.
+        if (has_attribute(m, "bind")) {
+            error(m.line, "[[fj::bind]] on '" + m.name + "' is gone: mark a field the markup reads "
+                          "[[fj::state]] or put it in a [[fj::model]] struct, and read the game from the UI "
+                          "through a <model> rather than handing the script a widget");
+            return;
+        }
         fi.is_state = has_attribute(m, "state");
         fi.is_model = has_attribute(m, "model");
         fi.is_prop = has_attribute(m, "prop");
@@ -1039,7 +1046,7 @@ private:
             add_state_field(comp, m, std::move(fi));
             return;
         }
-        if (fi.is_state && (has_attribute(m, "property") || fi.is_bind)) {
+        if (fi.is_state && has_attribute(m, "property")) {
             error(m.line, "'" + m.name + "' is either authored ([[fj::property]]) or runtime state "
                           "([[fj::state]]), not both");
             return;
@@ -1049,20 +1056,6 @@ private:
             return;
         }
 
-        // [[fj::bind]] on a pointer to a widget: resolved by the UI subsystem.
-        if (fi.is_bind && m.type.ends_with("*") && !is_engine_pointer(m.type)) {
-            auto bare = m.type.substr(0, m.type.size() - 1);
-            if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos) bare = bare.substr(ns_pos + 2);
-            FieldInfo ptr;
-            ptr.name = m.name;
-            ptr.cpp_type = m.type;
-            ptr.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
-            ptr.ref_target = bare;
-            ptr.line = m.line;
-            ptr.is_bind = true;
-            comp.fields.push_back(std::move(ptr));
-            return;
-        }
         if (is_engine_pointer(m.type)) {
             error(m.line, "[[fj::property]] on raw pointer '" + m.type + " " + m.name +
                               "' — use WeakRef<T> or Ref<T>");

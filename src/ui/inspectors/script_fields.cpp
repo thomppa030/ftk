@@ -171,11 +171,6 @@ ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorCo
             return draw_node_ref(*static_cast<WeakRefData*>(ptr), scene);
         case FJELL_FIELD_REF:
             return draw_asset_ref(f, *static_cast<RefData*>(ptr), ctx);
-        case FJELL_FIELD_WIDGET_PTR:
-            // Bound by the UI when playing; nothing to set here.
-            ui::readout(*static_cast<void**>(ptr) != nullptr ? f.ref_type_name.c_str()
-                                                             : "Bound when playing");
-            return {};
         case FJELL_FIELD_STRUCT:
         case FJELL_FIELD_VECTOR:
             return {}; // the UI's to show; draw_script_fields gives them no row

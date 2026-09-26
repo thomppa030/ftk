@@ -26,9 +26,6 @@ struct FieldInfo {
     std::vector<std::string> enum_labels; // [[fj::enum(A, B, C)]]
     std::vector<std::string> shader_types; // [[fj::shader_type(water, fog)]] on Ref<Material>
 
-    // UI bind flags
-    bool is_bind{false};       // [[fj::bind]] — auto-sync to widget context
-
     // Runtime state and Models
     bool is_state{false};      // [[fj::state]], or any member of a reflected struct: bindable, never saved
     bool is_model{false};      // [[fj::model]] on a UI widget: a Model its markup binds

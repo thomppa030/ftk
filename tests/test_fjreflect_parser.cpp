@@ -39,9 +39,9 @@ class hud_controller : public fjell::UiWidget {
   FJELL_UI_WIDGET(hud_controller)
 
 public:
-  [[fj::bind]] std::string selected;       // hotkey of the selected slot, "1".."8"
-  [[fj::bind]] std::string label;          /* shown above the hotbar */
-  [[fj::bind]] int hp = 0;                 // with an initializer
+  [[fj::state]] std::string selected;      // hotkey of the selected slot, "1".."8"
+  [[fj::state]] std::string label;         /* shown above the hotbar */
+  [[fj::state]] int hp = 0;                // with an initializer
 };
 )");
     REQUIRE(result.errors.empty());
@@ -51,7 +51,7 @@ public:
     const auto* selected = find_field(result, "selected");
     REQUIRE(selected != nullptr);
     REQUIRE(selected->cpp_type == "std::string");
-    REQUIRE(selected->is_bind);
+    REQUIRE(selected->is_state);
     REQUIRE(find_field(result, "label") != nullptr);
     REQUIRE(find_field(result, "hp")->cpp_type == "int");
 }
@@ -201,7 +201,7 @@ namespace ui::hud {
 class Bar : public fjell::UiWidget {
   FJELL_UI_COMPONENT(Bar, "health-bar")
 public:
-  [[fj::bind]] float fill = 1.0f;
+  [[fj::state]] float fill = 1.0f;
 };
 } // namespace ui::hud
 } // namespace game
@@ -223,7 +223,7 @@ public:
     int count = 0;
     std::string name;
   };
-  [[fj::bind]] int hp = 0;
+  [[fj::state]] int hp = 0;
   enum class Mode { calm, combat };
   using Count = int;
 };
@@ -239,17 +239,14 @@ TEST_CASE("A pointer is a pointer however it is spaced", "[fjreflect]") {
 class Hud : public fjell::UiWidget {
   FJELL_UI_WIDGET(Hud)
 public:
-  [[fj::bind]] HealthBar *bar = nullptr;
+  [[fj::property]] Node3D *target = nullptr;
   [[nodiscard]] class OrbitCamera *orbit() const;
 private:
   fjell::SpriteComponent *sprite_{nullptr};
 };
 )");
-    REQUIRE(result.errors.empty());
-    const auto* bar = find_field(result, "bar");
-    REQUIRE(bar != nullptr);
-    REQUIRE(bar->fj_field_type == "FJELL_FIELD_WIDGET_PTR");
-    REQUIRE(bar->ref_target == "HealthBar");
+    REQUIRE(result.errors.size() == 1);
+    REQUIRE(result.errors[0].find("raw pointer 'Node3D* target'") != std::string::npos);
     REQUIRE(result.warnings.size() == 1);
     REQUIRE(result.warnings[0].find("'fjell::SpriteComponent* sprite_'") != std::string::npos);
 }
@@ -397,4 +394,23 @@ public:
   [[fj::property]] float speed = 1.0f;
 )");
     REQUIRE(has_error(result, "unclosed.hpp:2: error: unexpected end of file: class Mover is never closed"));
+}
+
+TEST_CASE("[[fj::bind]] is refused, naming what replaces it", "[fjreflect]") {
+    auto result = parse_header("bound.hpp", R"(
+class Hud : public fjell::UiWidget {
+  FJELL_UI_WIDGET(Hud)
+public:
+  [[fj::bind]] int hp = 0;
+};
+class Player : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Player)
+public:
+  [[fj::bind]] Hud* hud = nullptr;
+};
+)");
+    REQUIRE(result.errors.size() == 2);
+    REQUIRE(result.errors[0].find("bound.hpp:5: error: [[fj::bind]] on 'hp' is gone: mark a field the markup "
+                                  "reads [[fj::state]]") != std::string::npos);
+    REQUIRE(result.errors[1].find("bound.hpp:10: error: [[fj::bind]] on 'hud' is gone") != std::string::npos);
 }

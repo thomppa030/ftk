@@ -21,7 +21,6 @@ add_executable(fjlint
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_value.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_pipes.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
 )
 

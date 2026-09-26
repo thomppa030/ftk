@@ -512,7 +512,7 @@ const char* field_kind(const FieldInfo& f) {
         {"FJELL_FIELD_COLOR3", "color3"},     {"FJELL_FIELD_COLOR4", "color4"},
         {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
         {"FJELL_FIELD_REF", "ref"},           {"FJELL_FIELD_SHARED_REF", "shared_ref"},
-        {"FJELL_FIELD_WIDGET_PTR", "widget_ptr"}, {"FJELL_FIELD_STD_STRING", "string"},
+        {"FJELL_FIELD_STD_STRING", "string"},
         {"FJELL_FIELD_STRUCT", "struct"},     {"FJELL_FIELD_VECTOR", "list"},
     };
     for (const auto& [name, kind] : kinds) {
@@ -593,7 +593,6 @@ Json field_json(const FieldInfo& f) {
         field["element"] = element_kind(f);
         if (f.element_fj_type == "FJELL_FIELD_STRUCT") field["element_struct"] = f.element_struct;
     }
-    if (f.is_bind) field["bind"] = true;
     if (f.is_readonly) field["readonly"] = true;
     if (f.is_replicated) field["replicated"] = true;
     if (f.has_range) field["range"] = {f.hint_min, f.hint_max};

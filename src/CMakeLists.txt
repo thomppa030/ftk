@@ -448,7 +448,6 @@ add_executable(fjell
     ui/game_ui/widget_resolver.cpp
     ui/game_ui/ui_subsystem.cpp
     ui/game_ui/game_model_world.cpp
-    ui/game_ui/ui_widget_context.cpp
     ui/game_ui/ui_widget_models.cpp
     ui/game_ui/ui_widget_component_meta.cpp
     ui/game_ui/widget_asset.cpp

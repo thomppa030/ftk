@@ -139,7 +139,6 @@ private:
     // every widget in it go first, while their scopes still exist.
     void repeat_removing(GameUi& ui, UiNode& repeat);
     [[nodiscard]] UiInstance* instance_of(const GameUi& ui);
-    void resolve_widget_bindings(Scene& scene);
 
     VulkanContext& vulkan_context_;
     ScriptManager* script_manager_{nullptr};

@@ -16,29 +16,6 @@ class UiContext;
 class UiModels;
 class UiSubsystem;
 
-/// The widget's connection to its `.fjui` template: values published by name.
-/// Reached through `UiWidget::ui()`. Actions its markup raises call the
-/// widget's `[[fj::action]]` methods.
-class UiWidgetContext {
-public:
-    UiWidgetContext() = default;
-
-    /// Publish a value for the template to display. A `{key}` placeholder in
-    /// the `.fjui` markup picks it up, and `if="key"` / `class:x="key==value"`
-    /// test against it. Setting an unchanged value is cheap — safe from `tick()`.
-    /// @param key   Matches the name used in the markup.
-    /// @param value Everything is stringly-typed here; format numbers yourself.
-    FJELL_SDK_EXPORT void set(const std::string& key, const std::string& value);
-
-    /// Read back a value previously published with `set()`.
-    /// @return The value, or "" if the key was never set.
-    [[nodiscard]] FJELL_SDK_EXPORT std::string get(const std::string& key) const;
-
-private:
-    friend class UiSubsystem;
-    UiContext* ctx_{nullptr};
-};
-
 /// The widget's Models as its controller sees them: which node each reads,
 /// for choices made at runtime. A Model is declared in the widget's markup,
 /// `<model name="target" component="EnemyStats"/>`, and reached through
@@ -72,19 +49,28 @@ private:
 /// data and behavior; a `.fjui` template supplies the markup and a `.fjss`
 /// stylesheet the look.
 ///
-/// Derive, add `FJELL_UI_WIDGET(T)`, and reference the type from a `.fjwidget`
-/// asset. The template reads `[[fj::bind]]` fields where they are, by name;
-/// `[[fj::action]]` methods become callable from `on:click`.
+/// Derive, add `FJELL_UI_WIDGET(T)`, and name the type in a `.fjwidget`'s
+/// `class`. The markup reads the widget where it is, by name: its
+/// `[[fj::model]]` structs and its `[[fj::state]]` fields and getters.
+/// `[[fj::prop]]` fields are filled from the widget's props of their names,
+/// and `[[fj::action]]` methods are called from `on:click`.
 ///
 /// This is the in-game UI system, separate from the ImGui editor chrome.
 ///
 /// @code
-/// class HealthBar : public fjell::UiWidget {
-///     FJELL_UI_WIDGET(HealthBar)
-/// public:
-///     [[fj::bind]] int hp = 100;      // reachable as {hp} in the .fjui
+/// struct InventoryModel {
+///     std::vector<ItemSlot> slots;
+///     int selected = 0;
+/// };
 ///
-///     [[fj::action]] void on_close() { visible_ = false; }
+/// class inventory_controller : public fjell::UiWidget {
+///     FJELL_UI_WIDGET(inventory_controller)
+/// public:
+///     [[fj::model]] InventoryModel inventory; // {inventory.selected} in markup
+///     [[fj::prop]] int columns = 4;           // <prop name="columns" type="int"/>
+///     [[fj::state]] bool open = false;        // if="open"
+///
+///     [[fj::action]] void select(int slot) { inventory.selected = slot; }
 /// };
 /// @endcode
 class UiWidget {
@@ -118,10 +104,6 @@ public:
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 
-    /// The template bridge: publish values with `ui().set()` and read props
-    /// with `ui().get()`.
-    [[nodiscard]] UiWidgetContext& ui() { return ui_context_; }
-
     /// The widget's Models: bind one to a node chosen at runtime.
     [[nodiscard]] UiWidgetModels& models() { return models_; }
 
@@ -140,7 +122,6 @@ public:
 private:
     friend class UiSubsystem;
     World* world_{nullptr};
-    UiWidgetContext ui_context_;
     UiWidgetModels models_;
     uint32_t id_{0};
 };
