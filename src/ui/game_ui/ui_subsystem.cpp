@@ -11,6 +11,7 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/api.h"
+#include "ui/game_ui/game_model_world.hpp"
 #include "ui/game_ui/ui_actions.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
@@ -36,29 +37,6 @@ static Result<WidgetAsset> load_instance_widget(const std::string& path) {
     }
     return result;
 }
-
-/// The running game as a UI's Models see it: script components from the
-/// loaded module, and who controls which node from the network session.
-class GameModelWorld final : public UiModelWorld {
-public:
-    GameModelWorld(const ScriptManager& scripts, const NetManager* net) : scripts_{scripts}, net_{net} {}
-
-    [[nodiscard]] std::optional<UiComponentType> component_type(const std::string& name) const override {
-        const auto* type = scripts_.is_loaded() ? scripts_.find_script_type(name) : nullptr;
-        if (type == nullptr || !type->loaded) return std::nullopt;
-        return UiComponentType{type->name, type->fields};
-    }
-    [[nodiscard]] bool owned_by_local(uint32_t node_id) const override {
-        return net_ == nullptr || net_->is_owned_by_local(net_->net_id_for(node_id));
-    }
-    [[nodiscard]] uint64_t possession_revision() const override {
-        return net_ != nullptr ? net_->possession_revision() : 0;
-    }
-
-private:
-    const ScriptManager& scripts_;
-    const NetManager* net_;
-};
 
 /// The design frame a placement is scaled by (see UiDesignFrame). Only
 /// screen-space placements scale: a world-space widget lays out in its own
@@ -200,14 +178,7 @@ void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_ass
         }
         models.add(model, inst.game_ui->context(), placed);
     }
-    auto walk = [&](auto& self, UiNode& node) -> void {
-        if (node.is_foreach_template || node.foreach_item_index >= 0) return; // repeat_stamped()'s
-        if (node.is_widget && node.scoped_context) {
-            for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);
-        }
-        for (auto& child : node.children) self(self, *child);
-    };
-    if (auto* root = inst.game_ui->root()) walk(walk, *root);
+    if (auto* root = inst.game_ui->root()) models.add_widgets(*root);
 }
 
 void UiSubsystem::read_controller_in_place(WidgetInstance& wi) {
@@ -355,14 +326,12 @@ void UiSubsystem::repeat_stamped(GameUi& ui, UiNode& repeat) {
     UiInstance* inst = instance_of(ui);
     if (inst == nullptr) return;
     auto& models = inst->game_ui->models();
+    models.add_widgets(repeat);
     std::vector<WidgetInstance*> created;
     auto walk = [&](auto& self, UiNode& node, bool root) -> void {
         if (!root && (node.is_foreach_template || node.foreach_item_index >= 0)) return; // announced on their own
-        if (node.is_widget && node.scoped_context) {
-            for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);
-            if (script_manager_ && script_manager_->is_loaded()) {
-                if (WidgetInstance* wi = add_controller(*inst, node)) created.push_back(wi);
-            }
+        if (node.is_widget && node.scoped_context && script_manager_ && script_manager_->is_loaded()) {
+            if (WidgetInstance* wi = add_controller(*inst, node)) created.push_back(wi);
         }
         for (auto& child : node.children) self(self, *child, false);
     };
@@ -381,7 +350,7 @@ void UiSubsystem::repeat_removing(GameUi& ui, UiNode& repeat) {
         for (const auto& child : node.children) self(self, *child);
     };
     walk(walk, repeat);
-    for (const UiContext* scope : scopes) inst->game_ui->models().remove(*scope);
+    inst->game_ui->models().remove_widgets(repeat);
     std::erase_if(inst->widgets, [&](WidgetInstance& wi) {
         if (std::ranges::find(scopes, wi.widget_context) == scopes.end()) return false;
         end_controller(wi);

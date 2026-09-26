@@ -138,6 +138,8 @@ inline constexpr const char* ui_widget  = ICON_LC_LAYOUT_PANEL_TOP;
 inline constexpr const char* ui_repeat  = ICON_LC_COPY;  // a copy made by foreach
 inline constexpr const char* this_node  = ICON_LC_LOCATE; // a widget Model read from its own node
 inline constexpr const char* local_player = ICON_LC_USER; // a widget Model read from the local player's node
+inline constexpr const char* ui_models  = ICON_LC_DATABASE; // the game data a widget reads
+inline constexpr const char* ui_props   = ICON_LC_LOG_IN;   // what a placement passes a widget
 
 // Terrain brush tools
 inline constexpr const char* raise   = ICON_LC_ARROW_UP_FROM_LINE;

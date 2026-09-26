@@ -41,16 +41,18 @@ InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {
                                               ImGui::GetColorU32(theme::surface_sunken()),
                                               ImGui::GetStyle().FrameRounding);
 
-    // The heading: the whole row but its remove icon folds the box.
+    // The heading: the whole row but the icons at its right folds the box.
     const float remove_w = heading.remove != nullptr ? heading_h : 0.0f;
-    const float fold_w = std::max(width_ - remove_w - PAD, 1.0f);
+    const float action_w = heading.action != nullptr ? heading_h : 0.0f;
+    const float live_w = heading.live != nullptr ? theme::GAP_M + theme::GAP_S : 0.0f;
+    const float fold_w = std::max(width_ - remove_w - action_w - live_w - PAD, 1.0f);
     ImGui::SetCursorScreenPos({min_.x, min_.y + PAD * 0.5f});
     if (ImGui::InvisibleButton("##fold", {fold_w, heading_h})) {
         open_ = !open_;
         storage->SetBool(open_id, open_);
     }
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    if (heading.named) {
+    if (heading.named || heading.code) {
         ImGui::PushFont(theme::bold_font(), theme::BODY_TEXT);
     } else {
         ImGui::PushFont(theme::bold_font(), HEADING_SIZE);
@@ -66,7 +68,7 @@ InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {
         x += ImGui::CalcTextSize(heading.icon).x + theme::GAP_S + theme::GAP_XS;
     }
     std::string text(heading.text);
-    if (!heading.named) {
+    if (!heading.named && !heading.code) {
         for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     }
     float text_right = min_.x + fold_w;
@@ -79,11 +81,40 @@ InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {
                     heading.folded_summary);
         text_right = summary_x - theme::GAP_M;
     }
-    ImGui::PushFont(theme::bold_font(), heading.named ? theme::BODY_TEXT : HEADING_SIZE);
+    if (heading.code) {
+        ImGui::PushFont(theme::mono_font(), theme::BODY_TEXT);
+    } else {
+        ImGui::PushFont(theme::bold_font(), heading.named ? theme::BODY_TEXT : HEADING_SIZE);
+    }
+    const bool bright = heading.named || heading.code;
     dl->PushClipRect(min_, {text_right, min_.y + heading_h + PAD}, true);
-    dl->AddText({x, y}, heading.named ? ImGui::GetColorU32(theme::text()) : secondary, text.c_str());
-    dl->PopClipRect();
+    dl->AddText({x, y}, bright ? ImGui::GetColorU32(theme::text()) : secondary, text.c_str());
+    x += ImGui::CalcTextSize(text.c_str()).x + theme::GAP_S;
     ImGui::PopFont();
+    if (heading.detail != nullptr) {
+        const float detail_y = min_.y + PAD * 0.5f + (heading_h - ImGui::GetFontSize()) * 0.5f;
+        dl->AddText({x, detail_y}, secondary, heading.detail);
+    }
+    dl->PopClipRect();
+
+    // The icons at the right, right to left: remove, the action, the dot.
+    float icons_x = min_.x + width_ - PAD * 0.5f - remove_w;
+    if (heading.action != nullptr) {
+        icons_x -= action_w;
+        ImGui::SetCursorScreenPos({icons_x, min_.y + PAD * 0.5f});
+        if (icon_button("##action", heading.action_icon, heading.action_tooltip)) *heading.action = true;
+    }
+    if (heading.live != nullptr) {
+        icons_x -= live_w;
+        ImGui::SetCursorScreenPos({icons_x, min_.y + PAD * 0.5f});
+        ImGui::Dummy({live_w, heading_h});
+        dl->AddCircleFilled({icons_x + live_w * 0.5f, min_.y + PAD * 0.5f + heading_h * 0.5f}, 3.5f,
+                            ImGui::GetColorU32(theme::success()));
+        if (ImGui::BeginItemTooltip()) {
+            ImGui::TextUnformatted(heading.live);
+            ImGui::EndTooltip();
+        }
+    }
 
     if (heading.remove != nullptr) {
         ImGui::SetCursorScreenPos({min_.x + width_ - PAD * 0.5f - remove_w, min_.y + PAD * 0.5f});

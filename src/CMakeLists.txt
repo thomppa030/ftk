@@ -367,6 +367,7 @@ add_executable(fjell
     ui/mesh_editor_context.cpp
     ui/font_editor_context.cpp
     ui/ui_editor_context.cpp
+    ui/ui_preview_data.cpp
     ui/vfx_editor_context.cpp
     ui/inspectors/animation_inspectors.cpp
     ui/inspectors/asset_rows.cpp
@@ -379,6 +380,7 @@ add_executable(fjell
     ui/inspectors/physics_inspectors.cpp
     ui/inspectors/rendering_inspectors.cpp
     ui/inspectors/script_fields.cpp
+    ui/inspectors/model_fields.cpp
     ui/inspectors/spline_inspectors.cpp
     ui/kit/asset_header.cpp
     ui/kit/asset_kind.cpp
@@ -445,6 +447,7 @@ add_executable(fjell
     ui/game_ui/ui_watcher.cpp
     ui/game_ui/widget_resolver.cpp
     ui/game_ui/ui_subsystem.cpp
+    ui/game_ui/game_model_world.cpp
     ui/game_ui/ui_widget_context.cpp
     ui/game_ui/ui_widget_models.cpp
     ui/game_ui/ui_widget_component_meta.cpp

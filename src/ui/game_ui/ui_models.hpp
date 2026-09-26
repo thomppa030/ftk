@@ -15,6 +15,7 @@ namespace fjell {
 class Scene;
 class UiContext;
 struct OwnedFieldDesc;
+struct UiNode;
 
 /// A script component type as a Model reads it.
 struct UiComponentType {
@@ -60,6 +61,12 @@ public:
     void add(const ModelDecl& decl, UiContext& scope, uint32_t placed = 0);
     /// The Models bound into `scope` go: its widget is being removed.
     void remove(const UiContext& scope);
+    /// Every placed widget's Models in `subtree`, each into the scope
+    /// WidgetResolver made for it. Repeats below it are left out: each is
+    /// added when it is stamped. `subtree` may be such a repeat.
+    void add_widgets(UiNode& subtree);
+    /// The Models of every widget in `subtree` go: it is being removed.
+    void remove_widgets(const UiNode& subtree);
     void clear();
     [[nodiscard]] bool empty() const { return entries_.empty(); }
 
@@ -79,6 +86,15 @@ public:
     /// null while there is none, and, reported once, when the Model is not
     /// of `type` or the widget declares no Model `name`.
     [[nodiscard]] const void* component(const UiContext& scope, std::string_view name, std::string_view type);
+
+    /// Where a Model reads now, found as bind() would find it: the node and
+    /// its component, or nothing while there is none. For the editor, which
+    /// names the node and shows the component's values.
+    struct Reading {
+        uint32_t node{0};
+        const void* component{nullptr};
+    };
+    [[nodiscard]] Reading reading(const UiContext& scope, std::string_view name);
 
     /// How many times a Model has walked the scene, for tests and profiling.
     [[nodiscard]] uint64_t searches() const { return searches_; }

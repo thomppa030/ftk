@@ -26,7 +26,9 @@ class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
+class Scene;
 class ScriptManager;
+class UiPreviewData;
 class VulkanContext;
 struct UiNode;
 
@@ -39,11 +41,13 @@ struct UiEditorDeps {
     IconCache* icon_cache;
     ScriptManager* script_manager; // for looking up UiComponent types
     const WidgetChecks* widget_checks; // the project's widgets against the game as built
+    const Scene* scene;                // where the preview's Models find their components
 };
 
 class UiEditorContext final : public EditorContext {
 public:
     explicit UiEditorContext(UiEditorDeps deps);
+    ~UiEditorContext() override;
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] const char* context_type() const override { return "ui"; }
@@ -88,9 +92,8 @@ private:
     void check_widget_files();
     void draw_style_editor(UiNode& node);
     void draw_node_material_editor(UiNode& node);
-    void draw_mock_data();
-    void draw_mock_values();
-    void draw_action_bindings();
+    /// The Data panel: what the preview reads in place of a game.
+    void draw_data();
     void draw_action_log();
 
     // Style editor helpers: read the explicit value for `property` from
@@ -183,30 +186,21 @@ private:
     // Elapsed time for action log timestamps
     float elapsed_time_{0.0f};
 
-    // Mock data: user-editable key/value pairs
-    std::vector<std::pair<std::string, std::string>> mock_entries_;
-
-    // Action bindings: action name → (key, value) to set on dispatch
-    struct ActionBinding {
-        std::string action;
-        std::string key;
-        std::string value;
-    };
-    std::vector<ActionBinding> action_bindings_;
-    std::vector<std::string> discovered_actions_; // scanned from on:click attributes
-    int open_binding_{-1};      // the binding card showing its fields
-
-    // The key the mock data's prompt dialog asks for.
-    std::string prompt_text_;
+    // What the preview reads where a game would feed it, built from the game
+    // module; the module going away takes it along, and the preview is
+    // opened again from the module that replaces it.
+    std::unique_ptr<UiPreviewData> preview_data_;
+    Connection library_unloading_;
+    bool reopen_{false};
 
     // What the widget check found in the open file and the widgets it
     // places, and against which build of the game.
     std::vector<WidgetProblem> widget_problems_;
     uint32_t widget_checks_revision_{0};
 
-    // Widget isolation: true when editing a file from widgets/ directory
+    // The open file is a .fjwidget, or sits in a widgets/ folder: it is saved
+    // with a widget's header.
     bool is_widget_file_{false};
-    std::vector<std::string> discovered_props_; // {key} templates found in the widget
 
     // Preview resolution
     float preview_width_{800.0f};

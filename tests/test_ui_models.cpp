@@ -6,6 +6,7 @@
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_models.hpp"
+#include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -274,6 +275,61 @@ TEST_CASE("A placement's pick is read over the rule, and a Controller's bind ove
     models.bind();
     REQUIRE_FALSE(scope.evaluate("target").truthy());
     REQUIRE(models.searches() == 0);
+}
+
+TEST_CASE("Where a Model reads is told by node and component", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t player = spawn(scene, "player", 80.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("player", ModelSource::local), scope);
+    models.add(model("mana", ModelSource::local, "Mana"), scope);
+
+    const auto found = models.reading(scope, "player");
+    REQUIRE(found.node == player);
+    REQUIRE(found.component == static_cast<const void*>(scene.find(player)->scripts.front().instance.get()));
+    REQUIRE(models.reading(scope, "mana").node == 0); // the game has no Mana
+    REQUIRE(models.reading(scope, "nothing").component == nullptr);
+}
+
+TEST_CASE("A tree's widgets bring their Models, a repeat's once it is stamped", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    (void)spawn(scene, "player", 50.0f);
+    auto widget_node = [] {
+        auto node = std::make_unique<UiNode>();
+        node->is_widget = true;
+        node->scoped_context = std::make_unique<UiContext>();
+        node->widget_models = {model("player", ModelSource::local)};
+        return node;
+    };
+    UiNode root;
+    root.children.push_back(widget_node());
+    auto repeat = std::make_unique<UiNode>();
+    repeat->foreach_item_index = 0;
+    repeat->children.push_back(widget_node());
+    root.children.push_back(std::move(repeat));
+    UiContext& placed = *root.children[0]->scoped_context;
+    UiNode& stamped = *root.children[1];
+    UiContext& repeated = *stamped.children[0]->scoped_context;
+
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add_widgets(root);
+    models.bind();
+    REQUIRE(placed.lookup("player.hp") == UiValue(50.0f));
+    REQUIRE(models.reading(repeated, "player").component == nullptr); // left to its stamping
+
+    models.add_widgets(stamped);
+    models.bind();
+    REQUIRE(repeated.lookup("player.hp") == UiValue(50.0f));
+
+    models.remove_widgets(stamped);
+    REQUIRE(models.reading(repeated, "player").component == nullptr);
+    REQUIRE(models.reading(placed, "player").component != nullptr);
 }
 
 TEST_CASE("Only a Model the widget declares can be bound", "[ui_models]") {

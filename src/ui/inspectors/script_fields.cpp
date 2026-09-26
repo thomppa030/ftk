@@ -31,10 +31,7 @@
 
 namespace fjell {
 
-namespace {
-
-// "move_speed" reads "Move speed", in the sentence case every label uses.
-std::string label_of(const std::string& name) {
+std::string field_label(const std::string& name) {
     std::string label;
     label.reserve(name.size());
     for (char c : name) label += c == '_' ? ' ' : c;
@@ -43,6 +40,8 @@ std::string label_of(const std::string& name) {
     }
     return label;
 }
+
+namespace {
 
 // A value copied into the kit's vector type and written back when edited:
 // the field is plain floats in the script.
@@ -111,7 +110,9 @@ ui::Edit draw_node_ref(WeakRefData& ref, const Scene* scene) {
     return {true, true};
 }
 
-ui::Edit draw_field(const OwnedFieldDesc& f, void* ptr, const InspectorContext& ctx, const Scene* scene) {
+} // namespace
+
+ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorContext& ctx, const Scene* scene) {
     const float speed = f.speed > 0.0f ? f.speed : 0.1f;
     const ui::DragSpec spec{.speed = speed, .min = f.min, .max = f.max};
     switch (f.type) {
@@ -182,8 +183,6 @@ ui::Edit draw_field(const OwnedFieldDesc& f, void* ptr, const InspectorContext& 
     return {};
 }
 
-} // namespace
-
 ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* instance,
                             const InspectorContext& ctx, const Scene* scene) {
     auto* base = static_cast<uint8_t*>(instance);
@@ -206,12 +205,12 @@ ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* ins
         }
         if (!open || !table || !*table) continue;
 
-        const std::string label = label_of(f.name);
+        const std::string label = field_label(f.name);
         ImGui::PushID(static_cast<int>(i));
         ui::row(label.c_str(), f.tooltip.empty() ? nullptr : f.tooltip.c_str(), [&] {
             // Runtime state is shown, never edited: the game writes it.
             ImGui::BeginDisabled(f.readonly || f.is_state());
-            edit |= draw_field(f, base + f.offset, ctx, scene);
+            edit |= draw_script_field(f, base + f.offset, ctx, scene);
             ImGui::EndDisabled();
         });
         ImGui::PopID();

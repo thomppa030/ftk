@@ -1,4 +1,6 @@
 #include "ui/ui_editor_context.hpp"
+#include "ui/ui_preview_data.hpp"
+#include "scene/component_meta.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/fjss_loader.hpp"
@@ -55,26 +57,15 @@
 
 namespace fjell {
 
-namespace {
-
-/// A mock value as the widget's markup will see it: as the type its <prop>
-/// declares, or text for a key no prop declares.
-UiValue mock_value(const WidgetAsset& widget, const std::string& key, const std::string& text) {
-    for (const auto& prop : widget.props) {
-        if (prop.name == key) return UiValue::parse(text, prop.type);
-    }
-    return UiValue(text);
-}
-
-} // namespace
-
 namespace fs = std::filesystem;
 
 UiEditorContext::UiEditorContext(UiEditorDeps deps)
     : deps_{deps} {}
 
+UiEditorContext::~UiEditorContext() = default;
+
 EditorContext::DockPreset UiEditorContext::dock_preset() const {
-    return {.tree = {"Elements"}, .preview = {"Preview"}, .under_preview = {"Action log"}, .inspector = {"Properties", "Mock data"}};
+    return {.tree = {"Elements"}, .preview = {"Preview"}, .under_preview = {"Action log"}, .inspector = {"Properties", "Data"}};
 }
 
 void UiEditorContext::init() {
@@ -82,11 +73,22 @@ void UiEditorContext::init() {
 
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
+
+    // What the preview built from the game module goes before the module
+    // does; the preview opens again once the new one is in.
+    if (deps_.script_manager != nullptr) {
+        library_unloading_ = deps_.script_manager->on_unloading.bind([this] {
+            if (preview_data_) preview_data_->release();
+            reopen_ = true;
+        });
+    }
 }
 
 void UiEditorContext::shutdown() {
     // Clear preview callback before destroying resources
     deps_.vulkan_context->set_ui_preview_callback(nullptr);
+    library_unloading_.disconnect();
+    preview_data_.reset();
 
     // Clear the UiContext's action delegates before disconnecting connections.
     if (preview_ui_) {
@@ -173,10 +175,15 @@ void UiEditorContext::draw(float dt) {
     // A source file changed on disk: rebuild the preview from the files.
     // Inspector edits live only in the in-memory stylesheet and do not
     // survive this, and the history's commands point into the old tree.
-    if (preview_ui_ && preview_ui_->consume_reload_request()) {
+    // A source file changed on disk, or the game module was replaced:
+    // rebuild the preview from the files.
+    if (preview_ui_ && (preview_ui_->consume_reload_request() || reopen_)) {
+        reopen_ = false;
         command_history().clear();
         open_ui(fjui_path_);
     }
+    // The scene moves on its own while it plays; the preview reads it now.
+    if (preview_ui_ && preview_data_) preview_data_->bind(*preview_ui_);
     // The game was built again: what the widgets name may have changed.
     if (deps_.widget_checks != nullptr && deps_.widget_checks->revision() != widget_checks_revision_) {
         check_widget_files();
@@ -185,7 +192,7 @@ void UiEditorContext::draw(float dt) {
     draw_preview(dt);
     draw_element_tree();
     draw_inspector();
-    draw_mock_data();
+    draw_data();
     draw_action_log();
 
     draw_shared_panels(dt);
@@ -246,6 +253,15 @@ void UiEditorContext::open_ui(const std::string& path) {
     // Initialize preview GameUi if needed
     if (!preview_ui_) {
         preview_ui_ = std::make_unique<GameUi>();
+        preview_data_ = std::make_unique<UiPreviewData>(*deps_.script_manager, deps_.scene);
+        // A repeat stamped or removed brings or takes the Models of the
+        // widgets in it; set before the first load, which can stamp some.
+        preview_ui_->set_repeat_hooks(
+            [this](UiNode& repeat) {
+                preview_ui_->models().add_widgets(repeat);
+                preview_ui_->models().bind();
+            },
+            [this](UiNode& repeat) { preview_ui_->models().remove_widgets(repeat); });
         if (deps_.script_manager != nullptr) {
             preview_ui_->pipes().set_game_pipes(&deps_.script_manager->reflected_types());
         }
@@ -289,23 +305,13 @@ void UiEditorContext::open_ui(const std::string& path) {
             });
     }
 
-    // Declared props become mock entries, keeping any value the user already
-    // typed for them
-    for (const auto& prop : loaded_widget_.props) {
-        bool exists = false;
-        for (const auto& [k, v] : mock_entries_) {
-            if (k == prop.name) { exists = true; break; }
-        }
-        if (!exists) {
-            mock_entries_.emplace_back(prop.name, prop.default_value);
-        }
-    }
-
-    // Mock data goes in before the load: material="{prop}" attributes are
-    // resolved once, while loading, against whatever the context holds then
-    for (const auto& [key, value] : mock_entries_) {
-        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
-    }
+    // What the preview reads goes in before the load: material="{prop}"
+    // attributes are resolved once, while loading, against whatever the
+    // context holds then. Models are found once the tree is there.
+    preview_ui_->models().clear();
+    const WidgetAsset no_widget;
+    preview_data_->set_widget(is_widget_file ? loaded_widget_ : no_widget, abs_path, deps_.project_mgr->active());
+    preview_data_->fill(preview_ui_->context());
 
     // Load the UI — either from inline markup tree or from .fjui file
     if (is_widget_file && loaded_widget_.markup_root) {
@@ -316,119 +322,26 @@ void UiEditorContext::open_ui(const std::string& path) {
         preview_ui_->load(abs_path, fjss_path_);
     }
 
-    // The preview has no controllers, so it answers every action at its
-    // root: it logs it and applies the bindings set up for it.
+    preview_data_->attach(*preview_ui_);
+
+    // The preview runs no controller, so it answers every action at its
+    // root: it logs it, with the arguments a controller would be given.
     action_log_.clear();
-    preview_ui_->context().set_action_handler([this](std::string_view action, std::span<const UiValue>) {
-        action_log_.push_back({std::string(action), elapsed_time_});
-        for (const auto& bind : action_bindings_) {
-            if (bind.action == action) {
-                preview_ui_->context().set(bind.key, bind.value);
-                preview_ui_->mark_dirty();
-            }
+    preview_ui_->context().set_action_handler([this](std::string_view action, std::span<const UiValue> args) {
+        std::string call(action);
+        if (!args.empty()) {
+            call += '(';
+            for (std::size_t i = 0; i < args.size(); ++i) call += (i > 0 ? ", " : "") + args[i].text();
+            call += ')';
         }
+        action_log_.push_back({std::move(call), elapsed_time_});
         return true;
     });
-    auto* root = preview_ui_->root();
-    if (root) {
-        // Collect action names and auto-generate bindings from class:name="key==value"
-        discovered_actions_.clear();
-        auto& action_names = discovered_actions_;
-        std::function<void(UiNode*)> collect_actions = [&](UiNode* node) {
-            auto click_it = node->attributes.find("on:click");
-            if (click_it != node->attributes.end() && !click_it->second.empty()) {
-                const auto& action = click_it->second;
-                action_names.push_back(action);
 
-                // Auto-bind: if same node has class:X="key==value", infer action → set key=value
-                for (const auto& [attr, condition] : node->attributes) {
-                    if (attr.starts_with("class:")) {
-                        auto eq = condition.find("==");
-                        if (eq != std::string::npos) {
-                            std::string key = condition.substr(0, eq);
-                            std::string value = condition.substr(eq + 2);
-                            // Only add if not already manually bound
-                            bool exists = false;
-                            for (const auto& b : action_bindings_) {
-                                if (b.action == action && b.key == key) {
-                                    exists = true;
-                                    break;
-                                }
-                            }
-                            if (!exists) {
-                                action_bindings_.push_back({action, key, value});
-                            }
-                        }
-                    }
-                }
-            }
-            for (auto& child : node->children) {
-                collect_actions(child.get());
-            }
-        };
-        collect_actions(root);
-    }
-
-    // Detect widget isolation mode
+    // A widget's file keeps its header when saved.
     is_widget_file_ = is_widget_file ||
                       fjui_path_.find("/widgets/") != std::string::npos ||
                       fjui_path_.find("\\widgets\\") != std::string::npos;
-
-
-    // Auto-discover {key} prop templates in the widget
-    discovered_props_.clear();
-    if (is_widget_file_ && root) {
-        std::function<void(const UiNode*)> collect_props = [&](const UiNode* n) {
-            // Scan text templates
-            if (!n->text_template.empty()) {
-                size_t pos = 0;
-                while (pos < n->text_template.size()) {
-                    auto open = n->text_template.find('{', pos);
-                    if (open == std::string::npos) break;
-                    auto close = n->text_template.find('}', open + 1);
-                    if (close == std::string::npos) break;
-                    auto key = n->text_template.substr(open + 1, close - open - 1);
-                    if (std::find(discovered_props_.begin(), discovered_props_.end(), key)
-                        == discovered_props_.end()) {
-                        discovered_props_.push_back(key);
-                    }
-                    pos = close + 1;
-                }
-            }
-            // Scan value/max attributes on bar elements
-            for (const auto& [attr, val] : n->attributes) {
-                if (val.find('{') == std::string::npos) continue;
-                size_t pos = 0;
-                while (pos < val.size()) {
-                    auto open = val.find('{', pos);
-                    if (open == std::string::npos) break;
-                    auto close = val.find('}', open + 1);
-                    if (close == std::string::npos) break;
-                    auto key = val.substr(open + 1, close - open - 1);
-                    if (std::find(discovered_props_.begin(), discovered_props_.end(), key)
-                        == discovered_props_.end()) {
-                        discovered_props_.push_back(key);
-                    }
-                    pos = close + 1;
-                }
-            }
-            for (const auto& child : n->children) {
-                collect_props(child.get());
-            }
-        };
-        collect_props(root);
-
-        // Auto-create mock entries for discovered props that don't exist yet
-        for (const auto& prop : discovered_props_) {
-            bool exists = false;
-            for (const auto& [k, v] : mock_entries_) {
-                if (k == prop) { exists = true; break; }
-            }
-            if (!exists) {
-                mock_entries_.emplace_back(prop, "");
-            }
-        }
-    }
 
     selected_node_ = nullptr;
     check_widget_files();
@@ -462,11 +375,6 @@ void UiEditorContext::draw_preview(float dt) {
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x < 1.0f || avail.y < 1.0f) return;
-
-    // Re-apply mock data each frame (ensures values persist after hot-reload)
-    for (const auto& [key, value] : mock_entries_) {
-        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
-    }
 
     // Update the preview UI (layout, data bind, input in play mode)
     const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
@@ -1242,155 +1150,17 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
 
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
-void UiEditorContext::draw_mock_data() {
-    auto panel = ui::Panel(ui::icon::ui_widget, ctx_title("Mock data").c_str());
+void UiEditorContext::draw_data() {
+    auto panel = ui::Panel(ui::icon::ui_models, ctx_title("Data").c_str());
     if (!panel) return;
-    if (!preview_ui_ || !preview_ui_->loaded()) {
+    if (!preview_ui_ || !preview_ui_->loaded() || !preview_data_) {
         ui::empty_state(ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
         return;
     }
-
-    // What the values stand in for: a widget's props, or the keys a plain
-    // UI binds.
-    if (auto t = ui::PropertyTable("##mock_source")) {
-        const char* source = !is_widget_file_ ? "{key} bindings"
-                           : !loaded_widget_.props.empty() ? "The widget's <prop> declarations"
-                                                           : "The widget's {key} templates";
-        ui::row("Values for", "The preview's stand-in for what the game sets through UiContext.",
-                [&] { ui::readout(source); });
-    }
-
-    draw_mock_values();
-    draw_action_bindings();
-
-    if (ui::prompt_dialog("##mock_prompt", {.title = "New value", .hint = "Its key, e.g. health", .confirm = "Add"},
-                          prompt_text_) == ui::DialogAnswer::Confirm) {
-        mock_entries_.emplace_back(prompt_text_, "");
-        preview_ui_->context().set(prompt_text_, "");
-        preview_ui_->mark_dirty();
-    }
-}
-
-void UiEditorContext::draw_mock_values() {
-    ui::section("Values", ui::icon::ui_text);
-    std::optional<std::size_t> remove;
-    bool add = false;
-    {
-        ui::ListEditor list("##values", mock_entries_.size(), {.reorder = false});
-        for (std::size_t i = 0; i < mock_entries_.size(); ++i) {
-            if (!list.begin_item(i)) continue;
-            auto& [key, value] = mock_entries_[i];
-            // A declared prop is edited as its type.
-            std::string type;
-            for (const auto& prop : loaded_widget_.props) {
-                if (prop.name == key) { type = prop.type; break; }
-            }
-            if (auto t = ui::PropertyTable("##value")) {
-                ui::row(key.c_str(), [&] {
-                    bool changed = false;
-                    if (type == "float") {
-                        float f = 0.0f;
-                        try { f = std::stof(value); } catch (...) {}
-                        if (ui::drag("##float", f).changed) {
-                            value = UiValue(f).text(); // reads back as exactly f
-                            preview_ui_->context().set(key, UiValue(f));
-                            changed = true;
-                        }
-                    } else if (type == "int") {
-                        int n = 0;
-                        try { n = std::stoi(value); } catch (...) {}
-                        if (ui::drag_int("##int", n).changed) {
-                            value = std::to_string(n);
-                            preview_ui_->context().set(key, UiValue(n));
-                            changed = true;
-                        }
-                    } else if (type == "bool") {
-                        bool b = value != "0" && value != "false";
-                        if (ui::checkbox("##bool", b).changed) {
-                            value = b ? "1" : "0";
-                            preview_ui_->context().set(key, UiValue(b));
-                            changed = true;
-                        }
-                    } else if (ui::text_field("##text", value).committed) {
-                        preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
-                        changed = true;
-                    }
-                    if (changed) preview_ui_->mark_dirty();
-                });
-            }
-            if (list.end_item()) remove = i;
-        }
-        if (mock_entries_.empty()) list.empty("No values: add one for each {key} the UI binds");
-        add = list.add_button("Add value");
-    }
-    if (add) {
-        prompt_text_.clear();
-        ui::open_dialog("##mock_prompt");
-    }
-    if (remove) {
-        mock_entries_.erase(mock_entries_.begin() + static_cast<std::ptrdiff_t>(*remove));
-        // Reload the UI to clear the removed binding
-        if (!fjui_path_.empty()) {
-            auto abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
-            preview_ui_->load(abs_path, fjss_path_);
-            for (const auto& [key, value] : mock_entries_) {
-                preview_ui_->context().set(key, mock_value(loaded_widget_, key, value));
-            }
-        }
-    }
-}
-
-void UiEditorContext::draw_action_bindings() {
-    ui::section("Action bindings", ui::icon::scripts);
-    if (discovered_actions_.empty()) {
-        ui::hint("No on:click actions in this UI to answer");
-        return;
-    }
-    // What the preview does when an action fires, standing in for the
-    // controller: set a key to a value.
-    std::optional<std::size_t> remove;
-    bool add = false;
-    {
-        ui::ListEditor list("##bindings", action_bindings_.size(), {.reorder = false, .opens = true});
-        for (std::size_t i = 0; i < action_bindings_.size(); ++i) {
-            auto& b = action_bindings_[i];
-            const bool open = open_binding_ == static_cast<int>(i);
-            if (!list.begin_item(i, open)) continue;
-            if (open) {
-                if (auto t = ui::PropertyTable("##binding")) {
-                    ui::row("When", "The on:click action that fires it.", [&] {
-                        std::vector<const char*> names;
-                        int index = 0;
-                        for (std::size_t a = 0; a < discovered_actions_.size(); ++a) {
-                            names.push_back(discovered_actions_[a].c_str());
-                            if (discovered_actions_[a] == b.action) index = static_cast<int>(a);
-                        }
-                        if (ui::choice("##action", index, names).changed) {
-                            b.action = discovered_actions_[static_cast<std::size_t>(index)];
-                        }
-                    });
-                    ui::row("Set", [&] { (void)ui::text_field("##key", b.key); });
-                    ui::row("To", [&] { (void)ui::text_field("##value", b.value); });
-                }
-            } else {
-                const std::string summary = b.action + "  \xe2\x86\x92  " + (b.key.empty() ? "?" : b.key) + " = " + b.value;
-                ImGui::TextUnformatted(summary.c_str());
-            }
-            if (list.end_item()) remove = i;
-            if (list.clicked()) open_binding_ = open ? -1 : static_cast<int>(i);
-        }
-        if (action_bindings_.empty()) list.empty("No bindings: the preview's actions change nothing yet");
-        add = list.add_button("Add binding");
-    }
-    if (add) {
-        action_bindings_.push_back({discovered_actions_.front(), {}, {}});
-        open_binding_ = static_cast<int>(action_bindings_.size()) - 1;
-    }
-    if (remove) {
-        action_bindings_.erase(action_bindings_.begin() + static_cast<std::ptrdiff_t>(*remove));
-        if (open_binding_ == static_cast<int>(*remove)) open_binding_ = -1;
-        else if (open_binding_ > static_cast<int>(*remove)) --open_binding_;
-    }
+    const InspectorContext ctx{.resource_manager = deps_.resource_manager,
+                               .project_mgr = deps_.project_mgr,
+                               .icons = deps_.icon_cache};
+    preview_data_->draw(*preview_ui_, ctx);
 }
 
 // ── Action Log Panel ─────────────────────────────────────────────────────

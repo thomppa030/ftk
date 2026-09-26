@@ -4,6 +4,7 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/ui_node.hpp"
 
 #include <algorithm>
 
@@ -37,6 +38,25 @@ void UiModels::add(const ModelDecl& decl, UiContext& scope, uint32_t placed) {
 
 void UiModels::remove(const UiContext& scope) {
     std::erase_if(entries_, [&](const Entry& entry) { return entry.scope == &scope; });
+}
+
+void UiModels::add_widgets(UiNode& subtree) {
+    auto walk = [&](auto& self, UiNode& node, bool first) -> void {
+        if (!first && (node.is_foreach_template || node.foreach_item_index >= 0)) return;
+        if (node.is_widget && node.scoped_context) {
+            for (const auto& model : node.widget_models) add(model, *node.scoped_context);
+        }
+        for (auto& child : node.children) self(self, *child, false);
+    };
+    walk(walk, subtree, true);
+}
+
+void UiModels::remove_widgets(const UiNode& subtree) {
+    auto walk = [&](auto& self, const UiNode& node) -> void {
+        if (node.scoped_context) remove(*node.scoped_context);
+        for (const auto& child : node.children) self(self, *child);
+    };
+    walk(walk, subtree);
 }
 
 void UiModels::clear() {
@@ -87,6 +107,18 @@ const void* UiModels::component(const UiContext& scope, std::string_view name, s
     }
     if (scene_ == nullptr || world_ == nullptr) return nullptr;
     return resolve(*entry);
+}
+
+UiModels::Reading UiModels::reading(const UiContext& scope, std::string_view name) {
+    Entry* entry = find(scope, name);
+    if (entry == nullptr || scene_ == nullptr || world_ == nullptr) return {};
+    const void* component = resolve(*entry);
+    if (component == nullptr) return {};
+    const uint32_t node = entry->bound != 0                      ? entry->bound
+                        : entry->placed != 0                     ? entry->placed
+                        : entry->decl.from == ModelSource::self ? self_node_
+                                                                 : entry->node;
+    return {node, component};
 }
 
 UiModels::Entry* UiModels::find(const UiContext& scope, std::string_view name) {

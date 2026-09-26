@@ -731,6 +731,7 @@ void Engine::init_editor() {
                 .icon_cache = icon_cache_.get(),
                 .script_manager = &script_subsystem_->manager(),
                 .widget_checks = &widget_checks_,
+                .scene = &scene_,
             };
             auto ctx = std::make_unique<UiEditorContext>(deps);
             ctx->init();

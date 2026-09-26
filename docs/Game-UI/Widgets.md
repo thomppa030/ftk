@@ -173,6 +173,28 @@ The UI editor opens a `.fjwidget` directly and previews it at the design
 resolution. Ctrl+S writes the header, the `<prop>` and `<model>` lines and the markup back, and
 the sheet next to it.
 
+## Previewing with data
+
+The preview is fed the way the game will feed it, from the **Data** panel beside
+Properties. Nothing there is saved; it lasts while the editor has the widget open,
+and survives an edit to the file for every name still declared the same way.
+
+- **A component Model**, and a prop typed as a component, is read from the open
+  scene: by its `from` rule, or from a node picked in its Reads field. A `self`
+  Model reads the node whose UI Widget component places this widget; a component
+  prop starts on the local player's node. Its values are shown and not edited
+  (they are the scene's), and while the scene plays they move with the game.
+- **A controller's Model** (`[[fj::model]]`), and a prop typed as a struct, is built
+  from its type's defaults and edited in place: numbers, text, and lists, whose
+  entries are added, removed and dragged into order. Reset puts it back to the
+  defaults. The preview runs no controller, so nothing fills it but you.
+- **A value prop** starts from its `default=`.
+
+The preview answers every action itself: the Action log lists each one with the
+arguments a controller would be given, and nothing else happens. Build & Reload
+builds the Models again from the new build's defaults, since their layout may have
+changed.
+
 ## Checking
 
 A widget is checked against what its game declares, as fjreflect writes it to
