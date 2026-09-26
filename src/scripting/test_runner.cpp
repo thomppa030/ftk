@@ -67,7 +67,9 @@ TestHandle TestHandle::find(Scene& scene, const ScriptManager& scripts) {
             if (!comp.instance) continue;
             const auto* type = scripts.find_script_type(comp.type_name);
             if (type == nullptr || !type->is_functional_test) continue;
-            handle.instance_ = comp.instance.get();
+            handle.scene_ = &scene;
+            handle.node_id_ = obj->id;
+            handle.type_id_ = comp.instance.type_id();
             handle.type_name_ = comp.type_name;
             return handle;
         }
@@ -75,25 +77,56 @@ TestHandle TestHandle::find(Scene& scene, const ScriptManager& scripts) {
     return handle;
 }
 
-bool TestHandle::is_ready() const { return as_test(instance_)->is_ready(); }
-void TestHandle::start_test() const { as_test(instance_)->begin_test(); }
-void TestHandle::cleanup_test() const { as_test(instance_)->cleanup_test(); }
-bool TestHandle::finished() const { return as_test(instance_)->finished(); }
+void* TestHandle::instance() const {
+    Node* node = scene_ != nullptr ? scene_->find(node_id_) : nullptr;
+    if (node == nullptr) return nullptr;
+    for (const auto& entry : node->scripts) {
+        if (entry.instance && entry.instance.type_id() == type_id_) return entry.instance.get();
+    }
+    return nullptr;
+}
+
+bool TestHandle::is_ready() const {
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr && test->is_ready();
+}
+
+void TestHandle::start_test() const {
+    if (FunctionalTest* test = as_test(instance())) test->begin_test();
+}
+
+void TestHandle::cleanup_test() const {
+    if (FunctionalTest* test = as_test(instance())) test->cleanup_test();
+}
+
+bool TestHandle::finished() const {
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr && test->finished();
+}
 
 bool TestHandle::passed() const {
-    return as_test(instance_)->test_result() == TestResult::passed;
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr && test->test_result() == TestResult::passed;
 }
 
-std::string TestHandle::message() const { return as_test(instance_)->test_message(); }
+std::string TestHandle::message() const {
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr ? test->test_message() : std::string{};
+}
 
 std::vector<std::string> TestHandle::failures() const {
-    return as_test(instance_)->failures();
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr ? test->failures() : std::vector<std::string>{};
 }
 
-float TestHandle::time_limit() const { return as_test(instance_)->time_limit; }
+float TestHandle::time_limit() const {
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr ? test->time_limit : 0.0f;
+}
 
 float TestHandle::preparation_time_limit() const {
-    return as_test(instance_)->preparation_time_limit;
+    FunctionalTest* test = as_test(instance());
+    return test != nullptr ? test->preparation_time_limit : 0.0f;
 }
 
 std::string format_report(const std::vector<TestReport>& reports) {

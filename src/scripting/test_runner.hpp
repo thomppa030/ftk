@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "scene/component_type.hpp"
 
 #include <cstdint>
 #include <string>
@@ -43,17 +44,23 @@ struct TestReport {
 [[nodiscard]] Result<std::vector<std::string>> discover_test_scenes(
     const std::string& project_root, const std::string& filter = {});
 
-/// Drives one FunctionalTest through its lifecycle. Holds the instance as an
-/// opaque pointer so only this translation unit needs the SDK header — the
-/// cast is sound because `find()` accepts an instance only when its registered
-/// type carries `is_functional_test`.
+/// Drives one FunctionalTest through its lifecycle. It finds the test again
+/// by its node and type at every call rather than holding on to it, so a test
+/// whose node is destroyed or whose script is taken off reads as gone()
+/// instead of being called into. Only this translation unit needs the SDK
+/// header: `find()` accepts a script only when its registered type carries
+/// `is_functional_test`, which makes the cast to FunctionalTest sound.
 class TestHandle {
 public:
     /// The FunctionalTest in a loaded scene, or an empty handle if it has
     /// none. The first one found wins; a fixture holds one test.
     [[nodiscard]] static TestHandle find(Scene& scene, const ScriptManager& scripts);
 
-    [[nodiscard]] bool valid() const { return instance_ != nullptr; }
+    /// Whether the scene had a test.
+    [[nodiscard]] bool valid() const { return scene_ != nullptr; }
+    /// Whether the test was found and is gone since. Every other call on a
+    /// gone test does nothing and answers false, empty or 0.
+    [[nodiscard]] bool gone() const { return valid() && instance() == nullptr; }
     [[nodiscard]] const std::string& type_name() const { return type_name_; }
 
     [[nodiscard]] bool is_ready() const;
@@ -73,7 +80,12 @@ public:
     [[nodiscard]] float preparation_time_limit() const;
 
 private:
-    void* instance_{nullptr};
+    /// The test's script, or null once it is gone.
+    [[nodiscard]] void* instance() const;
+
+    Scene* scene_{nullptr};
+    uint32_t node_id_{0};
+    ComponentTypeId type_id_{0};
     std::string type_name_;
 };
 

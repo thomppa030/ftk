@@ -137,6 +137,8 @@ assert_equal(door->angle, 90.0f, "the door swung fully open", 0.5f);
 
 A test ends when it calls `finish_test()` or runs out of time. A test that
 failed an assertion **cannot then pass**, whatever it passes to `finish_test`.
+A test whose own node is destroyed before it finishes fails there and then;
+its checks went with it.
 
 ### Time limits
 

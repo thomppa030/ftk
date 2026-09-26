@@ -2049,6 +2049,10 @@ void Engine::tick_test_runner() {
         }
 
         case TestPhase::prepare: {
+            if (test_.gone()) {
+                finish_current_test(TestOutcome::failed, "the test's node was destroyed");
+                return;
+            }
             // start_test_on_step() starts it; this only times the wait.
             test_elapsed_ += clock_.delta_time();
             if (test_.preparation_time_limit() > 0.0f
@@ -2063,6 +2067,11 @@ void Engine::tick_test_runner() {
             // events have dispatched, so a verdict reached this frame is
             // visible now rather than a frame late.
             test_elapsed_ += clock_.delta_time();
+            if (test_.gone()) {
+                finish_current_test(TestOutcome::failed,
+                                    "the test's node was destroyed before it finished");
+                return;
+            }
             if (test_.finished()) {
                 finish_current_test(
                     test_.passed() ? TestOutcome::passed : TestOutcome::failed, {});
