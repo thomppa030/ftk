@@ -1,6 +1,7 @@
 #include "core/engine.hpp"
 #include "core/log.hpp"
 #include "environment/environment_overrides.hpp"
+#include "ui/console.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -43,6 +44,7 @@ static std::string safe_what(const std::exception& e) {
 
 int main(int argc, char* argv[]) {
     fjell::log::init();
+    fjell::attach_console();
 
     std::filesystem::path project_path;
     bool play_immediate = false;

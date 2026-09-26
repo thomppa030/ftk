@@ -19,7 +19,7 @@ void EditorContext::draw_shared_panels(float dt) {
 
     stats_panel_.draw(dt, stats_title.c_str());
     history_panel_.draw(history_title.c_str());
-    if (auto& sink = log::console_sink(); sink) {
+    if (auto* sink = console_sink()) {
         sink->draw(console_title.c_str());
     }
 }

@@ -1,20 +1,14 @@
-// Minimal log implementation for tests — no ImGui/ConsoleSink dependency.
+// Minimal log implementation for tests: quieter than the engine's, warnings
+// and errors only.
 #include "core/log.hpp"
 
 #include <spdlog/sinks/stdout_color_sinks.h>
-
-#include <vector>
-
-namespace fjell {
-class ConsoleSink;
-}
 
 namespace fjell::log {
 
 static std::shared_ptr<spdlog::logger> s_core;
 static std::shared_ptr<spdlog::logger> s_renderer;
 static std::shared_ptr<spdlog::logger> s_app;
-static std::shared_ptr<ConsoleSink> s_console_sink; // always null in tests
 
 void init() {
     auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -39,6 +33,5 @@ void shutdown() {
 std::shared_ptr<spdlog::logger>& core() { return s_core; }
 std::shared_ptr<spdlog::logger>& renderer() { return s_renderer; }
 std::shared_ptr<spdlog::logger>& app() { return s_app; }
-std::shared_ptr<ConsoleSink>& console_sink() { return s_console_sink; }
 
 } // namespace fjell::log

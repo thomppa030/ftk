@@ -1340,8 +1340,7 @@ void Engine::clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_d
 // Hierarchy and Properties panels extracted to ui/hierarchy_panel.cpp and ui/properties_panel.cpp
 
 void Engine::draw_console() {
-    auto& sink = log::console_sink();
-    if (sink) {
+    if (auto* sink = console_sink()) {
         sink->draw("Console");
     }
 }

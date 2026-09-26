@@ -637,7 +637,6 @@ add_executable(fjell-hub
     core/hub_settings.cpp
     core/log.cpp
     core/window.cpp
-    ui/console.cpp
     ui/kit/asset_kind.cpp
     ui/kit/brand.cpp
     ui/kit/button.cpp

@@ -10,10 +10,6 @@
 
 #include <mutex>
 
-namespace fjell {
-class ConsoleSink;
-}
-
 namespace {
 
 int s_problems = 0;
@@ -40,7 +36,6 @@ namespace fjell::log {
 static std::shared_ptr<spdlog::logger> s_core;
 static std::shared_ptr<spdlog::logger> s_renderer;
 static std::shared_ptr<spdlog::logger> s_app;
-static std::shared_ptr<ConsoleSink> s_console_sink;
 
 void init() {
     auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -64,7 +59,6 @@ void shutdown() {
     s_app.reset();
 }
 
-std::shared_ptr<ConsoleSink>& console_sink() { return s_console_sink; }
 std::shared_ptr<spdlog::logger>& core() { return s_core; }
 std::shared_ptr<spdlog::logger>& renderer() { return s_renderer; }
 std::shared_ptr<spdlog::logger>& app() { return s_app; }
