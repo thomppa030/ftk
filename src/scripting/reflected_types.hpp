@@ -73,6 +73,14 @@ struct OwnedTypeDesc {
     [[nodiscard]] const OwnedFieldDesc* find_field(std::string_view field) const;
 };
 
+/// A UI widget's `[[fj::action]]` method: what markup calls it, what it takes,
+/// and how to call it. `invoke` belongs to the game module, like the rest.
+struct OwnedUiActionDesc {
+    std::string name;
+    FjellUiActionParam param{FJELL_UI_ACTION_NONE};
+    void (*invoke)(void* self, const void* arg){nullptr};
+};
+
 /// A game's formatting pipe, `{value|name:arg}`.
 struct OwnedPipeDesc {
     std::string name;

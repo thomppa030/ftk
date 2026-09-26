@@ -50,11 +50,13 @@ struct PassResources;
 ///   game_ui.load("assets/ui/hud.fjui", "assets/ui/hud.fjss");
 ///
 ///   auto& ctx = game_ui.context();
-///   ctx.set("player.health", "72");
-///   ctx.set("player.max_health", "100");
-///   ctx.set("show_debug", "1");
-///   ctx.set("active_slot", "2");
-///   ctx.bind_action("select_slot_1", [&ctx] { ctx.set("active_slot", "1"); });
+///   ctx.set("health", UiValue(72));
+///   ctx.set("show_debug", UiValue(true));
+///   ctx.set_action_handler([&ctx](std::string_view action, std::span<const UiValue> args) {
+///       if (action != "select_slot" || args.empty()) return false;
+///       ctx.set("active_slot", args[0]);
+///       return true;
+///   });
 ///
 class GameUi {
 public:

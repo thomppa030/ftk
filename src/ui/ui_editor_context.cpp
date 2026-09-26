@@ -92,7 +92,6 @@ void UiEditorContext::shutdown() {
     if (preview_ui_) {
         preview_ui_->context().clear();
     }
-    action_connections_.clear();
     selected_node_ = nullptr;
 
     deps_.vulkan_context->wait_idle();
@@ -312,9 +311,19 @@ void UiEditorContext::open_ui(const std::string& path) {
         preview_ui_->load(abs_path, fjss_path_);
     }
 
-    // Bind action logging — scan tree for on:click attributes and log dispatches
-    action_connections_.clear();
+    // The preview has no controllers, so it answers every action at its
+    // root: it logs it and applies the bindings set up for it.
     action_log_.clear();
+    preview_ui_->context().set_action_handler([this](std::string_view action, std::span<const UiValue>) {
+        action_log_.push_back({std::string(action), elapsed_time_});
+        for (const auto& bind : action_bindings_) {
+            if (bind.action == action) {
+                preview_ui_->context().set(bind.key, bind.value);
+                preview_ui_->mark_dirty();
+            }
+        }
+        return true;
+    });
     auto* root = preview_ui_->root();
     if (root) {
         // Collect action names and auto-generate bindings from class:name="key==value"
@@ -353,21 +362,6 @@ void UiEditorContext::open_ui(const std::string& path) {
             }
         };
         collect_actions(root);
-
-        action_connections_.reserve(action_names.size());
-        for (const auto& action_name : action_names) {
-            action_connections_.push_back(
-                preview_ui_->context().bind_action(action_name,
-                    [this, action_name]() {
-                        action_log_.push_back({action_name, elapsed_time_});
-                        for (const auto& bind : action_bindings_) {
-                            if (bind.action == action_name) {
-                                preview_ui_->context().set(bind.key, bind.value);
-                                preview_ui_->mark_dirty();
-                            }
-                        }
-                    }));
-        }
     }
 
     // Detect widget isolation mode

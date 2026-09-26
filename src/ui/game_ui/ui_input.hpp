@@ -4,6 +4,8 @@
 
 #include <glm/glm.hpp>
 
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -34,7 +36,10 @@ public:
 
 private:
     UiNode* hit_test(UiNode& node, float x, float y);
-    static void dispatch_action(const std::string& expr, UiNode& node, UiContext& context);
+    // Raises `expr` (`name` or `name(args)`) from the node, its arguments read
+    // as values in the scope the node reads. An action nothing answers is
+    // reported once.
+    void dispatch_action(const std::string& expr, UiNode& node, UiContext& context);
     void clear_state(UiNode& node);
 
     UiNode* hovered_node_{nullptr};
@@ -43,6 +48,7 @@ private:
     bool mouse_was_down_{false};
 
     std::vector<UiNode*> dirty_nodes_;
+    std::unordered_set<std::string> unanswered_;
 };
 
 } // namespace fjell

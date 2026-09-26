@@ -185,7 +185,13 @@ struct Step : fjell::AnimNotify {
     // A widget without fields has no table to point at.
     REQUIRE(reg.find("{\"Panel\", nullptr, 0, nullptr, fjreflect_Panel_ui_actions, 1},") != std::string::npos);
     REQUIRE(reg.find("fjreflect_Panel_fields") == std::string::npos);
-    REQUIRE(fjreflect::generate(comps).at("kinds.generated.cpp").find("fjreflect_Panel_fields") ==
+    const std::string kinds = fjreflect::generate(comps).at("kinds.generated.cpp");
+    REQUIRE(kinds.find("fjreflect_Panel_fields") == std::string::npos);
+    // An action is called through a shim inside the friend, so a private
+    // handler works, and its descriptor points at it.
+    REQUIRE(kinds.find("static void action_close(void* self, const void*) { "
+                       "static_cast<Panel*>(self)->close(); }") != std::string::npos);
+    REQUIRE(kinds.find("{\"close\", FJELL_UI_ACTION_NONE, &fjell::FjellAccess<Panel>::action_close},") !=
             std::string::npos);
     // The three lists FJELL_REGISTER() walks, notifies included.
     REQUIRE(reg.find("fjell_auto_reg_head()") != std::string::npos);

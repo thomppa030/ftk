@@ -93,6 +93,8 @@ public:
     [[nodiscard]] const UiObject* object() const { return std::get_if<UiObject>(&value_); }
     /// The list this holds, or null.
     [[nodiscard]] const UiList* list() const { return std::get_if<UiList>(&value_); }
+    /// The vector this holds, or null.
+    [[nodiscard]] const UiVector* vector() const { return std::get_if<UiVector>(&value_); }
 
     /// As markup shows it: `1`/`0` for a bool, the shortest decimal that reads
     /// back as the same float, a vector's components separated by `, `. An

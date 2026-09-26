@@ -1327,7 +1327,6 @@ private:
             if (type.starts_with("fjell::")) type = type.substr(7);
             if (type == "int" || type == "int32_t") {
                 ai.param = ActionParamType::int_param;
-                ai.has_int_param = true;
             } else if (type == "float") {
                 ai.param = ActionParamType::float_param;
             } else if (type == "glm::vec2" || type == "vec2") {

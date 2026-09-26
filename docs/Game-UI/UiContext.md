@@ -13,8 +13,7 @@ ctx.set("ratio", UiValue(0.5f));        // a float: shows "0.5"
 ctx.set("show_debug", UiValue(true));   // a bool: shows "1", true for if=
 std::string hp = ctx.get("player.health");   // as markup shows it; "" when never set
 const UiValue* ratio = ctx.find("ratio");    // the value itself; null when never set
-ctx.dispatch("use_item");               // fire an action from code
-ctx.dispatch("select_slot", {"3"});     // with arguments
+ctx.dispatch("use_item");               // raise an action from code
 ```
 
 Each name holds one `UiValue` (`ui_value.hpp`), which keeps the type it was given:
@@ -25,17 +24,16 @@ the same type and value again changes nothing. A widget's props are stored as th
 types its `<prop>` declarations name, whether they come from a default or from the
 placement: `value="{hp}"` on a `float` prop hands over the number itself.
 
-Bindings:
+Actions: a widget's controller answers the `[[fj::action]]` methods its type declares,
+and code driving a UI without controllers gives a context a handler of its own:
 
 ```cpp
-Connection c = ctx.bind_action("use_item", [&] { inventory.use_selected(); });
-Connection d = ctx.bind_action("select_slot",
-    [&](const std::vector<std::string>& args) { select(std::stoi(args[0])); });
+ctx.set_action_handler([&](std::string_view action, std::span<const UiValue> args) {
+    if (action != "use_item") return false; // not this one: the parent's handler is asked
+    inventory.use_selected();
+    return true;
+});
 ```
-
-`bind_action` returns a `Connection` that unbinds when it is destroyed, so a system
-keeps its connections as members. Inside a `UiWidget`, `ui().bind_action()` stores
-the connection for you and releases it with the widget.
 
 Lists are not published through the context: a `foreach` walks a `std::vector` in a
 Model, `foreach="effect, i in hud.effects"` (see [FJUI](FJUI.md)).
@@ -46,7 +44,7 @@ Contexts form a chain. Every widget instance gets its own context whose parent i
 the placing widget's, up to the root UI. `get()` walks up until a key is found, so a
 child widget may read the HUD's `{fps}` without it being passed as a prop, and a
 prop shadows an inherited key of the same name. `dispatch()` bubbles the same way:
-the nearest context with a handler wins.
+the nearest context whose handler takes the action answers it.
 
 A widget's props land in its context before `begin_play()`. The fields of a
 `UiWidget` are read from the controller itself, after the context's own values, so a
@@ -81,9 +79,6 @@ publishes text through `ui().set()`.
 
 ```cpp
 void hud_controller::begin_play() {
-    ui().bind_action("select_slot", [this](const std::vector<std::string>& a) {
-        selected = std::stoi(a[0]);              // [[fj::bind]] int selected
-    });
     fjell::Node3D player(fjell::SceneAPI::find_node_with<PlayerStats>());
     if (auto* stats = player.get_component<PlayerStats>()) {
         health_connection_ = stats->on_health_changed.bind(

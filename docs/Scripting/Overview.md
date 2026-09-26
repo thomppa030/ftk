@@ -162,7 +162,7 @@ class Coin : public fjell::ScriptComponent {
 What gets reflected depends on context:
 - **`[[fj::property]]`** — on `ScriptComponent` fields. Shows up in the scene properties panel.
 - **`[[fj::bind]]`** — on `UiWidget` fields. Shows up in `.fjwidget` props blocks; bound by the UI system.
-- **`[[fj::action]]`** — on `UiWidget` methods. Callable from `.fjui` markup via `on:click="name"`.
+- **`[[fj::action]]`** — on `UiWidget` methods taking nothing, an `int`, a `float` or a `glm::vec2`, private ones too. Markup calls them by name, `on:click="select_slot({slot.key})"`, with the argument converted to the parameter's type.
 - **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
 - **`[[fj::model]]`** — on `UiWidget` fields holding a struct: a Model the widget's markup reads by the field's name, `{hud.selected}` for `[[fj::model]] HudModel hud`. The struct is reflected in full, every public member with no attribute needed (see [Widgets](../Game-UI/Widgets.md#models)).
 

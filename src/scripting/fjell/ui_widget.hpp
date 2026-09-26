@@ -2,12 +2,10 @@
 #pragma once
 
 #include "fjell/api.h"
-#include "fjell/delegate.hpp"
 #include "fjell/world.hpp"
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,8 +16,9 @@ class UiContext;
 class UiModels;
 class UiSubsystem;
 
-/// The widget's connection to its `.fjui` template — the data it displays and
-/// the actions its markup can invoke. Reached through `UiWidget::ui()`.
+/// The widget's connection to its `.fjui` template: values published by name.
+/// Reached through `UiWidget::ui()`. Actions its markup raises call the
+/// widget's `[[fj::action]]` methods.
 class UiWidgetContext {
 public:
     UiWidgetContext() = default;
@@ -35,25 +34,9 @@ public:
     /// @return The value, or "" if the key was never set.
     [[nodiscard]] FJELL_SDK_EXPORT std::string get(const std::string& key) const;
 
-    /// Bind a callback to an `on:click="name"` in the markup.
-    /// @param name     Action name as spelled in the `.fjui` file.
-    /// @param callback Invoked on click. Capturing `this` is fine — the
-    ///                 binding is released with the widget.
-    FJELL_SDK_EXPORT void bind_action(const std::string& name,
-                     std::function<void()> callback);
-
-    /// Bind a callback that receives the arguments from the markup, for
-    /// parameterized actions like `on:click="select(3)"`.
-    /// @param name     Action name as spelled in the `.fjui` file.
-    /// @param callback Receives the arguments as strings, in written order.
-    FJELL_SDK_EXPORT void bind_action(const std::string& name,
-                     std::function<void(const std::vector<std::string>&)> callback);
-
 private:
     friend class UiSubsystem;
     UiContext* ctx_{nullptr};
-    // Connections are stored engine-side to avoid cross-library destruction
-    std::vector<Connection>* connections_{nullptr};
 };
 
 /// The widget's Models as its controller sees them: which node each reads,
@@ -108,8 +91,8 @@ class UiWidget {
 public:
     virtual ~UiWidget() = default;
 
-    /// Called once when the widget is created and its template is loaded.
-    /// Bind actions and publish initial values here.
+    /// Called once when the widget is created and its template is loaded,
+    /// its props already bound. Set up its Models here.
     virtual void begin_play() {}
 
     /// Called every frame while the widget exists.
@@ -135,8 +118,8 @@ public:
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 
-    /// The template bridge — publish values with `ui().set()` and wire
-    /// markup actions with `ui().bind_action()`.
+    /// The template bridge: publish values with `ui().set()` and read props
+    /// with `ui().get()`.
     [[nodiscard]] UiWidgetContext& ui() { return ui_context_; }
 
     /// The widget's Models: bind one to a node chosen at runtime.

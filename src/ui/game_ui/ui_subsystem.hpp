@@ -1,6 +1,5 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "core/subsystem.hpp"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
@@ -13,6 +12,8 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -61,7 +62,6 @@ public:
         std::unique_ptr<UiWidget> widget;
         const OwnedUiWidgetType* type;
         UiContext* widget_context;
-        std::vector<Connection> connections;
     };
 
     struct UiInstance {
@@ -118,9 +118,16 @@ private:
     // A controller for one widget node, when its class names one the game
     // has; not started yet.
     WidgetInstance* add_controller(UiInstance& inst, UiNode& node);
-    // Gives a created controller its connections, its Models and its scope's
-    // reading of its fields.
+    // Gives a created controller its Models, and its scope the reading of
+    // its fields and the answering of its actions.
     void wire_controller(UiInstance& inst, WidgetInstance& wi);
+    // Ends a controller and clears what its scope held of it.
+    void end_controller(WidgetInstance& wi);
+    // Every call markup raises (on:click, a widget's events) that no
+    // controller around it declares, or with a literal argument of the wrong
+    // kind, reported with its file and line.
+    void check_actions(UiInstance& inst);
+    void report_once(const std::string& message);
     // A foreach stamped a repeat, now bound: its widgets get their Models and
     // controllers. Nested repeats are announced on their own.
     void repeat_stamped(GameUi& ui, UiNode& repeat);
@@ -129,7 +136,6 @@ private:
     void repeat_removing(GameUi& ui, UiNode& repeat);
     [[nodiscard]] UiInstance* instance_of(const GameUi& ui);
     void resolve_widget_bindings(Scene& scene);
-    void validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type);
 
     VulkanContext& vulkan_context_;
     ScriptManager* script_manager_{nullptr};
@@ -140,6 +146,7 @@ private:
     const Scene* scene_{nullptr};
     std::unique_ptr<UiModelWorld> model_world_;
     std::vector<UiInstance> instances_;
+    std::unordered_set<std::string> reported_;
     std::vector<WorldUiRecord> world_records_;
 
     glm::vec3 camera_position_{0.0f};

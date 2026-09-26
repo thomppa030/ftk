@@ -31,11 +31,8 @@ public:
 
 class UiWidgetContext {
 public:
-    void        set       (const std::string& key, const std::string& value);
-    std::string get       (const std::string& key) const;
-    void        bind_action(const std::string& name, std::function<void()> cb);
-    void        bind_action(const std::string& name,
-                            std::function<void(const std::vector<std::string>&)> cb);
+    void        set(const std::string& key, const std::string& value);
+    std::string get(const std::string& key) const;
 };
 
 using UiComponent = UiWidget;
@@ -84,8 +81,9 @@ The bridge between the widget controller and the UI tree.
 |---|---|
 | [`set`](#uiwidgetcontextset) | Push a value into the UI context (drives `{key}` interpolation) |
 | [`get`](#uiwidgetcontextget) | Read back a value |
-| [`bind_action(name, void())`](#uiwidgetcontextbind_action-no-args) | Register a parameter-less action handler |
-| [`bind_action(name, void(args))`](#uiwidgetcontextbind_action-args) | Register an action handler that receives parameters from the markup |
+
+Actions are not bound here: markup calls the widget's `[[fj::action]]` methods (see
+[Actions](#actions)).
 
 ---
 
@@ -115,41 +113,13 @@ Returns the current value, or `""` if the key isn't set.
 
 ---
 
-### UiWidgetContext::bind_action (no args)
+## Actions
 
-```cpp
-void bind_action(const std::string& name, std::function<void()> callback);
-```
-
-Registers `callback` to fire when an `on:click="name"` attribute (or other dispatch) hits in the bound markup.
-
-```cpp
-void begin_play() override {
-    ui().bind_action("open_menu", [this] { is_open_ = true; });
-}
-```
-
----
-
-### UiWidgetContext::bind_action (args)
-
-```cpp
-void bind_action(const std::string& name,
-                 std::function<void(const std::vector<std::string>&)> callback);
-```
-
-Same as above but receives positional string arguments. The `.fjui` side passes them as a comma-separated list inside the action call: `on:click="select_slot(3)"` → callback receives `{"3"}`.
-
-```cpp
-void begin_play() override {
-    ui().bind_action("select_slot",
-        [this](const std::vector<std::string>& args) {
-            if (!args.empty()) selected = args[0];
-        });
-}
-```
-
-The engine stores `Connection`s engine-side, so action bindings clean up automatically when the widget is destroyed — you do not need to track them in members.
+`on:click="name"` and a widget's events call the controller method of that name
+marked `[[fj::action]]`. It takes nothing, an `int`, a `float` or a `glm::vec2`, and
+the argument written in the markup is converted to it: `on:click="select_slot(3)"`,
+or `select_slot({slot.key})` with the value the path reads. The method may be private.
+The nearest controller up from the click that declares the action answers it.
 
 ## Example
 
@@ -163,9 +133,10 @@ class hud_controller : public fjell::UiWidget {
     FJELL_UI_WIDGET(hud_controller)
 
 public:
-    [[fj::bind]] std::string selected;
+    [[fj::action]] void select_slot(int slot); // on:click="select_slot({slot.key})"
 
-    void begin_play() override;
+private:
+    int selected_ = 1;
 };
 ```
 
@@ -175,14 +146,9 @@ Source:
 #include "hud_controller.hpp"
 #include "fjell/log_api.hpp"
 
-void hud_controller::begin_play() {
-    ui().bind_action("select_slot",
-        [this](const std::vector<std::string>& args) {
-            if (!args.empty()) {
-                selected = args[0];
-                fjell::Log::info_f("HUD: selected slot %s", selected.c_str());
-            }
-        });
+void hud_controller::select_slot(int slot) {
+    selected_ = slot;
+    fjell::Log::info_f("HUD: selected slot %d", slot);
 }
 ```
 

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "ui/game_ui/ui_value.hpp"
 
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -26,13 +26,13 @@ struct UiNameHash {
     }
 };
 
-/// Bridge between game logic and UI. Game code sets values and registers
-/// action callbacks; the UI reads values via {key} and dispatches actions.
+/// Bridge between game logic and UI. Game code sets values and answers
+/// actions; the UI reads values via {key} and dispatches actions.
 ///
 /// A name is read from the nearest scope that has it: its published values
 /// (props, Models), then the fields of its own object (the widget's
-/// controller), then its parent. dispatch() bubbles up to the parent if the
-/// action is not bound here.
+/// controller), then its parent. dispatch() bubbles up to the parent if no
+/// handler here takes the action.
 class UiContext {
 public:
     UiContext() = default;
@@ -92,57 +92,25 @@ public:
         return parent_ != nullptr ? parent_->pipes() : nullptr;
     }
 
-    template <typename F>
-        requires (std::invocable<F> && !std::invocable<F, const std::vector<std::string>&>)
-    [[nodiscard]] Connection bind_action(const std::string& name, F&& callback) {
-        auto& delegate = actions_[name];
-        if (!delegate) {
-            delegate = std::make_unique<Delegate<void()>>();
-        }
-        return delegate->bind(std::forward<F>(callback));
-    }
+    /// Answers an action raised in this scope or one under it, with its
+    /// arguments as values: true when it took it. A widget's controller
+    /// answers the [[fj::action]]s its type declares; the UI editor's preview
+    /// answers everything at its root.
+    using ActionHandler = std::function<bool(std::string_view action, std::span<const UiValue> args)>;
+    void set_action_handler(ActionHandler handler) { action_handler_ = std::move(handler); }
 
-    /// Bind an action that receives string arguments from the markup.
-    /// e.g. on:click="select(2)" → callback receives {"2"}.
-    template <typename F>
-        requires std::invocable<F, const std::vector<std::string>&>
-    [[nodiscard]] Connection bind_action(const std::string& name, F&& callback) {
-        auto& param_delegate = param_actions_[name];
-        if (!param_delegate) {
-            param_delegate = std::make_unique<Delegate<void(const std::vector<std::string>&)>>();
+    /// Raise an action here: the nearest scope, this one or a parent, whose
+    /// handler takes it answers it. False when none does.
+    bool dispatch(std::string_view action, std::span<const UiValue> args = {}) const {
+        for (const UiContext* scope = this; scope != nullptr; scope = scope->parent_) {
+            if (scope->action_handler_ && scope->action_handler_(action, args)) return true;
         }
-        return param_delegate->bind(std::forward<F>(callback));
-    }
-
-    void dispatch(const std::string& action) {
-        auto it = actions_.find(action);
-        if (it != actions_.end() && it->second) {
-            it->second->broadcast();
-            return;
-        }
-        if (parent_) parent_->dispatch(action);
-    }
-
-    void dispatch(const std::string& action, const std::vector<std::string>& args) {
-        // Try parameterized action first
-        auto pit = param_actions_.find(action);
-        if (pit != param_actions_.end() && pit->second) {
-            pit->second->broadcast(args);
-            return;
-        }
-        // Fall back to no-arg action (ignore args)
-        auto it = actions_.find(action);
-        if (it != actions_.end() && it->second) {
-            it->second->broadcast();
-            return;
-        }
-        if (parent_) parent_->dispatch(action, args);
+        return false;
     }
 
     void clear() {
         values_.clear();
-        actions_.clear();
-        param_actions_.clear();
+        action_handler_ = nullptr;
     }
 
 private:
@@ -154,8 +122,7 @@ private:
     const UiPipes* pipes_{nullptr};
     UiObject self_{};
     std::unordered_map<std::string, UiValue, UiNameHash, std::equal_to<>> values_;
-    std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
-    std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
+    ActionHandler action_handler_;
 };
 
 } // namespace fjell

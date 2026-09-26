@@ -113,6 +113,14 @@ std::string UiDataBind::resolve_template(const std::string& tmpl, const UiContex
     return compiled.text(values);
 }
 
+UiValue UiDataBind::resolve_value(const std::string& tmpl, const UiContext& context) {
+    const Template compiled = compile(tmpl);
+    std::vector<UiValue> values;
+    compiled.read(context, values);
+    compiled.format(context, values);
+    return compiled.single ? std::move(values.front()) : UiValue(compiled.text(values));
+}
+
 // ── The table ───────────────────────────────────────────────────────────
 
 void UiDataBind::forget_tree() {

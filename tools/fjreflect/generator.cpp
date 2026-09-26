@@ -64,10 +64,11 @@ std::string flags_of(const FieldInfo& f) {
 /// The friend every component macro declares, specialised for a reflected
 /// class: the offset and size of each field, measured by the compiler that
 /// builds the game with the game's own flags; trampolines for getters and for
-/// reading vectors; and the shims through which RPCs reach private handlers.
+/// reading vectors; and the shims through which RPCs and UI actions reach
+/// private handlers.
 void emit_access(std::ostream& out, const std::string& q, const std::vector<FieldInfo>& fields,
-                 const std::vector<RpcInfo>& rpcs) {
-    if (fields.empty() && rpcs.empty()) return;
+                 const std::vector<RpcInfo>& rpcs, const std::vector<ActionInfo>& actions) {
+    if (fields.empty() && rpcs.empty() && actions.empty()) return;
     out << "namespace fjell { template <> struct FjellAccess<" << q << "> {\n";
     for (const auto& f : fields) {
         if (f.is_getter) {
@@ -90,6 +91,21 @@ void emit_access(std::ostream& out, const std::string& q, const std::vector<Fiel
             out << "    static const void* item_" << f.name << "(const void* v, uint32_t i) { return &(*static_cast<const "
                 << list << "*>(v))[i]; }\n";
         }
+    }
+    // A UI action is called with its argument behind a pointer, the one
+    // signature the engine calls every action through.
+    for (const auto& action : actions) {
+        const bool takes_arg = action.param != ActionParamType::none;
+        out << "    static void action_" << action.method_name << "(void* self, const void*"
+            << (takes_arg ? " arg" : "") << ") { ";
+        out << "static_cast<" << q << "*>(self)->" << action.method_name << "(";
+        switch (action.param) {
+            case ActionParamType::none: break;
+            case ActionParamType::int_param: out << "*static_cast<const int*>(arg)"; break;
+            case ActionParamType::float_param: out << "*static_cast<const float*>(arg)"; break;
+            case ActionParamType::vec2_param: out << "*static_cast<const glm::vec2*>(arg)"; break;
+        }
+        out << "); }\n";
     }
     // Handlers are private `_impl` methods more often than not.
     for (const auto& rpc : rpcs) {
@@ -202,7 +218,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
                            "fjreflect_vector_" + mangle(comp.qualified_name) + "_"};
     const auto& access = names.access;
 
-    emit_access(out, comp.qualified_name, comp.fields, comp.rpcs);
+    emit_access(out, comp.qualified_name, comp.fields, comp.rpcs, comp.actions);
     emit_labels(out, comp.fields, names);
     emit_vector_descs(out, comp.fields, names);
 
@@ -234,29 +250,9 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         // No ref fields — emit a null-able trace (won't be registered)
         out << "// No reference fields — no trace function needed.\n";
     }
-    // UI widget action trampolines (original format — void(void*) and void(void*,int))
+    // UI widget actions: what markup may call, and how.
     if (comp.is_ui_component && !comp.actions.empty()) {
-        out << "\n// ── UI action trampolines ──\n\n";
-        for (const auto& action : comp.actions) {
-            if (action.has_int_param) {
-                out << "static void fjreflect_" << comp.class_name << "_action_"
-                    << action.method_name << "(void* self, int arg) {\n";
-                out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                    << action.method_name << "(arg);\n";
-                out << "}\n\n";
-            } else {
-                out << "static void fjreflect_" << comp.class_name << "_action_"
-                    << action.method_name << "(void* self) {\n";
-                out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                    << action.method_name << "();\n";
-                out << "}\n\n";
-            }
-        }
-
-        out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
-            << "_action_count = " << comp.actions.size() << ";\n\n";
-
-        // UI action descriptor table for runtime validation
+        out << "\n";
         out << "extern \"C\" const FjellUiActionDesc fjreflect_" << comp.class_name
             << "_ui_actions[] = {\n";
         for (const auto& action : comp.actions) {
@@ -267,7 +263,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
                 case ActionParamType::float_param: out << "FJELL_UI_ACTION_FLOAT"; break;
                 case ActionParamType::vec2_param:  out << "FJELL_UI_ACTION_VEC2"; break;
             }
-            out << "},\n";
+            out << ", &fjell::FjellAccess<" << comp.qualified_name << ">::action_" << action.method_name << "},\n";
         }
         out << "};\n";
         out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
@@ -366,7 +362,7 @@ void emit_struct(std::ostream& out, const StructInfo& info) {
     const TableNames names{"fjell::FjellAccess<" + q + ">::", "fjreflect_" + symbol + "_",
                            "fjreflect_vector_" + symbol + "_"};
 
-    emit_access(out, q, info.fields, {});
+    emit_access(out, q, info.fields, {}, {});
     emit_vector_descs(out, info.fields, names);
     if (!info.fields.empty()) {
         out << "static const FjellFieldDesc fjreflect_fields_" << symbol << "[] = {\n";

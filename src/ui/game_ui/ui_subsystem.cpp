@@ -11,6 +11,7 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/api.h"
+#include "ui/game_ui/ui_actions.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "ui/game_ui/widget_asset.hpp"
@@ -154,10 +155,9 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
         fjss_path.clear();
     }
 
-    // Controllers bind actions on contexts owned by the tree that is about
-    // to be replaced, so they go first — their connections must detach
-    // while those contexts still exist. Models are bound into those
-    // contexts, and go with them.
+    // Controllers answer actions in contexts owned by the tree that is about
+    // to be replaced, so they go first, while those contexts still exist.
+    // Models are bound into those contexts, and go with them.
     destroy_controllers(inst);
     inst.game_ui->models().clear();
 
@@ -259,25 +259,89 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
         collect_widgets(*root, inst);
     }
 
-    // Validate on:click targets against declared actions
-    for (auto& wi : inst.widgets) {
-        if (wi.type && !wi.type->actions.empty()) {
-            auto* ui_root = inst.game_ui->root();
-            if (ui_root) {
-                validate_widget_actions(*ui_root, wi.type);
-            }
-        }
-    }
-
+    check_actions(inst);
     for (auto& wi : inst.widgets) wire_controller(inst, wi);
     for (auto& wi : inst.widgets) wi.widget->begin_play();
 }
 
 void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
-    wi.widget->ui_context_.connections_ = &wi.connections;
     wi.widget->models_.models_ = &inst.game_ui->models();
     wi.widget->models_.scope_ = wi.widget_context;
     read_controller_in_place(wi);
+
+    // Its scope answers the actions its type declares and lets the rest
+    // bubble up to the widgets around it. The entry lives in a list, so the
+    // pointer holds as long as the controller does.
+    WidgetInstance* target = &wi;
+    wi.widget_context->set_action_handler([this, target](std::string_view action, std::span<const UiValue> args) {
+        for (const auto& declared : target->type->actions) {
+            if (declared.name != action) continue;
+            if (const std::string why = call_action(declared, target->widget.get(), args); !why.empty()) {
+                report_once("Widget '" + target->type->name + "': on:click " + why);
+            }
+            return true;
+        }
+        return false;
+    });
+}
+
+void UiSubsystem::end_controller(WidgetInstance& wi) {
+    if (!wi.widget) return;
+    wi.widget->end_play();
+    // A controller can bind input and set timers by its own pointer, like a
+    // script; recreated on a hot reload mid-play, it has to take those with it.
+    if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
+    // Its scope may outlive it for a moment: nothing there may reach it.
+    wi.widget_context->set_action_handler(nullptr);
+    wi.widget_context->set_self({});
+    wi.widget.reset();
+}
+
+void UiSubsystem::report_once(const std::string& message) {
+    if (reported_.insert(message).second) FJELL_CORE_WARN("{}", message);
+}
+
+void UiSubsystem::check_actions(UiInstance& inst) {
+    UiNode* root = inst.game_ui->root();
+    if (root == nullptr) return;
+    // Which controller answers in which scope.
+    std::unordered_map<const UiContext*, const OwnedUiWidgetType*> answers;
+    for (const auto& wi : inst.widgets) answers[wi.widget_context] = wi.type;
+
+    // A call is answered by the nearest scope, from where it is raised
+    // outward, whose controller declares the action: the way a click goes.
+    auto check = [&](const UiNode& node, const std::string& text, const UiContext* from) {
+        const UiActionCall call = parse_action_call(text);
+        for (const UiContext* scope = from; scope != nullptr; scope = scope->parent()) {
+            auto it = answers.find(scope);
+            if (it == answers.end()) continue;
+            for (const auto& declared : it->second->actions) {
+                if (declared.name != call.name) continue;
+                if (const std::string why = check_action_call(declared, call); !why.empty()) {
+                    FJELL_CORE_WARN("{}:{}: \"{}\": {}", node.source_file, node.source_line, text, why);
+                }
+                return;
+            }
+        }
+        FJELL_CORE_WARN("{}:{}: \"{}\": no controller around it has an [[fj::action]] named {}",
+                        node.source_file, node.source_line, text, call.name);
+    };
+    // `scope` is what the node's calls are raised in; `widget` the nearest
+    // widget around it, whose events a click inside may raise instead.
+    auto walk = [&](auto& self, const UiNode& node, const UiContext* scope, const UiNode* widget) -> void {
+        if (node.foreach_item_index >= 0) return; // a repeat's calls are its template's
+        const UiContext* here = node.scoped_context ? node.scoped_context.get()
+                              : node.repeat_scope  ? node.repeat_scope.get()
+                                                   : scope;
+        if (auto it = node.attributes.find("on:click"); it != node.attributes.end()) {
+            const bool event = widget != nullptr && widget->event_map.contains(it->second);
+            if (!event) check(node, it->second, here);
+        }
+        for (const auto& [event, raised] : node.event_map) check(node, raised, here);
+        const UiNode* around = node.is_widget && !node.event_map.empty() ? &node : widget;
+        for (const auto& child : node.children) self(self, *child, here, around);
+    };
+    walk(walk, *root, &inst.game_ui->context(), nullptr);
 }
 
 UiSubsystem::UiInstance* UiSubsystem::instance_of(const GameUi& ui) {
@@ -320,25 +384,13 @@ void UiSubsystem::repeat_removing(GameUi& ui, UiNode& repeat) {
     for (const UiContext* scope : scopes) inst->game_ui->models().remove(*scope);
     std::erase_if(inst->widgets, [&](WidgetInstance& wi) {
         if (std::ranges::find(scopes, wi.widget_context) == scopes.end()) return false;
-        wi.widget->end_play();
-        if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
-        wi.connections.clear();
+        end_controller(wi);
         return true;
     });
 }
 
 void UiSubsystem::destroy_controllers(UiInstance& inst) {
-    for (auto& wi : inst.widgets) {
-        if (wi.widget) {
-            wi.widget->end_play();
-            // A controller can bind input and set timers by its own pointer,
-            // like a script; recreated on a hot reload mid-play, it has to
-            // take those with it.
-            if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
-        }
-        wi.connections.clear();
-        wi.widget.reset();
-    }
+    for (auto& wi : inst.widgets) end_controller(wi);
     inst.widgets.clear();
 }
 
@@ -513,28 +565,6 @@ void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
     instances_.clear();
     model_world_.reset();
     scene_ = nullptr;
-}
-
-void UiSubsystem::validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type) {
-    auto click_it = node.attributes.find("on:click");
-    if (click_it != node.attributes.end()) {
-        const auto& expr = click_it->second;
-        // Extract action name (strip parenthesized args)
-        auto action_name = expr.substr(0, expr.find('('));
-
-        bool found = false;
-        for (const auto& action : type->actions) {
-            if (action.name == action_name) { found = true; break; }
-        }
-        if (!found) {
-            FJELL_CORE_WARN("Widget '{}': on:click target '{}' not found in declared actions",
-                            type->name, action_name);
-        }
-    }
-
-    for (const auto& child : node.children) {
-        validate_widget_actions(*child, type);
-    }
 }
 
 } // namespace fjell

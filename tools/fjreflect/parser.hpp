@@ -105,7 +105,6 @@ struct ActionInfo {
     std::string method_name;   // C++ method name
     ActionParamType param{ActionParamType::none};
     ActionTriggerMode trigger{ActionTriggerMode::triggered};
-    bool has_int_param{false}; // backward compat (= param == int_param)
 };
 
 enum class RpcTarget : uint8_t {

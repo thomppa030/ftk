@@ -74,6 +74,9 @@ public:
 
     /// Resolve {key} placeholders in a template string against a context.
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
+    /// The same, keeping a lone `{key}` as the value it reads rather than
+    /// its text: a click's `{slot.key}` hands over the int itself.
+    static UiValue resolve_value(const std::string& tmpl, const UiContext& context);
 
     /// Deep-clone a UiNode subtree. Copies structural data (tag, attributes,
     /// classes, text, widget state) but not runtime state (yg_node,

@@ -1,7 +1,9 @@
 #include "ui/game_ui/ui_input.hpp"
+#include "ui/game_ui/ui_actions.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "core/input.hpp"
+#include "core/log.hpp"
 #include "core/profiler.hpp"
 
 #include <GLFW/glfw3.h>
@@ -159,46 +161,13 @@ void UiInput::dispatch_action(const std::string& expr, UiNode& node, UiContext& 
             break;
         }
     }
-    UiContext& ctx = *scope;
-
-    // Parse "action(arg1, arg2, ...)" or plain "action"
-    auto paren = expr.find('(');
-    if (paren == std::string::npos) {
-        // No args — plain dispatch
-        ctx.dispatch(expr);
-        return;
+    const UiActionCall call = parse_action_call(expr);
+    std::vector<UiValue> args;
+    args.reserve(call.args.size());
+    for (const auto& arg : call.args) args.push_back(UiDataBind::resolve_value(arg, *scope));
+    if (!scope->dispatch(call.name, args) && unanswered_.insert(expr).second) {
+        FJELL_CORE_WARN("Game UI: nothing answers on:click \"{}\"", expr);
     }
-
-    auto action_name = expr.substr(0, paren);
-    auto close = expr.rfind(')');
-    if (close == std::string::npos || close <= paren) {
-        ctx.dispatch(action_name);
-        return;
-    }
-
-    // Extract and split args
-    auto args_str = expr.substr(paren + 1, close - paren - 1);
-    std::vector<std::string> args;
-    size_t start = 0;
-    for (size_t i = 0; i <= args_str.size(); ++i) {
-        if (i == args_str.size() || args_str[i] == ',') {
-            auto arg = args_str.substr(start, i - start);
-            // Trim whitespace
-            auto a = arg.find_first_not_of(" \t");
-            auto b = arg.find_last_not_of(" \t");
-            if (a != std::string::npos) {
-                arg = arg.substr(a, b - a + 1);
-            } else {
-                arg.clear();
-            }
-            // Resolve {key} templates in each arg
-            arg = UiDataBind::resolve_template(arg, ctx);
-            args.push_back(std::move(arg));
-            start = i + 1;
-        }
-    }
-
-    ctx.dispatch(action_name, args);
 }
 
 UiNode* UiInput::hit_test(UiNode& node, float x, float y) {

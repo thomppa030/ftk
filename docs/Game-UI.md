@@ -69,9 +69,11 @@ auto& ctx = vulkan_context_.game_ui().context();
 ctx.set("player.health", "72");
 ctx.set("player.max_health", "100");
 ctx.set("slot", "1");
-ctx.bind_action("select_1", [&ctx] { ctx.set("slot", "1"); });
-ctx.bind_action("select_2", [&ctx] { ctx.set("slot", "2"); });
 ```
+
+A click calls the `[[fj::action]]` method of the widget's controller it names
+(`on:click="select_slot(2)"` calls `void select_slot(int)`); see
+[Widgets](Game-UI/Widgets.md#controllers).
 
 ## .fjui Markup
 
@@ -300,9 +302,12 @@ ctx.set("stamina", UiValue(0.85f));
 ctx.set("show_debug", "1");          // truthy for if="show_debug"
 ctx.set("active_slot", "2");         // drives class:active="active_slot==2"
 
-// Bind actions (dispatched by on:click)
-ctx.bind_action("open_inventory", [&]() { open_inventory(); });
-ctx.bind_action("select_slot", [&ctx]() { ctx.set("active_slot", "3"); });
+// Answer actions (raised by on:click) where no controller does
+ctx.set_action_handler([&](std::string_view action, std::span<const UiValue>) {
+    if (action != "open_inventory") return false;
+    open_inventory();
+    return true;
+});
 
 // Read values back
 std::string hp = ctx.get("player.health");

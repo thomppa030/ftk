@@ -115,19 +115,28 @@ scaling in effect.
 ## Controllers
 
 ```cpp
-class health_bar_controller : public fjell::UiWidget {
-    FJELL_UI_WIDGET(health_bar_controller)
-    [[fj::bind]] int value = 100;     // reachable as {value}
-    void begin_play() override;      // bind actions, read props with ui().get("stat")
+class hud_controller : public fjell::UiWidget {
+    FJELL_UI_WIDGET(hud_controller)
+public:
+    [[fj::model]] HudModel hud;                    // {hud.selected_name}, foreach over hud.slots
+    [[fj::action]] void select_slot(int slot);     // on:click="select_slot({slot.key})"
+    void tick(float dt) override;
 };
 ```
 
 `[[fj::bind]]` fields are read by name where they are, each time markup shows them;
-a prop of the same name hides the field and is reported;
-`[[fj::action]]` methods and `ui().bind_action()` answer `on:click` and parameterized
-actions such as `on:activate="select_slot(3)"`. A list for `foreach` is a
-`std::vector` in a `[[fj::model]]` struct (see [FJUI](FJUI.md#lists)). Find scene
-components by type with
+a prop of the same name hides the field and is reported.
+
+`[[fj::action]]` methods answer `on:click` and a widget's events: `on:click="close"`
+calls `void close()`, and `on:activate="select_slot({slot.key})"` calls `void
+select_slot(int)` with the int the path reads. A method takes nothing, an `int`, a
+`float` or a `glm::vec2` (a vector, or two numbers), and may be private. The nearest
+controller up from the click that declares the action answers it. An action no
+controller around it declares, or a literal argument of the wrong kind
+(`select_slot(three)`), is reported with its file and line when the widget loads; a
+bound argument that does not convert is reported once when clicked. A list for
+`foreach` is a `std::vector` in a `[[fj::model]]` struct (see
+[FJUI](FJUI.md#lists)). Find scene components by type with
 `SceneAPI::find_node_with<PlayerStats>()` rather than by node name.
 
 ## Repeating a widget

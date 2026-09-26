@@ -298,7 +298,7 @@ public:
     REQUIRE(hud->actions.size() == 4);
     REQUIRE(hud->actions[0].param == fjreflect::ActionParamType::none);
     REQUIRE(hud->actions[1].param == fjreflect::ActionParamType::int_param);
-    REQUIRE(hud->actions[1].has_int_param);
+    REQUIRE(hud->actions[1].param == fjreflect::ActionParamType::int_param);
     REQUIRE(hud->actions[2].param == fjreflect::ActionParamType::float_param);
     REQUIRE(hud->actions[2].trigger == fjreflect::ActionTriggerMode::pressed);
     REQUIRE(hud->actions[3].param == fjreflect::ActionParamType::vec2_param);

@@ -211,7 +211,6 @@ private:
         float timestamp;
     };
     std::vector<ActionLogEntry> action_log_;
-    std::vector<Connection> action_connections_;
 };
 
 } // namespace fjell

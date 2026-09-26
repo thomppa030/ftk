@@ -35,18 +35,11 @@ struct ModelDecl {
     uint32_t source_line{0};
 };
 
-/// Action declaration — populated from C++ [[fj::action]] metadata at runtime.
-struct ActionDecl {
-    std::string name;
-    std::string param_type;    // "", "int", "float", "vec2"
-};
-
 struct WidgetAsset {
     std::string class_name;                 // optional C++ controller class
     std::string fjss_path;                  // relative path to .fjss stylesheet
     std::vector<PropDecl> props;            // typed prop declarations
     std::vector<ModelDecl> models;          // components the widget reads
-    std::vector<ActionDecl> actions;        // populated at runtime from C++ type info
     std::unique_ptr<UiNode> markup_root;    // parsed markup body (children of <widget>)
 };
 
