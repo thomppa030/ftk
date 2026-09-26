@@ -235,6 +235,7 @@ uint32_t ScriptManager::hash_type_name(const std::string& name) {
 ScriptManager::ScriptManager() = default;
 
 ScriptManager::~ScriptManager() {
+    if (library_.is_loaded()) on_unloading.broadcast();
     library_.unload();
     if (!loaded_temp_path_.empty()) {
         std::filesystem::remove(loaded_temp_path_);
@@ -289,6 +290,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
 
 void ScriptManager::unload(Scene& scene) {
     if (!library_.is_loaded()) return;
+    on_unloading.broadcast();
 
     serialize_all(scene);
 

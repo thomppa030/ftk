@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/delegate.hpp"
 #include "core/result.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/fjell/registry.hpp"
@@ -198,6 +199,11 @@ public:
     /// Moves each time a game library loads, a reload included: what the
     /// game declares may have changed.
     [[nodiscard]] uint32_t library_revision() const { return library_revision_; }
+
+    /// Raised just before a game library is unloaded, a reload included:
+    /// whatever holds objects the library built, or calls into its code,
+    /// lets go of them here, while the library is still there.
+    Delegate<void()> on_unloading;
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
     [[nodiscard]] TimerManager& timers() { return timers_; }
