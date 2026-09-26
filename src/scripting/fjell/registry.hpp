@@ -8,6 +8,7 @@
 #include "fjell/notify.hpp"
 #include "fjell/api.h"
 
+#include <concepts>
 #include <new>
 #include <type_traits>
 
@@ -43,6 +44,15 @@ struct FjellComponentTypeOOP {
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
     bool is_functional_test;  // true for FunctionalTest subclasses
+    uint32_t polls;           // FjellPolledHook bits: the polled hooks the type overrides
+};
+
+/// The hooks the engine calls on a script every frame or step, one bit each.
+/// A type is walked only for the hooks it overrides.
+enum FjellPolledHook : uint32_t {
+    FJELL_POLLS_TICK = 1u << 0,
+    FJELL_POLLS_FIXED_TICK = 1u << 1,
+    FJELL_POLLS_LATE_TICK = 1u << 2,
 };
 
 struct FjellNotifyTypeOOP {
@@ -86,6 +96,23 @@ namespace fjell {
 
 // ── Registration helper (called from game code) ─────────────────────────
 
+/// Whether T takes a polled hook from ScriptComponent as it is. Naming the
+/// hook through T gives the base's member unless T or a base of its own
+/// overrides it; an override T keeps private cannot be named here and counts
+/// as an override, so it is still called.
+template <typename T>
+inline constexpr bool inherits_tick = requires {
+    { &T::tick } -> std::same_as<void (ScriptComponent::*)(float)>;
+};
+template <typename T>
+inline constexpr bool inherits_fixed_tick = requires {
+    { &T::fixed_tick } -> std::same_as<void (ScriptComponent::*)(const FixedStep&)>;
+};
+template <typename T>
+inline constexpr bool inherits_late_tick = requires {
+    { &T::late_tick } -> std::same_as<void (ScriptComponent::*)(float)>;
+};
+
 template <typename T>
 void register_component(FjellTypeRegistry* reg) {
     // The pool's memory is aligned as operator new's is, and no further.
@@ -100,6 +127,9 @@ void register_component(FjellTypeRegistry* reg) {
     // carries no base-class information, so this is what tells the test runner
     // which types it may treat as a FunctionalTest. Same trick as is_state.
     desc.is_functional_test = std::is_base_of_v<FunctionalTest, T>;
+    desc.polls = (inherits_tick<T> ? 0u : FJELL_POLLS_TICK) |
+                 (inherits_fixed_tick<T> ? 0u : FJELL_POLLS_FIXED_TICK) |
+                 (inherits_late_tick<T> ? 0u : FJELL_POLLS_LATE_TICK);
 
     // Fields and trace come from fjreflect codegen
     const auto* gen = fjell_find_generated(T::type_name);

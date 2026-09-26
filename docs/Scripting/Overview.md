@@ -152,6 +152,10 @@ class [[fj::tick(order = -10)]] InputRouter : public fjell::ScriptComponent {
 };
 ```
 
+**How often a script ticks.** `tick()`, `fixed_tick()` and `late_tick()` are
+each called only on types that override them, so a type that overrides none
+costs nothing per frame.
+
 **What the editor tells you.** A script whose `tick()` or `late_tick()` moves
 a dynamic body, or writes a character's velocity against its movement mode,
 is reported once in the console with what to do instead, and fails a

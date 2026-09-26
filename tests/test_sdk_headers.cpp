@@ -54,6 +54,43 @@ TEST_CASE("A functional test is distinguishable from a plain component", "[sdk]"
     REQUIRE(desc.is_functional_test);
 }
 
+namespace {
+
+// What register_component<T>() reads to decide which polled hooks a type is
+// walked for.
+struct Idle : fjell::ScriptComponent {};
+struct Ticker : fjell::ScriptComponent {
+    void tick(float) override {}
+};
+struct Follower : Ticker {};
+struct PrivateStepper : fjell::ScriptComponent {
+private:
+    void fixed_tick(const fjell::FixedStep&) override {}
+};
+struct Watcher : fjell::ScriptComponent {
+    void late_tick(float) override {}
+};
+
+} // namespace
+
+TEST_CASE("A script type is walked only for the polled hooks it overrides", "[sdk]") {
+    STATIC_REQUIRE(fjell::inherits_tick<Idle>);
+    STATIC_REQUIRE(fjell::inherits_fixed_tick<Idle>);
+    STATIC_REQUIRE(fjell::inherits_late_tick<Idle>);
+
+    STATIC_REQUIRE_FALSE(fjell::inherits_tick<Ticker>);
+    STATIC_REQUIRE(fjell::inherits_fixed_tick<Ticker>);
+    STATIC_REQUIRE(fjell::inherits_late_tick<Ticker>);
+    STATIC_REQUIRE_FALSE(fjell::inherits_late_tick<Watcher>);
+    // An override from a base of the type's own is still an override.
+    STATIC_REQUIRE_FALSE(fjell::inherits_tick<Follower>);
+    // So is one the type keeps private: it cannot be named, and is called.
+    STATIC_REQUIRE_FALSE(fjell::inherits_fixed_tick<PrivateStepper>);
+    // A functional test runs its test hooks from the polled ones.
+    STATIC_REQUIRE_FALSE(fjell::inherits_tick<SampleTest>);
+    STATIC_REQUIRE_FALSE(fjell::inherits_fixed_tick<SampleTest>);
+}
+
 TEST_CASE("A test reports its own verdict", "[sdk]") {
     struct Probe : fjell::FunctionalTest {
         using fjell::FunctionalTest::assert_equal;

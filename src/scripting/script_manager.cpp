@@ -161,6 +161,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.trace = desc->trace;
     owned.loaded = true;
     owned.is_functional_test = desc->is_functional_test;
+    owned.polls = desc->polls;
     reg->types->copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     // What codegen generated for it (same .so): its RPC table and tick order.
     if (const auto* gen = fjell_find_generated(desc->name)) {
@@ -656,21 +657,22 @@ void ScriptManager::run_scripts(Scene& scene, const char* hook_name, Hook&& hook
 }
 
 template <typename Hook>
-void ScriptManager::run_frame_scripts(Scene& scene, const char* hook_name, Hook&& hook) {
-    if (!write_reports_on_) {
-        run_scripts(scene, hook_name, hook);
-        return;
-    }
+void ScriptManager::run_polled(Scene& scene, uint32_t hook_bit, const char* hook_name, Hook&& hook) {
+    // A fixed_tick is the simulation itself; only the frame hooks are held to
+    // what it owns.
+    const bool check_writes = write_reports_on_ && hook_bit != FJELL_POLLS_FIXED_TICK;
     for (const OwnedScriptType* type : tick_order_) {
+        if ((type->polls & hook_bit) == 0) continue;
+        auto call = [&](ScriptComponent& script) { hook(script, *type); };
         scene.each_component(type->component.id, [&](Node& node, void* component) {
             auto& script = *static_cast<ScriptComponent*>(component);
-            if (!simulation_owns(node)) {
-                run_script_hook(node, type->name, script, hook_name, hook);
+            if (!check_writes || !simulation_owns(node)) {
+                run_script_hook(node, type->name, script, hook_name, call);
                 return;
             }
             // Checked after each script, so the report names the one that wrote.
             const SimulatedState before = simulated_state(node);
-            run_script_hook(node, type->name, script, hook_name, hook);
+            run_script_hook(node, type->name, script, hook_name, call);
             report_outside_writes(node, type->name, hook_name, before);
         });
     }
@@ -758,7 +760,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     // invalidate this loop's iterator over objects_.
     Scene::TickLock tick_lock(scene);
     const auto owned_before = owned_states(scene);
-    run_frame_scripts(scene, "tick", [&](ScriptComponent& script) {
+    run_polled(scene, FJELL_POLLS_TICK, "tick", [&](ScriptComponent& script, const OwnedScriptType&) {
         script.world_ = &world_;
         script.tick(dt);
     });
@@ -784,10 +786,11 @@ void ScriptManager::fixed_update(Scene& scene, const FixedStep& step) {
         // Spawns from fixed_tick and from timers wait for the flush that
         // follows the step.
         Scene::TickLock tick_lock(scene);
-        run_scripts(scene, "fixed_tick", [&](ScriptComponent& script) {
-            script.world_ = &world_;
-            script.fixed_tick(step);
-        });
+        run_polled(scene, FJELL_POLLS_FIXED_TICK, "fixed_tick",
+                   [&](ScriptComponent& script, const OwnedScriptType&) {
+                       script.world_ = &world_;
+                       script.fixed_tick(step);
+                   });
         timers_.tick(step.dt);
     }
     s_services.in_fixed_step = false;
@@ -801,10 +804,11 @@ void ScriptManager::late_update(Scene& scene, float dt) {
 
     Scene::TickLock tick_lock(scene);
     const auto owned_before = owned_states(scene);
-    run_frame_scripts(scene, "late_tick", [&](ScriptComponent& script) {
-        script.world_ = &world_;
-        script.late_tick(dt);
-    });
+    run_polled(scene, FJELL_POLLS_LATE_TICK, "late_tick",
+               [&](ScriptComponent& script, const OwnedScriptType&) {
+                   script.world_ = &world_;
+                   script.late_tick(dt);
+               });
     report_foreign_writes(scene, owned_before, "late_tick");
 }
 

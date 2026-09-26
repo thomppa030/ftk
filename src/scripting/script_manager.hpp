@@ -58,6 +58,9 @@ struct OwnedScriptType {
     // [[fj::tick(order = n)]]: where the type's scripts run among the others,
     // lower earlier; types of equal order go by name.
     int32_t tick_order{0};
+    // FjellPolledHook bits: which of tick, fixed_tick and late_tick the type
+    // overrides. It is walked only for those.
+    uint32_t polls{0};
     std::vector<OwnedFieldDesc> fields;
     void (*trace)(void* instance, void* visitor){nullptr};
     const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
@@ -261,11 +264,13 @@ private:
     /// a type, in the order its scripts joined the scene.
     template <typename Hook>
     void run_scripts(Scene& scene, const char* hook_name, Hook&& hook);
-    /// The same for a frame hook (tick, late_tick): on a node whose state the
-    /// simulation owns, each script is checked after it runs for having
-    /// written that state.
+    /// The same for a polled hook (tick, fixed_tick, late_tick; `hook_bit` is
+    /// its FjellPolledHook bit), called as hook(script, type): only on types
+    /// that override it. After a frame hook (tick, late_tick), a script on a
+    /// node whose state the simulation owns is checked for having written that
+    /// state.
     template <typename Hook>
-    void run_frame_scripts(Scene& scene, const char* hook_name, Hook&& hook);
+    void run_polled(Scene& scene, uint32_t hook_bit, const char* hook_name, Hook&& hook);
     /// Report what the script of type `type_name` wrote on `node` that the
     /// simulation owns, judged against the state before it ran.
     void report_outside_writes(const Node& node, const std::string& type_name,
