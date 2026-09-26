@@ -80,6 +80,31 @@ ComponentPools& Scene::pools() {
     return *pools_;
 }
 
+void Scene::join_kind(Node& node) {
+    if (node.kind() == NodeKind::None) return;
+    by_kind_[static_cast<std::size_t>(node.kind())].nodes.push_back(&node);
+}
+
+void Scene::leave_kind(const Node& node) {
+    if (node.kind() == NodeKind::None) return;
+    KindList& list = by_kind_[static_cast<std::size_t>(node.kind())];
+    const auto it = std::ranges::find(list.nodes, &node);
+    if (it == list.nodes.end()) return;
+    if (list.walks > 0) {
+        *it = nullptr;
+        ++list.left;
+    } else {
+        list.nodes.erase(it);
+    }
+}
+
+Node* Scene::first_of_kind(NodeKind kind) const {
+    for (Node* node : by_kind_[static_cast<std::size_t>(kind)].nodes) {
+        if (node != nullptr) return node;
+    }
+    return nullptr;
+}
+
 uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     uint32_t id = next_id_++;
     auto obj = std::make_unique<Node3D>();
@@ -118,6 +143,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
 
     id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(node));
+    join_kind(*objects_.back());
     if (tracking_added_) added_.push_back(id);
     ++structure_revision_;
     return id;
@@ -132,6 +158,7 @@ std::vector<uint32_t> Scene::flush_spawned() {
         if (tracking_added_) added_.push_back(node->id);
         id_to_index_[node->id] = static_cast<int>(objects_.size());
         objects_.push_back(std::move(node));
+        join_kind(*objects_.back());
     }
     pending_spawn_.clear();
     index_dirty_ = true;
@@ -166,6 +193,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     const int idx = map_it->second;
     auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
     objects_.erase(objects_.begin() + idx);
+    leave_kind(*result);
     result->components.detach();
     rebuild_id_index();
     dirty_ = true;
@@ -177,6 +205,7 @@ void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     // Keep existing generation — node is coming back
     node->components.attach(pools(), node->id);
+    join_kind(*node);
     index = std::min(index, objects_.size());
     objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
     rebuild_id_index();
@@ -235,6 +264,7 @@ void Scene::remove_spot_light(int index) {
 }
 
 void Scene::clear() {
+    for (KindList& list : by_kind_) list = {};
     objects_.clear();
     point_lights_.clear();
     spot_lights_.clear();
@@ -286,6 +316,7 @@ void Scene::flush_destroyed() {
         auto map_it = id_to_index_.find(doomed);
         if (map_it == id_to_index_.end()) continue;
         int idx = map_it->second;
+        leave_kind(*objects_[static_cast<std::size_t>(idx)]);
         if (idx < static_cast<int>(objects_.size()) - 1) {
             uint32_t back_id = objects_.back()->id;
             std::swap(objects_[idx], objects_.back());

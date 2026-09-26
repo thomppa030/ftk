@@ -14,6 +14,9 @@ enum class CameraProjection : uint8_t {
 };
 
 struct CameraNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::Camera;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     CameraProjection projection{CameraProjection::perspective};
 
     // Perspective

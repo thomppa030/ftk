@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -39,6 +40,24 @@ struct ScriptEntry {
 
 struct Node3D; // forward declaration for as_spatial()
 
+/// The node subclasses a scene keeps a list of, so the systems that want
+/// every light or the camera ask the list instead of testing every node.
+/// Each concrete subclass names its value as `KIND` and returns it from
+/// kind(); a plain node or folder is None.
+enum class NodeKind : uint8_t {
+    None,
+    Camera,
+    DirectionalLight,
+    PointLight,
+    SpotLight,
+    VolumetricFog,
+    FogVolume,
+    PostProcessVolume,
+    WorldEnvironment,
+    GameUi,
+};
+inline constexpr std::size_t NODE_KIND_COUNT = static_cast<std::size_t>(NodeKind::GameUi) + 1;
+
 struct Node {
     uint32_t id{0};
     int32_t parent_id{-1};
@@ -59,6 +78,8 @@ struct Node {
     [[nodiscard]] inline const Node3D* as_spatial() const;
 
     [[nodiscard]] virtual std::unique_ptr<Node> clone() const;
+
+    [[nodiscard]] virtual NodeKind kind() const { return NodeKind::None; }
 
 protected:
     bool is_spatial_{false};

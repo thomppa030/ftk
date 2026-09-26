@@ -7,6 +7,7 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -153,6 +154,30 @@ public:
     /// Calls fn(node_id, component) for every component of type T in the
     /// scene, in the order they joined it. A component added during the walk
     /// is not visited; one removed during it is not visited afterwards.
+    /// Calls fn(node) for every node of kind T (a light, the camera, a fog
+    /// volume, ...) in the scene, in the order they joined it. A node joining
+    /// during the walk is not visited; one leaving it is not visited
+    /// afterwards.
+    template <typename T, typename Fn>
+    void each_node(Fn&& fn) {
+        walk_kind(T::KIND, [&](Node& node) { fn(static_cast<T&>(node)); });
+    }
+    template <typename T, typename Fn>
+    void each_node(Fn&& fn) const {
+        walk_kind(T::KIND, [&](Node& node) { fn(static_cast<const T&>(node)); });
+    }
+
+    /// The node of kind T that joined the scene first and is still in it, or
+    /// null when there is none.
+    template <typename T>
+    [[nodiscard]] T* first_node() {
+        return static_cast<T*>(first_of_kind(T::KIND));
+    }
+    template <typename T>
+    [[nodiscard]] const T* first_node() const {
+        return static_cast<const T*>(first_of_kind(T::KIND));
+    }
+
     template <typename T, typename Fn>
     void each(Fn&& fn) {
         if (!pools_) return;
@@ -262,6 +287,39 @@ private:
     /// take nodes.
     std::unique_ptr<ComponentPools> pools_;
     [[nodiscard]] ComponentPools& pools();
+
+    /// The nodes of objects_ of each kind, in the order they joined; null
+    /// where one left during a walk, until the walk is over. The lists are
+    /// short (tens of lights, a camera or two), so leaving searches its list.
+    struct KindList {
+        std::vector<Node*> nodes;
+        std::size_t left{0};
+        int walks{0};
+    };
+    // Walks change only the bookkeeping, so a const scene can be walked.
+    mutable std::array<KindList, NODE_KIND_COUNT> by_kind_;
+
+    void join_kind(Node& node);
+    void leave_kind(const Node& node);
+    [[nodiscard]] Node* first_of_kind(NodeKind kind) const;
+
+    template <typename Fn>
+    void walk_kind(NodeKind kind, Fn&& fn) const {
+        KindList& list = by_kind_[static_cast<std::size_t>(kind)];
+        if (list.walks == 0 && list.left > 0) {
+            std::erase(list.nodes, nullptr);
+            list.left = 0;
+        }
+        ++list.walks;
+        struct Done {
+            KindList& list;
+            ~Done() { --list.walks; }
+        } done{list};
+        const std::size_t count = list.nodes.size();
+        for (std::size_t i = 0; i < count; ++i) {
+            if (Node* node = list.nodes[i]) fn(*node);
+        }
+    }
 };
 
 } // namespace fjell

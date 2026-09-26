@@ -9,6 +9,9 @@ namespace fjell {
 /// Scene node that references a .fjui file for in-game UI rendering.
 /// Multiple GameUiNodes per scene allow layered UI (HUD, pause menu, etc.).
 struct GameUiNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::GameUi;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     std::string ui_path; // relative path to .fjui (e.g., "assets/ui/hud.fjui")
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {

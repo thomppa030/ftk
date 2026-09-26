@@ -33,6 +33,9 @@ enum class WeatherPhase : int { Approach = 0, Onset = 1, Sustain = 2, Tail = 3 }
 enum class LightType : uint8_t { Directional, Point, Spot };
 
 struct DirectionalLightNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::DirectionalLight;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     glm::vec3 direction{-0.3f, -1.0f, -0.5f};
     glm::vec3 color{1.0f, 1.0f, 0.95f};
     float intensity{1.5f};
@@ -52,6 +55,9 @@ struct DirectionalLightNode : Node3D {
 };
 
 struct PointLightNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::PointLight;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     glm::vec3 color{1.0f};
     float intensity{1.0f};
     float radius{10.0f};
@@ -73,6 +79,9 @@ struct PointLightNode : Node3D {
 };
 
 struct SpotLightNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::SpotLight;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     glm::vec3 direction{0.0f, -1.0f, 0.0f};
     glm::vec3 color{1.0f};
     float intensity{1.0f};
@@ -137,6 +146,9 @@ protected:
 // bank drifts, and how it answers movement. A volume with no material draws
 // with the engine's fog_volume.fjsl at its defaults.
 struct FogVolumeNode : VolumeNode {
+    static constexpr NodeKind KIND = NodeKind::FogVolume;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     /// The `.fjmat` the bank draws with, as an asset reference. Empty draws
     /// the engine's default bank.
     std::string material_path;
@@ -240,6 +252,9 @@ struct FogVolumeNode : VolumeNode {
 // in by how far inside it stands, per viewport. A volume with no material
 // draws the engine's post.fjsl, which is also the look with no volume at all.
 struct PostProcessVolumeNode : VolumeNode {
+    static constexpr NodeKind KIND = NodeKind::PostProcessVolume;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     /// The `.fjmat` the volume draws with, as an asset reference. Empty draws
     /// the engine's default look.
     std::string material_path;
@@ -293,6 +308,9 @@ struct PostProcessVolumeNode : VolumeNode {
 // it: where it sits, how far it reaches, how it answers movement. A node with
 // no material draws with the engine's fog.fjsl at its defaults.
 struct VolumetricFogNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::VolumetricFog;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     /// The `.fjmat` the haze draws with, as an asset reference. Empty draws
     /// the engine's default height fog.
     std::string material_path;
@@ -384,6 +402,9 @@ struct VolumetricFogNode : Node3D {
 // ── World environment ────────────────────────────────────────────────────
 
 struct WorldEnvironmentNode : Node3D {
+    static constexpr NodeKind KIND = NodeKind::WorldEnvironment;
+    [[nodiscard]] NodeKind kind() const override { return KIND; }
+
     glm::vec3 sky_top_color{0.15f, 0.25f, 0.45f};
     glm::vec3 sky_bottom_color{0.8f, 0.4f, 0.1f};
     float ibl_intensity{1.0f};
