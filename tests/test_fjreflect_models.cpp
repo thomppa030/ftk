@@ -276,6 +276,44 @@ public:
     REQUIRE(linked.has_error("bad_link.hpp:19: error: a pipe named 'twice' is already declared"));
 }
 
+TEST_CASE("A widget's [[fj::prop]] fields are filled from its props, never saved", "[fjreflect]") {
+    const auto project = read_project({{"slot.hpp", R"(
+#include <string>
+class slot_controller : public fjell::UiWidget {
+  FJELL_UI_WIDGET(slot_controller)
+public:
+  [[fj::prop]] int index = 0;
+  [[fj::prop]] std::string label;
+};
+)"}});
+    REQUIRE(project.errors.empty());
+    const auto* index = project.find_field("slot_controller", "index");
+    REQUIRE(index != nullptr);
+    REQUIRE(index->is_prop);
+    REQUIRE(index->is_state);
+    REQUIRE(index->fj_field_type == "FJELL_FIELD_INT");
+    REQUIRE(project.find_field("slot_controller", "label")->fj_field_type == "FJELL_FIELD_STD_STRING");
+
+    const auto bad = read_project({{"bad_prop.hpp", R"(
+#include <string>
+struct Pos { float x = 0.0f; };
+class Panel : public fjell::UiWidget {
+  FJELL_UI_WIDGET(Panel)
+public:
+  [[fj::prop]] Pos where;
+  [[fj::prop, fj::state]] int twice;
+};
+class Mover : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Mover)
+public:
+  [[fj::prop]] int speed;
+};
+)"}});
+    REQUIRE(bad.has_error("bad_prop.hpp:7: error: [[fj::prop]] 'where' holds a bool, int, float or std::string"));
+    REQUIRE(bad.has_error("bad_prop.hpp:8: error: 'twice' is filled from a prop"));
+    REQUIRE(bad.has_error("bad_prop.hpp:13: error: [[fj::prop]] on 'speed' belongs in a UI widget"));
+}
+
 TEST_CASE("A [[fj::state]] no Model reaches is worth a warning", "[fjreflect]") {
     const auto project = read_project({{"lonely.hpp", R"(
 struct Lonely {

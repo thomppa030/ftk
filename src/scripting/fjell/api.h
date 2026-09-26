@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 34
+#define FJELL_API_VERSION 35
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -88,7 +88,10 @@ enum {
     // and `offset` means nothing. Always also state.
     FJELL_FIELD_FLAG_GETTER = 1u << 1,
     // A UI widget's Model: a struct the widget's markup binds by the field's name.
-    FJELL_FIELD_FLAG_MODEL = 1u << 2
+    FJELL_FIELD_FLAG_MODEL = 1u << 2,
+    // A UI widget's field filled from its widget's prop of the same name,
+    // before the widget ticks. Always also state.
+    FJELL_FIELD_FLAG_PROP = 1u << 3
 };
 
 struct FjellTypeDesc;

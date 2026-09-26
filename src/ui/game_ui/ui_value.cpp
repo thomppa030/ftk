@@ -107,6 +107,22 @@ std::optional<int> read_int(const std::string& text) {
 
 } // namespace
 
+bool write_value(FjellFieldType kind, void* at, const UiValue& value) {
+    switch (kind) {
+        case FJELL_FIELD_BOOL: *static_cast<bool*>(at) = value.truthy(); return true;
+        case FJELL_FIELD_INT:
+        case FJELL_FIELD_FLOAT: {
+            const auto n = value.number();
+            if (!n) return false;
+            if (kind == FJELL_FIELD_INT) *static_cast<int32_t*>(at) = static_cast<int32_t>(std::trunc(*n));
+            else *static_cast<float*>(at) = *n;
+            return true;
+        }
+        case FJELL_FIELD_STD_STRING: *static_cast<std::string*>(at) = value.text(); return true;
+        default: return false;
+    }
+}
+
 UiValue UiValue::parse(std::string_view text, std::string_view type) {
     const std::string s(text);
     if (type == "float") {

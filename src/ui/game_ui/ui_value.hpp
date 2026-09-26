@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scripting/fjell/api.h"
+
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -122,5 +124,11 @@ public:
 private:
     std::variant<std::monostate, bool, int, float, std::string, UiVector, UiObject, UiList> value_;
 };
+
+/// Writes `value` into a field of kind bool, int, float or std::string at
+/// `at`, as that kind reads it: true or false as `if=` reads it, a number
+/// from text that is one, text as markup shows it. False, writing nothing,
+/// for another kind, or for a number the value cannot be read as.
+bool write_value(FjellFieldType kind, void* at, const UiValue& value);
 
 } // namespace fjell

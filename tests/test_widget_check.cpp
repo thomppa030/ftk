@@ -327,3 +327,25 @@ TEST_CASE("A reload reports the widgets a changed declaration touches", "[widget
     REQUIRE(checks.revision() != first);
     REQUIRE(checks.check(widgets[0]).problems.size() == 1);
 }
+
+TEST_CASE("A controller's [[fj::prop]] needs the widget's prop of its name and kind", "[widget-check]") {
+    Project project;
+    auto manifest = game_manifest();
+    manifest["types"].push_back(nlohmann::json::parse(R"({"name": "slot_controller", "kind": "ui_widget", "fields": [
+        {"name": "index", "kind": "int", "prop": true},
+        {"name": "label", "kind": "string", "prop": true},
+        {"name": "hot", "kind": "bool", "prop": true}
+    ]})"));
+    const auto path = project.write("ui/widgets/slot.fjwidget", "<widget class=\"slot_controller\">\n"
+                                                              "    <prop name=\"index\" type=\"int\"/>\n"
+                                                              "    <prop name=\"label\" type=\"float\"/>\n"
+                                                              "    <text>{index}</text>\n"
+                                                              "</widget>\n");
+    const auto problems = check_widget(path, UiSchema::from_json(manifest)).problems;
+    INFO(messages(problems));
+    REQUIRE(problems.size() == 2);
+    REQUIRE(problems[0].line == 1);
+    REQUIRE(problems[0].message == "the controller's [[fj::prop]] 'hot' has no <prop name=\"hot\"> to be filled from");
+    REQUIRE(problems[1].line == 3);
+    REQUIRE(problems[1].message == "<prop> 'label' is float, but the controller's [[fj::prop]] of that name is string");
+}

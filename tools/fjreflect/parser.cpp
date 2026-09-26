@@ -873,7 +873,7 @@ private:
     }
 
     static bool is_field_attribute(const std::string& name) {
-        static const char* names[] = {"property", "bind", "state", "model", "range", "step",
+        static const char* names[] = {"property", "bind", "state", "model", "prop", "range", "step",
                                       "tooltip", "category", "color", "enum", "readonly",
                                       "replicated", "shader_type"};
         return std::any_of(std::begin(names), std::end(names),
@@ -1013,6 +1013,7 @@ private:
         fi.is_bind = has_attribute(m, "bind");
         fi.is_state = has_attribute(m, "state");
         fi.is_model = has_attribute(m, "model");
+        fi.is_prop = has_attribute(m, "prop");
         if (!apply_attributes(fi, m.attrs)) return;
 
         if (fi.is_model) {
@@ -1022,6 +1023,21 @@ private:
                 return;
             }
             fi.is_state = true;
+        }
+        if (fi.is_prop) {
+            if (!comp.is_ui_component) {
+                error(m.line, "[[fj::prop]] on '" + m.name + "' belongs in a UI widget: a prop is what a "
+                              "placement passes its widget");
+                return;
+            }
+            if (fi.is_model || fi.is_state || has_attribute(m, "property")) {
+                error(m.line, "'" + m.name + "' is filled from a prop ([[fj::prop]]), so it is neither "
+                              "authored, a Model nor state of its own");
+                return;
+            }
+            fi.is_state = true; // runtime, never saved
+            add_state_field(comp, m, std::move(fi));
+            return;
         }
         if (fi.is_state && (has_attribute(m, "property") || fi.is_bind)) {
             error(m.line, "'" + m.name + "' is either authored ([[fj::property]]) or runtime state "
@@ -1080,6 +1096,12 @@ private:
         fi.element_struct = value.element_struct;
         if (fi.is_model && fi.fj_field_type != "FJELL_FIELD_STRUCT") {
             error(m.line, "[[fj::model]] on '" + m.name + "' needs a struct; '" + m.type + "' is not one");
+            return;
+        }
+        if (fi.is_prop && fi.fj_field_type != "FJELL_FIELD_BOOL" && fi.fj_field_type != "FJELL_FIELD_INT" &&
+            fi.fj_field_type != "FJELL_FIELD_FLOAT" && fi.fj_field_type != "FJELL_FIELD_STD_STRING") {
+            error(m.line, "[[fj::prop]] '" + m.name + "' holds a bool, int, float or std::string, the kinds "
+                          "a <prop> declares; '" + m.type + "' is not one");
             return;
         }
         const bool compound = fi.fj_field_type == "FJELL_FIELD_STRUCT" || fi.fj_field_type == "FJELL_FIELD_VECTOR";
@@ -1258,7 +1280,7 @@ private:
                 return false;
             };
             const bool takes_none = a.name == "property" || a.name == "bind" || a.name == "state" ||
-                                    a.name == "model" || a.name == "color" || a.name == "readonly" ||
+                                    a.name == "model" || a.name == "prop" || a.name == "color" || a.name == "readonly" ||
                                     a.name == "replicated";
             if (takes_none) {
                 if (a.has_args) return bad("no arguments");

@@ -58,6 +58,8 @@ struct OwnedFieldDesc {
     [[nodiscard]] bool is_getter() const { return (flags & FJELL_FIELD_FLAG_GETTER) != 0; }
     /// A UI widget's Model.
     [[nodiscard]] bool is_model() const { return (flags & FJELL_FIELD_FLAG_MODEL) != 0; }
+    /// A UI widget's field the UI fills from the widget's prop of its name.
+    [[nodiscard]] bool is_prop() const { return (flags & FJELL_FIELD_FLAG_PROP) != 0; }
     /// An authored value the scene file keeps and the inspector edits.
     [[nodiscard]] bool is_property() const {
         return (flags & (FJELL_FIELD_FLAG_STATE | FJELL_FIELD_FLAG_GETTER | FJELL_FIELD_FLAG_MODEL)) == 0 &&

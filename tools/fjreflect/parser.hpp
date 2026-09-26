@@ -32,6 +32,7 @@ struct FieldInfo {
     // Runtime state and Models
     bool is_state{false};      // [[fj::state]], or any member of a reflected struct: bindable, never saved
     bool is_model{false};      // [[fj::model]] on a UI widget: a Model its markup binds
+    bool is_prop{false};       // [[fj::prop]] on a UI widget: filled from its widget's prop of that name
     bool is_getter{false};     // a const member function, read through a generated trampoline
     std::string scope;         // qualified name of the declaring class, to resolve struct names in
     std::string struct_type;   // STRUCT: the struct as written; its qualified name once linked

@@ -229,3 +229,32 @@ TEST_CASE("A scope reads its own object after its values and before its parent",
     widget.set("name", "Prop");
     REQUIRE(widget.get("name") == "Prop"); // a value published here, before the controller
 }
+
+TEST_CASE("A value is written into a field as the field's kind reads it", "[ui_paths]") {
+    bool on = false;
+    REQUIRE(write_value(FJELL_FIELD_BOOL, &on, UiValue("1")));
+    REQUIRE(on);
+    int count = 0;
+    REQUIRE(write_value(FJELL_FIELD_INT, &count, UiValue("7.9")));
+    REQUIRE(count == 7);
+    REQUIRE_FALSE(write_value(FJELL_FIELD_INT, &count, UiValue("seven")));
+    REQUIRE(count == 7); // left as it was
+    float fill = 0.0f;
+    REQUIRE(write_value(FJELL_FIELD_FLOAT, &fill, UiValue(2)));
+    REQUIRE(fill == 2.0f);
+    std::string label;
+    REQUIRE(write_value(FJELL_FIELD_STD_STRING, &label, UiValue(1.5f)));
+    REQUIRE(label == "1.5");
+    glm::vec2 where{0.0f};
+    REQUIRE_FALSE(write_value(FJELL_FIELD_VEC2, &where, UiValue(1)));
+}
+
+TEST_CASE("A scope's own value is found apart from its parents'", "[ui_paths]") {
+    UiContext parent;
+    parent.set("index", UiValue(3));
+    UiContext child(&parent);
+    REQUIRE(child.find("index") != nullptr);
+    REQUIRE(child.find_here("index") == nullptr);
+    child.set("index", UiValue(5));
+    REQUIRE(*child.find_here("index") == UiValue(5));
+}

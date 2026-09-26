@@ -187,6 +187,7 @@ void UiSubsystem::read_controller_in_place(WidgetInstance& wi) {
     // its fields is what markup reads, so the field would never show.
     UiContext& scope = *wi.widget_context;
     for (const auto& field : wi.type->fields) {
+        if (field.is_prop()) continue; // filled from the prop, which is what markup reads
         if (scope.find(field.name) != nullptr) {
             FJELL_CORE_WARN("Widget '{}': the prop '{}' hides the controller's field of that name; "
                             "markup reads the prop",
@@ -194,6 +195,18 @@ void UiSubsystem::read_controller_in_place(WidgetInstance& wi) {
         }
     }
     scope.set_self(UiObject{wi.type->name, wi.type->fields, wi.widget.get()});
+}
+
+void UiSubsystem::fill_props(WidgetInstance& wi) {
+    // A field reads its widget's own prop: one of the same name further out
+    // belongs to another widget.
+    auto* base = reinterpret_cast<char*>(wi.widget.get()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+    for (const auto& field : wi.type->fields) {
+        if (!field.is_prop()) continue;
+        if (const UiValue* value = wi.widget_context->find_here(field.name)) {
+            (void)write_value(field.type, base + field.offset, *value);
+        }
+    }
 }
 
 void UiSubsystem::bind_models(const TickContext& /*ctx*/) {
@@ -239,6 +252,7 @@ void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
     wi.widget->models_.models_ = &inst.game_ui->models();
     wi.widget->models_.scope_ = wi.widget_context;
     read_controller_in_place(wi);
+    fill_props(wi); // before begin_play, which may read them
 
     // Its scope answers the actions its type declares and lets the rest
     // bubble up to the widgets around it. The entry lives in a list, so the
@@ -453,7 +467,9 @@ void UiSubsystem::tick(const TickContext& ctx) {
             any_reloaded = true;
         }
         for (auto& wi : inst.widgets) {
-            if (wi.widget) wi.widget->tick(ctx.dt);
+            if (!wi.widget) continue;
+            fill_props(wi);
+            wi.widget->tick(ctx.dt);
         }
     }
 

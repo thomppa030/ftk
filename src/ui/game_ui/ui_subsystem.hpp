@@ -108,6 +108,10 @@ private:
     // Lets a controller's scope read its fields and getters by name, where
     // they are; a prop of the same name is reported.
     static void read_controller_in_place(WidgetInstance& wi);
+    // A controller's [[fj::prop]] fields from its widget's props of their
+    // names, as the placement has bound them: before it starts and before
+    // every tick.
+    static void fill_props(WidgetInstance& wi);
     void destroy_controllers(UiInstance& inst);
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.

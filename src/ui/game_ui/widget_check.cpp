@@ -48,7 +48,8 @@ UiSchema UiSchema::from_json(const nlohmann::json& manifest) {
                               .kind = f.value("kind", ""),
                               .type = f.value("struct", ""),
                               .element = f.value("element", ""),
-                              .element_type = f.value("element_struct", "")});
+                              .element_type = f.value("element_struct", ""),
+                              .prop = f.value("prop", false)});
         }
         return fields;
     };
@@ -248,6 +249,23 @@ WidgetCheck Checker::run() {
             }
             root.controller = nullptr;
             root.unknown_controller = true;
+        }
+    }
+    // A controller's [[fj::prop]] is filled from the widget's prop of its
+    // name, of its kind.
+    if (root.controller != nullptr) {
+        for (const auto& field : root.controller->fields) {
+            if (!field.prop) continue;
+            const auto declared = std::ranges::find(asset->props, field.name, &PropDecl::name);
+            if (declared == asset->props.end()) {
+                report_in_file("class=\"" + asset->class_name + "\"",
+                               "the controller's [[fj::prop]] '" + field.name + "' has no <prop name=\"" +
+                                   field.name + "\"> to be filled from");
+            } else if (declared->type != field.kind) {
+                report_in_file("name=\"" + field.name + "\"",
+                               "<prop> '" + field.name + "' is " + declared->type +
+                                   ", but the controller's [[fj::prop]] of that name is " + field.kind);
+            }
         }
     }
     placed_by_others_ = fs::path(path_).parent_path().filename() == "widgets";

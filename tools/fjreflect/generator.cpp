@@ -58,6 +58,7 @@ std::string flags_of(const FieldInfo& f) {
     if (f.is_state) add("FJELL_FIELD_FLAG_STATE");
     if (f.is_getter) add("FJELL_FIELD_FLAG_GETTER");
     if (f.is_model) add("FJELL_FIELD_FLAG_MODEL");
+    if (f.is_prop) add("FJELL_FIELD_FLAG_PROP");
     return out.empty() ? "0" : out;
 }
 
@@ -586,6 +587,7 @@ Json field_json(const FieldInfo& f) {
     if (f.is_state) field["state"] = true;
     if (f.is_getter) field["getter"] = true;
     if (f.is_model) field["model"] = true;
+    if (f.is_prop) field["prop"] = true;
     if (f.fj_field_type == "FJELL_FIELD_STRUCT") field["struct"] = f.struct_type;
     if (f.fj_field_type == "FJELL_FIELD_VECTOR") {
         field["element"] = element_kind(f);

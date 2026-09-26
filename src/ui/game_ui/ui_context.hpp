@@ -66,6 +66,13 @@ public:
         return parent_ ? parent_->find(key) : nullptr;
     }
 
+    /// The value published under exactly this name in this scope itself, not
+    /// a parent's: a widget's own prop. Null when this scope has none.
+    [[nodiscard]] const UiValue* find_here(std::string_view key) const {
+        auto it = values_.find(key);
+        return it != values_.end() ? &it->second : nullptr;
+    }
+
     /// The value a path reaches: `name`, or `name.field.field` into an
     /// object (a Model, a struct, a getter's result) or a vector. The first
     /// name is read through the scopes, each later one from the value before
