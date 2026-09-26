@@ -376,9 +376,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // move the surface sideways and the height at the camera's rest position
     // is not the height above it.
     camera_gap_.clear();
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         const auto* spatial = node->as_spatial();
         if (spatial == nullptr) continue;
         const glm::vec3 centre{spatial->world_matrix_[3]};
@@ -400,21 +398,19 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         std::optional<FftContributor> sea;
         const Node* asked_first = nullptr;
         const Node* asked_otherwise = nullptr;
-        for (const auto& node : ctx.scene->objects()) {
-            const auto* wc = node->components.get<WaterComponent>();
-            if (wc == nullptr) continue;
+        for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
             const auto* fft = water::simulated_sea(wc->effective_water);
             if (fft == nullptr) continue;
             if (!sea.has_value()) {
                 sea = *fft;
-                asked_first = node.get();
+                asked_first = node;
                 // Drawn by whoever derived this field. A field nothing has
                 // derived yet has no sea to show, and gets one next frame.
                 if (wc->effective_water.simulated.has_value()) {
                     running = &*wc->effective_water.simulated;
                 }
             } else if (*fft != *sea && asked_otherwise == nullptr) {
-                asked_otherwise = node.get();
+                asked_otherwise = node;
             }
         }
         // A second body of water with a simulated sea of its own is drawn with
@@ -437,9 +433,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // material or a hot-reloaded shader means vkCreateGraphicsPipelines,
     // which does not belong inside command recording.
     bool any = false;
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         any = true;
         if (wc->material != nullptr) {
             (void)ensure_material_pipeline(wc->material->pipeline_id());
@@ -687,9 +681,7 @@ void WaterPass::upload_fields(const FrameContext& ctx) {
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
     auto* records = static_cast<std::byte*>(field_buffers_[slot]->mapped());
     std::uint32_t used = 0;
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         if (used >= WATER_NODES_PER_FRAME) break;
         GpuWaterField field = to_gpu_field(wc->effective_water);
         // A field with a simulated contributor is drawn with the sea the
@@ -716,13 +708,11 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
     const Node* nearest = nullptr;
     const WaterComponent* water = nullptr;
     float nearest_gap = LINE_REACH_METRES;
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         const auto gap = camera_gap_.find(node->id);
         if (gap == camera_gap_.end() || std::abs(gap->second) >= nearest_gap) continue;
         nearest_gap = std::abs(gap->second);
-        nearest = node.get();
+        nearest = node;
         water = wc;
     }
 
@@ -765,9 +755,7 @@ void WaterPass::upload_wakes(const FrameContext& ctx) {
     const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
     auto* records = static_cast<GpuWakeSource*>(wake_buffers_[slot]->mapped());
     std::uint32_t used = 0;
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         WakeRange range{used, 0};
         for (const water::WakeSource& wake : wc->effective_water.wakes) {
             if (used >= WAKE_RECORDS_PER_FRAME) break;
@@ -837,12 +825,7 @@ bool WaterPass::scene_has_water(const FrameContext& ctx) {
     if (ctx.scene == nullptr) {
         return false;
     }
-    for (const auto& node : ctx.scene->objects()) {
-        if (node->components.get<WaterComponent>() != nullptr) {
-            return true;
-        }
-    }
-    return false;
+    return !ctx.scene->view<WaterComponent>().empty();
 }
 
 bool WaterPass::draws(const FrameContext& ctx) const {
@@ -925,9 +908,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkIma
 
     VkPipeline current = VK_NULL_HANDLE;
 
-    for (const auto& node : ctx.scene->objects()) {
-        const auto* wc = node->components.get<WaterComponent>();
-        if (wc == nullptr) continue;
+    for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         // Absent when the frame's field buffer was full.
         const auto field = field_slots_.find(wc);
         if (field == field_slots_.end()) continue;
