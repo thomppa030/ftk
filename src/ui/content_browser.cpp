@@ -8,6 +8,7 @@
 #include "ui/kit/menu.hpp"
 #include "ui/kit/asset_tile.hpp"
 #include "ui/kit/asset_kind.hpp"
+#include "ui/kit/panel.hpp"
 #include "core/asset_identity.hpp"
 #include "core/input_context_io.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
@@ -16,7 +17,6 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/icons_lc.hpp"
 #include "ui/theme.hpp"
-#include "ui/panel_widget.hpp"
 #include "core/thread_pool.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
@@ -226,7 +226,7 @@ void ContentBrowser::draw() {
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoCollapse;
 
-    if (auto p = Panel(ui::icon::content_browser, "Content Browser", &visible_, flags)) {
+    if (auto p = ui::Panel(ui::icon::content_browser, "Content Browser", &visible_, flags)) {
         if (root_.empty()) {
             ImGui::TextDisabled("No project open");
         } else {

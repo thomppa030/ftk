@@ -3,7 +3,7 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
-#include "ui/panel_widget.hpp"
+#include "ui/kit/panel.hpp"
 
 #include <imgui.h>
 
@@ -46,7 +46,7 @@ ImVec2 TimelineWidget::screen_position(float time, int lane) const {
 }
 
 void TimelineWidget::draw(float dt) {
-    if (auto panel = Panel(ui::icon::play, title_.c_str())) {
+    if (auto panel = ui::Panel(ui::icon::play, title_.c_str())) {
         draw_transport();
         draw_canvas();
     }

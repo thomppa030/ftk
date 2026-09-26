@@ -16,11 +16,11 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/kit/tree.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/material_params_widget.hpp"
 #include "scripting/script_manager.hpp"
 #include "renderer/bindless.hpp"
@@ -439,7 +439,7 @@ void UiEditorContext::open_ui(const std::string& path) {
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    auto panel = Panel(ui::icon::preview, ctx_title("Preview").c_str());
+    auto panel = ui::Panel(ui::icon::preview, ctx_title("Preview").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
         ui::empty_state(ui::icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
@@ -645,7 +645,7 @@ void UiEditorContext::draw_preview_toolbar() {
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    auto panel = Panel(ui::icon::hierarchy, ctx_title("Elements").c_str());
+    auto panel = ui::Panel(ui::icon::hierarchy, ctx_title("Elements").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
         ui::empty_state(ui::icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
@@ -744,7 +744,7 @@ void UiEditorContext::draw_problems() {
 }
 
 void UiEditorContext::draw_inspector() {
-    auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     // Problems show up next to the UI they broke, even with nothing
     // selected: a typo in a hot-reloaded file should be the first thing
@@ -1243,7 +1243,7 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_mock_data() {
-    auto panel = Panel(ui::icon::ui_widget, ctx_title("Mock data").c_str());
+    auto panel = ui::Panel(ui::icon::ui_widget, ctx_title("Mock data").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
         ui::empty_state(ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
@@ -1396,7 +1396,7 @@ void UiEditorContext::draw_action_bindings() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    auto panel = Panel(ui::icon::console, ctx_title("Action log").c_str());
+    auto panel = ui::Panel(ui::icon::console, ctx_title("Action log").c_str());
     if (!panel) return;
     if (action_log_.empty()) {
         ui::empty_state(ui::icon::console, "No actions yet", "Actions fired in Play mode are listed here");

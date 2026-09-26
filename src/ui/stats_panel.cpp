@@ -5,9 +5,9 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -57,7 +57,7 @@ void StatsPanel::draw(float dt, const char* title) {
     frame_time_history_[frame_time_index_] = dt * 1000.0F;
     frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
 
-    if (auto p = Panel(ui::icon::stats, title)) {
+    if (auto p = ui::Panel(ui::icon::stats, title)) {
         draw_header();
         draw_rendering_section();
         draw_simulation_section();

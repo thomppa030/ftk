@@ -7,11 +7,11 @@
 #include "ui/kit/menu.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/feedback.hpp"
-#include "ui/panel_widget.hpp"
 #include "animation/anim_notify_registry.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -521,7 +521,7 @@ void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,
 }
 
 void AnimationEditorContext::draw_collider_panel() {
-    auto panel = Panel(ui::icon::collision, ctx_title("Colliders").c_str());
+    auto panel = ui::Panel(ui::icon::collision, ctx_title("Colliders").c_str());
     if (!panel) return;
     if (!skeleton_) {
         ui::empty_state(ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
@@ -577,7 +577,7 @@ void AnimationEditorContext::draw_collider_panel() {
 }
 
 void AnimationEditorContext::draw_bone_tree() {
-    auto panel = Panel(ui::icon::skeleton, ctx_title("Bones").c_str());
+    auto panel = ui::Panel(ui::icon::skeleton, ctx_title("Bones").c_str());
     if (!panel) return;
     if (!skeleton_) {
         ui::empty_state(ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
@@ -619,7 +619,7 @@ void AnimationEditorContext::draw_bone_tree() {
 }
 
 void AnimationEditorContext::draw_clip_list() {
-    auto panel = Panel(ui::icon::animation, ctx_title("Clips").c_str());
+    auto panel = ui::Panel(ui::icon::animation, ctx_title("Clips").c_str());
     if (!panel) return;
     if (available_clip_names_.empty()) {
         ui::empty_state(ui::icon::animation, "No clips", "Clips next to the skeleton or in the animset show here");
@@ -641,7 +641,7 @@ void AnimationEditorContext::draw_clip_list() {
 }
 
 void AnimationEditorContext::draw_properties() {
-    auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     auto& states = state_machine_.states_mutable();
     InspectorContext ictx{};
@@ -1043,7 +1043,7 @@ void AnimationEditorContext::update_preview(float dt) {
 // ── State graph ─────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_state_graph() {
-    auto panel = Panel(ui::icon::animation, ctx_title("State graph").c_str());
+    auto panel = ui::Panel(ui::icon::animation, ctx_title("State graph").c_str());
     if (!panel) return;
     if (state_machine_.states().empty() && animset_path_.empty()) {
         ui::empty_state(ui::icon::animation, "No state machine", "Open an animset to edit its states");
@@ -1055,7 +1055,7 @@ void AnimationEditorContext::draw_state_graph() {
 // ── Parameters ──────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_parameters() {
-    auto panel = Panel(ui::icon::properties, ctx_title("Parameters").c_str());
+    auto panel = ui::Panel(ui::icon::properties, ctx_title("Parameters").c_str());
     if (!panel) return;
     if (animset_path_.empty()) {
         ui::empty_state(ui::icon::animation, "No state machine", "Parameters belong to an animset");

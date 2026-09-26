@@ -9,9 +9,9 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -150,7 +150,7 @@ void TrackLanes::select(const std::string& name) {
 bool TrackLanes::draw(const char* title, TrackSet& set, float dt) {
     length_ = set.length > 0.0f ? set.length : 1.0f;
     bool changed = false;
-    if (auto panel = Panel(ui::icon::play, title)) {
+    if (auto panel = ui::Panel(ui::icon::play, title)) {
         draw_transport();
         const float label_w = std::min(LABEL_W, ImGui::GetContentRegionAvail().x * 0.4f);
         // Add track sits in the label column, beside the ruler.

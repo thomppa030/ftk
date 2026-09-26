@@ -4,8 +4,8 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/viewport_toolbar.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <stb_image.h>
@@ -134,7 +134,7 @@ void TexturePreview::pixel_for_pixel() {
 void TexturePreview::draw() {
     if (!open_) return;
     ImGui::SetNextWindowSize({520.0f, 560.0f}, ImGuiCond_FirstUseEver);
-    if (auto panel = Panel(ui::icon::texture, "Texture Preview", &open_)) {
+    if (auto panel = ui::Panel(ui::icon::texture, "Texture Preview", &open_)) {
         if (failed_) {
             ui::status(ui::Severity::Error, "The file couldn't be read as an image; the console says why.");
             return;

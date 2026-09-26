@@ -19,11 +19,11 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/kit/tree.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -202,7 +202,7 @@ void BlendSpaceEditorContext::draw(float dt) {
 }
 
 void BlendSpaceEditorContext::draw_canvas_panel() {
-    auto panel = Panel(ui::icon::blend_space, ctx_title("Canvas").c_str());
+    auto panel = ui::Panel(ui::icon::blend_space, ctx_title("Canvas").c_str());
     if (!panel) return;
 
     // What the cursor blends, over the canvas.
@@ -432,7 +432,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
 }
 
 void BlendSpaceEditorContext::draw_points_panel() {
-    auto panel = Panel(ui::icon::blend_space, ctx_title("Points").c_str());
+    auto panel = ui::Panel(ui::icon::blend_space, ctx_title("Points").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
@@ -499,7 +499,7 @@ void BlendSpaceEditorContext::draw_points_panel() {
 }
 
 void BlendSpaceEditorContext::draw_clips_panel() {
-    auto panel = Panel(ui::icon::animation, ctx_title("Clips").c_str());
+    auto panel = ui::Panel(ui::icon::animation, ctx_title("Clips").c_str());
     if (!panel) return;
     if (available_clip_names_.empty()) {
         ui::empty_state(ui::icon::animation, "No clips", "Pick the skeleton in Properties to list its clips");
@@ -522,7 +522,7 @@ void BlendSpaceEditorContext::draw_clips_panel() {
 }
 
 void BlendSpaceEditorContext::draw_properties_panel() {
-    auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;

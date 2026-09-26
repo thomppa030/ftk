@@ -11,9 +11,9 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/node_visuals.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -217,7 +217,7 @@ void HierarchyPanel::draw_settings_menu() {
 }
 
 void HierarchyPanel::draw() {
-    if (auto p = Panel(ui::icon::hierarchy, "Hierarchy")) {
+    if (auto p = ui::Panel(ui::icon::hierarchy, "Hierarchy")) {
         delete_pending_ = false;
         // A row drawn before the one under the cursor has already shown the
         // drag; it shows why a drop is refused a frame late.

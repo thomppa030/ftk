@@ -4,9 +4,9 @@
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -32,7 +32,7 @@ void metric(const char* label, const std::string& value) {
 } // namespace
 
 void NetPanel::draw(float dt, const char* title) {
-    auto p = Panel(ui::icon::network, title);
+    auto p = ui::Panel(ui::icon::network, title);
     if (!p) return;
 
     if (!net_) {

@@ -22,11 +22,11 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/material_params_widget.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/shader_error_callout.hpp"
 
 #include <imgui.h>
@@ -72,7 +72,7 @@ void PropertiesPanel::commit_name() {
 }
 
 void PropertiesPanel::draw() {
-    if (auto p = Panel(ui::icon::properties, "Properties")) {
+    if (auto p = ui::Panel(ui::icon::properties, "Properties")) {
         Node* base = scene_->find(*selected_id_);
         if (base == nullptr) {
             ui::empty_state(ui::icon::nothing_selected, "Nothing selected",

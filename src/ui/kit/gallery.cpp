@@ -11,12 +11,12 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/kit/tree.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>

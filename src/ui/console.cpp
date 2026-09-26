@@ -3,8 +3,8 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/search.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <spdlog/pattern_formatter.h>
@@ -72,7 +72,7 @@ void ConsoleSink::clear() {
 void ConsoleSink::draw(const char* title) {
     std::lock_guard lock(mutex_);
 
-    if (auto p = Panel(ui::icon::console, title)) {
+    if (auto p = ui::Panel(ui::icon::console, title)) {
         // Toolbar
         if (ui::action(ui::icon::remove, "Clear", ui::ButtonKind::Ghost)) {
             entries_.clear();

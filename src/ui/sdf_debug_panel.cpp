@@ -6,10 +6,10 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/overlay.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/viewport_toolbar.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <algorithm>
@@ -40,7 +40,7 @@ constexpr float PILL_SLIDER_WIDTH = 140.0f;
 void SdfDebugPanel::draw(SceneSdfPass& sdf) {
     if (!open_) return;
     ImGui::SetNextWindowSize({460.0f, 600.0f}, ImGuiCond_FirstUseEver);
-    auto panel = Panel(ui::icon::debug, "SDF Debug", &open_);
+    auto panel = ui::Panel(ui::icon::debug, "SDF Debug", &open_);
     if (!panel) return;
 
     const glm::vec3 lo = sdf.volume_min();

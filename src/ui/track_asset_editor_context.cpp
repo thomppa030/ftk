@@ -7,7 +7,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
-#include "ui/panel_widget.hpp"
+#include "ui/kit/panel.hpp"
 
 #include <filesystem>
 
@@ -95,7 +95,7 @@ void TrackAssetEditorContext::draw(float dt) {
         if (lanes_.draw(ctx_title("Timeline").c_str(), tracks(), dt)) push_live();
     }
 
-    if (auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str())) {
+    if (auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str())) {
         if (loaded_) {
             draw_status();
             if (lanes_.draw_selection(tracks())) push_live();

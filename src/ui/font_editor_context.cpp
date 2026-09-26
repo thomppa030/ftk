@@ -13,10 +13,10 @@
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
-#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -164,7 +164,7 @@ void FontEditorContext::draw(float dt) {
 }
 
 void FontEditorContext::draw_recipe_panel() {
-    auto panel = Panel(ui::icon::font, ctx_title("Properties").c_str());
+    auto panel = ui::Panel(ui::icon::font, ctx_title("Properties").c_str());
     if (!panel) return;
     if (!loaded_) {
         ui::empty_state(ui::icon::font, "The recipe couldn't be read", "The console says why");
@@ -293,7 +293,7 @@ void FontEditorContext::draw_recipe_panel() {
 }
 
 void FontEditorContext::draw_preview_panel() {
-    auto panel = Panel(ui::icon::preview, ctx_title("Preview").c_str());
+    auto panel = ui::Panel(ui::icon::preview, ctx_title("Preview").c_str());
     if (!panel) return;
     if (auto t = ui::PropertyTable("##sample")) {
         ui::row("Sample", [&] {

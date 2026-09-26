@@ -18,9 +18,9 @@
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/material_params_widget.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/shader_error_callout.hpp"
 
 #include <imgui.h>
@@ -212,7 +212,7 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    auto panel = Panel(ui::icon::properties, ctx_title("Parameters").c_str());
+    auto panel = ui::Panel(ui::icon::properties, ctx_title("Parameters").c_str());
     if (!panel) return;
     if (!material_) {
         ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");
@@ -263,7 +263,7 @@ void MaterialEditorContext::draw_params_panel() {
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    auto panel = Panel(ui::icon::texture, ctx_title("Textures").c_str());
+    auto panel = ui::Panel(ui::icon::texture, ctx_title("Textures").c_str());
     if (!panel) return;
     if (!material_) {
         ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");

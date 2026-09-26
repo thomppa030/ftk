@@ -8,11 +8,11 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/tabs.hpp"
 #include "ui/kit/text_field.hpp"
-#include "ui/panel_widget.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "renderer/components/particle_emitter.hpp"
@@ -331,7 +331,7 @@ void VfxEditorContext::show_emitter() {
 }
 
 void VfxEditorContext::draw_graph() {
-    auto panel = Panel(ui::icon::vfx, ctx_title("Graph").c_str());
+    auto panel = ui::Panel(ui::icon::vfx, ctx_title("Graph").c_str());
     if (!panel) return;
     if (!effect_) {
         ui::empty_state(ui::icon::vfx, "No effect", "The effect couldn't be read; the console says why");
@@ -480,7 +480,7 @@ void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
 }
 
 void VfxEditorContext::draw_module_stack() {
-    auto panel = Panel(ui::icon::vfx, ctx_title("Modules").c_str());
+    auto panel = ui::Panel(ui::icon::vfx, ctx_title("Modules").c_str());
     if (!panel) return;
     if (!effect_ || selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
         ui::empty_state(ui::icon::vfx, "No emitter selected", "Select an emitter in the graph");

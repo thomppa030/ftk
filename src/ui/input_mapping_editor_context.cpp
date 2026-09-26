@@ -14,11 +14,11 @@
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/key_cap.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/kit/strip.hpp"
 #include "ui/kit/text_field.hpp"
-#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -286,7 +286,7 @@ void InputMappingEditorContext::draw_header_actions() {
 }
 
 void InputMappingEditorContext::draw_mappings() {
-    auto panel = Panel(ui::icon::input, ctx_title("Mappings").c_str());
+    auto panel = ui::Panel(ui::icon::input, ctx_title("Mappings").c_str());
     if (!panel) return;
     if (fjinput_path_.empty()) {
         ui::empty_state(ui::icon::input, "No input context", "Open a .fjinput from the content browser");

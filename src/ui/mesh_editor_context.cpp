@@ -20,9 +20,9 @@
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -209,7 +209,7 @@ void MeshEditorContext::frame_camera() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MeshEditorContext::draw_slots_panel() {
-    auto panel = Panel(ui::icon::material, ctx_title("Materials").c_str());
+    auto panel = ui::Panel(ui::icon::material, ctx_title("Materials").c_str());
     if (!panel) return;
     if (!model_) {
         ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
@@ -450,7 +450,7 @@ void MeshEditorContext::draw_primitive_list() {
 }
 
 void MeshEditorContext::draw_collision_panel() {
-    auto panel = Panel(ui::icon::collision, ctx_title("Collision").c_str());
+    auto panel = ui::Panel(ui::icon::collision, ctx_title("Collision").c_str());
     if (!panel) return;
     if (!model_) {
         ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
@@ -536,7 +536,7 @@ void MeshEditorContext::draw_collision_panel() {
 }
 
 void MeshEditorContext::draw_info_panel() {
-    auto panel = Panel(ui::icon::info, ctx_title("Info").c_str());
+    auto panel = ui::Panel(ui::icon::info, ctx_title("Info").c_str());
     if (!panel) return;
     if (!model_) {
         ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");

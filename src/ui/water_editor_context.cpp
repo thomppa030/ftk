@@ -24,9 +24,9 @@
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
 #include "ui/kit/menu.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
-#include "ui/panel_widget.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -301,7 +301,7 @@ void WaterEditorContext::draw(float dt) {
 }
 
 void WaterEditorContext::draw_generator_panel() {
-    auto panel = Panel(ui::icon::water, ctx_title("Sea").c_str());
+    auto panel = ui::Panel(ui::icon::water, ctx_title("Sea").c_str());
     if (!panel) return;
     if (!loaded_) {
         ui::empty_state(ui::icon::warning, "The file couldn't be read", "The console says why");
@@ -876,7 +876,7 @@ void WaterEditorContext::draw_measures() {
 }
 
 void WaterEditorContext::draw_wave_list_panel() {
-    auto panel = Panel(ui::icon::curve, ctx_title("Waves").c_str());
+    auto panel = ui::Panel(ui::icon::curve, ctx_title("Waves").c_str());
     if (!panel) return;
     if (!loaded_) return;
 
