@@ -1,12 +1,12 @@
 #include "ui/kit/gallery.hpp"
 
-#include "ui/asset_ref_widget.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/color_field.hpp"
 #include "ui/kit/component_block.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
+#include "ui/kit/grouped_picker.hpp"
 #include "ui/kit/inset_group.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/list_editor.hpp"
@@ -15,6 +15,7 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/search.hpp"
 #include "ui/kit/section.hpp"
+#include "ui/kit/slot.hpp"
 #include "ui/kit/text_field.hpp"
 #include "ui/kit/tree.hpp"
 #include "ui/theme.hpp"
@@ -22,15 +23,63 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
+#include <filesystem>
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell::ui {
 
 namespace {
+
+// The files the sample slots know: what their picker offers, and what a slot
+// holding anything else reads as gone.
+constexpr std::array<std::string_view, 6> SAMPLE_ASSETS{
+    "shaders/fog.fjsl",       "shaders/toon.fjsl",      "shaders/water.fjsl",
+    "materials/brick.fjmat",  "materials/moss.fjmat",   "materials/planks.fjmat",
+};
+
+// A slot holding one of the sample files of this extension, picked from a
+// fixed list. Returns true when `value` changed.
+bool sample_slot(const char* id, std::string& value, std::string_view extension) {
+    bool changed = false;
+    ImGui::PushID(id);
+    Slot slot(nullptr, {});
+    if (slot.clicked()) grouped_picker::open(id);
+    if (slot.hovered() && !value.empty()) ImGui::SetItemTooltip("%s", value.c_str());
+
+    if (grouped_picker::is_open(id)) {
+        std::array<grouped_picker::Group, 1> groups;
+        for (std::string_view file : SAMPLE_ASSETS) {
+            if (!file.ends_with(extension)) continue;
+            groups.front().items.push_back({.value = std::string(file),
+                                            .label = std::filesystem::path(file).filename().string(),
+                                            .search_text = std::string(file)});
+        }
+        if (std::string picked; grouped_picker::draw(id, groups, {.hide_group_headers = true}, picked)) {
+            value = picked;
+            changed = true;
+        }
+    }
+
+    const bool known = std::ranges::find(SAMPLE_ASSETS, value) != SAMPLE_ASSETS.end();
+    const AssetPresence presence = value.empty() ? AssetPresence::empty
+                                   : known       ? AssetPresence::held
+                                                 : AssetPresence::missing;
+    std::string text;
+    const SlotFace face =
+        asset_face(std::filesystem::path(value).filename().string(), presence, extension, text);
+    if (slot.finish(face, value.empty(), {})) {
+        value.clear();
+        changed = true;
+    }
+    ImGui::PopID();
+    return changed;
+}
 
 // One colour token: a swatch, its name and its value.
 void swatch(const char* name, const ImVec4& colour) {
@@ -201,20 +250,9 @@ void KitGallery::fields() {
         }
         subheading("Asset slots");
         if (auto t = PropertyTable("##gallery_slots")) {
-            static const std::string shader_exts[] = {".fjsl"};
-            static const std::string material_exts[] = {".fjmat"};
-            row("Shader", [&] {
-                edit.changed |= asset_slot({.label = "Shader", .id = "##shader", .extensions = shader_exts},
-                                           slot_shader_);
-            });
-            row("Material", [&] {
-                edit.changed |= asset_slot({.label = "Material", .id = "##material", .extensions = material_exts},
-                                           slot_empty_);
-            });
-            row("Surface", [&] {
-                edit.changed |= asset_slot({.label = "Surface", .id = "##missing", .extensions = material_exts},
-                                           slot_missing_);
-            });
+            row("Shader", [&] { edit.changed |= sample_slot("##shader", slot_shader_, ".fjsl"); });
+            row("Material", [&] { edit.changed |= sample_slot("##material", slot_empty_, ".fjmat"); });
+            row("Surface", [&] { edit.changed |= sample_slot("##missing", slot_missing_, ".fjmat"); });
         }
         subheading("Toggles");
         if (auto t = PropertyTable("##gallery_toggles")) {
