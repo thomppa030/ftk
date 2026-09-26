@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/systems/vfx_curve.hpp"
+#include "core/math/curve.hpp"
 #include "ui/kit/edit.hpp"
 #include "ui/theme.hpp"
 
