@@ -284,6 +284,7 @@ add_executable(fjell-tests
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp
     test_node_slot.cpp
+    test_slot.cpp
     test_fields.cpp
     test_kit.cpp
     test_node_graph.cpp

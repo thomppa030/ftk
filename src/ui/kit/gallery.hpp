@@ -65,7 +65,7 @@ private:
     Body body_{Body::Dynamic};
     glm::vec3 light_colour_{0.88f, 0.62f, 0.27f};  // linear
     glm::vec4 tint_{0.61f, 0.78f, 0.91f, 1.0f};
-    const char* removed_{nullptr};
+    const char* removed_{nullptr};  // the sample block whose trash was clicked last
     int empty_clicks_{0};
     std::vector<glm::vec3> points_{{0.5f, 0.0f, 0.5f}, {-0.5f, 0.0f, 0.5f}, {0.0f, 0.2f, -0.6f}};
     std::vector<std::string> names_{"idle", "walk", "run_cycle_fast"};
@@ -73,7 +73,7 @@ private:
     // Asset slots showing a real asset, nothing, and a file that is gone.
     std::string slot_shader_{"shaders/fog.fjsl"};
     std::string slot_empty_;
-    std::string slot_missing_{"materials/planks_gone.fjmat"};  // the sample block whose trash was clicked last
+    std::string slot_missing_{"materials/planks_gone.fjmat"};
     // How many edits the sample fields have committed, to see that a drag
     // is one commit.
     int commits_{0};

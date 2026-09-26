@@ -1,9 +1,6 @@
 #include "ui/asset_ref_widget.hpp"
 #include "ui/kit/asset_kind.hpp"
-#include "ui/kit/button.hpp"
 #include "ui/kit/edit_record.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/icons.hpp"
 #include "ui/kit/slot.hpp"
 #include "ui/theme.hpp"
 #include "ui/asset_picker.hpp"
@@ -23,13 +20,6 @@
 #include <unordered_map>
 
 namespace fjell {
-
-// A drop the field turned down, said under it for a few seconds after it
-// was let go.
-static std::string s_refused_id;
-static std::string s_refused_text;
-static double      s_refused_until{0.0};
-constexpr double REFUSAL_SECONDS = 4.0;
 
 // A texture's picture on hover (sheet 19, P3); the field's own is the slot face's.
 constexpr float HOVER_THUMB = 128.0f;
@@ -153,36 +143,13 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     };
     const std::string name_before = name_of(path);
 
-    // Anything picked by other means than the list: the list only offers
-    // what fits, a drop could bring in anything.
-    auto offer = [&](const std::string& candidate) {
-        auto refusal = drop_refusal(candidate, config.extensions, project, config.shader_types);
-        if (!refusal.empty()) {
-            s_refused_id = config.id;
-            s_refused_text = std::move(refusal);
-            s_refused_until = ImGui::GetTime() + REFUSAL_SECONDS;
-            return;
-        }
-        path = to_reference(candidate);
-        changed = true;
-    };
-
     ImGui::PushID(config.id);
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float height = ImGui::GetFrameHeight();
-    const float width = ImGui::CalcItemWidth();
     const bool has_value = !path.empty();
-    // The clear button is always there, disabled while the slot is empty,
-    // so the field keeps its width whether it holds something or not.
-    const float clear_w = height + style.ItemInnerSpacing.x;
-    const ImVec2 min = ImGui::GetCursorScreenPos();
-    const ImVec2 max{min.x + std::max(width - clear_w, height), min.y + height};
-
-    // The field is one button: clicking anywhere on it opens the picker.
-    if (ImGui::InvisibleButton("##slot", {max.x - min.x, height})) {
-        asset_picker::open(config.id);
-    }
-    const bool hovered = ImGui::IsItemHovered();
+    ui::Slot slot("ASSET_PATH", [&](const ImGuiPayload& payload) {
+        return drop_refusal(static_cast<const char*>(payload.Data), config.extensions, project,
+                            config.shader_types);
+    });
+    if (slot.clicked()) asset_picker::open(config.id);
 
     // A texture shows its picture: in the field, and bigger when hovered.
     VkDescriptorSet thumb = VK_NULL_HANDLE;
@@ -191,7 +158,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
         resolved = base_path::resolve_asset(path, project);
         if (std::filesystem::exists(resolved)) thumb = config.ctx->icons->thumbnail(resolved);
     }
-    if (hovered && !shown_path.empty()) {
+    if (slot.hovered() && !shown_path.empty()) {
         if (thumb != VK_NULL_HANDLE) {
             if (ImGui::BeginItemTooltip()) {
                 ImGui::Image(reinterpret_cast<ImTextureID>(thumb), {HOVER_THUMB, HOVER_THUMB});
@@ -208,30 +175,9 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
         }
     }
 
-    // A dragged asset is judged while it is still over the field: one that
-    // fits lights the field, one that doesn't outlines it red and says why,
-    // and is not taken.
-    ui::SlotDrop drop = ui::SlotDrop::none;
-    if (ImGui::BeginDragDropTarget()) {
-        const ImGuiPayload* payload = ImGui::GetDragDropPayload();
-        if (payload != nullptr && payload->IsDataType("ASSET_PATH")) {
-            const std::string dragged(static_cast<const char*>(payload->Data));
-            const std::string refusal =
-                drop_refusal(dragged, config.extensions, project, config.shader_types);
-            if (refusal.empty()) {
-                drop = ui::SlotDrop::fits;
-                if (const auto* taken = ImGui::AcceptDragDropPayload(
-                        "ASSET_PATH", ImGuiDragDropFlags_AcceptBeforeDelivery
-                                          | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
-                    taken != nullptr && taken->IsDelivery()) {
-                    offer(dragged);
-                }
-            } else {
-                drop = ui::SlotDrop::refused;
-                ui::refusal_tooltip(refusal);
-            }
-        }
-        ImGui::EndDragDropTarget();
+    if (const ImGuiPayload* dropped = slot.dropped()) {
+        path = to_reference(static_cast<const char*>(dropped->Data));
+        changed = true;
     }
 
     // The picker hangs under the field, so it draws right after it.
@@ -250,52 +196,22 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     const std::string name = shown_path.empty()
         ? reference
         : std::filesystem::path(shown_path).filename().string();
-    const auto& kind = ui::asset_kind(std::filesystem::path(shown_path.empty() ? reference : shown_path)
-                                          .extension().string());
-    const char* glyph = missing ? ui::icon::warning : kind.icon;
-    ImVec4 icon_colour = theme::category(kind.category);
-    ImVec4 text_colour = theme::text();
-    std::string text = name;
-    if (!has_value) {
-        glyph = config.extensions.empty() ? ui::icon::file
-                                          : ui::asset_kind(config.extensions.front()).icon;
-        icon_colour = theme::text_disabled();
-        text_colour = theme::text_secondary();
-        text = "None";
-    } else if (missing) {
-        icon_colour = theme::error();
-        text_colour = theme::error();
-        text = "missing: " + name;
-    }
+    const ui::AssetPresence presence = !has_value ? ui::AssetPresence::empty
+                                       : missing  ? ui::AssetPresence::missing
+                                                  : ui::AssetPresence::held;
+    std::string text;
+    ui::SlotFace face = ui::asset_face(
+        name, presence, config.extensions.empty() ? std::string_view{} : std::string_view{config.extensions.front()},
+        text);
+    if (thumb != VK_NULL_HANDLE && !missing) face.picture = reinterpret_cast<ImTextureID>(thumb);
 
-    ui::draw_slot_face(min, max, {.glyph = glyph,
-                                  .glyph_colour = icon_colour,
-                                  .picture = thumb != VK_NULL_HANDLE && !missing
-                                                 ? reinterpret_cast<ImTextureID>(thumb) : ImTextureID{0},
-                                  .text = text,
-                                  .text_colour = text_colour,
-                                  .drop = drop,
-                                  .hovered = hovered});
-
-    ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
-    ImGui::BeginDisabled(!has_value);
-    if (ui::icon_button("##clear", ui::icon::clear, has_value ? "Clear" : "Nothing to clear",
-                        ui::ButtonKind::GhostDanger)) {
+    // What is wrong with what the field holds: a scene written by hand or
+    // before the slot said what it takes.
+    const std::string problem =
+        has_value && !missing ? shader_type_refusal(path, project, config.shader_types) : std::string();
+    if (slot.finish(face, !has_value, problem)) {
         path.clear();
         changed = true;
-    }
-    ImGui::EndDisabled();
-
-    // What is wrong with the pick just refused, else with what the field
-    // holds: a scene written by hand or before the slot said what it takes.
-    std::string problem;
-    if (s_refused_id == config.id && ImGui::GetTime() < s_refused_until) {
-        problem = s_refused_text;
-    } else if (has_value && !missing) {
-        problem = shader_type_refusal(path, project, config.shader_types);
-    }
-    if (!problem.empty()) {
-        ui::status(ui::Severity::Error, problem.c_str());
     }
 
     // Per-type preview — takes a path, so hand it the resolved one.
