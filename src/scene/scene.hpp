@@ -187,6 +187,30 @@ public:
             });
         }
     }
+    /// The components of type T with the nodes holding them, as a range:
+    /// `for (auto [node, terrain] : scene.view<TerrainComponent>())`. Same
+    /// order and rules as each().
+    template <typename T>
+    [[nodiscard]] ComponentView<Node, T> view() {
+        return ComponentView<Node, T>{pools_ ? pools_->find(component_type_id<T>()) : nullptr};
+    }
+    template <typename T>
+    [[nodiscard]] ComponentView<const Node, const T> view() const {
+        return ComponentView<const Node, const T>{
+            pools_ ? pools_->find(component_type_id<T>()) : nullptr};
+    }
+
+    /// Calls fn(node) for every node carrying a component of type `id`, in
+    /// the order those components joined, for code that knows a component
+    /// type only by id.
+    template <typename Fn>
+    void each_holder(ComponentTypeId id, Fn&& fn) {
+        if (!pools_) return;
+        if (ComponentPool* pool = pools_->find(id)) {
+            pool->for_each([&](Node& node, void*) { fn(node); });
+        }
+    }
+
     template <typename T, typename Fn>
     void each(Fn&& fn) const {
         if (!pools_) return;

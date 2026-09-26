@@ -86,12 +86,16 @@ void ComponentPool::compact() {
     released_ = 0;
 }
 
-ComponentPool::WalkGuard::WalkGuard(ComponentPool& p) : pool{p} {
-    if (pool.walks_ == 0 && pool.released_ > 0) pool.compact();
-    ++pool.walks_;
+ComponentPool::Walk::Walk(ComponentPool* pool) : pool_{pool} {
+    if (pool_ == nullptr) return;
+    if (pool_->walks_ == 0 && pool_->released_ > 0) pool_->compact();
+    ++pool_->walks_;
+    count_ = pool_->members_.size();
 }
 
-ComponentPool::WalkGuard::~WalkGuard() { --pool.walks_; }
+ComponentPool::Walk::~Walk() {
+    if (pool_ != nullptr) --pool_->walks_;
+}
 
 ComponentPool& ComponentPools::pool(const ComponentType& type) {
     if (type.id >= by_id_.size()) by_id_.resize(type.id + 1);

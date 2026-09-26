@@ -225,3 +225,30 @@ TEST_CASE("a node spawned during a tick lives in the pools from the start", "[co
     }
     CHECK(g_alive == 0);
 }
+
+TEST_CASE("a pool can be walked as a range, with the same rules", "[components][pool]") {
+    Scene scene;
+    const uint32_t a = scene.add_node(node_with_health(1));
+    const uint32_t b = scene.add_node(node_with_health(2));
+    const uint32_t c = scene.add_node(node_with_health(3));
+
+    std::vector<uint32_t> seen;
+    uint32_t joined = 0;
+    for (auto [node, health] : scene.view<Health>()) {
+        seen.push_back(node->id);
+        if (health->value == 1) {
+            scene.remove(b);
+            joined = scene.add_node(node_with_health(4));
+        }
+    }
+    CHECK(seen == std::vector{a, c});
+
+    const Scene& view_only = scene;
+    std::vector<int> values;
+    for (auto [node, health] : view_only.view<Health>()) values.push_back(health->value);
+    CHECK(values == std::vector{1, 3, 4});
+    CHECK(walk<Health>(scene) == std::vector{a, c, joined});
+
+    Scene empty;
+    CHECK(empty.view<Health>().begin() == empty.view<Health>().end());
+}
