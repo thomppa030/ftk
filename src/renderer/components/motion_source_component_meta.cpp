@@ -32,7 +32,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "MotionSourceComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<MotionSourceComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<MotionSourceComponent>(); },
     });
     return true;

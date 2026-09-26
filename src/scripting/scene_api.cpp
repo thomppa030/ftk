@@ -90,37 +90,42 @@ extern "C" FJELL_SDK_EXPORT void fjell_scene_teleport(uint32_t node_id, const fl
     if (services.physics) services.physics->teleport(node_id, world_position, world_rotation);
 }
 
-// The component of the given type on one node, engine or script, or null.
-static void* component_on(fjell::Node& node, const char* type_name) {
-    // Engine components — registry dispatch
-    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
-    if (meta && meta->script_get) {
-        return meta->script_get(node);
+// The id of the component type scripts know by `type_name`. The library's
+// own script types come first: a script type may share a name only with an
+// engine component the library has no mirror of (the load refuses the
+// others), so to that library the name means its script. The answer holds
+// for as long as the library is loaded, and the SDK asks once per type.
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_component_type_id(const char* type_name) {
+    if (!type_name) return FJELL_NO_COMPONENT_TYPE;
+    if (auto* manager = fjell::script_services().manager) {
+        if (const auto* type = manager->find_script_type(type_name)) return type->component.id;
     }
+    if (auto id = fjell::ComponentRegistry::instance().find_id_by_script_name(type_name)) return *id;
+    return FJELL_NO_COMPONENT_TYPE;
+}
 
-    // Script components
+// The component of type `id` on one node, engine or script, or null.
+static void* component_on(fjell::Node& node, fjell::ComponentTypeId id) {
+    if (void* component = node.components.get_by_id(id)) return component;
     for (auto& entry : node.scripts) {
-        if (entry.instance && entry.type_name == type_name)
-            return entry.instance.get();
+        if (entry.instance && entry.instance.type_id() == id) return entry.instance.get();
     }
     return nullptr;
 }
 
-extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, const char* type_name) {
+extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, uint32_t type_id) {
     auto* scene = fjell::script_services().scene;
-    if (!scene || !type_name) return nullptr;
+    if (!scene) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
-    return component_on(*node, type_name);
+    return component_on(*node, type_id);
 }
 
-extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node_with(const char* type_name) {
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node_with(uint32_t type_id) {
     auto* scene = fjell::script_services().scene;
-    if (!scene || !type_name) return 0;
-    for (const auto& obj : scene->objects()) {
-        if (component_on(*obj, type_name)) return obj->id;
-    }
-    return 0;
+    if (!scene) return 0;
+    const fjell::Node* node = scene->first_holder(type_id);
+    return node ? node->id : 0;
 }
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_empty(const char* name,

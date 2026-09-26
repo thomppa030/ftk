@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 38
+#define FJELL_API_VERSION 39
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -54,6 +54,11 @@ typedef struct FjellComponentLayout {
     const char* type_name;
     uint32_t size;
 } FjellComponentLayout;
+
+// ── Component type ids ──────────────────────────────────────────────────
+// What fjell_component_type_id() answers for a name that is no component
+// type scripts can reach. No lookup finds anything under it.
+#define FJELL_NO_COMPONENT_TYPE 0xFFFFFFFFu
 
 // ── Field types for inspector / serialization reflection ────────────────
 

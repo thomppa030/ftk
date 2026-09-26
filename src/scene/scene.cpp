@@ -52,6 +52,11 @@ void ScriptInstance::reset() {
     pool_->release(slot_);
 }
 
+ComponentTypeId ScriptInstance::type_id() const {
+    assert(instance_ != nullptr);
+    return pool_->type().id;
+}
+
 // ── Node ────────────────────────────────────────────────────────────────
 
 Node::Node() = default;

@@ -3,6 +3,7 @@
 #include "scene/component_meta.hpp"
 #include "scene/component_storage.hpp"
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -37,6 +38,14 @@ public:
             if (e.meta.script_type_name == name) return &e.meta;
         }
         return nullptr;
+    }
+
+    /// The id of the engine component scripts know by `name`, or none.
+    [[nodiscard]] std::optional<ComponentTypeId> find_id_by_script_name(std::string_view name) const {
+        for (const auto& e : entries_) {
+            if (e.meta.script_type_name == name) return e.id;
+        }
+        return std::nullopt;
     }
 
     template <typename Fn>

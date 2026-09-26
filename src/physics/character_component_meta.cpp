@@ -73,7 +73,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "CharacterComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<CharacterComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<CharacterComponent>(); },
     });
     return true;

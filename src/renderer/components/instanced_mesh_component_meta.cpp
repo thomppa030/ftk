@@ -90,7 +90,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "InstancedMeshComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<InstancedMeshComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<InstancedMeshComponent>(); },
     });
 

@@ -48,7 +48,6 @@ static const bool registered = [] {
             return static_cast<MeshComponent*>(ptr)->material;
         },
         .script_type_name = "MeshComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<MeshComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<MeshComponent>(); },
     });
     return true;

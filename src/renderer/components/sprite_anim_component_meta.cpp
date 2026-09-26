@@ -38,7 +38,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "SpriteAnimComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<SpriteAnimComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<SpriteAnimComponent>(); },
     });
     return true;

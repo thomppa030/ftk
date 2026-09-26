@@ -3,6 +3,7 @@
 
 #include "fjell/api.h"
 #include "fjell/component.hpp"
+#include "fjell/component_id.hpp"
 #include "fjell/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -19,7 +20,7 @@ FJELL_SDK_EXPORT bool     fjell_scene_get_render_transform(uint32_t node_id, flo
                                                            float* rotation, float* scale);
 FJELL_SDK_EXPORT void     fjell_scene_teleport(uint32_t node_id, const float* position,
                                                const float* rotation);
-FJELL_SDK_EXPORT void*    fjell_scene_get_component(uint32_t node_id, const char* type_name);
+FJELL_SDK_EXPORT void*    fjell_scene_get_component(uint32_t node_id, uint32_t type_id);
 FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, const char* type_name);
 }
 
@@ -114,7 +115,7 @@ struct Node3D {
     /// @endcode
     template <typename T>
     [[nodiscard]] T* get_component() const {
-        return static_cast<T*>(fjell_scene_get_component(node_id, T::type_name));
+        return static_cast<T*>(fjell_scene_get_component(node_id, detail::component_type_id<T>()));
     }
 
     /// Attach a new component to this node at runtime.

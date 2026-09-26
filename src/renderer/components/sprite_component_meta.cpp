@@ -59,7 +59,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "SpriteComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<SpriteComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<SpriteComponent>(); },
     });
     return true;

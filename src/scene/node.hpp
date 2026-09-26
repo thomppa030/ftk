@@ -67,6 +67,10 @@ public:
     [[nodiscard]] explicit operator bool() const { return instance_ != nullptr; }
     [[nodiscard]] bool operator==(std::nullptr_t) const { return instance_ == nullptr; }
 
+    /// The id of the script's type, which names its pool. Only for a handle
+    /// holding a script.
+    [[nodiscard]] ComponentTypeId type_id() const;
+
     /// Ends the script and gives its slot back. Nothing for an empty handle.
     void reset();
 

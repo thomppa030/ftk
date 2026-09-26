@@ -252,3 +252,30 @@ TEST_CASE("a pool can be walked as a range, with the same rules", "[components][
     Scene empty;
     CHECK(empty.view<Health>().begin() == empty.view<Health>().end());
 }
+
+TEST_CASE("the first holder of a type is the node that has had one longest", "[components][pool]") {
+    Scene scene;
+    CHECK(scene.first_holder(component_type_id<Health>()) == nullptr);
+
+    const uint32_t a = scene.add_node(node_with_health(1));
+    const uint32_t b = scene.add_node(node_with_health(2));
+    CHECK(scene.first_holder(component_type_id<Health>())->id == a);
+
+    // A component that left during a walk is still in the pool's books until
+    // the walk ends, and is passed over.
+    scene.each<Health>([&](Node& node, Health&) {
+        if (node.id == a) {
+            node.components.remove<Health>();
+            CHECK(scene.first_holder(component_type_id<Health>())->id == b);
+        }
+    });
+    CHECK(scene.first_holder(component_type_id<Health>())->id == b);
+
+    scene.remove(b);
+    CHECK(scene.first_holder(component_type_id<Health>()) == nullptr);
+
+    // A node spawned during a tick holds its components before the flush.
+    Scene::TickLock lock(scene);
+    const uint32_t spawned = scene.add_node(node_with_health(3));
+    CHECK(scene.first_holder(component_type_id<Health>())->id == spawned);
+}

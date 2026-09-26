@@ -61,6 +61,13 @@ void ComponentPool::admit(uint32_t slot) {
     --pending_;
 }
 
+Node* ComponentPool::first_owner() const {
+    for (const Member& m : members_) {
+        if (m.component != nullptr) return m.owner;
+    }
+    return nullptr;
+}
+
 void ComponentPool::release(uint32_t slot) {
     Member& m = members_[member_of_[slot]];
     assert(m.slot == slot);

@@ -77,7 +77,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "ColliderComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<ColliderComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<ColliderComponent>(); },
     });
     return true;

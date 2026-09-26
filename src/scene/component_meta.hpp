@@ -62,9 +62,12 @@ struct ComponentMeta {
     /// had no reason to know about it.
     Material* (*material)(void* component){nullptr};
 
-    // Script API dispatch (null = not script-accessible)
+    // The name scripts know the component by: the `type_name` a script-side
+    // mirror of it declares. Empty when scripts cannot reach it. A script
+    // asks for the id behind the name once and finds the component in a
+    // node's storage by that.
     std::string script_type_name;
-    void* (*script_get)(Node& node){nullptr};
+    // Adds the component for a script (null = scripts cannot add one).
     void* (*script_add)(Node& node){nullptr};
     // sizeof the engine struct, filled in by the registry. Scripts see these
     // components through a mirrored struct in their SDK, and a game module

@@ -127,3 +127,16 @@ TEST_CASE("without a host, a node taken out still lets its scripts go", "[script
     CHECK(walk(scene).empty());
     CHECK(g_alive == 0);
 }
+
+TEST_CASE("a script is found by its type's id", "[scripts][pool]") {
+    Scene scene;
+    CHECK(scene.first_holder(component_type_id<Probe>()) == nullptr);
+
+    const uint32_t a = with_probe(scene, 1);
+    const uint32_t b = with_probe(scene, 2);
+    CHECK(scene.find(a)->scripts.front().instance.type_id() == component_type_id<Probe>());
+    CHECK(scene.first_holder(component_type_id<Probe>())->id == a);
+
+    scene.find(a)->scripts.front().instance.reset();
+    CHECK(scene.first_holder(component_type_id<Probe>())->id == b);
+}

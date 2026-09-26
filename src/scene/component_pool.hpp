@@ -95,6 +95,10 @@ public:
     /// Live components.
     [[nodiscard]] std::size_t size() const { return members_.size() - released_ - pending_; }
 
+    /// The owner of the live component that joined first, or null when there
+    /// is none.
+    [[nodiscard]] Node* first_owner() const;
+
 private:
     static constexpr uint32_t RELEASED = UINT32_MAX;
 

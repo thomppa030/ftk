@@ -234,6 +234,13 @@ public:
         }
     }
 
+    /// The node whose component of type `id` has been in the scene longest,
+    /// or null when none has one.
+    [[nodiscard]] Node* first_holder(ComponentTypeId id) const {
+        ComponentPool* pool = pools_ ? pools_->find(id) : nullptr;
+        return pool ? pool->first_owner() : nullptr;
+    }
+
     template <typename T, typename Fn>
     void each(Fn&& fn) const {
         if (!pools_) return;

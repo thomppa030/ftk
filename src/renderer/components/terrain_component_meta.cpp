@@ -66,7 +66,6 @@ static const bool registered = [] {
             return static_cast<TerrainComponent*>(ptr)->material;
         },
         .script_type_name = "TerrainComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<TerrainComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<TerrainComponent>(); },
     });
     return true;

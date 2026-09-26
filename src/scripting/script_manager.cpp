@@ -31,6 +31,7 @@ extern "C" void fjell_input_clear_connections();
 #include <format>
 #include <ctime>
 #include <filesystem>
+#include <span>
 
 // ── Type registry (engine-side, filled by game .so) ─────────────────────
 
@@ -365,9 +366,11 @@ void ScriptManager::build_registry() {
     // The version catches deliberate ABI changes; this catches the mirrored
     // component structs drifting from the engine's, which no one bumps for.
     using LayoutFn = uint32_t (*)(const FjellComponentLayout**);
+    std::span<const FjellComponentLayout> mirrored;
     if (auto* layout_fn = library_.symbol_as<LayoutFn>("fjell_engine_component_layouts")) {
         const FjellComponentLayout* layouts = nullptr;
         uint32_t count = layout_fn(&layouts);
+        mirrored = {layouts, count};
         for (uint32_t i = 0; i < count; ++i) {
             const auto* meta = ComponentRegistry::instance().find_by_script_name(layouts[i].type_name);
             if (meta == nullptr) continue;
@@ -393,6 +396,20 @@ void ScriptManager::build_registry() {
     FjellTypeRegistry registry;
     registry.types = &reflected_types_;
     reg_fn(&registry);
+
+    // Scripts find a type by its name, so the name has to mean one type. An
+    // engine component the library mirrors and a script type of the same name
+    // (`fjell::MeshComponent` and a `game::MeshComponent`) would answer to it
+    // both, and a lookup of one could hand back the other.
+    for (const auto& ct : registry.scripts) {
+        for (const FjellComponentLayout& layout : mirrored) {
+            if (ct.name == layout.type_name) {
+                FJELL_CORE_ERROR("Script type {} has the name of an engine component — rename it",
+                                 ct.name);
+                return;
+            }
+        }
+    }
 
     for (auto& ct : registry.scripts) {
         script_type_map_[ct.type_id] = script_type_list_.size();

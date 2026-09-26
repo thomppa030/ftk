@@ -50,7 +50,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "BuoyancyComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<BuoyancyComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<BuoyancyComponent>(); },
     });
     return true;

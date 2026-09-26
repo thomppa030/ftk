@@ -233,7 +233,7 @@ template <typename T>
 Pointer to the component instance on this node, or `nullptr` if the node doesn't have a `T`.
 
 ### Remarks
-Looks up the component on the engine side by `type_name`. Cheap (hash lookup). Result is valid for the current frame; don't store across reloads.
+Looks the component up by its type's id, which the SDK asks the engine for once per type. Cheap: it checks only this node's own components. Result is valid for the current frame; don't store across reloads.
 
 For engine components (`MeshComponent`, `SpriteComponent`, `RigidbodyComponent`, etc.) use the types from `fjell/engine_components.hpp`.
 

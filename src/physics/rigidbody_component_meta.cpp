@@ -41,7 +41,6 @@ static const bool registered = [] {
         },
 
         .script_type_name = "RigidbodyComponent",
-        .script_get = [](Node& node) -> void* { return node.components.get<RigidbodyComponent>(); },
         .script_add = [](Node& node) -> void* { return &node.components.add<RigidbodyComponent>(); },
     });
     return true;
