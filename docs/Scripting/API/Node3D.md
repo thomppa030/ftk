@@ -261,10 +261,10 @@ T* add_component() const;
 | `T` | Component type with `static constexpr const char* type_name`. |
 
 ### Return value
-Pointer to the newly added component, or `nullptr` if creation failed (e.g. `T` isn't registered).
+Pointer to the newly added component, or `nullptr` if the node no longer resolves, `T` is an engine component scripts cannot add, or the new script's own `begin_play()` took it off again. It is always the component that was asked for, even when its `begin_play()` adds others to the node.
 
 ### Remarks
-Calls `begin_play()` on the new component before returning. Subsequent `tick`s include it.
+While the game is running, calls `begin_play()` on the new component before returning. Subsequent `tick`s include it.
 
 Adding a duplicate of an already-present component is allowed at the API level but is rarely what you want.
 

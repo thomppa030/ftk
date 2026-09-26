@@ -455,6 +455,13 @@ const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) 
     return &script_type_list_[it->second];
 }
 
+const OwnedScriptType* ScriptManager::find_script_type_by_id(ComponentTypeId id) const {
+    for (const auto& type : script_type_list_) {
+        if (type.component.id == id) return &type;
+    }
+    return nullptr;
+}
+
 const OwnedUiWidgetType* ScriptManager::find_ui_widget_type(const std::string& name) const {
     for (const auto& ut : ui_type_list_) {
         if (ut.name == name) return &ut;

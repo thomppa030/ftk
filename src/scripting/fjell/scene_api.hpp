@@ -19,7 +19,7 @@ FJELL_SDK_EXPORT float*   fjell_scene_get_scale(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_rotation(uint32_t node_id);
 FJELL_SDK_EXPORT void*    fjell_scene_get_component(uint32_t node_id, uint32_t type_id);
 FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_empty(const char* name, float x, float y, float z);
-FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, const char* type_name);
+FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, uint32_t type_id);
 FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_preset(uint32_t handle_id,
                                                    float x, float y, float z,
                                                    int32_t parent_id);

@@ -217,6 +217,8 @@ public:
     void scripts_returned(Node& node) override;
 
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
+    /// The loaded script type whose pool is `id`, or null.
+    [[nodiscard]] const OwnedScriptType* find_script_type_by_id(ComponentTypeId id) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
     [[nodiscard]] const OwnedUiWidgetType* find_ui_widget_type(const std::string& name) const;

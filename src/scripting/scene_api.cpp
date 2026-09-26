@@ -137,30 +137,23 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_empty(const char* name,
     return scene->add_empty(t, name ? name : "Spawned");
 }
 
-extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id,
-                                           const char* type_name) {
-    auto* scene = fjell::script_services().scene;
-    if (!scene || !type_name) return nullptr;
-    auto* node = scene->find(node_id);
+extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id, uint32_t type_id) {
+    auto& services = fjell::script_services();
+    if (!services.scene) return nullptr;
+    auto* node = services.scene->find(node_id);
     if (!node) return nullptr;
 
-    // Engine components — registry dispatch
-    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
-    if (meta && meta->script_add) {
-        return meta->script_add(*node);
+    if (const auto* type = services.manager ? services.manager->find_script_type_by_id(type_id)
+                                            : nullptr) {
+        auto* spatial = node->as_spatial();
+        if (!spatial) return nullptr;
+        fjell::ScriptComponent* made = services.manager->add_script(*spatial, type->name);
+        services.scene->mark_structure_changed();
+        return made;
     }
 
-    // Script components
-    auto* mgr = fjell::script_services().manager;
-    auto* spatial = node->as_spatial();
-    if (!spatial || !mgr) return nullptr;
-    auto result = mgr->add_script(*spatial, type_name);
-    if (!result) return nullptr;
-    scene->mark_structure_changed();
-    auto& scripts = spatial->scripts;
-    if (!scripts.empty() && scripts.back().instance)
-        return scripts.back().instance.get();
-    return nullptr;
+    const auto* meta = fjell::ComponentRegistry::instance().find(type_id);
+    return meta && meta->script_add ? meta->script_add(*node) : nullptr;
 }
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_preset(uint32_t handle_id,
