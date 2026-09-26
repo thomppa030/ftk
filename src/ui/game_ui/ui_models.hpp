@@ -67,6 +67,9 @@ public:
     void add_widgets(UiNode& subtree);
     /// The Models of every widget in `subtree` go: it is being removed.
     void remove_widgets(const UiNode& subtree);
+    /// Every Model goes, and its name in its scope holds nothing, so no
+    /// scope is left pointing at a component: before the tree is replaced,
+    /// while its scopes are still there.
     void clear();
     [[nodiscard]] bool empty() const { return entries_.empty(); }
 

@@ -332,6 +332,24 @@ TEST_CASE("A tree's widgets bring their Models, a repeat's once it is stamped", 
     REQUIRE(models.reading(placed, "player").component != nullptr);
 }
 
+TEST_CASE("Clearing the Models leaves no scope pointing at a component", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    (void)spawn(scene, "player", 60.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("player", ModelSource::local), scope);
+    models.bind();
+    REQUIRE(scope.lookup("player.hp") == UiValue(60.0f));
+
+    // The game module is about to go, and the component with it.
+    models.clear();
+    REQUIRE(models.empty());
+    REQUIRE(scope.find("player")->empty());
+}
+
 TEST_CASE("Only a Model the widget declares can be bound", "[ui_models]") {
     Scene scene;
     TestWorld world;

@@ -26,7 +26,9 @@
 namespace fjell {
 
 UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager)
-    : vulkan_context_{vulkan_context}, script_manager_{&script_manager} {}
+    : vulkan_context_{vulkan_context}, script_manager_{&script_manager} {
+    library_unloading_ = script_manager.on_unloading.bind([this] { library_unloading(); });
+}
 
 /// Loads the .fjwidget an instance was placed with, rejecting one that
 /// parsed but carries no markup — there would be nothing to show for it.
@@ -106,6 +108,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         instances_.push_back(std::move(inst));
         UiInstance& placed = instances_.back();
         apply_widget(placed, *widget_result);
+        placed.widget = std::move(*widget_result);
 
         std::string classes;
         for (const auto& cls : placed.style_classes) classes += " ." + cls;
@@ -206,8 +209,33 @@ void UiSubsystem::fill_props(WidgetInstance& wi) {
     }
 }
 
+void UiSubsystem::library_unloading() {
+    if (instances_.empty()) return;
+    for (auto& inst : instances_) {
+        destroy_controllers(inst);
+        if (inst.game_ui) inst.game_ui->models().clear();
+    }
+    rebuild_after_reload_ = true;
+}
+
+void UiSubsystem::rebuild_after_reload() {
+    if (!rebuild_after_reload_) return;
+    rebuild_after_reload_ = false;
+    // The old tree holds values the old controllers put there, so it is
+    // rebuilt either way: from the file, or from its last good read while
+    // the file is mid-edit.
+    for (auto& inst : instances_) {
+        if (auto fresh = load_instance_widget(inst.widget_path)) inst.widget = std::move(*fresh);
+        apply_widget(inst, inst.widget);
+    }
+    FJELL_CORE_INFO("UiSubsystem: rebuilt {} UI(s) after the scripts reloaded", instances_.size());
+}
+
 void UiSubsystem::bind_models(const TickContext& /*ctx*/) {
     FJELL_PROFILE_SCOPE_N("ui_bind_models");
+    // A reload happens after the frame's ticks and before this, the first
+    // thing to read the UI afterwards.
+    rebuild_after_reload();
     for (auto& inst : instances_) {
         if (inst.game_ui) inst.game_ui->models().bind();
     }
@@ -382,6 +410,7 @@ void UiSubsystem::reload_instance(UiInstance& inst) {
         return;
     }
     apply_widget(inst, *widget_result);
+    inst.widget = std::move(*widget_result);
     FJELL_CORE_INFO("UiSubsystem: reloaded widget '{}' ({} sub-widgets)",
                     inst.widget_path, inst.widgets.size());
 }
@@ -412,6 +441,7 @@ UiSubsystem::WidgetInstance* UiSubsystem::add_controller(UiInstance& inst, UiNod
 }
 
 void UiSubsystem::tick(const TickContext& ctx) {
+    rebuild_after_reload(); // a reload in a frame that never reached bind_models()
     for (auto& inst : instances_) {
         if (inst.game_ui && inst.game_ui->consume_reload_request()) reload_instance(inst);
         for (auto& wi : inst.widgets) {
@@ -493,6 +523,7 @@ void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
     instances_.clear();
     model_world_.reset();
     scene_ = nullptr;
+    rebuild_after_reload_ = false;
 }
 
 } // namespace fjell

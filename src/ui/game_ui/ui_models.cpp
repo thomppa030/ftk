@@ -60,6 +60,7 @@ void UiModels::remove_widgets(const UiNode& subtree) {
 }
 
 void UiModels::clear() {
+    for (const auto& entry : entries_) entry.scope->set(entry.decl.name, UiValue());
     entries_.clear();
     reported_.clear();
 }

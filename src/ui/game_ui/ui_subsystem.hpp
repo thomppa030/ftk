@@ -1,11 +1,13 @@
 #pragma once
 
+#include "core/delegate.hpp"
 #include "core/subsystem.hpp"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_models.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -24,7 +26,6 @@ class ScriptManager;
 class VulkanContext;
 struct OwnedUiWidgetType;
 struct UiNode;
-struct WidgetAsset;
 
 /// Manages runtime game UI instances. Finds nodes with UiWidgetComponent in
 /// the scene on play start, creates a GameUi per node, and tears them down
@@ -67,6 +68,9 @@ public:
     struct UiInstance {
         uint32_t node_id;
         std::string widget_path; // absolute .fjwidget path the instance is built from
+        // The last good read of that file: what the UI is rebuilt from when a
+        // script reload tears it down while the file does not parse.
+        WidgetAsset widget;
         // Classes the placing component adds to the root node, applied on
         // every load so a reload keeps the placement's chosen variant.
         std::vector<std::string> style_classes;
@@ -113,6 +117,12 @@ private:
     // every tick.
     static void fill_props(WidgetInstance& wi);
     void destroy_controllers(UiInstance& inst);
+    // The game library is about to go, a script reload during play: every
+    // controller ends and every Model lets go of its component while their
+    // code is still there, and the UIs are rebuilt, with controllers from
+    // the library that replaces it, before anything reads them again.
+    void library_unloading();
+    void rebuild_after_reload();
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.
     void reload_instance(UiInstance& inst);
@@ -150,6 +160,8 @@ private:
     std::unique_ptr<UiModelWorld> model_world_;
     std::vector<UiInstance> instances_;
     std::unordered_set<std::string> reported_;
+    Connection library_unloading_;
+    bool rebuild_after_reload_{false};
     std::vector<WorldUiRecord> world_records_;
 
     glm::vec3 camera_position_{0.0f};
