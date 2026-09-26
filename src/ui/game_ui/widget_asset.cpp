@@ -3,7 +3,6 @@
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_context.hpp"
-#include "ui/game_ui/ui_pipes.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
@@ -14,44 +13,22 @@
 
 namespace fjell {
 
-/// Collect all {key} references from text content and attributes in a subtree.
-static void collect_key_references(const UiNode& node, std::vector<std::string>& keys) {
-    // A repeat and everything inside it read the entry and index its
-    // foreach names, which the widget's props do not describe.
-    if (node.attributes.contains("foreach")) return;
-
-    auto extract = [&](const std::string& s) {
-        size_t i = 0;
-        while (i < s.size()) {
-            if (s[i] == '{') {
-                size_t end = s.find('}', i + 1);
-                if (end != std::string::npos) {
-                    keys.push_back(s.substr(i + 1, end - i - 1));
-                    i = end + 1;
-                } else {
-                    break;
-                }
-            } else {
-                ++i;
-            }
-        }
-    };
-
-    if (!node.text_content.empty()) extract(node.text_content);
-    for (const auto& [attr, val] : node.attributes) {
-        if (attr.starts_with("_")) continue; // skip internal attrs
-        extract(val);
-    }
-    for (const auto& child : node.children) {
-        collect_key_references(*child, keys);
-    }
-}
-
 void set_prop_defaults(const std::vector<PropDecl>& props, UiContext& context) {
     for (const auto& prop : props) {
         if (prop.default_value.empty()) continue;
         context.set(prop.name, UiValue::parse(prop.default_value, prop.type));
     }
+}
+
+bool is_builtin_tag(std::string_view tag) {
+    return tag == "div" || tag == "panel" || tag == "text" || tag == "bar" || tag == "img" || tag == "input" ||
+           tag == "slot";
+}
+
+std::string widget_file_name(std::string_view tag) {
+    std::string name(tag);
+    std::ranges::replace(name, '-', '_');
+    return name;
 }
 
 Result<WidgetAsset> load_widget_asset(const std::string& path) {
@@ -153,30 +130,6 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
         asset.markup_root->parent = nullptr;
     } else if (!body->children.empty()) {
         asset.markup_root = std::move(body);
-    }
-
-    // Validate {path} references against declared props: each starts at a
-    // prop or a model, or names a prop whole (a prop may have a dot in its
-    // name). The pipes after it format the value and are not checked here.
-    // A widget with a controller also reads the controller's fields, which
-    // a file alone cannot know, so it is left to a check that has the game's
-    // reflection.
-    if (asset.markup_root && !asset.props.empty() && asset.class_name.empty()) {
-        std::vector<std::string> keys;
-        collect_key_references(*asset.markup_root, keys);
-
-        for (const auto& key : keys) {
-            const std::string value = parse_expression(key).path;
-            const std::string first = value.substr(0, value.find('.'));
-            auto declared = [&](const std::string& name) { return name == value || name == first; };
-            const bool found =
-                std::ranges::any_of(asset.props, [&](const PropDecl& p) { return declared(p.name); }) ||
-                std::ranges::any_of(asset.models, [&](const ModelDecl& m) { return declared(m.name); });
-            if (!found) {
-                FJELL_CORE_WARN("Widget '{}': {{{}}} does not match any declared <prop> or <model>",
-                                std::filesystem::path(path).stem().string(), key);
-            }
-        }
     }
 
     // A same-named .fjui beside the widget dates from before markup moved

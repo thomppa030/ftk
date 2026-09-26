@@ -1,6 +1,7 @@
 #include "ui/game_ui/fjui_parser.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -136,6 +137,7 @@ std::unique_ptr<UiNode> FjuiParser::parse_element() {
 }
 
 std::unique_ptr<UiNode> FjuiParser::parse_text() {
+    const uint32_t first_line = line_;
     std::string content;
     while (!at_end() && peek() != '<') {
         if (peek() == '\n') line_++;
@@ -146,12 +148,14 @@ std::unique_ptr<UiNode> FjuiParser::parse_text() {
     auto start = content.find_first_not_of(" \t\n\r");
     auto end = content.find_last_not_of(" \t\n\r");
     if (start == std::string::npos) return nullptr;
-    content = content.substr(start, end - start + 1);
 
     auto node = std::make_unique<UiNode>();
     node->type = UiNodeType::text;
     node->tag = "text";
-    node->text_content = std::move(content);
+    // The line the text starts on, past the newlines before it.
+    const auto leading = std::count(content.begin(), content.begin() + static_cast<std::ptrdiff_t>(start), '\n');
+    node->source_line = first_line + static_cast<uint32_t>(leading);
+    node->text_content = content.substr(start, end - start + 1);
     return node;
 }
 

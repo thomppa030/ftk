@@ -24,8 +24,9 @@ data. Raw FJUI does not compose; widgets do.
 
 - `class` names the C++ `UiWidget` controller, `style` the sheet next to the file.
 - `<prop>` declares what a placement may pass: `string`, `float`, `int`, `bool`,
-  with an optional default. A placement passing an undeclared prop is warned about;
-  a `{key}` in the markup that matches no prop or Model is warned about at load.
+  or a struct or component the game reflects (`type="HotbarSlot"`), with an optional
+  default. What a widget names that nothing declares is reported by the widget
+  check (see Checking).
 - `<model>` names a game component the widget reads in place (see Models).
 - The rest is the markup. Widgets live in `widgets/` next to the root UI and are
   used by tag: `<health-bar stat="mana" color="#4477cc"/>`.
@@ -170,4 +171,38 @@ tree on screen and reports why.
 
 The UI editor opens a `.fjwidget` directly and previews it at the design
 resolution. Ctrl+S writes the header, the `<prop>` and `<model>` lines and the markup back, and
-the sheet next to it. `fjlint` checks widget files and their sheets from the shell.
+the sheet next to it.
+
+## Checking
+
+A widget is checked against what its game declares, as fjreflect writes it to
+`scripts/generated/manifest.json` on every build. The check reports, at the file,
+line and column where it is written:
+
+- a path whose first name is no prop, Model, controller field or `foreach` name,
+  or whose next name the type it reaches does not have (`'PlayerStats' has no
+  field 'low_hp'`), including a field read off a list outside a `foreach` and a
+  vector component that is not there;
+- a `foreach` over something that is not a list;
+- a prop typed neither as a value nor as a reflected type, a Model whose
+  component is not a script component, a controller that is not a `UiWidget`;
+- a pipe neither the engine nor the game has, or given the wrong number of
+  arguments;
+- an action no controller around it declares, or a literal argument of the wrong
+  kind (`select_slot(one)`);
+- on a placement: a prop the widget does not declare or of the wrong type, an
+  event the widget does not raise, an event no controller answers and the
+  placement does not map, and a tag that is neither an element nor a widget in
+  `widgets/`.
+
+A click in a widget under `widgets/` that its own controller does not answer is
+an event for whoever places it, and is checked at each placement. A game that
+has not been built has no manifest: its widgets are checked against their own
+props alone.
+
+`fjlint` runs the check from the shell, finding the manifest by walking up from
+each widget, along with the widget's sheet:
+
+```bash
+./build/tools/fjlint/fjlint assets/ui
+```

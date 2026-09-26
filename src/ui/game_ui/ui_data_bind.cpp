@@ -8,45 +8,6 @@
 
 namespace fjell {
 
-namespace {
-
-std::string_view trim(std::string_view text) {
-    const auto first = text.find_first_not_of(" \t");
-    if (first == std::string_view::npos) return {};
-    return text.substr(first, text.find_last_not_of(" \t") - first + 1);
-}
-
-bool is_name(std::string_view text) {
-    return !text.empty() && std::ranges::all_of(text, [](char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-    });
-}
-
-/// What a `foreach` says: the name each repeat gives its entry, the one it
-/// gives its index (empty for none), and the path to the list.
-struct Foreach {
-    std::string item;
-    std::string index;
-    std::string list;
-};
-
-/// `item in path` or `item, i in path`; nothing when the text is neither.
-std::optional<Foreach> parse_foreach(std::string_view text) {
-    const auto in = text.find(" in ");
-    if (in == std::string_view::npos) return std::nullopt;
-    const std::string_view names = text.substr(0, in);
-    const auto comma = names.find(',');
-    Foreach out{.item = std::string(trim(names.substr(0, comma))),
-                .index = comma != std::string_view::npos ? std::string(trim(names.substr(comma + 1))) : std::string(),
-                .list = std::string(trim(text.substr(in + 4)))};
-    if (!is_name(out.item) || (comma != std::string_view::npos && !is_name(out.index)) || out.list.empty()) {
-        return std::nullopt;
-    }
-    return out;
-}
-
-} // namespace
-
 // ── Templates ───────────────────────────────────────────────────────────
 
 UiDataBind::Template UiDataBind::compile(const std::string& text) {

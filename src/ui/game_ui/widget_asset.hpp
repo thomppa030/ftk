@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -44,6 +45,13 @@ struct WidgetAsset {
 };
 
 [[nodiscard]] Result<WidgetAsset> load_widget_asset(const std::string& path);
+
+/// A tag the engine draws itself; any other tag names a widget.
+[[nodiscard]] bool is_builtin_tag(std::string_view tag);
+
+/// The file a widget tag names, without its extension: `health-bar` is
+/// `widgets/health_bar.fjwidget`.
+[[nodiscard]] std::string widget_file_name(std::string_view tag);
 
 /// The <model>s a widget file declares, for whoever places the widget and
 /// never needs its markup; empty when the file does not load.

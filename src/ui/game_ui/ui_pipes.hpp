@@ -2,6 +2,7 @@
 
 #include "ui/game_ui/ui_value.hpp"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -27,6 +28,17 @@ struct UiExpression {
 /// Split `hp|fixed:1|times` into its path and pipes. An argument is trimmed
 /// unless it is in single quotes, which keep its spaces.
 [[nodiscard]] UiExpression parse_expression(std::string_view text);
+
+/// What a `foreach` says: the name each repeat gives its entry, the one it
+/// gives its index (empty for none), and the path to the list.
+struct UiForeach {
+    std::string item;
+    std::string index;
+    std::string list;
+};
+
+/// `item in path` or `item, i in path`; nothing when the text is neither.
+[[nodiscard]] std::optional<UiForeach> parse_foreach(std::string_view text);
 
 /// The pipes markup may use. The engine's (`round`, `fixed:n`, `seconds`,
 /// `times`, `percent[:n]`) always; the game module's [[fj::pipe]] functions

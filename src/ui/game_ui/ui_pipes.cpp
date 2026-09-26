@@ -75,6 +75,25 @@ UiExpression parse_expression(std::string_view text) {
     return expr;
 }
 
+std::optional<UiForeach> parse_foreach(std::string_view text) {
+    auto is_name = [](std::string_view name) {
+        return !name.empty() && std::ranges::all_of(name, [](char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        });
+    };
+    const auto in = text.find(" in ");
+    if (in == std::string_view::npos) return std::nullopt;
+    const std::string_view names = text.substr(0, in);
+    const auto comma = names.find(',');
+    UiForeach out{.item = trim(names.substr(0, comma)),
+                  .index = comma != std::string_view::npos ? trim(names.substr(comma + 1)) : std::string(),
+                  .list = trim(text.substr(in + 4))};
+    if (!is_name(out.item) || (comma != std::string_view::npos && !is_name(out.index)) || out.list.empty()) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 bool UiPipes::is_engine_pipe(std::string_view name) {
     return name == "round" || name == "fixed" || name == "seconds" || name == "times" || name == "percent";
 }

@@ -16,6 +16,8 @@ add_executable(fjlint
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_check.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_actions.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_value.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_pipes.cpp

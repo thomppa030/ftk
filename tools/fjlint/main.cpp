@@ -6,7 +6,10 @@
 //   fjlint --stdin-filename <name> -
 //
 // Directories are searched for *.fjss, *.fjwidget, *.fjfont and *.fjsl. A
-// widget's own stylesheet is checked along with it. With "-" the text is read
+// widget's own stylesheet is checked along with it, and its markup against
+// what its game declares: the scripts/generated/manifest.json fjreflect writes
+// in the nearest folder above it, or, in a game not yet built, against its own
+// props alone. With "-" the text is read
 // from stdin and reported under the given name, which is how an editor
 // checks a buffer while it is being typed, before it is saved. Exit status
 // is 1 when anything was reported, so a project's UI can be checked in CI
@@ -37,6 +40,7 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
+#include "ui/game_ui/widget_check.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
@@ -45,6 +49,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -62,7 +67,23 @@ namespace {
 struct Tally {
     int files{0};
     int problems{0}; ///< only problems the tool finds itself: unreadable or unknown files
+    std::map<std::string, UiSchema> schemas; ///< each game's manifest, read once
 };
+
+/// What the game a widget belongs to declares; nothing, when no manifest is
+/// found above it.
+const UiSchema& schema_for(const fs::path& widget, Tally& tally) {
+    static const UiSchema unbuilt;
+    const std::string manifest = UiSchema::find_manifest(widget.string());
+    if (manifest.empty()) return unbuilt;
+    auto it = tally.schemas.find(manifest);
+    if (it == tally.schemas.end()) {
+        auto schema = UiSchema::load(manifest);
+        if (!schema) FJELL_CORE_WARN("{}: {}", manifest, schema.error());
+        it = tally.schemas.emplace(manifest, schema ? std::move(*schema) : UiSchema{}).first;
+    }
+    return it->second;
+}
 
 void check_stylesheet_text(const std::string& text, const std::string& name, Tally& tally) {
     // The parser and the loader log each diagnostic; the log sink counts.
@@ -126,6 +147,9 @@ void check_widget(const fs::path& path, Tally& tally) {
     }
     if (!asset->markup_root) {
         FJELL_CORE_WARN("{}: widget has no markup", path.string());
+    }
+    for (const auto& problem : fjell::check_widget(path.string(), schema_for(path, tally))) {
+        FJELL_CORE_WARN("{}:{}:{}: warning: {}", problem.file, problem.line, problem.column, problem.message);
     }
     if (!asset->fjss_path.empty()) {
         auto sheet_path = path.parent_path() / fs::path(asset->fjss_path).filename();

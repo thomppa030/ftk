@@ -36,9 +36,6 @@ private:
                       Stylesheet& stylesheet, UiContext& parent_context,
                       std::unordered_set<std::string>& resolution_stack);
 
-    static bool is_builtin_tag(const std::string& tag);
-    static std::string tag_to_filename(const std::string& tag);
-
     uint32_t scope_counter_{0};
     // Dedupes repeated uses of one widget within a single resolve. It is
     // cleared per resolve on purpose: kept across loads it would keep

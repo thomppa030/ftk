@@ -37,21 +37,6 @@ static bool replace_slots(UiNode& node,
     return false;
 }
 
-static const std::unordered_set<std::string> BUILTIN_TAGS = {
-    "div", "panel", "text", "bar", "img", "input", "slot",
-};
-
-bool WidgetResolver::is_builtin_tag(const std::string& tag) {
-    return BUILTIN_TAGS.contains(tag);
-}
-
-std::string WidgetResolver::tag_to_filename(const std::string& tag) {
-    // health-bar → health_bar
-    std::string result = tag;
-    std::replace(result.begin(), result.end(), '-', '_');
-    return result;
-}
-
 void WidgetResolver::resolve(UiNode& root, const std::string& base_dir,
                               Stylesheet& stylesheet, UiContext& root_context) {
     scope_counter_ = 0;
@@ -80,7 +65,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             continue;
         }
 
-        auto filename = tag_to_filename(tag);
+        auto filename = widget_file_name(tag);
         auto widget_dir = base_dir + "/widgets";
         auto widget_path = widget_dir + "/" + filename + ".fjwidget";
 
