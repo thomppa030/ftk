@@ -58,6 +58,8 @@ public:
     /// `placed` is a node the placement picked for it in the editor, read
     /// instead of its `from` rule; 0 for none.
     void add(const ModelDecl& decl, UiContext& scope, uint32_t placed = 0);
+    /// The Models bound into `scope` go: its widget is being removed.
+    void remove(const UiContext& scope);
     void clear();
     [[nodiscard]] bool empty() const { return entries_.empty(); }
 

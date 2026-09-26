@@ -173,7 +173,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
 
         // Build prop_map and validate against declared props
         for (const auto& [attr, value] : child.attributes) {
-            if (attr == "id" || attr == "class" || attr == "if" ||
+            if (attr == "id" || attr == "class" || attr == "if" || attr == "foreach" ||
                 attr.starts_with("on:") || attr.starts_with("class:") ||
                 attr.starts_with("style-")) {
                 continue;

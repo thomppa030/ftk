@@ -1146,6 +1146,69 @@ TEST_CASE("foreach honours if directives inside the template", "[databind]") {
     REQUIRE(root->children[2]->children[0]->hidden_by_if);
 }
 
+// A template that is a widget placement, as WidgetResolver leaves one:
+// its own scope, a prop bound to the foreach's entry, a text reading the prop.
+static UiNode* repeated_widget(UiNode& root, UiContext& around) {
+    auto* widget = add_child(root, make_element("shelf-row"));
+    widget->attributes["foreach"] = "entry in shelf.items";
+    widget->is_widget = true;
+    widget->widget_tag = "shelf-row";
+    widget->scoped_context = std::make_unique<UiContext>(&around);
+    widget->widget_props = {{"item", "Entry", ""}, {"label", "string", "row"}};
+    widget->prop_map["item"] = "{entry}";
+    add_child(*widget, make_text("{label}: {item.name}"));
+    return widget;
+}
+
+TEST_CASE("Each repeat of a widget is a widget of its own", "[databind][widgets]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b"})};
+    auto root = make_element("div");
+    UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
+    repeated_widget(*root, ctx);
+
+    UiDataBind bind;
+    const auto result = bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 3);
+    for (std::size_t j = 1; j < 3; ++j) {
+        const UiNode& repeat = *root->children[j];
+        REQUIRE(repeat.repeat_scope != nullptr);
+        REQUIRE(repeat.scoped_context != nullptr);
+        REQUIRE(repeat.scoped_context->parent() == repeat.repeat_scope.get()); // props read the entry
+        REQUIRE(repeat.scoped_context->lookup("item").object() != nullptr);
+    }
+    REQUIRE(shown(*root, 0) == "row: a"); // a prop's default, per repeat
+    REQUIRE(shown(*root, 1) == "row: b");
+    REQUIRE(result.stamped.size() == 2);
+}
+
+TEST_CASE("Repeats are announced once bound, and before they are removed", "[databind][widgets]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b", "c"})};
+    auto root = make_element("div");
+    UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
+    repeated_widget(*root, ctx);
+
+    std::vector<std::string> removed;
+    UiDataBind bind;
+    bind.set_removing_hook([&](UiNode& repeat) {
+        // Still whole: its scope and its text are there to read.
+        removed.push_back(repeat.scoped_context->get("item.name") + "=" + repeat.children[0]->text_content);
+    });
+    auto first = bind.resolve(*root, ctx);
+    REQUIRE(first.stamped.size() == 3);
+    REQUIRE(first.stamped[2]->children[0]->text_content == "row: c"); // bound before it is announced
+
+    REQUIRE(bind.resolve(*root, ctx).stamped.empty());
+
+    shelf.items = entries({"a"});
+    const auto shrank = bind.resolve(*root, ctx);
+    REQUIRE(shrank.stamped.empty());
+    REQUIRE(removed == std::vector<std::string>{"b=row: b", "c=row: c"});
+}
+
 TEST_CASE("A new tree is bound on its first resolve, forgotten or not", "[bind]") {
     UiContext ctx;
     ctx.set("k", "1");

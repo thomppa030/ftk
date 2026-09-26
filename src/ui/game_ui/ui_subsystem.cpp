@@ -118,20 +118,25 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         UiDesignFrame design_frame = design_frame_for(*wc, ctx.project);
         inst.game_ui->set_design_frame(design_frame);
         if (resource_manager_) inst.game_ui->set_resource_manager(resource_manager_);
+        GameUi* ui = inst.game_ui.get();
+        ui->set_repeat_hooks([this, ui](UiNode& repeat) { repeat_stamped(*ui, repeat); },
+                             [this, ui](UiNode& repeat) { repeat_removing(*ui, repeat); });
 
-        apply_widget(inst, *widget_result);
+        // Registered before its tree loads: loading binds, and binding can
+        // stamp repeats whose controllers the hooks create.
+        instances_.push_back(std::move(inst));
+        UiInstance& placed = instances_.back();
+        apply_widget(placed, *widget_result);
 
         std::string classes;
-        for (const auto& cls : inst.style_classes) classes += " ." + cls;
+        for (const auto& cls : placed.style_classes) classes += " ." + cls;
         FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{}, {})",
-                        wc->widget_path, obj->id, inst.widgets.size(),
+                        wc->widget_path, obj->id, placed.widgets.size(),
                         classes.empty() ? "" : ", classes:", classes,
                         design_frame.height > 0.0f
                             ? "scaled to fit " + std::to_string(static_cast<int>(design_frame.width)) + "x" +
                                   std::to_string(static_cast<int>(design_frame.height))
                             : std::string("native pixels"));
-
-        instances_.push_back(std::move(inst));
     }
 
     // Resolve [[fj::bind]] UiWidget* pointers on ScriptComponents
@@ -196,6 +201,7 @@ void UiSubsystem::collect_models(UiInstance& inst, const WidgetAsset& widget_ass
         models.add(model, inst.game_ui->context(), placed);
     }
     auto walk = [&](auto& self, UiNode& node) -> void {
+        if (node.is_foreach_template || node.foreach_item_index >= 0) return; // repeat_stamped()'s
         if (node.is_widget && node.scoped_context) {
             for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);
         }
@@ -263,19 +269,62 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
         }
     }
 
-    // Set connections pointers now that the vector is done growing, give
-    // each controller the Models its markup declares, and let its scope read
-    // its fields where they are.
-    for (auto& wi : inst.widgets) {
-        wi.widget->ui_context_.connections_ = &wi.connections;
-        wi.widget->models_.models_ = &inst.game_ui->models();
-        wi.widget->models_.scope_ = wi.widget_context;
-        read_controller_in_place(wi);
-    }
+    for (auto& wi : inst.widgets) wire_controller(inst, wi);
+    for (auto& wi : inst.widgets) wi.widget->begin_play();
+}
 
-    for (auto& wi : inst.widgets) {
-        wi.widget->begin_play();
+void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
+    wi.widget->ui_context_.connections_ = &wi.connections;
+    wi.widget->models_.models_ = &inst.game_ui->models();
+    wi.widget->models_.scope_ = wi.widget_context;
+    read_controller_in_place(wi);
+}
+
+UiSubsystem::UiInstance* UiSubsystem::instance_of(const GameUi& ui) {
+    for (auto& inst : instances_) {
+        if (inst.game_ui.get() == &ui) return &inst;
     }
+    return nullptr;
+}
+
+void UiSubsystem::repeat_stamped(GameUi& ui, UiNode& repeat) {
+    UiInstance* inst = instance_of(ui);
+    if (inst == nullptr) return;
+    auto& models = inst->game_ui->models();
+    std::vector<WidgetInstance*> created;
+    auto walk = [&](auto& self, UiNode& node, bool root) -> void {
+        if (!root && (node.is_foreach_template || node.foreach_item_index >= 0)) return; // announced on their own
+        if (node.is_widget && node.scoped_context) {
+            for (const auto& model : node.widget_models) models.add(model, *node.scoped_context);
+            if (script_manager_ && script_manager_->is_loaded()) {
+                if (WidgetInstance* wi = add_controller(*inst, node)) created.push_back(wi);
+            }
+        }
+        for (auto& child : node.children) self(self, *child, false);
+    };
+    walk(walk, repeat, true);
+    models.bind(); // after the frame's last destroy, as UI reading happens now
+    for (WidgetInstance* wi : created) wire_controller(*inst, *wi);
+    for (WidgetInstance* wi : created) wi->widget->begin_play();
+}
+
+void UiSubsystem::repeat_removing(GameUi& ui, UiNode& repeat) {
+    UiInstance* inst = instance_of(ui);
+    if (inst == nullptr) return;
+    std::vector<const UiContext*> scopes;
+    auto walk = [&](auto& self, const UiNode& node) -> void {
+        if (node.scoped_context) scopes.push_back(node.scoped_context.get());
+        for (const auto& child : node.children) self(self, *child);
+    };
+    walk(walk, repeat);
+    for (const UiContext* scope : scopes) inst->game_ui->models().remove(*scope);
+    std::erase_if(inst->widgets, [&](WidgetInstance& wi) {
+        if (std::ranges::find(scopes, wi.widget_context) == scopes.end()) return false;
+        wi.widget->end_play();
+        if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
+        wi.connections.clear();
+        return true;
+    });
 }
 
 void UiSubsystem::destroy_controllers(UiInstance& inst) {
@@ -313,7 +362,7 @@ void UiSubsystem::resolve_widget_bindings(Scene& scene) {
     std::unordered_map<uint32_t, UiWidget*> node_to_widget;
     for (auto& inst : instances_) {
         if (!inst.widgets.empty()) {
-            node_to_widget[inst.node_id] = inst.widgets[0].widget.get();
+            node_to_widget[inst.node_id] = inst.widgets.front().widget.get();
         }
     }
 
@@ -350,34 +399,29 @@ void UiSubsystem::resolve_widget_bindings(Scene& scene) {
 }
 
 void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
-    if (node.is_widget && node.scoped_context) {
-        // Use widget_class from .fjwidget if available, else normalize tag name
-        std::string type_name = node.widget_class;
-        if (type_name.empty()) {
-            type_name = node.widget_tag;
-            std::replace(type_name.begin(), type_name.end(), '-', '_');
-        }
-        if (type_name.empty()) { /* no class, view-only widget */ }
-        auto* ui_type = type_name.empty() ? nullptr : script_manager_->find_ui_widget_type(type_name);
-        if (ui_type && ui_type->create) {
-            WidgetInstance wi;
-            wi.type = ui_type;
-            wi.widget_context = node.scoped_context.get();
-            wi.widget.reset(ui_type->create());
-            wi.widget->ui_context_.ctx_ = wi.widget_context;
+    if (node.is_foreach_template || node.foreach_item_index >= 0) return; // repeat_stamped()'s
+    if (node.is_widget && node.scoped_context) (void)add_controller(instance, node);
+    for (auto& child : node.children) collect_widgets(*child, instance);
+}
 
-            node.has_controller = true;
-
-            FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>",
-                            ui_type->name, node.widget_tag);
-
-            instance.widgets.push_back(std::move(wi));
-        }
+UiSubsystem::WidgetInstance* UiSubsystem::add_controller(UiInstance& inst, UiNode& node) {
+    // The class the .fjwidget names, or else its tag's name.
+    std::string type_name = node.widget_class;
+    if (type_name.empty()) {
+        type_name = node.widget_tag;
+        std::replace(type_name.begin(), type_name.end(), '-', '_');
     }
+    const auto* ui_type = type_name.empty() ? nullptr : script_manager_->find_ui_widget_type(type_name);
+    if (ui_type == nullptr || ui_type->create == nullptr) return nullptr; // a widget with no controller
 
-    for (auto& child : node.children) {
-        collect_widgets(*child, instance);
-    }
+    WidgetInstance wi;
+    wi.type = ui_type;
+    wi.widget_context = node.scoped_context.get();
+    wi.widget.reset(ui_type->create());
+    wi.widget->ui_context_.ctx_ = wi.widget_context;
+    node.has_controller = true;
+    FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>", ui_type->name, node.widget_tag);
+    return &inst.widgets.emplace_back(std::move(wi));
 }
 
 void UiSubsystem::tick(const TickContext& ctx) {

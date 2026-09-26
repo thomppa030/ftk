@@ -130,6 +130,21 @@ actions such as `on:activate="select_slot(3)"`. A list for `foreach` is a
 components by type with
 `SceneAPI::find_node_with<PlayerStats>()` rather than by node name.
 
+## Repeating a widget
+
+A placement may carry `foreach`, and each repeat is then a widget of its own:
+
+```html
+<hotbar-slot foreach="slot in hud.slots" item="{slot}" on:activate="select_slot({slot.key})"/>
+```
+
+Each repeat gets its own scope, under the repeat's, so its props read the entry
+(`item="{slot}"`) and its markup reads its props. Its Models are its own, and so is
+its controller when the widget has one: created once the repeat is stamped and
+bound, destroyed before the repeat is removed, so a list that shrinks takes the
+controllers of the entries it lost with it. The event it raises (`activate`) is
+answered in the placing widget, with arguments read in the repeat's scope.
+
 ## Slot projection
 
 A `<slot/>` in the widget's markup is replaced by the children the placement writes

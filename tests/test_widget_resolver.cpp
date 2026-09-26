@@ -151,6 +151,28 @@ TEST_CASE("A nested widget carries its Models to its scope", "[widget]") {
     REQUIRE(row->widget_models[0].component == "Stats");
 }
 
+TEST_CASE("A widget repeated by foreach does not take foreach as a prop", "[widget]") {
+    WidgetFixture fx;
+    fx.write("widgets/stat_row.fjwidget",
+             "<widget>\n"
+             "    <prop name=\"item\" type=\"Entry\"/>\n"
+             "    <div><text>{item.name}</text></div>\n"
+             "</widget>\n");
+    auto root = FjuiParser::parse("<panel><stat-row foreach=\"entry in shelf.items\" item=\"{entry}\"/></panel>");
+    REQUIRE(root);
+
+    Stylesheet sheet;
+    UiContext context;
+    WidgetResolver resolver;
+    resolver.resolve(*root, fx.base.string(), sheet, context);
+
+    auto* row = find_widget(*root, "stat-row");
+    REQUIRE(row != nullptr);
+    REQUIRE(row->prop_map.contains("item"));
+    REQUIRE_FALSE(row->prop_map.contains("foreach"));
+    REQUIRE(row->attributes.at("foreach") == "entry in shelf.items"); // still the repeat's
+}
+
 TEST_CASE("Resolver reports every widget file it read", "[widget]") {
     WidgetFixture fx;
     auto root = FjuiParser::parse("<panel><my-widget/><my-widget/></panel>");

@@ -428,11 +428,13 @@ bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult
         ++existing;
     }
 
-    const bool changed = existing != count;
-    if (changed) {
+    if (existing != count) {
         result.layout_changed = true;
         ++work_.applied;
         if (existing > count) {
+            if (removing_) {
+                for (std::size_t j = count; j < existing; ++j) removing_(*parent.children[first + j]);
+            }
             parent.children.erase(parent.children.begin() + static_cast<std::ptrdiff_t>(first + count),
                                   parent.children.begin() + static_cast<std::ptrdiff_t>(first + existing));
         }
@@ -443,9 +445,14 @@ bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult
             clone->foreach_item_index = static_cast<int>(j);
             clone->attributes.erase("foreach");
             clone->repeat_scope = std::make_unique<UiContext>(entry.scope);
+            give_widget_scopes(*clone, *clone->repeat_scope);
+            result.stamped.push_back(clone.get());
             parent.children.insert(parent.children.begin() + static_cast<std::ptrdiff_t>(first + j),
                                    std::move(clone));
         }
+        // The table is compiled again and this runs once more, reading the
+        // list afresh: a removed controller's end_play may have changed it.
+        return true;
     }
     // Each repeat's entry is read again every frame: a vector moves its
     // entries when it grows, and a struct entry is read where it is now.
@@ -454,7 +461,17 @@ bool UiDataBind::repeat(Binding& binding, const NodeEntry& entry, DataBindResult
         scope.set(binding.name, list->at(j));
         if (!binding.index.empty()) scope.set(binding.index, UiValue(static_cast<int>(j)));
     }
-    return changed;
+    return false;
+}
+
+void UiDataBind::give_widget_scopes(UiNode& node, UiContext& around) {
+    UiContext* inner = &around;
+    if (node.is_widget) {
+        node.scoped_context = std::make_unique<UiContext>(&around);
+        set_prop_defaults(node.widget_props, *node.scoped_context);
+        inner = node.scoped_context.get();
+    }
+    for (auto& child : node.children) give_widget_scopes(*child, *inner);
 }
 
 // ── Cloning ─────────────────────────────────────────────────────────────

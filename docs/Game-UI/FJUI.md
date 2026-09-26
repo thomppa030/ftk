@@ -115,7 +115,8 @@ once per entry; inside it `{slot.name}` reads the entry (a struct is read field 
 field, a value as it is) and `{i}` its position from 0. The vector is read where it
 is, every frame the repeats are on show, so the game changes its data and the UI
 follows: a list that grows or shrinks at its end keeps the repeats it already had and
-stamps or removes the rest. `if="hud.slots"` is false for an empty list.
+stamps or removes the rest. `if="hud.slots"` is false for an empty list. A widget
+placement can be repeated the same way ([Widgets](Widgets.md#repeating-a-widget)).
 
 Actions go the other way. A click bubbles from the hit element upward until an
 element with `on:click` is found. If that element sits inside a widget instance that

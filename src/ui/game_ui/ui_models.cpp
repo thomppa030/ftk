@@ -35,6 +35,10 @@ void UiModels::add(const ModelDecl& decl, UiContext& scope, uint32_t placed) {
     entries_.push_back(std::move(entry));
 }
 
+void UiModels::remove(const UiContext& scope) {
+    std::erase_if(entries_, [&](const Entry& entry) { return entry.scope == &scope; });
+}
+
 void UiModels::clear() {
     entries_.clear();
     reported_.clear();

@@ -5,6 +5,7 @@
 #include "ui/game_ui/ui_value.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -21,6 +22,10 @@ struct DataBindResult {
     // Nodes whose templated src or material now names something else. The
     // caller loads those; the pointers hold until the tree next changes.
     std::vector<UiNode*> asset_changes;
+    // Repeats stamped by this evaluation, already bound, for whoever keeps
+    // something per widget in them (a controller, a Model). The pointers hold
+    // until the tree next changes.
+    std::vector<UiNode*> stamped;
     [[nodiscard]] bool any() const { return text_changed || layout_changed; }
     operator bool() const { return any(); } // NOLINT — implicit for test compat
 };
@@ -59,6 +64,11 @@ public:
     /// The tree was replaced: its bindings go, and the next resolve()
     /// compiles the new one.
     void forget_tree();
+
+    /// Called with a repeat's root just before the repeat is removed, while
+    /// everything in it still exists: what was kept per widget in it (a
+    /// controller) has to go first.
+    void set_removing_hook(std::function<void(UiNode&)> hook) { removing_ = std::move(hook); }
 
     [[nodiscard]] const DataBindWork& work() const { return work_; }
 
@@ -136,12 +146,17 @@ private:
     bool repeat(Binding& binding, const NodeEntry& entry, DataBindResult& result);
     /// Compile the table again and evaluate all of it.
     void rebuild_and_evaluate(DataBindResult& result);
+    /// Each widget in a stamped repeat gets a scope of its own, as the
+    /// resolver gave the template's: under the nearest scope around it, with
+    /// its props' defaults in it.
+    static void give_widget_scopes(UiNode& node, UiContext& around);
 
     std::vector<NodeEntry> nodes_;
     std::vector<Binding> bindings_;
     std::vector<std::size_t> skipped_; ///< entries skipped as display: none
     std::vector<UiValue> scratch_;
     std::vector<UiValue> shown_;
+    std::function<void(UiNode&)> removing_;
     UiNode* built_root_{nullptr};
     UiContext* built_context_{nullptr};
     bool templates_marked_{false}; ///< build hid new foreach templates: a layout change

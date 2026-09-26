@@ -23,6 +23,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -138,6 +139,12 @@ public:
     /// The game components this UI's widgets read, bound into their scopes
     /// by whoever runs the UI against a scene.
     [[nodiscard]] UiModels& models() { return models_; }
+
+    /// Told when a `foreach` stamps a repeat (once it is bound) and just
+    /// before it removes one, with the repeat's root: whoever runs the UI
+    /// keeps a controller and Models per widget in a repeat. Set before the
+    /// tree loads, which can stamp repeats already.
+    void set_repeat_hooks(std::function<void(UiNode&)> stamped, std::function<void(UiNode&)> removing);
     [[nodiscard]] const UiContext& context() const { return context_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
@@ -168,6 +175,9 @@ private:
     void resolve_textures(UiNode& node);
     // Loads what binding just resolved for the nodes it reports.
     void apply_bound_assets(const DataBindResult& result);
+    // What a binding result means beyond the tree: assets to load and
+    // repeats to announce.
+    void take_bind_result(const DataBindResult& result);
     // One node's src and material: the plain attributes, or with `bound`
     // the templated ones as binding resolved them.
     void resolve_node_assets(UiNode& node, bool bound);
@@ -187,6 +197,7 @@ private:
     UiPipes pipes_; // before context_, which points at it
     UiContext context_;
     UiModels models_;
+    std::function<void(UiNode&)> repeat_stamped_;
     UiRenderer renderer_;
     UiInput ui_input_;
     UiDataBind data_bind_;

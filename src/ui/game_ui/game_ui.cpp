@@ -43,6 +43,18 @@ bool GameUi::needs_redraw() const {
     return needs_redraw_;
 }
 
+void GameUi::set_repeat_hooks(std::function<void(UiNode&)> stamped, std::function<void(UiNode&)> removing) {
+    repeat_stamped_ = std::move(stamped);
+    data_bind_.set_removing_hook(std::move(removing));
+}
+
+void GameUi::take_bind_result(const DataBindResult& result) {
+    apply_bound_assets(result);
+    if (repeat_stamped_) {
+        for (UiNode* repeat : result.stamped) repeat_stamped_(*repeat);
+    }
+}
+
 void GameUi::mark_dirty() {
     dirty_ = true;
     needs_redraw_ = true;
@@ -132,7 +144,7 @@ void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_
     if (resource_manager_) {
         resolve_textures(*root_);
     }
-    apply_bound_assets(bind_result);
+    take_bind_result(bind_result);
 
     dirty_ = true;
     FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
@@ -293,7 +305,7 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 1. Data binding: resolve {key} templates and if directives
     auto bind_result = data_bind_.resolve(*root_, context_);
-    apply_bound_assets(bind_result);
+    take_bind_result(bind_result);
     if (bind_result.layout_changed) {
         dirty_ = true;
         layout_dirty_ = true;
@@ -316,7 +328,7 @@ void GameUi::update(float viewport_width, float viewport_height,
     // only reveal what sits deeper.
     for (bool revealed = true; revealed;) {
         auto more = data_bind_.resolve_revealed(revealed);
-        apply_bound_assets(more);
+        take_bind_result(more);
         if (more.layout_changed) {
             style_resolver_.resolve(*root_, stylesheet_);
             layout_dirty_ = true;

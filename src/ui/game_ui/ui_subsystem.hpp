@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <vector>
 
@@ -72,7 +73,9 @@ public:
         // Nodes the placing component picked for the widget's own Models.
         std::vector<UiWidgetComponent::ModelNode> model_nodes;
         std::unique_ptr<GameUi> game_ui;
-        std::vector<WidgetInstance> widgets;
+        // A list: a controller keeps pointers into its entry, and repeats add
+        // and remove controllers while others live.
+        std::list<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
         // World-space only: this widget's mvp from the previous frame, so the
         // velocity attachment reflects its own motion rather than whatever
@@ -109,7 +112,22 @@ private:
     // Re-reads the instance's .fjwidget from disk after it changed. A file
     // that fails to parse leaves the instance showing its last good tree.
     void reload_instance(UiInstance& inst);
+    // Controllers for the widgets of a freshly loaded tree. Repeats, and the
+    // foreach templates they are stamped from, are left to repeat_stamped().
     void collect_widgets(UiNode& node, UiInstance& instance);
+    // A controller for one widget node, when its class names one the game
+    // has; not started yet.
+    WidgetInstance* add_controller(UiInstance& inst, UiNode& node);
+    // Gives a created controller its connections, its Models and its scope's
+    // reading of its fields.
+    void wire_controller(UiInstance& inst, WidgetInstance& wi);
+    // A foreach stamped a repeat, now bound: its widgets get their Models and
+    // controllers. Nested repeats are announced on their own.
+    void repeat_stamped(GameUi& ui, UiNode& repeat);
+    // A foreach is about to remove a repeat: the controllers and Models of
+    // every widget in it go first, while their scopes still exist.
+    void repeat_removing(GameUi& ui, UiNode& repeat);
+    [[nodiscard]] UiInstance* instance_of(const GameUi& ui);
     void resolve_widget_bindings(Scene& scene);
     void validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type);
 
