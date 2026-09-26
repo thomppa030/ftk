@@ -7,13 +7,8 @@ add_executable(fjreflect
     generator.cpp
 )
 
-target_compile_features(fjreflect PRIVATE cxx_std_23)
 target_link_libraries(fjreflect PRIVATE nlohmann_json::nlohmann_json)
-if(MSVC)
-    target_compile_options(fjreflect PRIVATE /W4 /WX)
-else()
-    target_compile_options(fjreflect PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG})
-endif()
+fjell_target_defaults(fjreflect)
 
 # Installed where ProjectManager looks for it, mirroring the dev build tree.
 install(TARGETS fjreflect RUNTIME DESTINATION tools/fjreflect)

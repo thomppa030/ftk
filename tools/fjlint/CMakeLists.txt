@@ -35,11 +35,9 @@ target_link_libraries(fjlint PRIVATE
     Vulkan::Headers
 )
 
+fjell_target_defaults(fjlint)
 if(MSVC)
-    target_compile_options(fjlint PRIVATE /W4 /WX)
     target_compile_definitions(fjlint PRIVATE FJELL_ENGINE_BUILD)
-else()
-    target_compile_options(fjlint PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
 install(TARGETS fjlint RUNTIME DESTINATION .)

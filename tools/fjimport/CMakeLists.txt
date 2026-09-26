@@ -39,11 +39,7 @@ target_link_libraries(fjimport PRIVATE
     Vulkan::Headers
 )
 
-if(MSVC)
-    target_compile_options(fjimport PRIVATE /W4 /WX)
-else()
-    target_compile_options(fjimport PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
-endif()
+fjell_target_defaults(fjimport)
 
 # Treat msdfgen headers as system headers to suppress warnings from them
 get_target_property(FJIMPORT_MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)

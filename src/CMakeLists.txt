@@ -18,11 +18,7 @@ endif()
 add_library(fjell-platform STATIC ${FJELL_PLATFORM_SOURCES})
 target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(fjell-platform PRIVATE spdlog::spdlog ${CMAKE_DL_LIBS})
-if(MSVC)
-    target_compile_options(fjell-platform PRIVATE /W4 /WX)
-else()
-    target_compile_options(fjell-platform PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
-endif()
+fjell_target_defaults(fjell-platform)
 
 # --- Main engine ---
 add_executable(fjell
@@ -503,12 +499,11 @@ set_target_properties(fjell PROPERTIES ENABLE_EXPORTS TRUE)
 # would collide with the engine's own types).
 target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
 
+fjell_target_defaults(fjell)
 if(MSVC)
-    target_compile_options(fjell PRIVATE /W4 /WX)
     # Suppress warnings in third-party ImGuizmo source
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
-    target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
     # stb_image_resize2.h (vendored, included from our .cpp wrapper) trips
     # -Wunused-but-set-variable under some compiler/flag combinations.
@@ -701,11 +696,10 @@ target_link_libraries(fjell-hub PRIVATE
     spdlog::spdlog
     Vulkan::Vulkan
 )
+fjell_target_defaults(fjell-hub)
 if(MSVC)
-    target_compile_options(fjell-hub PRIVATE /W4 /WX)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
-    target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 # VMA system headers for fjell-hub

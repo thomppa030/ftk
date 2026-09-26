@@ -176,11 +176,9 @@ foreach(dep msdfgen-core msdfgen-ext)
     target_include_directories(fjell-testable SYSTEM PUBLIC ${dirs})
 endforeach()
 
+fjell_target_defaults(fjell-testable)
 if(MSVC)
-    target_compile_options(fjell-testable PRIVATE /W4 /WX)
     target_compile_definitions(fjell-testable PRIVATE FJELL_ENGINE_BUILD)
-else()
-    target_compile_options(fjell-testable PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
 endif()
 
 # Source file properties are scoped to the directory that set them, so an
@@ -320,11 +318,7 @@ target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
 
-if(MSVC)
-    target_compile_options(fjell-tests PRIVATE /W4 /WX)
-else()
-    target_compile_options(fjell-tests PRIVATE -Wall -Wextra -Wpedantic ${FJELL_SHADOW_FLAG} -Werror)
-endif()
+fjell_target_defaults(fjell-tests)
 
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
