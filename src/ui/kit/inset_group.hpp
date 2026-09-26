@@ -4,7 +4,8 @@
 
 // A block of values that belongs to a component but is something of its own,
 // set apart in a sunken box: the material a component paints itself with,
-// the sky shader's values on the World Environment (sheet 11).
+// the sky shader's values on the World Environment (sheet 11), a widget's
+// Model in the UI editor's Data panel.
 //
 //     if (auto box = ui::InsetGroup("##material", "Material · crate_wood", icon, colour)) {
 //         // rows and sub-headings, fields on the inset colour
@@ -21,6 +22,18 @@ struct InsetHeading {
     /// input action, sheet 16), rather than labelling a block of values in
     /// small capitals (a material's).
     bool named{false};
+    /// A name from code (a Model's `hud`): in the mono face, as written.
+    bool code{false};
+    /// After the name, in `text_secondary`: what it is (a Model's type).
+    const char* detail{nullptr};
+    /// A dot in `success` at the heading's right, with this as its tooltip:
+    /// the values move on their own, read from a scene that is playing.
+    const char* live{nullptr};
+    /// An icon button at the heading's right, before the remove icon, that
+    /// sets `*action` when clicked: Reset, for values the box owns.
+    const char* action_icon{nullptr};
+    const char* action_tooltip{nullptr};
+    bool* action{nullptr};
     /// Set when the heading's remove icon is clicked; no icon while null.
     bool* remove{nullptr};
     const char* remove_tooltip{"Remove"};
