@@ -294,9 +294,7 @@ void TilemapRenderer::destroy() {
 }
 
 void TilemapRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
-    for (auto& obj : scene.objects()) {
-        auto* tm = obj->components.get<TilemapComponent>();
-        if (!tm) continue;
+    for (auto [obj, tm] : scene.view<TilemapComponent>()) {
 
         if (!tm->texture_loaded && !tm->tileset_texture.empty()) {
             std::string resolved = base_path::resolve_asset(tm->tileset_texture, project);
@@ -387,9 +385,8 @@ void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_pr
 
     // For now we just use the first tilemap found
     // TODO: support multiple tilemaps
-    for (const auto& obj : scene.objects()) {
-        const auto* tm = obj->components.get<TilemapComponent>();
-        if (!tm || !tm->texture_loaded) continue;
+    for (auto [obj, tm] : scene.view<TilemapComponent>()) {
+        if (!tm->texture_loaded) continue;
         if (tm->tiles.empty()) continue;
 
         const auto* spatial = obj->as_spatial();

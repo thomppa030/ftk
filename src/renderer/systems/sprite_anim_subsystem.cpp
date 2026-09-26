@@ -98,9 +98,7 @@ static const SpriteSheet* active_sheet(const SpriteAnimComponent& anim) {
 }
 
 void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
-    for (auto& obj : ctx.scene.objects()) {
-        auto* anim = obj->components.get<SpriteAnimComponent>();
-        if (!anim) continue;
+    for (auto [obj, anim] : ctx.scene.view<SpriteAnimComponent>()) {
 
         if (!anim->loaded) {
             load_anim_data(*anim, *resources_, ctx.project);
@@ -123,9 +121,7 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
 void SpriteAnimSubsystem::tick(const TickContext& ctx) {
     FJELL_PROFILE_SCOPE_N("sprite_anim_tick");
 
-    for (auto& obj : ctx.scene.objects()) {
-        auto* anim = obj->components.get<SpriteAnimComponent>();
-        if (!anim) continue;
+    for (auto [obj, anim] : ctx.scene.view<SpriteAnimComponent>()) {
 
         auto* sprite = obj->components.get<SpriteComponent>();
         if (!sprite) continue;

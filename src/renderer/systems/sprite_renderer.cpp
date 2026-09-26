@@ -301,9 +301,7 @@ void SpriteRenderer::destroy() {
 
 void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
     FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
-    for (auto& obj : scene.objects()) {
-        auto* sprite_ptr = obj->components.get<SpriteComponent>();
-        if (!sprite_ptr) continue;
+    for (auto [obj, sprite_ptr] : scene.view<SpriteComponent>()) {
 
         auto& sprite = *sprite_ptr;
         if (!sprite.texture_loaded && !sprite.texture_path.empty()) {
@@ -393,9 +391,8 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
     sprites.clear();
     sort_entries.clear();
 
-    for (const auto& obj : scene.objects()) {
-        const auto* sp = obj->components.get<SpriteComponent>();
-        if (!sp || !sp->texture_loaded) continue;
+    for (auto [obj, sp] : scene.view<SpriteComponent>()) {
+        if (!sp->texture_loaded) continue;
         if (playing && sp->editor_only) continue;
 
         const auto& sprite = *sp;
