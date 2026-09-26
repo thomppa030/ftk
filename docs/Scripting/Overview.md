@@ -152,9 +152,19 @@ class [[fj::tick(order = -10)]] InputRouter : public fjell::ScriptComponent {
 };
 ```
 
-**How often a script ticks.** `tick()`, `fixed_tick()` and `late_tick()` are
-each called only on types that override them, so a type that overrides none
-costs nothing per frame.
+**How often a script ticks.** A script can stop ticking altogether with
+`set_tick_enabled(false)`: no `tick()`, `fixed_tick()` or `late_tick()` until
+it turns ticking back on. Everything that arrives as an event still reaches
+it — delegates, input actions, timers, collision and trigger callbacks,
+weather, time and peer events, RPCs and UI actions — so a door can sleep until
+something enters it and tick only while it opens. Each of the three is called
+only on types that override it, so a type that overrides none costs nothing
+per frame.
+
+```cpp
+void Door::begin_play() { set_tick_enabled(false); }
+void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }
+```
 
 **What the editor tells you.** A script whose `tick()` or `late_tick()` moves
 a dynamic body, or writes a character's velocity against its movement mode,

@@ -266,9 +266,9 @@ private:
     void run_scripts(Scene& scene, const char* hook_name, Hook&& hook);
     /// The same for a polled hook (tick, fixed_tick, late_tick; `hook_bit` is
     /// its FjellPolledHook bit), called as hook(script, type): only on types
-    /// that override it. After a frame hook (tick, late_tick), a script on a
-    /// node whose state the simulation owns is checked for having written that
-    /// state.
+    /// that override it, and only on scripts with ticking on. After a frame
+    /// hook (tick, late_tick), a script on a node whose state the simulation
+    /// owns is checked for having written that state.
     template <typename Hook>
     void run_polled(Scene& scene, uint32_t hook_bit, const char* hook_name, Hook&& hook);
     /// Report what the script of type `type_name` wrote on `node` that the

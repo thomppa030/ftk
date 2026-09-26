@@ -666,6 +666,7 @@ void ScriptManager::run_polled(Scene& scene, uint32_t hook_bit, const char* hook
         auto call = [&](ScriptComponent& script) { hook(script, *type); };
         scene.each_component(type->component.id, [&](Node& node, void* component) {
             auto& script = *static_cast<ScriptComponent*>(component);
+            if (!script.tick_enabled_) return;
             if (!check_writes || !simulation_owns(node)) {
                 run_script_hook(node, type->name, script, hook_name, call);
                 return;

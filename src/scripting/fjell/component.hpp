@@ -176,6 +176,21 @@ public:
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 
+    // --- Ticking ---
+
+    /// Stop or resume the hooks the engine calls every frame or step:
+    /// `tick()`, `fixed_tick()` and `late_tick()`. Everything that arrives as
+    /// an event still reaches a script that does not tick — delegates, input
+    /// actions, timers, collision and trigger callbacks, weather, time and
+    /// peer events, RPCs and UI actions — so a script can sleep until
+    /// something happens to it.
+    /// @code
+    /// void Door::begin_play() { set_tick_enabled(false); }
+    /// void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }  // tick while it opens
+    /// @endcode
+    void set_tick_enabled(bool enabled) { tick_enabled_ = enabled; }
+    [[nodiscard]] bool tick_enabled() const { return tick_enabled_; }
+
 private:
     friend class ScriptManager;
     Node3D* node_{nullptr};
@@ -183,6 +198,7 @@ private:
     Transform* transform_{nullptr};
     uint32_t id_{0};
     const char* name_{""};
+    bool tick_enabled_{true};
 };
 
 using Component = ScriptComponent;
