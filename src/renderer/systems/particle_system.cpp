@@ -7,7 +7,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression_eval.hpp"

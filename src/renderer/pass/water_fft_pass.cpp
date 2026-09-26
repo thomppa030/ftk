@@ -5,11 +5,11 @@
 #include "core/profiler.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/resources/shader_utils.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"
 

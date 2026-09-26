@@ -2,7 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/components/tilemap_component.hpp"
 #include "renderer/frustum.hpp"

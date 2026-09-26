@@ -9,7 +9,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "environment/material_track.hpp"
 #include "renderer/pass/water_pass.hpp"

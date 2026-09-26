@@ -5,7 +5,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass/post_pass.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"

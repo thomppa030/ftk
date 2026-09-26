@@ -1,4 +1,4 @@
-#include "renderer/gpu/draw_data_descriptor.hpp"
+#include "renderer/draw_data_descriptor.hpp"
 #include "core/log.hpp"
 
 #include <array>

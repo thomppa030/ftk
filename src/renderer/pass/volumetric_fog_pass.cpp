@@ -31,7 +31,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"

@@ -7,7 +7,7 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/viewport_source.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"

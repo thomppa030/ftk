@@ -11,7 +11,7 @@
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"

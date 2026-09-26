@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/renderer_constants.hpp"
+#include "renderer/gpu/frames_in_flight.hpp"
 
 #include <vulkan/vulkan.h>
 

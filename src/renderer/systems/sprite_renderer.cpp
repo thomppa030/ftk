@@ -3,7 +3,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/texture.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "renderer/frustum.hpp"
 #include "core/base_path.hpp"

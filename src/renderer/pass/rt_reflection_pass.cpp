@@ -3,8 +3,9 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/gpu/accel_structure.hpp"
+#include "renderer/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -14,7 +15,6 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/mega_buffer.hpp"
-#include "renderer/resources/shader_utils.hpp"
 
 #include <array>
 #include <cstring>

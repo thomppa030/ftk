@@ -7,7 +7,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/terrain_asset.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

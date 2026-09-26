@@ -8,7 +8,7 @@
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "core/project.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"

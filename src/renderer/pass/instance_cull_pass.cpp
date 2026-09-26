@@ -11,7 +11,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 
 #ifdef FJELL_ENABLE_TRACY
 #include <tracy/TracyVulkan.hpp>

@@ -21,7 +21,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 
 #include <imgui_impl_vulkan.h>
 

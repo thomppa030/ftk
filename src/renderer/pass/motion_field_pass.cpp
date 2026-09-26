@@ -5,12 +5,12 @@
 #include "core/profiler.hpp"
 #include "environment/environment_state.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
 
 #include <backends/imgui_impl_vulkan.h>
 

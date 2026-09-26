@@ -13,7 +13,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/resources/skeletal_model.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"

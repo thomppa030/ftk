@@ -17,7 +17,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

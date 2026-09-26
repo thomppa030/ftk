@@ -8,7 +8,7 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "renderer/viewport_source.hpp"
 #include "renderer/gpu/vk_utils.hpp"

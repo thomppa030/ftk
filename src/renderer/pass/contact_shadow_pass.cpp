@@ -10,7 +10,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"

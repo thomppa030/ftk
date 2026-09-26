@@ -11,7 +11,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "environment/environment_state.hpp"
 #include "core/project.hpp"

@@ -55,7 +55,7 @@ endforeach()
 # --- Main engine ---
 add_executable(fjell
     main.cpp
-    renderer/gpu/accel_structure.cpp
+    renderer/accel_structure.cpp
     renderer/gpu/vma_impl.cpp
     core/asset_id.cpp
     core/asset_database.cpp
@@ -112,7 +112,7 @@ add_executable(fjell
     renderer/camera.cpp
     renderer/debug_draw.cpp
     renderer/gpu/descriptor.cpp
-    renderer/gpu/draw_data_descriptor.cpp
+    renderer/draw_data_descriptor.cpp
     renderer/fly_camera.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
@@ -145,7 +145,7 @@ add_executable(fjell
     renderer/resources/model.cpp
     renderer/offscreen_pass.cpp
     renderer/scene_viewport.cpp
-    renderer/gpu/pipeline.cpp
+    renderer/pipeline.cpp
     renderer/post_process_resources.cpp
     renderer/post_layers.cpp
     renderer/pipeline_cache.cpp

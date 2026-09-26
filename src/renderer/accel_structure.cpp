@@ -1,10 +1,10 @@
-#include "renderer/gpu/accel_structure.hpp"
+#include "renderer/accel_structure.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/resources/model.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

@@ -17,7 +17,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
-#include "renderer/gpu/accel_structure.hpp"
+#include "renderer/accel_structure.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
 #include "renderer/pass/local_shadow_pass.hpp"

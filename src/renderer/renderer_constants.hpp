@@ -1,10 +1,10 @@
 #pragma once
 
+#include "renderer/gpu/frames_in_flight.hpp"
+
 #include <cstdint>
 
 namespace fjell {
-
-static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
 // Shader-visible constants are mirrored into fjell_renderer_constants.glsl
 // by cmake/GenerateShaderConstants.cmake — update here and reconfigure.

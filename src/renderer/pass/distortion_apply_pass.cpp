@@ -5,7 +5,7 @@
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "core/base_path.hpp"
 
 #include <array>

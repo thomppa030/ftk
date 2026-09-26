@@ -8,7 +8,7 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "renderer/render_queue.hpp"

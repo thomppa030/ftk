@@ -19,7 +19,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/material.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/uniform_types.hpp"

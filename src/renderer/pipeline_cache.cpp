@@ -1,7 +1,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"

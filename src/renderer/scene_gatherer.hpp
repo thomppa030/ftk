@@ -1,7 +1,7 @@
 #pragma once
 
+#include "renderer/draw_data_descriptor.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/gpu/draw_data_descriptor.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/render_queue.hpp"

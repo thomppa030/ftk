@@ -11,7 +11,7 @@
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/gpu/pipeline.hpp"
+#include "renderer/pipeline.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"

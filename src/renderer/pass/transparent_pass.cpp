@@ -11,7 +11,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/uniform_types.hpp"

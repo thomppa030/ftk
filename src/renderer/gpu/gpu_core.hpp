@@ -4,7 +4,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/upload_context.hpp"
-#include "renderer/renderer_constants.hpp"
+#include "renderer/gpu/frames_in_flight.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>

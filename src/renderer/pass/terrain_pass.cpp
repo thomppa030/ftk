@@ -15,7 +15,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/resources/material.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"

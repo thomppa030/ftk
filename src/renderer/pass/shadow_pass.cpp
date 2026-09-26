@@ -15,7 +15,7 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
-#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
