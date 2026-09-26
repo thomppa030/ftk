@@ -38,4 +38,13 @@ private:
     int last_clicked_{-1}; // anchor for shift-click
 };
 
+/// Creates the console and adds it to the loggers, so it holds every line
+/// logged from here on. Call right after log::init(), before anything logs:
+/// a line logged earlier never reaches the console.
+void attach_console();
+
+/// The console every editor window shows, one per process as there is one
+/// log. Null until attach_console().
+[[nodiscard]] ConsoleSink* console_sink();
+
 } // namespace fjell

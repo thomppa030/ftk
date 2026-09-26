@@ -4,10 +4,6 @@
 
 #include <memory>
 
-namespace fjell {
-class ConsoleSink;
-}
-
 namespace fjell::log {
 
 /// Creates the CORE/GFX/APP loggers. Everything below `info` is silent unless
@@ -16,8 +12,10 @@ namespace fjell::log {
 void init();
 void shutdown();
 
-/// Returns the shared console sink (available after init)
-[[nodiscard]] std::shared_ptr<ConsoleSink>& console_sink();
+/// Sends every logger's messages to `sink` as well as the terminal, from the
+/// next message on: an editor's console panel, a file. Call after init() and
+/// before any other thread logs; shutdown() lets go of it.
+void add_sink(spdlog::sink_ptr sink);
 
 [[nodiscard]] std::shared_ptr<spdlog::logger>& core();
 [[nodiscard]] std::shared_ptr<spdlog::logger>& renderer();

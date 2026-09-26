@@ -1,4 +1,5 @@
 #include "ui/console.hpp"
+#include "core/log.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/icons.hpp"
@@ -12,6 +13,16 @@
 #include <cstring>
 
 namespace fjell {
+
+static std::shared_ptr<ConsoleSink> s_console;
+
+void attach_console() {
+    s_console = std::make_shared<ConsoleSink>();
+    s_console->set_pattern("[%T] [%n] [%l] %v");
+    log::add_sink(s_console);
+}
+
+ConsoleSink* console_sink() { return s_console.get(); }
 
 namespace {
 
