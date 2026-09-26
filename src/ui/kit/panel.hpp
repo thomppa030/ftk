@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-namespace fjell {
+namespace fjell::ui {
 
 /// Custom-titled panel. Drop-in replacement for:
 ///
@@ -16,7 +16,7 @@ namespace fjell {
 ///
 /// becomes:
 ///
-///     if (auto p = Panel(ui::icon::properties, "Properties")) {
+///     if (auto p = ui::Panel(ui::icon::properties, "Properties")) {
 ///         ...
 ///     }
 ///
@@ -97,4 +97,4 @@ private:
     bool open_{false};
 };
 
-} // namespace fjell
+} // namespace fjell::ui

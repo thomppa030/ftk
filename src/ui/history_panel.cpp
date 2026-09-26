@@ -2,7 +2,7 @@
 #include "core/command_history.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
-#include "ui/panel_widget.hpp"
+#include "ui/kit/panel.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -59,7 +59,7 @@ void HistoryPanel::init(CommandHistory* history) {
 }
 
 void HistoryPanel::draw(const char* title) {
-    if (auto p = Panel(ui::icon::history, title)) {
+    if (auto p = ui::Panel(ui::icon::history, title)) {
         if (!history_ || history_->commands().empty()) {
             ui::empty_state(ui::icon::history, "No history", "Changes you make show up here");
             return;
