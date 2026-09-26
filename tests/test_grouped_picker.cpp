@@ -1,5 +1,5 @@
 #include "imgui_harness.hpp"
-#include "ui/grouped_picker.hpp"
+#include "ui/kit/grouped_picker.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -7,7 +7,7 @@
 #include <vector>
 
 using fjell::test::ImGuiHarness;
-namespace picker = fjell::grouped_picker;
+namespace picker = fjell::ui::grouped_picker;
 
 namespace {
 
