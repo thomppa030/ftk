@@ -155,3 +155,32 @@ TEST_CASE("restore at a position takes a component from another storage", "[comp
     }
     CHECK(g_alive == 0);
 }
+
+TEST_CASE("a component keeps its address while others come and go", "[components]") {
+    g_alive = 0;
+    {
+        ComponentStorage s;
+        s.add<A>(1);
+        B& b = s.add<B>(2);
+        s.add<C>(3);
+
+        s.remove<A>();
+        { auto gone = s.extract(component_type_id<C>()); }
+        s.add<A>(4);
+        s.add<C>(5);
+
+        CHECK(s.get<B>() == &b);
+        CHECK(b.value == 2);
+        CHECK(g_alive == 3);
+    }
+    CHECK(g_alive == 0);
+}
+
+TEST_CASE("each component type has one descriptor", "[components]") {
+    const fjell::ComponentType& a = fjell::component_type<A>();
+    CHECK(&a == &fjell::component_type<A>());
+    CHECK(&a != &fjell::component_type<B>());
+    CHECK(a.id == component_type_id<A>());
+    CHECK(a.size == sizeof(A));
+    CHECK(a.align == alignof(A));
+}
