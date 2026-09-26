@@ -177,7 +177,9 @@ public:
 
     /// Calls fn(node, component) for every component of type T in the
     /// scene, in the order they joined it. A component added during the walk
-    /// is not visited; one removed during it is not visited afterwards.
+    /// is not visited; one removed during it is not visited afterwards. Like
+    /// every walk of the scene's pools and kind lists, it belongs on the
+    /// thread that owns the scene: the walks keep unguarded bookkeeping.
     template <typename T, typename Fn>
     void each(Fn&& fn) {
         if (!pools_) return;

@@ -10,11 +10,14 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace fjell {
+
+struct WaterComponent;
 
 class EnvironmentSubsystem;
 class Scene;
@@ -91,6 +94,17 @@ private:
         bool any_submerged{false};
     };
     std::vector<Floating> floating_;
+
+    /// A body of water as a step finds it, gathered once on the step's own
+    /// thread: the buoyancy pass reads it from the workers, which must not
+    /// walk the scene.
+    struct WaterBody {
+        const WaterComponent* water;
+        glm::vec3 centre;
+    };
+    std::vector<WaterBody> waters_;
+    [[nodiscard]] static const WaterComponent* water_at(std::span<const WaterBody> waters,
+                                                        glm::vec2 world_xz, float& out_surface_y);
 
     // Each character's intent as the frame left it, by node id, sorted.
     std::vector<std::pair<uint32_t, glm::vec3>> frame_intents_;

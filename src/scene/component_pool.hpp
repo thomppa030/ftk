@@ -23,6 +23,10 @@ struct Node;
 ///
 /// A component that leaves during a walk is skipped from then on; one that
 /// joins during a walk is first visited by the next one.
+///
+/// Walks keep their bookkeeping in the pool, unguarded: walk it on the thread
+/// that owns its scene, and hand workers what the walk found rather than the
+/// scene to walk.
 class ComponentPool {
 public:
     explicit ComponentPool(const ComponentType& type);

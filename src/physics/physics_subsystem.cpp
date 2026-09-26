@@ -19,26 +19,20 @@
 namespace fjell {
 
 void PhysicsSubsystem::clear_move_intents(Scene& scene) {
-    for (const auto& obj : scene.objects()) {
-        if (auto* cc = obj->components.get<CharacterComponent>()) cc->move_intent = glm::vec3{0.0f};
-    }
+    for (auto [obj, cc] : scene.view<CharacterComponent>()) cc->move_intent = glm::vec3{0.0f};
 }
 
 void PhysicsSubsystem::keep_frame_intents(Scene& scene) {
     frame_intents_.clear();
-    for (const auto& obj : scene.objects()) {
-        if (const auto* cc = obj->components.get<CharacterComponent>()) {
-            frame_intents_.emplace_back(obj->id, cc->move_intent);
-        }
+    for (auto [obj, cc] : scene.view<CharacterComponent>()) {
+        frame_intents_.emplace_back(obj->id, cc->move_intent);
     }
     std::sort(frame_intents_.begin(), frame_intents_.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
 }
 
 void PhysicsSubsystem::restore_frame_intents(Scene& scene) {
-    for (const auto& obj : scene.objects()) {
-        auto* cc = obj->components.get<CharacterComponent>();
-        if (cc == nullptr) continue;
+    for (auto [obj, cc] : scene.view<CharacterComponent>()) {
         const auto kept = std::lower_bound(
             frame_intents_.begin(), frame_intents_.end(), obj->id,
             [](const auto& entry, uint32_t id) { return entry.first < id; });
@@ -54,24 +48,21 @@ void PhysicsSubsystem::apply_wind(const FixedTickContext& ctx) {
     // push it by nothing is not worth the frame.
     if (glm::length(wind) < 0.1f) return;
 
-    for (const auto& obj : ctx.scene.objects()) {
-        if (auto* rb = obj->components.get<RigidbodyComponent>();
-            rb != nullptr && rb->wind_area > 0.0f && rb->body_type == BodyType::Dynamic) {
-            // Drag against still air: the force grows with the square of the
-            // wind, which is what makes a gale feel unlike a breeze.
-            const float speed = glm::length(wind);
-            world_->apply_force(obj->id, glm::normalize(wind) * (speed * speed * rb->wind_area * 0.6f));
-        }
-        if (auto* cc = obj->components.get<CharacterComponent>(); cc != nullptr && cc->wind_push > 0.0f) {
-            // A character is driven by its velocity, not by forces, so the
-            // wind moves it directly and the controller resolves it against
-            // the ground like any other motion.
-            cc->velocity += wind * (cc->wind_push * ctx.dt);
-        }
+    for (auto [obj, rb] : ctx.scene.view<RigidbodyComponent>()) {
+        if (rb->wind_area <= 0.0f || rb->body_type != BodyType::Dynamic) continue;
+        // Drag against still air: the force grows with the square of the
+        // wind, which is what makes a gale feel unlike a breeze.
+        const float speed = glm::length(wind);
+        world_->apply_force(obj->id, glm::normalize(wind) * (speed * speed * rb->wind_area * 0.6f));
+    }
+    for (auto [obj, cc] : ctx.scene.view<CharacterComponent>()) {
+        if (cc->wind_push <= 0.0f) continue;
+        // A character is driven by its velocity, not by forces, so the
+        // wind moves it directly and the controller resolves it against
+        // the ground like any other motion.
+        cc->velocity += wind * (cc->wind_push * ctx.dt);
     }
 }
-
-namespace {
 
 /// The water a point at `world_xz` is in, or nothing when it is over dry
 /// land.
@@ -81,15 +72,11 @@ namespace {
 /// scene hold a sea and a pond without the pond's boats floating at sea
 /// level. The first match wins: two overlapping bodies of water is an
 /// authoring mistake rather than a case to resolve.
-[[nodiscard]] const WaterComponent* water_at(Scene& scene, glm::vec2 world_xz,
-                                             float& out_surface_y) {
-    for (const auto& obj : scene.objects()) {
-        const auto* water = obj->components.get<WaterComponent>();
-        if (water == nullptr) continue;
-        const auto* spatial = obj->as_spatial();
-        if (spatial == nullptr) continue;
-
-        const glm::vec3 centre{scene.current_world_matrix(*spatial)[3]};
+const WaterComponent* PhysicsSubsystem::water_at(std::span<const WaterBody> waters,
+                                                  glm::vec2 world_xz, float& out_surface_y) {
+    for (const WaterBody& body : waters) {
+        const WaterComponent* water = body.water;
+        const glm::vec3 centre = body.centre;
 
         if (water->extent == WaterComponent::Extent::bounded) {
             const float half = water->size * 0.5f;
@@ -103,8 +90,6 @@ namespace {
     }
     return nullptr;
 }
-
-} // namespace
 
 void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     FJELL_PROFILE_SCOPE_N("apply_buoyancy");
@@ -129,10 +114,7 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     // fixed step, and a record keeps the storage its sample points and forces
     // had last step.
     std::size_t used = 0;
-    for (const auto& obj : ctx.scene.objects()) {
-        auto* buoyancy = obj->components.get<BuoyancyComponent>();
-        if (buoyancy == nullptr) continue;
-
+    for (auto [obj, buoyancy] : ctx.scene.view<BuoyancyComponent>()) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
         if (rb == nullptr || rb->body_type != BodyType::Dynamic) continue;
 
@@ -156,6 +138,13 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     if (used == 0) return;
     const std::span<Floating> floating(floating_.data(), used);
 
+    waters_.clear();
+    for (auto [obj, water] : ctx.scene.view<WaterComponent>()) {
+        if (const auto* spatial = obj->as_spatial()) {
+            waters_.push_back({water, glm::vec3(ctx.scene.current_world_matrix(*spatial)[3])});
+        }
+    }
+
     auto evaluate = [&](Floating& body) {
         const glm::vec3 centre{body.world[3]};
         // Every point carries the same share, so sampling a body more finely
@@ -167,7 +156,7 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
 
             float surface_y = 0.0f;
             const WaterComponent* water =
-                water_at(ctx.scene, glm::vec2(point.x, point.z), surface_y);
+                water_at(waters_, glm::vec2(point.x, point.z), surface_y);
             if (water == nullptr) continue;
 
             // The wave field is relative to the node holding it, and it is
@@ -215,10 +204,8 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     // sums. Which water a point is over is not known until it is evaluated,
     // and a scene rarely has more than one or two.
     std::size_t most_waves = 0;
-    for (const auto& obj : ctx.scene.objects()) {
-        const auto* water = obj->components.get<WaterComponent>();
-        if (water == nullptr) continue;
-        const FjWaterData& field = water->effective_water;
+    for (const WaterBody& body : waters_) {
+        const FjWaterData& field = body.water->effective_water;
         std::size_t waves = field.packed_trains ? field.packed_trains->count : 0;
         if (field.simulated) waves += field.simulated->packed.count;
         for (const water::WakeSource& wake : field.wakes) {
