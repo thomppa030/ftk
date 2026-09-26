@@ -56,6 +56,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/component_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/post_layers.cpp
@@ -263,6 +264,7 @@ add_executable(fjell-tests
     test_component_edit_command.cpp
     test_node_edit_command.cpp
     test_component_storage.cpp
+    test_component_pool.cpp
     test_curve_editor.cpp
     test_asset_tile.cpp
     test_choices.cpp

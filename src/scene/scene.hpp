@@ -22,6 +22,11 @@ class ResourceManager;
 
 class Scene {
 public:
+    Scene() = default;
+    ~Scene();
+    Scene(Scene&&) noexcept = default;
+    Scene& operator=(Scene&&) noexcept = default;
+
     uint32_t add(ModelHandle model_handle, MaterialHandle material_handle,
                  ResourceManager& resources,
                  Transform transform = {},
@@ -145,6 +150,19 @@ public:
     [[nodiscard]] auto& objects() { return objects_; }
     [[nodiscard]] const auto& objects() const { return objects_; }
 
+    /// Calls fn(node_id, component) for every component of type T in the
+    /// scene, in the order they joined it. A component added during the walk
+    /// is not visited; one removed during it is not visited afterwards.
+    template <typename T, typename Fn>
+    void each(Fn&& fn) {
+        if (!pools_) return;
+        if (ComponentPool* pool = pools_->find(component_type_id<T>())) {
+            pool->for_each([&](uint32_t node_id, void* component) {
+                fn(node_id, *static_cast<T*>(component));
+            });
+        }
+    }
+
     void rebuild_id_index();
 
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
@@ -235,6 +253,15 @@ private:
     std::vector<std::unique_ptr<Node>> pending_spawn_;    // deferred adds, flushed post-tick
     std::vector<uint32_t> added_;                         // joined since take_added(), while tracked
     bool tracking_added_{false};
+
+    /// Where the components of the nodes above live. Declared after the
+    /// node lists on purpose: moving a scene over another assigns members in
+    /// declaration order, so the old nodes give their components back to the
+    /// old pools before those pools go. ~Scene() releases the nodes first for
+    /// the same reason. Made on first use, so a moved-from scene can still
+    /// take nodes.
+    std::unique_ptr<ComponentPools> pools_;
+    [[nodiscard]] ComponentPools& pools();
 };
 
 } // namespace fjell

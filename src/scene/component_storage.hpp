@@ -1,5 +1,8 @@
 #pragma once
 
+#include "scene/component_pool.hpp"
+#include "scene/component_type.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -8,69 +11,11 @@
 
 namespace fjell {
 
-using ComponentTypeId = uint32_t;
-
-// Global counter for compile-time type IDs.
-// Each unique type gets a unique ID on first call to component_type_id<T>().
-inline ComponentTypeId next_component_id() {
-    static ComponentTypeId counter{0};
-    return counter++;
-}
-
-template <typename T>
-ComponentTypeId component_type_id() {
-    static const ComponentTypeId id = next_component_id();
-    return id;
-}
-
-class ComponentStorage;
-
-// How a component is duplicated when its node is. The default copy-constructs,
-// which is right for plain data. A type whose copy would be wrong — runtime
-// handles that must not be shared, state that has to be rebuilt against a
-// sibling component, or no copy constructor at all — declares an overload
-// next to its own definition. `from` is the storage of the node being copied,
-// for rules that need a sibling. A type without a copy constructor and without
-// an overload fails to compile, so no component can be forgotten.
-template <typename T>
-void clone_component(const ComponentStorage& from, const T& src, ComponentStorage& to);
-
-/// What code that holds components without knowing their type needs to know
-/// about one: its id, the memory it takes, how to end it and how to copy it by
-/// its clone rule. There is one per component type, made the first time a
-/// component of the type is created. Looking a component up compares ids and
-/// never needs this, so code that only reads a type does not pull in how to
-/// destroy or copy it.
-struct ComponentType {
-    ComponentTypeId id;
-    uint32_t size;
-    uint32_t align;
-    /// Runs the component's destructor. The memory stays with its owner.
-    void (*destroy)(void* component);
-    void (*clone)(const ComponentStorage& from, const void* src, ComponentStorage& to);
-};
-
-template <typename T>
-const ComponentType& component_type() {
-    // Components live in plain byte allocations, which are aligned this far
-    // and no further.
-    static_assert(alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__,
-                  "a component may not need more alignment than operator new gives");
-    static const ComponentType type{
-        component_type_id<T>(),
-        static_cast<uint32_t>(sizeof(T)),
-        static_cast<uint32_t>(alignof(T)),
-        [](void* component) { std::destroy_at(static_cast<T*>(component)); },
-        [](const ComponentStorage& from, const void* src, ComponentStorage& to) {
-            clone_component(from, *static_cast<const T*>(src), to);
-        },
-    };
-    return type;
-}
-
-/// One component in memory of its own. The box owns it: destroying the box
-/// ends the component and frees the memory, and moving the box hands both
-/// over without touching the component, so its address never changes.
+/// One component, owned. It lives either in memory of its own (a node that is
+/// in no scene) or in a slot of its scene's pool for its type. Destroying the
+/// box ends the component and gives the memory back; moving the box hands both
+/// over without touching the component, so its address does not change. It
+/// changes only when into_pool() or into_own_memory() moves it.
 class ComponentBox {
 public:
     template <typename T, typename... Args>
@@ -84,12 +29,37 @@ public:
         return box;
     }
 
+    template <typename T, typename... Args>
+    [[nodiscard]] static ComponentBox make_in(ComponentPool& pool, uint32_t node_id,
+                                              Args&&... args) {
+        ComponentBox box;
+        box.type_ = &component_type<T>();
+        const ComponentPool::Slot slot = pool.acquire(node_id);
+        box.pool_ = &pool;
+        box.slot_ = slot.index;
+        try {
+            box.component_ = std::construct_at(static_cast<T*>(slot.memory),
+                                               std::forward<Args>(args)...);
+        } catch (...) {
+            pool.release(slot.index);
+            box.pool_ = nullptr;
+            throw;
+        }
+        pool.admit(slot.index);
+        return box;
+    }
+
     ComponentBox() = default;
     ~ComponentBox() { reset(); }
     ComponentBox(const ComponentBox&) = delete;
     ComponentBox& operator=(const ComponentBox&) = delete;
     ComponentBox(ComponentBox&& other) noexcept
-        : type_{other.type_}, memory_{std::move(other.memory_)}, component_{other.component_} {
+        : type_{other.type_},
+          memory_{std::move(other.memory_)},
+          pool_{other.pool_},
+          slot_{other.slot_},
+          component_{other.component_} {
+        other.pool_ = nullptr;
         other.component_ = nullptr;
     }
     ComponentBox& operator=(ComponentBox&& other) noexcept {
@@ -97,32 +67,81 @@ public:
             reset();
             type_ = other.type_;
             memory_ = std::move(other.memory_);
+            pool_ = other.pool_;
+            slot_ = other.slot_;
             component_ = other.component_;
+            other.pool_ = nullptr;
             other.component_ = nullptr;
         }
         return *this;
+    }
+
+    /// The same component moved into a slot of `pool`, belonging to
+    /// `node_id`. This box is left empty.
+    [[nodiscard]] ComponentBox into_pool(ComponentPool& pool, uint32_t node_id) && {
+        ComponentBox moved;
+        moved.type_ = type_;
+        const ComponentPool::Slot slot = pool.acquire(node_id);
+        type_->relocate(slot.memory, component_);
+        component_ = nullptr;
+        free_memory();
+        moved.pool_ = &pool;
+        moved.slot_ = slot.index;
+        moved.component_ = slot.memory;
+        pool.admit(slot.index);
+        return moved;
+    }
+
+    /// The same component moved into memory of its own, out of any pool.
+    /// This box is left empty.
+    [[nodiscard]] ComponentBox into_own_memory() && {
+        ComponentBox moved;
+        moved.type_ = type_;
+        moved.memory_ = std::make_unique_for_overwrite<std::byte[]>(type_->size);
+        type_->relocate(moved.memory_.get(), component_);
+        component_ = nullptr;
+        free_memory();
+        moved.component_ = moved.memory_.get();
+        return moved;
     }
 
     /// False for a default-made box, and for one moved from.
     [[nodiscard]] explicit operator bool() const { return component_ != nullptr; }
     [[nodiscard]] const ComponentType& type() const { return *type_; }
     [[nodiscard]] void* get() const { return component_; }
+    /// Whether the component lives in a scene's pool.
+    [[nodiscard]] bool pooled() const { return pool_ != nullptr; }
 
 private:
     void reset() {
         if (component_ != nullptr) type_->destroy(component_);
         component_ = nullptr;
+        free_memory();
+    }
+
+    // Gives the memory back once the component in it has ended or moved out.
+    void free_memory() {
+        if (pool_ != nullptr) pool_->release(slot_);
+        pool_ = nullptr;
         memory_.reset();
     }
 
     const ComponentType* type_{nullptr};
-    std::unique_ptr<std::byte[]> memory_;
+    std::unique_ptr<std::byte[]> memory_;  // when in memory of its own
+    ComponentPool* pool_{nullptr};         // when in a pool
+    uint32_t slot_{0};
     void* component_{nullptr};
 };
 
 // Type-erased component storage.
 // Holds any mix of component types, queryable by compile-time type ID.
 // Optimized for small counts (1-4 components per node) via linear scan.
+//
+// A node in a scene keeps its components in the scene's pools, where the
+// systems that want every component of a type find them; a node in no scene
+// (an undo snapshot, a preset, one being built) keeps them in memory of their
+// own. attach() and detach() move them between the two, and a component keeps
+// its address everywhere else.
 class ComponentStorage {
 public:
     /// A component taken out of a storage by extract(), still alive and
@@ -162,9 +181,37 @@ public:
 
     template <typename T, typename... Args>
     T& add(Args&&... args) {
-        entries_.push_back(ComponentBox::make<T>(std::forward<Args>(args)...));
+        if (pools_ != nullptr) {
+            entries_.push_back(ComponentBox::make_in<T>(pools_->pool(component_type<T>()),
+                                                        node_id_, std::forward<Args>(args)...));
+        } else {
+            entries_.push_back(ComponentBox::make<T>(std::forward<Args>(args)...));
+        }
         return *static_cast<T*>(entries_.back().get());
     }
+
+    /// Moves every component into `pools`, for the node `node_id` that has
+    /// just joined their scene; components added from now on go there too.
+    void attach(ComponentPools& pools, uint32_t node_id) {
+        pools_ = &pools;
+        node_id_ = node_id;
+        for (auto& e : entries_) {
+            e = std::move(e).into_pool(pools.pool(e.type()), node_id);
+        }
+    }
+
+    /// Moves every component out of its scene's pools into memory of its
+    /// own, for a node leaving the scene.
+    void detach() {
+        for (auto& e : entries_) {
+            e = std::move(e).into_own_memory();
+        }
+        pools_ = nullptr;
+        node_id_ = 0;
+    }
+
+    /// Whether the components live in a scene's pools.
+    [[nodiscard]] bool attached() const { return pools_ != nullptr; }
 
     // Duplicates every component into `to`, each by its own clone rule.
     void clone_into(ComponentStorage& to) const {
@@ -219,7 +266,10 @@ public:
         Detached out;
         for (size_t i = 0; i < entries_.size(); ++i) {
             if (entries_[i].type().id == id) {
-                out.box_ = std::move(entries_[i]);
+                // A detached component is kept apart from any scene: the
+                // scene may be gone by the time it is restored.
+                out.box_ = entries_[i].pooled() ? std::move(entries_[i]).into_own_memory()
+                                                : std::move(entries_[i]);
                 out.index_ = i;
                 entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
                 break;
@@ -256,8 +306,9 @@ public:
     void restore(Detached&& detached) {
         if (!detached || get_by_id(detached.type_id()) != nullptr) return;
         const size_t at = detached.index_ < entries_.size() ? detached.index_ : entries_.size();
-        entries_.insert(entries_.begin() + static_cast<std::ptrdiff_t>(at),
-                        std::move(detached.box_));
+        ComponentBox box = std::move(detached.box_);
+        if (pools_ != nullptr) box = std::move(box).into_pool(pools_->pool(box.type()), node_id_);
+        entries_.insert(entries_.begin() + static_cast<std::ptrdiff_t>(at), std::move(box));
     }
 
     /// Puts an extracted component in at position `at`, which may come from
@@ -289,6 +340,8 @@ public:
 
 private:
     std::vector<ComponentBox> entries_;
+    ComponentPools* pools_{nullptr};  // the scene's, while the node is in one
+    uint32_t node_id_{0};
 };
 
 template <typename T>

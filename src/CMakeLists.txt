@@ -294,6 +294,7 @@ add_executable(fjell
     scene/preset.cpp
     scene/camera_subsystem.cpp
     scene/component_registry.cpp
+    scene/component_pool.cpp
     core/input_component_meta.cpp
     scripting/script_manager.cpp
     scripting/reflected_types.cpp

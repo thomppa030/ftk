@@ -68,6 +68,18 @@ std::unique_ptr<Node> Node3D::clone() const {
 
 // ── Scene ───────────────────────────────────────────────────────────────
 
+Scene::~Scene() {
+    // The nodes' components live in pools_, which is destroyed after them
+    // only if they go first.
+    objects_.clear();
+    pending_spawn_.clear();
+}
+
+ComponentPools& Scene::pools() {
+    if (!pools_) pools_ = std::make_unique<ComponentPools>();
+    return *pools_;
+}
+
 uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     uint32_t id = next_id_++;
     auto obj = std::make_unique<Node3D>();
@@ -93,6 +105,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
         id_generation_[id] = 1;
     }
     dirty_ = true;
+    node->components.attach(pools(), id);
 
     // Adding during a tick would invalidate the iterator the caller is walking
     // over objects_; defer until flush_spawned() runs after the loop. The id is
@@ -153,6 +166,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     const int idx = map_it->second;
     auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
     objects_.erase(objects_.begin() + idx);
+    result->components.detach();
     rebuild_id_index();
     dirty_ = true;
     ++structure_revision_;
@@ -162,6 +176,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
 void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     // Keep existing generation — node is coming back
+    node->components.attach(pools(), node->id);
     index = std::min(index, objects_.size());
     objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
     rebuild_id_index();
