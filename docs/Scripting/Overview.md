@@ -136,6 +136,22 @@ runs; set in `fixed_tick()`, it steers that step only. See
 and `world()->fixed_delta_time`, `fixed_time`, `fixed_step_index` read the
 step from anywhere. Timers fire inside the steps.
 
+**Which script runs first.** Scripts run type by type: every script of one
+type, then every script of the next. A type says where it goes with
+`[[fj::tick(order = n)]]` on its class: lower runs earlier, and a type that
+says nothing is 0. Types of the same order run by name, and the scripts of one
+type in the order they joined the scene. Where one script's `tick()` reads what
+another's wrote this frame, give the writer the lower order rather than relying
+on where the nodes sit, which does not decide it. What follows the picture
+belongs in `late_tick()`, which runs after every `tick()` and every step.
+
+```cpp
+class [[fj::tick(order = -10)]] InputRouter : public fjell::ScriptComponent {
+    FJELL_COMPONENT(InputRouter)
+    void tick(float dt) override;   // runs before order 0
+};
+```
+
 **What the editor tells you.** A script whose `tick()` or `late_tick()` moves
 a dynamic body, or writes a character's velocity against its movement mode,
 is reported once in the console with what to do instead, and fails a

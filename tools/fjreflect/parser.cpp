@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -122,6 +123,7 @@ struct ClassScope {
     std::string widget_tag;
     unsigned macro_line{0};
     std::vector<Member> members;
+    std::vector<Attribute> attrs;  // on the class head: class [[fj::tick(...)]] Name
 };
 
 class HeaderParser {
@@ -449,7 +451,7 @@ private:
         cls.line = tok().line;
         cls.is_struct = !is("class");
         next();
-        parse_attributes();
+        cls.attrs = parse_attributes();
         while (tok().kind == TokenKind::identifier || is("::")) {
             if (is("final")) {
                 next();
@@ -815,6 +817,12 @@ private:
     void finish_class(const ClassScope& cls) {
         record_declaration(cls);
         if (cls.macro == ComponentMacro::none) {
+            for (const auto& a : cls.attrs) {
+                if (a.scope != "fj") continue;
+                error(a.line, "[[fj::" + a.name + "]] on class " + cls.name +
+                                  ", which is not a component: add FJELL_COMPONENT to it");
+                break;
+            }
             // A plain struct may be a Model's type; the linker reflects it if
             // one reaches it. Only [[fj::state]] means something there.
             for (const auto& m : cls.members) {
@@ -838,9 +846,22 @@ private:
         comp.widget_tag = cls.widget_tag;
 
         for (const auto& m : cls.members) add_member(comp, m);
+        for (const auto& a : cls.attrs) {
+            if (a.scope != "fj") continue;
+            if (a.name != "tick") {
+                error(a.line, "[[fj::" + a.name + "]] does not apply to a class; on a class "
+                              "fjreflect knows [[fj::tick(...)]]");
+            } else if (cls.macro != ComponentMacro::component) {
+                error(a.line, "[[fj::tick]] on " + cls.macro_name + ": only a script component "
+                              "(FJELL_COMPONENT) ticks");
+            } else {
+                apply_tick(comp, a);
+            }
+        }
 
+        // A component with nothing else to reflect still says how it ticks.
         if (!comp.fields.empty() || !comp.actions.empty() || !comp.rpcs.empty() ||
-            comp.is_ui_component) {
+            comp.is_ui_component || comp.has_tick) {
             result_.components.push_back(std::move(comp));
         }
     }
@@ -1260,6 +1281,36 @@ private:
         }
         out = arg.back().text;
         return true;
+    }
+
+    /// The keys of [[fj::tick(...)]] on a script component: `order = n`, a
+    /// whole number, lower running earlier. An error on anything else.
+    void apply_tick(ComponentInfo& comp, const Attribute& a) {
+        const std::string what = "[[fj::tick]] on '" + comp.class_name + "'";
+        if (!a.has_args) {
+            error(a.line, what + " takes keys, as fj::tick(order = 10)");
+            return;
+        }
+        for (const TokenList& arg : split_args(a.args)) {
+            if (arg.size() < 3 || arg[0].kind != TokenKind::identifier || arg[1].text != "=") {
+                error(a.line, what + " takes key = value pairs, as fj::tick(order = 10)");
+                return;
+            }
+            const std::string& key = arg[0].text;
+            const TokenList value(arg.begin() + 2, arg.end());
+            if (key == "order") {
+                float order = 0.0f;
+                if (!read_number(value, order) || order != std::floor(order)) {
+                    error(a.line, what + ": order is a whole number");
+                    return;
+                }
+                comp.tick_order = static_cast<int>(order);
+            } else {
+                error(a.line, what + " has no key '" + key + "'; it takes: order");
+                return;
+            }
+        }
+        comp.has_tick = true;
     }
 
     /// Hints and decorations onto a field. False, with an error, when an

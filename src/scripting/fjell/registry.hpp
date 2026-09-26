@@ -63,6 +63,7 @@ struct FjellGeneratedInfo {
     void (*trace)(void* instance, void* visitor);
     const FjellRpcDesc* rpcs;   // null if the component has no [[fj::rpc]] methods
     uint32_t rpc_count;
+    int32_t tick_order;         // [[fj::tick(order = n)]]: lower runs earlier, 0 when unsaid
 };
 
 // ── Opaque registry handle (engine-side) ────────────────────────────────

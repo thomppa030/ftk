@@ -138,6 +138,11 @@ struct ComponentInfo {
 
     // Notify type (FJELL_NOTIFY)
     bool is_notify{false};
+
+    // How a script component ticks ([[fj::tick(...)]] on the class): its place
+    // among the types, lower running earlier.
+    bool has_tick{false};
+    int tick_order{0};
 };
 
 struct ParseResult {

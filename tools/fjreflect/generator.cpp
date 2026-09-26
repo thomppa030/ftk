@@ -708,7 +708,7 @@ std::string register_file(const std::vector<ComponentInfo>& components, const st
                 << trace(*comp) << ", ";
             if (comp->rpcs.empty()) out << "nullptr, 0";
             else out << "fjreflect_" << n << "_rpcs, " << comp->rpcs.size();
-            out << "},\n";
+            out << ", " << comp->tick_order << "},\n";
         }
         out << "};\n";
     }

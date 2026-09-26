@@ -414,3 +414,48 @@ public:
                                   "reads [[fj::state]]") != std::string::npos);
     REQUIRE(result.errors[1].find("bound.hpp:10: error: [[fj::bind]] on 'hud' is gone") != std::string::npos);
 }
+
+TEST_CASE("A script component says how it ticks on its class head", "[fjreflect]") {
+    auto result = parse_header("tick.hpp", R"(
+class [[fj::tick(order = 10)]] Follower : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Follower)
+  [[fj::property]] float lag = 0.2f;
+};
+// Nothing else to reflect: kept for the order alone.
+class [[fj::tick(order = -5)]] Leader : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Leader)
+};
+class Plain : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Plain)
+  [[fj::property]] int hp = 1;
+};
+)");
+    REQUIRE(result.errors.empty());
+    REQUIRE(find_component(result, "Follower") != nullptr);
+    CHECK(find_component(result, "Follower")->tick_order == 10);
+    REQUIRE(find_component(result, "Leader") != nullptr);
+    CHECK(find_component(result, "Leader")->tick_order == -5);
+    CHECK(find_component(result, "Plain")->tick_order == 0);
+    CHECK_FALSE(find_component(result, "Plain")->has_tick);
+}
+
+TEST_CASE("fj::tick is reported where it cannot be read or does not belong", "[fjreflect]") {
+    CHECK(has_error(parse_header("tick_key.hpp", R"(
+class [[fj::tick(speed = 2)]] A : public fjell::ScriptComponent { FJELL_COMPONENT(A) };
+)"), "has no key 'speed'"));
+    CHECK(has_error(parse_header("tick_whole.hpp", R"(
+class [[fj::tick(order = 1.5)]] B : public fjell::ScriptComponent { FJELL_COMPONENT(B) };
+)"), "order is a whole number"));
+    CHECK(has_error(parse_header("tick_bare.hpp", R"(
+class [[fj::tick]] C : public fjell::ScriptComponent { FJELL_COMPONENT(C) };
+)"), "takes keys"));
+    CHECK(has_error(parse_header("tick_widget.hpp", R"(
+class [[fj::tick(order = 1)]] D : public fjell::UiWidget { FJELL_UI_WIDGET(D) };
+)"), "only a script component"));
+    CHECK(has_error(parse_header("tick_plain.hpp", R"(
+struct [[fj::tick(order = 1)]] E { int x; };
+)"), "not a component"));
+    CHECK(has_error(parse_header("tick_other.hpp", R"(
+class [[fj::property]] F : public fjell::ScriptComponent { FJELL_COMPONENT(F) };
+)"), "does not apply to a class"));
+}

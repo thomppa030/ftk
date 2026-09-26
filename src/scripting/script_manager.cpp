@@ -161,10 +161,11 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.loaded = true;
     owned.is_functional_test = desc->is_functional_test;
     reg->types->copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
-    // Attach the generated RPC table (same .so), if this type declares any.
+    // What codegen generated for it (same .so): its RPC table and tick order.
     if (const auto* gen = fjell_find_generated(desc->name)) {
         owned.rpcs = gen->rpcs;
         owned.rpc_count = gen->rpc_count;
+        owned.tick_order = gen->tick_order;
     }
     reg->scripts.push_back(std::move(owned));
 }
@@ -414,7 +415,9 @@ void ScriptManager::build_registry() {
         };
         tick_order_.push_back(&type);
     }
-    std::ranges::sort(tick_order_, {}, &OwnedScriptType::name);
+    std::ranges::sort(tick_order_, [](const OwnedScriptType* a, const OwnedScriptType* b) {
+        return a->tick_order != b->tick_order ? a->tick_order < b->tick_order : a->name < b->name;
+    });
 
     ui_type_list_.clear();
     for (auto& ut : registry.ui_components) {

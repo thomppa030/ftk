@@ -55,6 +55,9 @@ struct OwnedScriptType {
     // rebuilt only between an unload, which drops those pools, and the next
     // load, so the address holds for as long as any instance lives.
     ComponentType component{};
+    // [[fj::tick(order = n)]]: where the type's scripts run among the others,
+    // lower earlier; types of equal order go by name.
+    int32_t tick_order{0};
     std::vector<OwnedFieldDesc> fields;
     void (*trace)(void* instance, void* visitor){nullptr};
     const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
@@ -284,8 +287,9 @@ private:
     std::unordered_map<uint32_t, std::size_t> script_type_map_;
     ReflectedTypes reflected_types_; // what script_type_list_'s struct fields point into
     std::vector<OwnedScriptType> script_type_list_;
-    // The loaded script types in the order their scripts run: by type name,
-    // which is reproducible where registration order (the link order) is not.
+    // The loaded script types in the order their scripts run: by tick order,
+    // then by type name, which is reproducible where registration order (the
+    // link order) is not.
     std::vector<const OwnedScriptType*> tick_order_;
     // Each script type name's pool id, kept across reloads so a type keeps its
     // id for the whole session.

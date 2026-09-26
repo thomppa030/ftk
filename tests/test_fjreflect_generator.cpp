@@ -179,9 +179,9 @@ struct Step : fjell::AnimNotify {
 )");
     const auto reg = fjreflect::register_file(comps);
 
-    REQUIRE(reg.find("{\"Mover\", fjreflect_Mover_fields, 1, nullptr, fjreflect_Mover_rpcs, 1},") !=
+    REQUIRE(reg.find("{\"Mover\", fjreflect_Mover_fields, 1, nullptr, fjreflect_Mover_rpcs, 1, 0},") !=
             std::string::npos);
-    REQUIRE(reg.find("{\"Step\", fjreflect_Step_fields, 1, nullptr, nullptr, 0},") != std::string::npos);
+    REQUIRE(reg.find("{\"Step\", fjreflect_Step_fields, 1, nullptr, nullptr, 0, 0},") != std::string::npos);
     // A widget without fields has no table to point at.
     REQUIRE(reg.find("{\"Panel\", nullptr, 0, nullptr, fjreflect_Panel_ui_actions, 1},") != std::string::npos);
     REQUIRE(reg.find("fjreflect_Panel_fields") == std::string::npos);
