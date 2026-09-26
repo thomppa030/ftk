@@ -17,10 +17,71 @@ namespace fjell {
 
 class ScriptComponent;
 
+// ── Script instance ─────────────────────────────────────────────────────
+
+struct Node;
+
+/// A live script, owned. It is made in a slot of its type's pool in the scene
+/// its node is in and never leaves it: input bindings, timers, UI Models and
+/// game code hold its address. Destroying the handle ends the script and gives
+/// the slot back. A node in no scene has no live scripts, only their saved
+/// fields.
+class ScriptInstance {
+public:
+    /// A script made in the pool for `type` of the scene `owner` is in, by
+    /// `construct`, which builds it in the memory it is given. Empty when
+    /// `owner` is in no scene.
+    [[nodiscard]] static ScriptInstance make(Node& owner, const ComponentType& type,
+                                             ScriptComponent* (*construct)(void* memory));
+
+    /// The same for a type known here, as a test plants a script of its own.
+    template <typename T>
+    [[nodiscard]] static ScriptInstance make(Node& owner) {
+        return make(owner, component_type<T>(), [](void* memory) -> ScriptComponent* {
+            return std::construct_at(static_cast<T*>(memory));
+        });
+    }
+
+    ScriptInstance() = default;
+    ~ScriptInstance() { reset(); }
+    ScriptInstance(const ScriptInstance&) = delete;
+    ScriptInstance& operator=(const ScriptInstance&) = delete;
+    ScriptInstance(ScriptInstance&& other) noexcept
+        : pool_{other.pool_}, slot_{other.slot_}, instance_{other.instance_} {
+        other.instance_ = nullptr;
+    }
+    ScriptInstance& operator=(ScriptInstance&& other) noexcept {
+        if (this != &other) {
+            reset();
+            pool_ = other.pool_;
+            slot_ = other.slot_;
+            instance_ = other.instance_;
+            other.instance_ = nullptr;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] ScriptComponent* get() const { return instance_; }
+    ScriptComponent* operator->() const { return instance_; }
+    ScriptComponent& operator*() const { return *instance_; }
+    [[nodiscard]] explicit operator bool() const { return instance_ != nullptr; }
+    [[nodiscard]] bool operator==(std::nullptr_t) const { return instance_ == nullptr; }
+
+    /// Ends the script and gives its slot back. Nothing for an empty handle.
+    void reset();
+
+private:
+    ComponentPool* pool_{nullptr};
+    uint32_t slot_{0};
+    ScriptComponent* instance_{nullptr};
+};
+
 // ── Script entry ────────────────────────────────────────────────────────
 
 struct ScriptEntry {
-    std::unique_ptr<ScriptComponent> instance;
+    /// Empty while the script is data only: its node is in no scene, the
+    /// game library is not loaded, or the library has no such type.
+    ScriptInstance instance;
     std::string type_name;
     nlohmann::json serialized;
     // Whether this instance's begin_play has run. A script can be started

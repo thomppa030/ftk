@@ -9,6 +9,8 @@
 #include "platform/shared_library.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "scripting/reflected_types.hpp"
+#include "scene/component_type.hpp"
+#include "scene/script_host.hpp"
 
 #ifndef NDEBUG
 #include "platform/file_watcher.hpp"
@@ -44,7 +46,15 @@ struct FixedStep;
 struct OwnedScriptType {
     std::string name;
     uint32_t type_id;
-    ScriptComponent* (*create)();
+    // How an instance is built in memory the engine provides: its type's slot
+    // in the scene's pool.
+    uint32_t size{0};
+    uint32_t align{0};
+    ScriptComponent* (*construct)(void* memory){nullptr};
+    // What the pools of this type point at. The list holding this entry is
+    // rebuilt only between an unload, which drops those pools, and the next
+    // load, so the address holds for as long as any instance lives.
+    ComponentType component{};
     std::vector<OwnedFieldDesc> fields;
     void (*trace)(void* instance, void* visitor){nullptr};
     const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
@@ -68,7 +78,7 @@ struct OwnedUiWidgetType {
 // Backward compat alias
 using OwnedUiComponentType = OwnedUiWidgetType;
 
-class ScriptManager {
+class ScriptManager final : public ScriptHost {
 public:
     ScriptManager();
     ~ScriptManager();
@@ -185,6 +195,13 @@ public:
     void dispatch_player_connected(Scene& scene, uint32_t peer);
     void dispatch_player_disconnected(Scene& scene, uint32_t peer);
 
+    /// A node leaving its scene: its live scripts are ended if they had
+    /// started in a running game, saved into their entries, and let go.
+    void scripts_leaving(Node& node) override;
+    /// A node put back into its scene: its scripts are made again from their
+    /// entries, and started if the game is running.
+    void scripts_returned(Node& node) override;
+
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
@@ -224,14 +241,19 @@ private:
     /// character.
     [[nodiscard]] static bool simulation_owns(const Node& node);
     [[nodiscard]] static SimulatedState simulated_state(const Node& node);
-    /// Run a frame hook (tick, late_tick) on the node's scripts, checking
-    /// after each script whether it wrote what the simulation owns.
+    /// Run a hook on every live script, type by type in tick order and, within
+    /// a type, in the order its scripts joined the scene.
     template <typename Hook>
-    void run_frame_hook(Node& node, const char* hook_name, Hook&& hook);
-    /// Report what `script_index` wrote on `node` that the simulation owns,
-    /// judged against the state before it ran.
-    void report_outside_writes(const Node& node, std::size_t script_index, const char* hook_name,
-                               const SimulatedState& before);
+    void run_scripts(Scene& scene, const char* hook_name, Hook&& hook);
+    /// The same for a frame hook (tick, late_tick): on a node whose state the
+    /// simulation owns, each script is checked after it runs for having
+    /// written that state.
+    template <typename Hook>
+    void run_frame_scripts(Scene& scene, const char* hook_name, Hook&& hook);
+    /// Report what the script of type `type_name` wrote on `node` that the
+    /// simulation owns, judged against the state before it ran.
+    void report_outside_writes(const Node& node, const std::string& type_name,
+                               const char* hook_name, const SimulatedState& before);
     void report_write(const std::string& key, std::string message);
     /// The state the simulation owns of every node that has any, taken before
     /// a frame pass (empty while reports are off). After it,
@@ -262,6 +284,12 @@ private:
     std::unordered_map<uint32_t, std::size_t> script_type_map_;
     ReflectedTypes reflected_types_; // what script_type_list_'s struct fields point into
     std::vector<OwnedScriptType> script_type_list_;
+    // The loaded script types in the order their scripts run: by type name,
+    // which is reproducible where registration order (the link order) is not.
+    std::vector<const OwnedScriptType*> tick_order_;
+    // Each script type name's pool id, kept across reloads so a type keeps its
+    // id for the whole session.
+    std::unordered_map<std::string, ComponentTypeId> pool_ids_;
     std::vector<OwnedUiComponentType> ui_type_list_;
 
     World world_{};

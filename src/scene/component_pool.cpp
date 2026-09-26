@@ -104,6 +104,10 @@ ComponentPool& ComponentPools::pool(const ComponentType& type) {
     return *slot;
 }
 
+void ComponentPools::drop(ComponentTypeId id) {
+    if (id < by_id_.size()) by_id_[id].reset();
+}
+
 ComponentPool* ComponentPools::find(ComponentTypeId id) const {
     return id < by_id_.size() ? by_id_[id].get() : nullptr;
 }

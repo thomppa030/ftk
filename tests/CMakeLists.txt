@@ -266,6 +266,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_component_pool.cpp
     test_scene_node_kinds.cpp
+    test_script_pools.cpp
     test_curve_editor.cpp
     test_asset_tile.cpp
     test_choices.cpp

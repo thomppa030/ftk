@@ -215,6 +215,9 @@ public:
     /// Whether the components live in a scene's pools.
     [[nodiscard]] bool attached() const { return pools_ != nullptr; }
 
+    /// The pools of the scene the node is in, or null when it is in none.
+    [[nodiscard]] ComponentPools* pools() const { return pools_; }
+
     // Duplicates every component into `to`, each by its own clone rule.
     void clone_into(ComponentStorage& to) const {
         for (const auto& e : entries_) {

@@ -154,7 +154,9 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     fjell::OwnedScriptType owned;
     owned.name = desc->name;
     owned.type_id = fjell::ScriptManager::hash_type_name(owned.name);
-    owned.create = desc->create;
+    owned.size = desc->size;
+    owned.align = desc->align;
+    owned.construct = desc->construct;
     owned.trace = desc->trace;
     owned.loaded = true;
     owned.is_functional_test = desc->is_functional_test;
@@ -305,6 +307,9 @@ void ScriptManager::unload(Scene& scene) {
             comp.instance.reset();
         }
     }
+    // The next build may lay a type out differently, and its pool would hold
+    // slots of the old size.
+    for (const auto& type : script_type_list_) scene.forget_component_type(type.component.id);
 
     library_.unload();
 
@@ -339,6 +344,7 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
 
 void ScriptManager::build_registry() {
     script_type_list_.clear();
+    tick_order_.clear();
     script_type_map_.clear();
 
     // Check API version compatibility
@@ -392,6 +398,24 @@ void ScriptManager::build_registry() {
         script_type_list_.push_back(std::move(ct));
     }
 
+    // Each type's pool: its layout as this build has it, under the id its
+    // name has had all session.
+    tick_order_.clear();
+    for (auto& type : script_type_list_) {
+        auto [pool_id, fresh] = pool_ids_.try_emplace(type.name, 0);
+        if (fresh) pool_id->second = next_component_id();
+        type.component = ComponentType{
+            .id = pool_id->second,
+            .size = type.size,
+            .align = type.align,
+            .destroy = [](void* script) { static_cast<ScriptComponent*>(script)->~ScriptComponent(); },
+            .relocate = nullptr,
+            .clone = nullptr,
+        };
+        tick_order_.push_back(&type);
+    }
+    std::ranges::sort(tick_order_, {}, &OwnedScriptType::name);
+
     ui_type_list_.clear();
     for (auto& ut : registry.ui_components) {
         ui_type_list_.push_back(std::move(ut));
@@ -426,7 +450,7 @@ const OwnedUiWidgetType* ScriptManager::find_ui_type_by_tag(const std::string& t
 
 Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
     const auto* type = find_script_type(type_name);
-    if (!type || !type->loaded || !type->create) {
+    if (!type || !type->loaded || !type->construct) {
         return make_error("Unknown or unloaded script type: " + type_name);
     }
 
@@ -443,12 +467,13 @@ Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
 
 void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
     const auto* type = find_script_type(entry.type_name);
-    if (!type || !type->loaded || !type->create) {
-        entry.instance.reset();
-        return;
-    }
-    entry.instance.reset(type->create());
+    entry.instance.reset();
     entry.started = false;
+    if (!type || !type->loaded || !type->construct) return;
+    // Made in the pool of the scene the node is in; a node in none keeps the
+    // script as data until it joins one.
+    entry.instance = ScriptInstance::make(obj, type->component, type->construct);
+    if (!entry.instance) return;
     entry.instance->node_ = &obj;
     entry.instance->world_ = &world_;
     entry.instance->transform_ = &obj.transform;
@@ -559,26 +584,60 @@ template <typename State>
 
 } // namespace
 
+namespace {
+
+/// Run a hook on one script, reporting an exception rather than letting it
+/// out: one script's mistake must not stop the others.
 template <typename Hook>
-void ScriptManager::run_frame_hook(Node& node, const char* hook_name, Hook&& hook) {
-    if (!write_reports_on_ || !simulation_owns(node)) {
-        run_hook(node, hook_name, hook);
-        return;
-    }
-    // Checked after each script, so the report names the one that wrote.
-    const std::size_t count = node.scripts.size();
-    for (std::size_t i = 0; i < count; ++i) {
-        const SimulatedState before = simulated_state(node);
-        run_hook_on(node, i, hook_name, hook);
-        report_outside_writes(node, i, hook_name, before);
+void run_script_hook(const Node& node, const std::string& type_name, ScriptComponent& script,
+                     const char* hook_name, Hook&& hook) {
+    try {
+        hook(script);
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("Exception in {}.{} on '{}': {}", type_name, hook_name, node.name,
+                         e.what());
+    } catch (...) {
+        FJELL_CORE_ERROR("Unknown exception in {}.{} on '{}'", type_name, hook_name, node.name);
     }
 }
 
-void ScriptManager::report_outside_writes(const Node& node, std::size_t script_index,
+} // namespace
+
+template <typename Hook>
+void ScriptManager::run_scripts(Scene& scene, const char* hook_name, Hook&& hook) {
+    for (const OwnedScriptType* type : tick_order_) {
+        scene.each_component(type->component.id, [&](Node& node, void* component) {
+            run_script_hook(node, type->name, *static_cast<ScriptComponent*>(component),
+                            hook_name, hook);
+        });
+    }
+}
+
+template <typename Hook>
+void ScriptManager::run_frame_scripts(Scene& scene, const char* hook_name, Hook&& hook) {
+    if (!write_reports_on_) {
+        run_scripts(scene, hook_name, hook);
+        return;
+    }
+    for (const OwnedScriptType* type : tick_order_) {
+        scene.each_component(type->component.id, [&](Node& node, void* component) {
+            auto& script = *static_cast<ScriptComponent*>(component);
+            if (!simulation_owns(node)) {
+                run_script_hook(node, type->name, script, hook_name, hook);
+                return;
+            }
+            // Checked after each script, so the report names the one that wrote.
+            const SimulatedState before = simulated_state(node);
+            run_script_hook(node, type->name, script, hook_name, hook);
+            report_outside_writes(node, type->name, hook_name, before);
+        });
+    }
+}
+
+void ScriptManager::report_outside_writes(const Node& node, const std::string& type,
                                           const char* hook_name, const SimulatedState& before) {
     const OutsideWrite write = outside_write(node, before, simulated_state(node));
     if (write == OutsideWrite::none) return;
-    const std::string& type = node.scripts[script_index].type_name;
     const std::string what = node.name + '|' + std::to_string(static_cast<int>(write));
     blamed_writes_.insert(what);
     report_write(type + '|' + what,
@@ -600,8 +659,16 @@ std::vector<std::pair<uint32_t, ScriptManager::SimulatedState>>
 ScriptManager::owned_states(Scene& scene) const {
     std::vector<std::pair<uint32_t, SimulatedState>> states;
     if (!write_reports_on_) return states;
-    for (const auto& obj : scene.objects()) {
-        if (simulation_owns(*obj)) states.emplace_back(obj->id, simulated_state(*obj));
+    // What the simulation owns is a dynamic body or a simulated character; a
+    // node that is both is taken with the bodies.
+    for (auto [node, rb] : scene.view<RigidbodyComponent>()) {
+        if (rb->body_type == BodyType::Dynamic) states.emplace_back(node->id, simulated_state(*node));
+    }
+    for (auto [node, cc] : scene.view<CharacterComponent>()) {
+        if (!cc->simulate) continue;
+        const auto* rb = node->components.get<RigidbodyComponent>();
+        if (rb != nullptr && rb->body_type == BodyType::Dynamic) continue;
+        states.emplace_back(node->id, simulated_state(*node));
     }
     return states;
 }
@@ -627,6 +694,7 @@ void ScriptManager::report_foreign_writes(Scene& scene,
 
 void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
                             PhysicsWorld* physics) {
+    scene.set_script_host(this);
     s_services.scene = &scene;
     s_services.manager = this;
     populate_world(input, clock, physics);
@@ -637,6 +705,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     FJELL_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
+    scene.set_script_host(this);
     s_services.scene = &scene;
     s_services.manager = this;
     populate_world(input, clock, physics);
@@ -647,12 +716,10 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     // invalidate this loop's iterator over objects_.
     Scene::TickLock tick_lock(scene);
     const auto owned_before = owned_states(scene);
-    for (auto& obj : scene.objects()) {
-        run_frame_hook(*obj, "tick", [&](ScriptComponent& script) {
-            script.world_ = &world_;
-            script.tick(dt);
-        });
-    }
+    run_frame_scripts(scene, "tick", [&](ScriptComponent& script) {
+        script.world_ = &world_;
+        script.tick(dt);
+    });
     report_foreign_writes(scene, owned_before, "tick");
 
 }
@@ -675,12 +742,10 @@ void ScriptManager::fixed_update(Scene& scene, const FixedStep& step) {
         // Spawns from fixed_tick and from timers wait for the flush that
         // follows the step.
         Scene::TickLock tick_lock(scene);
-        for (auto& obj : scene.objects()) {
-            run_hook(*obj, "fixed_tick", [&](ScriptComponent& script) {
-                script.world_ = &world_;
-                script.fixed_tick(step);
-            });
-        }
+        run_scripts(scene, "fixed_tick", [&](ScriptComponent& script) {
+            script.world_ = &world_;
+            script.fixed_tick(step);
+        });
         timers_.tick(step.dt);
     }
     s_services.in_fixed_step = false;
@@ -694,12 +759,10 @@ void ScriptManager::late_update(Scene& scene, float dt) {
 
     Scene::TickLock tick_lock(scene);
     const auto owned_before = owned_states(scene);
-    for (auto& obj : scene.objects()) {
-        run_frame_hook(*obj, "late_tick", [&](ScriptComponent& script) {
-            script.world_ = &world_;
-            script.late_tick(dt);
-        });
-    }
+    run_frame_scripts(scene, "late_tick", [&](ScriptComponent& script) {
+        script.world_ = &world_;
+        script.late_tick(dt);
+    });
     report_foreign_writes(scene, owned_before, "late_tick");
 }
 
@@ -724,9 +787,15 @@ void ScriptManager::call_begin_play(Scene& scene) {
     // are started with everything else that joins the game, by whoever
     // flushes spawns next.
     Scene::TickLock tick_lock(scene);
-    for (auto& obj : scene.objects()) {
-        const std::size_t count = obj->scripts.size();
-        for (std::size_t i = 0; i < count; ++i) start_script(*obj, i);
+    for (const OwnedScriptType* type : tick_order_) {
+        scene.each_component(type->component.id, [&](Node& node, void* component) {
+            for (std::size_t i = 0; i < node.scripts.size(); ++i) {
+                if (node.scripts[i].instance.get() == component) {
+                    start_script(node, i);
+                    break;
+                }
+            }
+        });
     }
 }
 
@@ -760,9 +829,7 @@ void ScriptManager::call_end_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_end_play");
     // An end_play that spawns must not move the list under this loop.
     Scene::TickLock tick_lock(scene);
-    for (auto& obj : scene.objects()) {
-        run_hook(*obj, "end_play", [](ScriptComponent& script) { script.end_play(); });
-    }
+    run_scripts(scene, "end_play", [](ScriptComponent& script) { script.end_play(); });
     timers_.clear();
 }
 
@@ -782,6 +849,31 @@ void ScriptManager::end_play_destroyed(Scene& scene, std::span<const uint32_t> d
     }
 }
 
+void ScriptManager::scripts_leaving(Node& node) {
+    // By index: an end_play may add a script to its own node.
+    for (std::size_t i = 0; i < node.scripts.size(); ++i) {
+        if (!node.scripts[i].instance) continue;
+        if (playing_ && node.scripts[i].started) {
+            run_hook_on(node, i, "end_play", [](ScriptComponent& script) { script.end_play(); });
+            release(node.scripts[i].instance.get());
+        }
+        ScriptEntry& entry = node.scripts[i];
+        entry.serialized = fields_of(entry);
+        entry.instance.reset();
+        entry.started = false;
+    }
+}
+
+void ScriptManager::scripts_returned(Node& node) {
+    auto* spatial = node.as_spatial();
+    if (spatial == nullptr) return;
+    for (auto& entry : node.scripts) {
+        if (!entry.instance) instantiate(*spatial, entry);
+    }
+    if (!playing_) return;
+    for (std::size_t i = 0; i < node.scripts.size(); ++i) start_script(node, i);
+}
+
 void ScriptManager::release_address(const void* owner) {
     release_input_bindings(owner);
     timers_.cancel_owned(owner);
@@ -796,14 +888,11 @@ void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> do
     visitor.set_doomed_ids(doomed_ids);
     s_active_visitor = &visitor;
 
-    for (auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (!comp.instance) continue;
-            const auto* ctype = find_script_type(comp.type_name);
-            if (ctype && ctype->trace) {
-                ctype->trace(comp.instance.get(), &visitor);
-            }
-        }
+    for (const OwnedScriptType* type : tick_order_) {
+        if (type->trace == nullptr) continue;
+        scene.each_component(type->component.id, [&](Node&, void* component) {
+            type->trace(component, &visitor);
+        });
     }
 
     s_active_visitor = nullptr;
@@ -843,37 +932,29 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
 void ScriptManager::dispatch_weather_changed(Scene& scene, uint32_t event, int phase) {
     const auto weather_phase = static_cast<WeatherPhase>(phase);
     Scene::TickLock tick_lock(scene);
-    for (const auto& obj : scene.objects()) {
-        run_hook(*obj, "on_weather_changed", [&](ScriptComponent& script) {
-            script.on_weather_changed(event, weather_phase);
-        });
-    }
+    run_scripts(scene, "on_weather_changed", [&](ScriptComponent& script) {
+        script.on_weather_changed(event, weather_phase);
+    });
 }
 
 void ScriptManager::dispatch_time_phase_changed(Scene& scene, int phase) {
     const auto time_phase = static_cast<TimePhase>(phase);
     Scene::TickLock tick_lock(scene);
-    for (const auto& obj : scene.objects()) {
-        run_hook(*obj, "on_time_phase_changed", [&](ScriptComponent& script) {
-            script.on_time_phase_changed(time_phase);
-        });
-    }
+    run_scripts(scene, "on_time_phase_changed", [&](ScriptComponent& script) {
+        script.on_time_phase_changed(time_phase);
+    });
 }
 
 void ScriptManager::dispatch_player_connected(Scene& scene, uint32_t peer) {
     Scene::TickLock tick_lock(scene);
-    for (const auto& obj : scene.objects()) {
-        run_hook(*obj, "on_player_connected",
-                 [&](ScriptComponent& script) { script.on_player_connected(peer); });
-    }
+    run_scripts(scene, "on_player_connected",
+                [&](ScriptComponent& script) { script.on_player_connected(peer); });
 }
 
 void ScriptManager::dispatch_player_disconnected(Scene& scene, uint32_t peer) {
     Scene::TickLock tick_lock(scene);
-    for (const auto& obj : scene.objects()) {
-        run_hook(*obj, "on_player_disconnected",
-                 [&](ScriptComponent& script) { script.on_player_disconnected(peer); });
-    }
+    run_scripts(scene, "on_player_disconnected",
+                [&](ScriptComponent& script) { script.on_player_disconnected(peer); });
 }
 
 // ── Auto-serialization from field descriptors ───────────────────────────
@@ -1047,12 +1128,13 @@ void ScriptManager::serialize_all(Scene& scene) {
 }
 
 void ScriptManager::deserialize_all(Scene& scene) {
+    scene.set_script_host(this);
     for (auto& obj : scene.objects()) {
         auto* spatial = obj->as_spatial();
         if (!spatial) continue;
         for (auto& comp : obj->scripts) {
             const auto* ctype = find_script_type(comp.type_name);
-            if (!ctype || !ctype->loaded || !ctype->create) continue;
+            if (!ctype || !ctype->loaded || !ctype->construct) continue;
             instantiate(*spatial, comp);
         }
     }

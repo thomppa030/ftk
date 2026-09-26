@@ -8,6 +8,7 @@
 #include "fjell/notify.hpp"
 #include "fjell/api.h"
 
+#include <new>
 #include <type_traits>
 
 // The engine includes this header for the registry types below, and it has
@@ -33,7 +34,11 @@
 
 struct FjellComponentTypeOOP {
     const char* name;
-    fjell::ScriptComponent* (*create)();
+    // The engine keeps a script type's instances in a pool of its own, so it
+    // needs the type's layout and a way to build one in memory it provides.
+    uint32_t size;
+    uint32_t align;
+    fjell::ScriptComponent* (*construct)(void* memory);
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
@@ -82,9 +87,14 @@ namespace fjell {
 
 template <typename T>
 void register_component(FjellTypeRegistry* reg) {
+    // The pool's memory is aligned as operator new's is, and no further.
+    static_assert(alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__,
+                  "a script component may not need more alignment than operator new gives");
     FjellComponentTypeOOP desc{};
     desc.name = T::type_name;
-    desc.create = []() -> ScriptComponent* { return new T(); };
+    desc.size = static_cast<uint32_t>(sizeof(T));
+    desc.align = static_cast<uint32_t>(alignof(T));
+    desc.construct = [](void* memory) -> ScriptComponent* { return new (memory) T(); };
     // The engine holds every instance as a ScriptComponent*, and the C ABI
     // carries no base-class information, so this is what tells the test runner
     // which types it may treat as a FunctionalTest. Same trick as is_state.

@@ -4,6 +4,7 @@
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/node.hpp"
+#include "scene/script_host.hpp"
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -20,6 +21,7 @@ namespace fjell {
 
 class Project;
 class ResourceManager;
+
 
 class Scene {
 public:
@@ -202,6 +204,25 @@ public:
             pools_ ? pools_->find(component_type_id<T>()) : nullptr};
     }
 
+    /// Calls fn(node, component) for every component of type `id`, in the
+    /// order they joined, for code that knows a type only by id (a script
+    /// type). Same rules as each().
+    template <typename Fn>
+    void each_component(ComponentTypeId id, Fn&& fn) {
+        if (!pools_) return;
+        if (ComponentPool* pool = pools_->find(id)) pool->for_each(fn);
+    }
+
+    /// Forgets the pool of a type that is going away, which must hold no
+    /// component by then: a script type when the game library unloads.
+    void forget_component_type(ComponentTypeId id) {
+        if (pools_) pools_->drop(id);
+    }
+
+    /// Who looks after this scene's live scripts; see ScriptHost. Set by
+    /// whatever makes them, each time it does.
+    void set_script_host(ScriptHost* host) { script_host_ = host; }
+
     /// Calls fn(node) for every node carrying a component of type `id`, in
     /// the order those components joined, for code that knows a component
     /// type only by id.
@@ -322,6 +343,11 @@ private:
     /// take nodes.
     std::unique_ptr<ComponentPools> pools_;
     [[nodiscard]] ComponentPools& pools();
+
+    ScriptHost* script_host_{nullptr};
+    /// Ends and releases the node's live scripts, saving them first when
+    /// there is a host to.
+    void release_scripts(Node& node);
 
     /// The nodes of objects_ of each kind, in the order they joined; null
     /// where one left during a walk, until the walk is over. The lists are

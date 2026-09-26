@@ -66,13 +66,15 @@ struct TestWorld : UiModelWorld {
 uint32_t spawn(Scene& scene, const char* name, float hp) {
     auto node = std::make_unique<Node3D>();
     node->name = name;
-    auto stats = std::make_unique<Stats>();
-    stats->hp = hp;
+    const uint32_t id = scene.add_node(std::move(node));
+    // A script lives in its type's pool in the scene, so the node joins first.
+    Node& added = *scene.find(id);
     ScriptEntry entry;
     entry.type_name = "Stats";
-    entry.instance = std::move(stats);
-    node->scripts.push_back(std::move(entry));
-    return scene.add_node(std::move(node));
+    entry.instance = ScriptInstance::make<Stats>(added);
+    static_cast<Stats&>(*entry.instance).hp = hp;
+    added.scripts.push_back(std::move(entry));
+    return id;
 }
 
 Stats& stats_of(Scene& scene, uint32_t id) {
@@ -196,7 +198,7 @@ TEST_CASE("A script added to a node already in the scene is found", "[ui_models]
 
     ScriptEntry entry;
     entry.type_name = "Stats";
-    entry.instance = std::make_unique<Stats>();
+    entry.instance = ScriptInstance::make<Stats>(*scene.find(id));
     scene.find(id)->scripts.push_back(std::move(entry));
     scene.mark_structure_changed();
     models.bind();

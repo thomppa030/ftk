@@ -7,6 +7,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <limits>
 #include <utility>
 
@@ -18,6 +19,38 @@ ScriptEntry::ScriptEntry() = default;
 ScriptEntry::~ScriptEntry() = default;
 ScriptEntry::ScriptEntry(ScriptEntry&&) noexcept = default;
 ScriptEntry& ScriptEntry::operator=(ScriptEntry&&) noexcept = default;
+
+// ── ScriptInstance ──────────────────────────────────────────────────────
+
+ScriptInstance ScriptInstance::make(Node& owner, const ComponentType& type,
+                                    ScriptComponent* (*construct)(void* memory)) {
+    ComponentPools* pools = owner.components.pools();
+    if (pools == nullptr) return {};
+    ComponentPool& pool = pools->pool(type);
+    const ComponentPool::Slot slot = pool.acquire(owner);
+    ScriptInstance made;
+    try {
+        made.instance_ = construct(slot.memory);
+    } catch (...) {
+        pool.release(slot.index);
+        throw;
+    }
+    // Everything that reads a script's fields does so by offset from the
+    // instance, which is only right while ScriptComponent sits at the start
+    // of the type; the pool's walks hand out the slot the same way.
+    assert(static_cast<void*>(made.instance_) == slot.memory);
+    pool.admit(slot.index);
+    made.pool_ = &pool;
+    made.slot_ = slot.index;
+    return made;
+}
+
+void ScriptInstance::reset() {
+    if (instance_ == nullptr) return;
+    instance_->~ScriptComponent();
+    instance_ = nullptr;
+    pool_->release(slot_);
+}
 
 // ── Node ────────────────────────────────────────────────────────────────
 
@@ -78,6 +111,11 @@ Scene::~Scene() {
 ComponentPools& Scene::pools() {
     if (!pools_) pools_ = std::make_unique<ComponentPools>();
     return *pools_;
+}
+
+void Scene::release_scripts(Node& node) {
+    if (script_host_ != nullptr) script_host_->scripts_leaving(node);
+    for (ScriptEntry& entry : node.scripts) entry.instance.reset();
 }
 
 void Scene::join_kind(Node& node) {
@@ -194,6 +232,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
     objects_.erase(objects_.begin() + idx);
     leave_kind(*result);
+    release_scripts(*result);
     result->components.detach();
     rebuild_id_index();
     dirty_ = true;
@@ -207,7 +246,9 @@ void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     node->components.attach(pools(), *node);
     join_kind(*node);
     index = std::min(index, objects_.size());
+    Node& restored = *node;
     objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
+    if (script_host_ != nullptr) script_host_->scripts_returned(restored);
     rebuild_id_index();
     dirty_ = true;
     ++structure_revision_;

@@ -47,8 +47,10 @@ struct ComponentType {
     void (*destroy)(void* component);
     /// Move-constructs the component at `from` into the uninitialised memory
     /// at `to`, then ends the one at `from`. A component moves only when its
-    /// node joins or leaves a scene.
+    /// node joins or leaves a scene. Null for a script type: a script never
+    /// moves, and is made again from its saved fields instead.
     void (*relocate)(void* to, void* from);
+    /// Null for a script type, which is copied through its saved fields.
     void (*clone)(const ComponentStorage& from, const void* src, ComponentStorage& to);
 };
 

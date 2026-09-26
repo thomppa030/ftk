@@ -176,6 +176,11 @@ public:
     /// The pool for `id`, or null when no component of that type ever joined.
     [[nodiscard]] ComponentPool* find(ComponentTypeId id) const;
 
+    /// Forgets the pool for `id`, which must be empty. For a type that is
+    /// about to stop existing: a script type when the game library unloads,
+    /// whose next build may lay the type out differently.
+    void drop(ComponentTypeId id);
+
 private:
     std::vector<std::unique_ptr<ComponentPool>> by_id_;
 };
