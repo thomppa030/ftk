@@ -1253,23 +1253,29 @@ void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
     // needs its body rebuilt. Checked against the scale it was built at rather
     // than a dirty flag, which would have to be set by everything that can
     // move a transform — the inspector, scripts, animation, the gizmo.
-    for (auto& obj : scene.objects()) {
-        auto* spatial = obj->as_spatial();
+    // Only a node with a body can need it, so the check runs over the bodies.
+    // Rebuilding replaces the entry the check reads, so the rescaled nodes are
+    // listed first and rebuilt after, in node id order: which body Jolt hands
+    // out next depends on the order bodies are made in, and the simulation has
+    // to come out the same every run.
+    std::vector<uint32_t> rescaled;
+    for (const auto& [id, built_at] : impl_->body_scales) {
+        const auto* spatial = scene.find_spatial(id);
         if (spatial == nullptr) continue;
-
-        auto it = impl_->body_scales.find(obj->id);
-        if (it == impl_->body_scales.end()) continue;
-        if (glm::all(glm::epsilonEqual(it->second, spatial->transform.scale, 1e-5F))) {
-            continue;
+        if (!glm::all(glm::epsilonEqual(built_at, spatial->transform.scale, 1e-5F))) {
+            rescaled.push_back(id);
         }
-
+    }
+    std::ranges::sort(rescaled);
+    for (const uint32_t id : rescaled) {
+        Node* obj = scene.find(id);
         // Rebuilding drops the body's velocity with it, so it is carried over —
         // a rescaled object should keep moving, not stop dead.
-        auto velocity = get_linear_velocity(obj->id);
-        auto angular = get_angular_velocity(obj->id);
+        auto velocity = get_linear_velocity(id);
+        auto angular = get_angular_velocity(id);
         create_body(scene, *obj);
-        set_linear_velocity(obj->id, velocity);
-        set_angular_velocity(obj->id, angular);
+        set_linear_velocity(id, velocity);
+        set_angular_velocity(id, angular);
     }
 
     // Move bone bodies onto their bones. MoveKinematic rather than a teleport
@@ -1314,9 +1320,8 @@ void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
     }
 
     // Sync kinematic bodies: push engine transforms -> Jolt
-    for (auto& obj : scene.objects()) {
-        const auto* rb = obj->components.get<RigidbodyComponent>();
-        if (!rb || rb->body_type != BodyType::Kinematic) continue;
+    for (auto [obj, rb] : scene.view<RigidbodyComponent>()) {
+        if (rb->body_type != BodyType::Kinematic) continue;
         auto* spatial = obj->as_spatial();
         if (!spatial) continue;
 
@@ -1483,9 +1488,8 @@ void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
     sort_events(listener.trigger_exit_events);
 
     // Sync dynamic bodies: pull Jolt transforms -> engine
-    for (auto& obj : scene.objects()) {
-        const auto* rb = obj->components.get<RigidbodyComponent>();
-        if (!rb || rb->body_type != BodyType::Dynamic) continue;
+    for (auto [obj, rb] : scene.view<RigidbodyComponent>()) {
+        if (rb->body_type != BodyType::Dynamic) continue;
         auto* spatial = obj->as_spatial();
         if (!spatial) continue;
 
