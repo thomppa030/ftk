@@ -9,6 +9,8 @@
 
 namespace fjell {
 
+struct Node;
+
 /// Every component of one type in a scene, for the systems that want all of
 /// them rather than asking node by node.
 ///
@@ -33,14 +35,15 @@ public:
     [[nodiscard]] const ComponentType& type() const { return *type_; }
 
     /// Uninitialised memory for a component of this pool's type belonging to
-    /// `node_id`, and the slot that names it. The caller constructs the
+    /// `owner`, and the slot that names it. A node in a scene does not move,
+    /// so the pool can hand the owner back to a walk. The caller constructs the
     /// component there and hands it over with admit(); until then walks do
     /// not see it.
     struct Slot {
         uint32_t index;
         void* memory;
     };
-    [[nodiscard]] Slot acquire(uint32_t node_id);
+    [[nodiscard]] Slot acquire(Node& owner);
 
     /// Makes the component constructed in `slot` visible to walks.
     void admit(uint32_t slot);
@@ -49,14 +52,14 @@ public:
     /// never constructed). Walks stop seeing it at once.
     void release(uint32_t slot);
 
-    /// Calls fn(node_id, component) for every live component, in join order.
+    /// Calls fn(owner, component) for every live component, in join order.
     template <typename Fn>
     void for_each(Fn&& fn) {
         WalkGuard guard{*this};
         const std::size_t count = members_.size();
         for (std::size_t i = 0; i < count; ++i) {
             const Member& m = members_[i];
-            if (m.component != nullptr) fn(m.node_id, m.component);
+            if (m.component != nullptr) fn(*m.owner, m.component);
         }
     }
 
@@ -67,7 +70,7 @@ private:
     static constexpr uint32_t RELEASED = UINT32_MAX;
 
     struct Member {
-        uint32_t node_id;
+        Node* owner;
         uint32_t slot;     // RELEASED once given back
         void* component;   // null until admitted, and once released
     };

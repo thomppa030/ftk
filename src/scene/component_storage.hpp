@@ -11,6 +11,8 @@
 
 namespace fjell {
 
+struct Node;
+
 /// One component, owned. It lives either in memory of its own (a node that is
 /// in no scene) or in a slot of its scene's pool for its type. Destroying the
 /// box ends the component and gives the memory back; moving the box hands both
@@ -30,11 +32,10 @@ public:
     }
 
     template <typename T, typename... Args>
-    [[nodiscard]] static ComponentBox make_in(ComponentPool& pool, uint32_t node_id,
-                                              Args&&... args) {
+    [[nodiscard]] static ComponentBox make_in(ComponentPool& pool, Node& owner, Args&&... args) {
         ComponentBox box;
         box.type_ = &component_type<T>();
-        const ComponentPool::Slot slot = pool.acquire(node_id);
+        const ComponentPool::Slot slot = pool.acquire(owner);
         box.pool_ = &pool;
         box.slot_ = slot.index;
         try {
@@ -76,12 +77,12 @@ public:
         return *this;
     }
 
-    /// The same component moved into a slot of `pool`, belonging to
-    /// `node_id`. This box is left empty.
-    [[nodiscard]] ComponentBox into_pool(ComponentPool& pool, uint32_t node_id) && {
+    /// The same component moved into a slot of `pool`, belonging to `owner`.
+    /// This box is left empty.
+    [[nodiscard]] ComponentBox into_pool(ComponentPool& pool, Node& owner) && {
         ComponentBox moved;
         moved.type_ = type_;
-        const ComponentPool::Slot slot = pool.acquire(node_id);
+        const ComponentPool::Slot slot = pool.acquire(owner);
         type_->relocate(slot.memory, component_);
         component_ = nullptr;
         free_memory();
@@ -183,20 +184,21 @@ public:
     T& add(Args&&... args) {
         if (pools_ != nullptr) {
             entries_.push_back(ComponentBox::make_in<T>(pools_->pool(component_type<T>()),
-                                                        node_id_, std::forward<Args>(args)...));
+                                                        *owner_, std::forward<Args>(args)...));
         } else {
             entries_.push_back(ComponentBox::make<T>(std::forward<Args>(args)...));
         }
         return *static_cast<T*>(entries_.back().get());
     }
 
-    /// Moves every component into `pools`, for the node `node_id` that has
-    /// just joined their scene; components added from now on go there too.
-    void attach(ComponentPools& pools, uint32_t node_id) {
+    /// Moves every component into `pools`, for `owner`, the node holding
+    /// this storage, which has just joined their scene; components added from
+    /// now on go there too.
+    void attach(ComponentPools& pools, Node& owner) {
         pools_ = &pools;
-        node_id_ = node_id;
+        owner_ = &owner;
         for (auto& e : entries_) {
-            e = std::move(e).into_pool(pools.pool(e.type()), node_id);
+            e = std::move(e).into_pool(pools.pool(e.type()), owner);
         }
     }
 
@@ -207,7 +209,7 @@ public:
             e = std::move(e).into_own_memory();
         }
         pools_ = nullptr;
-        node_id_ = 0;
+        owner_ = nullptr;
     }
 
     /// Whether the components live in a scene's pools.
@@ -307,7 +309,7 @@ public:
         if (!detached || get_by_id(detached.type_id()) != nullptr) return;
         const size_t at = detached.index_ < entries_.size() ? detached.index_ : entries_.size();
         ComponentBox box = std::move(detached.box_);
-        if (pools_ != nullptr) box = std::move(box).into_pool(pools_->pool(box.type()), node_id_);
+        if (pools_ != nullptr) box = std::move(box).into_pool(pools_->pool(box.type()), *owner_);
         entries_.insert(entries_.begin() + static_cast<std::ptrdiff_t>(at), std::move(box));
     }
 
@@ -341,7 +343,7 @@ public:
 private:
     std::vector<ComponentBox> entries_;
     ComponentPools* pools_{nullptr};  // the scene's, while the node is in one
-    uint32_t node_id_{0};
+    Node* owner_{nullptr};            // the node holding this storage, while it is
 };
 
 template <typename T>

@@ -29,7 +29,7 @@ struct Armour : Counted { using Counted::Counted; };
 template <typename T>
 std::vector<uint32_t> walk(Scene& scene) {
     std::vector<uint32_t> ids;
-    scene.each<T>([&](uint32_t id, T&) { ids.push_back(id); });
+    scene.each<T>([&](Node& node, T&) { ids.push_back(node.id); });
     return ids;
 }
 
@@ -45,10 +45,12 @@ TEST_CASE("a pooled component keeps its address while others come and go", "[com
     g_alive = 0;
     {
         ComponentPools pools;
-        ComponentStorage a;
-        ComponentStorage b;
-        a.attach(pools, 1);
-        b.attach(pools, 2);
+        Node node_a;
+        Node node_b;
+        ComponentStorage& a = node_a.components;
+        ComponentStorage& b = node_b.components;
+        a.attach(pools, node_a);
+        b.attach(pools, node_b);
 
         Health& kept = a.add<Health>(7);
         for (int i = 0; i < 1000; ++i) {
@@ -94,8 +96,8 @@ TEST_CASE("the same history walks in the same order", "[components][pool]") {
 
     std::vector<int> values_one;
     std::vector<int> values_two;
-    one.each<Health>([&](uint32_t, Health& h) { values_one.push_back(h.value); });
-    two.each<Health>([&](uint32_t, Health& h) { values_two.push_back(h.value); });
+    one.each<Health>([&](Node&, Health& h) { values_one.push_back(h.value); });
+    two.each<Health>([&](Node&, Health& h) { values_two.push_back(h.value); });
     CHECK(values_one == values_two);
     CHECK(walk<Health>(one) == walk<Health>(two));
 }
@@ -107,9 +109,9 @@ TEST_CASE("a component removed during a walk is not visited afterwards", "[compo
     const uint32_t c = scene.add_node(node_with_health(3));
 
     std::vector<uint32_t> seen;
-    scene.each<Health>([&](uint32_t id, Health&) {
-        seen.push_back(id);
-        if (id == a) scene.find(b)->components.remove<Health>();
+    scene.each<Health>([&](Node& node, Health&) {
+        seen.push_back(node.id);
+        if (node.id == a) scene.find(b)->components.remove<Health>();
     });
     CHECK(seen == std::vector{a, c});
     CHECK(walk<Health>(scene) == std::vector{a, c});
@@ -121,8 +123,8 @@ TEST_CASE("a component added during a walk is first visited by the next", "[comp
     const uint32_t b = scene.add_node(std::make_unique<Node3D>());
 
     std::vector<uint32_t> seen;
-    scene.each<Health>([&](uint32_t id, Health&) {
-        seen.push_back(id);
+    scene.each<Health>([&](Node& node, Health&) {
+        seen.push_back(node.id);
         scene.find(b)->components.add<Health>(2);
     });
     CHECK(seen == std::vector{a});

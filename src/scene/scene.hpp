@@ -151,9 +151,6 @@ public:
     [[nodiscard]] auto& objects() { return objects_; }
     [[nodiscard]] const auto& objects() const { return objects_; }
 
-    /// Calls fn(node_id, component) for every component of type T in the
-    /// scene, in the order they joined it. A component added during the walk
-    /// is not visited; one removed during it is not visited afterwards.
     /// Calls fn(node) for every node of kind T (a light, the camera, a fog
     /// volume, ...) in the scene, in the order they joined it. A node joining
     /// during the walk is not visited; one leaving it is not visited
@@ -178,12 +175,24 @@ public:
         return static_cast<const T*>(first_of_kind(T::KIND));
     }
 
+    /// Calls fn(node, component) for every component of type T in the
+    /// scene, in the order they joined it. A component added during the walk
+    /// is not visited; one removed during it is not visited afterwards.
     template <typename T, typename Fn>
     void each(Fn&& fn) {
         if (!pools_) return;
         if (ComponentPool* pool = pools_->find(component_type_id<T>())) {
-            pool->for_each([&](uint32_t node_id, void* component) {
-                fn(node_id, *static_cast<T*>(component));
+            pool->for_each([&](Node& node, void* component) {
+                fn(node, *static_cast<T*>(component));
+            });
+        }
+    }
+    template <typename T, typename Fn>
+    void each(Fn&& fn) const {
+        if (!pools_) return;
+        if (ComponentPool* pool = pools_->find(component_type_id<T>())) {
+            pool->for_each([&](const Node& node, const void* component) {
+                fn(node, *static_cast<const T*>(component));
             });
         }
     }

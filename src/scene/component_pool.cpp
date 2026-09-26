@@ -35,7 +35,7 @@ void* ComponentPool::slot_memory(uint32_t slot) const {
     return chunks_[chunk].get() + offset;
 }
 
-ComponentPool::Slot ComponentPool::acquire(uint32_t node_id) {
+ComponentPool::Slot ComponentPool::acquire(Node& owner) {
     uint32_t slot = 0;
     if (!free_slots_.empty()) {
         slot = free_slots_.back();
@@ -49,7 +49,7 @@ ComponentPool::Slot ComponentPool::acquire(uint32_t node_id) {
         member_of_.push_back(0);
     }
     member_of_[slot] = static_cast<uint32_t>(members_.size());
-    members_.push_back({node_id, slot, nullptr});
+    members_.push_back({&owner, slot, nullptr});
     ++pending_;
     return {slot, slot_memory(slot)};
 }

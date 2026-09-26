@@ -130,7 +130,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
         id_generation_[id] = 1;
     }
     dirty_ = true;
-    node->components.attach(pools(), id);
+    node->components.attach(pools(), *node);
 
     // Adding during a tick would invalidate the iterator the caller is walking
     // over objects_; defer until flush_spawned() runs after the loop. The id is
@@ -204,7 +204,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
 void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     // Keep existing generation — node is coming back
-    node->components.attach(pools(), node->id);
+    node->components.attach(pools(), *node);
     join_kind(*node);
     index = std::min(index, objects_.size());
     objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index), std::move(node));
