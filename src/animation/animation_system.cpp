@@ -13,9 +13,7 @@ AnimationSystem::AnimationSystem(VkDevice device, VmaAllocator allocator)
 
 void AnimationSystem::update(Scene& scene, float dt) {
     FJELL_PROFILE_SCOPE_N("anim_system_update");
-    for (auto& obj : scene.objects()) {
-        auto* anim = obj->components.get<AnimatorComponent>();
-        if (!anim) continue;
+    for (auto [obj, anim] : scene.view<AnimatorComponent>()) {
 
         // Auto-init from SkeletalModel's embedded skeleton
         if (!anim->initialized()) {
@@ -44,9 +42,8 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
     active_ids_.clear();
     bone_entry_count_ = 0;
 
-    for (auto& obj : scene.objects()) {
-        auto* smc = obj->components.get<SkeletalMeshComponent>();
-        if (!smc || !smc->skeletal_model) continue;
+    for (auto [obj, smc] : scene.view<SkeletalMeshComponent>()) {
+        if (!smc->skeletal_model) continue;
 
         const auto* skel = smc->skeletal_model->skeleton();
         if (!skel) continue;
