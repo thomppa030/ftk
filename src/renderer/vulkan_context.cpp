@@ -949,13 +949,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
     if (scene) {
-        for (const auto& obj : scene->objects()) {
-            if (dynamic_cast<const PointLightNode*>(obj.get())) {
-                ++point_count;
-            } else if (dynamic_cast<const SpotLightNode*>(obj.get())) {
-                ++spot_count;
-            }
-        }
+        scene->each_node<PointLightNode>([&](const PointLightNode&) { ++point_count; });
+        scene->each_node<SpotLightNode>([&](const SpotLightNode&) { ++spot_count; });
         // Also count legacy lights
         point_count += static_cast<uint32_t>(scene->point_lights().size());
         spot_count += static_cast<uint32_t>(scene->spot_lights().size());
@@ -1060,60 +1055,63 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
 
-    // Gather lights from scene nodes (position from world transform)
-    for (const auto& obj : scene->objects()) {
-        if (auto* pl = dynamic_cast<const PointLightNode*>(obj.get())) {
-            if (point_count >= 1024) continue;
-            GpuPointLight gpu{};
-            glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
-            gpu.position_radius = glm::vec4(pos, pl->radius);
-            gpu.color_intensity = glm::vec4(pl->color, pl->intensity);
-            gpu.vol_params = glm::vec4(pl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
-            // Fill shadow block data if this point light has shadows assigned
-            auto pit = point_shadow_map.find(point_count);
-            if (pit != point_shadow_map.end()) {
-                const auto* blk = pit->second;
-                gpu.shadow_info = glm::ivec4(
-                    static_cast<int>(blk->x),
-                    static_cast<int>(blk->y),
-                    static_cast<int>(blk->tile_size),
-                    1); // flags: 1 = has shadow
-            } else {
-                gpu.shadow_info = glm::ivec4(0);
-            }
-            std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
-            ++point_count;
-        } else if (auto* sl = dynamic_cast<const SpotLightNode*>(obj.get())) {
-            if (spot_count >= 1024) continue;
-            GpuSpotLight gpu{};
-            glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
-            gpu.position_radius = glm::vec4(pos, sl->radius);
-            // Transform direction by world rotation so parenting/rotation works
-            glm::vec3 world_dir = glm::normalize(glm::mat3(sl->world_matrix_) * sl->direction);
-            gpu.direction_inner_cos = glm::vec4(world_dir,
-                                                 std::cos(glm::radians(sl->inner_angle)));
-            gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
-            gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));
-            gpu.vol_params = glm::vec4(sl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
-            // Fill shadow tile data if this spot light has shadows assigned
-            auto it = spot_shadow_map.find(spot_count);
-            if (it != spot_shadow_map.end()) {
-                const auto* tile = it->second;
-                gpu.shadow_atlas_x = static_cast<int>(tile->x);
-                gpu.shadow_atlas_y = static_cast<int>(tile->y);
-                gpu.shadow_tile_size = static_cast<int>(tile->size);
-                gpu.shadow_vp = tile->light_vp;
-            } else {
-                gpu.shadow_atlas_x = 0;
-                gpu.shadow_atlas_y = 0;
-                gpu.shadow_tile_size = 0;
-                gpu.shadow_vp = glm::mat4(1.0f);
-            }
-            auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
-            std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
-            ++spot_count;
+    // Gather lights from scene nodes (position from world transform). A
+    // light's index here is its place in its kind's list, which is how the
+    // shadow atlas names it too (LocalShadowPass).
+    scene->each_node<PointLightNode>([&](const PointLightNode& light) {
+        const PointLightNode* pl = &light;
+        if (point_count >= 1024) return;
+        GpuPointLight gpu{};
+        glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
+        gpu.position_radius = glm::vec4(pos, pl->radius);
+        gpu.color_intensity = glm::vec4(pl->color, pl->intensity);
+        gpu.vol_params = glm::vec4(pl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
+        // Fill shadow block data if this point light has shadows assigned
+        auto pit = point_shadow_map.find(point_count);
+        if (pit != point_shadow_map.end()) {
+            const auto* blk = pit->second;
+            gpu.shadow_info = glm::ivec4(
+                static_cast<int>(blk->x),
+                static_cast<int>(blk->y),
+                static_cast<int>(blk->tile_size),
+                1); // flags: 1 = has shadow
+        } else {
+            gpu.shadow_info = glm::ivec4(0);
         }
-    }
+        std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
+        ++point_count;
+    });
+    scene->each_node<SpotLightNode>([&](const SpotLightNode& light) {
+        const SpotLightNode* sl = &light;
+        if (spot_count >= 1024) return;
+        GpuSpotLight gpu{};
+        glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
+        gpu.position_radius = glm::vec4(pos, sl->radius);
+        // Transform direction by world rotation so parenting/rotation works
+        glm::vec3 world_dir = glm::normalize(glm::mat3(sl->world_matrix_) * sl->direction);
+        gpu.direction_inner_cos = glm::vec4(world_dir,
+                                             std::cos(glm::radians(sl->inner_angle)));
+        gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
+        gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));
+        gpu.vol_params = glm::vec4(sl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
+        // Fill shadow tile data if this spot light has shadows assigned
+        auto it = spot_shadow_map.find(spot_count);
+        if (it != spot_shadow_map.end()) {
+            const auto* tile = it->second;
+            gpu.shadow_atlas_x = static_cast<int>(tile->x);
+            gpu.shadow_atlas_y = static_cast<int>(tile->y);
+            gpu.shadow_tile_size = static_cast<int>(tile->size);
+            gpu.shadow_vp = tile->light_vp;
+        } else {
+            gpu.shadow_atlas_x = 0;
+            gpu.shadow_atlas_y = 0;
+            gpu.shadow_tile_size = 0;
+            gpu.shadow_vp = glm::mat4(1.0f);
+        }
+        auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
+        std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
+        ++spot_count;
+    });
 
     // Legacy: also include lights from the old separate vectors
     const auto& old_point_lights = scene->point_lights();

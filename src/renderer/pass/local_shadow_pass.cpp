@@ -276,17 +276,17 @@ void LocalShadowPass::assign_spot_tiles(const FrameContext& ctx) {
     };
     std::vector<SpotCandidate> candidates;
 
+    // A light's index is its place in its kind's list, the same walk the
+    // light SSBO is filled by.
     uint32_t spot_index = 0;
-    for (const auto& obj : active_scene_->objects()) {
-        auto* sl = dynamic_cast<const SpotLightNode*>(obj.get());
-        if (!sl) continue;
-        uint32_t this_index = spot_index++;
-        if (!sl->cast_shadows) continue;
+    active_scene_->each_node<SpotLightNode>([&](const SpotLightNode& light) {
+        const uint32_t this_index = spot_index++;
+        if (!light.cast_shadows) return;
 
-        glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
+        glm::vec3 pos = glm::vec3(light.world_matrix_[3]);
         glm::vec3 diff = pos - ctx.camera_position;
-        candidates.push_back({sl, this_index, glm::dot(diff, diff)});
-    }
+        candidates.push_back({&light, this_index, glm::dot(diff, diff)});
+    });
 
     // Sort by distance, take closest N
     std::sort(candidates.begin(), candidates.end(),
@@ -360,16 +360,14 @@ void LocalShadowPass::assign_point_tiles(const FrameContext& ctx) {
     std::vector<PointCandidate> candidates;
 
     uint32_t point_index = 0;
-    for (const auto& obj : active_scene_->objects()) {
-        auto* pl = dynamic_cast<const PointLightNode*>(obj.get());
-        if (!pl) continue;
-        uint32_t this_index = point_index++;
-        if (!pl->cast_shadows) continue;
+    active_scene_->each_node<PointLightNode>([&](const PointLightNode& light) {
+        const uint32_t this_index = point_index++;
+        if (!light.cast_shadows) return;
 
-        glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
+        glm::vec3 pos = glm::vec3(light.world_matrix_[3]);
         glm::vec3 diff = pos - ctx.camera_position;
-        candidates.push_back({pl, this_index, glm::dot(diff, diff)});
-    }
+        candidates.push_back({&light, this_index, glm::dot(diff, diff)});
+    });
 
     std::sort(candidates.begin(), candidates.end(),
               [](const auto& a, const auto& b) { return a.distance_sq < b.distance_sq; });
