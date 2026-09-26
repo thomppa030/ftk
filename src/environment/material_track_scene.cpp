@@ -73,29 +73,29 @@ void add_presets(const ShaderMetadata& meta, Kind kind, std::string_view group,
 // group's. `each` returns true to stop.
 template <typename Each>
 void for_each_reached(const Scene& scene, const Target& target, PipelineCache* cache, Each&& each) {
-    for (const auto& obj : scene.objects()) {
-        if (target.kind == Kind::Fog) {
-            if (target.group.empty()) {
-                if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-                    if (each(uniforms_of(fog->material, DEFAULT_FOG_SHADER, ShaderType::Fog, cache))) {
-                        return;
-                    }
-                }
-            } else if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get());
-                       volume != nullptr && volume->fog_group == target.group) {
-                if (each(uniforms_of(volume->material, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog,
-                                     cache))) {
-                    return;
-                }
-            }
-        } else if (const auto* post = dynamic_cast<const PostProcessVolumeNode*>(obj.get())) {
-            const bool reached = target.group.empty() ? post->infinite_bounds
-                                                      : post->post_group == target.group;
-            if (reached && each(uniforms_of(post->material, DEFAULT_POST_SHADER, ShaderType::Post,
-                                            cache))) {
-                return;
-            }
+    // A kind is a short list, so once `each` has asked to stop the rest of
+    // it is passed over rather than broken out of.
+    bool done = false;
+    if (target.kind == Kind::Fog) {
+        if (target.group.empty()) {
+            scene.each_node<VolumetricFogNode>([&](const VolumetricFogNode& fog) {
+                if (done) return;
+                done = each(uniforms_of(fog.material, DEFAULT_FOG_SHADER, ShaderType::Fog, cache));
+            });
+        } else {
+            scene.each_node<FogVolumeNode>([&](const FogVolumeNode& volume) {
+                if (done || volume.fog_group != target.group) return;
+                done = each(uniforms_of(volume.material, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog,
+                                        cache));
+            });
         }
+    } else {
+        scene.each_node<PostProcessVolumeNode>([&](const PostProcessVolumeNode& post) {
+            const bool reached = target.group.empty() ? post.infinite_bounds
+                                                      : post.post_group == target.group;
+            if (done || !reached) return;
+            done = each(uniforms_of(post.material, DEFAULT_POST_SHADER, ShaderType::Post, cache));
+        });
     }
 }
 
@@ -103,26 +103,26 @@ void for_each_reached(const Scene& scene, const Target& target, PipelineCache* c
 
 std::vector<Preset> presets(const Scene& scene, PipelineCache* cache) {
     std::vector<Preset> out;
-    for (const auto& obj : scene.objects()) {
-        if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-            if (const auto* meta = uniforms_of(fog->material, DEFAULT_FOG_SHADER, ShaderType::Fog, cache)) {
-                add_presets(*meta, Kind::Fog, {}, out);
-            }
-        } else if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get())) {
-            if (volume->fog_group.empty()) continue;
-            if (const auto* meta = uniforms_of(volume->material, DEFAULT_FOG_VOLUME_SHADER,
-                                               ShaderType::Fog, cache)) {
-                add_presets(*meta, Kind::Fog, volume->fog_group, out);
-            }
-        } else if (const auto* post = dynamic_cast<const PostProcessVolumeNode*>(obj.get())) {
-            const auto* meta = uniforms_of(post->material, DEFAULT_POST_SHADER, ShaderType::Post, cache);
-            if (meta == nullptr) continue;
-            // An infinite volume answers the ungrouped tracks; any volume
-            // answers its group's.
-            if (post->infinite_bounds) add_presets(*meta, Kind::Post, {}, out);
-            if (!post->post_group.empty()) add_presets(*meta, Kind::Post, post->post_group, out);
+    scene.each_node<VolumetricFogNode>([&](const VolumetricFogNode& fog) {
+        if (const auto* meta = uniforms_of(fog.material, DEFAULT_FOG_SHADER, ShaderType::Fog, cache)) {
+            add_presets(*meta, Kind::Fog, {}, out);
         }
-    }
+    });
+    scene.each_node<FogVolumeNode>([&](const FogVolumeNode& volume) {
+        if (volume.fog_group.empty()) return;
+        if (const auto* meta = uniforms_of(volume.material, DEFAULT_FOG_VOLUME_SHADER,
+                                           ShaderType::Fog, cache)) {
+            add_presets(*meta, Kind::Fog, volume.fog_group, out);
+        }
+    });
+    scene.each_node<PostProcessVolumeNode>([&](const PostProcessVolumeNode& post) {
+        const auto* meta = uniforms_of(post.material, DEFAULT_POST_SHADER, ShaderType::Post, cache);
+        if (meta == nullptr) return;
+        // An infinite volume answers the ungrouped tracks; any volume
+        // answers its group's.
+        if (post.infinite_bounds) add_presets(*meta, Kind::Post, {}, out);
+        if (!post.post_group.empty()) add_presets(*meta, Kind::Post, post.post_group, out);
+    });
     return out;
 }
 

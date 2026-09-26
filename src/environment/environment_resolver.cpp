@@ -56,24 +56,15 @@ float ground_intensity(const DirectionalBody& body) {
 } // namespace
 
 WorldEnvironmentNode* find_world_environment(Scene& scene) {
-    for (const auto& obj : scene.objects()) {
-        if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj.get())) return env;
-    }
-    return nullptr;
+    return scene.first_node<WorldEnvironmentNode>();
 }
 
 const WorldEnvironmentNode* find_world_environment(const Scene& scene) {
-    for (const auto& obj : scene.objects()) {
-        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) return env;
-    }
-    return nullptr;
+    return scene.first_node<WorldEnvironmentNode>();
 }
 
 VolumetricFogNode* find_volumetric_fog(Scene& scene) {
-    for (const auto& obj : scene.objects()) {
-        if (auto* fog = dynamic_cast<VolumetricFogNode*>(obj.get())) return fog;
-    }
-    return nullptr;
+    return scene.first_node<VolumetricFogNode>();
 }
 
 namespace {
@@ -161,147 +152,138 @@ EnvironmentState resolve_environment(const Scene& scene, bool moon_led,
     state.ambient_color = DEFAULT_AMBIENT_COLOR;
     state.ambient_intensity = DEFAULT_AMBIENT_INTENSITY;
 
-    bool sun_found = false;
-    bool env_found = false;
-    bool fog_found = false;
-    for (const auto& obj : scene.objects()) {
-        if (!sun_found) {
-            if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-                state.sun = body_from_travel(dl->direction, dl->color, dl->intensity);
-                state.ambient_color = dl->ambient_color;
-                state.ambient_intensity = dl->ambient_intensity;
-                sun_found = true;
-                continue;
-            }
-        }
-        if (!env_found) {
-            if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-                auto& sky = state.sky;
-                sky.top_color = env->sky_top_color;
-                sky.bottom_color = env->sky_bottom_color;
-                sky.ibl_intensity = env->ibl_intensity;
-                sky.hdri_path = env->hdri_path;
-                sky.sky_shader = env->sky_shader;
-                sky.atmosphere_enabled = env->atmosphere_enabled;
-                sky.atmosphere_rayleigh_scale = env->atmosphere_rayleigh_scale;
-                sky.atmosphere_mie_scale = env->atmosphere_mie_scale;
-                sky.atmosphere_mie_g = env->atmosphere_mie_g;
-                sky.atmosphere_mie_coeff = env->atmosphere_mie_coeff;
-                sky.atmosphere_sun_intensity = env->atmosphere_sun_intensity;
-                sky.atmosphere_hdri_floor = env->atmosphere_hdri_floor;
-
-                auto& cs = state.contact_shadows;
-                cs.enabled = env->contact_shadows_enabled;
-                cs.distance = env->contact_shadow_distance;
-                cs.thickness = env->contact_shadow_thickness;
-                cs.steps = env->contact_shadow_steps;
-                env_found = true;
-                continue;
-            }
-        }
-        if (!fog_found) {
-            if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-                auto& f = state.fog;
-                f.enabled = true;
-                f.origin = glm::vec3(fog->world_matrix_[3]);
-                f.max_distance = fog->max_distance;
-                f.temporal_blend = fog->temporal_blend;
-                f.motion_response = fog->motion_response;
-                f.density_field_debug = fog->density_field_debug;
-                // The material's values first, then the node's own over
-                // them; the hour's and the weather's tracks fold over both
-                // further down.
-                if (fog->material != nullptr) {
-                    f.pipeline_id = fog->material->pipeline_id();
-                    f.material_id = fog->material->material_id();
-                }
-                f.uniforms = fog->material_values_;
-                fold_node_values(f.uniforms, fog->params);
-
-                auto& s = state.sun_shafts;
-                s.enabled = fog->shafts_enabled;
-                s.intensity = fog->shaft_intensity;
-                s.density_mult = fog->shaft_density_mult;
-                s.max_reach = fog->shaft_max_reach;
-                s.step_count = fog->shaft_step_count;
-                s.anisotropy = fog->shaft_anisotropy;
-                s.directionality = fog->shaft_directionality;
-                s.threshold = fog->shaft_threshold;
-                fog_found = true;
-                continue;
-            }
-        }
-        if (const auto* volume = dynamic_cast<const FogVolumeNode*>(obj.get())) {
-            FogVolume resolved;
-            resolved.node_id = volume->id;
-            resolved.transform = volume->world_matrix_;
-            resolved.edge_falloff = volume->edge_falloff;
-            resolved.shape = volume->shape;
-            resolved.group = volume->fog_group;
-            resolved.drift = volume->drift_;
-            resolved.motion_response = volume->motion_response;
-            resolved.vortex_strength = volume->vortex_strength;
-            resolved.compression = volume->compression;
-            resolved.density_field_debug = volume->density_field_debug;
-            if (volume->material != nullptr) {
-                resolved.pipeline_id = volume->material->pipeline_id();
-                resolved.material_id = volume->material->material_id();
-            }
-            // The material's values under the node's own, as for the haze.
-            resolved.uniforms = volume->material_values_;
-            fold_node_values(resolved.uniforms, volume->params);
-            state.fog_volumes.push_back(std::move(resolved));
-            continue;
-        }
-        if (const auto* post = dynamic_cast<const PostProcessVolumeNode*>(obj.get())) {
-            PostVolume resolved;
-            resolved.node_id = post->id;
-            resolved.transform = post->world_matrix_;
-            resolved.shape = post->shape;
-            resolved.edge_falloff = post->edge_falloff;
-            resolved.infinite = post->infinite_bounds;
-            resolved.priority = post->priority;
-            resolved.weight = post->weight;
-            resolved.group = post->post_group;
-            if (post->material != nullptr) {
-                resolved.pipeline_id = post->material->pipeline_id();
-                resolved.material_id = post->material->material_id();
-            }
-            resolved.uniforms = post->material_values_;
-            fold_node_values(resolved.uniforms, post->params);
-            state.post_volumes.push_back(std::move(resolved));
-            continue;
-        }
-        // Anything carrying a motion source writes into the motion field,
-        // which is what everything reacting to movement reads. A character
-        // gets one for free, because a capsule that walks is the common case
-        // and its own size answers both questions the source asks; anything
-        // else stirs the world by being given the component.
-        //
-        // A source standing still is still a source. Leaving one out would
-        // mean the ground under someone's feet is unmarked until they move, so
-        // a first step begins a stride away from where they were standing.
-        if (const auto* spatial = obj->as_spatial()) {
-            if (auto source = motion_source_of(*obj)) {
-                source->position = glm::vec3(spatial->world_matrix_[3]);
-                // A character states its velocity; anything else is measured
-                // by where it was. `prev_world_matrix_` is kept for motion
-                // vectors and costs nothing to read, so a rigid body, an
-                // animated prop and a scripted mover all stir the world
-                // without physics having to reach into this.
-                if (const auto* character = obj->components.get<CharacterComponent>()) {
-                    source->velocity = character->velocity;
-                } else if (dt > 0.0f) {
-                    source->velocity = (glm::vec3(spatial->world_matrix_[3]) -
-                                        glm::vec3(spatial->prev_world_matrix_[3])) / dt;
-                }
-                state.motion_sources.push_back(*source);
-            }
-        }
-
-        // Volumes are a list, so the walk cannot stop until it has seen every
-        // node; the singular nodes above keep their own found flags.
+    if (const auto* dl = scene.first_node<DirectionalLightNode>()) {
+        state.sun = body_from_travel(dl->direction, dl->color, dl->intensity);
+        state.ambient_color = dl->ambient_color;
+        state.ambient_intensity = dl->ambient_intensity;
     }
+
+    if (const auto* env = scene.first_node<WorldEnvironmentNode>()) {
+        auto& sky = state.sky;
+        sky.top_color = env->sky_top_color;
+        sky.bottom_color = env->sky_bottom_color;
+        sky.ibl_intensity = env->ibl_intensity;
+        sky.hdri_path = env->hdri_path;
+        sky.sky_shader = env->sky_shader;
+        sky.atmosphere_enabled = env->atmosphere_enabled;
+        sky.atmosphere_rayleigh_scale = env->atmosphere_rayleigh_scale;
+        sky.atmosphere_mie_scale = env->atmosphere_mie_scale;
+        sky.atmosphere_mie_g = env->atmosphere_mie_g;
+        sky.atmosphere_mie_coeff = env->atmosphere_mie_coeff;
+        sky.atmosphere_sun_intensity = env->atmosphere_sun_intensity;
+        sky.atmosphere_hdri_floor = env->atmosphere_hdri_floor;
+
+        auto& cs = state.contact_shadows;
+        cs.enabled = env->contact_shadows_enabled;
+        cs.distance = env->contact_shadow_distance;
+        cs.thickness = env->contact_shadow_thickness;
+        cs.steps = env->contact_shadow_steps;
+    }
+
+    if (const auto* fog = scene.first_node<VolumetricFogNode>()) {
+        auto& f = state.fog;
+        f.enabled = true;
+        f.origin = glm::vec3(fog->world_matrix_[3]);
+        f.max_distance = fog->max_distance;
+        f.temporal_blend = fog->temporal_blend;
+        f.motion_response = fog->motion_response;
+        f.density_field_debug = fog->density_field_debug;
+        // The material's values first, then the node's own over
+        // them; the hour's and the weather's tracks fold over both
+        // further down.
+        if (fog->material != nullptr) {
+            f.pipeline_id = fog->material->pipeline_id();
+            f.material_id = fog->material->material_id();
+        }
+        f.uniforms = fog->material_values_;
+        fold_node_values(f.uniforms, fog->params);
+
+        auto& s = state.sun_shafts;
+        s.enabled = fog->shafts_enabled;
+        s.intensity = fog->shaft_intensity;
+        s.density_mult = fog->shaft_density_mult;
+        s.max_reach = fog->shaft_max_reach;
+        s.step_count = fog->shaft_step_count;
+        s.anisotropy = fog->shaft_anisotropy;
+        s.directionality = fog->shaft_directionality;
+        s.threshold = fog->shaft_threshold;
+    }
+
+    scene.each_node<FogVolumeNode>([&](const FogVolumeNode& volume) {
+        FogVolume resolved;
+        resolved.node_id = volume.id;
+        resolved.transform = volume.world_matrix_;
+        resolved.edge_falloff = volume.edge_falloff;
+        resolved.shape = volume.shape;
+        resolved.group = volume.fog_group;
+        resolved.drift = volume.drift_;
+        resolved.motion_response = volume.motion_response;
+        resolved.vortex_strength = volume.vortex_strength;
+        resolved.compression = volume.compression;
+        resolved.density_field_debug = volume.density_field_debug;
+        if (volume.material != nullptr) {
+            resolved.pipeline_id = volume.material->pipeline_id();
+            resolved.material_id = volume.material->material_id();
+        }
+        // The material's values under the node's own, as for the haze.
+        resolved.uniforms = volume.material_values_;
+        fold_node_values(resolved.uniforms, volume.params);
+        state.fog_volumes.push_back(std::move(resolved));
+    });
+
+    scene.each_node<PostProcessVolumeNode>([&](const PostProcessVolumeNode& post) {
+        PostVolume resolved;
+        resolved.node_id = post.id;
+        resolved.transform = post.world_matrix_;
+        resolved.shape = post.shape;
+        resolved.edge_falloff = post.edge_falloff;
+        resolved.infinite = post.infinite_bounds;
+        resolved.priority = post.priority;
+        resolved.weight = post.weight;
+        resolved.group = post.post_group;
+        if (post.material != nullptr) {
+            resolved.pipeline_id = post.material->pipeline_id();
+            resolved.material_id = post.material->material_id();
+        }
+        resolved.uniforms = post.material_values_;
+        fold_node_values(resolved.uniforms, post.params);
+        state.post_volumes.push_back(std::move(resolved));
+    });
+
+    // Anything carrying a motion source writes into the motion field,
+    // which is what everything reacting to movement reads. A character
+    // gets one for free, because a capsule that walks is the common case
+    // and its own size answers both questions the source asks; anything
+    // else stirs the world by being given the component.
+    //
+    // A source standing still is still a source. Leaving one out would
+    // mean the ground under someone's feet is unmarked until they move, so
+    // a first step begins a stride away from where they were standing.
+    auto add_source = [&](const Node& node) {
+        const auto* spatial = node.as_spatial();
+        if (spatial == nullptr) return;
+        auto source = motion_source_of(node);
+        if (!source) return;
+        source->position = glm::vec3(spatial->world_matrix_[3]);
+        // A character states its velocity; anything else is measured
+        // by where it was. `prev_world_matrix_` is kept for motion
+        // vectors and costs nothing to read, so a rigid body, an
+        // animated prop and a scripted mover all stir the world
+        // without physics having to reach into this.
+        if (const auto* character = node.components.get<CharacterComponent>()) {
+            source->velocity = character->velocity;
+        } else if (dt > 0.0f) {
+            source->velocity = (glm::vec3(spatial->world_matrix_[3]) -
+                                glm::vec3(spatial->prev_world_matrix_[3])) / dt;
+        }
+        state.motion_sources.push_back(*source);
+    };
+    scene.each<MotionSourceComponent>(
+        [&](const Node& node, const MotionSourceComponent&) { add_source(node); });
+    // A character with a source of its own was counted above.
+    scene.each<CharacterComponent>([&](const Node& node, const CharacterComponent&) {
+        if (!node.components.has<MotionSourceComponent>()) add_source(node);
+    });
 
     const auto* env = find_world_environment(scene);
     const bool clock_runs = env != nullptr && env->time_of_day_enabled;

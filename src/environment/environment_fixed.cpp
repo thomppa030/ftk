@@ -7,6 +7,7 @@
 #include "core/frame_context.hpp"
 #include "environment/environment_resolver.hpp"
 #include "physics/physics_types.hpp"
+#include "renderer/components/motion_source_component.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "scene/scene.hpp"
@@ -28,22 +29,28 @@ void EnvironmentSubsystem::fixed_tick(const FixedTickContext& ctx) {
     // it went since the last step, which is one step long.
     fixed_sources_.clear();
     std::unordered_map<uint32_t, glm::vec3> positions;
-    for (const auto& obj : ctx.scene.objects()) {
-        const auto* spatial = obj->as_spatial();
-        if (spatial == nullptr) continue;
-        auto source = motion_source_of(*obj);
-        if (!source) continue;
+    auto add_source = [&](const Node& node) {
+        const auto* spatial = node.as_spatial();
+        if (spatial == nullptr) return;
+        auto source = motion_source_of(node);
+        if (!source) return;
 
         source->position = glm::vec3(ctx.scene.current_world_matrix(*spatial)[3]);
-        if (const auto* character = obj->components.get<CharacterComponent>()) {
+        if (const auto* character = node.components.get<CharacterComponent>()) {
             source->velocity = character->velocity;
-        } else if (auto last = fixed_source_positions_.find(obj->id);
+        } else if (auto last = fixed_source_positions_.find(node.id);
                    last != fixed_source_positions_.end() && ctx.dt > 0.0f) {
             source->velocity = (source->position - last->second) / ctx.dt;
         }
-        positions.emplace(obj->id, source->position);
+        positions.emplace(node.id, source->position);
         fixed_sources_.push_back(*source);
-    }
+    };
+    ctx.scene.each<MotionSourceComponent>(
+        [&](const Node& node, const MotionSourceComponent&) { add_source(node); });
+    // A character with a source of its own was counted above.
+    ctx.scene.each<CharacterComponent>([&](const Node& node, const CharacterComponent&) {
+        if (!node.components.has<MotionSourceComponent>()) add_source(node);
+    });
     fixed_source_positions_ = std::move(positions);
 
     advance_water(ctx.scene, fixed_sources_, ctx.dt, static_cast<float>(ctx.time), ctx.workers);
@@ -73,16 +80,15 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
 
     const glm::vec2 wind_xz = *sea_wind_;
 
-    for (const auto& obj : scene.objects()) {
-        auto* water = obj->components.get<WaterComponent>();
-        if (water == nullptr) continue;
+    scene.each<WaterComponent>([&](Node& node, WaterComponent& water_component) {
+        auto* water = &water_component;
         water->effective_water = water->derivation.derive(water->water, wind_xz, workers);
 
         // What has moved through it, on top of the sea the wind made. The
         // trails are laid against that sea, since whether a wader's feet are
         // in the water depends on where the waves have put it.
-        const auto* spatial = obj->as_spatial();
-        if (spatial == nullptr) continue;
+        const auto* spatial = node.as_spatial();
+        if (spatial == nullptr) return;
         const glm::vec3 centre{scene.current_world_matrix(*spatial)[3]};
         water::WakePlacement placement;
         placement.surface_y = centre.y;
@@ -94,7 +100,7 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
         }
         water->wakes.advance(sources, water->effective_water, placement, time);
         water->effective_water.wakes = water->wakes.sources();
-    }
+    });
 }
 
 } // namespace fjell

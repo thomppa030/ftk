@@ -1,6 +1,8 @@
 #include "environment/environment_resolver.hpp"
 #include "environment/environment_ubo.hpp"
 #include "environment/sun_path.hpp"
+#include "physics/physics_types.hpp"
+#include "renderer/components/motion_source_component.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
 
@@ -10,7 +12,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <algorithm>
 #include <memory>
+#include <vector>
 
 using namespace fjell;
 using Catch::Approx;
@@ -332,4 +336,55 @@ TEST_CASE("The moon rides the sun path behind the sun and the sky turns about it
     REQUIRE(close(new_moon.primary.direction, new_moon.sun.direction));
     // A new moon sits with the sun, which is why none of it is lit.
     REQUIRE(close(new_moon.moon.direction, new_moon.sun.direction));
+}
+
+TEST_CASE("Motion sources come from the component and from characters, a node once", "[environment]") {
+    Scene scene;
+    auto marked = std::make_unique<Node3D>();
+    marked->components.add<MotionSourceComponent>();
+    const uint32_t a = scene.add_node(std::move(marked));
+
+    auto walker = std::make_unique<Node3D>();
+    walker->components.add<CharacterComponent>().velocity = glm::vec3(1.0f, 0.0f, 0.0f);
+    const uint32_t b = scene.add_node(std::move(walker));
+
+    auto both = std::make_unique<Node3D>();
+    both->components.add<MotionSourceComponent>();
+    both->components.add<CharacterComponent>().velocity = glm::vec3(0.0f, 0.0f, 2.0f);
+    const uint32_t c = scene.add_node(std::move(both));
+
+    scene.add_empty({}, "still");
+
+    const auto env = resolve_environment(scene, false, nullptr, 1.0f / 60.0f);
+    std::vector<uint32_t> ids;
+    for (const auto& source : env.motion_sources) ids.push_back(source.node_id);
+    std::ranges::sort(ids);
+    CHECK(ids == std::vector{a, b, c});
+
+    const auto of = [&](uint32_t id) {
+        return *std::ranges::find(env.motion_sources, id, &MotionSource::node_id);
+    };
+    CHECK(close(of(b).velocity, glm::vec3(1.0f, 0.0f, 0.0f)));
+    CHECK(close(of(c).velocity, glm::vec3(0.0f, 0.0f, 2.0f)));
+}
+
+TEST_CASE("Every fog volume and post process volume is resolved, in the order they joined",
+          "[environment]") {
+    Scene scene;
+    auto first = std::make_unique<FogVolumeNode>();
+    first->fog_group = "valley";
+    const uint32_t a = scene.add_node(std::move(first));
+    const uint32_t post = scene.add_node(std::make_unique<PostProcessVolumeNode>());
+    auto second = std::make_unique<FogVolumeNode>();
+    second->fog_group = "ridge";
+    const uint32_t b = scene.add_node(std::move(second));
+
+    const auto env = resolve_environment(scene);
+    REQUIRE(env.fog_volumes.size() == 2);
+    CHECK(env.fog_volumes[0].node_id == a);
+    CHECK(env.fog_volumes[0].group == "valley");
+    CHECK(env.fog_volumes[1].node_id == b);
+    CHECK(env.fog_volumes[1].group == "ridge");
+    REQUIRE(env.post_volumes.size() == 1);
+    CHECK(env.post_volumes[0].node_id == post);
 }

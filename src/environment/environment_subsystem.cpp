@@ -94,11 +94,8 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     // the node's direction at the resolved value so everything that reads
     // the node (inspector, gizmos, a saved scene) sees the same sun.
     if (env != nullptr && env->time_of_day_enabled) {
-        for (const auto& obj : ctx.scene.objects()) {
-            if (auto* dl = dynamic_cast<DirectionalLightNode*>(obj.get())) {
-                dl->direction = -state_.sun.direction;
-                break;
-            }
+        if (auto* dl = ctx.scene.first_node<DirectionalLightNode>()) {
+            dl->direction = -state_.sun.direction;
         }
     }
 }
@@ -226,18 +223,18 @@ void bind_node_material(MaterialNode& node, std::string_view default_shader, Sha
 
 void EnvironmentSubsystem::bind_node_materials(Scene& scene, ResourceManager* resources,
                                                const Project* project) {
-    for (const auto& obj : scene.objects()) {
-        if (auto* fog = dynamic_cast<VolumetricFogNode*>(obj.get())) {
-            bind_node_material(*fog, DEFAULT_FOG_SHADER, ShaderType::Fog, "Volumetric fog", false,
-                               resources, project);
-        } else if (auto* volume = dynamic_cast<FogVolumeNode*>(obj.get())) {
-            bind_node_material(*volume, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog, "Fog volume",
-                               true, resources, project);
-        } else if (auto* post = dynamic_cast<PostProcessVolumeNode*>(obj.get())) {
-            bind_node_material(*post, DEFAULT_POST_SHADER, ShaderType::Post,
-                               "Post process volume", false, resources, project);
-        }
-    }
+    scene.each_node<VolumetricFogNode>([&](VolumetricFogNode& fog) {
+        bind_node_material(fog, DEFAULT_FOG_SHADER, ShaderType::Fog, "Volumetric fog", false,
+                           resources, project);
+    });
+    scene.each_node<FogVolumeNode>([&](FogVolumeNode& volume) {
+        bind_node_material(volume, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog, "Fog volume", true,
+                           resources, project);
+    });
+    scene.each_node<PostProcessVolumeNode>([&](PostProcessVolumeNode& post) {
+        bind_node_material(post, DEFAULT_POST_SHADER, ShaderType::Post, "Post process volume",
+                           false, resources, project);
+    });
 }
 
 void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManager* resources) {
@@ -400,10 +397,8 @@ void EnvironmentSubsystem::advance_fog_volumes(const TickContext& ctx) {
                                    ? glm::normalize(weather.wind_direction)
                                    : glm::vec3(0.0f, 0.0f, 1.0f);
 
-    for (const auto& obj : ctx.scene.objects()) {
-        auto* volume = dynamic_cast<FogVolumeNode*>(obj.get());
-        if (volume == nullptr) continue;
-
+    ctx.scene.each_node<FogVolumeNode>([&](FogVolumeNode& node) {
+        FogVolumeNode* volume = &node;
         const glm::vec3 authored = glm::length(volume->drift_direction) > 1e-4f
                                        ? glm::normalize(volume->drift_direction)
                                        : glm::vec3(0.0f, 0.0f, 1.0f);
@@ -418,7 +413,7 @@ void EnvironmentSubsystem::advance_fog_volumes(const TickContext& ctx) {
         const float speed = glm::mix(volume->drift_speed, wind_pace, influence);
 
         volume->drift_ += direction * speed * ctx.dt;
-    }
+    });
 }
 
 void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
@@ -432,11 +427,8 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
 
     // Where the rain falls: around whoever is looking.
     glm::vec3 centre = state_.weather.wind_direction * 0.0f;
-    for (const auto& obj : ctx.scene.objects()) {
-        if (const auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
-            centre = glm::vec3(cam->world_matrix_[3]);
-            break;
-        }
+    if (const auto* cam = ctx.scene.first_node<CameraNode>()) {
+        centre = glm::vec3(cam->world_matrix_[3]);
     }
 
     auto follow = [&](Precipitation& fall, const WeatherPlayer::Playing* playing_event) {
@@ -512,9 +504,8 @@ void EnvironmentSubsystem::stop_lightning(Scene& scene) {
 
 void EnvironmentSubsystem::update_water_media(const TickContext& ctx) {
     state_.water_media.clear();
-    for (const auto& obj : ctx.scene.objects()) {
-        auto* water = obj->components.get<WaterComponent>();
-        if (water == nullptr) continue;
+    ctx.scene.each<WaterComponent>([&](const Node& node, WaterComponent& water_component) {
+        auto* water = &water_component;
 
         // What the body of the water is made of, for the fog pass. The
         // material is followed through its handle, which a reload of the
@@ -527,8 +518,8 @@ void EnvironmentSubsystem::update_water_media(const TickContext& ctx) {
             read_material_values(water->medium_material, DEFAULT_WATER_MEDIUM_SHADER,
                                  ShaderType::Fog, water->medium_values_, resources_);
             WaterMedium medium;
-            medium.node_id = obj->id;
-            if (const auto* spatial = obj->as_spatial()) {
+            medium.node_id = node.id;
+            if (const auto* spatial = node.as_spatial()) {
                 medium.origin = glm::vec3(spatial->world_matrix_[3]);
             }
             medium.pipeline_id = water->medium_material->pipeline_id();
@@ -536,7 +527,7 @@ void EnvironmentSubsystem::update_water_media(const TickContext& ctx) {
             medium.uniforms = water->medium_values_;
             state_.water_media.push_back(std::move(medium));
         }
-    }
+    });
 }
 
 namespace {
@@ -593,16 +584,24 @@ void EnvironmentSubsystem::update_breathing(const TickContext& ctx) {
         float depth;   // surface above the mouth, metres
     };
     std::vector<Under> under;
+    // The water there is, gathered once rather than looked for per source.
+    struct Body {
+        const WaterComponent* water;
+        glm::vec3 centre;
+    };
+    std::vector<Body> bodies;
+    ctx.scene.each<WaterComponent>([&](const Node& node, const WaterComponent& water) {
+        if (const auto* spatial = node.as_spatial()) {
+            bodies.push_back({&water, glm::vec3(spatial->world_matrix_[3])});
+        }
+    });
     for (const MotionSource& source : state_.motion_sources) {
         const glm::vec2 xz(source.position.x, source.position.z);
         const glm::vec3 mouth = source.position
             + glm::vec3(0.0f, source.height - BREATH_MOUTH_BELOW_TOP, 0.0f);
-        for (const auto& obj : ctx.scene.objects()) {
-            const auto* water = obj->components.get<WaterComponent>();
-            if (water == nullptr) continue;
-            const auto* spatial = obj->as_spatial();
-            if (spatial == nullptr) continue;
-            const glm::vec3 centre{spatial->world_matrix_[3]};
+        for (const Body& body : bodies) {
+            const WaterComponent* water = body.water;
+            const glm::vec3 centre = body.centre;
             if (water->extent == WaterComponent::Extent::bounded) {
                 const float half = water->size * 0.5f;
                 if (std::abs(xz.x - centre.x) > half || std::abs(xz.y - centre.z) > half) continue;
@@ -719,11 +718,8 @@ void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
 
     // Where the listener is, so a strike lands somewhere around them.
     glm::vec3 listener{0.0f};
-    for (const auto& obj : ctx.scene.objects()) {
-        if (const auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
-            listener = glm::vec3(cam->world_matrix_[3]);
-            break;
-        }
+    if (const auto* cam = ctx.scene.first_node<CameraNode>()) {
+        listener = glm::vec3(cam->world_matrix_[3]);
     }
 
     // A new strike: its own light, its bolt, and thunder on its way.
