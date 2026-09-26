@@ -27,7 +27,7 @@ class Greeter : public fjell::ScriptComponent {
 ```
 
 ### `UiWidget` (alias: `UiComponent`)
-The script-side counterpart to a `.fjwidget` template. Same idea — lifecycle hooks plus access to a `UiContext` — but bound to a UI tree instead of a scene node. See [Widgets](../Game-UI/Widgets.md).
+The script-side counterpart to a `.fjwidget` template, its controller: lifecycle hooks, `[[fj::action]]` methods the markup calls, and fields and Models the markup reads where they are. Bound to a UI tree instead of a scene node. See [Widgets](../Game-UI/Widgets.md) and [Models](../Game-UI/Models.md).
 
 There's also an `Actor` base class in `fjell/actor.hpp`, but in practice you'll write `ScriptComponent`s attached to nodes. Actor exists for non-component game objects with their own transform.
 
@@ -143,7 +143,7 @@ functional test. `fjell <project> --run-tests --pacing 30,144,jitter` plays the
 game's tests at several frame rates and reports the first step where they
 differ (see [Functional Tests](Functional-Tests.md#pacing)).
 
-## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::model]]`, `[[fj::bind]]`, `[[fj::action]]`
+## Reflection — `[[fj::property]]`, `[[fj::state]]`, `[[fj::model]]`, `[[fj::prop]]`, `[[fj::action]]`
 
 Fields you annotate are picked up by the `fjreflect` codegen (run by Build & Reload) and surfaced in the editor's properties panel, serialized to `.fjscene`, and traced by the GC.
 
@@ -161,10 +161,10 @@ class Coin : public fjell::ScriptComponent {
 
 What gets reflected depends on context:
 - **`[[fj::property]]`** — on `ScriptComponent` fields. Shows up in the scene properties panel.
-- **`[[fj::bind]]`** — on `UiWidget` fields. Shows up in `.fjwidget` props blocks; bound by the UI system.
 - **`[[fj::action]]`** — on `UiWidget` methods taking nothing, an `int`, a `float` or a `glm::vec2`, private ones too. Markup calls them by name, `on:click="select_slot({slot.key})"`, with the argument converted to the parameter's type.
 - **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
 - **`[[fj::model]]`** — on `UiWidget` fields holding a struct: a Model the widget's markup reads by the field's name, `{hud.selected}` for `[[fj::model]] HudModel hud`. The struct is reflected in full, every public member with no attribute needed (see [Widgets](../Game-UI/Widgets.md#models)).
+- **`[[fj::prop]]`** — on `UiWidget` fields holding a `bool`, `int`, `float` or `std::string`: filled from the widget's prop of the same name before `begin_play()` and every `tick()` (see [Models](../Game-UI/Models.md#the-controllers-side)).
 
 An authored value is a property and a value the game changes while playing is state. Either may be private:
 

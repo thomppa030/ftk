@@ -125,8 +125,11 @@ public:
 };
 ```
 
-`[[fj::bind]]` fields are read by name where they are, each time markup shows them;
-a prop of the same name hides the field and is reported.
+The markup reads the controller where it is: its `[[fj::model]]` structs and its
+`[[fj::state]]` fields and getters, by name, each time it shows them. A prop of the
+same name hides such a field and is reported. `[[fj::prop]]` fields are the other
+way round: filled from the widget's props, for the controller's own code (see
+[Models](Models.md#the-controllers-side)).
 
 `[[fj::action]]` methods answer `on:click` and a widget's events: `on:click="close"`
 calls `void close()`, and `on:activate="select_slot({slot.key})"` calls `void

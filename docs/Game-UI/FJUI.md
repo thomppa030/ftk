@@ -100,12 +100,12 @@ A prop bound through a pipe is still stored as its declared type:
 
 ## Data flow
 
-Values arrive through a `UiContext` (see [UiContext](UiContext.md)): the props a
-widget's placement passes, its Models, its `ui().set()` calls, and its controller's
-fields. Contexts nest: a widget instance resolves `{key}` in its own context first
-(its values, then its controller's fields), then its parent's, up to the root. Each
-repeat of a `foreach` is a context of its own under the foreach's, holding its entry
-and index under the names the `foreach` gives them.
+A path's first name is a prop the placement passes, a Model, a field of the
+widget's controller, or a `foreach` name (see [Models](Models.md)). Scopes nest: a
+widget instance looks a name up in its own scope first (its props and Models, then
+its controller's fields), then its parent's, up to the root. Each repeat of a
+`foreach` is a scope of its own under the foreach's, holding its entry and index
+under the names the `foreach` gives them.
 
 ## Lists
 

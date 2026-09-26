@@ -57,7 +57,9 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | Annotation | Where | Description |
 |---|---|---|
 | `[[fj::property]]` | `ScriptComponent` field | Reflected; shown in scene properties panel; serialized to `.fjscene` |
-| `[[fj::bind]]` | `UiWidget` field | Reflected; bound by `.fjwidget` props block |
+| `[[fj::state]]` | field or `const` getter | Runtime value the game UI reads; shown, never saved |
+| `[[fj::model]]` | `UiWidget` struct field | A Model the widget's markup reads by the field's name |
+| `[[fj::prop]]` | `UiWidget` field | Filled from the widget's prop of the same name |
 | `[[fj::action]]` | `UiWidget` method | Callable from `.fjui` markup via `on:click="name"` |
 
 ## Key codes

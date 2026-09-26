@@ -26,13 +26,15 @@ public:
     [[nodiscard]] World*         world();
     [[nodiscard]] const World*   world() const;
 
-    [[nodiscard]] UiWidgetContext& ui();
+    [[nodiscard]] UiWidgetModels& models();
+    template <class T>
+    [[nodiscard]] const T* model(const std::string& name) const;
 };
 
-class UiWidgetContext {
+class UiWidgetModels {
 public:
-    void        set(const std::string& key, const std::string& value);
-    std::string get(const std::string& key) const;
+    void bind(const std::string& name, uint32_t node_id);
+    void clear(const std::string& name);
 };
 
 using UiComponent = UiWidget;
@@ -42,14 +44,21 @@ using UiComponent = UiWidget;
 
 ## Remarks
 
-A `UiWidget` is bound to a `.fjwidget` template at runtime by the `UiSubsystem`. The widget's `[[fj::bind]]` fields are accessed by `{key}` interpolation in the FJUI markup, and its `[[fj::action]]` methods are callable from `on:click="name"` attributes.
+A `UiWidget` is the controller a `.fjwidget` names in its `class`, created by the
+`UiSubsystem` for each placement and each widget it places. Its markup reads it where
+it is, by name: its `[[fj::model]]` structs and its `[[fj::state]]` fields and
+getters. Its `[[fj::prop]]` fields are filled from the widget's props, and its
+`[[fj::action]]` methods answer `on:click`. Nothing is published by hand: a
+controller changes what the UI shows by assigning to its own fields, and the UI
+notices when it next compares what it shows. See [Models](../../Game-UI/Models.md).
 
-Use `FJELL_UI_WIDGET(MyWidget)` to register the subclass. The fjreflect codegen also picks up `[[fj::bind]]` fields and `[[fj::action]]` methods for the editor's UI inspector.
+Use `FJELL_UI_WIDGET(MyWidget)` to register the subclass; fjreflect picks up the
+annotated fields and methods on Build & Reload.
 
 Like [`ScriptComponent`](ScriptComponent.md), widgets have a `begin_play` / `tick` / `end_play` lifecycle. They differ in that they:
 - Have no transform — they live in the UI tree, not the scene graph.
 - Have no collision hooks.
-- Access state through a [`UiWidgetContext`](#uiwidgetcontext) (via `ui()`) rather than `transform()`.
+- Read the game through Models rather than holding pointers into the scene.
 
 See [Widgets](../../Game-UI/Widgets.md) for the authoring side.
 
@@ -57,7 +66,7 @@ See [Widgets](../../Game-UI/Widgets.md) for the authoring side.
 
 | Name | Description |
 |---|---|
-| `begin_play` | One-time init. Bind actions, set initial state. |
+| `begin_play` | One-time init, the widget's props already bound. Set up its Models' state. |
 | `tick(float dt)` | Per-frame update. Most widgets don't need this. |
 | `end_play` | One-time teardown. |
 
@@ -69,49 +78,33 @@ See [Widgets](../../Game-UI/Widgets.md) for the authoring side.
 | `elapsed_time` | Scaled time since session start |
 | `input` | Frame's [`Input`](Input.md) state |
 | `world` | [`World`](World.md) struct |
-| `ui` | The widget's [`UiWidgetContext`](#uiwidgetcontext) — bind actions, set/get keys |
+| `models` | The widget's [Models](#models): which node each reads |
+| `model<T>` | The component a Model shows now, read-only; null while it finds nothing |
 
-## UiWidgetContext
+## Fields the markup reads
 
-The bridge between the widget controller and the UI tree.
+| Annotation | On | What it does |
+|---|---|---|
+| `[[fj::model]]` | a struct field | A Model: `{hud.selected}` for `[[fj::model]] HudModel hud`. Every public member of the struct is readable, a `std::vector` of structs is a list for `foreach`. |
+| `[[fj::state]]` | a field or a `const` getter | Read by name, `if="open"`; a getter runs each time it is read. |
+| `[[fj::prop]]` | a `bool`, `int`, `float` or `std::string` field | Filled from the widget's prop of the same name before `begin_play()` and every `tick()`. |
+| `[[fj::action]]` | a method | Called from `on:click`, see [Actions](#actions). |
 
-### Functions
+## Models
 
-| Name | Description |
-|---|---|
-| [`set`](#uiwidgetcontextset) | Push a value into the UI context (drives `{key}` interpolation) |
-| [`get`](#uiwidgetcontextget) | Read back a value |
-
-Actions are not bound here: markup calls the widget's `[[fj::action]]` methods (see
-[Actions](#actions)).
-
----
-
-### UiWidgetContext::set
+A `<model>` in the widget's markup reads a component from a node by its `from` rule.
+A controller can pick the node at runtime:
 
 ```cpp
-void set(const std::string& key, const std::string& value);
+void target_frame::tick(float) {
+    if (target_changed_) models().bind("target", target_id_); // reads that node
+}
+void target_frame::end_target() { models().clear("target"); }   // back to the rule
 ```
 
-Pushes `value` into the context under `key`. Any `{key}` template references in the bound `.fjui` markup re-resolve on the next layout pass.
-
-Values are stringly-typed. For numbers, format yourself:
-
-```cpp
-ui().set("hp", std::to_string(player_hp));
-```
-
----
-
-### UiWidgetContext::get
-
-```cpp
-[[nodiscard]] std::string get(const std::string& key) const;
-```
-
-Returns the current value, or `""` if the key isn't set.
-
----
+`model<EnemyStats>("target")` hands the controller the component the markup shows,
+or null. A Model name the widget does not declare, or of another type, is reported
+once.
 
 ## Actions
 
@@ -129,14 +122,26 @@ Header:
 #pragma once
 #include "fjell/ui_registry.hpp"
 
+#include <string>
+#include <vector>
+
+struct HotbarSlot {
+    int key = 0;
+    std::string name;
+    bool active = false;
+};
+
+struct HudModel {
+    std::vector<HotbarSlot> slots;
+    int selected = 1;
+};
+
 class hud_controller : public fjell::UiWidget {
     FJELL_UI_WIDGET(hud_controller)
 
 public:
+    [[fj::model]] HudModel hud;                // foreach="slot in hud.slots"
     [[fj::action]] void select_slot(int slot); // on:click="select_slot({slot.key})"
-
-private:
-    int selected_ = 1;
 };
 ```
 
@@ -144,15 +149,14 @@ Source:
 
 ```cpp
 #include "hud_controller.hpp"
-#include "fjell/log_api.hpp"
 
 void hud_controller::select_slot(int slot) {
-    selected_ = slot;
-    fjell::Log::info_f("HUD: selected slot %d", slot);
+    hud.selected = slot;
+    for (auto& s : hud.slots) s.active = s.key == slot;
 }
 ```
 
 ## See also
 - [Widgets](../../Game-UI/Widgets.md) — authoring `.fjwidget` files
-- [UiContext](../../Game-UI/UiContext.md) — the broader game ↔ UI bridge
+- [Models](../../Game-UI/Models.md) — what a widget reads, and how
 - [`ScriptComponent`](ScriptComponent.md) — scene-side counterpart

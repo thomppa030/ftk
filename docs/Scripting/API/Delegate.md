@@ -227,19 +227,21 @@ class PlayerStats : public fjell::ScriptComponent {
 ### Subscriber
 
 ```cpp
-class HealthBarUi : public fjell::UiWidget {
-    FJELL_UI_WIDGET(HealthBarUi)
+class HurtFlash : public fjell::ScriptComponent {
+    FJELL_COMPONENT(HurtFlash)
 
     fjell::Connection conn_;
 
     void begin_play() override {
         auto* stats = find_player_stats();
         conn_ = stats->on_health_changed.bind(
-            [this](int /*old*/, int hp) {
-                ui().set("hp", std::to_string(hp));
+            [this](int old_hp, int hp) {
+                if (hp < old_hp) flash_for_ = 0.2f;
             });
     }
     // No need to disconnect — `conn_`'s destructor handles it.
+
+    float flash_for_ = 0.0f;
 };
 ```
 

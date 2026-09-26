@@ -120,7 +120,7 @@ The condition can be:
 
 #### {key} Data Binding
 
-Text content and `<bar>` value/max attributes support `{key}` placeholders that resolve from `UiContext`:
+Text content and `<bar>` value/max attributes support `{key}` placeholders, paths into a prop, a Model or the controller (see [Models](Game-UI/Models.md)):
 
 ```html
 <text>HP: {player.health} / {player.max_health}</text>
@@ -287,30 +287,18 @@ These properties cascade from parent to child unless overridden:
 - `line-height`
 - `opacity` (compounds — child opacity is relative to parent)
 
-## UiContext
+## Game data
 
-The bridge between game code and the UI. Game logic sets values; the UI reads them via `{key}` bindings.
+A widget reads the game where it lives: a component through a `<model>`, a
+controller's `[[fj::model]]` struct and `[[fj::state]]` fields, and the props its
+placement passes. Nothing copies values in and nothing announces a change; each
+frame the UI compares what its bindings read with last frame's. Clicks call the
+controller's `[[fj::action]]` methods. See [Models](Game-UI/Models.md).
 
-```cpp
-auto& ctx = vulkan_context_.game_ui().context();
-
-// Set values (read by {key} bindings, if directives, class: bindings)
-ctx.set("player.health", "72");
-ctx.set("player.max_health", "100");
-ctx.set("score", UiValue(1500));     // keeps its type: a bar reads the number
-ctx.set("stamina", UiValue(0.85f));
-ctx.set("show_debug", "1");          // truthy for if="show_debug"
-ctx.set("active_slot", "2");         // drives class:active="active_slot==2"
-
-// Answer actions (raised by on:click) where no controller does
-ctx.set_action_handler([&](std::string_view action, std::span<const UiValue>) {
-    if (action != "open_inventory") return false;
-    open_inventory();
-    return true;
-});
-
-// Read values back
-std::string hp = ctx.get("player.health");
+```html
+<model name="player" component="PlayerStats" from="local"/>
+<text>HP {player.hp|round}</text>
+<div foreach="slot in hud.slots" on:click="select_slot({slot.key})"/>
 ```
 
 ## How It Works
