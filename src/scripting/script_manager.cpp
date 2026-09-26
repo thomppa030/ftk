@@ -481,6 +481,13 @@ const OwnedUiWidgetType* ScriptManager::find_ui_type_by_tag(const std::string& t
 
 ScriptComponent* ScriptManager::add_script(Node3D& obj, const std::string& type_name,
                                            const nlohmann::json& fields, std::size_t index) {
+    if (auto it = std::ranges::find(obj.scripts, type_name, &ScriptEntry::type_name);
+        it != obj.scripts.end()) {
+        FJELL_CORE_WARN("'{}' already has a {}, so adding another gives back that one", obj.name,
+                        type_name);
+        return it->instance.get();
+    }
+
     ScriptEntry entry;
     entry.type_name = type_name;
     entry.serialized = fields;

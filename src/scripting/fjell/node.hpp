@@ -118,7 +118,9 @@ struct Node3D {
         return static_cast<T*>(fjell_scene_get_component(node_id, detail::component_type_id<T>()));
     }
 
-    /// Attach a new component to this node at runtime.
+    /// Attach a new component to this node at runtime. A node holds one
+    /// component of a type: when it already has a T, that one is returned as
+    /// it is, and a warning is logged.
     /// @return Pointer to the new component, or null if the node no longer
     ///         resolves, T is an engine component scripts cannot add, or the
     ///         new script's own `begin_play()` took it off again. A script

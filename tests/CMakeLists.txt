@@ -57,6 +57,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/component_pool.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/component_storage.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/component_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/node_type_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/environment/environment_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/post_layers.cpp

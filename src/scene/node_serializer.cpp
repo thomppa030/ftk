@@ -152,6 +152,13 @@ static void load_components(Node& node, const nlohmann::json& j,
         for (const auto& jcomp : j["components"]) {
             ScriptEntry comp;
             comp.type_name = jcomp.value("type", "");
+            // A node holds one script of a type; a file that lists one twice
+            // was written by hand or by an engine that allowed it.
+            if (std::ranges::find(node.scripts, comp.type_name, &ScriptEntry::type_name) != node.scripts.end()) {
+                FJELL_CORE_WARN("'{}' lists {} more than once; the first is kept", node.name,
+                                comp.type_name);
+                continue;
+            }
             if (jcomp.contains("data")) {
                 comp.serialized = jcomp["data"];
             }

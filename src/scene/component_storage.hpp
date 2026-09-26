@@ -180,8 +180,15 @@ public:
         return static_cast<const T*>(get_by_id(component_type_id<T>()));
     }
 
+    /// Adds a T to the node. A node holds one component of a type: when it
+    /// already has a T, that one is handed back as it is, `args` unused, and
+    /// the second add is reported.
     template <typename T, typename... Args>
     T& add(Args&&... args) {
+        if (T* existing = get<T>()) {
+            report_second(component_type_id<T>());
+            return *existing;
+        }
         if (pools_ != nullptr) {
             entries_.push_back(ComponentBox::make_in<T>(pools_->pool(component_type<T>()),
                                                         *owner_, std::forward<Args>(args)...));
@@ -344,6 +351,9 @@ public:
     void clear() { entries_.clear(); }
 
 private:
+    /// Logs that a component of type `id` was added to a node that has one.
+    void report_second(ComponentTypeId id) const;
+
     std::vector<ComponentBox> entries_;
     ComponentPools* pools_{nullptr};  // the scene's, while the node is in one
     Node* owner_{nullptr};            // the node holding this storage, while it is

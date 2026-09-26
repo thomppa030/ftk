@@ -279,3 +279,11 @@ TEST_CASE("the first holder of a type is the node that has had one longest", "[c
     const uint32_t spawned = scene.add_node(node_with_health(3));
     CHECK(scene.first_holder(component_type_id<Health>())->id == spawned);
 }
+
+TEST_CASE("a second add of a type puts nothing more in its pool", "[components][pool]") {
+    Scene scene;
+    const uint32_t id = scene.add_node(node_with_health(1));
+    Health& again = scene.find(id)->components.add<Health>(2);
+    CHECK(again.value == 1);
+    CHECK(walk<Health>(scene) == std::vector{id});
+}

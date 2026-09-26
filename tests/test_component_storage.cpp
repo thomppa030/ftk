@@ -104,6 +104,22 @@ TEST_CASE("restore leaves a component of the same type added since in place", "[
     CHECK(g_alive == 0);
 }
 
+TEST_CASE("adding a type a node already has gives back the one it has", "[components]") {
+    g_alive = 0;
+    {
+        ComponentStorage s;
+        A& first = s.add<A>(1);
+        s.add<B>(5);
+        A& again = s.add<A>(2);
+
+        CHECK(&again == &first);
+        CHECK(first.value == 1);   // the arguments of the second add are not used
+        CHECK(s.count() == 2);
+        CHECK(g_alive == 2);
+    }
+    CHECK(g_alive == 0);
+}
+
 TEST_CASE("index_of gives a component's position, count() for none", "[components]") {
     ComponentStorage s;
     s.add<A>(1);

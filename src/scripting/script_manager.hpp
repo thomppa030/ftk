@@ -135,7 +135,9 @@ public:
     /// past it), with `fields` as its values. It is made live when the library
     /// has the type and the node is in a scene; a type the library lacks is
     /// kept as its fields, as a scene file keeps it. While the game is running
-    /// it starts at once: its begin_play runs before this returns.
+    /// it starts at once: its begin_play runs before this returns. A node holds
+    /// one script of a type: when it already has one, that one is handed back
+    /// as it is, `fields` and `index` unused, and the second add is reported.
     /// @return The live script, or null when there is none: the type isn't
     ///         loaded, the node is in no scene, or its begin_play took it off
     ///         the node again.

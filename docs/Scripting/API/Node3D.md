@@ -266,7 +266,7 @@ Pointer to the newly added component, or `nullptr` if the node no longer resolve
 ### Remarks
 While the game is running, calls `begin_play()` on the new component before returning. Subsequent `tick`s include it.
 
-Adding a duplicate of an already-present component is allowed at the API level but is rarely what you want.
+A node holds one component of a type. When it already has a `T`, `add_component` returns that one, unchanged and without a second `begin_play()`, and logs a warning. A scene file that lists a script twice on one node keeps the first.
 
 ### Example
 ```cpp
