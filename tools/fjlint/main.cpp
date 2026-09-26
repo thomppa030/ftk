@@ -148,7 +148,7 @@ void check_widget(const fs::path& path, Tally& tally) {
     if (!asset->markup_root) {
         FJELL_CORE_WARN("{}: widget has no markup", path.string());
     }
-    for (const auto& problem : fjell::check_widget(path.string(), schema_for(path, tally))) {
+    for (const auto& problem : fjell::check_widget(path.string(), schema_for(path, tally)).problems) {
         FJELL_CORE_WARN("{}:{}:{}: warning: {}", problem.file, problem.line, problem.column, problem.message);
     }
     if (!asset->fjss_path.empty()) {

@@ -1,4 +1,5 @@
 #include "core/engine.hpp"
+#include "core/asset_database.hpp"
 #include "scene/light_node.hpp"
 #include "core/asset_references.hpp"
 #include "core/base_path.hpp"
@@ -728,7 +729,8 @@ void Engine::init_editor() {
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
-                .script_manager = &script_subsystem_->manager()
+                .script_manager = &script_subsystem_->manager(),
+                .widget_checks = &widget_checks_,
             };
             auto ctx = std::make_unique<UiEditorContext>(deps);
             ctx->init();
@@ -1577,6 +1579,28 @@ void Engine::prebake_project_fonts(const std::filesystem::path& root) {
     }
 }
 
+void Engine::check_project_widgets() {
+    const Project* project = project_mgr_.active();
+    if (project == nullptr || project->asset_db() == nullptr) return;
+    const uint32_t library = script_subsystem_->manager().library_revision();
+    if (project->root() == widgets_checked_root_ && library == widgets_checked_library_) return;
+    if (project->root() != widgets_checked_root_) widget_checks_ = {}; // another game: all anew
+    widgets_checked_root_ = project->root();
+    widgets_checked_library_ = library;
+
+    std::vector<std::string> widgets;
+    project->asset_db()->for_each([&](const AssetEntry& entry) {
+        if (entry.relative_path.ends_with(".fjwidget")) {
+            widgets.push_back((project->root() / entry.relative_path).string());
+        }
+    });
+    std::ranges::sort(widgets);
+    const auto manifest = project->root() / "scripts" / "generated" / "manifest.json";
+    for (const auto& p : widget_checks_.reload(manifest.string(), widgets)) {
+        FJELL_CORE_WARN("{}:{}:{}: warning: {}", p.file, p.line, p.column, p.message);
+    }
+}
+
 void Engine::open_import_browser(const std::filesystem::path& output_dir) {
     import_output_dir_ = output_dir;
     import_file_browser_.set_project(project_mgr_.active() ? project_mgr_.active()->root() : std::filesystem::path{});
@@ -2261,6 +2285,7 @@ void Engine::run() {
             }
         }
 #endif
+        if (!game_mode_) check_project_widgets();
 
         // Always-tick subsystems (before world matrices). Animation and the
         // environment have already ticked if the play phases ran.

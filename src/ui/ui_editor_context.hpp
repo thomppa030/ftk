@@ -4,6 +4,7 @@
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
+#include "ui/game_ui/widget_check.hpp"
 #include "ui/kit/field.hpp"
 #include "core/delegate.hpp"
 
@@ -37,6 +38,7 @@ struct UiEditorDeps {
     ProjectManager* project_mgr;
     IconCache* icon_cache;
     ScriptManager* script_manager; // for looking up UiComponent types
+    const WidgetChecks* widget_checks; // the project's widgets against the game as built
 };
 
 class UiEditorContext final : public EditorContext {
@@ -79,7 +81,11 @@ private:
     void draw_preview_toolbar();
     void draw_element_tree();
     void draw_inspector();
-    void draw_stylesheet_problems();
+    /// The sheet's diagnostics and the widget check's problems.
+    void draw_problems();
+    /// Checks the open widget file and each widget it places, against the
+    /// game as last built.
+    void check_widget_files();
     void draw_style_editor(UiNode& node);
     void draw_node_material_editor(UiNode& node);
     void draw_mock_data();
@@ -192,6 +198,11 @@ private:
 
     // The key the mock data's prompt dialog asks for.
     std::string prompt_text_;
+
+    // What the widget check found in the open file and the widgets it
+    // places, and against which build of the game.
+    std::vector<WidgetProblem> widget_problems_;
+    uint32_t widget_checks_revision_{0};
 
     // Widget isolation: true when editing a file from widgets/ directory
     bool is_widget_file_{false};

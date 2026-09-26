@@ -200,6 +200,15 @@ an event for whoever places it, and is checked at each placement. A game that
 has not been built has no manifest: its widgets are checked against their own
 props alone.
 
+The editor checks every widget in the project when the project opens and logs
+what it finds to the console. Each time the game library loads again (Build &
+Reload, or an automatic build after a script is saved) it checks them against the
+new manifest, and logs the problems of the widgets that name a type or game pipe
+the build declares differently: rename a field, and the widgets that read it say
+so. The UI editor's Problems list shows the open widget's problems and those of
+every widget it places, beside the stylesheet's, checked again on open, on save,
+on a change to the file on disk and after each build.
+
 `fjlint` runs the check from the shell, finding the manifest by walking up from
 each widget, along with the widget's sheet:
 

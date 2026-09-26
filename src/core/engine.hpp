@@ -12,6 +12,7 @@
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/widget_check.hpp"
 #include "scene/scene.hpp"
 #include "import/import_dialog.hpp"
 #include "core/capture_service.hpp"
@@ -342,6 +343,15 @@ private:
     void open_import_browser(const std::filesystem::path& output_dir);
 
     void prebake_project_fonts(const std::filesystem::path& root);
+
+    // The project's widgets checked against the game as last built (UI
+    // editors list them from here), and which project and library that was.
+    WidgetChecks widget_checks_;
+    std::filesystem::path widgets_checked_root_;
+    uint32_t widgets_checked_library_{0};
+    // Checks the widgets again when the project or its game library changed,
+    // and logs what the change broke.
+    void check_project_widgets();
 
     // Asset reference widget browser (separate from import browser)
 };

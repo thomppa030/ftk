@@ -195,6 +195,9 @@ public:
     [[nodiscard]] const ReflectedTypes& reflected_types() const { return reflected_types_; }
 
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
+    /// Moves each time a game library loads, a reload included: what the
+    /// game declares may have changed.
+    [[nodiscard]] uint32_t library_revision() const { return library_revision_; }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
     [[nodiscard]] TimerManager& timers() { return timers_; }
@@ -260,6 +263,7 @@ private:
     bool playing_{false};
 
     bool write_reports_on_{false};
+    uint32_t library_revision_{0};
     std::vector<std::string> write_reports_;
     // Script, node and kind of every write already reported this session,
     // and the node and kind of every one a node's own script was named for.

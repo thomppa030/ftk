@@ -19,8 +19,8 @@ namespace {
 
 // A game with a stats component, a HUD controller holding a Model of slots
 // and effects, and one pipe of its own, as fjreflect describes it.
-UiSchema game() {
-    return UiSchema::from_json(nlohmann::json::parse(R"({
+nlohmann::json game_manifest() {
+    return nlohmann::json::parse(R"({
         "version": 2,
         "types": [
             {"name": "Stats", "kind": "component", "fields": [
@@ -52,7 +52,11 @@ UiSchema game() {
             ]}
         ],
         "pipes": [{"name": "stars", "input": "int", "args": ["int"]}]
-    })"));
+    })");
+}
+
+UiSchema game() {
+    return UiSchema::from_json(game_manifest());
 }
 
 struct Project {
@@ -86,7 +90,7 @@ struct Project {
 };
 
 std::vector<WidgetProblem> check(const std::string& path) {
-    return check_widget(path, game());
+    return check_widget(path, game()).problems;
 }
 
 std::string messages(const std::vector<WidgetProblem>& problems) {
@@ -250,14 +254,14 @@ TEST_CASE("Without a manifest only the widget's own names are judged", "[widget-
                                     "    <prop name=\"title\" type=\"string\"/>\n"
                                     "    <div><text>{title} {subtitle}</text></div>\n"
                                     "</widget>\n");
-    const auto problems = check_widget(path, UiSchema{});
+    const auto problems = check_widget(path, UiSchema{}).problems;
     REQUIRE(problems.size() == 1);
     REQUIRE(problems[0].line == 3);
     REQUIRE(problems[0].message.find("nothing here is named 'subtitle'") != std::string::npos);
 
     // A controller the checker cannot see may have any field and action.
     const auto hud = project.hud("    <text on:click=\"whatever\">{anything.at.all|sparkle}</text>\n");
-    REQUIRE(check_widget(hud, UiSchema{}).empty());
+    REQUIRE(check_widget(hud, UiSchema{}).problems.empty());
 }
 
 TEST_CASE("The manifest is found above the widget", "[widget-check]") {
@@ -269,4 +273,57 @@ TEST_CASE("The manifest is found above the widget", "[widget-check]") {
     auto schema = UiSchema::load(found);
     REQUIRE(schema);
     REQUIRE(schema->reflected);
+}
+
+TEST_CASE("A check names every type and game pipe its answer depends on", "[widget-check]") {
+    Project project;
+    const auto path = project.hud("    <div>\n"
+                                  "        <text>{player.hp|stars:5}</text>\n"
+                                  "        <slot-face foreach=\"s in model.slots\" slot=\"{s}\" on:activate=\"close\"/>\n"
+                                  "    </div>\n");
+    const auto result = check_widget(path, game());
+    INFO(messages(result.problems));
+    REQUIRE(result.problems.empty());
+    REQUIRE(result.types == std::vector<std::string>{"HudModel", "Slot", "Stats", "hud"});
+    REQUIRE(result.pipes == std::vector<std::string>{"stars"});
+    REQUIRE(result.placed.size() == 1);
+    REQUIRE(fs::path(result.placed[0]) == project.base / "ui/widgets/slot_face.fjwidget");
+}
+
+TEST_CASE("A reload reports the widgets a changed declaration touches", "[widget-check]") {
+    Project project;
+    fs::create_directories(project.base / "scripts" / "generated");
+    const std::string manifest = (project.base / "scripts/generated/manifest.json").string();
+    auto build = [&](const nlohmann::json& declared) { std::ofstream(manifest) << declared.dump(); };
+
+    const std::vector<std::string> widgets{
+        project.hud("    <text>{player.hp}</text>\n"),
+        project.write("ui/widgets/slot_name.fjwidget", "<widget>\n"
+                                                       "    <prop name=\"slot\" type=\"Slot\"/>\n"
+                                                       "    <text>{slot.name} {slot.nope}</text>\n"
+                                                       "</widget>\n"),
+    };
+    WidgetChecks checks;
+
+    // The first load reports every widget.
+    build(game_manifest());
+    auto problems = checks.reload(manifest, widgets);
+    REQUIRE(problems.size() == 1);
+    REQUIRE(problems[0].message == "'Slot' has no field 'nope'");
+    const uint32_t first = checks.revision();
+
+    // Nothing declared differently: nothing to say, nothing to check again.
+    REQUIRE(checks.reload(manifest, widgets).empty());
+    REQUIRE(checks.revision() == first);
+
+    // Stats loses hp: the HUD reads it, the slot widget never names Stats.
+    auto renamed = game_manifest();
+    renamed["types"][0]["fields"][0]["name"] = "health";
+    build(renamed);
+    problems = checks.reload(manifest, widgets);
+    REQUIRE(problems.size() == 1);
+    REQUIRE(problems[0].file == widgets[0]);
+    REQUIRE(problems[0].message == "'Stats' has no field 'hp'");
+    REQUIRE(checks.revision() != first);
+    REQUIRE(checks.check(widgets[0]).problems.size() == 1);
 }

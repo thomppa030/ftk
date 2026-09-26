@@ -141,6 +141,7 @@ Result<> UiEditorContext::write() {
         out << FjssSerializer::serialize(preview_ui_->stylesheet(), fjss_path_);
     }
     FJELL_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
+    check_widget_files();
     return {};
 }
 
@@ -175,6 +176,10 @@ void UiEditorContext::draw(float dt) {
     if (preview_ui_ && preview_ui_->consume_reload_request()) {
         command_history().clear();
         open_ui(fjui_path_);
+    }
+    // The game was built again: what the widgets name may have changed.
+    if (deps_.widget_checks != nullptr && deps_.widget_checks->revision() != widget_checks_revision_) {
+        check_widget_files();
     }
 
     draw_preview(dt);
@@ -426,6 +431,7 @@ void UiEditorContext::open_ui(const std::string& path) {
     }
 
     selected_node_ = nullptr;
+    check_widget_files();
     document_opened();
     FJELL_CORE_INFO("UI editor opened: {}", fjui_path_);
 }
@@ -701,26 +707,49 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
 
 // ── Inspector Panel ──────────────────────────────────────────────────────
 
-void UiEditorContext::draw_stylesheet_problems() {
+void UiEditorContext::check_widget_files() {
+    widget_problems_.clear();
+    if (deps_.widget_checks == nullptr) return;
+    widget_checks_revision_ = deps_.widget_checks->revision();
+    if (!fjui_path_.ends_with(".fjwidget")) return;
+
+    // The open file, then every widget reached through its placements.
+    std::vector<std::string> files{base_path::resolve_asset(fjui_path_, deps_.project_mgr->active())};
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        WidgetCheck result = deps_.widget_checks->check(files[i]);
+        std::ranges::move(result.problems, std::back_inserter(widget_problems_));
+        for (auto& placed : result.placed) {
+            if (std::ranges::find(files, placed) == files.end()) files.push_back(std::move(placed));
+        }
+    }
+}
+
+void UiEditorContext::draw_problems() {
     if (!preview_ui_) return;
-    const auto& problems = preview_ui_->stylesheet().diagnostics;
-    if (problems.empty()) return;
+    const auto& diagnostics = preview_ui_->stylesheet().diagnostics;
+    if (diagnostics.empty() && widget_problems_.empty()) return;
 
     ui::section("Problems", ui::icon::warning);
-    for (const auto& d : problems) {
-        const std::string text = fs::path(d.source).filename().string() + ":" + std::to_string(d.line) + ":" +
-                                 std::to_string(d.column) + "  " + d.message;
+    auto line = [](const std::string& file, uint32_t row, uint32_t column, const std::string& message) {
+        return fs::path(file).filename().string() + ":" + std::to_string(row) + ":" + std::to_string(column) +
+               "  " + message;
+    };
+    for (const auto& d : diagnostics) {
+        const std::string text = line(d.source, d.line, d.column, d.message);
         ui::status(d.severity == FjssSeverity::error ? ui::Severity::Error : ui::Severity::Warning, text.c_str());
+    }
+    for (const auto& p : widget_problems_) {
+        ui::status(ui::Severity::Warning, line(p.file, p.line, p.column, p.message).c_str());
     }
 }
 
 void UiEditorContext::draw_inspector() {
     auto panel = Panel(ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
-    // Stylesheet problems show up next to the UI they broke, even with
-    // nothing selected — a typo in a hot-reloaded sheet should be the
-    // first thing visible, not something to dig out of the console.
-    draw_stylesheet_problems();
+    // Problems show up next to the UI they broke, even with nothing
+    // selected: a typo in a hot-reloaded file should be the first thing
+    // visible, not something to dig out of the console.
+    draw_problems();
 
     if (!selected_node_) {
         ui::empty_state(ui::icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");

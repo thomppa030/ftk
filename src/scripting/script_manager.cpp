@@ -280,6 +280,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     loaded_temp_path_ = temp;
 
     build_registry();
+    ++library_revision_;
 
     int total = static_cast<int>(script_type_list_.size());
     FJELL_CORE_INFO("Scripts loaded: {} type(s)", total);

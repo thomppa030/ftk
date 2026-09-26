@@ -11,8 +11,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <tuple>
 
 namespace fjell {
@@ -169,7 +171,7 @@ class Checker {
 public:
     Checker(std::string path, const UiSchema& schema) : path_(std::move(path)), schema_(schema) {}
 
-    std::vector<WidgetProblem> run();
+    WidgetCheck run();
 
 private:
     void walk(const UiNode& node);
@@ -190,6 +192,9 @@ private:
     /// none of them answers is a mistake.
     [[nodiscard]] bool knows_every_action(const UiSchema::Type* inner, const WidgetAsset* placed) const;
     [[nodiscard]] Reach prop_reach(const PropDecl& prop);
+    /// Remembers the type a reach is or holds: the check's answer depends on it.
+    void note(const Reach& reach);
+    void note_type(const std::string& type);
     const WidgetAsset* placed_widget(const std::string& tag);
     void report(const UiNode& node, std::string_view needle, std::string message);
     void report_in_file(std::string_view needle, std::string message);
@@ -204,24 +209,28 @@ private:
     bool placed_by_others_{false};
     std::unordered_map<std::string, std::unique_ptr<WidgetAsset>> placed_;
     std::vector<WidgetProblem> problems_;
+    std::set<std::string> types_;
+    std::set<std::string> pipes_;
+    std::vector<std::string> placed_files_;
 };
 
-std::vector<WidgetProblem> Checker::run() {
+WidgetCheck Checker::run() {
     auto asset = load_widget_asset(path_);
     if (!asset) {
         problems_.push_back({.file = path_, .line = 1, .column = 1, .message = asset.error()});
-        return problems_;
+        return {.problems = std::move(problems_), .types = {}, .pipes = {}, .placed = {}};
     }
     read_lines();
 
     Frame root;
     for (const auto& prop : asset->props) root.names[prop.name] = prop_reach(prop);
     for (const auto& model : asset->models) {
+        note_type(model.component);
         const UiSchema::Type* type = schema_.type(model.component);
         if (type == nullptr || type->kind != "component") {
             if (schema_.reflected) {
                 report_in_file("component=\"" + model.component + "\"",
-                           "model '" + model.name + "' reads '" + model.component +
+                               "model '" + model.name + "' reads '" + model.component +
                                    "', which is not a script component the game has");
             }
             root.names[model.name] = {};
@@ -230,6 +239,7 @@ std::vector<WidgetProblem> Checker::run() {
         }
     }
     if (!asset->class_name.empty()) {
+        note_type(asset->class_name);
         root.controller = schema_.type(asset->class_name);
         if (root.controller == nullptr || root.controller->kind != "ui_widget") {
             if (schema_.reflected) {
@@ -252,11 +262,24 @@ std::vector<WidgetProblem> Checker::run() {
                                     return a.line == b.line && a.column == b.column && a.message == b.message;
                                 }),
                     problems_.end());
-    return problems_;
+    return {.problems = std::move(problems_),
+            .types = {types_.begin(), types_.end()},
+            .pipes = {pipes_.begin(), pipes_.end()},
+            .placed = std::move(placed_files_)};
+}
+
+void Checker::note(const Reach& reach) {
+    if (reach.kind == "object") note_type(reach.type);
+    if (reach.kind == "list") note_type(reach.element_type);
+}
+
+void Checker::note_type(const std::string& type) {
+    if (!type.empty()) types_.insert(type);
 }
 
 Reach Checker::prop_reach(const PropDecl& prop) {
     if (is_value_kind(prop.type)) return {.kind = prop.type};
+    note_type(prop.type);
     if (schema_.type(prop.type) != nullptr) return {.kind = "object", .type = prop.type};
     if (!schema_.reflected) return {};
     report_in_file("name=\"" + prop.name + "\"",
@@ -356,6 +379,7 @@ Reach Checker::check_path(const UiNode& node, std::string_view path, std::string
                    "': not a prop, a Model, a controller field or a foreach's name");
         return {};
     }
+    note(*at);
     std::string walked(steps.front());
     for (std::size_t i = 1; i < steps.size(); ++i) {
         const std::string step(steps[i]);
@@ -368,6 +392,7 @@ Reach Checker::check_path(const UiNode& node, std::string_view path, std::string
                 return {};
             }
             at = reach_of(*field);
+            note(*at);
         } else if (const int n = components(at->kind); n > 0) {
             const int c = component_index(step);
             if (c < 0 || c >= n) {
@@ -394,7 +419,9 @@ Reach Checker::check_expression(const UiNode& node, std::string_view text) {
     const UiExpression expression = parse_expression(text);
     Reach reach = check_path(node, expression.path, text);
     for (const auto& call : expression.pipes) {
-        if (UiPipes::is_engine_pipe(call.name) || !schema_.reflected) continue;
+        if (UiPipes::is_engine_pipe(call.name)) continue;
+        pipes_.insert(call.name);
+        if (!schema_.reflected) continue;
         const UiSchema::Pipe* pipe = schema_.pipe(call.name);
         if (pipe == nullptr) {
             report(node, text, "no pipe named '" + call.name + "' in the engine or the game");
@@ -461,6 +488,10 @@ void Checker::check_placement(const UiNode& node, const WidgetAsset& placed) {
     // mapped call, and one left unmapped that the widget's controller does
     // not answer, go to the widget's controller first, then outward from
     // the placement.
+    note_type(placed.class_name);
+    for (const auto& prop : placed.props) {
+        if (!is_value_kind(prop.type)) note_type(prop.type);
+    }
     const UiSchema::Type* inner = placed.class_name.empty() ? nullptr : schema_.type(placed.class_name);
     std::vector<std::string> raised;
     auto collect = [&](auto& self, const UiNode& at) -> void {
@@ -522,6 +553,7 @@ const WidgetAsset* Checker::placed_widget(const std::string& tag) {
         if (candidate.parent_path() == dir && dir.filename() != "widgets") continue;
         if (auto asset = load_widget_asset(candidate.string())) {
             found = std::make_unique<WidgetAsset>(std::move(*asset));
+            placed_files_.push_back(candidate.string());
             break;
         }
     }
@@ -560,8 +592,63 @@ void Checker::report_in_file(std::string_view needle, std::string message) {
 
 } // namespace
 
-std::vector<WidgetProblem> check_widget(const std::string& path, const UiSchema& schema) {
+WidgetCheck check_widget(const std::string& path, const UiSchema& schema) {
     return Checker(path, schema).run();
+}
+
+std::vector<WidgetProblem> WidgetChecks::reload(const std::string& manifest, std::span<const std::string> widgets) {
+    UiSchema schema;
+    std::error_code ec;
+    if (!manifest.empty() && fs::exists(manifest, ec)) {
+        if (auto loaded = UiSchema::load(manifest)) {
+            schema = std::move(*loaded);
+        } else {
+            return {{.file = manifest, .line = 1, .column = 1, .message = loaded.error()}};
+        }
+    }
+
+    // What the new build declares differently: every name either side has
+    // that the other has not, or has otherwise.
+    std::set<std::string> changed_types;
+    for (const auto& [name, type] : schema.types) {
+        if (const auto* before = schema_.type(name); before == nullptr || !(*before == type)) {
+            changed_types.insert(name);
+        }
+    }
+    for (const auto& [name, type] : schema_.types) {
+        if (schema.type(name) == nullptr) changed_types.insert(name);
+    }
+    std::set<std::string> changed_pipes;
+    for (const auto& pipe : schema.pipes) {
+        if (const auto* before = schema_.pipe(pipe.name); before == nullptr || !(*before == pipe)) {
+            changed_pipes.insert(pipe.name);
+        }
+    }
+    for (const auto& pipe : schema_.pipes) {
+        if (schema.pipe(pipe.name) == nullptr) changed_pipes.insert(pipe.name);
+    }
+
+    // The first load, or a game built or unbuilt since, answers for every
+    // widget anew.
+    const bool everything = !loaded_ || schema.reflected != schema_.reflected;
+    const bool changed = everything || !changed_types.empty() || !changed_pipes.empty();
+    schema_ = std::move(schema);
+    loaded_ = true;
+    if (!changed) return {};
+    ++revision_;
+
+    std::vector<WidgetProblem> problems;
+    for (const auto& widget : widgets) {
+        WidgetCheck result = check(widget);
+        const bool affected = everything || std::ranges::any_of(result.types, [&](const std::string& t) {
+                                  return changed_types.contains(t);
+                              }) || std::ranges::any_of(result.pipes, [&](const std::string& p) {
+                                  return changed_pipes.contains(p);
+                              });
+        if (!affected) continue;
+        std::ranges::move(result.problems, std::back_inserter(problems));
+    }
+    return problems;
 }
 
 } // namespace fjell

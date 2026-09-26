@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -24,10 +25,14 @@ struct UiSchema {
         std::string type;         ///< a struct field's struct
         std::string element;      ///< a list's entries: their kind
         std::string element_type; ///< and their struct, for a list of structs
+
+        bool operator==(const Field&) const = default;
     };
     struct Action {
         std::string name;
         std::string param; ///< none, int, float or vec2
+
+        bool operator==(const Action&) const = default;
     };
     struct Type {
         std::string name;
@@ -37,10 +42,14 @@ struct UiSchema {
 
         [[nodiscard]] const Field* field(std::string_view name) const;
         [[nodiscard]] const Action* action(std::string_view name) const;
+
+        bool operator==(const Type&) const = default;
     };
     struct Pipe {
         std::string name;
         std::size_t args{0};
+
+        bool operator==(const Pipe&) const = default;
     };
 
     std::unordered_map<std::string, Type> types;
@@ -69,6 +78,17 @@ struct WidgetProblem {
     std::string message;
 };
 
+/// What checking one widget file found.
+struct WidgetCheck {
+    std::vector<WidgetProblem> problems;
+    /// Every reflected type and game pipe the file names or reaches, whether
+    /// the schema has it or not: what the answer depends on.
+    std::vector<std::string> types;
+    std::vector<std::string> pipes;
+    /// The widget files it places, as found.
+    std::vector<std::string> placed;
+};
+
 /// Checks a widget file against its game's schema: every path its bindings
 /// read, from a prop, a Model, a controller field or a foreach's names through
 /// the fields of the types it reaches; every prop type and Model component;
@@ -77,6 +97,30 @@ struct WidgetProblem {
 /// has. Placed widgets are read from `widgets/` beside the file, or beside it
 /// when the file is in one. An on:click that no controller in the file answers
 /// is an event for whoever places the widget and is checked there.
-[[nodiscard]] std::vector<WidgetProblem> check_widget(const std::string& path, const UiSchema& schema);
+[[nodiscard]] WidgetCheck check_widget(const std::string& path, const UiSchema& schema);
+
+/// A project's widgets checked against its game as it is built now. Reloaded
+/// whenever the game library is, it tells which widgets the new build broke
+/// or mended.
+class WidgetChecks {
+public:
+    /// Reads the manifest again (none, for a game not built: `manifest` empty
+    /// or missing) and checks every widget given against it. Returns the
+    /// problems of the widgets that name a type or game pipe the manifest now
+    /// declares differently; of every widget the first time.
+    std::vector<WidgetProblem> reload(const std::string& manifest, std::span<const std::string> widgets);
+
+    /// One widget file's problems against the schema last loaded.
+    [[nodiscard]] WidgetCheck check(const std::string& widget) const { return check_widget(widget, schema_); }
+
+    /// Moves whenever a reload changes the schema, so a view listing
+    /// problems knows to check again.
+    [[nodiscard]] uint32_t revision() const { return revision_; }
+
+private:
+    UiSchema schema_;
+    uint32_t revision_{0};
+    bool loaded_{false};
+};
 
 } // namespace fjell
