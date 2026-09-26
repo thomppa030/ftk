@@ -236,9 +236,7 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
     }
 
     if (show_colliders) {
-    for (const auto& obj : scene.objects()) {
-        const auto* col_ptr = obj->components.get<ColliderComponent>();
-        if (!col_ptr) continue;
+    for (auto [obj, col_ptr] : scene.view<ColliderComponent>()) {
         const auto* spatial = obj->as_spatial();
         if (!spatial) continue;
         const auto& col = *col_ptr;
@@ -297,9 +295,7 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
     }
 
     // Draw capsule wireframe for nodes with CharacterComponent
-    for (const auto& obj : scene.objects()) {
-        const auto* cc = obj->components.get<CharacterComponent>();
-        if (!cc) continue;
+    for (auto [obj, cc] : scene.view<CharacterComponent>()) {
         const auto* spatial = obj->as_spatial();
         if (!spatial) continue;
 
@@ -316,9 +312,7 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
     }
 
     // Draw arrows for nodes with ArrowComponent
-    for (const auto& obj : scene.objects()) {
-        const auto* arrow_ptr = obj->components.get<ArrowComponent>();
-        if (!arrow_ptr) continue;
+    for (auto [obj, arrow_ptr] : scene.view<ArrowComponent>()) {
         const auto* spatial = obj->as_spatial();
         if (!spatial) continue;
         const auto& arr = *arrow_ptr;
