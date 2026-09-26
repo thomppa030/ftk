@@ -231,9 +231,8 @@ void AudioEngine::play_oneshot(const std::string& clip_path,
 }
 
 void AudioEngine::start_play(Scene& scene, const Project* project) {
-    for (auto& obj : scene.objects()) {
-        auto* au = obj->components.get<AudioSourceComponent>();
-        if (au && au->play_on_start) {
+    for (auto [obj, au] : scene.view<AudioSourceComponent>()) {
+        if (au->play_on_start) {
             if (auto r = play(obj->id, scene, project); !r) {
                 FJELL_CORE_WARN("Audio play failed for '{}': {}", obj->name, r.error());
             }

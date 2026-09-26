@@ -8,12 +8,8 @@ namespace fjell {
 void CameraSubsystem::on_play_start(const TickContext& ctx) {
     active_id_ = 0;
 
-    // Find the first CameraNode in the scene
-    for (const auto& obj : ctx.scene.objects()) {
-        if (dynamic_cast<const CameraNode*>(obj.get())) {
-            active_id_ = obj->id;
-            break;
-        }
+    if (const auto* camera = ctx.scene.first_node<CameraNode>()) {
+        active_id_ = camera->id;
     }
 }
 
