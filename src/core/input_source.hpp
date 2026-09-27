@@ -10,7 +10,9 @@ namespace fjell {
 enum class InputSource : uint16_t {
     none = 0,
 
-    // Keyboard (matches GLFW key codes directly)
+    // Keyboard: the codes scripts use as FJELL_KEY_* (fjell/api.h), each a key
+    // by its place on a US keyboard. SDL's scancodes are read into them by
+    // core/sdl_input_codes.cpp.
     key_space = 32,
     key_apostrophe = 39,
     key_comma = 44,
@@ -81,7 +83,8 @@ enum class InputSource : uint16_t {
     mouse_scroll_x = 0x0220,
     mouse_scroll_y,
 
-    // Gamepad buttons (0x0300 - 0x033F) — matches GLFW gamepad button order
+    // Gamepad buttons (0x0300 - 0x033F), by place on the pad: a is the bottom
+    // face button, y the top
     pad_a = 0x0300,
     pad_b,
     pad_x,
@@ -98,7 +101,8 @@ enum class InputSource : uint16_t {
     pad_dpad_down,
     pad_dpad_left,
 
-    // Gamepad analog (0x0380 - 0x039F) — matches GLFW gamepad axis order
+    // Gamepad analog (0x0380 - 0x039F): sticks read -1 to 1 with up at -1,
+    // triggers 0 at rest to 1 fully pulled
     pad_lstick_x = 0x0380,
     pad_lstick_y,
     pad_rstick_x,

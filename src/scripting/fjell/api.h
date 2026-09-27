@@ -219,7 +219,7 @@ typedef struct FjellUiActionDesc {
     void (*invoke)(void* self, const void* arg);
 } FjellUiActionDesc;
 
-// ── Key codes (match GLFW values) ────────────────────────────────────
+// ── Key codes (keys by their place on a US keyboard) ─────────────────
 
 #define FJELL_KEY_SPACE          32
 #define FJELL_KEY_APOSTROPHE     39

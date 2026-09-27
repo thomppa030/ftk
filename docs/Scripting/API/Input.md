@@ -37,7 +37,7 @@ A snapshot of the current frame's input state, owned by the engine. Get a refere
 
 Every call goes to the engine's own code, so a game never depends on how the engine stores the state. The key, button, delta and scroll queries read idle or zero while the editor rather than the game has focus in docked play.
 
-Key and mouse codes are GLFW values — `fjell/api.h` defines named constants like `FJELL_KEY_W`, `FJELL_KEY_SPACE`, `FJELL_MOUSE_LEFT`.
+Key and mouse codes are Fjell's own — `fjell/api.h` defines named constants like `FJELL_KEY_W`, `FJELL_KEY_SPACE`, `FJELL_MOUSE_LEFT`. A key is named by its place on a US keyboard, so `FJELL_KEY_W` is the same physical key on any layout.
 
 State distinguishes:
 - **Pressed** — true for the single frame the key transitioned to down.

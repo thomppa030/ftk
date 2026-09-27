@@ -40,6 +40,7 @@ add_executable(fjell
     core/input_context_io.cpp
     core/input_modifier.cpp
     core/input_source.cpp
+    core/sdl_input_codes.cpp
     core/play_controller.cpp
     core/play_snapshot.cpp
     core/project.cpp
@@ -366,11 +367,11 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-editor-shell>"
     fjell-imgui
     fastgltf::fastgltf
-    glfw
     glm::glm
     GPUOpen::VulkanMemoryAllocator
     Jolt
     nlohmann_json::nlohmann_json
+    SDL3::SDL3
     spdlog::spdlog
     Vulkan::Vulkan
     yogacore
@@ -507,7 +508,6 @@ target_link_libraries(fjell-hub PRIVATE
     fjell-platform
     fjell-ui-kit
     fjell-imgui
-    glfw
     glm::glm
     GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json

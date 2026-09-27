@@ -233,7 +233,6 @@ void Engine::init_project(const std::filesystem::path& project_path,
         }
     }
 
-    Input::load_gamepad_mappings();
     input_.attach(window_);
 }
 
@@ -2176,7 +2175,7 @@ void Engine::run() {
         // first, so a released stick leaves it zero.
         if (play_controller_.playing()) physics_subsystem_->clear_move_intents(scene_);
         // After poll_events, so the action map sees this frame's mouse and
-        // scroll deltas: the callbacks accumulate them during the poll, and
+        // scroll deltas: the events add them up during the poll, and
         // Input::update() clears them for the next frame. Reading before the
         // poll gave every axis bound to mouse motion a constant zero, while
         // keys and buttons kept working because they are latched state rather

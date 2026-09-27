@@ -9,7 +9,7 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | File | What it does |
 |---|---|
 | `engine` | Main loop, owns all subsystems, ticks everything |
-| `window` | GLFW window creation and management |
+| `window` | SDL window creation, events and the Vulkan surface |
 | `input` | Keyboard and mouse state polling |
 | `clock` | Frame delta time and elapsed time |
 | `project` | Project configuration (paths, settings) |

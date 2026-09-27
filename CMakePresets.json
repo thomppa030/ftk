@@ -68,7 +68,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "FJELL_BUILD_ENGINE": "OFF",
-                "FETCHCONTENT_SOURCE_DIR_GLFW": "${sourceDir}/build/_deps/glfw-src",
+                "FETCHCONTENT_SOURCE_DIR_SDL3": "${sourceDir}/build/_deps/sdl3-src",
                 "FETCHCONTENT_SOURCE_DIR_GLM": "${sourceDir}/build/_deps/glm-src",
                 "FETCHCONTENT_SOURCE_DIR_SPDLOG": "${sourceDir}/build/_deps/spdlog-src",
                 "FETCHCONTENT_SOURCE_DIR_STB": "${sourceDir}/build/_deps/stb-src",

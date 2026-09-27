@@ -17,13 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # GLFW builds both X11 and Wayland backends on Linux by default, and the
-      # Wayland one generates protocol sources with wayland-scanner.
+      # SDL builds its X11 and Wayland video drivers from these headers and
+      # loads the libraries at run time; the Wayland one generates protocol
+      # sources with wayland-scanner. udev finds gamepads as they are plugged
+      # in, D-Bus and IBus serve the desktop and text input.
       - name: Install build tools and windowing headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build xorg-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev extra-cmake-modules
+          sudo apt-get install -y ninja-build \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev libdecor-0-dev libdbus-1-dev libibus-1.0-dev libudev-dev
 
       - name: Install the Vulkan SDK
         run: |

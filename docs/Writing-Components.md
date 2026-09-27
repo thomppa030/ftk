@@ -79,10 +79,10 @@ The `Transform` stores rotation as a quaternion internally. Use `euler_degrees()
 void tick(float dt) override {
     const auto& input = world()->input();
 
-    if (input.is_key_held(GLFW_KEY_W)) {
+    if (input.is_key_held(FJELL_KEY_W)) {
         actor()->transform().position.z -= move_speed * dt;
     }
-    if (input.is_key_pressed(GLFW_KEY_SPACE)) {
+    if (input.is_key_pressed(FJELL_KEY_SPACE)) {
         jump();
     }
 
@@ -99,7 +99,7 @@ void tick(float dt) override {
 }
 ```
 
-Key codes are GLFW constants (`GLFW_KEY_W`, `GLFW_KEY_SPACE`, etc.). Include `<GLFW/glfw3.h>` to use the named constants.
+Key codes are the `FJELL_KEY_*` constants from `fjell/api.h` (`FJELL_KEY_W`, `FJELL_KEY_SPACE`, etc.).
 
 ## Using Physics
 
@@ -108,7 +108,7 @@ void tick(float dt) override {
     auto* phys = world()->physics();
 
     // Jump on space press
-    if (world()->input().is_key_pressed(GLFW_KEY_SPACE)) {
+    if (world()->input().is_key_pressed(FJELL_KEY_SPACE)) {
         phys->apply_impulse(actor()->id(), {0.0f, 10.0f, 0.0f});
     }
 
@@ -221,7 +221,6 @@ FJELL_REGISTER()
 ```cpp
 #include "scripting/fjell_registry.hpp"
 #include "scripting/fjell_world.hpp"
-#include <GLFW/glfw3.h>
 
 class FPSController : public fjell::ScriptComponent {
     FJELL_COMPONENT(FPSController)
@@ -258,10 +257,10 @@ class FPSController : public fjell::ScriptComponent {
         glm::vec3 right = glm::normalize(glm::cross(forward, {0, 1, 0}));
 
         glm::vec3 move{0.0f};
-        if (input.is_key_held(GLFW_KEY_W)) move += forward;
-        if (input.is_key_held(GLFW_KEY_S)) move -= forward;
-        if (input.is_key_held(GLFW_KEY_D)) move += right;
-        if (input.is_key_held(GLFW_KEY_A)) move -= right;
+        if (input.is_key_held(FJELL_KEY_W)) move += forward;
+        if (input.is_key_held(FJELL_KEY_S)) move -= forward;
+        if (input.is_key_held(FJELL_KEY_D)) move += right;
+        if (input.is_key_held(FJELL_KEY_A)) move -= right;
 
         if (glm::length(move) > 0.0f) {
             move = glm::normalize(move) * move_speed;
@@ -272,7 +271,7 @@ class FPSController : public fjell::ScriptComponent {
         phys->set_linear_velocity(actor()->id(), {move.x, vel.y, move.z});
 
         // Jump
-        if (input.is_key_pressed(GLFW_KEY_SPACE)) {
+        if (input.is_key_pressed(FJELL_KEY_SPACE)) {
             phys->apply_impulse(actor()->id(), {0, jump_force, 0});
         }
     }

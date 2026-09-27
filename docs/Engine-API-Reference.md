@@ -133,16 +133,16 @@ glm::dvec2 mouse_delta() const;
 glm::dvec2 scroll_delta() const;
 ```
 
-Key codes are GLFW constants. Common ones:
+Key codes are the `FJELL_KEY_*` constants from `fjell/api.h`. Common ones:
 
 | Constant | Value |
 |----------|-------|
-| `GLFW_KEY_W` | 87 |
-| `GLFW_KEY_A` | 65 |
-| `GLFW_KEY_S` | 83 |
-| `GLFW_KEY_D` | 68 |
-| `GLFW_KEY_SPACE` | 32 |
-| `GLFW_KEY_LEFT_SHIFT` | 340 |
+| `FJELL_KEY_W` | 87 |
+| `FJELL_KEY_A` | 65 |
+| `FJELL_KEY_S` | 83 |
+| `FJELL_KEY_D` | 68 |
+| `FJELL_KEY_SPACE` | 32 |
+| `FJELL_KEY_LEFT_SHIFT` | 340 |
 
 Mouse buttons: 0 = left, 1 = right, 2 = middle.
 

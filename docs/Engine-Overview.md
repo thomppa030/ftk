@@ -9,7 +9,7 @@ Fjell is a Vulkan game engine and editor built in C++23 for Linux and Windows. I
 
 ```
 Engine
-  ├── Window                 GLFW window + surface
+  ├── Window                 SDL window + surface
   ├── Input                  Keyboard and mouse state
   ├── Clock                  Frame delta time and elapsed time
   ├── ThreadPool             Worker threads for parallel work
@@ -40,7 +40,7 @@ Engine
 
 ```
 1. Log system init
-2. Window creation (GLFW)
+2. Window creation (SDL)
 3. Vulkan device setup (instance, physical device, logical device)
 4. Swapchain + VulkanContext (all render passes, descriptors, sync)
 5. ImGui layer (Vulkan backend, fonts, theme)

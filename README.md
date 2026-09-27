@@ -80,7 +80,7 @@ by CMake:
 
 | | |
 |---|---|
-| GLFW 3.4 | Windowing |
+| SDL 3.4 | Window, keyboard, mouse and gamepads |
 | GLM 1.0.1 | Math |
 | spdlog 1.15.0 | Logging |
 | Dear ImGui (docking) | Editor UI |

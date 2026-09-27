@@ -4,8 +4,10 @@
 #include "renderer/gpu/window.hpp"
 
 #include <imgui.h>
-#include <imgui_impl_glfw.h>
+#include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+
+#include <SDL3/SDL.h>
 
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -36,7 +38,7 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
                        uint32_t graphics_family, VkQueue graphics_queue,
                        VkFormat color_format, uint32_t image_count,
                        const ImGuiLayerFiles& files)
-    : device_{device} {
+    : window_{window}, device_{device} {
   // Descriptor pool for ImGui. Every ImGui::Image texture holds one set for
   // as long as it is registered: editor icons, a directory's worth of
   // texture thumbnails, the resident asset thumbnails, viewport images.
@@ -74,7 +76,24 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
   setup_style();
   theme::load_font(files.fonts.string());
 
-  ImGui_ImplGlfw_InitForVulkan(window.handle(), true);
+  ImGui_ImplSDL3_InitForVulkan(window.handle());
+  // SDL has one cursor for the whole program, and the backend sets it only
+  // when its own context's choice changes, which leaves one window's cursor
+  // over the next. It keeps its hands off, and update_cursor() shows this
+  // window's choice only while the mouse is over it.
+  io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+  cursors_.resize(ImGuiMouseCursor_COUNT, nullptr);
+  cursors_[ImGuiMouseCursor_Arrow] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+  cursors_[ImGuiMouseCursor_TextInput] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+  cursors_[ImGuiMouseCursor_ResizeAll] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE);
+  cursors_[ImGuiMouseCursor_ResizeNS] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE);
+  cursors_[ImGuiMouseCursor_ResizeEW] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE);
+  cursors_[ImGuiMouseCursor_ResizeNESW] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NESW_RESIZE);
+  cursors_[ImGuiMouseCursor_ResizeNWSE] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE);
+  cursors_[ImGuiMouseCursor_Hand] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
+  cursors_[ImGuiMouseCursor_Wait] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_WAIT);
+  cursors_[ImGuiMouseCursor_Progress] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_PROGRESS);
+  cursors_[ImGuiMouseCursor_NotAllowed] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED);
 
   ImGui_ImplVulkan_InitInfo init_info{};
   init_info.Instance = instance;
@@ -113,6 +132,15 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
 
   ImGui_ImplVulkan_Init(&init_info);
 
+  // The window hands over only its own events, so each context sees its
+  // own window's input whichever context is current when they arrive.
+  event_connection_ = window.on_event.bind([this](const SDL_Event& event) {
+    ImGuiContext* current = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(context_);
+    ImGui_ImplSDL3_ProcessEvent(&event);
+    ImGui::SetCurrentContext(current);
+  });
+
   // Restore the previously active context so creating a second ImGuiLayer
   // (e.g. for the import dialog) doesn't hijack the editor's context.
   // If there was no previous context (first ImGuiLayer), keep ours active.
@@ -124,6 +152,8 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
 Delegate<void(void*)> ImGuiLayer::on_context_destroyed;
 
 ImGuiLayer::~ImGuiLayer() {
+  event_connection_.disconnect();
+
   auto* prev = ImGui::GetCurrentContext();
   if (prev == context_) prev = nullptr; // don't restore ourselves
 
@@ -131,7 +161,7 @@ ImGuiLayer::~ImGuiLayer() {
   // Announce while the context is still current, so listeners can inspect it.
   on_context_destroyed.broadcast(static_cast<void*>(context_));
   ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
+  ImGui_ImplSDL3_Shutdown();
   theme::forget_fonts(context_);
   ImGui::DestroyContext(context_);
   context_ = nullptr;
@@ -141,6 +171,9 @@ ImGuiLayer::~ImGuiLayer() {
 
   if (descriptor_pool_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
+  }
+  for (SDL_Cursor* cursor : cursors_) {
+    SDL_DestroyCursor(cursor);
   }
 }
 
@@ -163,11 +196,35 @@ void ImGuiLayer::begin_frame() {
 
   ImGui::SetCurrentContext(context_);
   ImGui_ImplVulkan_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 }
 
-void ImGuiLayer::end_frame() { FJELL_PROFILE_SCOPE_N("imgui_end_frame"); ImGui::Render(); }
+void ImGuiLayer::end_frame() {
+  FJELL_PROFILE_SCOPE_N("imgui_end_frame");
+  ImGui::Render();
+  update_cursor();
+}
+
+void ImGuiLayer::update_cursor() {
+  // Another window has the mouse, or the game has it captured and hidden.
+  SDL_Window* window = window_.handle();
+  if (SDL_GetMouseFocus() != window || SDL_GetWindowRelativeMouseMode(window)) {
+    return;
+  }
+
+  const ImGuiMouseCursor shape = ImGui::GetMouseCursor();
+  if (ImGui::GetIO().MouseDrawCursor || shape < 0
+      || static_cast<size_t>(shape) >= cursors_.size()) {
+    SDL_HideCursor();
+    return;
+  }
+  SDL_Cursor* wanted = cursors_[static_cast<size_t>(shape)];
+  if (wanted == nullptr) wanted = cursors_[ImGuiMouseCursor_Arrow];
+  // SDL redraws on every set, so only when the shape changes.
+  if (SDL_GetCursor() != wanted) SDL_SetCursor(wanted);
+  SDL_ShowCursor();
+}
 
 void ImGuiLayer::render(VkCommandBuffer cmd) {
   FJELL_PROFILE_SCOPE_N("imgui_render");

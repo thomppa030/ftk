@@ -1,136 +1,204 @@
 #include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
 namespace fjell {
 
-static int glfw_ref_count = 0;
+namespace {
 
-Window::Window(std::string_view title, uint32_t width, uint32_t height)
-    : width_{width}, height_{height} {
-    if (glfw_ref_count == 0) {
-        // RenderDoc's Vulkan layer doesn't expose VK_KHR_wayland_surface,
-        // so capturing on a Wayland session needs the GLFW backend forced
-        // to X11 (XWayland). Set FJELL_FORCE_X11=1 before launching through
-        // RenderDoc; leave unset for daily Wayland use.
-        const char* force_x11 = std::getenv("FJELL_FORCE_X11");
-        if (force_x11 != nullptr && force_x11[0] != '0' && force_x11[0] != '\0') {
-            glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
-        }
-        if (!glfwInit()) {
-            throw std::runtime_error("Failed to initialize GLFW");
-        }
-        FJELL_CORE_DEBUG("GLFW initialized");
+/// Every open window, so an event reaches the one it belongs to.
+std::vector<Window*>& open_windows() {
+    static std::vector<Window*> windows;
+    return windows;
+}
+
+/// Whether events of this type happen in one window and go only to it. The
+/// rest (quitting, gamepads, displays, devices coming and going) concern
+/// the whole program and go to every window.
+bool belongs_to_a_window(Uint32 type) {
+    if (type >= SDL_EVENT_WINDOW_FIRST && type <= SDL_EVENT_WINDOW_LAST) return true;
+    switch (type) {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+    case SDL_EVENT_TEXT_EDITING:
+    case SDL_EVENT_TEXT_INPUT:
+    case SDL_EVENT_TEXT_EDITING_CANDIDATES:
+    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+    case SDL_EVENT_PINCH_BEGIN:
+    case SDL_EVENT_PINCH_UPDATE:
+    case SDL_EVENT_PINCH_END:
+    case SDL_EVENT_DROP_FILE:
+    case SDL_EVENT_DROP_TEXT:
+    case SDL_EVENT_DROP_BEGIN:
+    case SDL_EVENT_DROP_COMPLETE:
+    case SDL_EVENT_DROP_POSITION:
+    case SDL_EVENT_PEN_PROXIMITY_IN:
+    case SDL_EVENT_PEN_PROXIMITY_OUT:
+    case SDL_EVENT_PEN_DOWN:
+    case SDL_EVENT_PEN_UP:
+    case SDL_EVENT_PEN_BUTTON_DOWN:
+    case SDL_EVENT_PEN_BUTTON_UP:
+    case SDL_EVENT_PEN_MOTION:
+    case SDL_EVENT_PEN_AXIS:
+        return true;
+    default:
+        return false;
     }
-    ++glfw_ref_count;
+}
 
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+std::runtime_error sdl_failure(std::string_view what) {
+    return std::runtime_error{std::string{what} + ": " + SDL_GetError()};
+}
 
-    window_ = glfwCreateWindow(
-        static_cast<int>(width_),
-        static_cast<int>(height_),
-        std::string{title}.c_str(),
-        nullptr, nullptr
-    );
+} // namespace
 
-    if (!window_) {
-        if (--glfw_ref_count == 0) glfwTerminate();
-        throw std::runtime_error("Failed to create GLFW window");
+Window::Window(std::string_view title, uint32_t width, uint32_t height) {
+    // Ctrl+C and a terminating signal end the program as they always have,
+    // rather than becoming a quit event the loop may not be reading yet.
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    // SDL counts the subsystem's users, so each window starts and stops it.
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        throw sdl_failure("Failed to initialise SDL video");
     }
 
-    glfwSetWindowUserPointer(window_, this);
-    glfwSetFramebufferSizeCallback(window_, framebuffer_resize_callback);
-    glfwSetDropCallback(window_, drop_callback);
+    window_ = SDL_CreateWindow(std::string{title}.c_str(),
+                               static_cast<int>(width), static_cast<int>(height),
+                               SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+                                   | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (window_ == nullptr) {
+        auto failure = sdl_failure("Failed to create window");
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        throw failure;
+    }
 
-    FJELL_CORE_INFO("Window created: {}x{}", width_, height_);
+    int pixel_width = 0;
+    int pixel_height = 0;
+    SDL_GetWindowSizeInPixels(window_, &pixel_width, &pixel_height);
+    width_ = static_cast<uint32_t>(pixel_width);
+    height_ = static_cast<uint32_t>(pixel_height);
+
+    open_windows().push_back(this);
+    FJELL_CORE_INFO("Window created: {}x{} ({})", width_, height_,
+                    SDL_GetCurrentVideoDriver());
 }
 
 Window::~Window() {
-    if (window_) {
-        glfwDestroyWindow(window_);
-    }
-    if (--glfw_ref_count == 0) {
-        glfwTerminate();
-    }
+    std::erase(open_windows(), this);
+    SDL_DestroyWindow(window_);
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     FJELL_CORE_DEBUG("Window destroyed");
 }
 
-bool Window::should_close() const {
-    return glfwWindowShouldClose(window_);
-}
-
-void Window::request_close() {
-    glfwSetWindowShouldClose(window_, GLFW_TRUE);
-}
-
-void Window::cancel_close() {
-    glfwSetWindowShouldClose(window_, GLFW_FALSE);
-}
-
 void Window::poll_events() {
-    glfwPollEvents();
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        dispatch(event);
+    }
 }
 
 void Window::wait_events() {
-    glfwWaitEvents();
+    SDL_Event event;
+    if (SDL_WaitEvent(&event)) {
+        dispatch(event);
+    }
+    poll_events();
+}
+
+void Window::dispatch(const SDL_Event& event) {
+    if (!belongs_to_a_window(event.type)) {
+        // A listener may open or close a window, so walk a copy.
+        const auto windows = open_windows();
+        for (Window* window : windows) {
+            window->receive(event);
+        }
+        return;
+    }
+    // Keys typed while no window of ours has focus belong to none of them.
+    SDL_Window* target = SDL_GetWindowFromEvent(&event);
+    if (target == nullptr) return;
+    const auto& windows = open_windows();
+    const auto owner = std::ranges::find(windows, target, &Window::window_);
+    if (owner != windows.end()) {
+        (*owner)->receive(event);
+    }
+}
+
+void Window::receive(const SDL_Event& event) {
+    switch (event.type) {
+    case SDL_EVENT_QUIT:
+    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+        close_requested_ = true;
+        break;
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        framebuffer_resized_ = true;
+        width_ = static_cast<uint32_t>(event.window.data1);
+        height_ = static_cast<uint32_t>(event.window.data2);
+        break;
+    case SDL_EVENT_DROP_BEGIN:
+        dropping_.clear();
+        break;
+    case SDL_EVENT_DROP_FILE:
+        if (event.drop.data != nullptr) dropping_.emplace_back(event.drop.data);
+        break;
+    case SDL_EVENT_DROP_COMPLETE:
+        if (!dropping_.empty()) on_files_dropped.broadcast(dropping_);
+        dropping_.clear();
+        break;
+    default:
+        break;
+    }
+    on_event.broadcast(event);
 }
 
 void Window::set_title(std::string_view title) {
-    glfwSetWindowTitle(window_, std::string{title}.c_str());
+    SDL_SetWindowTitle(window_, std::string{title}.c_str());
 }
 
 void Window::set_cursor_captured(bool captured) {
-    glfwSetInputMode(window_, GLFW_CURSOR,
-                     captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    if (!SDL_SetWindowRelativeMouseMode(window_, captured)) {
+        FJELL_CORE_WARN("Could not {} the cursor: {}", captured ? "capture" : "release",
+                        SDL_GetError());
+    }
 }
 
 VkExtent2D Window::framebuffer_size() const {
+    // A minimised window can go on reporting its restored size, which would
+    // build a swapchain it cannot present to.
+    if ((SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0) {
+        return {0, 0};
+    }
     int width = 0;
     int height = 0;
-    glfwGetFramebufferSize(window_, &width, &height);
+    SDL_GetWindowSizeInPixels(window_, &width, &height);
     return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 }
 
 VkSurfaceKHR Window::create_surface(VkInstance instance) const {
     VkSurfaceKHR surface{};
-    if (glfwCreateWindowSurface(instance, window_, nullptr, &surface) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create window surface");
+    if (!SDL_Vulkan_CreateSurface(window_, instance, nullptr, &surface)) {
+        throw sdl_failure("Failed to create window surface");
     }
     return surface;
 }
 
 std::vector<const char*> Window::required_instance_extensions() {
-    uint32_t count = 0;
-    const char** names = glfwGetRequiredInstanceExtensions(&count);
+    Uint32 count = 0;
+    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
     if (names == nullptr) return {};
     return {names, names + count};
-}
-
-void Window::framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
-    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self) {
-        self->framebuffer_resized_ = true;
-        self->width_ = static_cast<uint32_t>(width);
-        self->height_ = static_cast<uint32_t>(height);
-    }
-}
-
-void Window::drop_callback(GLFWwindow* window, int count, const char** paths) {
-    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (!self || count <= 0) return;
-
-    std::vector<std::string> file_paths;
-    file_paths.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        file_paths.emplace_back(paths[i]);
-    }
-    self->on_files_dropped.broadcast(file_paths);
 }
 
 } // namespace fjell

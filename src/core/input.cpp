@@ -3,243 +3,182 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/sdl_input_codes.hpp"
 #include "renderer/gpu/window.hpp"
 
-#include <GLFW/glfw3.h>
+#include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <sstream>
+#include <span>
 #include <string>
 
 namespace fjell {
 
+// Fjell's pad axes are SDL's, in SDL's order.
+static_assert(SDL_GAMEPAD_AXIS_LEFTX == 0 && SDL_GAMEPAD_AXIS_LEFTY == 1
+              && SDL_GAMEPAD_AXIS_RIGHTX == 2 && SDL_GAMEPAD_AXIS_RIGHTY == 3
+              && SDL_GAMEPAD_AXIS_LEFT_TRIGGER == 4 && SDL_GAMEPAD_AXIS_RIGHT_TRIGGER == 5);
+static_assert(static_cast<int>(InputSource::pad_lt) - static_cast<int>(InputSource::pad_lstick_x)
+              == SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+
 namespace {
 
-/// Feed one SDL-format mapping file to GLFW. Returns false when the file is
+/// Hand one SDL-format mapping file to SDL. Returns false when the file is
 /// missing so the caller can tell "absent" from "present but rejected".
 bool load_mapping_file(const std::string& relative) {
-    auto path = base_path::resolve(relative);
-    std::ifstream file(path);
-    if (!file) return false;
+    const auto path = base_path::resolve(relative);
+    if (!SDL_GetPathInfo(path.c_str(), nullptr)) return false;
 
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    const auto text = buffer.str();
-    if (text.empty()) return false;
-
-    if (glfwUpdateGamepadMappings(text.c_str()) == GLFW_FALSE) {
-        FJELL_CORE_WARN("Gamepad mappings rejected by GLFW: {}", path);
+    if (SDL_AddGamepadMappingsFromFile(path.c_str()) < 0) {
+        FJELL_CORE_WARN("Gamepad mappings rejected by SDL: {} ({})", path, SDL_GetError());
         return false;
     }
     return true;
 }
 
-/// Build an SDL mapping line for a joystick that reports the XInput layout
-/// but has no database entry.
-///
-/// GLFW resolves controllers strictly by GUID and treats a miss as "not a
-/// gamepad", so an unlisted pad is invisible rather than merely unmapped.
-/// SDL avoids that with a generic entry covering anything the kernel's xpad
-/// driver claims, and every clone of that shape reports its controls in the
-/// same order. Recreate that here: when the counts match, assume the standard
-/// layout rather than requiring someone to hand-write a GUID entry.
-///
-/// Deliberately conservative — an exact shape match only. A device with a
-/// different count gets left unmapped and logged, because guessing at an
-/// unknown layout produces silently wrong buttons, which is worse than a pad
-/// that visibly does not work.
-std::string synthesize_xinput_mapping(int jid) {
-    // The xpad shape: eleven face/shoulder/stick/menu buttons, two sticks,
-    // two analog triggers, and the d-pad delivered as a hat.
-    //
-    // glfwGetJoystickButtons appends each hat as four more buttons for
-    // backward compatibility, so the count it reports is the eleven real
-    // ones plus four for the d-pad.
-    constexpr int XINPUT_HATS = 1;
-    constexpr int XINPUT_REAL_BUTTONS = 11;
-    constexpr int XINPUT_BUTTONS = XINPUT_REAL_BUTTONS + (4 * XINPUT_HATS);
-    constexpr int XINPUT_AXES = 6;
-
-    int button_count = 0;
-    int axis_count = 0;
-    int hat_count = 0;
-    glfwGetJoystickButtons(jid, &button_count);
-    glfwGetJoystickAxes(jid, &axis_count);
-    glfwGetJoystickHats(jid, &hat_count);
-
-    if (button_count != XINPUT_BUTTONS || axis_count != XINPUT_AXES
-        || hat_count != XINPUT_HATS) {
-        return {};
-    }
-
-    const char* guid = glfwGetJoystickGUID(jid);
-    const char* name = glfwGetJoystickName(jid);
-    if (guid == nullptr) return {};
-
-    std::string mapping = guid;
-    mapping += ',';
-    mapping += (name != nullptr) ? name : "Generic Gamepad";
-    mapping +=
-        ",a:b0,b:b1,x:b2,y:b3"
-        ",leftshoulder:b4,rightshoulder:b5"
-        ",back:b6,start:b7,guide:b8"
-        ",leftstick:b9,rightstick:b10"
-        ",leftx:a0,lefty:a1,rightx:a3,righty:a4"
-        ",lefttrigger:a2,righttrigger:a5"
-        ",dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8"
-        ",platform:Linux,";
-    return mapping;
-}
-
-/// Give one joystick a mapping if it does not already have one, and report
-/// what happened. Returns true when it ends up usable as a gamepad.
-///
-/// Runs for pads present at startup and again for any that appear later, so
-/// a controller plugged in mid-session gets the same fallback treatment.
-bool ensure_joystick_mapped(int jid) {
-    if (glfwJoystickIsGamepad(jid) == GLFW_TRUE) return true;
-
-    const char* name = glfwGetJoystickName(jid);
-    const char* guid = glfwGetJoystickGUID(jid);
-
-    auto fallback = synthesize_xinput_mapping(jid);
-    if (!fallback.empty()
-        && glfwUpdateGamepadMappings(fallback.c_str()) == GLFW_TRUE
-        && glfwJoystickIsGamepad(jid) == GLFW_TRUE) {
-        FJELL_CORE_INFO("Joystick {} '{}' matched the XInput layout; using a "
-                        "generic mapping (GUID {})",
-                        jid, name != nullptr ? name : "?",
-                        guid != nullptr ? guid : "?");
-        return true;
-    }
-
-    FJELL_CORE_WARN("Joystick {} '{}' has no gamepad mapping (GUID {}) — add "
-                    "one to engine_assets/input/gamecontrollerdb_extra.txt",
-                    jid, name != nullptr ? name : "?",
-                    guid != nullptr ? guid : "?");
-    return false;
-}
-
-} // namespace
-
-void Input::load_gamepad_mappings() {
-    // Upstream database first, then local additions, so a GUID present in
-    // both resolves to ours.
-    if (!load_mapping_file("engine_assets/input/gamecontrollerdb.txt")) {
-        FJELL_CORE_WARN("Gamepad database missing — only GLFW's built-in "
-                        "mappings are available");
-    }
-    load_mapping_file("engine_assets/input/gamecontrollerdb_extra.txt");
-
-    // Map whatever is already attached. Which one actually gets read is
-    // decided per frame by resolve_pad(), which reports it — no need to
-    // announce them twice here.
-    for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid) {
-        if (glfwJoystickPresent(jid) == GLFW_FALSE) continue;
-        ensure_joystick_mapped(jid);
-    }
-}
-
-namespace {
-
-/// The Input attached to a GLFW window, found through the window's user
-/// pointer, or null when none is.
-Input* input_of(GLFWwindow* handle) {
-    auto* owner = static_cast<Window*>(glfwGetWindowUserPointer(handle));
-    return owner != nullptr ? owner->input() : nullptr;
+/// A joystick's GUID as the mapping files spell it.
+std::string guid_text(SDL_JoystickID id) {
+    char text[33] = {};
+    SDL_GUIDToString(SDL_GetJoystickGUIDForID(id), text, sizeof(text));
+    return text;
 }
 
 } // namespace
 
 void Input::attach(Window& window) {
     window_ = &window;
-    window.set_input(this);
+    event_connection_ = window.on_event.bind([this](const SDL_Event& event) {
+        receive(event);
+    });
+    start_gamepads();
+}
 
-    GLFWwindow* handle = window.handle();
-    glfwSetKeyCallback(handle, [](GLFWwindow* w, int key, int /*scancode*/,
-                                  int action, int /*mods*/) {
-        auto* input = input_of(w);
-        if (input == nullptr || key < 0 || key >= MAX_KEYS) return;
-
-        if (action == GLFW_PRESS) {
-            input->keys_[key] = KeyState::Pressed;
-        } else if (action == GLFW_RELEASE) {
-            input->keys_[key] = KeyState::Released;
+void Input::start_gamepads() {
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        FJELL_CORE_WARN("Gamepads are unavailable: {}", SDL_GetError());
+        return;
+    }
+    gamepads_started_ = true;
+    detach_ = [this] {
+        if (SDL_Gamepad* pad = SDL_GetGamepadFromID(pad_id_)) {
+            SDL_CloseGamepad(pad);
         }
-    });
-    glfwSetCursorPosCallback(handle, [](GLFWwindow* w, double xpos, double ypos) {
-        auto* input = input_of(w);
-        if (input == nullptr) return;
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    };
 
-        glm::dvec2 pos{xpos, ypos};
+    // SDL's own mappings, then the upstream database, then local additions,
+    // so a GUID present in more than one resolves to the last.
+    if (!load_mapping_file("engine_assets/input/gamecontrollerdb.txt")) {
+        FJELL_CORE_WARN("Gamepad database missing — only SDL's built-in "
+                        "mappings are available");
+    }
+    load_mapping_file("engine_assets/input/gamecontrollerdb_extra.txt");
+}
 
-        if (input->first_mouse_) {
-            input->mouse_last_ = pos;
-            input->first_mouse_ = false;
+void Input::receive(const SDL_Event& event) {
+    switch (event.type) {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP: {
+        // A held key repeats; only the first press is an edge.
+        if (event.key.repeat) break;
+        const int key = static_cast<int>(key_from_sdl_scancode(event.key.scancode));
+        if (key <= 0 || key >= MAX_KEYS) break;
+        keys_[key] = event.key.down ? KeyState::Pressed : KeyState::Released;
+        break;
+    }
+    case SDL_EVENT_MOUSE_MOTION:
+        mouse_delta_ += glm::dvec2{event.motion.xrel, event.motion.yrel};
+        // A captured cursor stays where it was; only its motion counts.
+        if (!cursor_captured_) {
+            mouse_pos_ = glm::dvec2{event.motion.x, event.motion.y};
         }
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const int button = mouse_button_from_sdl(event.button.button);
+        if (button < 0 || button >= MAX_BUTTONS) break;
+        mouse_buttons_[button] = event.button.down ? KeyState::Pressed : KeyState::Released;
+        break;
+    }
+    case SDL_EVENT_MOUSE_WHEEL:
+        // Fjell's horizontal scroll counts to the left, SDL's to the right.
+        scroll_delta_ += glm::dvec2{-event.wheel.x, event.wheel.y};
+        break;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        release_held();
+        break;
+    case SDL_EVENT_JOYSTICK_ADDED:
+    case SDL_EVENT_JOYSTICK_REMOVED:
+        pads_changed_ = true;
+        break;
+    default:
+        break;
+    }
+}
 
-        input->mouse_delta_ += pos - input->mouse_last_;
-        input->mouse_last_ = pos;
-        input->mouse_pos_ = pos;
-    });
-    glfwSetMouseButtonCallback(handle, [](GLFWwindow* w, int button, int action,
-                                          int /*mods*/) {
-        auto* input = input_of(w);
-        if (input == nullptr || button < 0 || button >= MAX_BUTTONS) return;
-
-        if (action == GLFW_PRESS) {
-            input->mouse_buttons_[button] = KeyState::Pressed;
-        } else if (action == GLFW_RELEASE) {
-            input->mouse_buttons_[button] = KeyState::Released;
+void Input::release_held() {
+    auto release = [](KeyState& state) {
+        if (state == KeyState::Pressed || state == KeyState::Held) {
+            state = KeyState::Released;
         }
-    });
-    glfwSetScrollCallback(handle, [](GLFWwindow* w, double xoffset, double yoffset) {
-        auto* input = input_of(w);
-        if (input == nullptr) return;
-
-        input->scroll_delta_ += glm::dvec2{xoffset, yoffset};
-    });
+    };
+    std::ranges::for_each(keys_, release);
+    std::ranges::for_each(mouse_buttons_, release);
 }
 
 void Input::resolve_pad() {
-    // Keep the pad already being read for as long as it stays usable, so a
-    // second controller connecting cannot take over mid-session.
-    if (pad_jid_ >= 0 && glfwJoystickIsGamepad(pad_jid_) == GLFW_TRUE) {
-        return;
-    }
+    // Keep the pad already being read for as long as it stays connected, so
+    // a second controller connecting cannot take over mid-session.
+    SDL_Gamepad* current = SDL_GetGamepadFromID(pad_id_);
+    if (current != nullptr && SDL_GamepadConnected(current)) return;
 
-    if (pad_jid_ >= 0) {
+    if (current != nullptr) {
         FJELL_CORE_INFO("Gamepad disconnected: {}",
                         pad_name_.empty() ? "?" : pad_name_);
-        pad_jid_ = -1;
+        SDL_CloseGamepad(current);
+        pad_id_ = 0;
         pad_name_.clear();
     }
 
-    // Scan every slot rather than assuming the first: a pad can be seated on
-    // another port, and one connected after startup lands wherever GLFW puts
-    // it.
-    for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid) {
-        if (glfwJoystickPresent(jid) == GLFW_FALSE) {
-            reported_unmapped_[jid] = false;
+    // Only a joystick coming or going can change the answer below.
+    if (!pads_changed_) return;
+    pads_changed_ = false;
+
+    int count = 0;
+    SDL_JoystickID* joysticks = SDL_GetJoysticks(&count);
+    if (joysticks == nullptr) return;
+    const std::span<const SDL_JoystickID> connected{joysticks, static_cast<size_t>(count)};
+
+    // Forget reports for joysticks that are gone, so one that comes back is
+    // reported again.
+    std::erase_if(reported_unmapped_, [&](uint32_t id) {
+        return std::ranges::find(connected, id) == connected.end();
+    });
+
+    for (const SDL_JoystickID id : connected) {
+        if (!SDL_IsGamepad(id)) {
+            if (std::ranges::find(reported_unmapped_, id) != reported_unmapped_.end()) continue;
+            reported_unmapped_.push_back(id);
+            const char* name = SDL_GetJoystickNameForID(id);
+            FJELL_CORE_WARN("Joystick '{}' has no gamepad mapping (GUID {}) — add "
+                            "one to engine_assets/input/gamecontrollerdb_extra.txt",
+                            name != nullptr ? name : "?", guid_text(id));
             continue;
         }
+        if (pad_id_ != 0) continue;
 
-        if (glfwJoystickIsGamepad(jid) == GLFW_FALSE) {
-            // This runs every frame while no pad is usable, so only try to
-            // map a given slot once per connection — otherwise an unmappable
-            // joystick warns forever.
-            if (reported_unmapped_[jid]) continue;
-            reported_unmapped_[jid] = true;
-            if (!ensure_joystick_mapped(jid)) continue;
+        SDL_Gamepad* pad = SDL_OpenGamepad(id);
+        if (pad == nullptr) {
+            FJELL_CORE_WARN("Could not open gamepad {}: {}", id, SDL_GetError());
+            continue;
         }
-
-        pad_jid_ = jid;
-        const char* name = glfwGetGamepadName(jid);
+        pad_id_ = id;
+        const char* name = SDL_GetGamepadName(pad);
         pad_name_ = name != nullptr ? name : "?";
-        FJELL_CORE_INFO("Gamepad connected: {} (slot {})", pad_name_, jid);
-        return;
+        FJELL_CORE_INFO("Gamepad connected: {}", pad_name_);
     }
+    SDL_free(joysticks);
 }
 
 void Input::detect_active_device() {
@@ -263,9 +202,9 @@ void Input::detect_active_device() {
             float y = pad_axes_[axis + 1];
             if (std::sqrt((x * x) + (y * y)) > PAD_STICK_SWITCH) return true;
         }
-        // Triggers rest at -1 and read 1 fully pressed.
+        // Triggers rest at 0 and read 1 fully pulled.
         for (int axis = 4; axis < MAX_PAD_AXES; ++axis) {
-            if ((pad_axes_[axis] + 1.0F) * 0.5F > PAD_TRIGGER_SWITCH) return true;
+            if (pad_axes_[axis] > PAD_TRIGGER_SWITCH) return true;
         }
         return false;
     };
@@ -318,18 +257,26 @@ void Input::update() {
             btn = KeyState::Idle;
         }
     }
-    // Gamepad polling
     pad_buttons_prev_ = pad_buttons_;
-    resolve_pad();
+    SDL_Gamepad* pad = nullptr;
+    if (gamepads_started_) {
+        // Read the pad as it is now, not as of the last event poll.
+        SDL_UpdateGamepads();
+        resolve_pad();
+        pad = SDL_GetGamepadFromID(pad_id_);
+    }
 
-    GLFWgamepadstate gamepad;
-    if (pad_jid_ >= 0 && glfwGetGamepadState(pad_jid_, &gamepad) == GLFW_TRUE) {
+    if (pad != nullptr) {
         pad_connected_ = true;
-        for (int i = 0; i < MAX_PAD_BUTTONS; ++i) {
-            pad_buttons_[i] = gamepad.buttons[i];
+        const auto buttons = sdl_gamepad_buttons();
+        for (size_t i = 0; i < buttons.size(); ++i) {
+            const auto button = static_cast<SDL_GamepadButton>(buttons[i]);
+            pad_buttons_[i] = SDL_GetGamepadButton(pad, button) ? 1 : 0;
         }
+        // SDL's axes run -32768 to 32767, and its triggers rest at 0.
         for (int i = 0; i < MAX_PAD_AXES; ++i) {
-            pad_axes_[i] = gamepad.axes[i];
+            const auto raw = SDL_GetGamepadAxis(pad, static_cast<SDL_GamepadAxis>(i));
+            pad_axes_[i] = std::max(static_cast<float>(raw) / 32767.0F, -1.0F);
         }
     } else {
         pad_connected_ = false;
@@ -337,7 +284,7 @@ void Input::update() {
         pad_axes_.fill(0.0F);
     }
 
-    // Runs while the mouse deltas still hold what the callbacks accumulated
+    // Runs while the mouse deltas still hold what the events added up
     // during the last poll_events(); they are cleared for the next frame
     // immediately below.
     detect_active_device();
@@ -414,9 +361,6 @@ void Input::set_cursor_captured(bool captured) {
     if (window_ == nullptr) return;
     cursor_captured_ = captured;
     window_->set_cursor_captured(captured);
-    if (captured) {
-        first_mouse_ = true;
-    }
 }
 
 void Input::apply_cursor_lock(bool allowed) {

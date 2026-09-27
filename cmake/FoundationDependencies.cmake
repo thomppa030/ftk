@@ -15,17 +15,25 @@ if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
 endif()
 
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+# SDL is the window, keyboard, mouse and gamepad layer. It builds as a
+# static library, so no DLL has to travel beside a Windows binary. Its audio,
+# camera, 2D renderer and GPU APIs go unused and are left out.
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
+set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+set(SDL_GPU OFF CACHE BOOL "" FORCE)
 set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
 set(JSON_Install OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
+    SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG        release-3.4.16
     GIT_SHALLOW    TRUE
 )
 
@@ -89,7 +97,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb json tracy)
+FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy)
 
 # Consumed as plain sources: its files are compiled straight into the ImGui
 # targets in src/libraries.cmake, so it is fetched but never added as a

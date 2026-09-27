@@ -1,10 +1,11 @@
-# --- Testable engine subset (no Vulkan, no GLFW, no ImGui backends) ---
+# --- Testable engine subset (no Vulkan, no window, no ImGui backends) ---
 add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/sdl_input_codes.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
@@ -117,7 +118,8 @@ endforeach()
 # The font baker is tested on a real font, and its test reads the outline
 # back through msdfgen, so both see msdfgen and FreeType; msdfgen's headers
 # come in as system directories, the way the engine target treats them.
-target_link_libraries(fjell-testable PUBLIC msdfgen::msdfgen-core msdfgen::msdfgen-ext Freetype::Freetype)
+target_link_libraries(fjell-testable PUBLIC msdfgen::msdfgen-core msdfgen::msdfgen-ext Freetype::Freetype
+    PRIVATE SDL3::Headers)
 foreach(dep msdfgen-core msdfgen-ext)
     get_target_property(dirs ${dep} INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(fjell-testable SYSTEM PUBLIC ${dirs})
@@ -219,6 +221,7 @@ add_executable(fjell-tests
     test_climate.cpp
     test_environment_scenario.cpp
     test_input_source.cpp
+    test_sdl_input_codes.cpp
     test_folder_colors.cpp
     imgui_harness.cpp
     test_text_field.cpp
@@ -265,6 +268,7 @@ add_executable(fjell-tests
 target_link_libraries(fjell-tests PRIVATE
     fjell-testable
     Catch2::Catch2WithMain
+    SDL3::Headers
 )
 # fjreflect's parser is tested in place; it depends on nothing from the engine.
 target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
@@ -273,7 +277,7 @@ target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
 
 fjell_target_defaults(fjell-tests)
-# The libraries under test bring Vulkan and GLFW for code no test calls.
+# The libraries under test bring Vulkan and SDL for code no test calls.
 # Keeping only the shared libraries something uses leaves the Vulkan loader
 # out, so the tests start on a machine without it. MSVC already imports a
 # DLL only for the symbols used from it.

@@ -7,7 +7,12 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
+
+union SDL_Event;
 
 namespace fjell {
 
@@ -29,7 +34,17 @@ enum class InputDevice : uint8_t { keyboard_mouse, gamepad };
 /// here as an exported, out-of-line member and declared there.
 class Input {
 public:
-    /// Read this window's keyboard and mouse from now on.
+    Input() = default;
+    ~Input() {
+        if (detach_) detach_();
+    }
+    Input(const Input&) = delete;
+    Input& operator=(const Input&) = delete;
+    Input(Input&&) = delete;
+    Input& operator=(Input&&) = delete;
+
+    /// Read this window's keyboard and mouse from now on, and start reading
+    /// gamepads with SDL's mappings and the engine's own additions.
     void attach(Window& window);
     void update();
 
@@ -121,11 +136,6 @@ public:
     /// focus decision; nothing else needs to reconcile the two.
     void apply_cursor_lock(bool allowed);
 
-    /// Load SDL gamepad mappings so controllers GLFW does not know are
-    /// still usable. Call once before the first update(). Without a mapping
-    /// glfwGetGamepadState fails outright and the pad reads as absent.
-    static void load_gamepad_mappings();
-
     // Gamepad
     [[nodiscard]] bool pad_connected() const { return pad_connected_; }
     [[nodiscard]] bool pad_button_held(int button) const;
@@ -164,10 +174,10 @@ private:
     std::array<float, MAX_PAD_AXES> pad_axes_{};
     bool pad_connected_{false};
 
-    /// Which joystick slot is being read, or -1 when none is. Resolved by
-    /// scanning rather than fixed to slot 0, so a pad on another port or one
+    /// The SDL joystick id of the pad being read, or 0 when none is. Chosen
+    /// from every connected pad rather than fixed to the first, so one
     /// plugged in after startup is still found.
-    int pad_jid_{-1};
+    uint32_t pad_id_{0};
     std::string pad_name_;
 
     InputDevice active_device_{InputDevice::keyboard_mouse};
@@ -175,22 +185,34 @@ private:
     /// Update active_device_ from this frame's input, firing the delegate on
     /// a change. Thresholds live in the implementation.
     void detect_active_device();
-    /// Slots already tried and found unmappable, cleared when they empty, so
-    /// the per-frame scan reports each connection once instead of every frame.
-    /// Sized for GLFW's joystick slots, which are ids 0 through 15.
-    static constexpr int MAX_JOYSTICKS = 16;
-    std::array<bool, MAX_JOYSTICKS> reported_unmapped_{};
+    /// Joysticks already reported as having no gamepad mapping, so each is
+    /// reported once per connection rather than on every scan.
+    std::vector<uint32_t> reported_unmapped_;
+    /// Set when a joystick comes or goes, so the pads are looked over again.
+    bool pads_changed_{true};
+    /// Whether attach() started SDL's gamepad subsystem.
+    bool gamepads_started_{false};
+    /// Undoes what attach() started, run by the destructor. Empty for an
+    /// Input never attached, which holds nothing of the platform's.
+    std::move_only_function<void()> detach_;
 
-    /// Pick a connected, mapped joystick to read. Keeps the current one while
-    /// it stays valid so a second pad cannot steal the slot mid-session.
+    /// Start SDL's gamepad subsystem and load the mapping files.
+    void start_gamepads();
+    /// Pick a connected gamepad to read. Keeps the current one while it
+    /// stays connected so a second pad cannot take over mid-session.
     void resolve_pad();
 
+    /// Apply one of the window's events to the key, button and mouse state.
+    void receive(const SDL_Event& event);
+    /// Let go of every held key and button, for when the window loses focus
+    /// and will not see them come up.
+    void release_held();
+
     glm::dvec2 mouse_pos_{0.0};
-    glm::dvec2 mouse_last_{0.0};
     glm::dvec2 mouse_delta_{0.0};
     glm::dvec2 scroll_delta_{0.0};
     Window* window_{nullptr};
-    bool first_mouse_{true};
+    Connection event_connection_;
     bool cursor_captured_{false};
     bool cursor_lock_wanted_{false};
 

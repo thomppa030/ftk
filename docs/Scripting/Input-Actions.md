@@ -223,7 +223,7 @@ Avoid it for player-facing controls in shipped code.
 
 For a `move` action bound as a WASD composite in the `gameplay` context, with `on_move(vec2)` bound on `Player`:
 
-1. **OS event** — GLFW key callback fires. `Input::key_callback` flips `keys_[GLFW_KEY_W]` to `Pressed`.
+1. **OS event** — SDL reports the key to the window, which hands the event to its `Input`. `Input::receive` flips `keys_[FJELL_KEY_W]` to `Pressed`.
 2. **Per-frame promotion** — `Input::update()` runs at the top of the frame; `Pressed` becomes `Held`.
 3. **Action evaluation** — `InputActionMap::update()` walks the active context stack top-down. In `gameplay`, the `move` composite binding sees `key_w` held → adds `+1` to the Y component. `state.axis = {0, 1}`, `state.held = true`.
 4. **Modifiers** — none on this binding; value passes through.
@@ -325,7 +325,7 @@ Same files as the JSON walkthrough above — the editor is just a much faster wa
 
 | File | Role |
 |---|---|
-| `src/core/input.hpp/cpp` | Raw GLFW polling — keys, mouse, gamepad |
+| `src/core/input.hpp/cpp` | Raw input from SDL — keys, mouse, gamepad |
 | `src/core/input_source.hpp/cpp` | `InputSource` enum + name ↔ enum conversion |
 | `src/core/input_modifier.hpp/cpp` | Modifier types + application |
 | `src/core/input_binding.hpp` | A single binding struct |

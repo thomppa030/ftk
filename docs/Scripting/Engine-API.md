@@ -64,4 +64,4 @@ Reference pages for every type and static API exposed to game scripts. For the m
 
 ## Key codes
 
-`fjell/api.h` defines `FJELL_KEY_*` and `FJELL_MOUSE_*` constants (matching GLFW values). Used with [`Input`](API/Input.md) polling functions.
+`fjell/api.h` defines `FJELL_KEY_*` and `FJELL_MOUSE_*` constants, Fjell's own codes for keys by their place on a US keyboard. Used with [`Input`](API/Input.md) polling functions.
