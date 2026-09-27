@@ -2379,6 +2379,10 @@ void Engine::run() {
         }
 
         imgui_layer_->begin_frame();
+        // The scene editor's gizmos draw into ImGuizmo's own window, which
+        // opens with each of the editor's frames and in its context, never a
+        // dialog's.
+        ImGuizmo::BeginFrame();
         handle_play_shortcuts();
         if (play_controller_.playing() &&
             play_controller_.presentation() == PlayPresentation::fullscreen) {

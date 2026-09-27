@@ -664,15 +664,11 @@ add_executable(fjell-hub
     renderer/gpu/buffer.cpp
     ui/imgui_layer.cpp
     ui/editor_view_settings.cpp
-    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
 target_include_directories(fjell-hub PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${stb_SOURCE_DIR}
-)
-target_include_directories(fjell-hub SYSTEM PRIVATE
-    ${imguizmo_SOURCE_DIR}/src
 )
 # The hub draws its ImGui through the same sRGB-decoding fragment stage.
 add_dependencies(fjell-hub fjell_shaders)
@@ -688,11 +684,6 @@ target_link_libraries(fjell-hub PRIVATE
     Vulkan::Vulkan
 )
 fjell_target_defaults(fjell-hub)
-if(MSVC)
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
-else()
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
-endif()
 # VMA system headers for fjell-hub
 if(VMA_INCLUDE_DIRS)
     target_include_directories(fjell-hub SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
