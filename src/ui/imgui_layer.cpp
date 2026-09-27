@@ -5,7 +5,6 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
-#include <ImGuizmo.h>
 
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -165,7 +164,6 @@ void ImGuiLayer::begin_frame() {
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
-  ImGuizmo::BeginFrame();
 }
 
 void ImGuiLayer::end_frame() { FJELL_PROFILE_SCOPE_N("imgui_end_frame"); ImGui::Render(); }
