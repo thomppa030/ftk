@@ -122,6 +122,7 @@ add_executable(fjell
     renderer/gpu/image_readback.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
+    renderer/resources/fjsl_compiler.cpp
     renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
     renderer/resources/fjmesh_writer.cpp

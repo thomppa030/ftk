@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/resources/fjsl_parser.hpp"
+#include "renderer/resources/fjsl_compiler.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -17,7 +17,10 @@ class Project;
 
 // Manages one VkPipeline (opaque + transparent + mesh shader) per unique .fjsl shader.
 // All pipelines share the same VkPipelineLayout — only the fragment module differs.
-// Pipeline ID 0 is always standard.fjsl (identical to the old mesh.frag).
+// Pipeline ID 0 is always standard.fjsl (identical to the old mesh.frag). The
+// FjslCompiler turns each shader into SPIR-V; this picks the template its
+// type is generated into, the variants it is compiled in, and builds the
+// pipelines the spatial ones are drawn with.
 class PipelineCache {
 public:
     PipelineCache(Device& device,
@@ -85,7 +88,7 @@ public:
     [[nodiscard]] uint32_t shader_count() const { return static_cast<uint32_t>(entries_.size()); }
     [[nodiscard]] const std::string& compile_error(uint32_t id) const { return entries_[id].compile_error; }
     [[nodiscard]] bool has_compile_error(uint32_t id) const { return !entries_[id].compile_error.empty(); }
-    [[nodiscard]] const std::string& shader_path(uint32_t id) const { return entries_[id].fjsl_path; }
+    [[nodiscard]] const std::string& shader_path(uint32_t id) const { return entries_[id].program.path; }
 
     /// The project whose shaders take precedence over the engine's own.
     ///
@@ -112,13 +115,12 @@ public:
 
 private:
     struct Entry {
-        std::string fjsl_path;
-        /// Every shader_function this entry composed, by the path its `use`
-        /// wrote. Editing one of these has to rebuild this entry: the function's
-        /// code is inlined here, and nothing else would notice it changed.
-        std::vector<std::string> used_paths;
+        /// The shader: its path from registration on, the rest as of its last
+        /// successful compile. Editing a function it composes has to rebuild
+        /// it: the function's code is inlined here, and nothing else would
+        /// notice it changed.
+        FjslProgram program;
         std::string generated_frag_path;
-        ShaderMetadata metadata;
         bool has_custom_vertex{false};
         VkPipeline opaque{VK_NULL_HANDLE};
         VkPipeline transparent{VK_NULL_HANDLE};
@@ -152,22 +154,13 @@ private:
     };
 
     void create_layout();
-    /// Read the templates and hash every file in shaders/include/. Run at
-    /// construction and again by recreate_all(), which is what an edited
-    /// include leads to: until they are read again the templates are the old
-    /// text and the SPIR-V cache key is the old key.
-    void load_includes();
+    /// Read the templates from shaders/include/. Run at construction and
+    /// again by recreate_all(), which is what an edited include leads to:
+    /// until they are read again the templates are the old text.
+    void load_templates();
     void compile_entry(Entry& entry);
     void create_pipelines(Entry& entry, const std::string& spv_path);
     void destroy_entry_pipelines(Entry& entry);
-
-    // Compile a GLSL source to SPIR-V using glslc. Returns path to .spv file.
-    // `defines` are passed as -D flags, for templates compiled in more than
-    // one shape from one generated source.
-    [[nodiscard]] std::string compile_glsl(const std::string& source_path,
-                                            const std::string& output_name,
-                                            const std::vector<std::string>& defines = {},
-                                            const std::string& stage = {});
 
     Device& device_;
     VkFormat color_format_;
@@ -196,23 +189,11 @@ private:
     std::string depth_vertex_template_;
     std::string shadow_vertex_template_;
     std::string outline_vertex_template_;
-    std::string shader_source_dir_;
-    std::string generated_dir_;
-    /// Where compiled SPIR-V is kept between runs, keyed by the hash of
-    /// everything that produced it.
-    std::string spv_cache_dir_;
-    /// One hash over every file under shaders/include, subdirectories too,
-    /// taken once at startup.
-    ///
-    /// The generated GLSL still `#include`s engine headers, so hashing it
-    /// alone would miss an edit to one of them. Asking glslc for each
-    /// shader's real dependency list costs 58 ms — about what compiling
-    /// costs, which defeats the point — while hashing all the includes
-    /// together costs 1 ms. So an edit to any include invalidates every
-    /// cached shader, which is what a template edit already does anyway.
-    uint64_t include_hash_{0};
     const Project* project_{nullptr};
     VkPipelineCache vk_cache_{VK_NULL_HANDLE};
+    /// Finds a shader in the project first, then the engine: read through
+    /// `project_` at each lookup, so set_project() is all it takes.
+    FjslCompiler compiler_;
 };
 
 } // namespace fjell

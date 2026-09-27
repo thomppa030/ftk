@@ -24,7 +24,7 @@ param_count           — number of custom floats
 
 ### Custom Shaders (.fjsl)
 
-Godot-style spatial shaders. A `.fjsl` file declares uniforms and a `fragment()` body that writes to built-in outputs (`ALBEDO`, `ROUGHNESS`, `METALLIC`, `NORMAL`, `EMISSION`, `AO`, `ALPHA`). The FJSL parser generates a complete fragment shader from a template, compiles it to SPIR-V via `glslc`, and the `PipelineCache` creates opaque + transparent + mesh shader pipeline variants per shader.
+Godot-style spatial shaders. A `.fjsl` file declares uniforms and a `fragment()` body that writes to built-in outputs (`ALBEDO`, `ROUGHNESS`, `METALLIC`, `NORMAL`, `EMISSION`, `AO`, `ALPHA`). The FJSL parser generates a complete fragment shader from a template, the `FjslCompiler` compiles it to SPIR-V via `glslc` (kept in `shaders/generated/.fjcache` by content, so an unchanged shader is not compiled twice), and the `PipelineCache` creates opaque + transparent + mesh shader pipeline variants per shader.
 
 Materials are defined in `.fjmat` JSON files that reference a shader, textures, and param values. The properties panel reads shader metadata to render per-uniform inspector controls (color pickers, sliders, drag floats) with live preview. Params are saved back to `.fjmat` on scene save.
 

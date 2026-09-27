@@ -7,54 +7,15 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "platform/platform.hpp"
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <array>
 #include <filesystem>
-#include <fstream>
-#include <future>
-#include <sstream>
 #include <stdexcept>
 
 namespace fjell {
-
-namespace {
-
-// FNV-1a. Not std::hash: that is unspecified and free to differ between
-// runs and standard libraries, which is fine for a lookup table and fatal
-// for a key written to disk and read back by a later build.
-constexpr uint64_t FNV_OFFSET = 1469598103934665603ULL;
-constexpr uint64_t FNV_PRIME = 1099511628211ULL;
-
-uint64_t hash_bytes(std::string_view bytes, uint64_t seed = FNV_OFFSET) {
-    uint64_t h = seed;
-    for (unsigned char c : bytes) {
-        h ^= c;
-        h *= FNV_PRIME;
-    }
-    return h;
-}
-
-std::string read_file(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f.is_open()) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-// What a compiled shader is a function of, beyond its own generated source:
-// the includes it pulls in, the defines it was built with, the stage it was
-// built as, and the compiler itself.
-//
-// FJELL_SHADER_CODEGEN_VERSION stands in for the generator. The generated
-// GLSL is an output of fjsl_parser.cpp, so changing how that emits must
-// invalidate everything — the .fjsl did not move but what it produces did.
-// Bump it whenever generation changes shape.
-constexpr uint32_t FJELL_SHADER_CODEGEN_VERSION = 1;
-
-} // namespace
 
 PipelineCache::PipelineCache(Device& device,
                              VkFormat color_format, VkFormat depth_format,
@@ -72,15 +33,10 @@ PipelineCache::PipelineCache(Device& device,
     , draw_data_layout_{draw_data_layout}
     , meshlet_layout_{meshlet_layout}
     , samples_{samples}
-    , vk_cache_{vk_cache} {
-
-    shader_source_dir_ = base_path::resolve("shaders");
-    generated_dir_ = base_path::resolve("shaders/generated");
-    std::filesystem::create_directories(generated_dir_);
-    spv_cache_dir_ = generated_dir_ + "/.fjcache";
-    std::filesystem::create_directories(spv_cache_dir_);
-
-    load_includes();
+    , vk_cache_{vk_cache}
+    , compiler_{base_path::resolve("shaders"), base_path::resolve("shaders/generated"),
+                [this](const std::string& reference) { return base_path::resolve_shared(reference, project_); }} {
+    load_templates();
 
     create_layout();
 
@@ -90,38 +46,8 @@ PipelineCache::PipelineCache(Device& device,
     FJELL_GFX_DEBUG("PipelineCache created with standard shader (ID 0)");
 }
 
-void PipelineCache::load_includes() {
-    // One hash over every include, in a fixed order so two runs over the same
-    // files agree. It keys the SPIR-V cache: what a shader pulls in with
-    // #include is not in its generated source, so without this an edited
-    // include would find the old binary under an unchanged key.
-    //
-    // Subdirectories count: include/tonemap/ holds the tone curves, and an
-    // edit there has to rebuild a shader that includes them like any other.
-    {
-        const std::filesystem::path root = shader_source_dir_ + "/include";
-        std::vector<std::filesystem::path> includes;
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
-            if (entry.is_regular_file(ec)) includes.push_back(entry.path());
-        }
-        std::sort(includes.begin(), includes.end());
-        uint64_t h = FNV_OFFSET;
-        for (const auto& path : includes) {
-            h = hash_bytes(path.lexically_relative(root).generic_string(), h);
-            h = hash_bytes(read_file(path.string()), h);
-        }
-        include_hash_ = h;
-    }
-
-    auto load_template = [&](const std::string& name) -> std::string {
-        std::string path = shader_source_dir_ + "/include/" + name;
-        std::ifstream f(path);
-        if (!f.is_open()) return {};
-        std::ostringstream s;
-        s << f.rdbuf();
-        return s.str();
-    };
+void PipelineCache::load_templates() {
+    auto load_template = [&](const std::string& name) { return compiler_.read_include(name); };
 
     // Load the spatial template (required)
     template_source_ = load_template("fjell_spatial_template.glsl");
@@ -236,7 +162,7 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
     // resolves what its `use` declarations name — and anything that reached
     // back here would grow the vector and leave that reference dangling.
     Entry entry;
-    entry.fjsl_path = fjsl_path;
+    entry.program.path = fjsl_path;
     compile_entry(entry);
     entries_.push_back(std::move(entry));
 
@@ -249,45 +175,12 @@ void PipelineCache::compile_entry(Entry& entry) {
     FJELL_PROFILE_SCOPE_N("fjsl_compile_entry");
     // Build into a temporary entry — only commit on full success
     Entry next{};
-    next.fjsl_path = entry.fjsl_path;
 
     try {
-        // Read the .fjsl source. A material names its shader the same way
-        // whether the engine or the game owns it, so look in the project
-        // first and fall back to the engine.
-        std::string full_path = base_path::resolve_shared(entry.fjsl_path, project_);
-        if (full_path.empty()) {
-            throw std::runtime_error("FJSL file not found in project or engine: "
-                                     + entry.fjsl_path);
-        }
-        std::ifstream f(full_path);
-        if (!f.is_open()) {
-            throw std::runtime_error("Failed to open FJSL file: " + full_path);
-        }
-        std::ostringstream ss;
-        ss << f.rdbuf();
-        std::string source = ss.str();
-
-        // Parse FJSL
-        next.metadata = parse_fjsl(source);
-        // The name a compiler error should carry. The parser works on text and
-        // does not know where it came from.
-        next.metadata.source_path = entry.fjsl_path;
-
-        // The parser collects problems rather than throwing on the first, so a
-        // shader with two mistakes reports both. Warnings are logged and the
-        // build continues; an error means the metadata cannot be built from.
-        log_fjsl_diagnostics(next.metadata, entry.fjsl_path);
-        std::string parse_errors;
-        for (const auto& d : next.metadata.diagnostics) {
-            if (d.severity != FjslSeverity::error) continue;
-            if (!parse_errors.empty()) parse_errors += "\n";
-            parse_errors += entry.fjsl_path + ":" + std::to_string(d.line)
-                          + ":" + std::to_string(d.column) + ": " + d.message;
-        }
-        if (!parse_errors.empty()) {
-            throw std::runtime_error(parse_errors);
-        }
+        // Read, parse and compose the .fjsl. A material names its shader the
+        // same way whether the engine or the game owns it, so the compiler's
+        // locator looks in the project first and falls back to the engine.
+        next.program = compiler_.load(entry.program.path);
 
         // Pick the template by shader_type. Spatial uses the full PBR
         // template; sky the fullscreen sky template; ui the UI quad template;
@@ -295,7 +188,7 @@ void PipelineCache::compile_entry(Entry& entry) {
         // shader; water the wave template drawn by the water mesh shader; fog
         // the froxel compute template the volumetric fog pass dispatches;
         // post the fullscreen template the post pass draws per layer.
-        const ShaderType shader_type = next.metadata.shader_type;
+        const ShaderType shader_type = next.program.metadata.shader_type;
         const bool is_ui = shader_type == ShaderType::Ui;
         const bool is_fog = shader_type == ShaderType::Fog;
         // Spatial is the only type drawn by the shared mesh/vertex pipelines;
@@ -318,130 +211,21 @@ void PipelineCache::compile_entry(Entry& entry) {
                                      + std::string(shader_type_name(shader_type)) + "'");
         }
 
-        // Resolve what this shader composes, if anything. A `use` names a file
-        // the same way a material names a shader, so it is found the same way:
-        // the project first, then the engine, which lets a game replace an
-        // engine function by putting its own at the same path.
-        FjslComposition composition;
-        if (!next.metadata.uses.empty()) {
-            composition = resolve_composition(
-                next.metadata, entry.fjsl_path,
-                [this](const std::string& path) -> std::optional<std::string> {
-                    const std::string full = base_path::resolve_shared(path, project_);
-                    if (full.empty()) return std::nullopt;
-                    std::ifstream file(full);
-                    if (!file) return std::nullopt;
-                    std::ostringstream text;
-                    text << file.rdbuf();
-                    return text.str();
-                });
-            log_fjsl_diagnostics(composition, entry.fjsl_path);
-            if (composition.has_errors()) {
-                std::string errors;
-                for (const auto& d : composition.diagnostics) {
-                    if (d.severity != FjslSeverity::error) continue;
-                    if (!errors.empty()) errors += "\n";
-                    errors += (d.file.empty() ? entry.fjsl_path : d.file) + ":"
-                            + std::to_string(d.line) + ":" + std::to_string(d.column)
-                            + ": " + d.message;
-                }
-                throw std::runtime_error(errors);
-            }
-            for (const auto& file : composition.files) {
-                if (file.use_name.empty()) continue;
-                next.used_paths.push_back(file.path);
-            }
-        }
+        // Generate the complete fragment shader. From here on the program's
+        // metadata is the whole program's, composed functions' dials
+        // included: the inspector lists them and the passes size the
+        // parameter block from it.
+        const std::string frag_source = generate_fragment(next.program, tmpl);
 
-        // Generate complete fragment shader
-        const FjslComposition* composed =
-            next.metadata.uses.empty() ? nullptr : &composition;
-        std::string frag_source = generate_fragment_shader(next.metadata, tmpl, composed);
-
-        // Everything past here reads the entry's metadata as the whole
-        // program: the inspector lists its dials from `uniforms`, and the
-        // passes size the parameter block from `custom_param_count`. A
-        // composed function's uniforms are part of that program — they take a
-        // run of the same block — so they are folded in under the names the
-        // generated GLSL just gave them. Without this a composed sky reads
-        // past what it allocated and shows none of the dials it reads.
-        //
-        // After generating, not before: the generator lays each file out from
-        // the consumer's own count, so inflating it first would shift every
-        // offset a second time.
-        if (composed != nullptr) {
-            const uint32_t own_textures = next.metadata.custom_texture_count;
-            for (const auto& file : composed->files) {
-                if (file.use_name.empty()) continue;
-                for (const auto& u : file.meta.uniforms) {
-                    FjslUniform folded = u;
-                    folded.name = file.use_name + "_" + u.name;
-                    // A sampler's slot is an absolute index into
-                    // texture_indices, where a scalar's is an offset into the
-                    // params block — so the two shift by different bases, and
-                    // a sampler's keeps the PBR set at the front.
-                    folded.slot = u.type == UniformType::Sampler2D
-                        ? next.metadata.custom_texture_count + u.slot
-                        : next.metadata.custom_param_count + u.slot;
-                    // Grouped under the wiring, so the inspector shows whose
-                    // dials these are rather than one flat wall.
-                    folded.group = folded.group.empty()
-                        ? file.use_name
-                        : file.use_name + " / " + folded.group;
-                    next.metadata.uniforms.push_back(std::move(folded));
-                }
-                next.metadata.custom_param_count += file.meta.custom_param_count;
-                next.metadata.custom_texture_count += file.meta.custom_texture_count;
-            }
-
-            // The parser caps one file's own samplers; only here is the
-            // composition's total known. Name every file that asked for one,
-            // because the author of the shader that went over may not have
-            // written any of them.
-            if (next.metadata.custom_texture_count > CUSTOM_TEXTURE_SLOTS) {
-                std::string who;
-                if (own_textures > 0) {
-                    who += "\n  " + entry.fjsl_path + ": "
-                         + std::to_string(own_textures);
-                }
-                for (const auto& file : composed->files) {
-                    if (file.use_name.empty() || file.meta.custom_texture_count == 0) continue;
-                    who += "\n  " + file.path + " (as '" + file.use_name + "'): "
-                         + std::to_string(file.meta.custom_texture_count);
-                }
-                throw std::runtime_error(
-                    "this composition wants "
-                    + std::to_string(next.metadata.custom_texture_count)
-                    + " textures and a material has room for "
-                    + std::to_string(CUSTOM_TEXTURE_SLOTS) + ":" + who);
-            }
-        }
-
-        // Determine output name from fjsl filename. A fog shader generates
-        // a compute shader, and the extension says so to anyone compiling
-        // the generated file by hand.
-        std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
-        next.generated_frag_path = generated_dir_ + "/" + stem + (is_fog ? ".comp" : ".frag");
-
-        // Write generated .frag
-        {
-            std::ofstream out(next.generated_frag_path);
-            if (!out.is_open()) {
-                throw std::runtime_error("Failed to write generated shader: " + next.generated_frag_path);
-            }
-            out << frag_source;
-        }
+        // Named after the .fjsl. A fog shader generates a compute shader, and
+        // the extension says so to anyone compiling the generated file by hand.
+        std::string stem = std::filesystem::path(entry.program.path).stem().string();
+        next.generated_frag_path = compiler_.write_generated(stem + (is_fog ? ".comp" : ".frag"), frag_source);
 
         // Generate vertex shaders to disk (fast, must happen before parallel compile)
-        next.has_custom_vertex = !next.metadata.vertex_body.empty();
+        next.has_custom_vertex = !next.program.metadata.vertex_body.empty();
 
-        struct ShaderJob {
-            std::string source_path;
-            std::string output_name;
-            std::vector<std::string> defines;
-            std::string stage;  // glslc -fshader-stage; empty infers from the extension
-        };
-        std::vector<ShaderJob> jobs;
+        std::vector<FjslCompiler::Job> jobs;
 
         // The main stage is always compiled: a fragment for every drawn type,
         // the fog pass's medium compute shader for a fog shader, which is
@@ -464,22 +248,11 @@ void PipelineCache::compile_entry(Entry& entry) {
         }
 
         if (next.has_custom_vertex) {
-            auto gen_source = [&](const std::string& vertex_tmpl, const std::string& suffix) -> std::string {
-                if (vertex_tmpl.empty()) return {};
-                std::string src = generate_vertex_shader(next.metadata, vertex_tmpl);
-                std::string path = generated_dir_ + "/" + stem + suffix;
-                std::ofstream out(path);
-                if (!out.is_open()) return {};
-                out << src;
-                out.close();
-                return path;
-            };
-
             auto add_job = [&](const std::string& vertex_tmpl, const std::string& suffix) {
-                std::string path = gen_source(vertex_tmpl, suffix);
-                if (!path.empty()) {
-                    jobs.push_back({path, stem + suffix, {}, {}});
-                }
+                if (vertex_tmpl.empty()) return;
+                const std::string path = compiler_.write_generated(
+                    stem + suffix, generate_vertex_shader(next.program.metadata, vertex_tmpl));
+                jobs.push_back({path, stem + suffix, {}, {}});
             };
 
             add_job(vertex_template_, ".vert");
@@ -491,35 +264,27 @@ void PipelineCache::compile_entry(Entry& entry) {
         }
 
         // Compile all shaders in parallel via glslc
-        std::vector<std::future<std::string>> futures;
-        futures.reserve(jobs.size());
-        for (auto& job : jobs) {
-            futures.push_back(std::async(std::launch::async,
-                [this](std::string src, std::string out_name, std::vector<std::string> defs,
-                       std::string stage) {
-                    return compile_glsl(src, out_name, defs, stage);
-                }, job.source_path, job.output_name, job.defines, job.stage));
-        }
+        const std::vector<std::string> spvs = compiler_.compile_all(jobs);
 
         // Collect results
-        std::string frag_spv = futures[0].get(); // the main stage is always index 0
+        std::string frag_spv = spvs[0]; // the main stage is always index 0
         size_t idx = 1;
         if (is_fog) {
             next.fog_medium_spv = frag_spv;
-            next.fog_light_spv = futures[idx++].get();
+            next.fog_light_spv = spvs[idx++];
             frag_spv.clear();
         }
         if (is_ui) {
             next.ui_frag_spv = frag_spv;
-            next.ui_world_frag_spv = futures[idx++].get();
+            next.ui_world_frag_spv = spvs[idx++];
         }
         if (is_sky) {
-            next.sky_cubemap_spv = futures[idx++].get();
+            next.sky_cubemap_spv = spvs[idx++];
         }
 
         if (next.has_custom_vertex) {
             auto collect = [&]() -> std::string {
-                return (idx < futures.size()) ? futures[idx++].get() : std::string{};
+                return (idx < spvs.size()) ? spvs[idx++] : std::string{};
             };
             if (!vertex_template_.empty()) next.vert_spv = collect();
             if (!mesh_template_.empty()) next.mesh_spv = collect();
@@ -542,7 +307,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     } catch (const std::exception& e) {
         // Compilation failed — keep old pipelines, store error
         entry.compile_error = e.what();
-        FJELL_GFX_ERROR("Shader compile failed for '{}': {}", entry.fjsl_path, entry.compile_error);
+        FJELL_GFX_ERROR("Shader compile failed for '{}': {}", entry.program.path, entry.compile_error);
 
         // Clean up any partially created pipelines in the temp
         destroy_entry_pipelines(next);
@@ -551,8 +316,7 @@ void PipelineCache::compile_entry(Entry& entry) {
 
     // Success — destroy old pipelines and swap in new ones
     destroy_entry_pipelines(entry);
-    entry.metadata = std::move(next.metadata);
-    entry.used_paths = std::move(next.used_paths);
+    entry.program = std::move(next.program);
     entry.generated_frag_path = std::move(next.generated_frag_path);
     entry.has_custom_vertex = next.has_custom_vertex;
     entry.opaque = next.opaque;
@@ -578,88 +342,6 @@ void PipelineCache::compile_entry(Entry& entry) {
     ++entry.generation;
 }
 
-std::string PipelineCache::compile_glsl(const std::string& source_path,
-                                         const std::string& output_name,
-                                         const std::vector<std::string>& defines,
-                                         const std::string& stage) {
-    std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
-    std::string include_dir = shader_source_dir_ + "/include";
-
-    // Everything the compiled result is a function of. glslc is
-    // deterministic — the same input twice gives byte-identical SPIR-V — so
-    // this is an exact key rather than a guess, with none of the staleness a
-    // timestamp comparison invites.
-    const std::string source = read_file(source_path);
-    uint64_t key = include_hash_;
-    key = hash_bytes(source, key);
-    for (const auto& define : defines) key = hash_bytes(define, key);
-    key = hash_bytes(stage, key);
-    key = hash_bytes(std::string_view{reinterpret_cast<const char*>(&FJELL_SHADER_CODEGEN_VERSION),
-                                      sizeof(FJELL_SHADER_CODEGEN_VERSION)}, key);
-
-    char key_hex[17];
-    std::snprintf(key_hex, sizeof(key_hex), "%016llx", static_cast<unsigned long long>(key));
-    const std::string cached = spv_cache_dir_ + "/" + key_hex + ".spv";
-
-    // A hit skips glslc entirely: hashing costs about a millisecond against
-    // the 64 ms a compile takes.
-    if (!source.empty() && std::filesystem::exists(cached)) {
-        std::error_code ec;
-        std::filesystem::copy_file(cached, spv_path,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (!ec) {
-            FJELL_PROFILE_SCOPE_N("glslc_cache_hit");
-            return spv_path;
-        }
-        // A cache we cannot read is not a reason to fail; fall through and
-        // compile as if it had never been there.
-    }
-
-    // The largest startup cost in the renderer, and until now invisible:
-    // ~64 ms per invocation, once per shader, every launch.
-    FJELL_PROFILE_SCOPE_N("glslc");
-    std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
-    if (!stage.empty()) {
-        cmd += " -fshader-stage=" + stage;
-    }
-    for (const auto& define : defines) {
-        cmd += " -D" + define;
-    }
-    cmd += " " + source_path + " -o " + spv_path + " 2>&1";
-
-    std::string output;
-    int status = platform::run_command(cmd, output);
-    if (status != 0) {
-        FJELL_GFX_ERROR("FJSL shader compilation failed:\n{}", output);
-        // Carry what the compiler said, not just which file it was compiling.
-        // This is what reaches entry.compile_error and the editor's shader
-        // panel; the path alone sent the reader to the log to find out what
-        // was actually wrong. #line makes the text name the .fjsl, so it is
-        // worth showing.
-        throw std::runtime_error(output.empty()
-                                     ? "shader compilation failed for: " + source_path
-                                     : output);
-    }
-
-    // Keep the result for the next run. Written to a temporary and renamed,
-    // so a process that dies mid-write leaves no half-file for a later run to
-    // read as a valid cached shader. A failure to cache is not a failure to
-    // compile: the SPIR-V is already where the caller wants it.
-    if (!source.empty()) {
-        std::error_code ec;
-        const std::string temp = cached + ".tmp";
-        std::filesystem::copy_file(spv_path, temp,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (!ec) {
-            std::filesystem::rename(temp, cached, ec);
-        }
-        if (ec) std::filesystem::remove(temp, ec);
-    }
-
-    FJELL_GFX_DEBUG("Compiled FJSL shader: {} -> {}", source_path, spv_path);
-    return spv_path;
-}
-
 void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) {
     auto vk = device_.handle();
     auto vert_code = read_spirv(entry.has_custom_vertex && !entry.vert_spv.empty()
@@ -682,7 +364,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
     dynamic_state.pDynamicStates = dynamic_states.data();
 
-    const auto& rs = entry.metadata.render_state;
+    const auto& rs = entry.program.metadata.render_state;
 
     VkPipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -784,7 +466,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.opaque) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create opaque pipeline for: " + entry.fjsl_path);
+        throw std::runtime_error("Failed to create opaque pipeline for: " + entry.program.path);
     }
 
     // ── Transparent pipeline ──
@@ -851,7 +533,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.transparent) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create transparent pipeline for: " + entry.fjsl_path);
+        throw std::runtime_error("Failed to create transparent pipeline for: " + entry.program.path);
     }
 
     // ── Skinned opaque pipeline ──
@@ -894,7 +576,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned opaque pipeline for: " + entry.fjsl_path);
+        throw std::runtime_error("Failed to create skinned opaque pipeline for: " + entry.program.path);
     }
 
     // ── Skinned transparent pipeline ──
@@ -905,7 +587,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned transparent pipeline for: " + entry.fjsl_path);
+        throw std::runtime_error("Failed to create skinned transparent pipeline for: " + entry.program.path);
     }
 
     vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
@@ -947,7 +629,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
             vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
             vkDestroyShaderModule(vk, vert_module, nullptr);
             vkDestroyShaderModule(vk, frag_module, nullptr);
-            throw std::runtime_error("Failed to create GPU-driven pipeline for: " + entry.fjsl_path);
+            throw std::runtime_error("Failed to create GPU-driven pipeline for: " + entry.program.path);
         }
 
         vkDestroyShaderModule(vk, gpu_task_module, nullptr);
@@ -985,7 +667,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
             vkDestroyShaderModule(vk, skin_mesh_module, nullptr);
             vkDestroyShaderModule(vk, vert_module, nullptr);
             vkDestroyShaderModule(vk, frag_module, nullptr);
-            throw std::runtime_error("Failed to create skinned GPU-driven pipeline for: " + entry.fjsl_path);
+            throw std::runtime_error("Failed to create skinned GPU-driven pipeline for: " + entry.program.path);
         }
 
         vkDestroyShaderModule(vk, skin_task_module, nullptr);
@@ -1056,7 +738,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.outline) != VK_SUCCESS) {
             vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
             vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
-            throw std::runtime_error("Failed to create outline pipeline for: " + entry.fjsl_path);
+            throw std::runtime_error("Failed to create outline pipeline for: " + entry.program.path);
         }
 
         vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
@@ -1106,39 +788,20 @@ void PipelineCache::reload(uint32_t id) {
     FJELL_GFX_INFO("Reloaded FJSL pipeline {}", id);
 }
 
-namespace {
-
-// Whether a registered shader path and a path from the file watcher name the
-// same file. The registered one may be engine-relative ("shaders/toon.fjsl")
-// while the watcher always reports absolute, so the test is whether one ends
-// with the other — anchored to a separator, so "water.fjsl" does not match a
-// project's "deep_water.fjsl".
-bool same_shader_file(std::string_view registered, std::string_view changed) {
-    if (registered == changed) return true;
-    if (registered.size() >= changed.size()) return false;
-    if (!changed.ends_with(registered)) return false;
-    return changed[changed.size() - registered.size() - 1] == '/';
-}
-
-} // namespace
-
 uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_paths) {
     if (changed_paths.empty()) return 0;
 
     std::vector<uint32_t> to_reload;
     for (uint32_t id = 0; id < entries_.size(); ++id) {
-        bool hit = false;
-        for (const auto& changed : changed_paths) {
-            // The shader itself, or any shader_function inlined into it — a
-            // function's code lives in its consumers' programs, so editing one
-            // has to rebuild each of them and nothing else would notice.
-            if (same_shader_file(entries_[id].fjsl_path, changed)) hit = true;
-            for (const auto& used : entries_[id].used_paths) {
-                if (same_shader_file(used, changed)) hit = true;
-            }
-            if (hit) break;
+        // The shader itself, or any shader_function inlined into it — a
+        // function's code lives in its consumers' programs, so editing one
+        // has to rebuild each of them and nothing else would notice.
+        const FjslProgram& program = entries_[id].program;
+        if (std::ranges::any_of(changed_paths, [&](const std::string& changed) {
+                return program.depends_on(changed);
+            })) {
+            to_reload.push_back(id);
         }
-        if (hit) to_reload.push_back(id);
     }
     if (to_reload.empty()) return 0;
 
@@ -1147,7 +810,7 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
     vkDeviceWaitIdle(device_.handle());
     for (uint32_t id : to_reload) {
         compile_entry(entries_[id]);
-        FJELL_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].fjsl_path);
+        FJELL_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].program.path);
     }
     return static_cast<uint32_t>(to_reload.size());
 }
@@ -1156,7 +819,8 @@ void PipelineCache::recreate_all() {
     vkDeviceWaitIdle(device_.handle());
     // Everything is rebuilt because an include may have changed, and the
     // templates every shader is generated against are includes.
-    load_includes();
+    compiler_.rehash_includes();
+    load_templates();
     int failures = 0;
     for (auto& entry : entries_) {
         compile_entry(entry);
@@ -1205,7 +869,7 @@ VkPipeline PipelineCache::outline_pipeline(uint32_t id) const {
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {
-    return entries_[id].metadata;
+    return entries_[id].program.metadata;
 }
 
 bool PipelineCache::has_custom_vertex(uint32_t id) const {
