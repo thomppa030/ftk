@@ -317,6 +317,40 @@ void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name);
 void log_fjsl_diagnostics(const struct FjslComposition& composition,
                           const std::string& name);
 
+/// How generated GLSL reaches a program's uniforms: `param(i)` is the
+/// expression reading float `i` of its parameter block, `texture(slot)` the
+/// sampler in texture slot `slot`, numbered as FjslUniform::slot numbers
+/// samplers: from PBR_TEXTURE_SLOTS, after a material's own four. Each shader
+/// type's template fixes these for the engine's materials; a host with a
+/// template of its own says where its values live.
+struct FjslUniformAccess {
+    std::function<std::string(uint32_t index)> param;
+    std::function<std::string(uint32_t slot)> texture;
+};
+
+/// The functions `composition` wires in, as GLSL for file scope, dependencies
+/// first: each composed file's helpers and constants, its uniforms as
+/// #defines read through `access`, its outputs as variables, and its main()
+/// as a function named for its use (`sun_main`), every name it declares
+/// prefixed the same way. Their uniforms take runs of the parameter block and
+/// of the texture slots after `param_base` and `texture_base`, the consumer's
+/// own counts, in file order.
+[[nodiscard]] std::string emit_composition(const FjslComposition& composition,
+                                           const FjslUniformAccess& access,
+                                           uint32_t param_base, uint32_t texture_base);
+
+/// The calls that run each function a consumer uses, in the order its `use`s
+/// are written, passing what each wired in. They go ahead of the body that
+/// reads what the functions wrote.
+[[nodiscard]] std::string emit_use_calls(const std::vector<FjslUse>& uses,
+                                         const FjslComposition& composition);
+
+/// `body` with its reads of used functions (`sun.color`) turned into the names
+/// emit_composition() declares (`sun_color`). Only a name a `use` introduced
+/// is touched, so an ordinary `v.xyz` is left alone.
+[[nodiscard]] std::string rewrite_use_references(const std::string& body,
+                                                 const std::vector<FjslUse>& uses);
+
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
 //
 // `composition`, when given, is what resolve_composition returned for this

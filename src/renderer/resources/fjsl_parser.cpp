@@ -1500,13 +1500,8 @@ std::map<std::string, std::string> composition_renames(const ShaderMetadata& met
     return renames;
 }
 
-/// Rewrite a consumer's `use`-qualified references into the mangled names the
-/// emitted functions actually declare: `sun.color` reads `sun__color`, and the
-/// wiring itself becomes a call to `sun__main(...)` placed where the body can
-/// see it.
-///
-/// Only a name a `use` introduced is touched, so `v.xyz` on an ordinary vector
-/// is left alone — the swizzle is not a use name.
+} // namespace
+
 std::string rewrite_use_references(const std::string& body,
                                    const std::vector<FjslUse>& uses) {
     if (uses.empty()) return body;
@@ -1544,8 +1539,6 @@ std::string rewrite_use_references(const std::string& body,
     return out;
 }
 
-/// The calls that run each used function, in composition order, ahead of the
-/// consumer's own body.
 std::string emit_use_calls(const std::vector<FjslUse>& uses,
                            const FjslComposition& composition) {
     std::string out;
@@ -1575,30 +1568,20 @@ std::string emit_use_calls(const std::vector<FjslUse>& uses,
     return out;
 }
 
-/// Where a generated shader reads its scalar uniforms: an array and the
-/// expression its run starts at. Every type reads its material row's slice of
-/// the params SSBO except post, whose values differ per viewport and come from
-/// the post pass's own buffer (see fjell_post_template.glsl).
-struct ParamBlock {
-    std::string array;
-    std::string base;
-
-    [[nodiscard]] std::string at(uint32_t index) const {
-        return array + "[" + base + " + " + std::to_string(index) + "]";
-    }
-};
+namespace {
 
 /// The GLSL expression reading a scalar uniform whose first float is at
-/// `first` in `block`: a float as it is, an int rounded to the whole number a
-/// track or a blend may have left between two, a vector from its components.
-std::string uniform_read(const FjslUniform& u, const ParamBlock& block, uint32_t first) {
-    if (u.type == UniformType::Int) return "int(round(" + block.at(first) + "))";
+/// `first` of the parameter block: a float as it is, an int rounded to the
+/// whole number a track or a blend may have left between two, a vector from
+/// its components.
+std::string uniform_read(const FjslUniform& u, const FjslUniformAccess& access, uint32_t first) {
+    if (u.type == UniformType::Int) return "int(round(" + access.param(first) + "))";
     const uint32_t count = uniform_float_count(u.type);
-    if (count == 1) return block.at(first);
+    if (count == 1) return access.param(first);
     std::string out = std::string(glsl_type_name(u.type)) + "(";
     for (uint32_t i = 0; i < count; ++i) {
         if (i > 0) out += ", ";
-        out += block.at(first + i);
+        out += access.param(first + i);
     }
     return out + ")";
 }
@@ -1607,8 +1590,7 @@ std::string uniform_read(const FjslUniform& u, const ParamBlock& block, uint32_t
 /// defines, its outputs as variables, and its body wrapped in a function the
 /// consumer calls.
 std::string emit_composed_file(const FjslComposedFile& file,
-                               const std::string& mat_expr,
-                               const ParamBlock& params,
+                               const FjslUniformAccess& access,
                                uint32_t param_base,
                                uint32_t texture_base) {
     const ShaderMetadata& m = file.meta;
@@ -1625,22 +1607,21 @@ std::string emit_composed_file(const FjslComposedFile& file,
     //
     // The two bases differ in kind. A sampler's slot is an absolute index into
     // texture_indices, with the PBR set at the front; a scalar's is an offset
-    // into a block that starts at zero. `pipeline_cache` folds these uniforms
-    // into the entry's metadata with the same arithmetic — if the two ever
-    // disagree the inspector shows a dial the shader does not read.
+    // into a block that starts at zero. generate_fragment() in fjsl_compiler
+    // folds these uniforms into the program's metadata with the same
+    // arithmetic — if the two ever disagree the inspector shows a dial the
+    // shader does not read.
     for (const auto& u : m.uniforms) {
         const std::string name = mangled(use, u.name);
         if (u.type == UniformType::Sampler2D) {
-            out += "#define " + name + " textures[nonuniformEXT(" + mat_expr
-                 + ".texture_indices[" + std::to_string(texture_base + u.slot)
-                 + "])]\n";
+            out += "#define " + name + " " + access.texture(texture_base + u.slot) + "\n";
             continue;
         }
         // A composed file's uniforms are inlined into the CONSUMER's param
         // block, so its own slots — which its parse numbered from zero — are
         // shifted by where that file's run begins. Without this every file's
         // first uniform reads the consumer's first, silently.
-        out += "#define " + name + " (" + uniform_read(u, params, param_base + u.slot) + ")\n";
+        out += "#define " + name + " (" + uniform_read(u, access, param_base + u.slot) + ")\n";
     }
 
     // The file's own helpers and constants, renamed.
@@ -1668,21 +1649,28 @@ std::string emit_composed_file(const FjslComposedFile& file,
 
 } // namespace
 
+std::string emit_composition(const FjslComposition& composition, const FjslUniformAccess& access,
+                             uint32_t param_base, uint32_t texture_base) {
+    // Each composed file takes a run of the consumer's parameter block and a
+    // run of its texture slots, after the consumer's own of each. The same
+    // arithmetic runs in fjsl_compiler's generate_fragment() when it folds
+    // these uniforms into the program's metadata; the two must agree or a
+    // dial names a slot the shader never reads.
+    std::string out;
+    for (const auto& file : composition.files) {
+        if (file.use_name.empty()) continue;  // the consumer itself
+        out += emit_composed_file(file, access, param_base, texture_base) + "\n";
+        param_base += file.meta.custom_param_count;
+        texture_base += file.meta.custom_texture_count;
+    }
+    return out;
+}
+
 std::string generate_fragment_shader(const ShaderMetadata& meta,
                                      const std::string& template_source,
                                      const FjslComposition* composition) {
     std::string result = template_source;
     const std::string generated_name = GENERATED_NAME;
-
-    // Generate custom texture defines
-    std::string tex_defines;
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) {
-            tex_defines += "#define " + u.name +
-                           " textures[nonuniformEXT(mat.texture_indices[" +
-                           std::to_string(u.slot) + "])]\n";
-        }
-    }
 
     // Generate custom param reads as file-scope #defines so they're visible
     // inside fragment(), light(), and any user helper function — not just
@@ -1707,26 +1695,32 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
         return "materials[draws[frag_draw_index].material_id]";
     }();
-    const ParamBlock params = meta.shader_type == ShaderType::Post
-        ? ParamBlock{"post_params", "push.param_base"}
-        : ParamBlock{"custom_params", mat_expr + ".param_offset"};
+    // Scalars read the material row's slice of the params SSBO, except for
+    // post, whose values differ per viewport and come from the post pass's
+    // own buffer (see fjell_post_template.glsl). Samplers go through the
+    // bindless array by the row's texture indices, at file scope, so they
+    // work in light() and helpers as well as in main().
+    const bool is_post = meta.shader_type == ShaderType::Post;
+    const std::string param_array = is_post ? "post_params" : "custom_params";
+    const std::string param_base = is_post ? "push.param_base" : mat_expr + ".param_offset";
+    const FjslUniformAccess access{
+        .param = [&](uint32_t index) {
+            return param_array + "[" + param_base + " + " + std::to_string(index) + "]";
+        },
+        .texture = [&](uint32_t slot) {
+            return "textures[nonuniformEXT(" + mat_expr + ".texture_indices[" + std::to_string(slot) + "])]";
+        },
+    };
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
-        param_defines += "#define " + u.name + " (" + uniform_read(u, params, u.slot) + ")\n";
+        param_defines += "#define " + u.name + " (" + uniform_read(u, access, u.slot) + ")\n";
     }
-
-    // Texture defines must also be moved to file scope, since the existing
-    // `mat` local is only defined inside main(). Rewrite them to the same
-    // frag_draw_index lookup so they work in light()/helpers too.
-    std::string tex_defines_global;
+    std::string tex_defines;
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) {
-            tex_defines_global += "#define " + u.name +
-                " textures[nonuniformEXT(" + mat_expr + ".texture_indices[" +
-                std::to_string(u.slot) + "])]\n";
+            tex_defines += "#define " + u.name + " " + access.texture(u.slot) + "\n";
         }
     }
-    tex_defines = tex_defines_global;
 
     // Substitute placeholders
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {
@@ -1752,7 +1746,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         // blaming the .fjsl for template code the author never wrote.
         const uint32_t resume = line_at(result, pos) + 1;
         // `sun.color` in the authored body names a variable the emitted
-        // function declares as `sun__color`, and the call that fills it runs
+        // function declares as `sun_color`, and the call that fills it runs
         // ahead of the body. Both only happen where a `use` introduced the
         // name, so ordinary member access is untouched.
         FjslBody rewritten = body;
@@ -1783,19 +1777,8 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // its parse, so the first run starts where its count ends.
     std::string globals;
     if (composition != nullptr) {
-        // Each composed file takes a run of the consumer's parameter block and
-        // a run of its texture slots, after the consumer's own of each. The
-        // same arithmetic runs in pipeline_cache when it folds these uniforms
-        // into the entry's metadata; the two must agree or a dial names a slot
-        // the shader never reads.
-        uint32_t param_base = meta.custom_param_count;
-        uint32_t texture_base = meta.custom_texture_count;
-        for (const auto& file : composition->files) {
-            if (file.use_name.empty()) continue;  // the consumer itself
-            globals += emit_composed_file(file, mat_expr, params, param_base, texture_base) + "\n";
-            param_base += file.meta.custom_param_count;
-            texture_base += file.meta.custom_texture_count;
-        }
+        globals = emit_composition(*composition, access, meta.custom_param_count,
+                                   meta.custom_texture_count);
     }
     globals += meta.user_globals;
     replace("/*FJSL_USER_GLOBALS*/", globals);
@@ -1899,11 +1882,14 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
 
     // Generate custom param reads (same SSBO layout as fragment)
     std::string param_reads;
-    const ParamBlock params{"custom_params", "mat.param_offset"};
+    const FjslUniformAccess access{
+        .param = [](uint32_t index) { return "custom_params[mat.param_offset + " + std::to_string(index) + "]"; },
+        .texture = {},
+    };
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
         param_reads += "    " + std::string(glsl_type_name(u.type)) + " " + u.name + " = "
-                     + uniform_read(u, params, u.slot) + ";\n";
+                     + uniform_read(u, access, u.slot) + ";\n";
     }
 
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {

@@ -2261,6 +2261,73 @@ TEST_CASE("Mangling leaves comments alone", "[fjsl][compose]") {
     REQUIRE(glsl.find("vec3(sun_halo)") != std::string::npos);  // the code did change
 }
 
+TEST_CASE("A composition emits on its own what the generator embeds", "[fjsl][compose]") {
+    // A host with a template of its own composes shader functions without a
+    // shader type: it asks for the composition's GLSL directly. Given the
+    // engine's own way of reading uniforms, that is exactly the text the
+    // generator places where the template's globals go.
+    const std::string fn =
+        "shader_function;\n"
+        "in vec3 view_dir;\nout vec3 color;\n"
+        "uniform float size : hint_range(0.1, 4.0, 0.01) = 1.8;\n"
+        "uniform sampler2D ramp : hint_black;\n"
+        "void main() { color = texture(ramp, view_dir.xy).rgb * size; }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use sun = \"lib/f.fjsl\"(view_dir: VIEW_DIR);\n"
+        "uniform float own : hint_range(0.0, 1.0, 0.1) = 0.5;\n"
+        "void sky() { SKY = sun.color * own; }\n";
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    auto comp = compose(root, {{"lib/f.fjsl", fn}});
+    REQUIRE_FALSE(comp.has_errors());
+
+    const std::string mat = "materials[push.sky_material_id]";
+    const FjslUniformAccess sky_access{
+        .param = [&](uint32_t i) { return "custom_params[" + mat + ".param_offset + " + std::to_string(i) + "]"; },
+        .texture = [&](uint32_t s) {
+            return "textures[nonuniformEXT(" + mat + ".texture_indices[" + std::to_string(s) + "])]";
+        },
+    };
+    const std::string emitted =
+        emit_composition(comp, sky_access, meta.custom_param_count, meta.custom_texture_count);
+    const std::string generated = generate_fragment_shader(meta, "#version 460\n/*FJSL_USER_GLOBALS*/", &comp);
+    CHECK(generated.find(emitted + meta.user_globals) != std::string::npos);
+}
+
+TEST_CASE("A host says where a composition's uniforms live", "[fjsl][compose]") {
+    const std::string fn =
+        "shader_function;\n"
+        "in vec2 uv;\nout float value;\n"
+        "uniform float scale : hint_range(0.1, 8.0, 0.1) = 2.0;\n"
+        "uniform sampler2D grain : hint_black;\n"
+        "void main() { value = texture(grain, uv * scale).r; }\n";
+    const std::string root =
+        "shader_type sky;\n"
+        "use noise = \"lib/noise.fjsl\"(uv: VIEW_DIR.xy);\n"
+        "void sky() { SKY = vec3(noise.value); }\n";
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    auto comp = compose(root, {{"lib/noise.fjsl", fn}});
+    REQUIRE_FALSE(comp.has_errors());
+
+    // A node graph's own layout: one flat array of values, one of samplers.
+    const FjslUniformAccess node_access{
+        .param = [](uint32_t i) { return "node_params[" + std::to_string(i) + "]"; },
+        .texture = [](uint32_t s) { return "node_textures[" + std::to_string(s) + "]"; },
+    };
+    const std::string glsl = emit_composition(comp, node_access, 0, 0);
+    CHECK(glsl.find("#define noise_scale (node_params[0])") != std::string::npos);
+    // A sampler's slot counts from after a material's own four textures.
+    CHECK(glsl.find("#define noise_grain node_textures[4]") != std::string::npos);
+    CHECK(glsl.find("void noise_main(vec2 noise_uv)") != std::string::npos);
+    CHECK(glsl.find("materials[") == std::string::npos);
+
+    // And calls what it composed, reading its outputs by their emitted names.
+    CHECK(emit_use_calls(meta.uses, comp) == "    noise_main(VIEW_DIR.xy);\n");
+    CHECK(rewrite_use_references("SKY = vec3(noise.value);", meta.uses) == "SKY = vec3(noise_value);");
+}
+
 TEST_CASE("A composition's parameter block covers what it reads", "[fjsl][compose]") {
     auto shader_dir = find_shader_dir();
     REQUIRE_FALSE(shader_dir.empty());
