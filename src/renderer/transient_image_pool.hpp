@@ -65,6 +65,12 @@ public:
                                             VkExtent2D viewport_extent,
                                             VkImageUsageFlags usage_flags);
 
+    /// The extent an image of `desc` has at `viewport`. A persistent image
+    /// that must line up with a transient of the same desc sizes itself
+    /// through this rather than repeating the arithmetic.
+    [[nodiscard]] static VkExtent3D resolve_extent(const TextureDesc& desc,
+                                                   VkExtent2D viewport);
+
     /// Frames an image may go unused before it is destroyed.
     static constexpr uint64_t STALE_FRAMES = 120;
 
@@ -81,8 +87,6 @@ private:
         uint64_t last_used{0};  ///< frame serial of the last acquire; 0 = never
     };
 
-    [[nodiscard]] static VkExtent3D resolve_extent(const TextureDesc& desc,
-                                                   VkExtent2D viewport);
     [[nodiscard]] bool entry_matches(const Entry& e,
                                       const TextureDesc& desc,
                                       VkExtent3D resolved,
