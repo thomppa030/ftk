@@ -1,12 +1,15 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/standalone_window.hpp"
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fjell {
@@ -39,8 +42,22 @@ public:
         std::filesystem::file_time_type modified;
     };
 
-    /// Set the GpuCore to share. Must be called before open().
-    void set_gpu(GpuCore* gpu) { gpu_ = gpu; }
+    /// Where the browser keeps the folders picked from lately, which it
+    /// offers among the places, the latest first.
+    struct RecentFolders {
+        std::function<std::vector<std::string>()> load;
+        std::function<void(const std::vector<std::string>&)> save;
+    };
+
+    /// Set the GpuCore to share, and where the window's ImGui layer finds its
+    /// fonts and sRGB fragment stage. Must be called before open().
+    void set_gpu(GpuCore* gpu, ImGuiLayerFiles files) {
+        gpu_ = gpu;
+        imgui_files_ = std::move(files);
+    }
+
+    /// Keep the recent folders in `recent`. Without it none are kept.
+    void set_recent_folders(RecentFolders recent) { recent_ = std::move(recent); }
 
     /// The open project, offered first among the places; none when empty.
     void set_project(std::filesystem::path root) { project_root_ = std::move(root); }
@@ -89,6 +106,8 @@ private:
     static std::string format_time(std::filesystem::file_time_type time);
 
     GpuCore* gpu_{nullptr};
+    ImGuiLayerFiles imgui_files_;
+    RecentFolders recent_;
     std::unique_ptr<StandaloneWindow> window_;
 
     // ── Browser state ───────────────────────────────────────────────────

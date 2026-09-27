@@ -5,9 +5,7 @@
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/window.hpp"
-#include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
-
 
 #include <cstdint>
 
@@ -20,7 +18,9 @@ constexpr VkClearColorValue CLEAR{{0.012f, 0.012f, 0.015f, 1.0f}};
 
 } // namespace
 
-StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height) : gpu_{gpu} {
+StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height,
+                                   const ImGuiLayerFiles& files)
+    : gpu_{gpu} {
     window_ = std::make_unique<Window>(title, width, height);
     surface_ = window_->create_surface(gpu_.instance());
     swapchain_ = std::make_unique<Swapchain>(gpu_.device(), gpu_.allocator(), *window_, surface_);
@@ -51,7 +51,7 @@ StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int w
 
     imgui_ = std::make_unique<ImGuiLayer>(window_->handle(), gpu_.instance(), gpu_.physical_device(), gpu_.vk_device(),
                                           gpu_.graphics_family(), gpu_.graphics_queue(), swapchain_->format(),
-                                          swapchain_->image_count(), engine_imgui_files());
+                                          swapchain_->image_count(), files);
 }
 
 StandaloneWindow::~StandaloneWindow() {
