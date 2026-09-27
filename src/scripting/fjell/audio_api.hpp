@@ -2,7 +2,7 @@
 #pragma once
 
 #include "fjell/api.h"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -15,14 +15,14 @@ FJELL_SDK_EXPORT void fjell_audio_play(uint32_t handle_id, float x, float y, flo
 
 namespace fjell {
 
-struct AudioAsset;
+struct Audio;
 
 /// Plays sound effects.
 namespace audio {
 /// Play a one-shot sound at a world position. The sound is positional —
 /// it attenuates with distance from the active camera — and finishes on
 /// its own, so it outlives the node that started it.
-/// @param clip   Audio asset, normally a `[[fj::property]] Ref<AudioAsset>`
+/// @param clip   Audio asset, normally a `[[fj::property]] Asset<Audio>`
 ///               field assigned in the inspector. Unassigned refs are
 ///               ignored rather than treated as an error.
 /// @param pos    World-space position to play from.
@@ -32,11 +32,11 @@ namespace audio {
 /// @note Fire-and-forget — there is no handle, so a one-shot cannot be
 ///       stopped or looped once started.
 /// @code
-/// [[fj::property]] fjell::Ref<fjell::AudioAsset> footstep;
+/// [[fj::property]] fjell::Asset<fjell::Audio> footstep;
 /// // ...
 /// fjell::audio::play(footstep, transform().position, 0.8f);
 /// @endcode
-inline void play(const Ref<AudioAsset>& clip, const glm::vec3& pos,
+inline void play(const Asset<Audio>& clip, const glm::vec3& pos,
                  float volume = 1.0f, float pitch = 1.0f) {
     if (clip.handle_id() != 0) {
         fjell_audio_play(clip.handle_id(), pos.x, pos.y, pos.z,

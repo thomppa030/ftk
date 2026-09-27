@@ -7,7 +7,7 @@
 #include "scene/component_meta.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
-#include "scripting/fjell/ref.hpp"
+#include "scripting/fjell/asset.hpp"
 #include "scripting/fjell/weak_ref.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/asset_rows.hpp"
@@ -54,7 +54,7 @@ ui::Edit edit_floats(float* values, Field&& field) {
     return edit;
 }
 
-ui::Edit draw_asset_ref(const OwnedFieldDesc& f, RefData& ref, const InspectorContext& ctx) {
+ui::Edit draw_asset_ref(const OwnedFieldDesc& f, AssetData& ref, const InspectorContext& ctx) {
     const auto* asset_entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
     if (asset_entry == nullptr || ctx.resource_manager == nullptr) {
         ui::readout(("Handle " + std::to_string(ref.handle_id)).c_str());
@@ -169,8 +169,8 @@ ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorCo
         }
         case FJELL_FIELD_WEAK_REF:
             return draw_node_ref(*static_cast<WeakRefData*>(ptr), scene);
-        case FJELL_FIELD_REF:
-            return draw_asset_ref(f, *static_cast<RefData*>(ptr), ctx);
+        case FJELL_FIELD_ASSET:
+            return draw_asset_ref(f, *static_cast<AssetData*>(ptr), ctx);
         case FJELL_FIELD_STRUCT:
         case FJELL_FIELD_VECTOR:
             return {}; // the UI's to show; draw_script_fields gives them no row

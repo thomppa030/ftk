@@ -17,9 +17,9 @@ struct Node3D;
 /// @code
 /// struct FootstepNotify : fjell::AnimNotify {
 ///     FJELL_NOTIFY(FootstepNotify)
-///     [[fj::property]] fjell::Ref<fjell::AudioAsset> step;
-///     [[fj::property]] fjell::Ref<fjell::SurfaceAsset> grass;
-///     [[fj::property]] fjell::Ref<fjell::AudioAsset> grass_step;
+///     [[fj::property]] fjell::Asset<fjell::Audio> step;
+///     [[fj::property]] fjell::Asset<fjell::Surface> grass;
+///     [[fj::property]] fjell::Asset<fjell::Audio> grass_step;
 ///
 ///     void notify(fjell::Node3D& owner) override {
 ///         // What the character stands on picks the clip: the surface comes

@@ -257,7 +257,7 @@ private:
 struct Holder {
   Secret secret;
   Missing missing;
-  fjell::Ref<fjell::Texture> icon;
+  fjell::Asset<fjell::Texture> icon;
 };
 class Screen : public fjell::UiWidget {
   FJELL_UI_WIDGET(Screen)

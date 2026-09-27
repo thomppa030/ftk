@@ -12,7 +12,7 @@ Spawns particle systems at world positions.
 ```cpp
 namespace fjell {
 namespace vfx {
-    void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
+    void spawn(const Asset<Vfx>& effect, const glm::vec3& pos);
 }
 }
 ```
@@ -37,13 +37,13 @@ See [VFX](../../VFX/Particle-System.md) for the authoring side.
 
 ### Syntax
 ```cpp
-void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
+void spawn(const Asset<Vfx>& effect, const glm::vec3& pos);
 ```
 
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `effect` | `const Ref<VfxAsset>&` | Effect to spawn. If null, the call is a no-op. |
+| `effect` | `const Asset<Vfx>&` | Effect to spawn. If null, the call is a no-op. |
 | `pos` | `const glm::vec3&` | World-space spawn position. |
 
 ### Remarks
@@ -55,8 +55,8 @@ No return value — there's no script-side handle to the running system. To cont
 class Coin : public fjell::ScriptComponent {
     FJELL_COMPONENT(Coin)
 
-    [[fj::property]] fjell::Ref<fjell::VfxAsset>   collect_effect;
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+    [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
+    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 
     void on_trigger_enter(uint32_t /*other*/) override {
         fjell::vfx::spawn(collect_effect, transform().position);
@@ -68,5 +68,5 @@ class Coin : public fjell::ScriptComponent {
 
 ## See also
 - [`audio`](audio_api.md) — same `(asset, position)` call shape
-- [`Ref`](Ref.md) — how `Ref<VfxAsset>` is resolved
+- [`Asset`](Asset.md) — how `Asset<Vfx>` is resolved
 - [VFX Particle System](../../VFX/Particle-System.md) — authoring `.fjvfx` effects

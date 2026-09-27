@@ -164,7 +164,7 @@ The engine guarantees `notify_end` will fire for every `notify_begin` that fired
 struct FootstepNotify : public fjell::AnimNotify {
     FJELL_NOTIFY(FootstepNotify)
 
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> sound;
+    [[fj::property]] fjell::Asset<fjell::Audio> sound;
     [[fj::property]] float volume{1.0f};
 
     void notify(fjell::Node3D& owner) override {

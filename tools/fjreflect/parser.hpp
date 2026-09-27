@@ -10,7 +10,7 @@ struct FieldInfo {
     std::string name;
     std::string cpp_type;      // "float", "fjell::WeakRef<Node3D>", etc.
     std::string fj_field_type; // "FJELL_FIELD_FLOAT", etc.
-    std::string ref_target;    // for WeakRef<X>/Ref<X>: "X", else empty
+    std::string ref_target;    // for WeakRef<X>/Asset<X>: "X", else empty
     unsigned line{0};          // source line number
 
     // Hints
@@ -24,7 +24,7 @@ struct FieldInfo {
     std::string tooltip;       // [[fj::tooltip("...")]]
     std::string category;      // [[fj::category("...")]]
     std::vector<std::string> enum_labels; // [[fj::enum(A, B, C)]]
-    std::vector<std::string> shader_types; // [[fj::shader_type(water, fog)]] on Ref<Material>
+    std::vector<std::string> shader_types; // [[fj::shader_type(water, fog)]] on Asset<Material>
 
     // Runtime state and Models
     bool is_state{false};      // [[fj::state]], or any member of a reflected struct: bindable, never saved

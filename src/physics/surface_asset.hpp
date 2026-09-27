@@ -12,7 +12,7 @@ namespace fjell {
 ///
 /// The runtime identity of a surface is its asset handle: a raycast hit, a
 /// character's ground and a contact event all report that id, and a script
-/// compares it against the handle of a `Ref<SurfaceAsset>` it holds. The
+/// compares it against the handle of an `Asset<Surface>` it holds. The
 /// file carries only what every surface shares; game data keyed by surface
 /// belongs in the game, keyed by the same handle.
 struct SurfaceAsset {

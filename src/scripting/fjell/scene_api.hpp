@@ -3,7 +3,7 @@
 
 #include "fjell/api.h"
 #include "fjell/component_id.hpp"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 #include "fjell/transform.hpp"
 
 #include <cstdint>
@@ -28,7 +28,7 @@ FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_preset(uint32_t handle_id,
 namespace fjell {
 
 class ScriptComponent;
-struct PresetAsset;
+struct Preset;
 
 /// Finding and creating nodes in the running scene.
 namespace scene {
@@ -89,7 +89,7 @@ inline uint32_t spawn(const char* name,
 
 /// Instantiate a preset (`.fjp`) — a saved node hierarchy with its meshes,
 /// components, and property values.
-/// @param preset    Preset asset, normally a `[[fj::property]] Ref<PresetAsset>`
+/// @param preset    Preset asset, normally a `[[fj::property]] Asset<Preset>`
 ///                  field assigned in the inspector.
 /// @param pos       World position for the preset's root.
 /// @param parent_id Node to parent the spawned root under, or -1 to spawn
@@ -99,11 +99,11 @@ inline uint32_t spawn(const char* name,
 /// @note Single-player spawn only — it creates the node locally. Use
 ///       `net::spawn()` for anything that must exist on every peer.
 /// @code
-/// [[fj::property]] fjell::Ref<fjell::PresetAsset> enemy;
+/// [[fj::property]] fjell::Asset<fjell::Preset> enemy;
 /// // ...
 /// uint32_t id = fjell::scene::spawn(enemy, {0.0f, 1.0f, 0.0f});
 /// @endcode
-inline uint32_t spawn(const Ref<PresetAsset>& preset,
+inline uint32_t spawn(const Asset<Preset>& preset,
                       const glm::vec3& pos = glm::vec3{0.0f},
                       int32_t parent_id = -1) {
     if (!preset.valid()) return 0;

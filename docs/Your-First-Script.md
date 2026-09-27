@@ -165,7 +165,7 @@ void tick(float dt) override {
 ### Spawn a particle effect when spinning passes a full rotation
 
 ```cpp
-[[fj::property]] fjell::Ref<fjell::VfxAsset> burst;
+[[fj::property]] fjell::Asset<fjell::Vfx> burst;
 
 void tick(float dt) override {
     angle_ += speed * dt;
@@ -180,7 +180,7 @@ private:
     float angle_{0};
 ```
 
-Add a `.fjvfx` asset, drag it into the new `Burst` slot in the inspector, hit play. See [`vfx`](Scripting/API/vfx_api.md) and [`Ref`](Scripting/API/Ref.md).
+Add a `.fjvfx` asset, drag it into the new `Burst` slot in the inspector, hit play. See [`vfx`](Scripting/API/vfx_api.md) and [`Asset`](Scripting/API/Asset.md).
 
 ### React to collisions
 

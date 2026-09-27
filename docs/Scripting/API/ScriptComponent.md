@@ -454,8 +454,8 @@ class Coin : public fjell::ScriptComponent {
 
     [[fj::property]] float spin_speed = 90.0f;
     [[fj::property]] int   points     = 10;
-    [[fj::property]] fjell::Ref<fjell::VfxAsset>   collect_effect;
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+    [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
+    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 
     void begin_play() override {
         base_y_ = transform().position.y;

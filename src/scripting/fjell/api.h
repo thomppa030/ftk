@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 44
+#define FJELL_API_VERSION 45
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -74,7 +74,7 @@ typedef enum FjellFieldType {
     FJELL_FIELD_STRING,        // fixed char[N] buffer; `size` is its capacity
     FJELL_FIELD_ENUM,
     FJELL_FIELD_WEAK_REF,
-    FJELL_FIELD_REF,
+    FJELL_FIELD_ASSET,
     // New enumerators go at the end: inserting one mid-enum renumbers the rest
     // and silently misreads every already-compiled game module.
     FJELL_FIELD_STD_STRING,    // std::string, owned by the component
@@ -110,12 +110,12 @@ typedef struct FjellFieldDesc {
     float              min;
     float              max;
     float              speed;        // drag speed (0 = default 0.1)
-    const char*        ref_type_name; // REF/WEAK_REF/SHARED_REF: target type name (null otherwise)
+    const char*        ref_type_name; // ASSET/WEAK_REF: the type referred to (null otherwise)
     const char*        tooltip;      // hover help in inspector (null if none)
     const char*        category;     // group header in inspector (null if none)
     uint8_t            readonly;     // 1 = inspector shows but disables editing
     uint8_t            replicated;   // 1 = [[fj::replicated]], synced over the network
-    const char*        shader_types; // Ref<Material>: [[fj::shader_type]] names, comma-separated (null = any)
+    const char*        shader_types; // Asset<Material>: [[fj::shader_type]] names, comma-separated (null = any)
     uint32_t           flags;        // FJELL_FIELD_FLAG_* (0 = a property)
     const struct FjellTypeDesc*   type_desc; // STRUCT: the struct (null otherwise)
     const struct FjellVectorDesc* vector;    // VECTOR: its elements (null otherwise)

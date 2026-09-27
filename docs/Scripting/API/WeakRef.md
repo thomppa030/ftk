@@ -41,13 +41,13 @@ public:
 
 ## Remarks
 
-`WeakRef<T>` is for *scene-side things that might be destroyed and replaced under you* — other nodes, other components, spawned objects you want to track. Compare with [`Ref<T>`](Ref.md), which is for engine assets that live for the project session.
+`WeakRef<T>` is for *scene-side things that might be destroyed and replaced under you* — other nodes, other components, spawned objects you want to track. Compare with [`Asset<T>`](Asset.md), which is for engine assets that live for the project session.
 
 The handle stores `(id, generation)`. When a slot is reused (e.g. a node is destroyed and a new one takes its index), the generation bumps. A WeakRef whose stored generation doesn't match the current one resolves to `nullptr` — the classic "use-after-free → wrong object" bug doesn't happen.
 
 `bool(ref)` is **not** equivalent to `id() != 0`. The bool conversion calls `get()` and checks for null, which detects stale generations. `id() != 0` only checks whether anything was ever assigned.
 
-WeakRef costs the same as `Ref` per dereference (one indirect call into the engine). Cache the pointer if you dereference in a hot loop.
+WeakRef costs the same as `Asset` per dereference (one indirect call into the engine). Cache the pointer if you dereference in a hot loop.
 
 ## Members
 
@@ -179,5 +179,5 @@ if (current_target == primary_target) { /* ... */ }
 ```
 
 ## See also
-- [`Ref`](Ref.md) — for engine assets
+- [`Asset`](Asset.md) — for engine assets
 - [Overview — Reference types](../Overview.md#reference-types)

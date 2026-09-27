@@ -415,7 +415,7 @@ void Engine::init_content_browser() {
         }));
     connections_.push_back(content_browser_.on_create_preset.bind(
         [this](uint32_t node_id, const std::string& directory) {
-            auto preset = Preset::from_subtree(scene_, node_id);
+            auto preset = PresetTemplate::from_subtree(scene_, node_id);
             auto* node = scene_.find(node_id);
             std::string name = node ? node->name : "preset";
             auto path = std::filesystem::path(directory) / (name + ".fjp");
@@ -434,7 +434,7 @@ void Engine::init_content_browser() {
         [this](const std::string& rel_path) {
             const auto* project = project_mgr_.active();
             auto resolved = base_path::resolve_asset(rel_path, project);
-            auto result = Preset::load(resolved, *resource_manager_, project);
+            auto result = PresetTemplate::load(resolved, *resource_manager_, project);
             if (!result) {
                 FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
                 return;

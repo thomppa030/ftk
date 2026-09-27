@@ -105,7 +105,7 @@ void terrain_layers(TerrainAsset& asset, const InspectorContext& ctx) {
     static const std::string material_exts[] = {".fjmat"};
     static const std::string surface_exts[] = {".fjsurface"};
     const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
+    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("Surface");
     const Project* project = project_of(ctx);
     const auto resolve = [&] {
         if (ctx.resource_manager != nullptr) ctx.resource_manager->resolve_terrain_layers(asset, project);

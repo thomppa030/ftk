@@ -46,7 +46,7 @@ struct OwnedFieldDesc {
     std::string category;       // group header (empty if none)
     bool readonly{false};
     bool replicated{false};     // [[fj::replicated]] — synced over the network
-    std::vector<ShaderType> shader_types{}; // Ref<Material>: [[fj::shader_type]] (empty = any)
+    std::vector<ShaderType> shader_types{}; // Asset<Material>: [[fj::shader_type]] (empty = any)
     uint32_t flags{0};                       // FJELL_FIELD_FLAG_*
     const OwnedTypeDesc* struct_type{nullptr}; // STRUCT: the struct
     OwnedVectorDesc vector{};                  // VECTOR: its elements

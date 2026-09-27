@@ -2,7 +2,7 @@
 #pragma once
 
 #include "fjell/api.h"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <cstdint>
 
@@ -15,18 +15,18 @@ FJELL_SDK_EXPORT const char* fjell_surface_name(uint32_t surface_id);
 namespace fjell {
 
 /// A physics surface, authored as a `.fjsurface`. Hold one as a
-/// `[[fj::property]] Ref<SurfaceAsset>` and compare its handle against what
+/// `[[fj::property]] Asset<Surface>` and compare its handle against what
 /// physics reports; the asset's fields are not read from script.
-struct SurfaceAsset;
+struct Surface;
 
 /// What a collider or terrain layer is made of, as physics reports it: the
 /// `surface` of a `PhysicsHit`, a `CharacterComponent::ground_surface`. A
 /// surface id is the handle id of the `.fjsurface` asset, so the comparison
-/// is an integer compare against a `Ref<SurfaceAsset>` the script holds.
+/// is an integer compare against an `Asset<Surface>` the script holds.
 ///
 /// @code
-/// [[fj::property]] fjell::Ref<fjell::SurfaceAsset> grass;
-/// [[fj::property]] fjell::Ref<fjell::AudioAsset> grass_step;
+/// [[fj::property]] fjell::Asset<fjell::Surface> grass;
+/// [[fj::property]] fjell::Asset<fjell::Audio> grass_step;
 /// // ...
 /// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
 ///     if (c->ground_surface == grass.handle_id()) {
@@ -39,8 +39,8 @@ namespace surface {
 /// had none assigned.
 inline bool valid(uint32_t id) { return id != 0; }
 
-/// Whether a reported surface is the one a `Ref<SurfaceAsset>` holds.
-inline bool is(uint32_t id, const Ref<SurfaceAsset>& surface) {
+/// Whether a reported surface is the one an `Asset<Surface>` holds.
+inline bool is(uint32_t id, const Asset<Surface>& surface) {
     return id != 0 && id == surface.handle_id();
 }
 

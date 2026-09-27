@@ -16,7 +16,7 @@ enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 
 namespace input {
     template <auto Method, typename T>
-    void bind(const Ref<InputAction>& action,
+    void bind(const Asset<InputAction>& action,
               EInputTrigger trigger,
               T* instance);
 
@@ -83,17 +83,17 @@ enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 // Button (no args)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(); }
-void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance);
 
 // 1D axis (float)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(0.0f); }
-void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance);
 
 // 2D axis (vec2)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(glm::vec2{}); }
-void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance);
 ```
 
 ### Template parameters
@@ -105,7 +105,7 @@ void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `action` | `const Ref<InputAction>&` | The action to listen for. If `action.data_.handle_id == 0` the call is a no-op. |
+| `action` | `const Asset<InputAction>&` | The action to listen for. If `action.data_.handle_id == 0` the call is a no-op. |
 | `trigger` | `EInputTrigger` | When to fire — see the [trigger table](#einputtrigger). |
 | `instance` | `T*` | Object the method is called on. Captured by pointer; must outlive the binding. |
 
@@ -210,8 +210,8 @@ Whether the cursor is locked right now. This is the state in force, not the requ
 class PlayerController : public fjell::ScriptComponent {
     FJELL_COMPONENT(PlayerController)
 
-    [[fj::property]] fjell::Ref<fjell::InputAction> move_action;
-    [[fj::property]] fjell::Ref<fjell::InputAction> jump_action;
+    [[fj::property]] fjell::Asset<fjell::InputAction> move_action;
+    [[fj::property]] fjell::Asset<fjell::InputAction> jump_action;
 
     void begin_play() override {
         fjell::input::bind<&PlayerController::on_move>(
@@ -238,4 +238,4 @@ void close_menu() { fjell::input::pop_context("menu"); }
 ## See also
 - [Input Actions](../Input-Actions.md) — authoring `.fjaction` / `.fjinput`
 - [`Input`](Input.md) — direct polling (for one-off prototyping)
-- [`Ref`](Ref.md) — how `Ref<InputAction>` is resolved
+- [`Asset`](Asset.md) — how `Asset<InputAction>` is resolved

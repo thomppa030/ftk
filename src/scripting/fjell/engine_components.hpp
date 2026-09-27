@@ -149,9 +149,9 @@ struct ColliderComponent {
     CollisionFilter filter{};
 
     /// What this collider is made of: the handle id of a `.fjsurface`, as
-    /// `Ref<SurfaceAsset>::handle_id()` gives it, or 0 for none. Raycast hits
+    /// `Asset<Surface>::handle_id()` gives it, or 0 for none. Raycast hits
     /// and contacts against the body report it back. Assign one from the
-    /// inspector, or from script with a `Ref<SurfaceAsset>` property; a
+    /// inspector, or from script with an `Asset<Surface>` property; a
     /// change takes effect when the body is next built.
     uint32_t surface{0};
 
@@ -300,7 +300,7 @@ struct CharacterComponent {
     /// Surface id of the ground underfoot — the handle id of the
     /// `.fjsurface` on the collider or terrain layer being stood on, 0 when
     /// airborne or when it has none. Read-only output. Compare against the
-    /// handle of a `Ref<SurfaceAsset>` property to pick a footstep sound.
+    /// handle of an `Asset<Surface>` property to pick a footstep sound.
     uint32_t ground_surface{0};
 
     /// Where the capsule's center sits relative to the node origin.

@@ -117,7 +117,7 @@ public:
     /// @param peer The connecting peer's ID — pass as the owner when spawning.
     /// The weather changed: a new event started, or the one playing moved
     /// into its next phase. `event` is the event's handle id, matching a
-    /// `Ref<WeatherAsset>`'s; `phase` is where it now is.
+    /// `Asset<Weather>`'s; `phase` is where it now is.
     /// @code
     /// void on_weather_changed(uint32_t event, fjell::WeatherPhase phase) override {
     ///     if (phase == fjell::WeatherPhase::Onset) close_the_shutters();

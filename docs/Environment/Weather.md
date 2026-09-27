@@ -197,8 +197,8 @@ play-from-a-phase menu.
 ```cpp
 #include "fjell/environment_api.hpp"
 
-[[fj::property]] fjell::Ref<fjell::WeatherAsset> storm;
-[[fj::property]] fjell::Ref<fjell::ClimateAsset> climate;
+[[fj::property]] fjell::Asset<fjell::Weather> storm;
+[[fj::property]] fjell::Asset<fjell::Climate> climate;
 
 void begin_play() override {
     fjell::weather::set_climate(climate);

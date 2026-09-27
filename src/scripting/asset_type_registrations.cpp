@@ -17,7 +17,7 @@ using fjell::ResourceManager;
 
 static const bool reg_vfx = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "VfxAsset",
+        .type_name = "Vfx",
         .extension = ".fjvfx",
         .label     = "VFX Effect",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -37,7 +37,7 @@ static const bool reg_vfx = [] {
 
 static const bool reg_audio = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "AudioAsset",
+        .type_name = "Audio",
         .extension = ".fjaudio",
         .label     = "Audio Clip",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -57,7 +57,7 @@ static const bool reg_audio = [] {
 
 static const bool reg_surface = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "SurfaceAsset",
+        .type_name = "Surface",
         .extension = ".fjsurface",
         .label     = "Surface",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -77,7 +77,7 @@ static const bool reg_surface = [] {
 
 static const bool reg_day_profile = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "DayProfileAsset",
+        .type_name = "DayProfile",
         .extension = ".fjday",
         .label     = "Day Profile",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -97,7 +97,7 @@ static const bool reg_day_profile = [] {
 
 static const bool reg_weather = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "WeatherAsset",
+        .type_name = "Weather",
         .extension = ".fjweather",
         .label     = "Weather",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -117,7 +117,7 @@ static const bool reg_weather = [] {
 
 static const bool reg_climate = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "ClimateAsset",
+        .type_name = "Climate",
         .extension = ".fjclimate",
         .label     = "Climate",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
@@ -200,7 +200,7 @@ static const bool reg_input_action = [] {
 
 static const bool reg_preset = [] {
     AssetTypeRegistry::instance().register_type({
-        .type_name = "PresetAsset",
+        .type_name = "Preset",
         .extension = ".fjp",
         .label     = "Preset",
         .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {

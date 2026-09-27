@@ -3,7 +3,7 @@
 
 #include "fjell/api.h"
 
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -69,12 +69,12 @@ FJELL_SDK_EXPORT void     fjell_weather_strike(float x, float y, float z, float 
 
 namespace fjell {
 
-/// A `.fjday` day profile, for `[[fj::property]] Ref<DayProfileAsset>` fields.
-struct DayProfileAsset;
-/// A `.fjweather` weather event, for `[[fj::property]] Ref<WeatherAsset>` fields.
-struct WeatherAsset;
-/// A `.fjclimate`, for `[[fj::property]] Ref<ClimateAsset>` fields.
-struct ClimateAsset;
+/// A `.fjday` day profile, for `[[fj::property]] Asset<DayProfile>` fields.
+struct DayProfile;
+/// A `.fjweather` weather event, for `[[fj::property]] Asset<Weather>` fields.
+struct Weather;
+/// A `.fjclimate`, for `[[fj::property]] Asset<Climate>` fields.
+struct Climate;
 
 #ifndef FJELL_WEATHER_PHASE_DEFINED
 #define FJELL_WEATHER_PHASE_DEFINED
@@ -147,7 +147,7 @@ inline void set_day_length(float seconds) { fjell_time_of_day_set_day_length(sec
 /// and snow on surfaces, wind, precipitation, and can start an event.
 ///
 /// @code
-/// [[fj::property]] fjell::Ref<fjell::WeatherAsset> storm;
+/// [[fj::property]] fjell::Asset<fjell::Weather> storm;
 /// void on_trigger_enter(uint32_t) override { fjell::weather::play(storm); }
 /// void tick(float) override {
 ///     footsteps_.set_wet(fjell::weather::wetness() > 0.5f);
@@ -155,9 +155,9 @@ inline void set_day_length(float seconds) { fjell_time_of_day_set_day_length(sec
 /// @endcode
 namespace weather {
 /// Start an event now. Whatever is playing tails out underneath it.
-/// @param event Event asset, normally a `[[fj::property]] Ref<WeatherAsset>`.
+/// @param event Event asset, normally a `[[fj::property]] Asset<Weather>`.
 ///              An unassigned ref is ignored.
-inline void play(const Ref<WeatherAsset>& event) {
+inline void play(const Asset<Weather>& event) {
     if (event.handle_id() != 0) fjell_weather_play(event.handle_id());
 }
 
@@ -274,7 +274,7 @@ inline void clear_sky_param(const char* name) { fjell_weather_set_sky_param(name
 /// Hand the weather to a climate: it rolls what comes next when an event
 /// ends, so the sky keeps having weather without a script deciding each
 /// turn. An unassigned ref leaves whatever plays to run out.
-inline void set_climate(const Ref<ClimateAsset>& climate) {
+inline void set_climate(const Asset<Climate>& climate) {
     fjell_weather_set_climate(climate.handle_id());
 }
 
@@ -285,7 +285,7 @@ inline void hold(bool held = true) { fjell_weather_hold(held ? 1 : 0); }
 
 /// What the climate will play after this, soonest first: the handle id
 /// of that event, 0 past the end of the forecast or without a climate.
-/// Compare it with a `Ref<WeatherAsset>`'s `handle_id()` to see a storm
+/// Compare it with an `Asset<Weather>`'s `handle_id()` to see a storm
 /// coming and act before it arrives.
 /// @param index 0 is the next event, 1 the one after it.
 [[nodiscard]] inline uint32_t forecast(uint32_t index = 0) {

@@ -1,10 +1,10 @@
-# fjell::Ref&lt;T&gt;
+# fjell::Asset&lt;T&gt;
 
 Handle to an engine-owned asset. Resolved through the engine on every dereference.
 
 | | |
 |---|---|
-| Header | `fjell/ref.hpp` |
+| Header | `fjell/asset.hpp` |
 | Source | (header-only; resolver in `src/scripting/script_globals.cpp`) |
 
 ## Syntax
@@ -12,16 +12,16 @@ Handle to an engine-owned asset. Resolved through the engine on every dereferenc
 ```cpp
 namespace fjell {
 
-struct RefData {
+struct AssetData {
     uint32_t handle_id{0};
     uint8_t  asset_type_id{0};
     uint8_t  reserved_[3]{};
 };
 
 template <typename T>
-class Ref {
+class Asset {
 public:
-    Ref() = default;
+    Asset() = default;
 
     [[nodiscard]] bool valid() const;
     explicit operator bool() const;
@@ -32,7 +32,7 @@ public:
 
     [[nodiscard]] uint32_t handle_id() const;
 
-    RefData data_;
+    AssetData data_;
 };
 
 }
@@ -40,49 +40,49 @@ public:
 
 ## Remarks
 
-`Ref<T>` references an *engine asset* — `VfxAsset`, `AudioAsset`, `PresetAsset`, `InputAction`, etc. The handle is 64 bits (`RefData`), stable across reloads, and serializable to `.fjscene`.
+`Asset<T>` references an *engine asset* — `Vfx`, `Audio`, `Preset`, `InputAction`, etc. The handle is 64 bits (`AssetData`), stable across reloads, and serializable to `.fjscene`.
 
 It is **not** for scene-side objects (other nodes, other components) — use [`WeakRef<T>`](WeakRef.md) for those. The difference matters because engine assets live in a different pool with different lifetime rules.
 
 Assigned in the editor via the inspector's asset picker. When you declare:
 
 ```cpp
-[[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+[[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 ```
 
-the inspector renders a drop-target for `AudioAsset` files. The `asset_type_id` byte in `RefData` is set when the inspector or deserializer writes the ref, and it gates `get()` — passing the wrong type returns null.
+the inspector renders a drop-target for `Audio` files. The `asset_type_id` byte in `AssetData` is set when the inspector or deserializer writes the ref, and it gates `get()` — passing the wrong type returns null.
 
-A `Ref<Material>` accepts any material by default. When the script can only use materials of certain shader types, say so:
+An `Asset<Material>` accepts any material by default. When the script can only use materials of certain shader types, say so:
 
 ```cpp
-[[fj::shader_type(water)]] fjell::Ref<fjell::Material> calm_sea;
-[[fj::shader_type(water, fog)]] fjell::Ref<fjell::Material> surface_or_medium;
+[[fj::shader_type(water)]] fjell::Asset<fjell::Material> calm_sea;
+[[fj::shader_type(water, fog)]] fjell::Asset<fjell::Material> surface_or_medium;
 ```
 
-The picker then lists only materials whose shader declares one of those types, a drop of another type is refused with the reason shown over the field, and a field already holding the wrong type says so under it. `fj::shader_type` implies `fj::property`. On anything other than a `Ref<Material>` it is a build error; a name that is not a shader type (`spatial`, `sky`, `ui`, `terrain`, `water`, `fog`) is reported when the engine loads the module.
+The picker then lists only materials whose shader declares one of those types, a drop of another type is refused with the reason shown over the field, and a field already holding the wrong type says so under it. `fj::shader_type` implies `fj::property`. On anything other than an `Asset<Material>` it is a build error; a name that is not a shader type (`spatial`, `sky`, `ui`, `terrain`, `water`, `fog`) is reported when the engine loads the module.
 
-Every dereference goes through `fjell_ref_resolve` (a C function exported by the engine). It's a pool lookup — cheap, but not free. If you dereference in a hot loop, cache the pointer at the top.
+Every dereference goes through `fjell_asset_resolve` (a C function exported by the engine). It's a pool lookup — cheap, but not free. If you dereference in a hot loop, cache the pointer at the top.
 
 ## Members
 
 | Name | Type | Description |
 |---|---|---|
-| `data_` | `RefData` | The (handle, type) pair. Public for engine access — treat as opaque from game code. |
+| `data_` | `AssetData` | The (handle, type) pair. Public for engine access — treat as opaque from game code. |
 
 ## Functions
 
 | Name | Description |
 |---|---|
-| [`valid`](#refvalid) | True if the ref points at anything |
-| [`operator bool`](#refoperator-bool) | Same as `valid()` |
-| [`get`](#refget) | Resolve to `T*` (or null) |
-| [`operator->`](#refoperator-arrow) | Resolve and dereference; logs on null |
-| [`operator*`](#refoperator-deref) | Resolve and dereference; logs on null |
-| [`handle_id`](#refhandle_id) | Raw 32-bit handle ID |
+| [`valid`](#assetvalid) | True if the ref points at anything |
+| [`operator bool`](#assetoperator-bool) | Same as `valid()` |
+| [`get`](#assetget) | Resolve to `T*` (or null) |
+| [`operator->`](#assetoperator-arrow) | Resolve and dereference; logs on null |
+| [`operator*`](#assetoperator-deref) | Resolve and dereference; logs on null |
+| [`handle_id`](#assethandle_id) | Raw 32-bit handle ID |
 
 ---
 
-## Ref::valid
+## Asset::valid
 
 ### Syntax
 ```cpp
@@ -97,7 +97,7 @@ A cheap structural check. Does **not** confirm the asset still exists in the eng
 
 ---
 
-## Ref::operator bool
+## Asset::operator bool
 
 ### Syntax
 ```cpp
@@ -108,7 +108,7 @@ Same as `valid()`. Enables `if (ref) { ... }`.
 
 ---
 
-## Ref::get
+## Asset::get
 
 ### Syntax
 ```cpp
@@ -129,7 +129,7 @@ if (auto* clip = sound.get()) {
 
 ---
 
-## Ref::operator->  <a id="refoperator-arrow"></a>
+## Asset::operator->  <a id="assetoperator-arrow"></a>
 
 ### Syntax
 ```cpp
@@ -144,7 +144,7 @@ Pointer to the asset.
 
 ---
 
-## Ref::operator*  <a id="refoperator-deref"></a>
+## Asset::operator*  <a id="assetoperator-deref"></a>
 
 ### Syntax
 ```cpp
@@ -159,7 +159,7 @@ Same null-logging behavior as `operator->`. Crashes if the ref is null.
 
 ---
 
-## Ref::handle_id
+## Asset::handle_id
 
 ### Syntax
 ```cpp
@@ -175,8 +175,8 @@ The 32-bit handle ID. Used by some `*_api.hpp` functions that take handle IDs di
 class Coin : public fjell::ScriptComponent {
     FJELL_COMPONENT(Coin)
 
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
-    [[fj::property]] fjell::Ref<fjell::VfxAsset>   collect_effect;
+    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
+    [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
 
     void on_trigger_enter(uint32_t /*other*/) override {
         // Silently no-op if refs unassigned

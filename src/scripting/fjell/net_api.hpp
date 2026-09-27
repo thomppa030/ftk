@@ -7,7 +7,7 @@
 #pragma once
 
 #include "fjell/api.h"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -33,7 +33,7 @@ FJELL_SDK_EXPORT void     fjell_net_send_rpc(uint32_t node_id, uint16_t rpc_inde
 
 namespace fjell {
 
-struct PresetAsset;
+struct Preset;
 
 /// This peer's role in the current session.
 enum class NetRole : int {
@@ -136,7 +136,7 @@ inline void disconnect()                              { fjell_net_disconnect(); 
 
 /// Spawn a preset on every peer, replicated and kept in sync. This is the
 /// networked counterpart to `scene::spawn()`.
-/// @param preset Preset asset, normally a `[[fj::property]] Ref<PresetAsset>`.
+/// @param preset Preset asset, normally a `[[fj::property]] Asset<Preset>`.
 /// @param pos    World position for the spawned root.
 /// @param owner  Peer given ownership — pass the peer from
 ///               `on_player_connected()` for a player pawn. Defaults to
@@ -144,7 +144,7 @@ inline void disconnect()                              { fjell_net_disconnect(); 
 /// @return The new network ID, or 0 if called off the server or the preset
 ///         is unassigned.
 /// @note Server only. Calling it on a client does nothing.
-inline uint32_t spawn(const Ref<PresetAsset>& preset, const glm::vec3& pos,
+inline uint32_t spawn(const Asset<Preset>& preset, const glm::vec3& pos,
                       PeerId owner = SERVER_PEER) {
     if (!preset.valid()) return 0;
     return fjell_net_spawn(preset.handle_id(), pos.x, pos.y, pos.z, owner);

@@ -14,7 +14,7 @@ namespace fjell {
 namespace scene {
     uint32_t find_node(const char* name);
     uint32_t spawn    (const char* name, const glm::vec3& pos = glm::vec3{0.0f});
-    uint32_t spawn    (const Ref<PresetAsset>& preset,
+    uint32_t spawn    (const Asset<Preset>& preset,
                        const glm::vec3& pos = glm::vec3{0.0f},
                        int32_t parent_id = -1);
 }
@@ -99,7 +99,7 @@ node.add_component<CoinCollectible>();
 
 ### Syntax
 ```cpp
-uint32_t spawn(const Ref<PresetAsset>& preset,
+uint32_t spawn(const Asset<Preset>& preset,
                const glm::vec3& pos = glm::vec3{0.0f},
                int32_t parent_id = -1);
 ```
@@ -107,7 +107,7 @@ uint32_t spawn(const Ref<PresetAsset>& preset,
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `preset` | `const Ref<PresetAsset>&` | Preset reference (assigned in the inspector). If null, returns `0`. |
+| `preset` | `const Asset<Preset>&` | Preset reference (assigned in the inspector). If null, returns `0`. |
 | `pos` | `glm::vec3` | World position for the preset's root node. Default origin. |
 | `parent_id` | `int32_t` | Parent node ID. `-1` (default) spawns at root. |
 
@@ -124,7 +124,7 @@ Spawning under a parent inherits the parent's transform; `pos` is in *world* spa
 class Spawner : public fjell::ScriptComponent {
     FJELL_COMPONENT(Spawner)
 
-    [[fj::property]] fjell::Ref<fjell::PresetAsset> enemy;
+    [[fj::property]] fjell::Asset<fjell::Preset> enemy;
 
     void spawn_one() {
         auto pos = transform().position + glm::vec3{5, 0, 0};
@@ -136,5 +136,5 @@ class Spawner : public fjell::ScriptComponent {
 
 ## See also
 - [`Node3D`](Node3D.md) — per-node operations
-- [`Ref`](Ref.md) — how `Ref<PresetAsset>` is resolved
+- [`Asset`](Asset.md) — how `Asset<Preset>` is resolved
 - [`WeakRef`](WeakRef.md) — persistent references to spawned nodes

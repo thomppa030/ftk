@@ -19,9 +19,11 @@ struct PresetHeader {
     std::string name;
 };
 
-class Preset {
+/// The nodes a `.fjp` holds, placed into a scene as a copy with fresh ids.
+/// Scripts know the loaded asset as `Asset<Preset>`; this is what it holds.
+class PresetTemplate {
 public:
-    [[nodiscard]] static Result<Preset> load(const std::string& path,
+    [[nodiscard]] static Result<PresetTemplate> load(const std::string& path,
                                              ResourceManager& resources,
                                              const Project* project = nullptr);
     [[nodiscard]] Result<> save(const std::string& path, const Project* project = nullptr) const;
@@ -32,11 +34,11 @@ public:
                          Transform offset = {}) const;
 
     /// Build a preset from a single node and all its descendants.
-    static Preset from_subtree(const Scene& scene, uint32_t root_id);
+    static PresetTemplate from_subtree(const Scene& scene, uint32_t root_id);
 
     /// Build a preset from a selection of nodes (uses the first selected
     /// node as root and collects its subtree).
-    static Preset from_selection(const Scene& scene,
+    static PresetTemplate from_selection(const Scene& scene,
                                  const std::unordered_set<uint32_t>& ids);
 
     [[nodiscard]] const PresetHeader& header() const { return header_; }

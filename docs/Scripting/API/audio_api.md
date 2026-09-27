@@ -12,7 +12,7 @@ Plays audio clips at world positions.
 ```cpp
 namespace fjell {
 namespace audio {
-    void play(const Ref<AudioAsset>& clip,
+    void play(const Asset<Audio>& clip,
               const glm::vec3& pos,
               float volume = 1.0f,
               float pitch  = 1.0f);
@@ -40,7 +40,7 @@ Backed by miniaudio. Decoded synchronously on first play; subsequent plays of th
 
 ### Syntax
 ```cpp
-void play(const Ref<AudioAsset>& clip,
+void play(const Asset<Audio>& clip,
           const glm::vec3& pos,
           float volume = 1.0f,
           float pitch  = 1.0f);
@@ -49,7 +49,7 @@ void play(const Ref<AudioAsset>& clip,
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `clip` | `const Ref<AudioAsset>&` | Audio asset reference. If null (`clip.handle_id() == 0`), the call is a no-op. |
+| `clip` | `const Asset<Audio>&` | Audio asset reference. If null (`clip.handle_id() == 0`), the call is a no-op. |
 | `pos` | `const glm::vec3&` | World-space position the sound is played from. |
 | `volume` | `float` | Linear volume multiplier. `1.0` = unattenuated, `0.0` = silent. Default `1.0`. |
 | `pitch` | `float` | Playback rate / pitch. `1.0` = original, `2.0` = double-speed (one octave up), `0.5` = half. Default `1.0`. |
@@ -65,7 +65,7 @@ Volume above `1.0` is permitted and audible until clipping occurs in the mix. Ex
 class Coin : public fjell::ScriptComponent {
     FJELL_COMPONENT(Coin)
 
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 
     void on_trigger_enter(uint32_t /*other*/) override {
         fjell::audio::play(collect_sound, transform().position);
@@ -82,5 +82,5 @@ fjell::audio::play(footstep_sound, foot_pos, /*volume*/ 0.6f, p);
 ```
 
 ## See also
-- [`Ref`](Ref.md) — how `Ref<AudioAsset>` is resolved
+- [`Asset`](Asset.md) — how `Asset<Audio>` is resolved
 - [`vfx`](vfx_api.md) — same `(asset, position)` shape for particle systems

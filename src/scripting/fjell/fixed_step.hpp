@@ -3,7 +3,7 @@
 
 #include "fjell/api.h"
 #include "fjell/input_action_ref.hpp"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -36,27 +36,27 @@ namespace fjell {
 /// @endcode
 struct StepInput {
     /// Whether the action was pressed since the step before this one.
-    [[nodiscard]] bool pressed(const Ref<InputAction>& action) const {
+    [[nodiscard]] bool pressed(const Asset<InputAction>& action) const {
         return fjell_step_input_pressed(action.handle_id()) != 0;
     }
 
     /// Whether the action was released since the step before this one.
-    [[nodiscard]] bool released(const Ref<InputAction>& action) const {
+    [[nodiscard]] bool released(const Asset<InputAction>& action) const {
         return fjell_step_input_released(action.handle_id()) != 0;
     }
 
     /// Whether the action is held.
-    [[nodiscard]] bool held(const Ref<InputAction>& action) const {
+    [[nodiscard]] bool held(const Asset<InputAction>& action) const {
         return fjell_step_input_held(action.handle_id()) != 0;
     }
 
     /// A one-axis action's value.
-    [[nodiscard]] float axis1d(const Ref<InputAction>& action) const {
+    [[nodiscard]] float axis1d(const Asset<InputAction>& action) const {
         return fjell_step_input_axis1d(action.handle_id());
     }
 
     /// A two-axis action's value, such as a stick or WASD.
-    [[nodiscard]] glm::vec2 axis2d(const Ref<InputAction>& action) const {
+    [[nodiscard]] glm::vec2 axis2d(const Asset<InputAction>& action) const {
         glm::vec2 value{0.0f};
         fjell_step_input_axis2d(action.handle_id(), &value.x, &value.y);
         return value;

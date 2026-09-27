@@ -18,7 +18,7 @@ class Project;
 
 struct AssetTypeEntry {
     AssetTypeId    type_id{0};       // auto-assigned by registry
-    std::string    type_name;        // "VfxAsset", "AudioAsset", etc.
+    std::string    type_name;        // "Vfx", "Audio", etc.: what scripts write in Asset<T>
     std::string    extension;        // ".fjvfx", ".fjaudio", etc.
     std::string    label;            // "VFX Effect", "Audio Clip", etc.
 

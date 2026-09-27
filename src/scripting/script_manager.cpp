@@ -8,7 +8,7 @@
 #include "scripting/fjell/ui_component.hpp"
 #include "scripting/fjell/ui_registry.hpp"
 #include "scripting/fjell/weak_ref.hpp"
-#include "scripting/fjell/ref.hpp"
+#include "scripting/fjell/asset.hpp"
 #include "scripting/gc_visitor.hpp"
 #include "scripting/input_bindings.hpp"
 #include "core/clock.hpp"
@@ -54,9 +54,9 @@ extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t g
     return s_services.scene->find_spatial(id);
 }
 
-// ── Ref<T> resolution (called from game .so) ───────────────────────────
+// ── Asset<T> resolution (called from game .so) ───────────────────────────
 
-extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t handle_id, uint8_t asset_type_id) {
+extern "C" FJELL_SDK_EXPORT void* fjell_asset_resolve(uint32_t handle_id, uint8_t asset_type_id) {
     if (handle_id == 0 || asset_type_id == 0) return nullptr;
     auto* rm = s_services.resources;
     if (!rm) return nullptr;
@@ -81,7 +81,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_weak(void* /*visitor*/, void* we
     }
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_ref(void*, void*) {}
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_asset(void*, void*) {}
 extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void*, void*) {}
 
 namespace fjell {
@@ -1083,8 +1083,8 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 out[f.name] = {{"id", ref->id}, {"generation", ref->generation}};
                 break;
             }
-            case FJELL_FIELD_REF: {
-                const auto* ref = static_cast<const RefData*>(ptr);
+            case FJELL_FIELD_ASSET: {
+                const auto* ref = static_cast<const AssetData*>(ptr);
                 std::string path;
                 if (ref->handle_id != 0 && s_services.resources) {
                     const auto* entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
@@ -1165,8 +1165,8 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 }
                 break;
             }
-            case FJELL_FIELD_REF: {
-                auto* ref = static_cast<RefData*>(ptr);
+            case FJELL_FIELD_ASSET: {
+                auto* ref = static_cast<AssetData*>(ptr);
                 auto& j = in[f.name];
                 if (j.is_object() && j.contains("asset_path") && s_services.resources) {
                     auto path = j["asset_path"].get<std::string>();

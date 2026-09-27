@@ -174,7 +174,7 @@ public:
   [[fj::enum(Idle, Walk, "Run Fast")]] int mode = 0;
   [[fj::color]] glm::vec3 tint{1.0f, 0.5f, 0.2f};
   [[fj::readonly, fj::replicated]] bool alive = true;
-  [[fj::property, fj::shader_type(water, fog)]] fjell::Ref<fjell::Material> look;
+  [[fj::property, fj::shader_type(water, fog)]] fjell::Asset<fjell::Material> look;
 };
 )");
     REQUIRE(result.errors.empty());
@@ -336,7 +336,7 @@ public:
   [[fj::property]] double precise = 0.0;
   [[fj::color]] float not_a_colour = 1.0f;
   [[fj::enum(A, B)]] float not_an_int = 0.0f;
-  [[fj::shader_type(fog)]] fjell::Ref<fjell::Texture> not_a_material;
+  [[fj::shader_type(fog)]] fjell::Asset<fjell::Texture> not_a_material;
   [[fj::propery]] float typo = 1.0f;
   [[fj::property]] float speed() const;
   [[fj::property]] static float shared;
@@ -353,7 +353,7 @@ public:
     REQUIRE(has_error(result, "errors.hpp:6: error: unsupported type 'double'"));
     REQUIRE(has_error(result, "errors.hpp:7: error: [[fj::color]] requires vec3 or vec4"));
     REQUIRE(has_error(result, "errors.hpp:8: error: [[fj::enum]] requires int field"));
-    REQUIRE(has_error(result, "errors.hpp:9: error: [[fj::shader_type]] requires Ref<Material>"));
+    REQUIRE(has_error(result, "errors.hpp:9: error: [[fj::shader_type]] requires Asset<Material>"));
     REQUIRE(has_error(result, "errors.hpp:10: error: unknown attribute [[fj::propery]]"));
     REQUIRE(has_error(result, "errors.hpp:11: error: fj field attributes mark a data member"));
     REQUIRE(has_error(result, "errors.hpp:12: error: 'shared' is static"));

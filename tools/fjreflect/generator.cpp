@@ -18,16 +18,16 @@ namespace {
 /// garbage collector through its own bridge function.
 struct RefKinds {
     bool weak{false};
-    bool ref{false};
+    bool asset{false};
     bool shared{false};
-    [[nodiscard]] bool any() const { return weak || ref || shared; }
+    [[nodiscard]] bool any() const { return weak || asset || shared; }
 };
 
 RefKinds ref_kinds(const ComponentInfo& comp) {
     RefKinds kinds;
     for (const auto& f : comp.fields) {
         if (f.fj_field_type == "FJELL_FIELD_WEAK_REF") kinds.weak = true;
-        if (f.fj_field_type == "FJELL_FIELD_REF") kinds.ref = true;
+        if (f.fj_field_type == "FJELL_FIELD_ASSET") kinds.asset = true;
         if (f.fj_field_type == "FJELL_FIELD_SHARED_REF") kinds.shared = true;
     }
     return kinds;
@@ -253,7 +253,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         out << "    (void)visitor;\n";
         for (const auto& f : comp.fields) {
             const char* bridge = f.fj_field_type == "FJELL_FIELD_WEAK_REF"     ? "fjell_gc_trace_weak"
-                                 : f.fj_field_type == "FJELL_FIELD_REF"        ? "fjell_gc_trace_ref"
+                                 : f.fj_field_type == "FJELL_FIELD_ASSET"        ? "fjell_gc_trace_asset"
                                  : f.fj_field_type == "FJELL_FIELD_SHARED_REF" ? "fjell_gc_trace_shared"
                                                                                : nullptr;
             if (bridge != nullptr) {
@@ -455,11 +455,11 @@ std::string generated_file(const std::string& stem, const HeaderOutput& header) 
     for (const auto* comp : header.components) {
         const auto k = ref_kinds(*comp);
         kinds.weak = kinds.weak || k.weak;
-        kinds.ref = kinds.ref || k.ref;
+        kinds.asset = kinds.asset || k.asset;
         kinds.shared = kinds.shared || k.shared;
     }
     if (kinds.weak) out << "extern \"C\" void fjell_gc_trace_weak(void*, void*);\n";
-    if (kinds.ref) out << "extern \"C\" void fjell_gc_trace_ref(void*, void*);\n";
+    if (kinds.asset) out << "extern \"C\" void fjell_gc_trace_asset(void*, void*);\n";
     if (kinds.shared) out << "extern \"C\" void fjell_gc_trace_shared(void*, void*);\n";
     if (kinds.any()) out << "\n";
 
@@ -512,7 +512,7 @@ const char* field_kind(const FieldInfo& f) {
         {"FJELL_FIELD_VEC3", "vec3"},         {"FJELL_FIELD_VEC4", "vec4"},
         {"FJELL_FIELD_COLOR3", "color3"},     {"FJELL_FIELD_COLOR4", "color4"},
         {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
-        {"FJELL_FIELD_REF", "ref"},           {"FJELL_FIELD_SHARED_REF", "shared_ref"},
+        {"FJELL_FIELD_ASSET", "asset"},         {"FJELL_FIELD_SHARED_REF", "shared_ref"},
         {"FJELL_FIELD_STD_STRING", "string"},
         {"FJELL_FIELD_STRUCT", "struct"},     {"FJELL_FIELD_VECTOR", "list"},
     };

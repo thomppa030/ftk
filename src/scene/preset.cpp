@@ -12,7 +12,7 @@ namespace fjell {
 
 // ── Save ─────────────────────────────────────────────────────────────────
 
-Result<> Preset::save(const std::string& path, const Project* project) const {
+Result<> PresetTemplate::save(const std::string& path, const Project* project) const {
     nlohmann::json j;
     j["preset"] = {{"name", header_.name}};
     j["next_id"] = local_next_id_;
@@ -33,7 +33,7 @@ Result<> Preset::save(const std::string& path, const Project* project) const {
 
 // ── Load ─────────────────────────────────────────────────────────────────
 
-Result<Preset> Preset::load(const std::string& path,
+Result<PresetTemplate> PresetTemplate::load(const std::string& path,
                             ResourceManager& resources,
                             const Project* project) {
     std::ifstream file(path);
@@ -48,7 +48,7 @@ Result<Preset> Preset::load(const std::string& path,
         return make_error(std::string("Failed to parse preset: ") + e.what());
     }
 
-    Preset preset;
+    PresetTemplate preset;
 
     if (j.contains("preset")) {
         preset.header_.name = j["preset"].value("name", "");
@@ -68,7 +68,7 @@ Result<Preset> Preset::load(const std::string& path,
 
 // ── Instantiate ──────────────────────────────────────────────────────────
 
-uint32_t Preset::instantiate(Scene& scene, int32_t parent_id,
+uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id,
                              Transform offset) const {
     if (nodes_.empty()) return 0;
 
@@ -113,11 +113,11 @@ uint32_t Preset::instantiate(Scene& scene, int32_t parent_id,
 
 // ── From subtree ─────────────────────────────────────────────────────────
 
-Preset Preset::from_subtree(const Scene& scene, uint32_t root_id) {
+PresetTemplate PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id) {
     auto subtree = scene.collect_subtree(root_id);
     if (subtree.empty()) return {};
 
-    Preset preset;
+    PresetTemplate preset;
     preset.header_.name = subtree[0]->name;
 
     // Build ID remap: scene ID → preset-local ID
@@ -156,7 +156,7 @@ Preset Preset::from_subtree(const Scene& scene, uint32_t root_id) {
 
 // ── From selection ───────────────────────────────────────────────────────
 
-Preset Preset::from_selection(const Scene& scene,
+PresetTemplate PresetTemplate::from_selection(const Scene& scene,
                               const std::unordered_set<uint32_t>& ids) {
     if (ids.empty()) return {};
 

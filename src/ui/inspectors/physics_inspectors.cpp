@@ -95,7 +95,7 @@ void fit_to_bounds(CharacterComponent& cc, const AABB& bounds) {
 ui::Edit surface_row(ColliderComponent& col, const InspectorContext& ctx) {
     ui::Edit edit;
     static const std::string surface_exts[] = {".fjsurface"};
-    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("SurfaceAsset");
+    const auto* surface_type = AssetTypeRegistry::instance().find_by_name("Surface");
     ui::row("Surface", "What the collider is made of, for footsteps, impacts and decals.", [&] {
         if (asset_slot({.label = "Surface", .id = "##surface", .extensions = surface_exts,
                         .ctx = &ctx, .asset_type = surface_type},

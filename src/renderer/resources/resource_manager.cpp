@@ -1070,7 +1070,7 @@ Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& 
         return it->second;
     }
 
-    auto result = Preset::load(path, *this, project ? project : project_);
+    auto result = PresetTemplate::load(path, *this, project ? project : project_);
     if (!result) {
         return make_error(result.error());
     }

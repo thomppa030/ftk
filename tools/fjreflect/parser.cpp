@@ -18,8 +18,8 @@ namespace fjreflect {
 /// it owns the list, and a copy here would drift from it.
 static std::string shader_type_error(const FieldInfo& fi) {
     if (fi.shader_types.empty()) return {};
-    if (fi.fj_field_type == "FJELL_FIELD_REF" && fi.ref_target == "Material") return {};
-    return "[[fj::shader_type]] requires Ref<Material>, got '" + fi.cpp_type + "' on '" +
+    if (fi.fj_field_type == "FJELL_FIELD_ASSET" && fi.ref_target == "Material") return {};
+    return "[[fj::shader_type]] requires Asset<Material>, got '" + fi.cpp_type + "' on '" +
            fi.name + "'";
 }
 
@@ -1079,7 +1079,7 @@ private:
 
         if (is_engine_pointer(m.type)) {
             error(m.line, "[[fj::property]] on raw pointer '" + m.type + " " + m.name +
-                              "' — use WeakRef<T> or Ref<T>");
+                              "' — use WeakRef<T> or Asset<T>");
             return;
         }
 

@@ -15,7 +15,7 @@ You author input in three small files:
 Then in your `ScriptComponent`:
 
 ```cpp
-[[fj::property]] fjell::Ref<fjell::InputAction> jump;
+[[fj::property]] fjell::Asset<fjell::InputAction> jump;
 
 void begin_play() override {
     fjell::input::bind<&Player::on_jump>(jump, fjell::EInputTrigger::Pressed, this);
@@ -141,8 +141,8 @@ Inside any `ScriptComponent`:
 class Player : public fjell::ScriptComponent {
     FJELL_COMPONENT(Player)
 
-    [[fj::property]] fjell::Ref<fjell::InputAction> move;
-    [[fj::property]] fjell::Ref<fjell::InputAction> jump;
+    [[fj::property]] fjell::Asset<fjell::InputAction> move;
+    [[fj::property]] fjell::Asset<fjell::InputAction> jump;
 
     void begin_play() override {
         fjell::input::bind<&Player::on_move>(move, fjell::EInputTrigger::Triggered, this);
@@ -157,7 +157,7 @@ private:
 };
 ```
 
-Two `[[fj::property]] Ref<InputAction>` fields → the inspector lets you drag a `.fjaction` onto each. The bind picks the correct overload from the method signature (`void()` → button, `void(float)` → axis1d, `void(glm::vec2)` → axis2d).
+Two `[[fj::property]] Asset<InputAction>` fields → the inspector lets you drag a `.fjaction` onto each. The bind picks the correct overload from the method signature (`void()` → button, `void(float)` → axis1d, `void(glm::vec2)` → axis2d).
 
 **Bind in `begin_play`, every time** — bindings don't survive hot-reload. There's a global call (`input::clear_connections()`) that drops every script binding; the engine calls it for you on reload and on scene unload, so usually you just bind and forget.
 
@@ -319,7 +319,7 @@ Same files as the JSON walkthrough above — the editor is just a much faster wa
 - **Trigger mismatch on axes.** Picking `Pressed` for an `axis2d` callback compiles but never fires — there's no rising-edge concept for an axis. Use `Triggered` (the default) and treat the callback as continuous.
 - **Two contexts both claim the same action with `consume: true`.** Only the top one runs. Either set `consume: false` on the overlay or accept the override.
 - **Context name vs. file name.** The context name is the `"name"` field inside the JSON, not the filename — but `InputComponent` loads files by path. Keep them in sync; the editor will, by default.
-- **Action name vs. asset path.** `Ref<InputAction>` resolves by handle, not by string. Renaming the action without updating the `.fjaction` file's `"name"` field breaks lookups silently.
+- **Action name vs. asset path.** `Asset<InputAction>` resolves by handle, not by string. Renaming the action without updating the `.fjaction` file's `"name"` field breaks lookups silently.
 
 ## Where the code lives
 
@@ -342,5 +342,5 @@ Same files as the JSON walkthrough above — the editor is just a much faster wa
 
 - [`input`](API/input_api.md) — reference for `bind`, `push_context`, `pop_context`
 - [`Input`](API/Input.md) — reference for direct polling
-- [`Ref`](API/Ref.md) — how `Ref<InputAction>` resolves
+- [`Asset`](API/Asset.md) — how `Asset<InputAction>` resolves
 - [Scripting Overview](Overview.md) — where `[[fj::property]]` and the reload model are explained

@@ -289,7 +289,7 @@ void SceneEditorContext::init() {
         [this](const std::string& rel_path, int32_t parent_id) {
             const auto* project = deps_.project_mgr ? deps_.project_mgr->active() : nullptr;
             auto resolved = base_path::resolve_asset(rel_path, project);
-            auto result = Preset::load(resolved, *deps_.resource_manager, project);
+            auto result = PresetTemplate::load(resolved, *deps_.resource_manager, project);
             if (!result) {
                 FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
                 return;

@@ -6,7 +6,7 @@
 namespace fjell {
 
 struct PresetAsset {
-    Preset preset;
+    PresetTemplate preset;
 };
 
 } // namespace fjell

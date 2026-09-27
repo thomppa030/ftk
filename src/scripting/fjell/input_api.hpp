@@ -3,7 +3,7 @@
 
 #include "fjell/api.h"
 #include "fjell/input_action_ref.hpp"
-#include "fjell/ref.hpp"
+#include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
 
@@ -33,8 +33,8 @@ namespace fjell {
 /// reload; there is no per-binding unbind.
 ///
 /// @code
-/// [[fj::property]] fjell::Ref<fjell::InputAction> move;   // axis2d
-/// [[fj::property]] fjell::Ref<fjell::InputAction> jump;   // button
+/// [[fj::property]] fjell::Asset<fjell::InputAction> move;   // axis2d
+/// [[fj::property]] fjell::Asset<fjell::InputAction> jump;   // button
 ///
 /// void begin_play() override {
 ///     using fjell::EInputTrigger;
@@ -47,7 +47,7 @@ namespace fjell {
 namespace input {
 /// Bind a `void()` method — the form for button actions.
 /// @tparam Method  Member function pointer, as a template argument.
-/// @param action   Action asset, normally a `[[fj::property]] Ref<InputAction>`
+/// @param action   Action asset, normally a `[[fj::property]] Asset<InputAction>`
 ///                 assigned in the inspector. An unassigned ref binds nothing.
 /// @param trigger  When to fire: `Pressed` on press, `Released` on release,
 ///                 `Triggered` every frame the action is active, `Completed`
@@ -57,7 +57,7 @@ namespace input {
 ///                 releases the binding. Any other object must outlive play.
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(); }
-inline void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance) {
+inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
     if (action.data_.handle_id == 0) return;
     fjell_input_bind_void(
         action.data_.handle_id, static_cast<int>(trigger), instance,
@@ -70,7 +70,7 @@ inline void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* insta
 /// otherwise identical to the `void()` form.
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(0.0f); }
-inline void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance) {
+inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
     if (action.data_.handle_id == 0) return;
     fjell_input_bind_float(
         action.data_.handle_id, static_cast<int>(trigger), instance,
@@ -90,7 +90,7 @@ inline void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* insta
 ///          multiplied by `dt`. Use `active_device()` to tell them apart.
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(glm::vec2{}); }
-inline void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance) {
+inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
     if (action.data_.handle_id == 0) return;
     fjell_input_bind_vec2(
         action.data_.handle_id, static_cast<int>(trigger), instance,

@@ -75,7 +75,7 @@ class Rocket : public fjell::ScriptComponent {
     FJELL_COMPONENT(Rocket)
 
     [[fj::property]] float thrust = 40.0f;
-    [[fj::property]] fjell::Ref<fjell::InputAction> boost;
+    [[fj::property]] fjell::Asset<fjell::InputAction> boost;
 
     void fixed_tick(const fjell::FixedStep& step) override {
         // A force acts on the step it is applied in: apply it in every step.
@@ -196,8 +196,8 @@ class Coin : public fjell::ScriptComponent {
     [[fj::property]] float spin_speed = 90.0f;
     [[fj::property]] int   points     = 10;
     [[fj::property]] glm::vec3 axis{0, 1, 0};
-    [[fj::property]] fjell::Ref<fjell::VfxAsset>   collect_effect;
-    [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
+    [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
+    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 };
 ```
 
@@ -232,7 +232,7 @@ Supported field types (from `FjellFieldType` in `fjell/api.h`):
 | `COLOR3/4` | `glm::vec3` / `vec4` | color picker |
 | `STRING` | `std::string` | text field |
 | `ENUM` | `enum class` | dropdown |
-| `REF` | `fjell::Ref<T>` | asset picker (VfxAsset, AudioAsset, InputAction, ...) |
+| `REF` | `fjell::Asset<T>` | asset picker (Vfx, Audio, InputAction, ...) |
 | `WEAK_REF` | `fjell::WeakRef<T>` | scene-object picker |
 
 ### When fjreflect runs
@@ -254,11 +254,11 @@ for) stops the build with the file and line.
 
 Three flavors. Pick by lifetime:
 
-### `fjell::Ref<T>` — asset reference
-For *engine-owned assets*: `VfxAsset`, `AudioAsset`, `InputAction`, `PresetAsset`, etc. The handle is 64 bits, stable, and resolved through the engine on every dereference (cheap — a pool lookup).
+### `fjell::Asset<T>` — asset reference
+For *engine-owned assets*: `Vfx`, `Audio`, `InputAction`, `Preset`, etc. The handle is 64 bits, stable, and resolved through the engine on every dereference (cheap — a pool lookup).
 
 ```cpp
-[[fj::property]] fjell::Ref<fjell::AudioAsset> hit_sound;
+[[fj::property]] fjell::Asset<fjell::Audio> hit_sound;
 
 void play_it() {
     fjell::audio::play(hit_sound, transform().position);
@@ -365,7 +365,7 @@ All under `src/scripting/fjell/`. The shape of the SDK:
 | `transform.hpp` | `Transform` struct, euler helpers, `decompose_matrix` |
 | `world.hpp` | `World` — frame state (input, delta_time, the fixed step's time) |
 | `input.hpp` | `Input` class — `is_key_pressed`, mouse position, cursor capture |
-| `ref.hpp`, `weak_ref.hpp` | `Ref<T>`, `WeakRef<T>` |
+| `ref.hpp`, `weak_ref.hpp` | `Asset<T>`, `WeakRef<T>` |
 | `delegate.hpp` | `Delegate<>`, `Connection` |
 | `registry.hpp` | `FJELL_COMPONENT`, `FJELL_NOTIFY`, `FJELL_REGISTER` |
 | `ui_widget.hpp`, `ui_registry.hpp` | `UiWidget`, `FJELL_UI_WIDGET` |
