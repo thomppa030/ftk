@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/hierarchy_panel.hpp"
 #include "ui/net_panel.hpp"
 #include "ui/properties_panel.hpp"
@@ -62,7 +62,7 @@ struct SceneEditorDeps {
     EnvironmentSubsystem* environment{nullptr};
 };
 
-class SceneEditorContext final : public EditorContext {
+class SceneEditorContext final : public EngineEditorContext {
 public:
     explicit SceneEditorContext(SceneEditorDeps deps);
 

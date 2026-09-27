@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/game_ui/fjfont.hpp"
 
 #include <memory>
@@ -27,7 +27,7 @@ struct FontEditorDeps {
 /// distance range, whether kerning is baked. Every committed field writes
 /// the recipe and the font library rebuilds the atlas, so the sample line
 /// and the atlas image show the result a moment later. Edits are undoable.
-class FontEditorContext final : public EditorContext {
+class FontEditorContext final : public EngineEditorContext {
 public:
     explicit FontEditorContext(FontEditorDeps deps);
 

@@ -3,7 +3,7 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_derivation.hpp"
 #include "scene/scene.hpp"
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <array>
@@ -54,7 +54,7 @@ struct WaterEditorDeps {
 ///
 /// Every edit reaches the loaded asset at once so the viewport shows the sea
 /// being shaped rather than the one last saved. Ctrl+S writes the file.
-class WaterEditorContext final : public EditorContext {
+class WaterEditorContext final : public EngineEditorContext {
 public:
     explicit WaterEditorContext(WaterEditorDeps deps);
 

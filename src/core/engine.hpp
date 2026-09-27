@@ -58,6 +58,7 @@ class EnvironmentSubsystem;
 class DebugDrawQueue;
 class ScreenDebugQueue;
 class EditorContext;
+class EngineEditorContext;
 class NetManager;
 class NetReceiveSubsystem;
 class NetSendSubsystem;
@@ -156,8 +157,8 @@ private:
     void handle_play_shortcuts();
 
     // Context management
-    [[nodiscard]] EditorContext& active_context();
-    [[nodiscard]] const EditorContext& active_context() const;
+    [[nodiscard]] EngineEditorContext& active_context();
+    [[nodiscard]] const EngineEditorContext& active_context() const;
     void switch_context(int index);
     void build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport);
     void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);    // Whether a saved layout still docks every window the context has.
@@ -297,8 +298,8 @@ private:
     bool has_saved_layout_{false};
 
     // Editor contexts
-    ContextRegistry context_registry_;
-    std::vector<std::unique_ptr<EditorContext>> contexts_;
+    ContextRegistry<EngineEditorContext> context_registry_;
+    std::vector<std::unique_ptr<EngineEditorContext>> contexts_;
     int active_context_idx_{0};
     int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame
     // Closing a context frees its viewport descriptor sets, which this frame's

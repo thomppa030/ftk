@@ -2,7 +2,7 @@
 
 #include "animation/animation_state_machine.hpp"
 #include "physics/collision_shape.hpp"
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/state_graph.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
@@ -41,7 +41,7 @@ struct AnimationEditorDeps {
     IconCache* icon_cache;
 };
 
-class AnimationEditorContext final : public EditorContext {
+class AnimationEditorContext final : public EngineEditorContext {
 public:
     explicit AnimationEditorContext(AnimationEditorDeps deps);
 

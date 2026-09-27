@@ -4,8 +4,6 @@
 #include "core/result.hpp"
 #include "ui/document_history.hpp"
 #include "ui/history_panel.hpp"
-#include "ui/stats_panel.hpp"
-#include "renderer/viewport_source.hpp"
 
 #include <imgui.h>
 
@@ -15,10 +13,9 @@
 
 namespace fjell {
 
-class Scene;
-class ViewportManager;
-class VulkanContext;
-
+/// One tab of an editor: the document it edits, its undo history, its docked
+/// panels and how it draws. A host derives its own kind of context from this,
+/// with whatever else its editors need, and each asset editor from that.
 class EditorContext {
 public:
     virtual ~EditorContext() = default;
@@ -32,9 +29,9 @@ public:
     [[nodiscard]] virtual const char* context_type() const = 0;
     /// Where an asset editor's panels start (sheet 7), by their titles:
     /// a tree or lists down the left, the preview, what sits under it (a
-    /// graph, timeline or canvas), the inspector down the right. Console,
-    /// Stats and History always sit along the bottom, under the preview.
-    /// Empty slots are left out.
+    /// graph, timeline or canvas), the inspector down the right. The
+    /// bottom_tabs() always sit along the bottom, under the preview. Empty
+    /// slots are left out.
     struct DockPreset {
         std::vector<std::string> tree{};
         std::vector<std::string> preview{};
@@ -44,8 +41,12 @@ public:
     [[nodiscard]] virtual DockPreset dock_preset() const { return {}; }
 
     /// Every window the context docks, with its context suffix: the
-    /// preset's panels and the three along the bottom.
+    /// preset's panels and the bottom tabs.
     [[nodiscard]] virtual std::vector<std::string> docked_window_names() const;
+
+    /// The panels along the bottom, in tab order: the console and the undo
+    /// history. A host adds its own and draws them in draw_shared_panels().
+    [[nodiscard]] virtual std::vector<std::string> bottom_tabs() const;
 
     // Per-context undo/redo
     [[nodiscard]] CommandHistory& command_history() { return command_history_; }
@@ -115,32 +116,7 @@ public:
     /// follows the active context.
     [[nodiscard]] virtual bool has_unsaved_changes() const;
 
-    // Fullscreen play presentation. Only the scene context hosts play.
-    virtual void draw_play_overlay() {}
-
-    // Scene to render (nullptr = use main scene)
-    [[nodiscard]] virtual Scene* render_scene() { return nullptr; }
-
-    // Viewport render requests
-    [[nodiscard]] virtual std::vector<ViewportRenderRequest> build_render_requests() = 0;
-    virtual void apply_resize(VulkanContext& vk) = 0;
-
-    // Render auxiliary viewports (e.g. camera preview) in separate command buffers.
-    // Called after apply_resize but before record_frame.
-    virtual void render_previews(VulkanContext& /*vk*/, Scene* /*scene*/, float /*dt*/,
-                                  const struct EnvironmentState& /*environment*/,
-                                  class ThreadPool& /*pool*/) {}
-
     // Dockspace layout tracking
-    /// The requests of an asset preview: the same viewports, drawn over the
-    /// editor's studio backdrop instead of the scene's sky, so the asset is
-    /// what stands out.
-    [[nodiscard]] static std::vector<ViewportRenderRequest> preview_render_requests(
-        std::vector<ViewportRenderRequest> requests) {
-        for (auto& request : requests) request.backdrop = &SkyBackdrop::editor_preview();
-        return requests;
-    }
-
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }
 
@@ -157,17 +133,10 @@ public:
         return buf;
     }
 
-    /// Names the context's preview window "Preview" with its context suffix,
-    /// so it docks where the preset puts it. Called before drawing it.
-    void name_preview(ViewportManager& viewports) const;
+    /// Draws the bottom tabs. Each context owns its own panels, so they dock
+    /// with it; an override that adds tabs draws its own and calls this.
+    virtual void draw_shared_panels(float dt);
 
-    // Shared panels — each context owns its own instances so they dock correctly
-    void init_shared_panels(VulkanContext* vk) {
-        stats_panel_.init(vk);
-    }
-    void draw_shared_panels(float dt);
-
-    [[nodiscard]] StatsPanel& stats_panel() { return stats_panel_; }
     [[nodiscard]] HistoryPanel& history_panel() { return history_panel_; }
 
 protected:
@@ -199,7 +168,6 @@ private:
 
     /// restore(), and the unsaved check redone after it.
     [[nodiscard]] Result<> restore_document(const std::string& text);
-    StatsPanel stats_panel_;
     HistoryPanel history_panel_;
     ImGuiID dockspace_id_{0};
     int context_index_{0};

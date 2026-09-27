@@ -360,9 +360,9 @@ add_executable(fjell
     ui/project_settings_window.cpp
     ui/document_history.cpp
     ui/editor_context.cpp
+    ui/engine_editor_context.cpp
     ui/animation_editor_context.cpp
     ui/blend_space_editor_context.cpp
-    ui/context_registry.cpp
     ui/input_mapping_editor_context.cpp
     ui/material_editor_context.cpp
     ui/asset_thumbnail_renderer.cpp

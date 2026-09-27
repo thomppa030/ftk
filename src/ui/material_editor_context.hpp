@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/resource_handle.hpp"
@@ -32,7 +32,7 @@ struct MaterialEditorDeps {
     AssetThumbnailRenderer* asset_thumbnails;
 };
 
-class MaterialEditorContext final : public EditorContext {
+class MaterialEditorContext final : public EngineEditorContext {
 public:
     explicit MaterialEditorContext(MaterialEditorDeps deps);
 

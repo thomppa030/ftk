@@ -2,7 +2,7 @@
 
 #include "animation/blend_space.hpp"
 #include "scene/scene.hpp"
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/kit/canvas.hpp"
 #include "ui/viewport_manager.hpp"
 
@@ -41,7 +41,7 @@ struct BlendSpaceEditorDeps {
 /// parameters are. The two kinds share everything but the canvas, which is a
 /// line for one parameter and a plane, triangulated, for two. The preview
 /// plays the blend at the canvas's cursor on the skeleton the space is for.
-class BlendSpaceEditorContext final : public EditorContext {
+class BlendSpaceEditorContext final : public EngineEditorContext {
 public:
     explicit BlendSpaceEditorContext(BlendSpaceEditorDeps deps);
 

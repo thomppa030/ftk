@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/viewport_manager.hpp"
 #include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh.hpp"
@@ -39,7 +39,7 @@ struct MeshEditorDeps {
     std::function<void(const std::string& source_path)> import_model;
 };
 
-class MeshEditorContext final : public EditorContext {
+class MeshEditorContext final : public EngineEditorContext {
 public:
     explicit MeshEditorContext(MeshEditorDeps deps);
 

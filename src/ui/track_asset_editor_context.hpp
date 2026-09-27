@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/track_lanes.hpp"
 #include "ui/viewport_manager.hpp"
 
@@ -34,7 +34,7 @@ struct TrackAssetEditorDeps {
 /// as lanes, and the Properties panel the selected track and the asset's
 /// own settings. Every edit reaches the loaded asset at once, so the scene
 /// shows it before a save.
-class TrackAssetEditorContext : public EditorContext {
+class TrackAssetEditorContext : public EngineEditorContext {
 public:
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] DockPreset dock_preset() const override;

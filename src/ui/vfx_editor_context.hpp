@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/vfx_graph.hpp"
 #include "ui/viewport_manager.hpp"
@@ -41,7 +41,7 @@ struct VfxEditorDeps {
     ContentBrowser* content_browser{nullptr};
 };
 
-class VfxEditorContext final : public EditorContext {
+class VfxEditorContext final : public EngineEditorContext {
 public:
     explicit VfxEditorContext(VfxEditorDeps deps);
 

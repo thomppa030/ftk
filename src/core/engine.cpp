@@ -46,7 +46,7 @@
 #include "ui/ui_editor_context.hpp"
 #include "ui/input_mapping_editor_context.hpp"
 #include "ui/vfx_editor_context.hpp"
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/camera_subsystem.hpp"
@@ -591,7 +591,7 @@ void Engine::init_editor() {
     }
 
     context_registry_.register_type("material", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             MaterialEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -613,7 +613,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("mesh", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             MeshEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -638,7 +638,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("day_profile", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             TrackAssetEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -658,7 +658,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("weather", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             TrackAssetEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -679,7 +679,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("water", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             WaterEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -702,7 +702,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("font", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             FontEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -721,7 +721,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("ui", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             UiEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -745,7 +745,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("vfx", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             VfxEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -766,7 +766,7 @@ void Engine::init_editor() {
         }
     });
 
-    auto anim_factory = [this](const std::string&) -> std::unique_ptr<EditorContext> {
+    auto anim_factory = [this](const std::string&) -> std::unique_ptr<EngineEditorContext> {
         AnimationEditorDeps deps{
             .vulkan_context = vulkan_context_.get(),
             .resource_manager = resource_manager_.get(),
@@ -822,7 +822,7 @@ void Engine::init_editor() {
     });
 
     context_registry_.register_type("blend_space", {
-        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+        .create = [this](const std::string& path) -> std::unique_ptr<EngineEditorContext> {
             BlendSpaceEditorDeps deps{
                 .vulkan_context = vulkan_context_.get(),
                 .resource_manager = resource_manager_.get(),
@@ -843,7 +843,7 @@ void Engine::init_editor() {
         }
     });
 
-    auto input_factory = [this](const std::string&) -> std::unique_ptr<EditorContext> {
+    auto input_factory = [this](const std::string&) -> std::unique_ptr<EngineEditorContext> {
         InputMappingEditorDeps deps{
             .vulkan_context = vulkan_context_.get(),
             .input = &input_,
@@ -2478,11 +2478,11 @@ void Engine::run() {
     FJELL_CORE_INFO("Exiting main loop");
 }
 
-EditorContext& Engine::active_context() {
+EngineEditorContext& Engine::active_context() {
     return *contexts_[static_cast<size_t>(active_context_idx_)];
 }
 
-const EditorContext& Engine::active_context() const {
+const EngineEditorContext& Engine::active_context() const {
     return *contexts_[static_cast<size_t>(active_context_idx_)];
 }
 

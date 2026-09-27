@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "core/input_action.hpp"
 #include "core/input_mapping_context.hpp"
 #include "core/input_source.hpp"
@@ -22,7 +22,7 @@ struct InputMappingEditorDeps {
     InputActionMap* input_action_map;
 };
 
-class InputMappingEditorContext final : public EditorContext {
+class InputMappingEditorContext final : public EngineEditorContext {
 public:
     explicit InputMappingEditorContext(InputMappingEditorDeps deps);
 

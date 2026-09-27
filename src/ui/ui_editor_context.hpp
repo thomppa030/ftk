@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ui/engine_editor_context.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
@@ -44,7 +44,7 @@ struct UiEditorDeps {
     const Scene* scene;                // where the preview's Models find their components
 };
 
-class UiEditorContext final : public EditorContext {
+class UiEditorContext final : public EngineEditorContext {
 public:
     explicit UiEditorContext(UiEditorDeps deps);
     ~UiEditorContext() override;
