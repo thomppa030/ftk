@@ -1,21 +1,28 @@
-# Prefer the glslc that ships with the located Vulkan SDK. The Windows SDK
+# Finds glslc and keeps it in the cache as GLSLC. Called by whatever compiles
+# a shader, so a program that links only libraries without shaders never needs
+# it. Prefers the glslc that ships with the located Vulkan SDK: the Windows SDK
 # installer leaves %VULKAN_SDK%\Bin off PATH, so a bare PATH search fails there
 # even with the SDK correctly installed.
-if(Vulkan_GLSLC_EXECUTABLE)
-    set(GLSLC "${Vulkan_GLSLC_EXECUTABLE}" CACHE FILEPATH "glslc shader compiler")
-else()
-    find_program(GLSLC glslc
-        HINTS ENV VULKAN_SDK
-        PATH_SUFFIXES Bin bin)
-endif()
-
-if(NOT GLSLC)
-    message(FATAL_ERROR
-        "glslc not found. Install the Vulkan SDK (https://vulkan.lunarg.com/) and make "
-        "sure VULKAN_SDK is set, or point -DGLSLC=<path> at the compiler directly.")
-endif()
+function(fjell_find_glslc)
+    if(GLSLC)
+        return()
+    endif()
+    if(Vulkan_GLSLC_EXECUTABLE)
+        set(GLSLC "${Vulkan_GLSLC_EXECUTABLE}" CACHE FILEPATH "glslc shader compiler")
+    else()
+        find_program(GLSLC glslc
+            HINTS ENV VULKAN_SDK
+            PATH_SUFFIXES Bin bin)
+    endif()
+    if(NOT GLSLC)
+        message(FATAL_ERROR
+            "glslc not found. Install the Vulkan SDK (https://vulkan.lunarg.com/) and make "
+            "sure VULKAN_SDK is set, or point -DGLSLC=<path> at the compiler directly.")
+    endif()
+endfunction()
 
 function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
+    fjell_find_glslc()
     file(GLOB_RECURSE SHADERS
         "${SHADER_DIR}/*.vert"
         "${SHADER_DIR}/*.frag"
