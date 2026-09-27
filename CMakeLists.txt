@@ -68,6 +68,7 @@ include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 include(cmake/GenerateShaderConstants.cmake)
 
+include(src/libraries.cmake)
 add_subdirectory(src)
 
 # Fjell's libraries include only their own files and those of the libraries

@@ -130,7 +130,7 @@ function(fjell_check_library_boundaries lists_file)
         string(APPEND report
             "Library files including outside their library:\n${crossings}\n"
             "A library's file may include its own library's files and those of the Fjell "
-            "libraries it links directly (fjell_library() in src/CMakeLists.txt). A header "
+            "libraries it links directly (fjell_library() in src/libraries.cmake). A header "
             "that belongs to the library goes in its HEADERS; what it needs from the engine "
             "moves into a library, or the engine hands it in.\n")
     endif()
