@@ -6,7 +6,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/frame_cache_key.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/shader_diagnostic.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
@@ -132,6 +131,7 @@ target_include_directories(fjell-testable PUBLIC
 target_include_directories(fjell-testable SYSTEM PUBLIC ${stb_SOURCE_DIR})
 target_link_libraries(fjell-testable PUBLIC
     fjell-core
+    fjell-framegraph
     fjell-platform
     fjell-imgui-headless
     spdlog::spdlog
@@ -312,6 +312,13 @@ target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
 
 fjell_target_defaults(fjell-tests)
+# The libraries under test bring Vulkan and GLFW for code no test calls.
+# Keeping only the shared libraries something uses leaves the Vulkan loader
+# out, so the tests start on a machine without it. MSVC already imports a
+# DLL only for the symbols used from it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(fjell-tests PRIVATE LINKER:--as-needed)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
@@ -336,4 +343,5 @@ endfunction()
 
 fjell_library_link_check(core)
 fjell_library_link_check(platform)
+fjell_library_link_check(framegraph)
 fjell_library_link_check(gpu NEEDS_GPU)

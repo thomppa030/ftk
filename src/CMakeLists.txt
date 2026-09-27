@@ -124,6 +124,27 @@ else()
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
+# fjell-framegraph orders a frame's passes and places the barriers between
+# them, records passes of a group in parallel, and gives passes their
+# transient images and per-frame descriptor sets.
+fjell_library(framegraph
+    SOURCES
+        renderer/frame_cache_key.cpp
+        renderer/frame_descriptor_cache.cpp
+        renderer/frame_graph.cpp
+        renderer/pass_builder.cpp
+        renderer/transient_image_pool.cpp
+    HEADERS
+        renderer/frame_descriptor_cache.hpp
+        renderer/frame_graph.hpp
+        renderer/pass_builder.hpp
+        renderer/resource_desc.hpp
+        renderer/resource_registry.hpp
+        renderer/transient_image_pool.hpp
+    LINKS
+        PUBLIC fjell-core fjell-gpu
+)
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -242,11 +263,6 @@ add_executable(fjell
     renderer/shader_diagnostic.cpp
     renderer/resources/primitives.cpp
     renderer/bindless.cpp
-    renderer/frame_graph.cpp
-    renderer/frame_cache_key.cpp
-    renderer/frame_descriptor_cache.cpp
-    renderer/transient_image_pool.cpp
-    renderer/pass_builder.cpp
     renderer/systems/particle_system.cpp
     renderer/systems/vfx_subsystem.cpp
     renderer/systems/sprite_renderer.cpp
@@ -575,6 +591,7 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-core>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-platform>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-gpu>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-framegraph>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
