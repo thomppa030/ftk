@@ -367,7 +367,7 @@ void PlayController::start() {
         s_.sprite_anim->notify_play_start(ctx);
         s_.environment->notify_play_start(ctx);
 
-        // Contexts before scripts: begin_play binds actions through InputAPI.
+        // Contexts before scripts: begin_play binds actions through input::bind.
         load_input_contexts();
 
         // A previous session's begin_play left bindings that captured `this`

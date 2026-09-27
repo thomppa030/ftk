@@ -25,8 +25,8 @@ struct Node3D;
 ///         // What the character stands on picks the clip: the surface comes
 ///         // from the collider or terrain layer under its feet.
 ///         auto* c = owner.get_component<fjell::CharacterComponent>();
-///         bool on_grass = c && fjell::Surface::is(c->ground_surface, grass);
-///         fjell::Audio::play(on_grass ? grass_step : step, owner.position());
+///         bool on_grass = c && fjell::surface::is(c->ground_surface, grass);
+///         fjell::audio::play(on_grass ? grass_step : step, owner.position());
 ///     }
 /// };
 /// @endcode

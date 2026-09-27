@@ -167,7 +167,7 @@ Same null-logging behavior as `operator->`. Crashes if the ref is null.
 ```
 
 ### Return value
-The 32-bit handle ID. Used by some `*_api.hpp` functions that take handle IDs directly (`Audio::play`, `Vfx::spawn` — though those wrap it internally).
+The 32-bit handle ID. Used by some `*_api.hpp` functions that take handle IDs directly (`audio::play`, `vfx::spawn` — though those wrap it internally).
 
 ## Example
 
@@ -180,8 +180,8 @@ class Coin : public fjell::ScriptComponent {
 
     void on_trigger_enter(uint32_t /*other*/) override {
         // Silently no-op if refs unassigned
-        fjell::Audio::play(collect_sound, transform().position);
-        fjell::Vfx::spawn(collect_effect, transform().position);
+        fjell::audio::play(collect_sound, transform().position);
+        fjell::vfx::spawn(collect_effect, transform().position);
         self().destroy();
     }
 };

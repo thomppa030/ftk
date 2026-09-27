@@ -134,7 +134,7 @@ voids, crowds and a galactic band carrying its own faint glow. See
 #include "fjell/environment_api.hpp"
 
 void tick(float dt) override {
-    if (fjell::TimeOfDay::phase() == fjell::TimePhase::Night) {
+    if (fjell::time_of_day::phase() == fjell::TimePhase::Night) {
         lantern_.light();
     }
 }
@@ -142,12 +142,12 @@ void tick(float dt) override {
 
 | Call | What it gives you |
 |---|---|
-| `TimeOfDay::hour()` / `set_hour(h)` | The hour, 0 to 24. Setting it wraps, so 25 is 1 a.m. |
-| `TimeOfDay::day_length()` / `set_day_length(s)` | Real seconds per day. 0 freezes it. |
-| `TimeOfDay::phase()` | `Night`, `Dawn`, `Day` or `Dusk`. Twilight is within six degrees of the horizon; dawn before noon, dusk after. |
-| `TimeOfDay::is_night()` | Shorthand for the phase being `Night`. |
-| `TimeOfDay::sun_elevation()` | Radians above the horizon, negative once set. |
-| `TimeOfDay::sun_direction()` | Unit vector from the ground toward the sun. |
+| `time_of_day::hour()` / `set_hour(h)` | The hour, 0 to 24. Setting it wraps, so 25 is 1 a.m. |
+| `time_of_day::day_length()` / `set_day_length(s)` | Real seconds per day. 0 freezes it. |
+| `time_of_day::phase()` | `Night`, `Dawn`, `Day` or `Dusk`. Twilight is within six degrees of the horizon; dawn before noon, dusk after. |
+| `time_of_day::is_night()` | Shorthand for the phase being `Night`. |
+| `time_of_day::sun_elevation()` | Radians above the horizon, negative once set. |
+| `time_of_day::sun_direction()` | Unit vector from the ground toward the sun. |
 
 There is also a hook, so nothing has to poll:
 

@@ -35,7 +35,7 @@ namespace fjell {
 /// a handle is held across frames.
 ///
 /// @code
-/// fjell::Node3D door{fjell::SceneAPI::find_node("Door")};
+/// fjell::Node3D door{fjell::scene::find_node("Door")};
 /// if (door.valid()) {
 ///     door.position().y += 2.0f;
 /// }
@@ -45,12 +45,12 @@ struct Node3D {
 
     Node3D() = default;
 
-    /// Wrap a raw node ID — typically from `SceneAPI::find_node()`,
-    /// `SceneAPI::spawn()`, or a collision callback's `other_id`.
+    /// Wrap a raw node ID — typically from `scene::find_node()`,
+    /// `scene::spawn()`, or a collision callback's `other_id`.
     explicit Node3D(uint32_t id) : node_id{id} {}
 
     /// The underlying node ID, for APIs that take one directly
-    /// (`Animator`, `MaterialAPI`, `CameraAPI`, ...).
+    /// (`animator`, `material`, `camera`, ...).
     [[nodiscard]] uint32_t id() const { return node_id; }
 
     /// Whether this handle holds a non-zero ID. This is a cheap null check,

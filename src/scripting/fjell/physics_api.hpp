@@ -73,7 +73,7 @@ struct PhysicsHit {
     float distance{0.0F};
     uint32_t node_id{0};
     /// Surface id of what was hit — the handle id of the `.fjsurface` on the
-    /// collider or terrain layer, 0 for none. See `Surface`.
+    /// collider or terrain layer, 0 for none. See `surface`.
     uint32_t surface{0};
 };
 
@@ -94,152 +94,156 @@ struct PhysicsQuery {
 /// @code
 /// // What is the player looking at, ignoring triggers and itself?
 /// fjell::PhysicsHit hit;
-/// if (fjell::PhysicsAPI::raycast(eye, forward, 100.0F, hit,
+/// if (fjell::physics::raycast(eye, forward, 100.0F, hit,
 ///                                {FJ_MASK_WORLD | FJ_MASK_PAWN, node_id()})) {
 ///     log("looking at node {}", hit.node_id);
 /// }
 /// @endcode
-struct PhysicsAPI {
-    /// Nearest hit along a ray. Returns false when nothing is hit.
-    static bool raycast(const glm::vec3& origin, const glm::vec3& direction,
-                        float max_distance, PhysicsHit& out,
-                        const PhysicsQuery& query = {}) {
-        FjellRaycastHit hit{};
-        if (fjell_physics_raycast(&origin.x, &direction.x, max_distance,
-                                  query.channels, query.ignore, &hit) == 0) {
-            return false;
-        }
-        out = to_hit(hit);
-        return true;
-    }
+namespace physics {
+// What the functions below share, not for scripts to call.
+namespace detail {
 
-    /// Every hit along a ray, nearest first.
-    static std::vector<PhysicsHit> raycast_all(const glm::vec3& origin,
-                                               const glm::vec3& direction,
-                                               float max_distance,
-                                               const PhysicsQuery& query = {}) {
-        FjellRaycastHit raw[MAX_HITS];
-        uint32_t count = fjell_physics_raycast_all(&origin.x, &direction.x, max_distance,
-                                                   query.channels, query.ignore,
-                                                   raw, MAX_HITS);
-        std::vector<PhysicsHit> hits;
-        hits.reserve(count);
-        for (uint32_t i = 0; i < count; ++i) hits.push_back(to_hit(raw[i]));
-        return hits;
-    }
+inline constexpr uint32_t SHAPE_SPHERE = 0;
+inline constexpr uint32_t SHAPE_BOX = 1;
+inline constexpr uint32_t SHAPE_CAPSULE = 2;
 
-    /// Sweeps a sphere and reports the first thing it touches. Prefer this over
-    /// a ray for anything that has width — a ray slips through gaps a character
-    /// cannot.
-    static bool sphere_cast(const glm::vec3& origin, float radius,
-                            const glm::vec3& direction, float max_distance,
-                            PhysicsHit& out, const PhysicsQuery& query = {}) {
-        return cast(SHAPE_SPHERE, {radius, 0.0F, 0.0F}, origin, direction,
-                    max_distance, out, query);
-    }
+// A ray through a crowd rarely wants more than this, and a fixed buffer
+// keeps the C boundary free of allocation.
+inline constexpr uint32_t MAX_HITS = 64;
 
-    static bool box_cast(const glm::vec3& origin, const glm::vec3& half_extents,
+inline PhysicsHit to_hit(const FjellRaycastHit& raw) {
+    return {{raw.position[0], raw.position[1], raw.position[2]},
+            {raw.normal[0], raw.normal[1], raw.normal[2]},
+            raw.distance, raw.node_id, raw.surface};
+}
+
+inline bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& origin,
+                 const glm::vec3& direction, float max_distance, PhysicsHit& out,
+                 const PhysicsQuery& query) {
+    FjellRaycastHit hit{};
+    if (fjell_physics_shape_cast(shape, &extents.x, &origin.x, &direction.x,
+                                 max_distance, query.channels, query.ignore,
+                                 &hit) == 0) {
+        return false;
+    }
+    out = to_hit(hit);
+    return true;
+}
+
+inline std::vector<uint32_t> overlap(uint32_t shape, const glm::vec3& extents,
+                                     const glm::vec3& position,
+                                     const PhysicsQuery& query) {
+    uint32_t raw[MAX_HITS];
+    uint32_t count = fjell_physics_overlap(shape, &extents.x, &position.x,
+                                           query.channels, query.ignore,
+                                           raw, MAX_HITS);
+    return {raw, raw + count};
+}
+
+} // namespace detail
+
+/// Nearest hit along a ray. Returns false when nothing is hit.
+inline bool raycast(const glm::vec3& origin, const glm::vec3& direction,
+                    float max_distance, PhysicsHit& out,
+                    const PhysicsQuery& query = {}) {
+    FjellRaycastHit hit{};
+    if (fjell_physics_raycast(&origin.x, &direction.x, max_distance,
+                              query.channels, query.ignore, &hit) == 0) {
+        return false;
+    }
+    out = detail::to_hit(hit);
+    return true;
+}
+
+/// Every hit along a ray, nearest first.
+inline std::vector<PhysicsHit> raycast_all(const glm::vec3& origin,
+                                           const glm::vec3& direction,
+                                           float max_distance,
+                                           const PhysicsQuery& query = {}) {
+    FjellRaycastHit raw[detail::MAX_HITS];
+    uint32_t count = fjell_physics_raycast_all(&origin.x, &direction.x, max_distance,
+                                               query.channels, query.ignore,
+                                               raw, detail::MAX_HITS);
+    std::vector<PhysicsHit> hits;
+    hits.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) hits.push_back(detail::to_hit(raw[i]));
+    return hits;
+}
+
+/// Sweeps a sphere and reports the first thing it touches. Prefer this over
+/// a ray for anything that has width — a ray slips through gaps a character
+/// cannot.
+inline bool sphere_cast(const glm::vec3& origin, float radius,
+                        const glm::vec3& direction, float max_distance,
+                        PhysicsHit& out, const PhysicsQuery& query = {}) {
+    return detail::cast(detail::SHAPE_SPHERE, {radius, 0.0F, 0.0F}, origin, direction,
+                max_distance, out, query);
+}
+
+inline bool box_cast(const glm::vec3& origin, const glm::vec3& half_extents,
+                     const glm::vec3& direction, float max_distance,
+                     PhysicsHit& out, const PhysicsQuery& query = {}) {
+    return detail::cast(detail::SHAPE_BOX, half_extents, origin, direction, max_distance, out, query);
+}
+
+inline bool capsule_cast(const glm::vec3& origin, float radius, float height,
                          const glm::vec3& direction, float max_distance,
                          PhysicsHit& out, const PhysicsQuery& query = {}) {
-        return cast(SHAPE_BOX, half_extents, origin, direction, max_distance, out, query);
-    }
+    return detail::cast(detail::SHAPE_CAPSULE, {radius, height, 0.0F}, origin, direction,
+                max_distance, out, query);
+}
 
-    static bool capsule_cast(const glm::vec3& origin, float radius, float height,
-                             const glm::vec3& direction, float max_distance,
-                             PhysicsHit& out, const PhysicsQuery& query = {}) {
-        return cast(SHAPE_CAPSULE, {radius, height, 0.0F}, origin, direction,
-                    max_distance, out, query);
-    }
+/// Nodes whose colliders intersect a sphere at `center`. Unordered.
+inline std::vector<uint32_t> overlap_sphere(const glm::vec3& center, float radius,
+                                            const PhysicsQuery& query = {}) {
+    return detail::overlap(detail::SHAPE_SPHERE, {radius, 0.0F, 0.0F}, center, query);
+}
 
-    /// Nodes whose colliders intersect a sphere at `center`. Unordered.
-    static std::vector<uint32_t> overlap_sphere(const glm::vec3& center, float radius,
-                                                const PhysicsQuery& query = {}) {
-        return overlap(SHAPE_SPHERE, {radius, 0.0F, 0.0F}, center, query);
-    }
+inline std::vector<uint32_t> overlap_box(const glm::vec3& center,
+                                         const glm::vec3& half_extents,
+                                         const PhysicsQuery& query = {}) {
+    return detail::overlap(detail::SHAPE_BOX, half_extents, center, query);
+}
 
-    static std::vector<uint32_t> overlap_box(const glm::vec3& center,
-                                             const glm::vec3& half_extents,
-                                             const PhysicsQuery& query = {}) {
-        return overlap(SHAPE_BOX, half_extents, center, query);
-    }
+/// Continuous push, applied over the step. For an instant change in
+/// momentum — a jump, an explosion — use apply_impulse.
+inline void apply_force(uint32_t node_id, const glm::vec3& force) {
+    fjell_physics_apply_force(node_id, &force.x);
+}
 
-    /// Continuous push, applied over the step. For an instant change in
-    /// momentum — a jump, an explosion — use apply_impulse.
-    static void apply_force(uint32_t node_id, const glm::vec3& force) {
-        fjell_physics_apply_force(node_id, &force.x);
-    }
+inline void apply_impulse(uint32_t node_id, const glm::vec3& impulse) {
+    fjell_physics_apply_impulse(node_id, &impulse.x);
+}
 
-    static void apply_impulse(uint32_t node_id, const glm::vec3& impulse) {
-        fjell_physics_apply_impulse(node_id, &impulse.x);
-    }
+inline void set_linear_velocity(uint32_t node_id, const glm::vec3& velocity) {
+    fjell_physics_set_linear_velocity(node_id, &velocity.x);
+}
 
-    static void set_linear_velocity(uint32_t node_id, const glm::vec3& velocity) {
-        fjell_physics_set_linear_velocity(node_id, &velocity.x);
-    }
+[[nodiscard]] inline glm::vec3 linear_velocity(uint32_t node_id) {
+    glm::vec3 v{0.0F};
+    fjell_physics_get_linear_velocity(node_id, &v.x);
+    return v;
+}
 
-    [[nodiscard]] static glm::vec3 linear_velocity(uint32_t node_id) {
-        glm::vec3 v{0.0F};
-        fjell_physics_get_linear_velocity(node_id, &v.x);
-        return v;
-    }
+inline void set_angular_velocity(uint32_t node_id, const glm::vec3& velocity) {
+    fjell_physics_set_angular_velocity(node_id, &velocity.x);
+}
 
-    static void set_angular_velocity(uint32_t node_id, const glm::vec3& velocity) {
-        fjell_physics_set_angular_velocity(node_id, &velocity.x);
-    }
+[[nodiscard]] inline glm::vec3 angular_velocity(uint32_t node_id) {
+    glm::vec3 v{0.0F};
+    fjell_physics_get_angular_velocity(node_id, &v.x);
+    return v;
+}
 
-    [[nodiscard]] static glm::vec3 angular_velocity(uint32_t node_id) {
-        glm::vec3 v{0.0F};
-        fjell_physics_get_angular_velocity(node_id, &v.x);
-        return v;
-    }
+inline void set_gravity(const glm::vec3& gravity) {
+    fjell_physics_set_gravity(&gravity.x);
+}
 
-    static void set_gravity(const glm::vec3& gravity) {
-        fjell_physics_set_gravity(&gravity.x);
-    }
-
-    [[nodiscard]] static glm::vec3 gravity() {
-        glm::vec3 g{0.0F};
-        fjell_physics_get_gravity(&g.x);
-        return g;
-    }
-
-private:
-    static constexpr uint32_t SHAPE_SPHERE = 0;
-    static constexpr uint32_t SHAPE_BOX = 1;
-    static constexpr uint32_t SHAPE_CAPSULE = 2;
-
-    // A ray through a crowd rarely wants more than this, and a fixed buffer
-    // keeps the C boundary free of allocation.
-    static constexpr uint32_t MAX_HITS = 64;
-
-    static PhysicsHit to_hit(const FjellRaycastHit& raw) {
-        return {{raw.position[0], raw.position[1], raw.position[2]},
-                {raw.normal[0], raw.normal[1], raw.normal[2]},
-                raw.distance, raw.node_id, raw.surface};
-    }
-
-    static bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& origin,
-                     const glm::vec3& direction, float max_distance, PhysicsHit& out,
-                     const PhysicsQuery& query) {
-        FjellRaycastHit hit{};
-        if (fjell_physics_shape_cast(shape, &extents.x, &origin.x, &direction.x,
-                                     max_distance, query.channels, query.ignore,
-                                     &hit) == 0) {
-            return false;
-        }
-        out = to_hit(hit);
-        return true;
-    }
-
-    static std::vector<uint32_t> overlap(uint32_t shape, const glm::vec3& extents,
-                                         const glm::vec3& position,
-                                         const PhysicsQuery& query) {
-        uint32_t raw[MAX_HITS];
-        uint32_t count = fjell_physics_overlap(shape, &extents.x, &position.x,
-                                               query.channels, query.ignore,
-                                               raw, MAX_HITS);
-        return {raw, raw + count};
-    }
-};
+[[nodiscard]] inline glm::vec3 gravity() {
+    glm::vec3 g{0.0F};
+    fjell_physics_get_gravity(&g.x);
+    return g;
+}
+} // namespace physics
 
 } // namespace fjell

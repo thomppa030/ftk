@@ -1,4 +1,4 @@
-# fjell::Audio
+# fjell::audio
 
 Plays audio clips at world positions.
 
@@ -11,12 +11,12 @@ Plays audio clips at world positions.
 
 ```cpp
 namespace fjell {
-struct Audio {
-    static void play(const Ref<AudioAsset>& clip,
-                     const glm::vec3& pos,
-                     float volume = 1.0f,
-                     float pitch  = 1.0f);
-};
+namespace audio {
+    void play(const Ref<AudioAsset>& clip,
+              const glm::vec3& pos,
+              float volume = 1.0f,
+              float pitch  = 1.0f);
+}
 }
 ```
 
@@ -24,7 +24,7 @@ struct Audio {
 
 One-shot fire-and-forget. The clip plays once and self-destructs — there is no script-side handle to stop, pause, or query it. For persistent looping sounds attached to a node, use a scene-side `AudioComponent` (placed in the editor) instead.
 
-The listener follows the active camera (see [`CameraAPI`](CameraAPI.md)). 3D attenuation is applied based on the source-to-listener distance.
+The listener follows the active camera (see [`camera`](camera_api.md)). 3D attenuation is applied based on the source-to-listener distance.
 
 Backed by miniaudio. Decoded synchronously on first play; subsequent plays of the same clip reuse the decoded buffer.
 
@@ -36,14 +36,14 @@ Backed by miniaudio. Decoded synchronously on first play; subsequent plays of th
 
 ---
 
-## Audio::play
+## audio::play
 
 ### Syntax
 ```cpp
-static void play(const Ref<AudioAsset>& clip,
-                 const glm::vec3& pos,
-                 float volume = 1.0f,
-                 float pitch  = 1.0f);
+void play(const Ref<AudioAsset>& clip,
+          const glm::vec3& pos,
+          float volume = 1.0f,
+          float pitch  = 1.0f);
 ```
 
 ### Parameters
@@ -68,19 +68,19 @@ class Coin : public fjell::ScriptComponent {
     [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
 
     void on_trigger_enter(uint32_t /*other*/) override {
-        fjell::Audio::play(collect_sound, transform().position);
+        fjell::audio::play(collect_sound, transform().position);
         self().destroy();
     }
-};
+}
 ```
 
 Randomized pitch for repeated sounds:
 
 ```cpp
 float p = 0.95f + (rand() / float(RAND_MAX)) * 0.1f;  // 0.95..1.05
-fjell::Audio::play(footstep_sound, foot_pos, /*volume*/ 0.6f, p);
+fjell::audio::play(footstep_sound, foot_pos, /*volume*/ 0.6f, p);
 ```
 
 ## See also
 - [`Ref`](Ref.md) — how `Ref<AudioAsset>` is resolved
-- [`Vfx`](Vfx.md) — same `(asset, position)` shape for particle systems
+- [`vfx`](vfx_api.md) — same `(asset, position)` shape for particle systems

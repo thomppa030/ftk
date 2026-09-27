@@ -168,7 +168,7 @@ struct FootstepNotify : public fjell::AnimNotify {
     [[fj::property]] float volume{1.0f};
 
     void notify(fjell::Node3D& owner) override {
-        fjell::Audio::play(sound, owner.position(), volume);
+        fjell::audio::play(sound, owner.position(), volume);
     }
 };
 ```
@@ -193,5 +193,5 @@ struct AttackWindow : public fjell::AnimNotifyState {
 
 ## See also
 - [State Machine](../../Animation/State-Machine.md) — authoring side
-- [`Animator`](Animator.md) — runtime control of state machines
+- [`animator`](animator_api.md) — runtime control of state machines
 - [Components guide](../Components.md) — `[[fj::property]]` and reflection

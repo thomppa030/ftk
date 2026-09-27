@@ -37,6 +37,8 @@ if(FJELL_BUILD_ENGINE)
         list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
     endforeach()
     fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
+    include(cmake/SdkNamespaceCheck.cmake)
+    fjell_check_sdk_namespaces(src tests ${FJELL_TOOL_DIRS})
 
     # Simulation code reads the fixed step's time, never the frame's. Checked at
     # configure and again by fjell-fixed-tick-check whenever a listed file or

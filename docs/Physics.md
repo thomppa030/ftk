@@ -87,7 +87,7 @@ Who moves a character is its `movement`:
   `movement` existed load as `Velocity`, which is how their scripts moved.
 
 ```cpp
-// Intent, from input handlers bound with InputAPI::bind: the frame's input
+// Intent, from input handlers bound with input::bind: the frame's input
 // steers every step of the frame. camera_relative() is the game's own: the
 // stick turned into a world direction.
 void on_move(glm::vec2 value) {
@@ -198,17 +198,17 @@ Static-vs-static collisions are skipped. Everything else is checked.
 
 ## Script API
 
-Scripts reach the running world through `fjell::PhysicsAPI`
+Scripts reach the running world through `fjell::physics`
 (`fjell/physics_api.hpp`). Every call is inert outside play mode.
 
 ```cpp
 void fixed_tick(const fjell::FixedStep& step) override {
     // A continuous push acts on the step it is applied in, so apply it in
     // every step it should act.
-    fjell::PhysicsAPI::apply_force(id(), thrust_);
+    fjell::physics::apply_force(id(), thrust_);
 
     fjell::PhysicsHit hit;
-    if (fjell::PhysicsAPI::raycast(transform().position, {0.0f, -1.0f, 0.0f}, 1.1f, hit,
+    if (fjell::physics::raycast(transform().position, {0.0f, -1.0f, 0.0f}, 1.1f, hit,
                                    {FJ_MASK_ALL, id()})) {
         // grounded: hit.position, hit.normal, hit.distance, hit.node_id, hit.surface
     }

@@ -145,13 +145,13 @@ stars fading in around dusk.
 Custom tracks are readable by name while a profile is bound:
 
 ```cpp
-float haze = fjell::Weather::param("haze", 0.0f);
+float haze = fjell::weather::param("haze", 0.0f);
 ```
 
 That call reads the *weather*'s custom tracks first; a day profile's custom
 tracks reach sky shader uniforms rather than this call. To animate a gameplay
 value over the day, a weather event's custom track or your own script reading
-`TimeOfDay::hour()` is the more direct route.
+`time_of_day::hour()` is the more direct route.
 
 ## Things that will surprise you
 

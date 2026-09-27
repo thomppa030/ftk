@@ -9,15 +9,15 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`Log`](API/Log.md) | `fjell/log_api.hpp` | Log messages to the editor console |
 | [`Time`](API/Time.md) | `fjell/time_api.hpp` | Scale or pause gameplay time |
 | [`Timer`](API/Timer.md) | `fjell/timer_api.hpp` | Schedule one-shot and repeating callbacks |
-| [`SceneAPI`](API/SceneAPI.md) | `fjell/scene_api.hpp` | Find, spawn, and destroy scene nodes |
-| [`CameraAPI`](API/CameraAPI.md) | `fjell/camera_api.hpp` | Active camera and projection control |
-| [`InputAPI`](API/InputAPI.md) | `fjell/input_api.hpp` | Bind input actions to member functions |
-| [`Audio`](API/Audio.md) | `fjell/audio_api.hpp` | Play audio clips at world positions |
-| [`Vfx`](API/Vfx.md) | `fjell/vfx_api.hpp` | Spawn particle systems |
-| [`Animator`](API/Animator.md) | `fjell/animator_api.hpp` | Drive skeletal animation state machines |
-| [`SpriteAnim`](API/SpriteAnim.md) | `fjell/sprite_anim_api.hpp` | Drive 2D sprite state machines |
+| [`scene`](API/scene_api.md) | `fjell/scene_api.hpp` | Find, spawn, and destroy scene nodes |
+| [`camera`](API/camera_api.md) | `fjell/camera_api.hpp` | Active camera and projection control |
+| [`input`](API/input_api.md) | `fjell/input_api.hpp` | Bind input actions to member functions |
+| [`audio`](API/audio_api.md) | `fjell/audio_api.hpp` | Play audio clips at world positions |
+| [`vfx`](API/vfx_api.md) | `fjell/vfx_api.hpp` | Spawn particle systems |
+| [`animator`](API/animator_api.md) | `fjell/animator_api.hpp` | Drive skeletal animation state machines |
+| [`sprite_anim`](API/sprite_anim_api.md) | `fjell/sprite_anim_api.hpp` | Drive 2D sprite state machines |
 | [`Debug`](API/Debug.md) | `fjell/debug_api.hpp` | Debug-draw lines, boxes, spheres, points; on-screen debug text |
-| [`ViewportAPI`](API/ViewportAPI.md) | `fjell/viewport_api.hpp` | Create render-to-texture viewports |
+| [`viewport`](API/viewport_api.md) | `fjell/viewport_api.hpp` | Create render-to-texture viewports |
 
 ## Base classes
 

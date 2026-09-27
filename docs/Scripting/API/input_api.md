@@ -1,4 +1,4 @@
-# fjell::InputAPI
+# fjell::input
 
 Binds input actions (`.fjaction`) to member functions and switches mapping contexts.
 
@@ -14,19 +14,19 @@ namespace fjell {
 
 enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 
-struct InputAPI {
+namespace input {
     template <auto Method, typename T>
-    static void bind(const Ref<InputAction>& action,
-                     EInputTrigger trigger,
-                     T* instance);
+    void bind(const Ref<InputAction>& action,
+              EInputTrigger trigger,
+              T* instance);
 
-    static void push_context(const char* name);
-    static void pop_context (const char* name);
-    static void clear_connections();
+    void push_context(const char* name);
+    void pop_context (const char* name);
+    void clear_connections();
 
-    static void set_cursor_locked(bool locked);
-    [[nodiscard]] static bool cursor_locked();
-};
+    void set_cursor_locked(bool locked);
+    [[nodiscard]] bool cursor_locked();
+}
 
 }
 ```
@@ -45,7 +45,7 @@ The action system is the production input path. `.fjaction` files define abstrac
 
 Trying to bind a method whose signature doesn't match any overload fails at compile time.
 
-Bindings are stored engine-side, keyed by `(action handle, trigger, instance pointer)`. They are **not** automatically cleared when your component is destroyed — call `InputAPI::clear_connections()` on shutdown if you don't manage individual bindings.
+Bindings are stored engine-side, keyed by `(action handle, trigger, instance pointer)`. They are **not** automatically cleared when your component is destroyed — call `input::clear_connections()` on shutdown if you don't manage individual bindings.
 
 ## Types
 
@@ -66,16 +66,16 @@ enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 
 | Name | Description |
 |---|---|
-| [`bind`](#inputapibind) | Bind a member function to an action + trigger |
-| [`push_context`](#inputapipush_context) | Activate a mapping context |
-| [`pop_context`](#inputapipop_context) | Deactivate a mapping context |
-| [`clear_connections`](#inputapiclear_connections) | Drop all script bindings |
-| [`set_cursor_locked`](#inputapiset_cursor_locked) | Lock and hide the cursor for mouse-look |
-| [`cursor_locked`](#inputapicursor_locked) | Whether the cursor is locked right now |
+| [`bind`](#inputbind) | Bind a member function to an action + trigger |
+| [`push_context`](#inputpush_context) | Activate a mapping context |
+| [`pop_context`](#inputpop_context) | Deactivate a mapping context |
+| [`clear_connections`](#inputclear_connections) | Drop all script bindings |
+| [`set_cursor_locked`](#inputset_cursor_locked) | Lock and hide the cursor for mouse-look |
+| [`cursor_locked`](#inputcursor_locked) | Whether the cursor is locked right now |
 
 ---
 
-## InputAPI::bind
+## input::bind
 
 ### Syntax (three overloads)
 
@@ -83,17 +83,17 @@ enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 // Button (no args)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(); }
-static void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
 
 // 1D axis (float)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(0.0f); }
-static void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
 
 // 2D axis (vec2)
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(glm::vec2{}); }
-static void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
+void bind(const Ref<InputAction>& action, EInputTrigger trigger, T* instance);
 ```
 
 ### Template parameters
@@ -118,20 +118,20 @@ Typical pattern is to bind in `begin_play()`:
 
 ```cpp
 void begin_play() override {
-    fjell::InputAPI::bind<&PlayerController::on_move>(
+    fjell::input::bind<&PlayerController::on_move>(
         move_action, fjell::EInputTrigger::Triggered, this);
-    fjell::InputAPI::bind<&PlayerController::on_jump>(
+    fjell::input::bind<&PlayerController::on_jump>(
         jump_action, fjell::EInputTrigger::Pressed, this);
 }
 ```
 
 ---
 
-## InputAPI::push_context
+## input::push_context
 
 ### Syntax
 ```cpp
-static void push_context(const char* name);
+void push_context(const char* name);
 ```
 
 ### Parameters
@@ -146,11 +146,11 @@ If `name` doesn't match a known context, the call is a no-op (a warning is logge
 
 ---
 
-## InputAPI::pop_context
+## input::pop_context
 
 ### Syntax
 ```cpp
-static void pop_context(const char* name);
+void pop_context(const char* name);
 ```
 
 ### Parameters
@@ -163,11 +163,11 @@ Removes the most recent push of `name`. If `name` isn't on the stack the call is
 
 ---
 
-## InputAPI::clear_connections
+## input::clear_connections
 
 ### Syntax
 ```cpp
-static void clear_connections();
+void clear_connections();
 ```
 
 ### Remarks
@@ -175,11 +175,11 @@ Drops every script binding registered via `bind`. Use sparingly — typically on
 
 ---
 
-## InputAPI::set_cursor_locked
+## input::set_cursor_locked
 
 ### Syntax
 ```cpp
-static void set_cursor_locked(bool locked);
+void set_cursor_locked(bool locked);
 ```
 
 ### Parameters
@@ -194,11 +194,11 @@ The lock lifts by itself while the editor holds focus (docked play) and comes ba
 
 ---
 
-## InputAPI::cursor_locked
+## input::cursor_locked
 
 ### Syntax
 ```cpp
-[[nodiscard]] static bool cursor_locked();
+[[nodiscard]] bool cursor_locked();
 ```
 
 ### Return value
@@ -214,9 +214,9 @@ class PlayerController : public fjell::ScriptComponent {
     [[fj::property]] fjell::Ref<fjell::InputAction> jump_action;
 
     void begin_play() override {
-        fjell::InputAPI::bind<&PlayerController::on_move>(
+        fjell::input::bind<&PlayerController::on_move>(
             move_action, fjell::EInputTrigger::Triggered, this);
-        fjell::InputAPI::bind<&PlayerController::on_jump>(
+        fjell::input::bind<&PlayerController::on_jump>(
             jump_action, fjell::EInputTrigger::Pressed, this);
     }
 
@@ -225,14 +225,14 @@ class PlayerController : public fjell::ScriptComponent {
 
 private:
     glm::vec2 move_input_{0};
-};
+}
 ```
 
 Pause menu context swap:
 
 ```cpp
-void open_menu() { fjell::InputAPI::push_context("menu"); }
-void close_menu() { fjell::InputAPI::pop_context("menu"); }
+void open_menu() { fjell::input::push_context("menu"); }
+void close_menu() { fjell::input::pop_context("menu"); }
 ```
 
 ## See also

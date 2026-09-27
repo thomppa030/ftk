@@ -2,7 +2,7 @@
 
 This is the whole input chain in Fjell — from a key press in the OS to a function on your component getting called. If you're skimming, the **TL;DR** section below is enough to get unstuck; the rest is for when you want to understand what's actually happening.
 
-> Reference for the script API surface lives in [`InputAPI`](API/InputAPI.md) and [`Input`](API/Input.md). This page is the conceptual chain that holds them together.
+> Reference for the script API surface lives in [`input`](API/input_api.md) and [`Input`](API/Input.md). This page is the conceptual chain that holds them together.
 
 ## TL;DR
 
@@ -18,7 +18,7 @@ Then in your `ScriptComponent`:
 [[fj::property]] fjell::Ref<fjell::InputAction> jump;
 
 void begin_play() override {
-    fjell::InputAPI::bind<&Player::on_jump>(jump, fjell::EInputTrigger::Pressed, this);
+    fjell::input::bind<&Player::on_jump>(jump, fjell::EInputTrigger::Pressed, this);
 }
 
 void on_jump() { /* … */ }
@@ -67,7 +67,7 @@ A tiny JSON file under (by default) `assets/input/actions/`. One file per action
 { "name": "throttle", "type": "axis1d" }
 ```
 
-The `type` field is what `InputAPI::bind` keys on later. A button action calls `void()` methods; `axis1d` calls `void(float)`; `axis2d` calls `void(glm::vec2)`. Mismatch and the bind fails at compile time.
+The `type` field is what `input::bind` keys on later. A button action calls `void()` methods; `axis1d` calls `void(float)`; `axis2d` calls `void(glm::vec2)`. Mismatch and the bind fails at compile time.
 
 You typically write these once and forget about them. The action *name* is the contract; everything else (which hardware fires it, what context it lives in) can change without your script noticing.
 
@@ -133,7 +133,7 @@ Typical recipe for an analog stick axis: deadzone (kill stick drift), then scale
 
 On play start, the engine scans the actions directory (registering every `.fjaction`) and pushes each listed context. On play stop, it pops them. You don't manage that lifecycle yourself.
 
-### 4. Script side — `InputAPI::bind`
+### 4. Script side — `input::bind`
 
 Inside any `ScriptComponent`:
 
@@ -145,8 +145,8 @@ class Player : public fjell::ScriptComponent {
     [[fj::property]] fjell::Ref<fjell::InputAction> jump;
 
     void begin_play() override {
-        fjell::InputAPI::bind<&Player::on_move>(move, fjell::EInputTrigger::Triggered, this);
-        fjell::InputAPI::bind<&Player::on_jump>(jump, fjell::EInputTrigger::Pressed,   this);
+        fjell::input::bind<&Player::on_move>(move, fjell::EInputTrigger::Triggered, this);
+        fjell::input::bind<&Player::on_jump>(jump, fjell::EInputTrigger::Pressed,   this);
     }
 
     void on_move(glm::vec2 v) { move_input_ = v; }
@@ -159,7 +159,7 @@ private:
 
 Two `[[fj::property]] Ref<InputAction>` fields → the inspector lets you drag a `.fjaction` onto each. The bind picks the correct overload from the method signature (`void()` → button, `void(float)` → axis1d, `void(glm::vec2)` → axis2d).
 
-**Bind in `begin_play`, every time** — bindings don't survive hot-reload. There's a global call (`InputAPI::clear_connections()`) that drops every script binding; the engine calls it for you on reload and on scene unload, so usually you just bind and forget.
+**Bind in `begin_play`, every time** — bindings don't survive hot-reload. There's a global call (`input::clear_connections()`) that drops every script binding; the engine calls it for you on reload and on scene unload, so usually you just bind and forget.
 
 ## Triggers, in detail
 
@@ -183,7 +183,7 @@ For `axis1d` / `axis2d` actions, the bound method (`void(float)` / `void(vec2)`)
 So this is the typical pattern:
 
 ```cpp
-fjell::InputAPI::bind<&Player::on_move>(move, fjell::EInputTrigger::Triggered, this);
+fjell::input::bind<&Player::on_move>(move, fjell::EInputTrigger::Triggered, this);
 //                                                            ^ ignored for axis2d
 void on_move(glm::vec2 v) { move_input_ = v; }  // called every frame while move is non-zero
 ```
@@ -194,10 +194,10 @@ Contexts compose. `push_context("menu")` adds it on top of whatever's already on
 
 ```cpp
 void open_pause_menu() {
-    fjell::InputAPI::push_context("menu");
+    fjell::input::push_context("menu");
 }
 void close_pause_menu() {
-    fjell::InputAPI::pop_context("menu");
+    fjell::input::pop_context("menu");
 }
 ```
 
@@ -340,7 +340,7 @@ Same files as the JSON walkthrough above — the editor is just a much faster wa
 
 ## See also
 
-- [`InputAPI`](API/InputAPI.md) — reference for `bind`, `push_context`, `pop_context`
+- [`input`](API/input_api.md) — reference for `bind`, `push_context`, `pop_context`
 - [`Input`](API/Input.md) — reference for direct polling
 - [`Ref`](API/Ref.md) — how `Ref<InputAction>` resolves
 - [Scripting Overview](Overview.md) — where `[[fj::property]]` and the reload model are explained

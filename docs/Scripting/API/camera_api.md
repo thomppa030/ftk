@@ -1,4 +1,4 @@
-# fjell::CameraAPI
+# fjell::camera
 
 Controls the active rendering camera and its projection.
 
@@ -11,29 +11,29 @@ Controls the active rendering camera and its projection.
 
 ```cpp
 namespace fjell {
-struct CameraAPI {
-    static void     set_active(uint32_t node_id);
-    static uint32_t active_id();
+namespace camera {
+    void     set_active(uint32_t node_id);
+    uint32_t active_id();
 
-    static float fov();
-    static void  set_fov(float fov);
-    static float near_plane();
-    static void  set_near(float near_plane);
-    static float far_plane();
-    static void  set_far(float far_plane);
+    float fov();
+    void  set_fov(float fov);
+    float near_plane();
+    void  set_near(float near_plane);
+    float far_plane();
+    void  set_far(float far_plane);
 
-    static void  set_ortho(float size);
-    static void  set_perspective(float fov);
+    void  set_ortho(float size);
+    void  set_perspective(float fov);
 
-    static void  set_projection_override(const float* mat4_ptr);
-    static void  clear_projection_override();
-};
+    void  set_projection_override(const float* mat4_ptr);
+    void  clear_projection_override();
+}
 }
 ```
 
 ## Remarks
 
-The "active camera" is the one used to render the main swapchain. Render-to-texture viewports (see [`ViewportAPI`](ViewportAPI.md)) have their own per-viewport cameras and are unaffected by these functions.
+The "active camera" is the one used to render the main swapchain. Render-to-texture viewports (see [`viewport`](viewport_api.md)) have their own per-viewport cameras and are unaffected by these functions.
 
 Camera state lives on a `CameraComponent` attached to a scene node. The setters here modify whichever camera is currently active. `set_active(id)` switches to a different camera; its own settings (FOV, near/far) come along.
 
@@ -43,26 +43,26 @@ Camera state lives on a `CameraComponent` attached to a scene node. The setters 
 
 | Name | Description |
 |---|---|
-| [`set_active`](#cameraapiset_active) | Switch the active camera |
-| [`active_id`](#cameraapiactive_id) | Get the active camera's node ID |
-| [`fov`](#cameraapifov) | Get current vertical FOV (degrees) |
-| [`set_fov`](#cameraapiset_fov) | Set vertical FOV (degrees) |
-| [`near_plane`](#cameraapinear_plane-far_plane-set_near-set_far) | Get near clip distance |
-| [`set_near`](#cameraapinear_plane-far_plane-set_near-set_far) | Set near clip distance |
-| [`far_plane`](#cameraapinear_plane-far_plane-set_near-set_far) | Get far clip distance |
-| [`set_far`](#cameraapinear_plane-far_plane-set_near-set_far) | Set far clip distance |
-| [`set_ortho`](#cameraapiset_ortho) | Switch to orthographic projection |
-| [`set_perspective`](#cameraapiset_perspective) | Switch to perspective projection |
-| [`set_projection_override`](#cameraapiset_projection_override) | Install a custom 4×4 projection matrix |
-| [`clear_projection_override`](#cameraapiclear_projection_override) | Remove the override |
+| [`set_active`](#cameraset_active) | Switch the active camera |
+| [`active_id`](#cameraactive_id) | Get the active camera's node ID |
+| [`fov`](#camerafov) | Get current vertical FOV (degrees) |
+| [`set_fov`](#cameraset_fov) | Set vertical FOV (degrees) |
+| [`near_plane`](#cameranear_plane-far_plane-set_near-set_far) | Get near clip distance |
+| [`set_near`](#cameranear_plane-far_plane-set_near-set_far) | Set near clip distance |
+| [`far_plane`](#cameranear_plane-far_plane-set_near-set_far) | Get far clip distance |
+| [`set_far`](#cameranear_plane-far_plane-set_near-set_far) | Set far clip distance |
+| [`set_ortho`](#cameraset_ortho) | Switch to orthographic projection |
+| [`set_perspective`](#cameraset_perspective) | Switch to perspective projection |
+| [`set_projection_override`](#cameraset_projection_override) | Install a custom 4×4 projection matrix |
+| [`clear_projection_override`](#cameraclear_projection_override) | Remove the override |
 
 ---
 
-## CameraAPI::set_active
+## camera::set_active
 
 ### Syntax
 ```cpp
-static void set_active(uint32_t node_id);
+void set_active(uint32_t node_id);
 ```
 
 ### Parameters
@@ -75,11 +75,11 @@ Takes effect on the next frame. Passing an ID that doesn't have a camera compone
 
 ---
 
-## CameraAPI::active_id
+## camera::active_id
 
 ### Syntax
 ```cpp
-[[nodiscard]] static uint32_t active_id();
+[[nodiscard]] uint32_t active_id();
 ```
 
 ### Return value
@@ -87,11 +87,11 @@ The node ID of the currently active camera, or `0` if none is set.
 
 ---
 
-## CameraAPI::fov
+## camera::fov
 
 ### Syntax
 ```cpp
-[[nodiscard]] static float fov();
+[[nodiscard]] float fov();
 ```
 
 ### Return value
@@ -102,11 +102,11 @@ Meaningful only in perspective mode. Returns the stored value regardless of curr
 
 ---
 
-## CameraAPI::set_fov
+## camera::set_fov
 
 ### Syntax
 ```cpp
-static void set_fov(float fov);
+void set_fov(float fov);
 ```
 
 ### Parameters
@@ -119,14 +119,14 @@ Doesn't switch projection mode — use `set_perspective` for that. Sane values: 
 
 ---
 
-## CameraAPI::near_plane / far_plane / set_near / set_far
+## camera::near_plane / far_plane / set_near / set_far
 
 ### Syntax
 ```cpp
-[[nodiscard]] static float near_plane();
-[[nodiscard]] static float far_plane();
-static void  set_near(float near_plane);
-static void  set_far (float far_plane);
+[[nodiscard]] float near_plane();
+[[nodiscard]] float far_plane();
+void  set_near(float near_plane);
+void  set_far (float far_plane);
 ```
 
 ### Remarks
@@ -134,11 +134,11 @@ World-space distances. The ratio `far / near` drives depth-buffer precision — 
 
 ---
 
-## CameraAPI::set_ortho
+## camera::set_ortho
 
 ### Syntax
 ```cpp
-static void set_ortho(float size);
+void set_ortho(float size);
 ```
 
 ### Parameters
@@ -151,11 +151,11 @@ Switches the active camera to orthographic projection and sets its size in one c
 
 ---
 
-## CameraAPI::set_perspective
+## camera::set_perspective
 
 ### Syntax
 ```cpp
-static void set_perspective(float fov);
+void set_perspective(float fov);
 ```
 
 ### Parameters
@@ -168,11 +168,11 @@ Switches the active camera to perspective projection and sets its FOV in one cal
 
 ---
 
-## CameraAPI::set_projection_override
+## camera::set_projection_override
 
 ### Syntax
 ```cpp
-static void set_projection_override(const float* mat4_ptr);
+void set_projection_override(const float* mat4_ptr);
 ```
 
 ### Parameters
@@ -186,16 +186,16 @@ Bypasses FOV / near / far / mode and uses the provided matrix as the projection.
 ### Example
 ```cpp
 glm::mat4 m = glm::perspectiveLH(/*...*/);
-fjell::CameraAPI::set_projection_override(&m[0][0]);
+fjell::camera::set_projection_override(&m[0][0]);
 ```
 
 ---
 
-## CameraAPI::clear_projection_override
+## camera::clear_projection_override
 
 ### Syntax
 ```cpp
-static void clear_projection_override();
+void clear_projection_override();
 ```
 
 ### Remarks
@@ -207,16 +207,16 @@ Switch cameras for a cinematic:
 
 ```cpp
 void play_cutscene() {
-    saved_cam_ = fjell::CameraAPI::active_id();
-    uint32_t cine = fjell::SceneAPI::find_node("CinematicCam");
-    fjell::CameraAPI::set_active(cine);
+    saved_cam_ = fjell::camera::active_id();
+    uint32_t cine = fjell::scene::find_node("CinematicCam");
+    fjell::camera::set_active(cine);
 }
 
 void end_cutscene() {
-    fjell::CameraAPI::set_active(saved_cam_);
+    fjell::camera::set_active(saved_cam_);
 }
 ```
 
 ## See also
-- [`SceneAPI::find_node`](SceneAPI.md#sceneapifind_node) — finding the camera node
-- [`ViewportAPI`](ViewportAPI.md) — render-to-texture from other cameras
+- [`scene::find_node`](scene_api.md#scenefind_node) — finding the camera node
+- [`viewport`](viewport_api.md) — render-to-texture from other cameras

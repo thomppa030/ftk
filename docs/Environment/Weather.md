@@ -52,7 +52,7 @@ multiply-or-override mode, and a track it lacks leaves that value alone.
 | `sky_blend` | curve | — | How far to fade toward the event's own sky shader and day profile, when it brings them. |
 
 Anything else is the event's own value: a sky uniform of that name, and a
-number scripts read with `Weather::param("name")`. Temperature, visibility,
+number scripts read with `weather::param("name")`. Temperature, visibility,
 danger — whatever the game needs keyed alongside the clouds.
 
 ## Event fields
@@ -201,7 +201,7 @@ play-from-a-phase menu.
 [[fj::property]] fjell::Ref<fjell::ClimateAsset> climate;
 
 void begin_play() override {
-    fjell::Weather::set_climate(climate);
+    fjell::weather::set_climate(climate);
 }
 
 void on_weather_changed(uint32_t event, fjell::WeatherPhase phase) override {
@@ -211,27 +211,27 @@ void on_weather_changed(uint32_t event, fjell::WeatherPhase phase) override {
 }
 
 void tick(float) override {
-    if (fjell::Weather::wetness() > 0.5f) footsteps_.set_wet(true);
+    if (fjell::weather::wetness() > 0.5f) footsteps_.set_wet(true);
 }
 ```
 
 | Call | What it gives you |
 |---|---|
-| `Weather::play(ref)` | Start an event now; what is playing tails out under it. |
-| `Weather::stop()` | Let the current event tail out with nothing to follow. |
-| `Weather::set_climate(ref)` | Hand the weather to a climate. |
-| `Weather::hold(bool)` / `is_held()` | Freeze the director. |
-| `Weather::forecast(i)` | The handle id of the i-th event to come, 0 past the end. |
-| `Weather::current()` | The playing event's handle id, 0 when clear. |
-| `Weather::phase()` / `phase_progress()` | Where it is in its life. |
-| `Weather::precipitation()` / `precipitation_type()` | How hard, and what. |
-| `Weather::wetness()` / `snow()` | How wet and how covered the world is. |
-| `Weather::cloud_coverage()` | How much sky the cloud covers. |
-| `Weather::wind()` | Direction times speed, gusts included. |
-| `Weather::front_direction()` | Which way the front travels, on the ground plane. |
-| `Weather::param("name")` | A custom track's value. |
-| `Weather::set_sky_param(...)` / `clear_sky_param(...)` | Override a sky uniform. |
-| `Weather::strike(offset, intensity)` | Fire one lightning strike. |
+| `weather::play(ref)` | Start an event now; what is playing tails out under it. |
+| `weather::stop()` | Let the current event tail out with nothing to follow. |
+| `weather::set_climate(ref)` | Hand the weather to a climate. |
+| `weather::hold(bool)` / `is_held()` | Freeze the director. |
+| `weather::forecast(i)` | The handle id of the i-th event to come, 0 past the end. |
+| `weather::current()` | The playing event's handle id, 0 when clear. |
+| `weather::phase()` / `phase_progress()` | Where it is in its life. |
+| `weather::precipitation()` / `precipitation_type()` | How hard, and what. |
+| `weather::wetness()` / `snow()` | How wet and how covered the world is. |
+| `weather::cloud_coverage()` | How much sky the cloud covers. |
+| `weather::wind()` | Direction times speed, gusts included. |
+| `weather::front_direction()` | Which way the front travels, on the ground plane. |
+| `weather::param("name")` | A custom track's value. |
+| `weather::set_sky_param(...)` / `clear_sky_param(...)` | Override a sky uniform. |
+| `weather::strike(offset, intensity)` | Fire one lightning strike. |
 
 The hook `on_weather_changed(event, phase)` fires during play when a new event
 starts or the playing one changes phase, so nothing has to poll.

@@ -129,7 +129,7 @@ By the time `begin_play` runs:
 ### Example
 ```cpp
 void begin_play() override {
-    fjell::InputAPI::bind<&Player::on_jump>(
+    fjell::input::bind<&Player::on_jump>(
         jump_action, fjell::EInputTrigger::Pressed, this);
     timer_ = fjell::Timer::set_repeating<&Player::regen>(1.0f, this);
 }
@@ -195,7 +195,7 @@ when the frame the press arrived on ran no step or several.
 ```cpp
 void fixed_tick(const fjell::FixedStep& step) override {
     if (step.input.held(thrust_action)) {
-        fjell::PhysicsAPI::apply_force(id(), {0.0f, thrust, 0.0f});
+        fjell::physics::apply_force(id(), {0.0f, thrust, 0.0f});
     }
 }
 ```
@@ -244,7 +244,7 @@ Called once before the component is destroyed — by scene unload, node destruct
 
 Use this to:
 - Cancel timers ([`Timer::cancel`](Timer.md#timercancel))
-- Destroy viewports created by this component ([`ViewportAPI::destroy`](ViewportAPI.md#viewportapidestroy))
+- Destroy viewports created by this component ([`viewport::destroy`](viewport_api.md#viewportdestroy))
 - Disconnect delegate `Connection`s if they outlive `this` (not needed for member-owned connections — their destructors handle it)
 
 ---
@@ -305,7 +305,7 @@ Fires when another body enters a `ColliderComponent` flagged `is_trigger = true`
 ### Example
 ```cpp
 void on_trigger_enter(uint32_t /*other*/) override {
-    fjell::Vfx::spawn(collect_effect, transform().position);
+    fjell::vfx::spawn(collect_effect, transform().position);
     self().destroy();
 }
 ```
@@ -334,7 +334,7 @@ Fires once when another body leaves a trigger volume.
 The owning node's ID. Same value as `self().id()`.
 
 ### Remarks
-Useful as the first argument to APIs that take node IDs ([`Animator::set_param`](Animator.md#animatorset_param), [`SceneAPI::spawn`](SceneAPI.md#sceneapispawn-empty), etc.).
+Useful as the first argument to APIs that take node IDs ([`animator::set_param`](animator_api.md#animatorset_param), [`scene::spawn`](scene_api.md#scenespawn-empty), etc.).
 
 ---
 
@@ -401,7 +401,7 @@ transform().rotation = glm::angleAxis(angle_, glm::vec3{0, 1, 0});
 The current frame's [`Input`](Input.md) state. Reference is valid until the next frame.
 
 ### Remarks
-For one-off polling. Prefer [action bindings](InputAPI.md) for game-facing controls — they support remapping, contexts, and gamepad.
+For one-off polling. Prefer [action bindings](input_api.md) for game-facing controls — they support remapping, contexts, and gamepad.
 
 ---
 
@@ -468,8 +468,8 @@ class Coin : public fjell::ScriptComponent {
     }
 
     void on_trigger_enter(uint32_t /*other*/) override {
-        fjell::Vfx::spawn(collect_effect, transform().position);
-        fjell::Audio::play(collect_sound, transform().position);
+        fjell::vfx::spawn(collect_effect, transform().position);
+        fjell::audio::play(collect_sound, transform().position);
         self().destroy();
     }
 

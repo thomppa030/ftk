@@ -2,7 +2,7 @@
 
 > **Out of date.** This page was written for an earlier script API (`actor()`,
 > `reflect()`, `world()->physics()`) and a simulation that stepped once a frame.
-> For how scripts work now — `tick`, `fixed_tick`, `late_tick`, `PhysicsAPI` —
+> For how scripts work now — `tick`, `fixed_tick`, `late_tick`, `physics` —
 > see [Scripting Overview](Scripting/Overview.md) and [Physics](Physics.md).
 
 ## Minimal Example

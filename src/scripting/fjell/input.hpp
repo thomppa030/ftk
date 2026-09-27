@@ -17,7 +17,7 @@ namespace fjell {
 /// `ScriptComponent::input()`.
 ///
 /// This is the direct-polling path — good for prototyping and for debug keys.
-/// For shipping input prefer `[[fj::action]]` methods with `InputAPI`, so
+/// For shipping input prefer `[[fj::action]]` methods with `input`, so
 /// players can remap and gamepads work without a second code path.
 ///
 /// The key, button, delta and scroll queries read idle or zero while the
@@ -78,7 +78,7 @@ public:
     [[nodiscard]] FJELL_SDK_EXPORT glm::dvec2 scroll_delta() const;
 
     /// Whether the cursor is locked to the window and hidden right now. A
-    /// script locks it with `InputAPI::set_cursor_locked()`.
+    /// script locks it with `input::set_cursor_locked()`.
     [[nodiscard]] FJELL_SDK_EXPORT bool is_cursor_captured() const;
 };
 

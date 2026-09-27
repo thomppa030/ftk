@@ -41,7 +41,7 @@ enum class NetRole : uint8_t {
 };
 
 // What the editor's Net dropdown is set to. The engine never acts on this — it's
-// stored here so the running game script can read it (via NetAPI::launch_mode())
+// stored here so the running game script can read it (via net::launch_mode())
 // in begin_play and decide whether to host(), join(), or stay offline. Keeping
 // the policy in the script keeps the engine game-agnostic.
 enum class NetLaunchMode : uint8_t {

@@ -8,7 +8,7 @@ struct InputActionDef;
 /// mapped to keys, buttons, and axes in the editor so players can rebind them.
 ///
 /// Held as `Ref<InputAction>` and assigned in the inspector, then bound to a
-/// method with `InputAPI::bind()`.
+/// method with `input::bind()`.
 ///
 /// @code
 /// [[fj::property]] fjell::Ref<fjell::InputAction> jump;

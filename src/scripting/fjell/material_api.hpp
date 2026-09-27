@@ -29,42 +29,42 @@ namespace fjell {
 ///
 /// @code
 /// // Flash a hit target red, then restore the shared material.
-/// fjell::MaterialAPI::set_param(self().id(), "tint", 1.0f, 0.2f, 0.2f);
+/// fjell::material::set_param(self().id(), "tint", 1.0f, 0.2f, 0.2f);
 /// fjell::Timer::set<&Enemy::clear_flash>(0.1f, this);
-/// // void Enemy::clear_flash() { fjell::MaterialAPI::reset(self().id()); }
+/// // void Enemy::clear_flash() { fjell::material::reset(self().id()); }
 /// @endcode
-struct MaterialAPI {
-    /// Set a `float` uniform on this mesh's material instance.
-    /// @param node_id Node carrying a MeshComponent.
-    /// @param name    Uniform name from the mesh's `.fjsl` shader.
-    static void set_param(uint32_t node_id, const char* name, float v) {
-        fjell_mesh_set_param_float(node_id, name, v);
-    }
+namespace material {
+/// Set a `float` uniform on this mesh's material instance.
+/// @param node_id Node carrying a MeshComponent.
+/// @param name    Uniform name from the mesh's `.fjsl` shader.
+inline void set_param(uint32_t node_id, const char* name, float v) {
+    fjell_mesh_set_param_float(node_id, name, v);
+}
 
-    /// Set a `vec2` uniform on this mesh's material instance.
-    static void set_param(uint32_t node_id, const char* name, float x, float y) {
-        fjell_mesh_set_param_vec2(node_id, name, x, y);
-    }
+/// Set a `vec2` uniform on this mesh's material instance.
+inline void set_param(uint32_t node_id, const char* name, float x, float y) {
+    fjell_mesh_set_param_vec2(node_id, name, x, y);
+}
 
-    /// Set a `vec3` uniform — also the form for `hint_color` colors, as sRGB
-    /// RGB exactly as the picker and the `.fjmat` show them; the engine
-    /// converts to linear on the way to the GPU.
-    static void set_param(uint32_t node_id, const char* name, float x, float y, float z) {
-        fjell_mesh_set_param_vec3(node_id, name, x, y, z);
-    }
+/// Set a `vec3` uniform — also the form for `hint_color` colors, as sRGB
+/// RGB exactly as the picker and the `.fjmat` show them; the engine
+/// converts to linear on the way to the GPU.
+inline void set_param(uint32_t node_id, const char* name, float x, float y, float z) {
+    fjell_mesh_set_param_vec3(node_id, name, x, y, z);
+}
 
-    /// Set a `vec4` uniform — also the form for RGBA colors.
-    static void set_param(uint32_t node_id, const char* name,
-                          float x, float y, float z, float w) {
-        fjell_mesh_set_param_vec4(node_id, name, x, y, z, w);
-    }
+/// Set a `vec4` uniform — also the form for RGBA colors.
+inline void set_param(uint32_t node_id, const char* name,
+                      float x, float y, float z, float w) {
+    fjell_mesh_set_param_vec4(node_id, name, x, y, z, w);
+}
 
-    /// Discard this mesh's private material instance and return it to the
-    /// shared base material, dropping every override at once. Safe to call on
-    /// a mesh that was never overridden.
-    static void reset(uint32_t node_id) {
-        fjell_mesh_reset_material(node_id);
-    }
-};
+/// Discard this mesh's private material instance and return it to the
+/// shared base material, dropping every override at once. Safe to call on
+/// a mesh that was never overridden.
+inline void reset(uint32_t node_id) {
+    fjell_mesh_reset_material(node_id);
+}
+} // namespace material
 
 } // namespace fjell

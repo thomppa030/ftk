@@ -47,73 +47,73 @@ namespace fjell {
 ///
 /// @code
 /// void begin_play() override {
-///     fjell::ViewportAPI::create("security_cam", 512, 512, VP_MINIMAL);
-///     fjell::ViewportAPI::set_camera("security_cam",
-///         fjell::SceneAPI::find_node("CamNode"));
+///     fjell::viewport::create("security_cam", 512, 512, VP_MINIMAL);
+///     fjell::viewport::set_camera("security_cam",
+///         fjell::scene::find_node("CamNode"));
 /// }
-/// void end_play() override { fjell::ViewportAPI::destroy("security_cam"); }
+/// void end_play() override { fjell::viewport::destroy("security_cam"); }
 /// @endcode
 /// A material samples it by naming it: `"display": "$viewport:security_cam"`.
-struct ViewportAPI {
-    /// Create a viewport that renders the scene to a texture.
-    /// @param name   Your identifier for it — every other call takes this, and
-    ///               `.fjmat` files reference it as `$viewport:name`.
-    /// @param width  Render width in pixels. Powers of two are cheapest.
-    /// @param height Render height in pixels.
-    /// @param flags  OR'd `FjellViewportFlags`. `VP_MINIMAL` is the default;
-    ///               `VP_FULL` costs the most.
-    /// @return Bindless texture index, or 0 on failure. Materials using
-    ///         `$viewport:` rebind automatically, so the value is rarely needed.
-    static uint32_t create(const char* name, uint32_t width = 512, uint32_t height = 512,
-                           uint32_t flags = VP_MINIMAL) {
-        return fjell_viewport_create(name, width, height, flags);
-    }
+namespace viewport {
+/// Create a viewport that renders the scene to a texture.
+/// @param name   Your identifier for it — every other call takes this, and
+///               `.fjmat` files reference it as `$viewport:name`.
+/// @param width  Render width in pixels. Powers of two are cheapest.
+/// @param height Render height in pixels.
+/// @param flags  OR'd `FjellViewportFlags`. `VP_MINIMAL` is the default;
+///               `VP_FULL` costs the most.
+/// @return Bindless texture index, or 0 on failure. Materials using
+///         `$viewport:` rebind automatically, so the value is rarely needed.
+inline uint32_t create(const char* name, uint32_t width = 512, uint32_t height = 512,
+                       uint32_t flags = VP_MINIMAL) {
+    return fjell_viewport_create(name, width, height, flags);
+}
 
-    /// Create a viewport whose pipeline is described by a `.fjgraph` file
-    /// instead of a flag bitmask. Preferred for anything non-trivial: pass
-    /// topology and image allocation live in the graph, versioned with the project.
-    /// @param name       Your identifier, as in `create()`.
-    /// @param width      Render width in pixels.
-    /// @param height     Render height in pixels.
-    /// @param graph_path Path to the `.fjgraph`, relative to the project base
-    ///                   (e.g. `assets/render_graphs/mirror.fjgraph`).
-    /// @return Bindless texture index, or 0 on failure.
-    static uint32_t create_with_graph(const char* name, uint32_t width, uint32_t height,
-                                      const char* graph_path) {
-        return fjell_viewport_create_with_graph(name, width, height, graph_path);
-    }
+/// Create a viewport whose pipeline is described by a `.fjgraph` file
+/// instead of a flag bitmask. Preferred for anything non-trivial: pass
+/// topology and image allocation live in the graph, versioned with the project.
+/// @param name       Your identifier, as in `create()`.
+/// @param width      Render width in pixels.
+/// @param height     Render height in pixels.
+/// @param graph_path Path to the `.fjgraph`, relative to the project base
+///                   (e.g. `assets/render_graphs/mirror.fjgraph`).
+/// @return Bindless texture index, or 0 on failure.
+inline uint32_t create_with_graph(const char* name, uint32_t width, uint32_t height,
+                                  const char* graph_path) {
+    return fjell_viewport_create_with_graph(name, width, height, graph_path);
+}
 
-    /// Destroy a viewport and free its render targets. Materials referencing
-    /// it fall back to a placeholder rather than breaking.
-    /// @param name The identifier passed to `create()`.
-    static void destroy(const char* name) {
-        fjell_viewport_destroy(name);
-    }
+/// Destroy a viewport and free its render targets. Materials referencing
+/// it fall back to a placeholder rather than breaking.
+/// @param name The identifier passed to `create()`.
+inline void destroy(const char* name) {
+    fjell_viewport_destroy(name);
+}
 
-    /// Choose which camera the viewport renders from. Call it once unless the
-    /// view should switch; the viewport follows that node's transform on its own.
-    /// @param name           The identifier passed to `create()`.
-    /// @param camera_node_id A node carrying a CameraNode.
-    static void set_camera(const char* name, uint32_t camera_node_id) {
-        fjell_viewport_set_camera(name, camera_node_id);
-    }
+/// Choose which camera the viewport renders from. Call it once unless the
+/// view should switch; the viewport follows that node's transform on its own.
+/// @param name           The identifier passed to `create()`.
+/// @param camera_node_id A node carrying a CameraNode.
+inline void set_camera(const char* name, uint32_t camera_node_id) {
+    fjell_viewport_set_camera(name, camera_node_id);
+}
 
-    /// Bindless texture index for this viewport's output, for code that binds
-    /// textures directly. Materials should use `$viewport:name` instead.
-    /// @param name The identifier passed to `create()`.
-    /// @return The index, or 0 if no viewport has that name.
-    static uint32_t bindless_index(const char* name) {
-        return fjell_viewport_bindless_index(name);
-    }
+/// Bindless texture index for this viewport's output, for code that binds
+/// textures directly. Materials should use `$viewport:name` instead.
+/// @param name The identifier passed to `create()`.
+/// @return The index, or 0 if no viewport has that name.
+inline uint32_t bindless_index(const char* name) {
+    return fjell_viewport_bindless_index(name);
+}
 
-    /// Change a viewport's render resolution, reallocating its targets. Not
-    /// cheap — avoid calling it every frame.
-    /// @param name   The identifier passed to `create()`.
-    /// @param width  New width in pixels.
-    /// @param height New height in pixels.
-    static void resize(const char* name, uint32_t width, uint32_t height) {
-        fjell_viewport_resize(name, width, height);
-    }
-};
+/// Change a viewport's render resolution, reallocating its targets. Not
+/// cheap — avoid calling it every frame.
+/// @param name   The identifier passed to `create()`.
+/// @param width  New width in pixels.
+/// @param height New height in pixels.
+inline void resize(const char* name, uint32_t width, uint32_t height) {
+    fjell_viewport_resize(name, width, height);
+}
+} // namespace viewport
 
 } // namespace fjell

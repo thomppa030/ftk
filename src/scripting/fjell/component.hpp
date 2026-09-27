@@ -113,7 +113,7 @@ public:
     virtual void on_trigger_exit(uint32_t other_id) { (void)other_id; }
 
     /// Fires on the SERVER only, when a client finishes connecting. Spawn and
-    /// assign that peer's player here via `NetAPI::spawn(preset, pos, peer)`.
+    /// assign that peer's player here via `net::spawn(preset, pos, peer)`.
     /// @param peer The connecting peer's ID — pass as the owner when spawning.
     /// The weather changed: a new event started, or the one playing moved
     /// into its next phase. `event` is the event's handle id, matching a
@@ -162,7 +162,7 @@ public:
     // --- World state ---
 
     /// Raw keyboard and mouse state for this frame. Good for prototyping;
-    /// prefer `[[fj::action]]` methods and `InputAPI` for shipping input, so
+    /// prefer `[[fj::action]]` methods and `input` for shipping input, so
     /// bindings stay remappable.
     [[nodiscard]] const Input& input() const { return world_->input(); }
 

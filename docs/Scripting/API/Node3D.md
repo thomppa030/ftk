@@ -41,7 +41,7 @@ struct Node3D {
 
 `Node3D` is a value type — copying it is just copying a `uint32_t`. The underlying node lives in the engine; the handle doesn't extend its lifetime. Use [`WeakRef<T>`](WeakRef.md) when you need generational safety (an ID that was reused by a different node returns the wrong object).
 
-`valid()` distinguishes the null/default handle (`id == 0`) from a real one. It does **not** check whether the node still exists in the scene — for that, look up via [`SceneAPI::find_node`](SceneAPI.md#sceneapifind_node) or wrap the ID in a `WeakRef`.
+`valid()` distinguishes the null/default handle (`id == 0`) from a real one. It does **not** check whether the node still exists in the scene — for that, look up via [`scene::find_node`](scene_api.md#scenefind_node) or wrap the ID in a `WeakRef`.
 
 The transform accessors return references into engine memory. They're safe to write through within a frame; don't hold the reference across ticks.
 
@@ -270,7 +270,7 @@ A node holds one component of a type. When it already has a `T`, `add_component`
 
 ### Example
 ```cpp
-uint32_t id = fjell::SceneAPI::spawn("Pickup", pos);
+uint32_t id = fjell::scene::spawn("Pickup", pos);
 fjell::Node3D node{id};
 auto* coin = node.add_component<Coin>();
 ```
@@ -302,7 +302,7 @@ void on_trigger_enter(uint32_t /*other*/) override {
 
 ```cpp
 // Find a node, modify it, look up a component
-uint32_t id = fjell::SceneAPI::find_node("Sun");
+uint32_t id = fjell::scene::find_node("Sun");
 if (id != 0) {
     fjell::Node3D sun{id};
     sun.rotation() = glm::angleAxis(angle, glm::vec3{1, 0, 0});
@@ -314,6 +314,6 @@ if (id != 0) {
 ```
 
 ## See also
-- [`SceneAPI`](SceneAPI.md) — finding and spawning nodes
+- [`scene`](scene_api.md) — finding and spawning nodes
 - [`ScriptComponent::self`](ScriptComponent.md#scriptcomponentself) — your own node's handle
 - [`WeakRef`](WeakRef.md) — persistent, generation-checked node references

@@ -52,7 +52,7 @@ void on_trigger_enter(uint32_t other_id);
 void on_trigger_exit(uint32_t other_id);
 ```
 
-`other_id` is the other node's id — pass it to `SceneAPI::find_node` or look up a component on the node.
+`other_id` is the other node's id — pass it to `scene::find_node` or look up a component on the node.
 
 ## The three ticks
 
@@ -79,9 +79,9 @@ class Rocket : public fjell::ScriptComponent {
 
     void fixed_tick(const fjell::FixedStep& step) override {
         // A force acts on the step it is applied in: apply it in every step.
-        fjell::PhysicsAPI::apply_force(id(), {0.0f, thrust, 0.0f});
+        fjell::physics::apply_force(id(), {0.0f, thrust, 0.0f});
         if (step.input.pressed(boost)) {
-            fjell::PhysicsAPI::apply_impulse(id(), {0.0f, 8.0f, 0.0f});
+            fjell::physics::apply_impulse(id(), {0.0f, 8.0f, 0.0f});
         }
     }
 };
@@ -91,7 +91,7 @@ class ChaseCamera : public fjell::ScriptComponent {
 
     [[fj::property]] std::string target = "Rocket";
 
-    void begin_play() override { target_id_ = fjell::SceneAPI::find_node(target.c_str()); }
+    void begin_play() override { target_id_ = fjell::scene::find_node(target.c_str()); }
 
     void late_tick(float /*dt*/) override {
         if (target_id_ == 0) return;
@@ -122,7 +122,7 @@ lasting — physics puts it back at the next step.
 `pressed(action)`, `released(action)`, `held(action)`, `axis1d(action)`,
 `axis2d(action)`. A press is seen by exactly one step, the first to begin
 after it, even when its frame ran no step or several. Handlers bound with
-`InputAPI::bind` still fire once a frame, before `tick()`.
+`input::bind` still fire once a frame, before `tick()`.
 
 **Characters.** A `CharacterComponent` moved by intent needs no `fixed_tick()`:
 set `move_intent` from an input handler or `tick()` and call `jump()`, and the
@@ -261,7 +261,7 @@ For *engine-owned assets*: `VfxAsset`, `AudioAsset`, `InputAction`, `PresetAsset
 [[fj::property]] fjell::Ref<fjell::AudioAsset> hit_sound;
 
 void play_it() {
-    fjell::Audio::play(hit_sound, transform().position);
+    fjell::audio::play(hit_sound, transform().position);
 }
 ```
 
@@ -293,13 +293,13 @@ Inside a `ScriptComponent`:
 |---|---|
 | `transform()` | Read/write position, rotation, scale of the node you're attached to |
 | `self()` | The `Node3D` handle for your own node |
-| `id()` | `uint32_t` node id (e.g. for `Animator::set_param`) |
+| `id()` | `uint32_t` node id (e.g. for `animator::set_param`) |
 | `input()` | Const ref to the current `Input` state |
 | `delta_time()`, `elapsed_time()` | Scaled gameplay clock; the step's own inside `fixed_tick()` |
 
-Physics queries and forces go through `fjell::PhysicsAPI` (`fjell/physics_api.hpp`).
+Physics queries and forces go through `fjell::physics` (`fjell/physics_api.hpp`).
 
-To find or spawn nodes anywhere in the scene, use `fjell::SceneAPI` (see [Engine API](Engine-API.md)).
+To find or spawn nodes anywhere in the scene, use `fjell::scene` (see [Engine API](Engine-API.md)).
 
 ## Events with `Delegate<>`
 

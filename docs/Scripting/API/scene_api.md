@@ -1,4 +1,4 @@
-# fjell::SceneAPI
+# fjell::scene
 
 Finds, spawns, and destroys scene nodes.
 
@@ -11,19 +11,19 @@ Finds, spawns, and destroys scene nodes.
 
 ```cpp
 namespace fjell {
-struct SceneAPI {
-    static uint32_t find_node(const char* name);
-    static uint32_t spawn    (const char* name, const glm::vec3& pos = glm::vec3{0.0f});
-    static uint32_t spawn    (const Ref<PresetAsset>& preset,
-                              const glm::vec3& pos = glm::vec3{0.0f},
-                              int32_t parent_id = -1);
-};
+namespace scene {
+    uint32_t find_node(const char* name);
+    uint32_t spawn    (const char* name, const glm::vec3& pos = glm::vec3{0.0f});
+    uint32_t spawn    (const Ref<PresetAsset>& preset,
+                       const glm::vec3& pos = glm::vec3{0.0f},
+                       int32_t parent_id = -1);
+}
 }
 ```
 
 ## Remarks
 
-`SceneAPI` is the global access point for the scene graph. For *operations on a known node* (read/write its transform, get a component), use [`Node3D`](Node3D.md) — wrap an ID via `Node3D{id}` or get yours via `self()` on a [`ScriptComponent`](ScriptComponent.md).
+`scene` is the global access point for the scene graph. For *operations on a known node* (read/write its transform, get a component), use [`Node3D`](Node3D.md) — wrap an ID via `Node3D{id}` or get yours via `self()` on a [`ScriptComponent`](ScriptComponent.md).
 
 Node IDs are `uint32_t`. ID `0` is reserved as the "invalid / null" sentinel — every call that returns an ID returns `0` on failure.
 
@@ -33,17 +33,17 @@ Names are **not** unique. `find_node` returns the first match (engine-defined or
 
 | Name | Description |
 |---|---|
-| [`find_node`](#sceneapifind_node) | Look up a node by name |
-| [`spawn(name, pos)`](#sceneapispawn-empty) | Create an empty node |
-| [`spawn(preset, pos, parent)`](#sceneapispawn-preset) | Instantiate a `.fjp` preset |
+| [`find_node`](#scenefind_node) | Look up a node by name |
+| [`spawn(name, pos)`](#scenespawn-empty) | Create an empty node |
+| [`spawn(preset, pos, parent)`](#scenespawn-preset) | Instantiate a `.fjp` preset |
 
 ---
 
-## SceneAPI::find_node
+## scene::find_node
 
 ### Syntax
 ```cpp
-static uint32_t find_node(const char* name);
+uint32_t find_node(const char* name);
 ```
 
 ### Parameters
@@ -59,19 +59,19 @@ Linear search over the scene. Cheap for small scenes; for hot paths in large sce
 
 ### Example
 ```cpp
-uint32_t cam = fjell::SceneAPI::find_node("MainCamera");
+uint32_t cam = fjell::scene::find_node("MainCamera");
 if (cam != 0) {
-    fjell::CameraAPI::set_active(cam);
+    fjell::camera::set_active(cam);
 }
 ```
 
 ---
 
-## SceneAPI::spawn (empty)
+## scene::spawn (empty)
 
 ### Syntax
 ```cpp
-static uint32_t spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f});
+uint32_t spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f});
 ```
 
 ### Parameters
@@ -88,20 +88,20 @@ The new node has no components, no parent (root-level), and identity rotation / 
 
 ### Example
 ```cpp
-uint32_t id = fjell::SceneAPI::spawn("Pickup", {0, 1, 0});
+uint32_t id = fjell::scene::spawn("Pickup", {0, 1, 0});
 fjell::Node3D node{id};
 node.add_component<CoinCollectible>();
 ```
 
 ---
 
-## SceneAPI::spawn (preset)
+## scene::spawn (preset)
 
 ### Syntax
 ```cpp
-static uint32_t spawn(const Ref<PresetAsset>& preset,
-                      const glm::vec3& pos = glm::vec3{0.0f},
-                      int32_t parent_id = -1);
+uint32_t spawn(const Ref<PresetAsset>& preset,
+               const glm::vec3& pos = glm::vec3{0.0f},
+               int32_t parent_id = -1);
 ```
 
 ### Parameters
@@ -128,10 +128,10 @@ class Spawner : public fjell::ScriptComponent {
 
     void spawn_one() {
         auto pos = transform().position + glm::vec3{5, 0, 0};
-        uint32_t id = fjell::SceneAPI::spawn(enemy, pos);
+        uint32_t id = fjell::scene::spawn(enemy, pos);
         if (id == 0) fjell::Log::warn("enemy preset not assigned");
     }
-};
+}
 ```
 
 ## See also

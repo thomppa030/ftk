@@ -1,4 +1,4 @@
-# fjell::Animator
+# fjell::animator
 
 Drives the skeletal `AnimatorComponent` attached to a node.
 
@@ -11,11 +11,11 @@ Drives the skeletal `AnimatorComponent` attached to a node.
 
 ```cpp
 namespace fjell {
-struct Animator {
-    static void        set_param(uint32_t node_id, const char* name, float value);
-    static float       get_param(uint32_t node_id, const char* name);
-    static const char* current_state(uint32_t node_id);
-};
+namespace animator {
+    void        set_param(uint32_t node_id, const char* name, float value);
+    float       get_param(uint32_t node_id, const char* name);
+    const char* current_state(uint32_t node_id);
+}
 }
 ```
 
@@ -37,11 +37,11 @@ See [State Machine](../../Animation/State-Machine.md) for authoring the state gr
 
 ---
 
-## Animator::set_param
+## animator::set_param
 
 ### Syntax
 ```cpp
-static void set_param(uint32_t node_id, const char* name, float value);
+void set_param(uint32_t node_id, const char* name, float value);
 ```
 
 ### Parameters
@@ -59,20 +59,20 @@ Setting a parameter does not directly play an animation — it only updates the 
 ### Example
 ```cpp
 // Drive a 2D blend space for locomotion
-fjell::Animator::set_param(id(), "forward", smoothed_input.y);
-fjell::Animator::set_param(id(), "strafe",  smoothed_input.x);
+fjell::animator::set_param(id(), "forward", smoothed_input.y);
+fjell::animator::set_param(id(), "strafe",  smoothed_input.x);
 
 // Fire a jump transition (a "trigger" param)
-fjell::Animator::set_param(id(), "jump", 1.0f);
+fjell::animator::set_param(id(), "jump", 1.0f);
 ```
 
 ---
 
-## Animator::get_param
+## animator::get_param
 
 ### Syntax
 ```cpp
-static float get_param(uint32_t node_id, const char* name);
+float get_param(uint32_t node_id, const char* name);
 ```
 
 ### Parameters
@@ -89,11 +89,11 @@ The return value doesn't disambiguate "not found" from "set to 0". If you need t
 
 ---
 
-## Animator::current_state
+## animator::current_state
 
 ### Syntax
 ```cpp
-static const char* current_state(uint32_t node_id);
+const char* current_state(uint32_t node_id);
 ```
 
 ### Parameters
@@ -116,11 +116,11 @@ void tick(float dt) override {
     // Smooth raw input into blend-space params
     float t = 1.0f - std::exp(-8.0f * dt);
     smoothed_ = glm::mix(smoothed_, raw_, t);
-    fjell::Animator::set_param(id(), "forward", smoothed_.y);
-    fjell::Animator::set_param(id(), "strafe",  smoothed_.x);
+    fjell::animator::set_param(id(), "forward", smoothed_.y);
+    fjell::animator::set_param(id(), "strafe",  smoothed_.x);
 
     // React to landing
-    const char* state = fjell::Animator::current_state(id());
+    const char* state = fjell::animator::current_state(id());
     if (state && std::strcmp(state, "Land") == 0 && !was_landing_) {
         play_dust_vfx();
     }
@@ -130,5 +130,5 @@ void tick(float dt) override {
 
 ## See also
 - [State Machine](../../Animation/State-Machine.md) — authoring state graphs and parameters
-- [`SpriteAnim`](SpriteAnim.md) — same shape for 2D sprite state machines
+- [`sprite_anim`](sprite_anim_api.md) — same shape for 2D sprite state machines
 - [`AnimNotify`](AnimNotify.md) — animation-event callbacks (for events fired *from* the timeline)

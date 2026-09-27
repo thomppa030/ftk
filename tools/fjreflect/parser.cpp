@@ -1367,7 +1367,7 @@ private:
     void add_action(ComponentInfo& comp, const Member& m, const Attribute& a) {
         if (!comp.is_ui_component) {
             error(a.line, "[[fj::action]] on '" + m.name + "' belongs in a UI widget; a script "
-                          "component binds input with InputAPI::bind() in begin_play");
+                          "component binds input with input::bind() in begin_play");
             return;
         }
         ActionInfo ai;

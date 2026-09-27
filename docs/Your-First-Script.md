@@ -171,7 +171,7 @@ void tick(float dt) override {
     angle_ += speed * dt;
     if (angle_ >= 360.0f) {
         angle_ -= 360.0f;
-        fjell::Vfx::spawn(burst, transform().position);
+        fjell::vfx::spawn(burst, transform().position);
     }
     /* ... */
 }
@@ -180,7 +180,7 @@ private:
     float angle_{0};
 ```
 
-Add a `.fjvfx` asset, drag it into the new `Burst` slot in the inspector, hit play. See [`Vfx`](Scripting/API/Vfx.md) and [`Ref`](Scripting/API/Ref.md).
+Add a `.fjvfx` asset, drag it into the new `Burst` slot in the inspector, hit play. See [`vfx`](Scripting/API/vfx_api.md) and [`Ref`](Scripting/API/Ref.md).
 
 ### React to collisions
 

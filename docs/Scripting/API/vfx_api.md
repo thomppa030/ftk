@@ -1,4 +1,4 @@
-# fjell::Vfx
+# fjell::vfx
 
 Spawns particle systems at world positions.
 
@@ -11,9 +11,9 @@ Spawns particle systems at world positions.
 
 ```cpp
 namespace fjell {
-struct Vfx {
-    static void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
-};
+namespace vfx {
+    void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
+}
 }
 ```
 
@@ -33,11 +33,11 @@ See [VFX](../../VFX/Particle-System.md) for the authoring side.
 
 ---
 
-## Vfx::spawn
+## vfx::spawn
 
 ### Syntax
 ```cpp
-static void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
+void spawn(const Ref<VfxAsset>& effect, const glm::vec3& pos);
 ```
 
 ### Parameters
@@ -59,14 +59,14 @@ class Coin : public fjell::ScriptComponent {
     [[fj::property]] fjell::Ref<fjell::AudioAsset> collect_sound;
 
     void on_trigger_enter(uint32_t /*other*/) override {
-        fjell::Vfx::spawn(collect_effect, transform().position);
-        fjell::Audio::play(collect_sound, transform().position);
+        fjell::vfx::spawn(collect_effect, transform().position);
+        fjell::audio::play(collect_sound, transform().position);
         self().destroy();
     }
-};
+}
 ```
 
 ## See also
-- [`Audio`](Audio.md) — same `(asset, position)` call shape
+- [`audio`](audio_api.md) — same `(asset, position)` call shape
 - [`Ref`](Ref.md) — how `Ref<VfxAsset>` is resolved
 - [VFX Particle System](../../VFX/Particle-System.md) — authoring `.fjvfx` effects

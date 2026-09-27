@@ -8,9 +8,9 @@
 ## Planned sections
 - Script API (`viewport_api.hpp`)
   ```cpp
-  ViewportAPI::create("security_cam", 512, 512, VP_TONEMAP | VP_BLOOM);
-  ViewportAPI::set_camera("security_cam", camera_node_id);
-  ViewportAPI::destroy("security_cam");
+  viewport::create("security_cam", 512, 512, VP_TONEMAP | VP_BLOOM);
+  viewport::set_camera("security_cam", camera_node_id);
+  viewport::destroy("security_cam");
   ```
 - Feature flags
   - `VP_TONEMAP`, `VP_BLOOM`, `VP_GTAO`, `VP_SSR`, `VP_VOLUMETRIC_FOG`, `VP_HIZ`, `VP_SHADOWS`

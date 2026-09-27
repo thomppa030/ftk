@@ -39,7 +39,7 @@ struct RefData {
 ///     [[fj::property]] fjell::Ref<fjell::PresetAsset> enemy;
 ///
 ///     void begin_play() override {
-///         if (enemy.valid()) fjell::SceneAPI::spawn(enemy, {0, 1, 0});
+///         if (enemy.valid()) fjell::scene::spawn(enemy, {0, 1, 0});
 ///     }
 /// };
 /// @endcode

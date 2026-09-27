@@ -30,27 +30,27 @@ struct SurfaceAsset;
 /// // ...
 /// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
 ///     if (c->ground_surface == grass.handle_id()) {
-///         fjell::Audio::play(grass_step, transform().position);
+///         fjell::audio::play(grass_step, transform().position);
 ///     }
 /// }
 /// @endcode
-struct Surface {
-    /// Whether `id` names a surface at all. 0 means the collider or layer
-    /// had none assigned.
-    static bool valid(uint32_t id) { return id != 0; }
+namespace surface {
+/// Whether `id` names a surface at all. 0 means the collider or layer
+/// had none assigned.
+inline bool valid(uint32_t id) { return id != 0; }
 
-    /// Whether a reported surface is the one a `Ref<SurfaceAsset>` holds.
-    static bool is(uint32_t id, const Ref<SurfaceAsset>& surface) {
-        return id != 0 && id == surface.handle_id();
-    }
+/// Whether a reported surface is the one a `Ref<SurfaceAsset>` holds.
+inline bool is(uint32_t id, const Ref<SurfaceAsset>& surface) {
+    return id != 0 && id == surface.handle_id();
+}
 
-    /// The surface's display name, for logging. Empty for 0 or an unknown
-    /// id. The string is owned by the engine and stays valid while the asset
-    /// is loaded.
-    static const char* name(uint32_t id) {
-        const char* n = fjell_surface_name(id);
-        return n != nullptr ? n : "";
-    }
-};
+/// The surface's display name, for logging. Empty for 0 or an unknown
+/// id. The string is owned by the engine and stays valid while the asset
+/// is loaded.
+inline const char* name(uint32_t id) {
+    const char* n = fjell_surface_name(id);
+    return n != nullptr ? n : "";
+}
+} // namespace surface
 
 } // namespace fjell

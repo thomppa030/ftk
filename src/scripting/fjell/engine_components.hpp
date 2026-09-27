@@ -314,7 +314,7 @@ struct CharacterComponent {
 // ── Rendering ────────────────────────────────────────────────────────────
 
 /// Makes a node render a 3D model. To change shader parameters at runtime,
-/// go through `MaterialAPI` rather than touching the fields here.
+/// go through `material` rather than touching the fields here.
 struct MeshComponent {
     static constexpr const char* type_name = "MeshComponent";
 
@@ -335,7 +335,7 @@ struct MeshComponent {
     std::string material_name;
 
     /// Engine-owned per-mesh material override, if one has been created.
-    /// Opaque to game code; go through `MaterialAPI` to change parameters.
+    /// Opaque to game code; go through `material` to change parameters.
     void* instance{nullptr};
 
     /// Engine-owned material per submesh slot. Opaque to game code.

@@ -82,7 +82,7 @@ struct Water {
     ///     const float agitation =
     ///         fjell::Water::bed_agitation(sea_, bay_depth_);
     ///     silt_ = fjell::Water::advance_silt(silt_, agitation, dt);
-    ///     fjell::MaterialAPI::set_param(sea_, "silt_load", silt_);
+    ///     fjell::material::set_param(sea_, "silt_load", silt_);
     /// }
     /// @endcode
     [[nodiscard]] static float advance_silt(float load, float agitation, float dt) {

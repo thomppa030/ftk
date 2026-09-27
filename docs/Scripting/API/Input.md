@@ -1,6 +1,6 @@
 # fjell::Input
 
-Direct keyboard / mouse polling. For most games, prefer [`InputAPI`](InputAPI.md) — `Input` is the polling escape hatch.
+Direct keyboard / mouse polling. For most games, prefer [`input`](input_api.md) — `Input` is the polling escape hatch.
 
 | | |
 |---|---|
@@ -72,7 +72,7 @@ State distinguishes:
 |---|---|
 | [`is_cursor_captured`](#inputis_cursor_captured) | Whether cursor lock is active |
 
-Locking the cursor is [`InputAPI::set_cursor_locked()`](InputAPI.md#inputapiset_cursor_locked).
+Locking the cursor is [`input::set_cursor_locked()`](input_api.md#inputset_cursor_locked).
 
 ---
 
@@ -172,7 +172,7 @@ Cursor position in window pixels (top-left origin, Y down).
 ```
 
 ### Return value
-Cursor movement since the last frame, in pixels. Useful for camera look-around. While the cursor is locked ([`InputAPI::set_cursor_locked(true)`](InputAPI.md#inputapiset_cursor_locked)), this is the raw delta — the cursor itself doesn't move on screen.
+Cursor movement since the last frame, in pixels. Useful for camera look-around. While the cursor is locked ([`input::set_cursor_locked(true)`](input_api.md#inputset_cursor_locked)), this is the raw delta — the cursor itself doesn't move on screen.
 
 ---
 
@@ -195,7 +195,7 @@ Scroll wheel movement this frame. `y` is the standard vertical scroll; `x` is ho
 [[nodiscard]] bool is_cursor_captured() const;
 ```
 
-True if the cursor is currently locked (hidden + delta-only). The same state as [`InputAPI::cursor_locked()`](InputAPI.md#inputapicursor_locked).
+True if the cursor is currently locked (hidden + delta-only). The same state as [`input::cursor_locked()`](input_api.md#inputcursor_locked).
 
 ## Example
 
@@ -204,11 +204,11 @@ void tick(float dt) override {
     // FPS mouselook
     if (!input().is_cursor_captured()) {
         if (input().is_mouse_button_pressed(FJELL_MOUSE_LEFT)) {
-            fjell::InputAPI::set_cursor_locked(true);
+            fjell::input::set_cursor_locked(true);
         }
     } else {
         if (input().is_key_pressed(FJELL_KEY_ESCAPE)) {
-            fjell::InputAPI::set_cursor_locked(false);
+            fjell::input::set_cursor_locked(false);
         }
 
         glm::dvec2 d = input().mouse_delta();
@@ -224,5 +224,5 @@ void tick(float dt) override {
 ```
 
 ## See also
-- [`InputAPI`](InputAPI.md) — the production input path (action mapping) and cursor locking
+- [`input`](input_api.md) — the production input path (action mapping) and cursor locking
 - `fjell/api.h` — key code constants

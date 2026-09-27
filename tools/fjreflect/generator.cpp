@@ -335,7 +335,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         // ── Send-wrapper member definitions ────────────────────────────
         // The user declares `void method(args);` ([[fj::rpc]]) and writes the
         // handler as `method_impl(args)`. We define `method(args)` here: it
-        // serializes the POD args and hands them to NetAPI by (node id, rpc
+        // serializes the POD args and hands them to net by (node id, rpc
         // index). On the target peer the invoke trampoline calls method_impl.
         out << "// ── RPC send wrappers ──\n\n";
         for (size_t r = 0; r < comp.rpcs.size(); ++r) {
@@ -348,7 +348,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
             out << ") {\n";
             // pack args into a stack buffer
             if (rpc.params.empty()) {
-                out << "    fjell::NetAPI::send_rpc(id(), " << r << ", nullptr, 0);\n";
+                out << "    fjell::net::send_rpc(id(), " << r << ", nullptr, 0);\n";
             } else {
                 out << "    uint8_t buf[";
                 for (size_t p = 0; p < rpc.params.size(); ++p) {
@@ -362,7 +362,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
                         << ", sizeof(" << rpc.params[p].cpp_type << ")); off += sizeof("
                         << rpc.params[p].cpp_type << ");\n";
                 }
-                out << "    fjell::NetAPI::send_rpc(id(), " << r << ", buf, off);\n";
+                out << "    fjell::net::send_rpc(id(), " << r << ", buf, off);\n";
             }
             out << "}\n\n";
         }

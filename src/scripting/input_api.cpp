@@ -118,7 +118,7 @@ const char* step_action(uint32_t action_handle_id) {
             reported = true;
             FJELL_CORE_WARN("Step input read outside fixed_tick(): it is the input of one fixed "
                             "step, and outside one there is none. Bind the action with "
-                            "InputAPI::bind() to react to it every frame instead");
+                            "input::bind() to react to it every frame instead");
         }
         return nullptr;
     }

@@ -1,4 +1,4 @@
-# fjell::ViewportAPI
+# fjell::viewport
 
 Creates render-to-texture viewports. Renders the scene from any camera into a bindless texture that materials can sample via `$viewport:name`.
 
@@ -23,18 +23,18 @@ enum FjellViewportFlags : uint32_t {
     VP_MINIMAL        = VP_TONEMAP,
     VP_FULL           = VP_TONEMAP | VP_BLOOM | VP_GTAO | VP_SSR
                       | VP_VOLUMETRIC_FOG | VP_HIZ | VP_SHADOWS,
-};
+}
 
-struct ViewportAPI {
-    static uint32_t create            (const char* name, uint32_t width = 512, uint32_t height = 512,
-                                       uint32_t flags = VP_MINIMAL);
-    static uint32_t create_with_graph (const char* name, uint32_t width, uint32_t height,
-                                       const char* graph_path);
-    static void     destroy           (const char* name);
-    static void     set_camera        (const char* name, uint32_t camera_node_id);
-    static uint32_t bindless_index    (const char* name);
-    static void     resize            (const char* name, uint32_t width, uint32_t height);
-};
+namespace viewport {
+    uint32_t create            (const char* name, uint32_t width = 512, uint32_t height = 512,
+                                uint32_t flags = VP_MINIMAL);
+    uint32_t create_with_graph (const char* name, uint32_t width, uint32_t height,
+                                const char* graph_path);
+    void     destroy           (const char* name);
+    void     set_camera        (const char* name, uint32_t camera_node_id);
+    uint32_t bindless_index    (const char* name);
+    void     resize            (const char* name, uint32_t width, uint32_t height);
+}
 
 }
 ```
@@ -69,23 +69,23 @@ Cost scales with what you enable. `VP_SHADOWS` re-renders the shadow map for thi
 
 | Name | Description |
 |---|---|
-| [`create`](#viewportapicreate) | Create a viewport using flag bitmask |
-| [`create_with_graph`](#viewportapicreate_with_graph) | Create a viewport driven by a `.fjgraph` file |
-| [`destroy`](#viewportapidestroy) | Tear down a viewport |
-| [`set_camera`](#viewportapiset_camera) | Point the viewport at a camera node |
-| [`bindless_index`](#viewportapibindless_index) | Look up the bindless texture index |
-| [`resize`](#viewportapiresize) | Resize the offscreen target |
+| [`create`](#viewportcreate) | Create a viewport using flag bitmask |
+| [`create_with_graph`](#viewportcreate_with_graph) | Create a viewport driven by a `.fjgraph` file |
+| [`destroy`](#viewportdestroy) | Tear down a viewport |
+| [`set_camera`](#viewportset_camera) | Point the viewport at a camera node |
+| [`bindless_index`](#viewportbindless_index) | Look up the bindless texture index |
+| [`resize`](#viewportresize) | Resize the offscreen target |
 
 ---
 
-## ViewportAPI::create
+## viewport::create
 
 ### Syntax
 ```cpp
-static uint32_t create(const char* name,
-                       uint32_t width = 512,
-                       uint32_t height = 512,
-                       uint32_t flags = VP_MINIMAL);
+uint32_t create(const char* name,
+                uint32_t width = 512,
+                uint32_t height = 512,
+                uint32_t flags = VP_MINIMAL);
 ```
 
 ### Parameters
@@ -104,13 +104,13 @@ The viewport is created without a camera — call `set_camera` before the next f
 
 ---
 
-## ViewportAPI::create_with_graph
+## viewport::create_with_graph
 
 ### Syntax
 ```cpp
-static uint32_t create_with_graph(const char* name,
-                                  uint32_t width, uint32_t height,
-                                  const char* graph_path);
+uint32_t create_with_graph(const char* name,
+                           uint32_t width, uint32_t height,
+                           const char* graph_path);
 ```
 
 ### Parameters
@@ -128,11 +128,11 @@ Cleaner than flags for complex setups. The `.fjgraph` defines which passes run, 
 
 ---
 
-## ViewportAPI::destroy
+## viewport::destroy
 
 ### Syntax
 ```cpp
-static void destroy(const char* name);
+void destroy(const char* name);
 ```
 
 ### Parameters
@@ -147,11 +147,11 @@ Always call this in `end_play()` if the script created the viewport — viewport
 
 ---
 
-## ViewportAPI::set_camera
+## viewport::set_camera
 
 ### Syntax
 ```cpp
-static void set_camera(const char* name, uint32_t camera_node_id);
+void set_camera(const char* name, uint32_t camera_node_id);
 ```
 
 ### Parameters
@@ -165,11 +165,11 @@ Safe to call every frame to track a moving camera node. Passing `0` or an ID wit
 
 ---
 
-## ViewportAPI::bindless_index
+## viewport::bindless_index
 
 ### Syntax
 ```cpp
-[[nodiscard]] static uint32_t bindless_index(const char* name);
+[[nodiscard]] uint32_t bindless_index(const char* name);
 ```
 
 ### Return value
@@ -180,11 +180,11 @@ Same value `create` returned, looked up by name. Almost never needed from script
 
 ---
 
-## ViewportAPI::resize
+## viewport::resize
 
 ### Syntax
 ```cpp
-static void resize(const char* name, uint32_t width, uint32_t height);
+void resize(const char* name, uint32_t width, uint32_t height);
 ```
 
 ### Parameters
@@ -203,20 +203,20 @@ class SecurityCamera : public fjell::ScriptComponent {
     FJELL_COMPONENT(SecurityCamera)
 
     void begin_play() override {
-        fjell::ViewportAPI::create("security_cam", 1920, 1080, VP_FULL);
+        fjell::viewport::create("security_cam", 1920, 1080, VP_FULL);
     }
 
     void tick(float /*dt*/) override {
-        uint32_t cam = fjell::SceneAPI::find_node("SecurityCamera");
+        uint32_t cam = fjell::scene::find_node("SecurityCamera");
         if (cam != 0) {
-            fjell::ViewportAPI::set_camera("security_cam", cam);
+            fjell::viewport::set_camera("security_cam", cam);
         }
     }
 
     void end_play() override {
-        fjell::ViewportAPI::destroy("security_cam");
+        fjell::viewport::destroy("security_cam");
     }
-};
+}
 ```
 
 Material side:
@@ -242,5 +242,5 @@ void fragment() {
 
 ## See also
 - [Viewports](../../Viewports.md) — the full feature page
-- [`CameraAPI`](CameraAPI.md) — main-swapchain camera control
+- [`camera`](camera_api.md) — main-swapchain camera control
 - [FJMAT](../../Materials/FJMAT.md) — `$viewport:` reference syntax

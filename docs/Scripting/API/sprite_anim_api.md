@@ -1,4 +1,4 @@
-# fjell::SpriteAnim
+# fjell::sprite_anim
 
 Drives the 2D `SpriteAnimComponent` attached to a node.
 
@@ -11,20 +11,20 @@ Drives the 2D `SpriteAnimComponent` attached to a node.
 
 ```cpp
 namespace fjell {
-struct SpriteAnim {
-    static void        set_param     (uint32_t node_id, const char* name, float value);
-    static float       get_param     (uint32_t node_id, const char* name);
-    static const char* current_state (uint32_t node_id);
-    static void        set_flip_h    (uint32_t node_id, bool flip);
-    static bool        is_finished   (uint32_t node_id);
-    static void        set_playing   (uint32_t node_id, bool playing);
-};
+namespace sprite_anim {
+    void        set_param     (uint32_t node_id, const char* name, float value);
+    float       get_param     (uint32_t node_id, const char* name);
+    const char* current_state (uint32_t node_id);
+    void        set_flip_h    (uint32_t node_id, bool flip);
+    bool        is_finished   (uint32_t node_id);
+    void        set_playing   (uint32_t node_id, bool playing);
+}
 }
 ```
 
 ## Remarks
 
-Parallel to [`Animator`](Animator.md) but targets `SpriteAnimComponent` instead of the skeletal animator. The state machine drives which frame range plays from a `SpriteSheet`. State graphs use the same parameter model (named floats) as the skeletal animator.
+Parallel to [`animator`](animator_api.md) but targets `SpriteAnimComponent` instead of the skeletal animator. The state machine drives which frame range plays from a `SpriteSheet`. State graphs use the same parameter model (named floats) as the skeletal animator.
 
 Extra controls vs the skeletal version: horizontal flip, play/pause, and a finished query for non-looping states.
 
@@ -41,23 +41,23 @@ Extra controls vs the skeletal version: horizontal flip, play/pause, and a finis
 
 ---
 
-## SpriteAnim::set_param / get_param / current_state
+## sprite_anim::set_param / get_param / current_state
 
-Identical semantics to the skeletal [`Animator`](Animator.md) versions. See those for parameter / state behavior.
+Identical semantics to the skeletal [`animator`](animator_api.md) versions. See those for parameter / state behavior.
 
 ```cpp
-static void        set_param(uint32_t node_id, const char* name, float value);
-static float       get_param(uint32_t node_id, const char* name);
-static const char* current_state(uint32_t node_id);
+void        set_param(uint32_t node_id, const char* name, float value);
+float       get_param(uint32_t node_id, const char* name);
+const char* current_state(uint32_t node_id);
 ```
 
 ---
 
-## SpriteAnim::set_flip_h
+## sprite_anim::set_flip_h
 
 ### Syntax
 ```cpp
-static void set_flip_h(uint32_t node_id, bool flip);
+void set_flip_h(uint32_t node_id, bool flip);
 ```
 
 ### Parameters
@@ -71,16 +71,16 @@ Operates on the sprite, not the node transform — the node's rotation is untouc
 
 ### Example
 ```cpp
-fjell::SpriteAnim::set_flip_h(id(), velocity_.x < 0.0f);
+fjell::sprite_anim::set_flip_h(id(), velocity_.x < 0.0f);
 ```
 
 ---
 
-## SpriteAnim::is_finished
+## sprite_anim::is_finished
 
 ### Syntax
 ```cpp
-[[nodiscard]] static bool is_finished(uint32_t node_id);
+[[nodiscard]] bool is_finished(uint32_t node_id);
 ```
 
 ### Parameters
@@ -96,18 +96,18 @@ Common pattern: poll this on a death / attack state to decide when to advance to
 
 ### Example
 ```cpp
-if (fjell::SpriteAnim::is_finished(id())) {
+if (fjell::sprite_anim::is_finished(id())) {
     self().destroy();   // death anim done, remove sprite
 }
 ```
 
 ---
 
-## SpriteAnim::set_playing
+## sprite_anim::set_playing
 
 ### Syntax
 ```cpp
-static void set_playing(uint32_t node_id, bool playing);
+void set_playing(uint32_t node_id, bool playing);
 ```
 
 ### Parameters
@@ -127,12 +127,12 @@ class Enemy : public fjell::ScriptComponent {
 
     void tick(float /*dt*/) override {
         // Face the direction of movement
-        fjell::SpriteAnim::set_flip_h(id(), velocity_.x < 0);
+        fjell::sprite_anim::set_flip_h(id(), velocity_.x < 0);
 
         // Death: play once, then despawn
         if (hp_ <= 0) {
-            fjell::SpriteAnim::set_param(id(), "dead", 1.0f);
-            if (fjell::SpriteAnim::is_finished(id())) {
+            fjell::sprite_anim::set_param(id(), "dead", 1.0f);
+            if (fjell::sprite_anim::is_finished(id())) {
                 self().destroy();
             }
         }
@@ -140,9 +140,9 @@ class Enemy : public fjell::ScriptComponent {
 
     glm::vec2 velocity_{};
     int hp_{100};
-};
+}
 ```
 
 ## See also
-- [`Animator`](Animator.md) — skeletal counterpart
+- [`animator`](animator_api.md) — skeletal counterpart
 - [State Machine](../../Animation/State-Machine.md)

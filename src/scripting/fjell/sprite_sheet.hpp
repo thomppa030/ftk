@@ -29,7 +29,7 @@ struct SpriteSheet {
     float fps{10.0f};
 
     /// Whether playback repeats. Non-looping sheets drive
-    /// `SpriteAnim::is_finished()`.
+    /// `sprite_anim::is_finished()`.
     bool loop{true};
 
     /// Per-frame UV rectangles, derived from the fields above when the sheet

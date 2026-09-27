@@ -227,7 +227,7 @@ The trap test: a character walks forward until a trigger volume notices it.
 bool TrapTriggerTest::is_ready() {
     // It starts above the floor and is dropped onto it by gravity. Walking
     // before it lands would test a fall, not a walk.
-    character_id_ = fjell::SceneAPI::find_node(character.c_str());
+    character_id_ = fjell::scene::find_node(character.c_str());
     if (character_id_ == 0) return false;
 
     fjell::Node3D walker{character_id_};

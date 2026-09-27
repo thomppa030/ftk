@@ -141,7 +141,7 @@ controller around it declares, or a literal argument of the wrong kind
 bound argument that does not convert is reported once when clicked. A list for
 `foreach` is a `std::vector` in a `[[fj::model]]` struct (see
 [FJUI](FJUI.md#lists)). Find scene components by type with
-`SceneAPI::find_node_with<PlayerStats>()` rather than by node name.
+`scene::find_node_with<PlayerStats>()` rather than by node name.
 
 ## Repeating a widget
 

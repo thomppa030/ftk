@@ -398,7 +398,7 @@ Three things can drive a uniform, later winning over earlier:
 1. the `.fjsl` default
 2. the node's override
 3. a [day profile](Day-Profiles.md) or weather custom track of the same name
-4. a script's `Weather::set_sky_param("name", ...)`, cleared with
+4. a script's `weather::set_sky_param("name", ...)`, cleared with
    `clear_sky_param`
 
 So `uniform vec3 zenith_color` can be picked in the inspector, animated over
