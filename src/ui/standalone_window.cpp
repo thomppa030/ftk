@@ -8,7 +8,6 @@
 #include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
 
-#include <GLFW/glfw3.h>
 
 #include <cstdint>
 
@@ -70,7 +69,7 @@ StandaloneWindow::~StandaloneWindow() {
 }
 
 void StandaloneWindow::request_close() {
-    glfwSetWindowShouldClose(window_->handle(), GLFW_TRUE);
+    window_->request_close();
 }
 
 bool StandaloneWindow::close_requested() const {
