@@ -41,7 +41,10 @@ if(FJELL_ENABLE_TRACY)
     endif()
 endif()
 
-# --- Platform abstraction (shared between fjell and fjell-hub) ---
+# fjell-platform is everything that talks to the operating system: one
+# backend per system behind platform.hpp, file_watcher.hpp and
+# shared_library.hpp. Only the backend being built is listed, so each
+# system's build checks its own backend's includes.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(FJELL_PLATFORM_SOURCES
         platform/linux/platform_linux.cpp
@@ -58,10 +61,17 @@ else()
     message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
 
-add_library(fjell-platform STATIC ${FJELL_PLATFORM_SOURCES})
-target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(fjell-platform PUBLIC fjell-core PRIVATE ${CMAKE_DL_LIBS})
-fjell_target_defaults(fjell-platform)
+fjell_library(platform
+    SOURCES
+        ${FJELL_PLATFORM_SOURCES}
+    HEADERS
+        platform/file_watcher.hpp
+        platform/platform.hpp
+        platform/shared_library.hpp
+    LINKS
+        PUBLIC fjell-core
+        PRIVATE ${CMAKE_DL_LIBS}
+)
 
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
@@ -524,7 +534,7 @@ add_dependencies(fjell fjell-fixed-tick-check)
 # is linked.
 target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-core>"
-    fjell-platform
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-platform>"
     fjell-imgui
     fastgltf::fastgltf
     glfw

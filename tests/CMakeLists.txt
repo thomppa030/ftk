@@ -330,3 +330,4 @@ function(fjell_library_link_check name)
 endfunction()
 
 fjell_library_link_check(core)
+fjell_library_link_check(platform)
