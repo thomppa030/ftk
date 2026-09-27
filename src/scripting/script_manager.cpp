@@ -1079,8 +1079,10 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 out[f.name] = *static_cast<const std::string*>(ptr);
                 break;
             case FJELL_FIELD_WEAK_REF: {
+                // The generation is the node's life in this run; a file keeps
+                // the id, and loading takes the generation the node has then.
                 const auto* ref = static_cast<const WeakRefData*>(ptr);
-                out[f.name] = {{"id", ref->id}, {"generation", ref->generation}};
+                out[f.name] = {{"id", ref->id}};
                 break;
             }
             case FJELL_FIELD_ASSET: {
@@ -1161,7 +1163,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 auto& j = in[f.name];
                 if (j.is_object()) {
                     ref->id = j.value("id", uint32_t{0});
-                    ref->generation = j.value("generation", uint32_t{0});
+                    ref->generation = s_services.scene != nullptr
+                                          ? s_services.scene->generation_of(ref->id)
+                                          : 0;
                 }
                 break;
             }

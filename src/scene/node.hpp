@@ -125,6 +125,12 @@ inline constexpr std::size_t NODE_KIND_COUNT = static_cast<std::size_t>(NodeKind
 
 struct Node {
     uint32_t id{0};
+    /// Which life of a node this is: given when it first joins a scene, from
+    /// one counter for the whole process, and kept while it lives, through
+    /// being taken out and put back by undo. A copy gets its own. A reference
+    /// holds the id and this, so it never mistakes another node that later
+    /// takes the same id, after a reload say, for the one it meant.
+    uint32_t generation{0};
     int32_t parent_id{-1};
     std::string name;
     std::string source;

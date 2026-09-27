@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/removal_epoch.hpp"
 #include "scene/transform_blend.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
@@ -7,6 +8,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <limits>
 #include <utility>
@@ -59,8 +61,19 @@ ComponentTypeId ScriptInstance::type_id() const {
 
 // ── Node ────────────────────────────────────────────────────────────────
 
+namespace {
+
+/// A generation no node in this process has had. Scenes are built off the
+/// main thread too (previews, thumbnails).
+uint32_t next_generation() {
+    static std::atomic<uint32_t> counter{1};
+    return counter.fetch_add(1, std::memory_order_relaxed);
+}
+
+} // namespace
+
 Node::Node() = default;
-Node::~Node() = default;
+Node::~Node() { note_removal(); }
 Node::Node(Node&&) noexcept = default;
 Node& Node::operator=(Node&&) noexcept = default;
 
@@ -169,9 +182,7 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     if (node->id == 0) node->id = next_id_++;
     if (node->id >= next_id_) next_id_ = node->id + 1;
     uint32_t id = node->id;
-    if (!id_generation_.contains(id)) {
-        id_generation_[id] = 1;
-    }
+    if (node->generation == 0) node->generation = next_generation();
     dirty_ = true;
     node->components.attach(pools(), *node);
 
@@ -232,7 +243,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
             obj->parent_id = -1;
         }
     }
-    id_generation_[id]++;
+    note_removal();
     const int idx = map_it->second;
     auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
     objects_.erase(objects_.begin() + idx);
@@ -247,7 +258,8 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
 
 void Scene::restore(std::unique_ptr<Node> node, std::size_t index) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
-    // Keep existing generation — node is coming back
+    // It keeps its generation: the same node is back, and what referred to it
+    // finds it again.
     node->components.attach(pools(), *node);
     join_kind(*node);
     index = std::min(index, objects_.size());
@@ -314,7 +326,6 @@ void Scene::clear() {
     objects_.clear();
     point_lights_.clear();
     spot_lights_.clear();
-    id_generation_.clear();
     pending_destroy_.clear();
     id_to_index_.clear();
     index_dirty_ = false;
@@ -322,8 +333,8 @@ void Scene::clear() {
 }
 
 uint32_t Scene::generation_of(uint32_t id) const {
-    auto it = id_generation_.find(id);
-    return it != id_generation_.end() ? it->second : 0;
+    const Node* node = find(id);
+    return node != nullptr ? node->generation : 0;
 }
 
 void Scene::queue_destroy(uint32_t id) {
@@ -356,8 +367,6 @@ void Scene::flush_destroyed() {
                 obj->parent_id = -1;
             }
         }
-        // Bump generation so WeakRefs go stale
-        id_generation_[doomed]++;
         // Swap-and-pop removal via index map
         auto map_it = id_to_index_.find(doomed);
         if (map_it == id_to_index_.end()) continue;

@@ -1,4 +1,5 @@
 #include "scene/component_pool.hpp"
+#include "scene/removal_epoch.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -69,6 +70,7 @@ Node* ComponentPool::first_owner() const {
 }
 
 void ComponentPool::release(uint32_t slot) {
+    note_removal();
     Member& m = members_[member_of_[slot]];
     assert(m.slot == slot);
     if (m.component == nullptr) --pending_;

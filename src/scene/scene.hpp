@@ -256,7 +256,8 @@ public:
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
 
-    // Generation tracking for safe weak references
+    /// The generation of the node with this id (see Node::generation), or 0
+    /// when the scene has none.
     [[nodiscard]] uint32_t generation_of(uint32_t id) const;
 
     // Deferred destruction for safe mid-tick removal
@@ -334,7 +335,6 @@ private:
     uint64_t structure_revision_{0};
     bool index_dirty_{true};
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
-    std::unordered_map<uint32_t, uint32_t> id_generation_;
     std::vector<uint32_t> pending_destroy_;
 
     int iteration_depth_{0};                              // >0 while a tick walks objects_
