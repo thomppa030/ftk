@@ -6,6 +6,15 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 project(Fjell VERSION 0.1.0 LANGUAGES CXX)
 
+# As the top-level project Fjell builds its engine, hub, tools and tests. Added
+# to another program's build (FetchContent, add_subdirectory) it builds only its
+# libraries and what they need, and runs none of the checks over its own src/
+# except the libraries' boundary check. What runs in both modes names Fjell's
+# tree through PROJECT_SOURCE_DIR and PROJECT_BINARY_DIR, which stay Fjell's
+# when the including program's CMAKE_SOURCE_DIR does not.
+option(FJELL_BUILD_ENGINE "Build the engine, hub, tools and tests; off builds only the libraries"
+       ${PROJECT_IS_TOP_LEVEL})
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -14,95 +23,102 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/FjellTargetDefaults.cmake)
 include(cmake/FjellLibrary.cmake)
 
-include(cmake/PortabilityCheck.cmake)
-# Only the tool directories that are built; tools/ also holds things like a
-# Python environment whose headers are not ours.
-file(GLOB FJELL_TOOL_CMAKE_LISTS "${CMAKE_SOURCE_DIR}/tools/*/CMakeLists.txt")
-set(FJELL_TOOL_DIRS "")
-foreach(tool_cmake_list IN LISTS FJELL_TOOL_CMAKE_LISTS)
-    cmake_path(GET tool_cmake_list PARENT_PATH tool_dir)
-    list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
-endforeach()
-fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
+if(FJELL_BUILD_ENGINE)
+    include(cmake/PortabilityCheck.cmake)
+    # Only the tool directories that are built; tools/ also holds things like a
+    # Python environment whose headers are not ours.
+    file(GLOB FJELL_TOOL_CMAKE_LISTS "${CMAKE_SOURCE_DIR}/tools/*/CMakeLists.txt")
+    set(FJELL_TOOL_DIRS "")
+    foreach(tool_cmake_list IN LISTS FJELL_TOOL_CMAKE_LISTS)
+        cmake_path(GET tool_cmake_list PARENT_PATH tool_dir)
+        list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
+    endforeach()
+    fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
 
-# Editor UI takes colours and widgets from the theme and the kit. Checked at
-# configure and again by fjell-editor-ui-check whenever a source changes, so
-# a build reports a hand-styled line without a reconfigure.
-include(cmake/EditorUiCheck.cmake)
-fjell_check_editor_ui(src)
-file(GLOB_RECURSE FJELL_EDITOR_UI_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp" "${CMAKE_SOURCE_DIR}/src/*.h")
-set(FJELL_EDITOR_UI_STAMP "${CMAKE_BINARY_DIR}/editor_ui_check.stamp")
-add_custom_command(
-    OUTPUT "${FJELL_EDITOR_UI_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFJELL_EDITOR_UI_ROOTS=src -P "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_EDITOR_UI_STAMP}"
-    DEPENDS ${FJELL_EDITOR_UI_SOURCES}
-            "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
-            "${CMAKE_SOURCE_DIR}/cmake/editor_ui_allowlist.txt"
-    COMMENT "Checking editor UI against the theme and kit"
-    VERBATIM)
-add_custom_target(fjell-editor-ui-check DEPENDS "${FJELL_EDITOR_UI_STAMP}")
+    # Editor UI takes colours and widgets from the theme and the kit. Checked at
+    # configure and again by fjell-editor-ui-check whenever a source changes, so
+    # a build reports a hand-styled line without a reconfigure.
+    include(cmake/EditorUiCheck.cmake)
+    fjell_check_editor_ui(src)
+    file(GLOB_RECURSE FJELL_EDITOR_UI_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.hpp" "${CMAKE_SOURCE_DIR}/src/*.h")
+    set(FJELL_EDITOR_UI_STAMP "${CMAKE_BINARY_DIR}/editor_ui_check.stamp")
+    add_custom_command(
+        OUTPUT "${FJELL_EDITOR_UI_STAMP}"
+        COMMAND "${CMAKE_COMMAND}" -DFJELL_EDITOR_UI_ROOTS=src -P "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_EDITOR_UI_STAMP}"
+        DEPENDS ${FJELL_EDITOR_UI_SOURCES}
+                "${CMAKE_SOURCE_DIR}/cmake/EditorUiCheck.cmake"
+                "${CMAKE_SOURCE_DIR}/cmake/editor_ui_allowlist.txt"
+        COMMENT "Checking editor UI against the theme and kit"
+        VERBATIM)
+    add_custom_target(fjell-editor-ui-check DEPENDS "${FJELL_EDITOR_UI_STAMP}")
 
-# Simulation code reads the fixed step's time, never the frame's. Checked at
-# configure and again by fjell-fixed-tick-check whenever a listed file or
-# either list changes.
-include(cmake/FixedTickCheck.cmake)
-fjell_check_fixed_tick()
-fjell_fixed_tick_read_list("${FJELL_FIXED_TICK_SOURCES}" FJELL_FIXED_TICK_FILES)
-list(TRANSFORM FJELL_FIXED_TICK_FILES PREPEND "${CMAKE_SOURCE_DIR}/")
-set(FJELL_FIXED_TICK_STAMP "${CMAKE_BINARY_DIR}/fixed_tick_check.stamp")
-add_custom_command(
-    OUTPUT "${FJELL_FIXED_TICK_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFJELL_FIXED_TICK_CHECK=ON -P "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_FIXED_TICK_STAMP}"
-    DEPENDS ${FJELL_FIXED_TICK_FILES}
-            "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
-            "${FJELL_FIXED_TICK_SOURCES}"
-            "${FJELL_FIXED_TICK_ALLOWLIST}"
-    COMMENT "Checking simulation code for reads of the frame"
-    VERBATIM)
-add_custom_target(fjell-fixed-tick-check DEPENDS "${FJELL_FIXED_TICK_STAMP}")
+    # Simulation code reads the fixed step's time, never the frame's. Checked at
+    # configure and again by fjell-fixed-tick-check whenever a listed file or
+    # either list changes.
+    include(cmake/FixedTickCheck.cmake)
+    fjell_check_fixed_tick()
+    fjell_fixed_tick_read_list("${FJELL_FIXED_TICK_SOURCES}" FJELL_FIXED_TICK_FILES)
+    list(TRANSFORM FJELL_FIXED_TICK_FILES PREPEND "${CMAKE_SOURCE_DIR}/")
+    set(FJELL_FIXED_TICK_STAMP "${CMAKE_BINARY_DIR}/fixed_tick_check.stamp")
+    add_custom_command(
+        OUTPUT "${FJELL_FIXED_TICK_STAMP}"
+        COMMAND "${CMAKE_COMMAND}" -DFJELL_FIXED_TICK_CHECK=ON -P "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_FIXED_TICK_STAMP}"
+        DEPENDS ${FJELL_FIXED_TICK_FILES}
+                "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
+                "${FJELL_FIXED_TICK_SOURCES}"
+                "${FJELL_FIXED_TICK_ALLOWLIST}"
+        COMMENT "Checking simulation code for reads of the frame"
+        VERBATIM)
+    add_custom_target(fjell-fixed-tick-check DEPENDS "${FJELL_FIXED_TICK_STAMP}")
+endif()
 
-include(cmake/Dependencies.cmake)
-include(cmake/CompileShaders.cmake)
-include(cmake/GenerateShaderConstants.cmake)
+include(cmake/FoundationDependencies.cmake)
+if(FJELL_BUILD_ENGINE)
+    include(cmake/EngineDependencies.cmake)
+    include(cmake/CompileShaders.cmake)
+    include(cmake/GenerateShaderConstants.cmake)
+endif()
 
 include(src/libraries.cmake)
-add_subdirectory(src)
 
 # Fjell's libraries include only their own files and those of the libraries
-# they link. Checked at configure, once src/ has declared them, and again by
-# fjell-library-check whenever a library's file changes.
+# they link. Checked at configure, once src/libraries.cmake has declared them,
+# and again by fjell-library-check whenever a library's file changes.
 include(cmake/LibraryBoundaryCheck.cmake)
-set(FJELL_LIBRARY_LISTS "${CMAKE_BINARY_DIR}/fjell_libraries.cmake")
+set(FJELL_LIBRARY_LISTS "${PROJECT_BINARY_DIR}/fjell_libraries.cmake")
 fjell_write_library_lists("${FJELL_LIBRARY_LISTS}")
 fjell_check_library_boundaries("${FJELL_LIBRARY_LISTS}")
 fjell_library_files(FJELL_LIBRARY_FILES)
-set(FJELL_LIBRARY_CHECK_STAMP "${CMAKE_BINARY_DIR}/library_check.stamp")
+set(FJELL_LIBRARY_CHECK_STAMP "${PROJECT_BINARY_DIR}/library_check.stamp")
 add_custom_command(
     OUTPUT "${FJELL_LIBRARY_CHECK_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFJELL_LIBRARY_LISTS=${FJELL_LIBRARY_LISTS} -P "${CMAKE_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -DFJELL_LIBRARY_LISTS=${FJELL_LIBRARY_LISTS} -P "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
     COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_LIBRARY_CHECK_STAMP}"
     DEPENDS ${FJELL_LIBRARY_FILES}
             "${FJELL_LIBRARY_LISTS}"
-            "${CMAKE_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+            "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
     COMMENT "Checking each library's includes against its links"
     VERBATIM)
 add_custom_target(fjell-library-check DEPENDS "${FJELL_LIBRARY_CHECK_STAMP}")
 
-add_subdirectory(tools)
+if(FJELL_BUILD_ENGINE)
+    add_subdirectory(src)
+    add_subdirectory(tools)
 
-enable_testing()
-add_subdirectory(tests)
+    enable_testing()
+    add_subdirectory(tests)
 
-# --- Packaging ---
-set(CPACK_PACKAGE_NAME "Fjell")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-if(WIN32)
-    set(CPACK_GENERATOR "ZIP")
-else()
-    set(CPACK_GENERATOR "TGZ")
+    # --- Packaging ---
+    set(CPACK_PACKAGE_NAME "Fjell")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    if(WIN32)
+        set(CPACK_GENERATOR "ZIP")
+    else()
+        set(CPACK_GENERATOR "TGZ")
+    endif()
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+    include(CPack)
 endif()
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
-include(CPack)

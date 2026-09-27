@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
+          key: deps-linux-${{ hashFiles('cmake/FoundationDependencies.cmake', 'cmake/EngineDependencies.cmake') }}
 
       - name: Configure
         run: cmake --preset debug
@@ -84,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
+          key: deps-windows-${{ hashFiles('cmake/FoundationDependencies.cmake', 'cmake/EngineDependencies.cmake') }}
 
       - name: Configure
         run: cmake --preset debug

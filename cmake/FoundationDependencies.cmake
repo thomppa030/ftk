@@ -1,0 +1,144 @@
+# What Fjell's libraries need, fetched whether Fjell builds its engine or is a
+# subproject of another program: windowing, maths, logging, JSON, stb, the
+# patched Dear ImGui, Vulkan with VMA, and Tracy when it is switched on. The
+# engine's own dependencies are in EngineDependencies.cmake.
+
+include(FetchContent)
+
+# Every dependency uses the same MSVC runtime (dynamic CRT). Fjell's top level
+# sets it for its own directory and everything added below it; as the top
+# level it also pins the cache, and as a subproject it leaves the including
+# program's choice alone.
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
+endif()
+
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+set(JSON_Install OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        3.4
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        1.0.1
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.15.0
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        f5f6ca07be7ce0ea9eed6c04d55833bac3f6b50b  # docking branch, 1.92.7
+    # No GIT_SHALLOW: a shallow clone fetches branch tips, and this pin is a
+    # commit off docking rather than a tag, so the checkout lands on the tip and
+    # then fails. The patch step needs the exact commit it was generated against.
+    SOURCE_SUBDIR  no-cmake-here
+)
+
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+
+# Tracy profiler — opt-in with -DFJELL_ENABLE_TRACY=ON
+option(FJELL_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
+
+if(FJELL_ENABLE_TRACY)
+    set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+    set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+    # Captures are read for their zones. Call-stack sampling adds some 300
+    # thousand symbols to every trace and CPU time to the run being measured,
+    # and nothing that reads a capture uses it.
+    set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
+else()
+    set(TRACY_ENABLE OFF CACHE BOOL "" FORCE)
+endif()
+
+FetchContent_Declare(
+    tracy
+    GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+    GIT_TAG        v0.13.1
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb json tracy)
+
+# Consumed as plain sources: its files are compiled straight into the ImGui
+# targets in src/libraries.cmake, so it is fetched but never added as a
+# subdirectory.
+FetchContent_MakeAvailable(imgui)
+
+block()
+    # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
+    # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
+    # Original PR: https://github.com/ocornut/imgui/pull/846
+    #
+    # Applied with `git apply` rather than the patch(1) binary: git is already
+    # required to fetch every dependency, while patch(1) is absent on a stock
+    # Windows box. The editor UI calls BeginHorizontal/Spring, so a failure here
+    # has to stop the configure — left as a warning it resurfaces much later as
+    # unrelated-looking compile errors.
+    set(_layout_patch "${CMAKE_CURRENT_LIST_DIR}/patches/imgui_layout.patch")
+    set(_layout_marker "${imgui_SOURCE_DIR}/.layout_patched")
+    if(EXISTS "${_layout_patch}" AND NOT EXISTS "${_layout_marker}")
+        find_package(Git QUIET REQUIRED)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply -p1 --whitespace=nowarn "${_layout_patch}"
+            WORKING_DIRECTORY "${imgui_SOURCE_DIR}"
+            RESULT_VARIABLE _patch_result
+            ERROR_VARIABLE _patch_error
+        )
+        if(_patch_result EQUAL 0)
+            file(WRITE "${_layout_marker}" "patched")
+            message(STATUS "imgui: applied stack layout extensions patch")
+        else()
+            message(FATAL_ERROR
+                "imgui: failed to apply the stack layout patch (${_patch_result}): "
+                "${_patch_error}\nDelete ${imgui_SOURCE_DIR} and reconfigure to retry.")
+        endif()
+    endif()
+endblock()
+
+find_package(Vulkan)
+if(NOT Vulkan_FOUND)
+    message(FATAL_ERROR
+        "Vulkan SDK not found — it is the only dependency Fjell does not fetch itself. "
+        "Install it from https://vulkan.lunarg.com/ (or your distro's vulkan-devel "
+        "package) and make sure VULKAN_SDK is set in the environment.")
+endif()
+
+# VMA — Vulkan Memory Allocator
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.2.1
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)

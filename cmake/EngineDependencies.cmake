@@ -1,42 +1,8 @@
+# What only the engine, its tools and tests need, fetched when Fjell builds
+# its engine (FJELL_BUILD_ENGINE). The libraries' dependencies are in
+# FoundationDependencies.cmake, included first.
+
 include(FetchContent)
-
-# Ensure all dependencies use the same MSVC runtime (dynamic CRT by default).
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
-
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
-set(JSON_Install OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-
-FetchContent_Declare(
-    glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG        1.0.1
-    GIT_SHALLOW    TRUE
-)
-
-FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.15.0
-    GIT_SHALLOW    TRUE
-)
-
-FetchContent_Declare(
-    stb
-    GIT_REPOSITORY https://github.com/nothings/stb.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
-)
 
 # fastgltf needs simdjson and, left alone, pulls the single-header build with a
 # bare file(DOWNLOAD) whose result it never checks — a failed fetch writes an
@@ -59,28 +25,11 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        f5f6ca07be7ce0ea9eed6c04d55833bac3f6b50b  # docking branch, 1.92.7
-    # No GIT_SHALLOW: a shallow clone fetches branch tips, and this pin is a
-    # commit off docking rather than a tag, so the checkout lands on the tip and
-    # then fails. The patch step needs the exact commit it was generated against.
-    SOURCE_SUBDIR  no-cmake-here
-)
-
-FetchContent_Declare(
     imguizmo
     GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  no-cmake-here
-)
-
-FetchContent_Declare(
-    json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
 )
 
 set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
@@ -145,28 +94,6 @@ FetchContent_Declare(
     msdfgen
     GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
     GIT_TAG        v1.12
-    GIT_SHALLOW    TRUE
-    EXCLUDE_FROM_ALL
-)
-
-# Tracy profiler — opt-in with -DFJELL_ENABLE_TRACY=ON
-option(FJELL_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
-
-if(FJELL_ENABLE_TRACY)
-    set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
-    set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
-    # Captures are read for their zones. Call-stack sampling adds some 300
-    # thousand symbols to every trace and CPU time to the run being measured,
-    # and nothing that reads a capture uses it.
-    set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
-else()
-    set(TRACY_ENABLE OFF CACHE BOOL "" FORCE)
-endif()
-
-FetchContent_Declare(
-    tracy
-    GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-    GIT_TAG        v0.13.1
     GIT_SHALLOW    TRUE
     EXCLUDE_FROM_ALL
 )
@@ -237,7 +164,7 @@ FetchContent_Declare(
 
 
 # simdjson ahead of fastgltf so the target exists when fastgltf configures.
-FetchContent_MakeAvailable(glfw glm spdlog stb simdjson fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2 enet)
+FetchContent_MakeAvailable(simdjson fastgltf JoltPhysics yoga freetype meshoptimizer ozz-animation assimp Catch2 enet)
 
 # ENet's CMakeLists exports an unaliased `enet` target; give it the include dir.
 if(TARGET enet)
@@ -305,38 +232,7 @@ FetchContent_MakeAvailable(msdfgen)
 # Consumed as plain sources — these either ship no CMakeLists or have their
 # files compiled straight into our targets, so they are fetched but never
 # added as subdirectories.
-FetchContent_MakeAvailable(miniaudio imgui imguizmo)
-
-block()
-    # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
-    # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
-    # Original PR: https://github.com/ocornut/imgui/pull/846
-    #
-    # Applied with `git apply` rather than the patch(1) binary: git is already
-    # required to fetch every dependency, while patch(1) is absent on a stock
-    # Windows box. The editor UI calls BeginHorizontal/Spring, so a failure here
-    # has to stop the configure — left as a warning it resurfaces much later as
-    # unrelated-looking compile errors.
-    set(_layout_patch "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/imgui_layout.patch")
-    set(_layout_marker "${imgui_SOURCE_DIR}/.layout_patched")
-    if(EXISTS "${_layout_patch}" AND NOT EXISTS "${_layout_marker}")
-        find_package(Git QUIET REQUIRED)
-        execute_process(
-            COMMAND "${GIT_EXECUTABLE}" apply -p1 --whitespace=nowarn "${_layout_patch}"
-            WORKING_DIRECTORY "${imgui_SOURCE_DIR}"
-            RESULT_VARIABLE _patch_result
-            ERROR_VARIABLE _patch_error
-        )
-        if(_patch_result EQUAL 0)
-            file(WRITE "${_layout_marker}" "patched")
-            message(STATUS "imgui: applied stack layout extensions patch")
-        else()
-            message(FATAL_ERROR
-                "imgui: failed to apply the stack layout patch (${_patch_result}): "
-                "${_patch_error}\nDelete ${imgui_SOURCE_DIR} and reconfigure to retry.")
-        endif()
-    endif()
-endblock()
+FetchContent_MakeAvailable(miniaudio imguizmo)
 
 block()
     # ImGuizmo hard-codes how close the mouse has to be to a rotation ring to
@@ -369,21 +265,3 @@ block()
         message(STATUS "imguizmo: widened rotation ring hit tolerance")
     endif()
 endblock()
-
-find_package(Vulkan)
-if(NOT Vulkan_FOUND)
-    message(FATAL_ERROR
-        "Vulkan SDK not found — it is the only dependency Fjell does not fetch itself. "
-        "Install it from https://vulkan.lunarg.com/ (or your distro's vulkan-devel "
-        "package) and make sure VULKAN_SDK is set in the environment.")
-endif()
-
-# VMA — Vulkan Memory Allocator
-FetchContent_Declare(
-    VulkanMemoryAllocator
-    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-    GIT_TAG        v3.2.1
-    GIT_SHALLOW    TRUE
-    EXCLUDE_FROM_ALL
-)
-FetchContent_MakeAvailable(VulkanMemoryAllocator)
