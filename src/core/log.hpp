@@ -3,13 +3,23 @@
 #include <spdlog/spdlog.h>
 
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace fjell::log {
 
-/// Creates the CORE/GFX/APP loggers. Everything below `info` is silent unless
-/// the FJELL_LOG_LEVEL environment variable names a lower level
-/// (trace, debug, info, warn, error).
-void init();
+/// How init() sets the loggers up.
+struct Options {
+    /// The lowest level shown. Unset: info, unless the FJELL_LOG_LEVEL
+    /// environment variable names another (trace, debug, info, warn, error).
+    std::optional<spdlog::level::level_enum> level{};
+    /// How the terminal shows a line, in spdlog's pattern syntax.
+    std::string pattern{"%^[%T.%e] [%n] [%l]%$ %v"};
+};
+
+/// Creates the CORE/GFX/APP loggers, writing to the terminal. Called again,
+/// it starts over: new loggers, without the sinks added to the old ones.
+void init(const Options& options = {});
 void shutdown();
 
 /// Sends every logger's messages to `sink` as well as the terminal, from the

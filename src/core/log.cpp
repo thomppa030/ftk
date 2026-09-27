@@ -26,15 +26,19 @@ static spdlog::level::level_enum initial_level() {
     return spdlog::level::info;
 }
 
-void init() {
+void init(const Options& options) {
+    // spdlog's registry refuses a name it already holds, so a second init
+    // lets go of the first set before registering the new one.
+    for (const char* name : {"CORE", "GFX", "APP"}) spdlog::drop(name);
+
     auto terminal_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    terminal_sink->set_pattern("%^[%T.%e] [%n] [%l]%$ %v");
+    terminal_sink->set_pattern(options.pattern);
 
     s_core = std::make_shared<spdlog::logger>("CORE", terminal_sink);
     s_renderer = std::make_shared<spdlog::logger>("GFX", terminal_sink);
     s_app = std::make_shared<spdlog::logger>("APP", terminal_sink);
 
-    const auto level = initial_level();
+    const auto level = options.level.value_or(initial_level());
     s_core->set_level(level);
     s_renderer->set_level(level);
     s_app->set_level(level);
