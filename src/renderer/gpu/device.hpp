@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-struct GLFWwindow;
-
 namespace fjell {
 
 class Window;

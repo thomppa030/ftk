@@ -49,7 +49,7 @@ StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int w
         vk_check(vkCreateFence(dev, &fence_ci, nullptr, &in_flight_[i]), "standalone window fence");
     }
 
-    imgui_ = std::make_unique<ImGuiLayer>(window_->handle(), gpu_.instance(), gpu_.physical_device(), gpu_.vk_device(),
+    imgui_ = std::make_unique<ImGuiLayer>(*window_, gpu_.instance(), gpu_.physical_device(), gpu_.vk_device(),
                                           gpu_.graphics_family(), gpu_.graphics_queue(), swapchain_->format(),
                                           swapchain_->image_count(), files);
 }
