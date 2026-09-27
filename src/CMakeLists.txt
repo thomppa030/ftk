@@ -348,9 +348,8 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${miniaudio_SOURCE_DIR}
 )
 
-# Fails the build on hand-styled editor UI before anything compiles.
-add_dependencies(fjell fjell-editor-ui-check)
-# And on simulation code that reads the frame.
+# Fails the build on simulation code that reads the frame. The editor UI
+# check is added from the top level, once this target exists.
 add_dependencies(fjell fjell-fixed-tick-check)
 
 # Libraries link whole: a static link keeps only the objects the engine calls
