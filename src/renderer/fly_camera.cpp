@@ -1,7 +1,6 @@
 #include "renderer/fly_camera.hpp"
 #include "core/input.hpp"
 
-#include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -26,17 +25,17 @@ void FlyCamera::update(const Input& input, float dt) {
 
     // Movement
     float speed = move_speed_ * dt;
-    if (input.is_key_held(GLFW_KEY_LEFT_SHIFT) ||
-        input.is_key_held(GLFW_KEY_RIGHT_SHIFT)) {
+    if (input.is_key_held(InputSource::key_lshift) ||
+        input.is_key_held(InputSource::key_rshift)) {
         speed *= 3.0f;
     }
 
-    if (input.is_key_held(GLFW_KEY_W)) position_ += front_ * speed;
-    if (input.is_key_held(GLFW_KEY_S)) position_ -= front_ * speed;
-    if (input.is_key_held(GLFW_KEY_A)) position_ -= right_ * speed;
-    if (input.is_key_held(GLFW_KEY_D)) position_ += right_ * speed;
-    if (input.is_key_held(GLFW_KEY_E)) position_ += WORLD_UP * speed;
-    if (input.is_key_held(GLFW_KEY_Q)) position_ -= WORLD_UP * speed;
+    if (input.is_key_held(InputSource::key_w)) position_ += front_ * speed;
+    if (input.is_key_held(InputSource::key_s)) position_ -= front_ * speed;
+    if (input.is_key_held(InputSource::key_a)) position_ -= right_ * speed;
+    if (input.is_key_held(InputSource::key_d)) position_ += right_ * speed;
+    if (input.is_key_held(InputSource::key_e)) position_ += WORLD_UP * speed;
+    if (input.is_key_held(InputSource::key_q)) position_ -= WORLD_UP * speed;
 }
 
 glm::mat4 FlyCamera::view_matrix() const {

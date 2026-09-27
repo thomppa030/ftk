@@ -639,6 +639,7 @@ add_executable(fjell-hub
     hub/recent_projects.cpp
     ui/file_browser.cpp
     ui/standalone_window.cpp
+    core/clock.cpp
     core/hub_settings.cpp
     core/log.cpp
     core/window.cpp

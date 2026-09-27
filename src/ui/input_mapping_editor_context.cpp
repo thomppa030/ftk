@@ -23,7 +23,6 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -200,7 +199,7 @@ InputSource InputMappingEditorContext::poll_rebind_source() const {
     // gated queries deliberately report nothing in that state. Reading them
     // here made the listener look armed while it could never capture at all.
     for (int k = 32; k < 349; ++k) {
-        if (k == GLFW_KEY_ESCAPE) continue;
+        if (static_cast<InputSource>(k) == InputSource::key_escape) continue;
         if (deps_.input->raw_key_pressed(k)) {
             return static_cast<InputSource>(k);
         }

@@ -6,7 +6,6 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 
-#include <GLFW/glfw3.h>
 
 namespace fjell {
 
@@ -38,8 +37,8 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
         return !dirty_nodes_.empty();
     }
 
-    bool mouse_down = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_LEFT);
-    bool mouse_pressed = input.is_mouse_button_pressed(GLFW_MOUSE_BUTTON_LEFT);
+    bool mouse_down = input.is_mouse_button_held(InputSource::mouse_left);
+    bool mouse_pressed = input.is_mouse_button_pressed(InputSource::mouse_left);
 
     // Hit test: find frontmost node under cursor
     UiNode* hit = hit_test(root, mx, my);

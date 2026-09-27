@@ -1,4 +1,5 @@
 #include "hub/hub_ui.hpp"
+#include "core/clock.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 #include "renderer/gpu/gpu_core.hpp"
@@ -53,16 +54,14 @@ int main() {
         fjell::hub::HubUI hub_ui;
         hub_ui.set_gpu(&gpu);
         uint32_t frame = 0;
-        float last_time = static_cast<float>(glfwGetTime());
+        fjell::Clock clock;
 
         while (!window.should_close()) {
             window.poll_events();
             hub_ui.tick_browsers();
 
-            float now = static_cast<float>(glfwGetTime());
-            float dt = now - last_time;
-            last_time = now;
-            hub_ui.update_splash(dt);
+            clock.tick();
+            hub_ui.update_splash(clock.delta_time());
 
             VkFence fence = gpu.in_flight_fence(frame);
             vkWaitForFences(gpu.vk_device(), 1, &fence, VK_TRUE, UINT64_MAX);
@@ -162,7 +161,7 @@ int main() {
             if (!launch.empty()) {
                 pending_launch = launch;
                 pending_create_name = hub_ui.launch_create_name();
-                glfwSetWindowShouldClose(window.handle(), GLFW_TRUE);
+                window.request_close();
             }
         }
 

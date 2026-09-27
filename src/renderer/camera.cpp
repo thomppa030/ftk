@@ -1,7 +1,6 @@
 #include "renderer/camera.hpp"
 #include "core/input.hpp"
 
-#include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -48,20 +47,20 @@ void Camera::update(const Input& input, float dt) {
     auto scroll_d = input.raw_scroll_delta();
 
     // Don't process camera input when modifiers are held (Ctrl+S, etc.)
-    bool ctrl_held = input.raw_key_held(GLFW_KEY_LEFT_CONTROL) ||
-                     input.raw_key_held(GLFW_KEY_RIGHT_CONTROL);
-    bool alt_held = input.raw_key_held(GLFW_KEY_LEFT_ALT) ||
-                    input.raw_key_held(GLFW_KEY_RIGHT_ALT);
+    bool ctrl_held = input.raw_key_held(InputSource::key_lctrl) ||
+                     input.raw_key_held(InputSource::key_rctrl);
+    bool alt_held = input.raw_key_held(InputSource::key_lalt) ||
+                    input.raw_key_held(InputSource::key_ralt);
     if (ctrl_held || alt_held) {
         update_focus(dt);
         update_position();
         return;
     }
 
-    bool rmb_held = input.raw_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
-    bool mmb_held = input.raw_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
-    bool shift_held = input.raw_key_held(GLFW_KEY_LEFT_SHIFT) ||
-                      input.raw_key_held(GLFW_KEY_RIGHT_SHIFT);
+    bool rmb_held = input.raw_mouse_button_held(InputSource::mouse_right);
+    bool mmb_held = input.raw_mouse_button_held(InputSource::mouse_middle);
+    bool shift_held = input.raw_key_held(InputSource::key_lshift) ||
+                      input.raw_key_held(InputSource::key_rshift);
 
     // Cancel focus animation on any camera input
     if (rmb_held || mmb_held || scroll_d.y != 0.0) {
@@ -77,12 +76,12 @@ void Camera::update(const Input& input, float dt) {
         float speed = move_speed_ * dt * (distance_ * 0.5f + 1.0f);
         if (shift_held) speed *= 3.0f;
 
-        if (input.raw_key_held(GLFW_KEY_W)) target_ += forward * speed;
-        if (input.raw_key_held(GLFW_KEY_S)) target_ -= forward * speed;
-        if (input.raw_key_held(GLFW_KEY_A)) target_ -= right * speed;
-        if (input.raw_key_held(GLFW_KEY_D)) target_ += right * speed;
-        if (input.raw_key_held(GLFW_KEY_Q)) target_.y -= speed;
-        if (input.raw_key_held(GLFW_KEY_E)) target_.y += speed;
+        if (input.raw_key_held(InputSource::key_w)) target_ += forward * speed;
+        if (input.raw_key_held(InputSource::key_s)) target_ -= forward * speed;
+        if (input.raw_key_held(InputSource::key_a)) target_ -= right * speed;
+        if (input.raw_key_held(InputSource::key_d)) target_ += right * speed;
+        if (input.raw_key_held(InputSource::key_q)) target_.y -= speed;
+        if (input.raw_key_held(InputSource::key_e)) target_.y += speed;
 
         // Orbit with RMB drag
         yaw_ += static_cast<float>(mouse_d.x) * orbit_sensitivity_;

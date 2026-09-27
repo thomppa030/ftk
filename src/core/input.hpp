@@ -3,6 +3,7 @@
 
 #include "fjell/api.h"
 #include "core/delegate.hpp"
+#include "core/input_source.hpp"
 #include <glm/glm.hpp>
 
 #include <array>
@@ -54,6 +55,38 @@ public:
     [[nodiscard]] bool raw_mouse_button_pressed(int button) const;
     [[nodiscard]] bool raw_mouse_button_held(int button) const;
     [[nodiscard]] bool raw_pad_button_pressed(int button) const;
+
+    /// The queries above by Fjell's name for the key or button
+    /// (InputSource::key_w, InputSource::mouse_right), so no caller spells a
+    /// platform's code. A source of another kind reads as not pressed.
+    [[nodiscard]] bool is_key_pressed(InputSource key) const {
+        return is_keyboard_source(key) && is_key_pressed(static_cast<int>(key));
+    }
+    [[nodiscard]] bool is_key_held(InputSource key) const {
+        return is_keyboard_source(key) && is_key_held(static_cast<int>(key));
+    }
+    [[nodiscard]] bool is_key_released(InputSource key) const {
+        return is_keyboard_source(key) && is_key_released(static_cast<int>(key));
+    }
+    [[nodiscard]] bool is_mouse_button_pressed(InputSource button) const {
+        return is_mouse_button_source(button) && is_mouse_button_pressed(mouse_button_index(button));
+    }
+    [[nodiscard]] bool is_mouse_button_held(InputSource button) const {
+        return is_mouse_button_source(button) && is_mouse_button_held(mouse_button_index(button));
+    }
+    [[nodiscard]] bool raw_key_pressed(InputSource key) const {
+        return is_keyboard_source(key) && raw_key_pressed(static_cast<int>(key));
+    }
+    [[nodiscard]] bool raw_key_held(InputSource key) const {
+        return is_keyboard_source(key) && raw_key_held(static_cast<int>(key));
+    }
+    [[nodiscard]] bool raw_mouse_button_pressed(InputSource button) const {
+        return is_mouse_button_source(button) && raw_mouse_button_pressed(mouse_button_index(button));
+    }
+    [[nodiscard]] bool raw_mouse_button_held(InputSource button) const {
+        return is_mouse_button_source(button) && raw_mouse_button_held(mouse_button_index(button));
+    }
+
     [[nodiscard]] glm::dvec2 raw_mouse_delta() const { return mouse_delta_; }
     [[nodiscard]] glm::dvec2 raw_scroll_delta() const { return scroll_delta_; }
 
@@ -106,6 +139,11 @@ public:
     Delegate<void(InputDevice)> on_device_changed;
 
 private:
+    /// A mouse button's index among the buttons, counted from the left one.
+    [[nodiscard]] static int mouse_button_index(InputSource button) {
+        return static_cast<int>(button) - static_cast<int>(InputSource::mouse_left);
+    }
+
     static constexpr int MAX_KEYS = 512;
     static constexpr int MAX_BUTTONS = 8;
     static constexpr int MAX_PAD_BUTTONS = 15;

@@ -26,7 +26,6 @@ extern "C" void fjell_input_clear_connections();
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 
-#include <GLFW/glfw3.h>
 
 #include <filesystem>
 
@@ -410,7 +409,7 @@ void PlayController::stop() {
     if (state_ == PlayState::stopped) return;
 
     if (game_mode_) {
-        glfwSetWindowShouldClose(s_.window->handle(), GLFW_TRUE);
+        s_.window->request_close();
         return;
     }
 

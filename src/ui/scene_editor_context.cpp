@@ -59,7 +59,6 @@
 #include "ui/inspector_widgets.hpp"
 
 #include <ImGuizmo.h>
-#include <GLFW/glfw3.h>
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -1016,7 +1015,7 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
 bool SceneEditorContext::handle_shortcuts() {
     if (ImGui::IsAnyItemActive()) return false;
 
-    bool navigating = deps_.input->raw_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
+    bool navigating = deps_.input->raw_mouse_button_held(InputSource::mouse_right);
     if (navigating) return false;
 
     // Gizmo mode shortcuts

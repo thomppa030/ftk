@@ -69,7 +69,6 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
-#include <GLFW/glfw3.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -1873,20 +1872,20 @@ void Engine::handle_play_shortcuts() {
     // with ImGuiConfigFlags_NoKeyboard set and clears its own key state every
     // frame (see draw_ui) — these shortcuts have to keep working regardless,
     // so they read the same unfiltered source the viewport camera does.
-    bool ctrl = input_.raw_key_held(GLFW_KEY_LEFT_CONTROL) || input_.raw_key_held(GLFW_KEY_RIGHT_CONTROL);
-    bool shift = input_.raw_key_held(GLFW_KEY_LEFT_SHIFT) || input_.raw_key_held(GLFW_KEY_RIGHT_SHIFT);
-    bool alt = input_.raw_key_held(GLFW_KEY_LEFT_ALT) || input_.raw_key_held(GLFW_KEY_RIGHT_ALT);
+    bool ctrl = input_.raw_key_held(InputSource::key_lctrl) || input_.raw_key_held(InputSource::key_rctrl);
+    bool shift = input_.raw_key_held(InputSource::key_lshift) || input_.raw_key_held(InputSource::key_rshift);
+    bool alt = input_.raw_key_held(InputSource::key_lalt) || input_.raw_key_held(InputSource::key_ralt);
 
     if (!ImGui::IsAnyItemActive()) {
-        if (ctrl && shift && input_.raw_key_pressed(GLFW_KEY_P)) {
+        if (ctrl && shift && input_.raw_key_pressed(InputSource::key_p)) {
             play_controller_.toggle_pause();
             return;
         }
-        if (ctrl && alt && input_.raw_key_pressed(GLFW_KEY_P)) {
+        if (ctrl && alt && input_.raw_key_pressed(InputSource::key_p)) {
             play_controller_.step();
             return;
         }
-        if (ctrl && input_.raw_key_pressed(GLFW_KEY_P)) {
+        if (ctrl && input_.raw_key_pressed(InputSource::key_p)) {
             play_controller_.toggle();
         }
     }
@@ -1895,7 +1894,7 @@ void Engine::handle_play_shortcuts() {
     // currently has it, stop only on a second press once there is nothing
     // left to release — matches the toolbar/overlay's own "Shift+Esc to
     // release" / "Shift+Esc to stop" messaging.
-    if (shift && input_.raw_key_pressed(GLFW_KEY_ESCAPE)) {
+    if (shift && input_.raw_key_pressed(InputSource::key_escape)) {
         if (play_controller_.input_focused() &&
             play_controller_.presentation() == PlayPresentation::docked) {
             play_controller_.release_input();
@@ -1904,7 +1903,7 @@ void Engine::handle_play_shortcuts() {
         }
     }
 
-    if (input_.raw_key_pressed(GLFW_KEY_F11)) {
+    if (input_.raw_key_pressed(InputSource::key_f11)) {
         play_controller_.toggle_presentation();
     }
 
@@ -1915,7 +1914,7 @@ void Engine::handle_play_shortcuts() {
     // Input at all on the dev machine (likely a driver/firmware binding
     // outside the engine's control), and F9 already opens the screenshot
     // capture popup (see draw_ui) — F10 is otherwise unclaimed.
-    if (play_controller_.playing() && input_.raw_key_pressed(GLFW_KEY_F10)) {
+    if (play_controller_.playing() && input_.raw_key_pressed(InputSource::key_f10)) {
         play_controller_.toggle_eject();
     }
 }
