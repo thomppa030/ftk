@@ -1,13 +1,11 @@
 # fjlint — checks .fjss stylesheets, .fjwidget files, .fjfont recipes and
 # .fjsl shaders without the engine.
 #
-# Links the same parser sources the engine uses. fjsl_parser.cpp lives under
-# renderer/ but is pure text processing — no Vulkan, no GPU state — so it
-# links here like the rest.
+# Links the same parser sources the engine uses, and fjell-shader for the
+# .fjsl parser.
 
 add_executable(fjlint
     main.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
@@ -30,6 +28,7 @@ target_include_directories(fjlint PRIVATE
 
 target_link_libraries(fjlint PRIVATE
     fjell-core
+    fjell-shader
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog

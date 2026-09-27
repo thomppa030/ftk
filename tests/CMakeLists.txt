@@ -6,7 +6,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/shader_diagnostic.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
@@ -14,8 +13,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/glyph_outline.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_compiler.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_gi_params.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjterrain_io.cpp
@@ -132,6 +129,7 @@ target_include_directories(fjell-testable SYSTEM PUBLIC ${stb_SOURCE_DIR})
 target_link_libraries(fjell-testable PUBLIC
     fjell-core
     fjell-framegraph
+    fjell-shader
     fjell-platform
     fjell-imgui-headless
     spdlog::spdlog
@@ -344,4 +342,5 @@ endfunction()
 fjell_library_link_check(core)
 fjell_library_link_check(platform)
 fjell_library_link_check(framegraph)
+fjell_library_link_check(shader)
 fjell_library_link_check(gpu NEEDS_GPU)

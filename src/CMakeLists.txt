@@ -145,6 +145,24 @@ fjell_library(framegraph
         PUBLIC fjell-core fjell-gpu
 )
 
+# fjell-shader turns .fjsl into GLSL and GLSL into SPIR-V through glslc,
+# reads glslc's errors back and watches shader files for hot reload. It needs
+# no GPU: what it compiles comes back as bytes.
+fjell_library(shader
+    SOURCES
+        renderer/resources/fjsl_compiler.cpp
+        renderer/resources/fjsl_parser.cpp
+        renderer/shader_diagnostic.cpp
+        renderer/shader_watcher.cpp
+    HEADERS
+        renderer/resources/fjsl_compiler.hpp
+        renderer/resources/fjsl_parser.hpp
+        renderer/shader_diagnostic.hpp
+        renderer/shader_watcher.hpp
+    LINKS
+        PUBLIC fjell-core fjell-platform
+)
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -232,8 +250,6 @@ add_executable(fjell
     renderer/fly_camera.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
-    renderer/resources/fjsl_compiler.cpp
-    renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
     renderer/resources/fjmesh_writer.cpp
     renderer/resources/asset_shader_type.cpp
@@ -260,7 +276,6 @@ add_executable(fjell
     renderer/post_process_resources.cpp
     renderer/post_layers.cpp
     renderer/pipeline_cache.cpp
-    renderer/shader_diagnostic.cpp
     renderer/resources/primitives.cpp
     renderer/bindless.cpp
     renderer/systems/particle_system.cpp
@@ -344,7 +359,6 @@ add_executable(fjell
     renderer/render_queue.cpp
     renderer/resources/asset_loader.cpp
     renderer/resources/resource_manager.cpp
-    renderer/shader_watcher.cpp
     renderer/resources/skeletal_model.cpp
     renderer/resources/stb_image.cpp
     renderer/resources/lut_asset.cpp
@@ -592,6 +606,7 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-platform>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-gpu>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-framegraph>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-shader>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
