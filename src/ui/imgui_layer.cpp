@@ -1,6 +1,5 @@
 #include "ui/imgui_layer.hpp"
 #include "ui/editor_view_settings.hpp"
-#include "core/engine_dir.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -35,16 +34,9 @@ std::vector<uint32_t> read_spirv_words(const std::string& path) {
 ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
-                       VkFormat color_format, uint32_t image_count)
+                       VkFormat color_format, uint32_t image_count,
+                       const ImGuiLayerFiles& files)
     : device_{device} {
-  // Fonts and the fragment stage live with the engine's own files, so any
-  // window that draws ImGui — editor, hub, import and file dialogs — finds
-  // them the same way without being told where they are.
-  const auto engine_dir = find_engine_dir();
-  if (engine_dir.empty()) {
-    FJELL_CORE_ERROR("ImGui: engine directory not found from the executable path; "
-                     "fonts and the sRGB fragment stage will be missing");
-  }
   // Descriptor pool for ImGui. Every ImGui::Image texture holds one set for
   // as long as it is registered: editor icons, a directory's worth of
   // texture thumbnails, the resident asset thumbnails, viewport images.
@@ -80,7 +72,7 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
   setup_style();
-  theme::load_font((engine_dir / "engine_assets" / "fonts").string());
+  theme::load_font(files.fonts.string());
 
   ImGui_ImplGlfw_InitForVulkan(window, true);
 
@@ -107,13 +99,12 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &color_format;
   init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
-  const auto frag_path = engine_dir / "shaders" / "imgui.frag.spv";
-  frag_spv_ = read_spirv_words(frag_path.string());
+  frag_spv_ = read_spirv_words(files.srgb_fragment.string());
   if (frag_spv_.empty()) {
     // The stock stage writes ImGui's sRGB colours as if they were linear,
     // so every swatch and style colour comes out one gamma too bright.
     FJELL_CORE_ERROR("ImGui: {} not found; colours will render too bright",
-                     frag_path.string());
+                     files.srgb_fragment.string());
   } else {
     init_info.CustomShaderFragCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     init_info.CustomShaderFragCreateInfo.codeSize = frag_spv_.size() * sizeof(uint32_t);

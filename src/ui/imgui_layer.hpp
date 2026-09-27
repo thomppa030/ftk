@@ -4,6 +4,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -12,12 +13,23 @@ struct ImGuiContext;
 
 namespace fjell {
 
+/// The files an ImGui layer reads, wherever its host keeps them.
+struct ImGuiLayerFiles {
+    /// The directory the theme loads its fonts from (Geist or Inter, the
+    /// monospace face and the icon font).
+    std::filesystem::path fonts;
+    /// The compiled fragment stage that decodes ImGui's sRGB colours for an
+    /// sRGB swapchain. Without it every colour draws one gamma too bright.
+    std::filesystem::path srgb_fragment;
+};
+
 class ImGuiLayer {
 public:
     ImGuiLayer(GLFWwindow* window, VkInstance instance,
                VkPhysicalDevice physical_device, VkDevice device,
                uint32_t graphics_family, VkQueue graphics_queue,
-               VkFormat color_format, uint32_t image_count);
+               VkFormat color_format, uint32_t image_count,
+               const ImGuiLayerFiles& files);
     ~ImGuiLayer();
 
     ImGuiLayer(const ImGuiLayer&) = delete;

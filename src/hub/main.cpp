@@ -3,6 +3,7 @@
 #include "core/window.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vk_utils.hpp"
+#include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
 
 #include <vulkan/vulkan.h>
@@ -45,7 +46,7 @@ int main() {
             window.handle(), gpu.instance(),
             gpu.physical_device(), gpu.vk_device(),
             gpu.graphics_family(), gpu.graphics_queue(),
-            gpu.swapchain_format(), gpu.image_count());
+            gpu.swapchain_format(), gpu.image_count(), fjell::engine_imgui_files());
 
         const auto& render_done = gpu.swapchain().render_finished_semaphores();
 

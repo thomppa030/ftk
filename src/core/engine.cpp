@@ -5,6 +5,7 @@
 #include "core/base_path.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/engine_imgui_files.hpp"
 #include "core/input_component.hpp"
 #include "core/commands.hpp"
 #include "core/game_builder.hpp"
@@ -242,7 +243,7 @@ void Engine::init_ui() {
         window_.handle(), vulkan_context_->instance(),
         vulkan_context_->physical_device(), vulkan_context_->device(),
         vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
-        vulkan_context_->swapchain_format(), vulkan_context_->image_count());
+        vulkan_context_->swapchain_format(), vulkan_context_->image_count(), engine_imgui_files());
 
     vulkan_context_->set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);
