@@ -26,7 +26,6 @@ public:
     [[nodiscard]] glm::dvec2 scroll_delta()   const;
 
     [[nodiscard]] bool is_cursor_captured() const;
-    void               set_cursor_captured(bool captured);
 };
 
 }
@@ -34,7 +33,9 @@ public:
 
 ## Remarks
 
-A snapshot of the current frame's input state, owned by the engine. Get a reference via [`ScriptComponent::input()`](ScriptComponent.md#scriptcomponentinput) or `world()->input()`. The reference is valid until the next frame.
+A snapshot of the current frame's input state, owned by the engine. Get a reference via [`ScriptComponent::input()`](ScriptComponent.md#scriptcomponentinput) or `world()->input()`. The reference is valid until the next frame. `Input` cannot be copied: hold the reference, never a value.
+
+Every call goes to the engine's own code, so a game never depends on how the engine stores the state. The key, button, delta and scroll queries read idle or zero while the editor rather than the game has focus in docked play.
 
 Key and mouse codes are GLFW values — `fjell/api.h` defines named constants like `FJELL_KEY_W`, `FJELL_KEY_SPACE`, `FJELL_MOUSE_LEFT`.
 
@@ -70,7 +71,8 @@ State distinguishes:
 | Name | Description |
 |---|---|
 | [`is_cursor_captured`](#inputis_cursor_captured) | Whether cursor lock is active |
-| [`set_cursor_captured`](#inputset_cursor_captured) | Lock / unlock the cursor |
+
+Locking the cursor is [`InputAPI::set_cursor_locked()`](InputAPI.md#inputapiset_cursor_locked).
 
 ---
 
@@ -170,7 +172,7 @@ Cursor position in window pixels (top-left origin, Y down).
 ```
 
 ### Return value
-Cursor movement since the last frame, in pixels. Useful for camera look-around. While the cursor is captured (`set_cursor_captured(true)`), this is the raw delta — the cursor itself doesn't move on screen.
+Cursor movement since the last frame, in pixels. Useful for camera look-around. While the cursor is locked ([`InputAPI::set_cursor_locked(true)`](InputAPI.md#inputapiset_cursor_locked)), this is the raw delta — the cursor itself doesn't move on screen.
 
 ---
 
@@ -193,24 +195,7 @@ Scroll wheel movement this frame. `y` is the standard vertical scroll; `x` is ho
 [[nodiscard]] bool is_cursor_captured() const;
 ```
 
-True if the cursor is currently locked (hidden + delta-only).
-
----
-
-## Input::set_cursor_captured
-
-### Syntax
-```cpp
-void set_cursor_captured(bool captured);
-```
-
-### Parameters
-| Name | Type | Description |
-|---|---|---|
-| `captured` | `bool` | `true` to lock the cursor (hide + lock to window, raw deltas). `false` to release. |
-
-### Remarks
-For FPS-style mouselook. The cursor disappears while captured; release it before showing menus or UI that needs pointer input.
+True if the cursor is currently locked (hidden + delta-only). The same state as [`InputAPI::cursor_locked()`](InputAPI.md#inputapicursor_locked).
 
 ## Example
 
@@ -219,11 +204,11 @@ void tick(float dt) override {
     // FPS mouselook
     if (!input().is_cursor_captured()) {
         if (input().is_mouse_button_pressed(FJELL_MOUSE_LEFT)) {
-            input().set_cursor_captured(true);
+            fjell::InputAPI::set_cursor_locked(true);
         }
     } else {
         if (input().is_key_pressed(FJELL_KEY_ESCAPE)) {
-            input().set_cursor_captured(false);
+            fjell::InputAPI::set_cursor_locked(false);
         }
 
         glm::dvec2 d = input().mouse_delta();
@@ -239,5 +224,5 @@ void tick(float dt) override {
 ```
 
 ## See also
-- [`InputAPI`](InputAPI.md) — the production input path (action mapping)
+- [`InputAPI`](InputAPI.md) — the production input path (action mapping) and cursor locking
 - `fjell/api.h` — key code constants

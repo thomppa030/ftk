@@ -298,23 +298,23 @@ FJELL_SDK_EXPORT bool Input::is_key_pressed(int key) const {
     return raw_key_pressed(key);
 }
 
-bool Input::is_key_held(int key) const {
+FJELL_SDK_EXPORT bool Input::is_key_held(int key) const {
     if (!game_focus_) return false;
     return raw_key_held(key);
 }
 
-bool Input::is_key_released(int key) const {
+FJELL_SDK_EXPORT bool Input::is_key_released(int key) const {
     if (!game_focus_) return false;
     if (key < 0 || key >= MAX_KEYS) return false;
     return keys_[key] == KeyState::Released;
 }
 
-bool Input::is_mouse_button_pressed(int button) const {
+FJELL_SDK_EXPORT bool Input::is_mouse_button_pressed(int button) const {
     if (!game_focus_) return false;
     return raw_mouse_button_pressed(button);
 }
 
-bool Input::is_mouse_button_held(int button) const {
+FJELL_SDK_EXPORT bool Input::is_mouse_button_held(int button) const {
     if (!game_focus_) return false;
     return raw_mouse_button_held(button);
 }
@@ -341,12 +341,20 @@ bool Input::raw_mouse_button_held(int button) const {
     return state == KeyState::Held || state == KeyState::Pressed;
 }
 
-glm::dvec2 Input::mouse_delta() const {
+FJELL_SDK_EXPORT glm::dvec2 Input::mouse_position() const {
+    return mouse_pos_;
+}
+
+FJELL_SDK_EXPORT glm::dvec2 Input::mouse_delta() const {
     return game_focus_ ? mouse_delta_ : glm::dvec2{0.0};
 }
 
-glm::dvec2 Input::scroll_delta() const {
+FJELL_SDK_EXPORT glm::dvec2 Input::scroll_delta() const {
     return game_focus_ ? scroll_delta_ : glm::dvec2{0.0};
+}
+
+FJELL_SDK_EXPORT bool Input::is_cursor_captured() const {
+    return cursor_captured_;
 }
 
 void Input::set_cursor_captured(GLFWwindow* window, bool captured) {

@@ -23,6 +23,9 @@ struct InputAPI {
     static void push_context(const char* name);
     static void pop_context (const char* name);
     static void clear_connections();
+
+    static void set_cursor_locked(bool locked);
+    [[nodiscard]] static bool cursor_locked();
 };
 
 }
@@ -67,6 +70,8 @@ enum class EInputTrigger { Triggered, Pressed, Released, Completed };
 | [`push_context`](#inputapipush_context) | Activate a mapping context |
 | [`pop_context`](#inputapipop_context) | Deactivate a mapping context |
 | [`clear_connections`](#inputapiclear_connections) | Drop all script bindings |
+| [`set_cursor_locked`](#inputapiset_cursor_locked) | Lock and hide the cursor for mouse-look |
+| [`cursor_locked`](#inputapicursor_locked) | Whether the cursor is locked right now |
 
 ---
 
@@ -167,6 +172,37 @@ static void clear_connections();
 
 ### Remarks
 Drops every script binding registered via `bind`. Use sparingly — typically only at world-level transitions (level reload, returning to main menu). It does *not* affect mapping context state.
+
+---
+
+## InputAPI::set_cursor_locked
+
+### Syntax
+```cpp
+static void set_cursor_locked(bool locked);
+```
+
+### Parameters
+| Name | Type | Description |
+|---|---|---|
+| `locked` | `bool` | `true` to lock and hide the cursor, `false` to restore the normal cursor. |
+
+### Remarks
+Hides the cursor and frees it from the window edge, which a mouse-look needs: an unlocked cursor stops producing movement once it reaches the side of the screen. Lock it when mouse-look starts and unlock it for menus, so the player gets a pointer back. [`Input::mouse_delta()`](Input.md#inputmouse_delta) keeps reporting movement while locked.
+
+The lock lifts by itself while the editor holds focus (docked play) and comes back when the game does, so a script locks once and does not have to track focus. Stopping play clears it.
+
+---
+
+## InputAPI::cursor_locked
+
+### Syntax
+```cpp
+[[nodiscard]] static bool cursor_locked();
+```
+
+### Return value
+Whether the cursor is locked right now. This is the state in force, not the request: it reads `false` while the editor has focus even though the game asked for a lock, so a script that must know what it asked for should remember that itself.
 
 ## Example
 

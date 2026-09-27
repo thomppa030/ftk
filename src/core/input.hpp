@@ -22,6 +22,11 @@ enum class InputDevice : uint8_t { keyboard_mouse, gamepad };
     return device == InputDevice::gamepad ? "gamepad" : "keyboard_mouse";
 }
 
+/// The engine's input state. Game modules see this class through the script
+/// SDK's `fjell/input.hpp`, which declares the FJELL_SDK_EXPORT members below
+/// and no data: a game calls these definitions and never reads a member, so
+/// the layout here is the engine's alone. A query a game should have is added
+/// here as an exported, out-of-line member and declared there.
 class Input {
 public:
     void attach(GLFWwindow* window);
@@ -37,15 +42,15 @@ public:
     /// focus (the viewport's own camera controls, its navigation-mode check)
     /// reads through the raw_* variants below instead.
     [[nodiscard]] FJELL_SDK_EXPORT bool is_key_pressed(int key) const;
-    [[nodiscard]] bool is_key_held(int key) const;
-    [[nodiscard]] bool is_key_released(int key) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_key_held(int key) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_key_released(int key) const;
 
-    [[nodiscard]] bool is_mouse_button_pressed(int button) const;
-    [[nodiscard]] bool is_mouse_button_held(int button) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_mouse_button_pressed(int button) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_mouse_button_held(int button) const;
 
-    [[nodiscard]] glm::dvec2 mouse_position() const { return mouse_pos_; }
-    [[nodiscard]] glm::dvec2 mouse_delta() const;
-    [[nodiscard]] glm::dvec2 scroll_delta() const;
+    [[nodiscard]] FJELL_SDK_EXPORT glm::dvec2 mouse_position() const;
+    [[nodiscard]] FJELL_SDK_EXPORT glm::dvec2 mouse_delta() const;
+    [[nodiscard]] FJELL_SDK_EXPORT glm::dvec2 scroll_delta() const;
 
     /// Bypasses the game-focus gate above. For editor input consumers only
     /// (the viewport's fly camera, its own navigation-mode check) — never
@@ -101,7 +106,7 @@ public:
     /// runs out of screen. Applies the mode immediately; prefer the intent
     /// pair below for anything that has to survive losing focus.
     void set_cursor_captured(GLFWwindow* window, bool captured);
-    [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_cursor_captured() const;
 
     /// What the game asked for, as opposed to what is in force. A script
     /// locks the cursor for as long as it wants mouse-look; the editor may
