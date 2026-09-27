@@ -3,7 +3,7 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 
 #include <GLFW/glfw3.h>
 

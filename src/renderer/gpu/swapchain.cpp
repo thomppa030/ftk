@@ -1,8 +1,8 @@
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
-#include "core/window.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

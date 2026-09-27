@@ -1,9 +1,9 @@
 #include "hub/hub_ui.hpp"
 #include "core/clock.hpp"
 #include "core/log.hpp"
-#include "core/window.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vk_utils.hpp"
+#include "renderer/gpu/window.hpp"
 #include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
 

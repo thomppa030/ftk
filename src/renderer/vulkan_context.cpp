@@ -32,7 +32,7 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 #include "scene/scene.hpp"
 #include "scene/light_node.hpp"
 

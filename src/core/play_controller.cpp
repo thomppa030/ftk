@@ -10,7 +10,7 @@ extern "C" void fjell_input_clear_connections();
 #include "core/log.hpp"
 #include "core/play_session.hpp"
 #include "core/project_manager.hpp"
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"

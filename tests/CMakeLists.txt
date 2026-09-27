@@ -321,13 +321,19 @@ catch_discover_tests(fjell-tests)
 # One program per library that links that library alone, and whole, so every
 # object in it is linked: a definition the library needs from outside itself
 # and its links fails here, where the include check cannot see it, rather
-# than in the first program outside Fjell that links the library.
+# than in the first program outside Fjell that links the library. Each also
+# runs as a test, unless it is marked NEEDS_GPU: CI runners have no GPU or
+# display, so that one is built everywhere and run by hand.
 function(fjell_library_link_check name)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "NEEDS_GPU" "" "")
     add_executable(fjell-link-${name} library_link/${name}.cpp)
     target_link_libraries(fjell-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-${name}>")
     fjell_target_defaults(fjell-link-${name})
-    add_test(NAME library_link.${name} COMMAND fjell-link-${name})
+    if(NOT arg_NEEDS_GPU)
+        add_test(NAME library_link.${name} COMMAND fjell-link-${name})
+    endif()
 endfunction()
 
 fjell_library_link_check(core)
 fjell_library_link_check(platform)
+fjell_library_link_check(gpu NEEDS_GPU)

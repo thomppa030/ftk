@@ -1,7 +1,7 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
-#include "core/window.hpp"
 
 #include <stdexcept>
 

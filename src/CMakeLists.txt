@@ -73,6 +73,57 @@ fjell_library(platform
         PRIVATE ${CMAKE_DL_LIBS}
 )
 
+# fjell-gpu is Vulkan without a renderer: the window, device, swapchain,
+# allocator, buffers, images, descriptors and uploads. GLFW stays inside it;
+# its headers name only Vulkan and VMA.
+fjell_library(gpu
+    SOURCES
+        renderer/gpu/buffer.cpp
+        renderer/gpu/descriptor.cpp
+        renderer/gpu/device.cpp
+        renderer/gpu/gpu_core.cpp
+        renderer/gpu/growable_buffer.cpp
+        renderer/gpu/image.cpp
+        renderer/gpu/image_readback.cpp
+        renderer/gpu/swapchain.cpp
+        renderer/gpu/thread_command_pools.cpp
+        renderer/gpu/upload_context.cpp
+        renderer/gpu/vma_impl.cpp
+        renderer/gpu/window.cpp
+    HEADERS
+        renderer/gpu/buffer.hpp
+        renderer/gpu/deferred_deleter.hpp
+        renderer/gpu/descriptor.hpp
+        renderer/gpu/device.hpp
+        renderer/gpu/frames_in_flight.hpp
+        renderer/gpu/gpu_core.hpp
+        renderer/gpu/growable_buffer.hpp
+        renderer/gpu/image.hpp
+        renderer/gpu/image_readback.hpp
+        renderer/gpu/shader_utils.hpp
+        renderer/gpu/swapchain.hpp
+        renderer/gpu/thread_command_pools.hpp
+        renderer/gpu/upload_context.hpp
+        renderer/gpu/vk_check.hpp
+        renderer/gpu/vk_utils.hpp
+        renderer/gpu/vma_image.hpp
+        renderer/gpu/window.hpp
+    LINKS
+        PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
+        PRIVATE glfw
+)
+# VMA's headers warn under our flags, so everything using fjell-gpu sees them
+# as system headers, and its implementation compiles without warnings.
+get_target_property(VMA_INCLUDE_DIRS GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
+if(VMA_INCLUDE_DIRS)
+    target_include_directories(fjell-gpu SYSTEM PUBLIC ${VMA_INCLUDE_DIRS})
+endif()
+if(MSVC)
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
+else()
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+endif()
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -109,7 +160,6 @@ endforeach()
 add_executable(fjell
     main.cpp
     renderer/accel_structure.cpp
-    renderer/gpu/vma_impl.cpp
     core/asset_id.cpp
     core/asset_database.cpp
     core/asset_identity.cpp
@@ -152,22 +202,13 @@ add_executable(fjell
     core/play_snapshot.cpp
     core/project.cpp
     core/hub_settings.cpp
-    core/window.cpp
     import/import_job.cpp
     import/import_dialog.cpp
     import/source_inspection.cpp
-    renderer/gpu/buffer.cpp
     renderer/camera.cpp
     renderer/debug_draw.cpp
-    renderer/gpu/descriptor.cpp
     renderer/draw_data_descriptor.cpp
     renderer/fly_camera.cpp
-    renderer/gpu/device.cpp
-    renderer/gpu/gpu_core.cpp
-    renderer/gpu/upload_context.cpp
-    renderer/gpu/growable_buffer.cpp
-    renderer/gpu/image.cpp
-    renderer/gpu/image_readback.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
     renderer/resources/fjsl_compiler.cpp
@@ -206,7 +247,6 @@ add_executable(fjell
     renderer/frame_descriptor_cache.cpp
     renderer/transient_image_pool.cpp
     renderer/pass_builder.cpp
-    renderer/gpu/thread_command_pools.cpp
     renderer/systems/particle_system.cpp
     renderer/systems/vfx_subsystem.cpp
     renderer/systems/sprite_renderer.cpp
@@ -294,7 +334,6 @@ add_executable(fjell
     renderer/resources/lut_asset.cpp
     renderer/resources/stb_image_resize.cpp
     renderer/resources/stb_image_write.cpp
-    renderer/gpu/swapchain.cpp
     renderer/resources/texture.cpp
     renderer/viz_image.cpp
     renderer/gpu_context.cpp
@@ -535,6 +574,7 @@ add_dependencies(fjell fjell-fixed-tick-check)
 target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-core>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-platform>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-gpu>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
@@ -584,18 +624,6 @@ else()
     # the range insert as writing into a zero-sized region. Not reproducible on
     # GCC 16, and the traversal is bounded by the parent map it reads from.
     set_source_files_properties(scene/scene.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=stringop-overflow")
-endif()
-
-# Treat VMA headers as system headers to suppress warnings from them
-get_target_property(VMA_INCLUDE_DIRS GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
-if(VMA_INCLUDE_DIRS)
-    target_include_directories(fjell SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
-endif()
-# VMA implementation compiles third-party code — suppress warnings
-if(MSVC)
-    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
-else()
-    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # Treat fastgltf headers as system headers to suppress warnings from them
@@ -675,13 +703,11 @@ file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine
 # --- Fjell Hub (launcher) ---
 add_executable(fjell-hub
     hub/main.cpp
-    renderer/gpu/vma_impl.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
     ui/file_browser.cpp
     ui/standalone_window.cpp
     core/hub_settings.cpp
-    core/window.cpp
     ui/kit/asset_kind.cpp
     ui/kit/brand.cpp
     ui/kit/button.cpp
@@ -696,12 +722,6 @@ add_executable(fjell-hub
     ui/kit/search.cpp
     ui/kit/section.cpp
     ui/kit/viewport_toolbar.cpp
-    renderer/gpu/device.cpp
-    renderer/gpu/gpu_core.cpp
-    renderer/gpu/upload_context.cpp
-    renderer/gpu/swapchain.cpp
-    renderer/gpu/image.cpp
-    renderer/gpu/buffer.cpp
     ui/imgui_layer.cpp
     ui/editor_view_settings.cpp
 )
@@ -715,6 +735,7 @@ add_dependencies(fjell-hub fjell_shaders)
 
 target_link_libraries(fjell-hub PRIVATE
     fjell-core
+    fjell-gpu
     fjell-platform
     fjell-imgui
     glfw
@@ -725,16 +746,6 @@ target_link_libraries(fjell-hub PRIVATE
     Vulkan::Vulkan
 )
 fjell_target_defaults(fjell-hub)
-# VMA system headers for fjell-hub
-if(VMA_INCLUDE_DIRS)
-    target_include_directories(fjell-hub SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
-endif()
-# VMA implementation — suppress warnings in fjell-hub too
-if(MSVC)
-    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
-else()
-    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
-endif()
 
 # --- Install rules ---
 # ARCHIVE carries MSVC's import library: ENABLE_EXPORTS emits fjell.lib beside

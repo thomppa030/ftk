@@ -6,7 +6,7 @@
 #include "renderer/uniform_types.hpp"
 #include "environment/environment_ubo.hpp"
 #include "core/log.hpp"
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 
 #include "core/base_path.hpp"
 

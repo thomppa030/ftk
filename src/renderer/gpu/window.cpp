@@ -1,5 +1,8 @@
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 #include <stdexcept>
 #include <string>

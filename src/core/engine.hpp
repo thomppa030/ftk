@@ -8,7 +8,7 @@
 #include "core/thread_pool.hpp"
 #include "core/play_controller.hpp"
 #include "core/project_manager.hpp"
-#include "core/window.hpp"
+#include "renderer/gpu/window.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "ui/game_ui/game_ui.hpp"
