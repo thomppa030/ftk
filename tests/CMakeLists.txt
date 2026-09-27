@@ -1,12 +1,9 @@
 # --- Testable engine subset (no Vulkan, no GLFW, no ImGui backends) ---
 add_library(fjell-testable STATIC
-    ${CMAKE_SOURCE_DIR}/src/core/log.cpp
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/math/curve.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/frame_cache_key.cpp
@@ -48,8 +45,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_layout.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/clock.cpp
     ${CMAKE_SOURCE_DIR}/src/core/fixed_timestep.cpp
     ${CMAKE_SOURCE_DIR}/src/core/subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/core/step_input_latch.cpp
@@ -82,7 +77,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/command_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/document_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
@@ -137,6 +131,7 @@ target_include_directories(fjell-testable PUBLIC
 # and its test writes images of its own.
 target_include_directories(fjell-testable SYSTEM PUBLIC ${stb_SOURCE_DIR})
 target_link_libraries(fjell-testable PUBLIC
+    fjell-core
     fjell-platform
     fjell-imgui-headless
     spdlog::spdlog
@@ -321,3 +316,17 @@ fjell_target_defaults(fjell-tests)
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(fjell-tests)
+
+# --- Library link checks ---
+# One program per library that links that library alone, and whole, so every
+# object in it is linked: a definition the library needs from outside itself
+# and its links fails here, where the include check cannot see it, rather
+# than in the first program outside Fjell that links the library.
+function(fjell_library_link_check name)
+    add_executable(fjell-link-${name} library_link/${name}.cpp)
+    target_link_libraries(fjell-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-${name}>")
+    fjell_target_defaults(fjell-link-${name})
+    add_test(NAME library_link.${name} COMMAND fjell-link-${name})
+endfunction()
+
+fjell_library_link_check(core)

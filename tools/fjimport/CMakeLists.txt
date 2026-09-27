@@ -5,7 +5,6 @@
 
 add_executable(fjimport
     main.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/log.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp
@@ -26,6 +25,7 @@ target_include_directories(fjimport PRIVATE
 target_include_directories(fjimport SYSTEM PRIVATE ${stb_SOURCE_DIR})
 
 target_link_libraries(fjimport PRIVATE
+    fjell-core
     assimp::assimp
     meshoptimizer
     msdfgen::msdfgen-core

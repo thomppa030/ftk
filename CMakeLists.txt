@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/FjellTargetDefaults.cmake)
+include(cmake/FjellLibrary.cmake)
 
 include(cmake/PortabilityCheck.cmake)
 # Only the tool directories that are built; tools/ also holds things like a
@@ -68,6 +69,27 @@ include(cmake/CompileShaders.cmake)
 include(cmake/GenerateShaderConstants.cmake)
 
 add_subdirectory(src)
+
+# Fjell's libraries include only their own files and those of the libraries
+# they link. Checked at configure, once src/ has declared them, and again by
+# fjell-library-check whenever a library's file changes.
+include(cmake/LibraryBoundaryCheck.cmake)
+set(FJELL_LIBRARY_LISTS "${CMAKE_BINARY_DIR}/fjell_libraries.cmake")
+fjell_write_library_lists("${FJELL_LIBRARY_LISTS}")
+fjell_check_library_boundaries("${FJELL_LIBRARY_LISTS}")
+fjell_library_files(FJELL_LIBRARY_FILES)
+set(FJELL_LIBRARY_CHECK_STAMP "${CMAKE_BINARY_DIR}/library_check.stamp")
+add_custom_command(
+    OUTPUT "${FJELL_LIBRARY_CHECK_STAMP}"
+    COMMAND "${CMAKE_COMMAND}" -DFJELL_LIBRARY_LISTS=${FJELL_LIBRARY_LISTS} -P "${CMAKE_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_LIBRARY_CHECK_STAMP}"
+    DEPENDS ${FJELL_LIBRARY_FILES}
+            "${FJELL_LIBRARY_LISTS}"
+            "${CMAKE_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMENT "Checking each library's includes against its links"
+    VERBATIM)
+add_custom_target(fjell-library-check DEPENDS "${FJELL_LIBRARY_CHECK_STAMP}")
+
 add_subdirectory(tools)
 
 enable_testing()

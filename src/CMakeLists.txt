@@ -1,3 +1,46 @@
+# --- Libraries (cmake/FjellLibrary.cmake) ---
+# fjell-core holds what any program needs before it has a window: the log,
+# results, delegates, the thread pool, the undo history, the clock and the
+# math every layer above shares.
+fjell_library(core
+    SOURCES
+        core/clock.cpp
+        core/command_history.cpp
+        core/log.cpp
+        core/math/curve.cpp
+        core/math/spline.cpp
+        core/thread_pool.cpp
+    HEADERS
+        core/clock.hpp
+        core/command.hpp
+        core/command_history.hpp
+        core/delegate.hpp
+        core/log.hpp
+        core/math/clipmap.hpp
+        core/math/color_space.hpp
+        core/math/curve.hpp
+        core/math/spline.hpp
+        core/named_value.hpp
+        core/profiler.hpp
+        core/result.hpp
+        core/simd_trig.hpp
+        core/string_utils.hpp
+        core/thread_pool.hpp
+        core/utf8.hpp
+    LINKS
+        PUBLIC glm::glm nlohmann_json::nlohmann_json spdlog::spdlog
+)
+# Profiler zones compile in wherever core/profiler.hpp is included, so a
+# Tracy build passes the switch and the client on to everything linking core.
+if(FJELL_ENABLE_TRACY)
+    target_link_libraries(fjell-core PUBLIC TracyClient)
+    target_compile_definitions(fjell-core PUBLIC FJELL_ENABLE_TRACY)
+    get_target_property(TRACY_INCLUDE_DIRS TracyClient INTERFACE_INCLUDE_DIRECTORIES)
+    if(TRACY_INCLUDE_DIRS)
+        target_include_directories(fjell-core SYSTEM PUBLIC ${TRACY_INCLUDE_DIRS})
+    endif()
+endif()
+
 # --- Platform abstraction (shared between fjell and fjell-hub) ---
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(FJELL_PLATFORM_SOURCES
@@ -17,7 +60,7 @@ endif()
 
 add_library(fjell-platform STATIC ${FJELL_PLATFORM_SOURCES})
 target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(fjell-platform PRIVATE spdlog::spdlog ${CMAKE_DL_LIBS})
+target_link_libraries(fjell-platform PUBLIC fjell-core PRIVATE ${CMAKE_DL_LIBS})
 fjell_target_defaults(fjell-platform)
 
 # --- Dear ImGui ---
@@ -64,7 +107,6 @@ add_executable(fjell
     core/asset_remap.cpp
     core/asset_type_registry.cpp
     core/base_path.cpp
-    core/clock.cpp
     core/fixed_timestep.cpp
     core/step_input_latch.cpp
     core/game_builder.cpp
@@ -91,8 +133,6 @@ add_executable(fjell
     ui/water_editor_context.cpp
     ui/weather_editor_context.cpp
     ui/track_asset_editor_context.cpp
-    core/math/curve.cpp
-    core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp
     core/input_context_io.cpp
@@ -101,9 +141,7 @@ add_executable(fjell
     core/play_controller.cpp
     core/play_snapshot.cpp
     core/project.cpp
-    core/thread_pool.cpp
     core/hub_settings.cpp
-    core/log.cpp
     core/window.cpp
     import/import_job.cpp
     import/import_dialog.cpp
@@ -343,7 +381,6 @@ add_executable(fjell
     ui/imgui_layer.cpp
     ui/editor_view_settings.cpp
     core/project_manager.cpp
-    core/command_history.cpp
     ui/content_browser.cpp
     ui/folder_colors.cpp
     ui/hierarchy_panel.cpp
@@ -482,7 +519,11 @@ add_dependencies(fjell fjell-editor-ui-check)
 # And on simulation code that reads the frame.
 add_dependencies(fjell fjell-fixed-tick-check)
 
+# Libraries link whole: a static link keeps only the objects the engine calls
+# into, and game modules can be handed (-rdynamic, ENABLE_EXPORTS) only what
+# is linked.
 target_link_libraries(fjell PRIVATE
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-core>"
     fjell-platform
     fjell-imgui
     fastgltf::fastgltf
@@ -500,16 +541,6 @@ target_link_libraries(fjell PRIVATE
     enet
     ${CMAKE_DL_LIBS}
 )
-
-# Tracy profiler — link and suppress warnings when enabled
-if(FJELL_ENABLE_TRACY)
-    target_link_libraries(fjell PRIVATE TracyClient)
-    target_compile_definitions(fjell PRIVATE FJELL_ENABLE_TRACY)
-    get_target_property(TRACY_INCLUDE_DIRS TracyClient INTERFACE_INCLUDE_DIRECTORIES)
-    if(TRACY_INCLUDE_DIRS)
-        target_include_directories(fjell SYSTEM PRIVATE ${TRACY_INCLUDE_DIRS})
-    endif()
-endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(fjell PRIVATE -rdynamic)
@@ -639,9 +670,7 @@ add_executable(fjell-hub
     hub/recent_projects.cpp
     ui/file_browser.cpp
     ui/standalone_window.cpp
-    core/clock.cpp
     core/hub_settings.cpp
-    core/log.cpp
     core/window.cpp
     ui/kit/asset_kind.cpp
     ui/kit/brand.cpp
@@ -675,6 +704,7 @@ target_include_directories(fjell-hub PRIVATE
 add_dependencies(fjell-hub fjell_shaders)
 
 target_link_libraries(fjell-hub PRIVATE
+    fjell-core
     fjell-platform
     fjell-imgui
     glfw

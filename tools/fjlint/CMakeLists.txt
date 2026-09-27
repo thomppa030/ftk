@@ -7,7 +7,6 @@
 
 add_executable(fjlint
     main.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/log.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
@@ -30,6 +29,7 @@ target_include_directories(fjlint PRIVATE
 )
 
 target_link_libraries(fjlint PRIVATE
+    fjell-core
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
