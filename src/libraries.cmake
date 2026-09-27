@@ -78,8 +78,8 @@ fjell_library(platform
 )
 
 # fjell-gpu is Vulkan without a renderer: the window, device, swapchain,
-# allocator, buffers, images, descriptors and uploads. GLFW stays inside it;
-# its headers name only Vulkan and VMA.
+# allocator, buffers, images, descriptors and uploads. SDL stays inside it:
+# its headers declare SDL's window and event types without including SDL.
 fjell_library(gpu
     SOURCES
         renderer/gpu/buffer.cpp
@@ -114,7 +114,7 @@ fjell_library(gpu
         renderer/gpu/window.hpp
     LINKS
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
-        PRIVATE glfw
+        PRIVATE SDL3::SDL3
 )
 # VMA's headers warn under our flags, so everything using fjell-gpu sees them
 # as system headers, and its implementation compiles without warnings.
@@ -296,13 +296,13 @@ fjell_library(editor-shell
         ui/standalone_window.hpp
     LINKS
         PUBLIC fjell-core fjell-gpu fjell-imgui fjell-ui-kit
-        PRIVATE fjell-stb
+        PRIVATE fjell-stb SDL3::SDL3
 )
 
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
-# run editor UI on (tests/imgui_harness.hpp); fjell-imgui adds the GLFW and
+# run editor UI on (tests/imgui_harness.hpp); fjell-imgui adds the SDL3 and
 # Vulkan backends for a window that presents. Warnings are off: the code is
 # third-party, and the stack layout patch leaves unused parameters that only
 # surface once the optimiser runs.
@@ -317,11 +317,11 @@ add_library(fjell-imgui-headless STATIC
 target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
 
 add_library(fjell-imgui STATIC
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
 target_include_directories(fjell-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless Vulkan::Vulkan PRIVATE glfw)
+target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless Vulkan::Vulkan PRIVATE SDL3::SDL3)
 
 foreach(imgui_target fjell-imgui-headless fjell-imgui)
     if(MSVC)

@@ -9,12 +9,14 @@
 #include <string_view>
 #include <vector>
 
-struct GLFWwindow;
+struct SDL_Window;
+union SDL_Event;
 
 namespace fjell {
 
-class Input;
-
+/// An OS window on SDL. SDL has one event queue for the whole program, so
+/// whichever window's poll_events() runs hands every waiting event to the
+/// window it belongs to.
 class Window {
 public:
     Window(std::string_view title, uint32_t width, uint32_t height);
@@ -25,13 +27,13 @@ public:
     Window(Window&&) = delete;
     Window& operator=(Window&&) = delete;
 
-    [[nodiscard]] bool should_close() const;
+    [[nodiscard]] bool should_close() const { return close_requested_; }
     /// Ask for the main loop to end, as closing the window does. For a run
     /// that ends on its own, such as a scenario reaching its last step.
-    void request_close();
+    void request_close() { close_requested_ = true; }
     /// Takes back a close the user asked for (the window's close button),
     /// so the editor can ask about unsaved work first.
-    void cancel_close();
+    void cancel_close() { close_requested_ = false; }
     /// Handle every event the platform has waiting, for all windows.
     void poll_events();
     /// Block until the platform has an event, then handle it and any others
@@ -44,10 +46,9 @@ public:
     /// reported, or give it back.
     void set_cursor_captured(bool captured);
 
-    void set_input(Input* input) { input_ = input; }
-    [[nodiscard]] Input* input() const { return input_; }
-
-    [[nodiscard]] GLFWwindow* handle() const { return window_; }
+    /// SDL's window, for the ImGui platform backend.
+    [[nodiscard]] SDL_Window* handle() const { return window_; }
+    /// The size in pixels, as of the last event that changed it.
     [[nodiscard]] uint32_t width() const { return width_; }
     [[nodiscard]] uint32_t height() const { return height_; }
 
@@ -64,18 +65,29 @@ public:
     /// needs. Valid once a Window exists, which initialises the platform.
     [[nodiscard]] static std::vector<const char*> required_instance_extensions();
 
-    /// Fired when files are dragged and dropped onto this window.
+    /// Fired when files are dragged and dropped onto this window, once per
+    /// drop with every file in it.
     Delegate<void(const std::vector<std::string>&)> on_files_dropped;
 
-private:
-    static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
-    static void drop_callback(GLFWwindow* window, int count, const char** paths);
+    /// Every event SDL delivers for this window, for the layers that read the
+    /// platform's events themselves: its Input and its ImGui backend. An event
+    /// that belongs to no window, such as a gamepad being plugged in, reaches
+    /// every window's listeners.
+    Delegate<void(const SDL_Event&)> on_event;
 
-    GLFWwindow* window_{nullptr};
-    Input* input_{nullptr};
-    uint32_t width_;
-    uint32_t height_;
+private:
+    /// Hand one event to the window it belongs to, or to every window.
+    static void dispatch(const SDL_Event& event);
+    /// Apply what an event means to the window itself, then pass it on.
+    void receive(const SDL_Event& event);
+
+    SDL_Window* window_{nullptr};
+    uint32_t width_{0};
+    uint32_t height_{0};
     bool framebuffer_resized_{false};
+    bool close_requested_{false};
+    /// The files of a drop in progress, gathered until it completes.
+    std::vector<std::string> dropping_;
 };
 
 } // namespace fjell

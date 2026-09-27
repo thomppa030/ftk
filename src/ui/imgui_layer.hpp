@@ -9,6 +9,7 @@
 #include <vector>
 
 struct ImGuiContext;
+struct SDL_Cursor;
 
 namespace fjell {
 
@@ -57,7 +58,14 @@ public:
 
 private:
     void setup_style();
+    /// Show the cursor ImGui wants while this layer's window has the mouse.
+    void update_cursor();
 
+    Window& window_;
+    /// This window's events, handed to the backend in this layer's context.
+    Connection event_connection_;
+    /// An OS cursor for each ImGuiMouseCursor shape, indexed by it.
+    std::vector<SDL_Cursor*> cursors_;
     VkDevice device_;
     VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
     // Fragment stage that decodes ImGui's sRGB colours for the sRGB
