@@ -84,8 +84,8 @@ struct SlotUnderTest {
 
 TEST_CASE("A node slot's picker offers only the nodes that fit", "[ui][node_slot]") {
     SlotUnderTest t;
-    ui::grouped_picker::open("##target");
-    t.h.step(3);
+    t.h.click_at(t.into_field());
+    t.h.step(2);
     t.h.press(ImGuiKey_DownArrow); // the crate is not listed: there is nothing past the goblin
     t.h.press(ImGuiKey_Enter);
     CHECK(t.node == t.cave.goblin);

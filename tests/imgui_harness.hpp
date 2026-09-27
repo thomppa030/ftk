@@ -46,6 +46,9 @@ public:
     /// button, and runs the frames that takes.
     void click(const std::string& name);
 
+    /// The same at a point, for an item that cannot be marked.
+    void click_at(ImVec2 at);
+
     /// A marked item's rectangle, for aiming at a point inside it.
     [[nodiscard]] ImVec2 rect_min(const std::string& name) const;
     [[nodiscard]] ImVec2 rect_max(const std::string& name) const;

@@ -81,9 +81,12 @@ void ImGuiHarness::wheel(ImVec2 at, float notches) {
 
 void ImGuiHarness::click(const std::string& name) {
     const Rect& r = marked(name);
-    const ImVec2 centre{(r.min.x + r.max.x) * 0.5f, (r.min.y + r.max.y) * 0.5f};
+    click_at({(r.min.x + r.max.x) * 0.5f, (r.min.y + r.max.y) * 0.5f});
+}
+
+void ImGuiHarness::click_at(ImVec2 at) {
     ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(centre.x, centre.y);
+    io.AddMousePosEvent(at.x, at.y);
     step();
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     step();
