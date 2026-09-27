@@ -58,6 +58,25 @@
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "FJELL_ENABLE_TRACY": "ON"
             }
+        },
+        {
+            "name": "libraries",
+            "inherits": "base",
+            "displayName": "Libraries only",
+            "description": "Fjell's libraries without the engine, tools or tests, as another program's build gets them. Reuses the debug preset's fetched sources, so configure `debug` first; a foundation dependency not listed here is fetched again.",
+            "binaryDir": "${sourceDir}/build-libraries",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "FJELL_BUILD_ENGINE": "OFF",
+                "FETCHCONTENT_SOURCE_DIR_GLFW": "${sourceDir}/build/_deps/glfw-src",
+                "FETCHCONTENT_SOURCE_DIR_GLM": "${sourceDir}/build/_deps/glm-src",
+                "FETCHCONTENT_SOURCE_DIR_SPDLOG": "${sourceDir}/build/_deps/spdlog-src",
+                "FETCHCONTENT_SOURCE_DIR_STB": "${sourceDir}/build/_deps/stb-src",
+                "FETCHCONTENT_SOURCE_DIR_JSON": "${sourceDir}/build/_deps/json-src",
+                "FETCHCONTENT_SOURCE_DIR_TRACY": "${sourceDir}/build/_deps/tracy-src",
+                "FETCHCONTENT_SOURCE_DIR_IMGUI": "${sourceDir}/build/_deps/imgui-src",
+                "FETCHCONTENT_SOURCE_DIR_VULKANMEMORYALLOCATOR": "${sourceDir}/build/_deps/vulkanmemoryallocator-src"
+            }
         }
     ],
     "buildPresets": [
@@ -81,6 +100,10 @@
         {
             "name": "tracy",
             "configurePreset": "tracy"
+        },
+        {
+            "name": "libraries",
+            "configurePreset": "libraries"
         }
     ]
 }
