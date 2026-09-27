@@ -264,6 +264,37 @@ fjell_library(ui-kit
         PUBLIC fjell-core fjell-imgui-headless glm::glm
 )
 
+# fjell-editor-shell is what an editor window needs around the kit: the
+# ImGui layer on a window of its own, the console, undo history and its
+# panel, the icon cache, the file browser, and the EditorContext a tool's
+# documents build on. Where a host keeps its files is passed in.
+fjell_library(editor-shell
+    SOURCES
+        ui/console.cpp
+        ui/document_history.cpp
+        ui/editor_context.cpp
+        ui/editor_view_settings.cpp
+        ui/file_browser.cpp
+        ui/history_panel.cpp
+        ui/icon_cache.cpp
+        ui/imgui_layer.cpp
+        ui/standalone_window.cpp
+    HEADERS
+        ui/console.hpp
+        ui/context_registry.hpp
+        ui/document_history.hpp
+        ui/editor_context.hpp
+        ui/editor_view_settings.hpp
+        ui/file_browser.hpp
+        ui/history_panel.hpp
+        ui/icon_cache.hpp
+        ui/imgui_layer.hpp
+        ui/standalone_window.hpp
+    LINKS
+        PUBLIC fjell-core fjell-gpu fjell-imgui fjell-ui-kit
+        PRIVATE fjell-stb
+)
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -552,17 +583,11 @@ add_executable(fjell
     ui/node_slot.cpp
     ui/node_visuals.cpp
     ui/capture_popup.cpp
-    ui/console.cpp
     ui/menu_bar.cpp
-    ui/file_browser.cpp
-    ui/imgui_layer.cpp
-    ui/editor_view_settings.cpp
     core/project_manager.cpp
     ui/content_browser.cpp
     ui/folder_colors.cpp
     ui/hierarchy_panel.cpp
-    ui/history_panel.cpp
-    ui/icon_cache.cpp
     ui/texture_channels.cpp
     ui/texture_preview.cpp
     ui/sdf_debug_panel.cpp
@@ -572,8 +597,6 @@ add_executable(fjell
     ui/stats_panel.cpp
     ui/net_panel.cpp
     ui/project_settings_window.cpp
-    ui/document_history.cpp
-    ui/editor_context.cpp
     ui/engine_editor_context.cpp
     ui/animation_editor_context.cpp
     ui/blend_space_editor_context.cpp
@@ -604,7 +627,6 @@ add_executable(fjell
     ui/terrain_sculpt.cpp
     ui/dockspace_layout.cpp
     ui/state_graph.cpp
-    ui/standalone_window.cpp
     ui/vfx_graph.cpp
     ui/timeline_widget.cpp
     ui/viewport_manager.cpp
@@ -671,6 +693,7 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-shader>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-stb>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-ui-kit>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-editor-shell>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
@@ -798,11 +821,7 @@ add_executable(fjell-hub
     hub/main.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
-    ui/file_browser.cpp
-    ui/standalone_window.cpp
     core/hub_settings.cpp
-    ui/imgui_layer.cpp
-    ui/editor_view_settings.cpp
 )
 
 target_include_directories(fjell-hub PRIVATE
@@ -813,6 +832,7 @@ add_dependencies(fjell-hub fjell_shaders)
 
 target_link_libraries(fjell-hub PRIVATE
     fjell-core
+    fjell-editor-shell
     fjell-gpu
     fjell-platform
     fjell-ui-kit

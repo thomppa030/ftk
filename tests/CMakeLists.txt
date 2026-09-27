@@ -71,7 +71,6 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/document_history.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_slot.cpp
@@ -89,6 +88,7 @@ target_include_directories(fjell-testable PUBLIC
 )
 target_link_libraries(fjell-testable PUBLIC
     fjell-core
+    fjell-editor-shell
     fjell-framegraph
     fjell-shader
     fjell-stb
@@ -310,3 +310,4 @@ fjell_library_link_check(shader)
 fjell_library_link_check(stb)
 fjell_library_link_check(ui-kit)
 fjell_library_link_check(gpu NEEDS_GPU)
+fjell_library_link_check(editor-shell NEEDS_GPU)

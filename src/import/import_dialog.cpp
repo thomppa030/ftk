@@ -11,6 +11,7 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/engine_imgui_files.hpp"
 #include "ui/kit/viewport_toolbar.hpp"
 #include "ui/standalone_window.hpp"
 #include "ui/theme.hpp"
@@ -64,7 +65,8 @@ void ImportDialog::open(const fs::path& source_path, const fs::path& default_out
     inspection_.start(source_path);
     if (is_open()) return;
 
-    window_ = std::make_unique<StandaloneWindow>(*gpu_, "Import: " + source_filename_, DIALOG_WIDTH, DIALOG_HEIGHT);
+    window_ = std::make_unique<StandaloneWindow>(*gpu_, "Import: " + source_filename_, DIALOG_WIDTH, DIALOG_HEIGHT,
+                                                 engine_imgui_files());
     job_connection_ = job_.on_complete.bind([this](bool success, const std::vector<std::string>& files) {
         on_import_complete.broadcast(success, files);
     });

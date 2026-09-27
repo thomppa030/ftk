@@ -5,6 +5,7 @@
 #include "core/base_path.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/engine_file_browser.hpp"
 #include "ui/engine_imgui_files.hpp"
 #include "core/input_component.hpp"
 #include "core/commands.hpp"
@@ -103,7 +104,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     auto* gpu_core = &vulkan_context_->gpu().core();
     import_dialog_.set_gpu(gpu_core);
     menu_bar_.set_gpu(gpu_core);
-    import_file_browser_.set_gpu(gpu_core);
+    set_up_file_browser(import_file_browser_, gpu_core);
 
     init_subsystems();
     init_project(project_path, create_name);

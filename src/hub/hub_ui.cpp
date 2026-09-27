@@ -1,6 +1,7 @@
 #include "hub/hub_ui.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
+#include "ui/engine_file_browser.hpp"
 #include "ui/kit/brand.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
@@ -29,8 +30,8 @@ namespace fjell::hub {
 HubUI::HubUI() = default;
 
 void HubUI::set_gpu(fjell::GpuCore* gpu) {
-    open_browser_.set_gpu(gpu);
-    new_browser_.set_gpu(gpu);
+    set_up_file_browser(open_browser_, gpu);
+    set_up_file_browser(new_browser_, gpu);
 
     browser_connections_.push_back(
         open_browser_.on_selected.bind([this](const std::string& path) {

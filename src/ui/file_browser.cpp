@@ -1,6 +1,5 @@
 #include "ui/file_browser.hpp"
 
-#include "core/hub_settings.hpp"
 #include "core/log.hpp"
 #include "ui/kit/asset_kind.hpp"
 #include "ui/kit/button.hpp"
@@ -15,7 +14,6 @@
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -35,7 +33,6 @@ constexpr float PLACES_W = 170.0f;
 constexpr float PLACE_H = 26.0f;
 constexpr float SEARCH_W = 150.0f;
 constexpr std::size_t RECENT_FOLDERS = 8;
-constexpr const char* RECENT_KEY = "recent_folders";
 
 fs::path home_dir() {
     const char* home = std::getenv("HOME");
@@ -97,12 +94,7 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
     back_.clear();
     typing_path_ = false;
 
-    recent_folders_.clear();
-    if (const nlohmann::json list = read_hub_setting(RECENT_KEY); list.is_array()) {
-        for (const auto& folder : list) {
-            if (folder.is_string()) recent_folders_.push_back(folder.get<std::string>());
-        }
-    }
+    recent_folders_ = recent_.load ? recent_.load() : std::vector<std::string>{};
 
     // Where the user last picked from, else the project, else home.
     std::error_code ec;
@@ -114,7 +106,7 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
     }
     navigate(start, false);
 
-    window_ = std::make_unique<StandaloneWindow>(*gpu_, title, BROWSER_WIDTH, BROWSER_HEIGHT);
+    window_ = std::make_unique<StandaloneWindow>(*gpu_, title, BROWSER_WIDTH, BROWSER_HEIGHT, imgui_files_);
 }
 
 void FileBrowser::tick() {
@@ -224,7 +216,7 @@ void FileBrowser::remember_folder() {
     std::erase(recent_folders_, folder);
     recent_folders_.insert(recent_folders_.begin(), folder);
     if (recent_folders_.size() > RECENT_FOLDERS) recent_folders_.resize(RECENT_FOLDERS);
-    write_hub_setting(RECENT_KEY, recent_folders_);
+    if (recent_.save) recent_.save(recent_folders_);
 }
 
 void FileBrowser::confirm_selection() {

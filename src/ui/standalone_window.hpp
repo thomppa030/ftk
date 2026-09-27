@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/renderer_constants.hpp"
+#include "renderer/gpu/frames_in_flight.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -13,6 +13,7 @@ namespace fjell {
 
 class GpuCore;
 class ImGuiLayer;
+struct ImGuiLayerFiles;
 class Swapchain;
 class Window;
 
@@ -22,7 +23,10 @@ class Window;
 /// owner. Created open; destroying it closes it.
 class StandaloneWindow {
 public:
-    StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height);
+    /// `files` are where its ImGui layer finds the fonts and the sRGB
+    /// fragment stage, as for the layer itself.
+    StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height,
+                     const ImGuiLayerFiles& files);
     ~StandaloneWindow();
     StandaloneWindow(const StandaloneWindow&) = delete;
     StandaloneWindow& operator=(const StandaloneWindow&) = delete;
