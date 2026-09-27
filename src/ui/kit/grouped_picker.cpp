@@ -17,8 +17,12 @@ constexpr float DOT_COLUMN = 16.0F;
 constexpr float DOT_DIAMETER = 7.0F;
 
 // Only one picker is open at a time, the same way only one popup is.
-std::string g_open_for;      // widget id whose picker is open
-std::string g_pending_open;  // widget id asked to open on the next draw
+// Pickers are told apart by their callers' ImGui ids: the same widget id
+// under two different pushed ids is two pickers. 0 is none.
+ImGuiID g_open_for = 0;      // the picker that is open
+ImGuiID g_pending_open = 0;  // the picker asked to open on the next draw
+
+ImGuiID picker_id(const char* widget_id) { return ImGui::GetID(widget_id != nullptr ? widget_id : ""); }
 std::string g_search;
 // The item the arrow keys have reached, counted over the pickable items
 // shown, and the search it was counted under.
@@ -117,7 +121,7 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
 } // namespace
 
 void open(const char* widget_id) {
-    g_pending_open = widget_id != nullptr ? widget_id : "";
+    g_pending_open = picker_id(widget_id);
     g_search.clear();
     g_highlight = 0;
     g_highlight_search.clear();
@@ -125,21 +129,21 @@ void open(const char* widget_id) {
 }
 
 bool is_open(const char* widget_id) {
-    const std::string id = widget_id != nullptr ? widget_id : "";
+    const ImGuiID id = picker_id(widget_id);
     return g_open_for == id || g_pending_open == id;
 }
 
 void close() {
-    g_open_for.clear();
-    g_pending_open.clear();
+    g_open_for = 0;
+    g_pending_open = 0;
 }
 
 bool draw(const char* widget_id, std::span<const Group> groups,
           const Config& config, std::string& picked) {
-    const std::string id = widget_id != nullptr ? widget_id : "";
+    const ImGuiID id = picker_id(widget_id);
 
-    if (!g_pending_open.empty() && g_pending_open == id) {
-        g_pending_open.clear();
+    if (g_pending_open != 0 && g_pending_open == id) {
+        g_pending_open = 0;
         g_open_for = id;
         ImGui::OpenPopup("##grouped_picker");
     }
@@ -149,7 +153,7 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     ImGui::SetNextWindowSize(config.size, ImGuiCond_Appearing);
     if (!ImGui::BeginPopup("##grouped_picker")) {
         // Dismissed by clicking away or pressing Escape.
-        g_open_for.clear();
+        g_open_for = 0;
         return false;
     }
 
@@ -230,7 +234,7 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     if (chose) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 
-    if (chose) g_open_for.clear();
+    if (chose) g_open_for = 0;
     return chose;
 }
 

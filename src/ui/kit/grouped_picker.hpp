@@ -82,9 +82,10 @@ struct Config {
     ImVec2 size{320.0F, 400.0F};
 };
 
-/// Open the picker owned by `widget_id` on the next draw. The caller has
-/// already pushed its ImGui ID, so `widget_id` only has to tell apart two
-/// pickers drawn under the same one.
+/// Open the picker owned by `widget_id` on the next draw. A picker is known by
+/// `widget_id` under the ImGui ids the caller has pushed, so `widget_id` only
+/// has to tell apart two pickers drawn under the same one; call this, like
+/// is_open() and draw(), from where the picker is drawn.
 void open(const char* widget_id);
 
 /// Whether `widget_id`'s picker is the one currently open. For a caller that
