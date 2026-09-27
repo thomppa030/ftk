@@ -5,6 +5,7 @@
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vk_utils.hpp"
+#include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
 
 #include <GLFW/glfw3.h>
@@ -51,7 +52,7 @@ StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int w
 
     imgui_ = std::make_unique<ImGuiLayer>(window_->handle(), gpu_.instance(), gpu_.physical_device(), gpu_.vk_device(),
                                           gpu_.graphics_family(), gpu_.graphics_queue(), swapchain_->format(),
-                                          swapchain_->image_count());
+                                          swapchain_->image_count(), engine_imgui_files());
 }
 
 StandaloneWindow::~StandaloneWindow() {
