@@ -54,6 +54,14 @@ void ScriptInstance::reset() {
     pool_->release(slot_);
 }
 
+void* Node::component(ComponentTypeId type) {
+    if (void* engine = components.get_by_id(type)) return engine;
+    for (auto& entry : scripts) {
+        if (entry.instance && entry.instance.type_id() == type) return entry.instance.get();
+    }
+    return nullptr;
+}
+
 ComponentTypeId ScriptInstance::type_id() const {
     assert(instance_ != nullptr);
     return pool_->type().id;
@@ -330,6 +338,12 @@ void Scene::clear() {
     id_to_index_.clear();
     index_dirty_ = false;
     ++structure_revision_;
+}
+
+void* Scene::resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type) {
+    Node* node = find(node_id);
+    if (node == nullptr || node->generation != generation) return nullptr;
+    return node->component(type);
 }
 
 uint32_t Scene::generation_of(uint32_t id) const {

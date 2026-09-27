@@ -5,6 +5,7 @@
 #include "scene/preset_asset.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
+#include "scene/removal_epoch.hpp"
 #include "scene/component_registry.hpp"
 #include "physics/physics_world.hpp"
 
@@ -105,20 +106,27 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_component_type_id(const char* type_na
 }
 
 // The component of type `id` on one node, engine or script, or null.
-static void* component_on(fjell::Node& node, fjell::ComponentTypeId id) {
-    if (void* component = node.components.get_by_id(id)) return component;
-    for (auto& entry : node.scripts) {
-        if (entry.instance && entry.instance.type_id() == id) return entry.instance.get();
-    }
-    return nullptr;
-}
-
 extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, uint32_t type_id) {
     auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
-    return component_on(*node, type_id);
+    return node->component(type_id);
+}
+
+extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t node_id, uint32_t generation,
+                                                   uint32_t type_id) {
+    auto* scene = fjell::script_services().scene;
+    return scene != nullptr ? scene->resolve(node_id, generation, type_id) : nullptr;
+}
+
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_generation(uint32_t node_id) {
+    auto* scene = fjell::script_services().scene;
+    return scene != nullptr ? scene->generation_of(node_id) : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT const std::atomic<uint64_t>* fjell_removal_epoch() {
+    return &fjell::removal_epoch_counter();
 }
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node_with(uint32_t type_id) {

@@ -415,6 +415,24 @@ public:
     REQUIRE(result.errors[1].find("bound.hpp:10: error: [[fj::bind]] on 'hud' is gone") != std::string::npos);
 }
 
+TEST_CASE("A Ref<T> field is a reference to a component", "[fjreflect]") {
+    auto result = parse_header("ref.hpp", R"(
+class Hunter : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Hunter)
+  [[fj::property]] fjell::Ref<PlayerStats> prey;
+  [[fj::property]] fjell::Ref<fjell::RigidbodyComponent> body;
+};
+)");
+    REQUIRE(result.errors.empty());
+    const auto* hunter = find_component(result, "Hunter");
+    REQUIRE(hunter != nullptr);
+    REQUIRE(hunter->fields.size() == 2);
+    CHECK(hunter->fields[0].fj_field_type == "FJELL_FIELD_REF");
+    CHECK(hunter->fields[0].ref_target == "PlayerStats");
+    CHECK(hunter->fields[1].fj_field_type == "FJELL_FIELD_REF");
+    CHECK(hunter->fields[1].ref_target == "RigidbodyComponent");
+}
+
 TEST_CASE("A script component says how it ticks on its class head", "[fjreflect]") {
     auto result = parse_header("tick.hpp", R"(
 class [[fj::tick(order = 10)]] Follower : public fjell::ScriptComponent {

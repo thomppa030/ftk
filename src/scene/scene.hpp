@@ -260,6 +260,11 @@ public:
     /// when the scene has none.
     [[nodiscard]] uint32_t generation_of(uint32_t id) const;
 
+    /// What a reference set to node `node_id` in its life `generation` finds
+    /// of type `type` now: the component, or null when the node is gone, is
+    /// another node that took the id, or has no such component.
+    [[nodiscard]] void* resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type);
+
     // Deferred destruction for safe mid-tick removal
     /// Destroy the node, and every node under it, at the next flush.
     void queue_destroy(uint32_t id);

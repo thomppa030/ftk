@@ -13,4 +13,6 @@ uint64_t removal_epoch() { return g_removal_epoch.load(std::memory_order_relaxed
 
 void note_removal() { g_removal_epoch.fetch_add(1, std::memory_order_relaxed); }
 
+const std::atomic<uint64_t>& removal_epoch_counter() { return g_removal_epoch; }
+
 } // namespace fjell

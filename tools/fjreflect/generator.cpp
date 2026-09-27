@@ -512,7 +512,8 @@ const char* field_kind(const FieldInfo& f) {
         {"FJELL_FIELD_VEC3", "vec3"},         {"FJELL_FIELD_VEC4", "vec4"},
         {"FJELL_FIELD_COLOR3", "color3"},     {"FJELL_FIELD_COLOR4", "color4"},
         {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
-        {"FJELL_FIELD_ASSET", "asset"},         {"FJELL_FIELD_SHARED_REF", "shared_ref"},
+        {"FJELL_FIELD_ASSET", "asset"},       {"FJELL_FIELD_REF", "ref"},
+        {"FJELL_FIELD_SHARED_REF", "shared_ref"},
         {"FJELL_FIELD_STD_STRING", "string"},
         {"FJELL_FIELD_STRUCT", "struct"},     {"FJELL_FIELD_VECTOR", "list"},
     };

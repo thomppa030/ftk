@@ -7,7 +7,9 @@
 #include "scene/component_meta.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
+#include "scene/component_registry.hpp"
 #include "scripting/fjell/asset.hpp"
+#include "scripting/fjell/ref.hpp"
 #include "scripting/fjell/weak_ref.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/asset_rows.hpp"
@@ -19,6 +21,7 @@
 #include "ui/kit/row.hpp"
 #include "ui/kit/section.hpp"
 #include "ui/kit/text_field.hpp"
+#include "ui/node_slot.hpp"
 
 #include <imgui.h>
 
@@ -82,6 +85,29 @@ ui::Edit draw_asset_ref(const OwnedFieldDesc& f, AssetData& ref, const Inspector
         ref.handle_id = *loaded;
         ref.asset_type_id = asset_entry->type_id;
     }
+    return {true, true};
+}
+
+/// A Ref<T> field: the node it refers to, pickable among the nodes that carry
+/// a T.
+ui::Edit draw_component_ref(const OwnedFieldDesc& f, RefData& ref, const Scene* scene) {
+    const std::string& type = f.ref_type_name;
+    const auto engine_type = ComponentRegistry::instance().find_id_by_script_name(type);
+    uint32_t node = ref.node_id;
+    const NodeSlotConfig slot{
+        .id = "##ref",
+        .scene = scene,
+        .refusal = [&](const Node& candidate) -> std::string {
+            const bool carries =
+                engine_type ? candidate.components.get_by_id(*engine_type) != nullptr
+                            : std::ranges::any_of(candidate.scripts,
+                                                  [&](const ScriptEntry& e) { return e.type_name == type; });
+            if (carries) return {};
+            return candidate.name + " has no " + type + "; this field refers to a " + type + ".";
+        },
+    };
+    if (!node_slot(slot, node)) return {};
+    ref = {.node_id = node, .generation = node != 0 && scene != nullptr ? scene->generation_of(node) : 0};
     return {true, true};
 }
 
@@ -169,6 +195,8 @@ ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorCo
         }
         case FJELL_FIELD_WEAK_REF:
             return draw_node_ref(*static_cast<WeakRefData*>(ptr), scene);
+        case FJELL_FIELD_REF:
+            return draw_component_ref(f, *static_cast<RefData*>(ptr), scene);
         case FJELL_FIELD_ASSET:
             return draw_asset_ref(f, *static_cast<AssetData*>(ptr), ctx);
         case FJELL_FIELD_STRUCT:

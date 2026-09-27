@@ -9,6 +9,7 @@
 #include "scripting/fjell/ui_registry.hpp"
 #include "scripting/fjell/weak_ref.hpp"
 #include "scripting/fjell/asset.hpp"
+#include "scripting/fjell/ref.hpp"
 #include "scripting/gc_visitor.hpp"
 #include "scripting/input_bindings.hpp"
 #include "core/clock.hpp"
@@ -1085,6 +1086,12 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 out[f.name] = {{"id", ref->id}};
                 break;
             }
+            case FJELL_FIELD_REF: {
+                // The node alone: its generation is its life in this run.
+                const auto* ref = static_cast<const RefData*>(ptr);
+                out[f.name] = {{"node", ref->node_id}};
+                break;
+            }
             case FJELL_FIELD_ASSET: {
                 const auto* ref = static_cast<const AssetData*>(ptr);
                 std::string path;
@@ -1166,6 +1173,17 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                     ref->generation = s_services.scene != nullptr
                                           ? s_services.scene->generation_of(ref->id)
                                           : 0;
+                }
+                break;
+            }
+            case FJELL_FIELD_REF: {
+                auto* ref = static_cast<RefData*>(ptr);
+                const auto& j = in[f.name];
+                if (j.is_object()) {
+                    const uint32_t node = j.value("node", uint32_t{0});
+                    const uint32_t generation =
+                        node != 0 && s_services.scene != nullptr ? s_services.scene->generation_of(node) : 0;
+                    *ref = {.node_id = node, .generation = generation};
                 }
                 break;
             }

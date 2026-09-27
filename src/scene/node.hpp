@@ -152,6 +152,10 @@ struct Node {
 
     [[nodiscard]] virtual NodeKind kind() const { return NodeKind::None; }
 
+    /// The node's component of type `type`, an engine component or a live
+    /// script, or null when it has none.
+    [[nodiscard]] void* component(ComponentTypeId type);
+
 protected:
     bool is_spatial_{false};
     void clone_base_into(Node& target) const;

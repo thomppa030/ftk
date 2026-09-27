@@ -96,3 +96,36 @@ TEST_CASE("the removal epoch moves when something goes away, not when something 
     scene.clear();
     CHECK(removal_epoch() > epoch);
 }
+
+TEST_CASE("a reference finds its node's component only in that node's life", "[scene][lifetime]") {
+    Scene scene;
+    const uint32_t id = scene.add_node(std::make_unique<Node3D>());
+    Node& node = *scene.find(id);
+    Health& health = node.components.add<Health>();
+    ScriptEntry entry;
+    entry.instance = ScriptInstance::make<Probe>(node);
+    node.scripts.push_back(std::move(entry));
+    const ScriptComponent* probe = node.scripts.back().instance.get();
+    const uint32_t generation = scene.generation_of(id);
+    const ComponentTypeId health_type = component_type_id<Health>();
+    const ComponentTypeId probe_type = component_type_id<Probe>();
+
+    CHECK(scene.resolve(id, generation, health_type) == &health);
+    CHECK(scene.resolve(id, generation, probe_type) == probe);
+    // Another life of the id, and a type the node does not carry.
+    CHECK(scene.resolve(id, generation + 1, health_type) == nullptr);
+    CHECK(scene.resolve(id, generation, component_type_id<int>()) == nullptr);
+
+    // Out of the scene, it is gone; put back by undo, it is found again.
+    auto out = scene.extract(id);
+    CHECK(scene.resolve(id, generation, health_type) == nullptr);
+    scene.restore(std::move(out), 0);
+    CHECK(scene.resolve(id, generation, health_type) == scene.find(id)->components.get<Health>());
+
+    scene.find(id)->components.remove<Health>();
+    CHECK(scene.resolve(id, generation, health_type) == nullptr);
+
+    scene.queue_destroy(id);
+    scene.flush_destroyed();
+    CHECK(scene.resolve(id, generation, probe_type) == nullptr);
+}

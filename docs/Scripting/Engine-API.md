@@ -37,7 +37,8 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`Transform`](API/Transform.md) | `fjell/transform.hpp` | Position / rotation / scale value type |
 | [`World`](API/World.md) | `fjell/world.hpp` | Per-frame state passed to components |
 | [`Input`](API/Input.md) | `fjell/input.hpp` | Keyboard / mouse polling |
-| [`Asset<T>`](API/Asset.md) | `fjell/asset.hpp` | Owning handle to an engine asset |
+| [`Asset<T>`](API/Asset.md) | `fjell/asset.hpp` | Handle to an engine asset |
+| [`Ref<T>`](API/Ref.md) | `fjell/ref.hpp` | Reference to a component on a node, which knows when it is gone |
 | [`WeakRef<T>`](API/WeakRef.md) | `fjell/weak_ref.hpp` | Non-owning, generation-checked handle |
 | [`Delegate<>`](API/Delegate.md) | `fjell/delegate.hpp` | Multicast event with RAII subscriptions |
 | [`Connection`](API/Delegate.md#connection) | `fjell/delegate.hpp` | RAII subscription handle returned by `Delegate::bind` |

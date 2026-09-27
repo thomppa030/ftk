@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 namespace fjell {
@@ -16,5 +17,8 @@ namespace fjell {
 
 /// Something may have gone away; see removal_epoch().
 void note_removal();
+
+/// The counter itself, which game libraries read in place.
+[[nodiscard]] const std::atomic<uint64_t>& removal_epoch_counter();
 
 } // namespace fjell

@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "fjell/registry.hpp"
+#include "fjell/ref.hpp"
 #include "fjell/environment_api.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
@@ -89,6 +90,14 @@ TEST_CASE("A script type is walked only for the polled hooks it overrides", "[sd
     // A functional test runs its test hooks from the polled ones.
     STATIC_REQUIRE_FALSE(fjell::inherits_tick<SampleTest>);
     STATIC_REQUIRE_FALSE(fjell::inherits_fixed_tick<SampleTest>);
+}
+
+TEST_CASE("A Ref is its data and nothing more", "[sdk]") {
+    // The engine reads and writes a Ref field in place as a RefData, for
+    // every T alike.
+    STATIC_REQUIRE(sizeof(fjell::Ref<SamplePlain>) == sizeof(fjell::RefData));
+    STATIC_REQUIRE(sizeof(fjell::Ref<Idle>) == sizeof(fjell::RefData));
+    STATIC_REQUIRE(std::is_standard_layout_v<fjell::Ref<SamplePlain>>);
 }
 
 TEST_CASE("A test reports its own verdict", "[sdk]") {

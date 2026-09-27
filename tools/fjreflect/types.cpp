@@ -20,10 +20,11 @@ std::string map_field_type(const std::string& cpp_type, std::string& ref_target)
     if (bare == "glm::vec4") return "FJELL_FIELD_VEC4";
     if (bare == "std::string") return "FJELL_FIELD_STD_STRING";
 
-    // WeakRef<T>, Asset<T>, SharedRef<T>: the target's bare name
+    // WeakRef<T>, Asset<T>, Ref<T>, SharedRef<T>: the target's bare name
     static const std::pair<const char*, const char*> refs[] = {
         {"WeakRef<", "FJELL_FIELD_WEAK_REF"},
         {"Asset<", "FJELL_FIELD_ASSET"},
+        {"Ref<", "FJELL_FIELD_REF"},
         {"SharedRef<", "FJELL_FIELD_SHARED_REF"},
     };
     for (const auto& [prefix, kind] : refs) {
