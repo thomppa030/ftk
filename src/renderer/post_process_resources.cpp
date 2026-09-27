@@ -71,9 +71,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                             passes_->gtao.init_graphics_pool());
     }
     if (config_.volumetric_fog) {
-        uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
-        uint32_t vol_h = std::max(1u, height / VolumetricFogPass::SCREEN_DIVISOR);
-        fog_images_.create(device_, allocator_, vol_w, vol_h);
+        fog_images_.create(device_, allocator_, width, height);
     }
     if (config_.post && width > 0 && height > 0) {
         post_images_.create(device_, allocator_, width, height);

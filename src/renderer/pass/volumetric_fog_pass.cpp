@@ -31,6 +31,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
+#include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
@@ -122,6 +123,15 @@ FogCore::Images* images_for(const FrameContext& ctx, FogCore* core) {
     return imgs != nullptr ? imgs : (core != nullptr ? &core->images() : nullptr);
 }
 
+// The froxel grid for a screen, worked out exactly as the frame graph sizes
+// the medium and integrated volumes. The scatter volumes must be that size:
+// every dispatch covers their extent, and the composite samples the
+// integrated volume across the whole screen, so any froxel column the
+// dispatches miss reaches the screen as unwritten memory.
+VkExtent3D froxel_grid(uint32_t screen_w, uint32_t screen_h) {
+    return TransientImagePool::resolve_extent(FogCore::volume_desc(), {screen_w, screen_h});
+}
+
 } // namespace
 
 // ── VolumeImage helpers ─────────────────────────────────────────────────────
@@ -170,13 +180,14 @@ void FogCore::destroy_volume_image(VkDevice device, VmaAllocator allocator, Volu
 // ── Images ──────────────────────────────────────────────────────────────────
 
 void FogCore::Images::create(VkDevice device, VmaAllocator allocator,
-                              uint32_t vol_w, uint32_t vol_h) {
-    volume_extent = {vol_w, vol_h, DEPTH_SLICES};
+                              uint32_t screen_w, uint32_t screen_h) {
+    volume_extent = froxel_grid(screen_w, screen_h);
     ping_pong = 0;
     frame_counter = 0;
 
-    scatter_volumes[0] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
-    scatter_volumes[1] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
+    const auto [vol_w, vol_h, vol_d] = volume_extent;
+    scatter_volumes[0] = create_volume_image(device, allocator, vol_w, vol_h, vol_d);
+    scatter_volumes[1] = create_volume_image(device, allocator, vol_w, vol_h, vol_d);
 }
 
 void FogCore::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -187,22 +198,12 @@ void FogCore::Images::destroy(VkDevice device, VmaAllocator allocator) {
 
 void FogCore::Images::resize(VkDevice device, VmaAllocator allocator,
                               uint32_t screen_w, uint32_t screen_h) {
-    uint32_t vol_w = std::max(1U, screen_w / SCREEN_DIVISOR);
-    uint32_t vol_h = std::max(1U, screen_h / SCREEN_DIVISOR);
-
-    if (vol_w == volume_extent.width && vol_h == volume_extent.height) { return; }
-
-    // Skip resize if volumes already exist and change is tiny (< 4 texels).
-    // Prevents thrashing during interactive viewport dragging.
-    if (volume_extent.width > 1) {
-        int dw = static_cast<int>(vol_w) - static_cast<int>(volume_extent.width);
-        int dh = static_cast<int>(vol_h) - static_cast<int>(volume_extent.height);
-        if (std::abs(dw) < 4 && std::abs(dh) < 4) { return; }
-    }
+    const VkExtent3D grid = froxel_grid(screen_w, screen_h);
+    if (grid.width == volume_extent.width && grid.height == volume_extent.height) { return; }
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, vol_w, vol_h);
+    create(device, allocator, screen_w, screen_h);
 }
 
 void FogCore::Images::invalidate_imgui_texture() {

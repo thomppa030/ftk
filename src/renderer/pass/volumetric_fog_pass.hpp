@@ -102,7 +102,7 @@ public:
         uint32_t ping_pong{0};  // index of the "current" volume this frame
 
         void create(VkDevice device, VmaAllocator allocator,
-                     uint32_t vol_w, uint32_t vol_h);
+                     uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
                      uint32_t screen_w, uint32_t screen_h);
