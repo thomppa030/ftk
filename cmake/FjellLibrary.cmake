@@ -34,6 +34,8 @@ function(fjell_library name)
         target_link_libraries(${target} ${arg_LINKS})
     endif()
     fjell_target_defaults(${target})
+    # Its headers are C++23, so whatever links a library compiles as C++23 too.
+    target_compile_features(${target} PUBLIC cxx_std_23)
     # Nothing in a library compiles until its includes have been checked.
     add_dependencies(${target} fjell-library-check)
 
