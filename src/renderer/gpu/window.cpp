@@ -77,8 +77,24 @@ void Window::poll_events() {
     glfwPollEvents();
 }
 
+void Window::wait_events() {
+    glfwWaitEvents();
+}
+
 void Window::set_title(std::string_view title) {
     glfwSetWindowTitle(window_, std::string{title}.c_str());
+}
+
+void Window::set_cursor_captured(bool captured) {
+    glfwSetInputMode(window_, GLFW_CURSOR,
+                     captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+}
+
+VkExtent2D Window::framebuffer_size() const {
+    int width = 0;
+    int height = 0;
+    glfwGetFramebufferSize(window_, &width, &height);
+    return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 }
 
 VkSurfaceKHR Window::create_surface(VkInstance instance) const {
@@ -87,6 +103,13 @@ VkSurfaceKHR Window::create_surface(VkInstance instance) const {
         throw std::runtime_error("Failed to create window surface");
     }
     return surface;
+}
+
+std::vector<const char*> Window::required_instance_extensions() {
+    uint32_t count = 0;
+    const char** names = glfwGetRequiredInstanceExtensions(&count);
+    if (names == nullptr) return {};
+    return {names, names + count};
 }
 
 void Window::framebuffer_resize_callback(GLFWwindow* window, int width, int height) {

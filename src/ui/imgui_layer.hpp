@@ -8,10 +8,11 @@
 #include <string>
 #include <vector>
 
-struct GLFWwindow;
 struct ImGuiContext;
 
 namespace fjell {
+
+class Window;
 
 /// The files an ImGui layer reads, wherever its host keeps them.
 struct ImGuiLayerFiles {
@@ -25,7 +26,7 @@ struct ImGuiLayerFiles {
 
 class ImGuiLayer {
 public:
-    ImGuiLayer(GLFWwindow* window, VkInstance instance,
+    ImGuiLayer(Window& window, VkInstance instance,
                VkPhysicalDevice physical_device, VkDevice device,
                uint32_t graphics_family, VkQueue graphics_queue,
                VkFormat color_format, uint32_t image_count,

@@ -32,8 +32,17 @@ public:
     /// Takes back a close the user asked for (the window's close button),
     /// so the editor can ask about unsaved work first.
     void cancel_close();
+    /// Handle every event the platform has waiting, for all windows.
     void poll_events();
+    /// Block until the platform has an event, then handle it and any others
+    /// waiting, as poll_events() does. For a loop with nothing to do until
+    /// something happens, such as while a window is minimised.
+    void wait_events();
     void set_title(std::string_view title);
+
+    /// Hide the cursor and let it move without bound, so only its motion is
+    /// reported, or give it back.
+    void set_cursor_captured(bool captured);
 
     void set_input(Input* input) { input_ = input; }
     [[nodiscard]] Input* input() const { return input_; }
@@ -42,10 +51,18 @@ public:
     [[nodiscard]] uint32_t width() const { return width_; }
     [[nodiscard]] uint32_t height() const { return height_; }
 
+    /// The drawable size in pixels, asked of the platform now, which the
+    /// swapchain is sized from. Zero in either axis while minimised.
+    [[nodiscard]] VkExtent2D framebuffer_size() const;
+
     [[nodiscard]] bool was_resized() const { return framebuffer_resized_; }
     void reset_resized() { framebuffer_resized_ = false; }
 
     [[nodiscard]] VkSurfaceKHR create_surface(VkInstance instance) const;
+
+    /// The Vulkan instance extensions a surface on this platform's windows
+    /// needs. Valid once a Window exists, which initialises the platform.
+    [[nodiscard]] static std::vector<const char*> required_instance_extensions();
 
     /// Fired when files are dragged and dropped onto this window.
     Delegate<void(const std::vector<std::string>&)> on_files_dropped;

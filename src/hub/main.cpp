@@ -44,7 +44,7 @@ int main() {
         fjell::GpuCore gpu{window};
 
         auto imgui_layer = fjell::ImGuiLayer(
-            window.handle(), gpu.instance(),
+            window, gpu.instance(),
             gpu.physical_device(), gpu.vk_device(),
             gpu.graphics_family(), gpu.graphics_queue(),
             gpu.swapchain_format(), gpu.image_count(), fjell::engine_imgui_files());

@@ -9,9 +9,9 @@
 #include <array>
 #include <string>
 
-struct GLFWwindow;
-
 namespace fjell {
+
+class Window;
 
 /// Which kind of device the player is currently using. Drives prompts and
 /// anything else that should follow the player between keyboard and pad; it
@@ -29,10 +29,9 @@ enum class InputDevice : uint8_t { keyboard_mouse, gamepad };
 /// here as an exported, out-of-line member and declared there.
 class Input {
 public:
-    void attach(GLFWwindow* window);
+    /// Read this window's keyboard and mouse from now on.
+    void attach(Window& window);
     void update();
-
-    [[nodiscard]] GLFWwindow* window() const { return window_; }
 
     /// These read idle/zero while docked play mode has focus and the game
     /// hasn't been given it (see set_game_focus) — a player's script and the
@@ -105,7 +104,7 @@ public:
     /// Hide the cursor and let it move without bound, so a mouse-look never
     /// runs out of screen. Applies the mode immediately; prefer the intent
     /// pair below for anything that has to survive losing focus.
-    void set_cursor_captured(GLFWwindow* window, bool captured);
+    void set_cursor_captured(bool captured);
     [[nodiscard]] FJELL_SDK_EXPORT bool is_cursor_captured() const;
 
     /// What the game asked for, as opposed to what is in force. A script
@@ -190,7 +189,7 @@ private:
     glm::dvec2 mouse_last_{0.0};
     glm::dvec2 mouse_delta_{0.0};
     glm::dvec2 scroll_delta_{0.0};
-    GLFWwindow* window_{nullptr};
+    Window* window_{nullptr};
     bool first_mouse_{true};
     bool cursor_captured_{false};
     bool cursor_lock_wanted_{false};
@@ -199,13 +198,6 @@ private:
     // every other caller keeps working unchanged; PlayController is the only
     // writer once docked play makes the distinction meaningful.
     bool game_focus_{true};
-
-    static void key_callback(GLFWwindow* window, int key, int scancode,
-                             int action, int mods);
-    static void cursor_callback(GLFWwindow* window, double xpos, double ypos);
-    static void mouse_button_callback(GLFWwindow* window, int button,
-                                      int action, int mods);
-    static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 };
 
 } // namespace fjell

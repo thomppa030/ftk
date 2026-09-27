@@ -1,6 +1,7 @@
 #include "ui/imgui_layer.hpp"
 #include "ui/editor_view_settings.hpp"
 #include "ui/theme.hpp"
+#include "renderer/gpu/window.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -30,7 +31,7 @@ std::vector<uint32_t> read_spirv_words(const std::string& path) {
 
 } // namespace
 
-ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
+ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
                        VkFormat color_format, uint32_t image_count,
@@ -73,7 +74,7 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   setup_style();
   theme::load_font(files.fonts.string());
 
-  ImGui_ImplGlfw_InitForVulkan(window, true);
+  ImGui_ImplGlfw_InitForVulkan(window.handle(), true);
 
   ImGui_ImplVulkan_InitInfo init_info{};
   init_info.Instance = instance;

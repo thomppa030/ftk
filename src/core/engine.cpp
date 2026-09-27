@@ -233,14 +233,13 @@ void Engine::init_project(const std::filesystem::path& project_path,
         }
     }
 
-    window_.set_input(&input_);
     Input::load_gamepad_mappings();
-    input_.attach(window_.handle());
+    input_.attach(window_);
 }
 
 void Engine::init_ui() {
     imgui_layer_ = std::make_unique<ImGuiLayer>(
-        window_.handle(), vulkan_context_->instance(),
+        window_, vulkan_context_->instance(),
         vulkan_context_->physical_device(), vulkan_context_->device(),
         vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
         vulkan_context_->swapchain_format(), vulkan_context_->image_count(), engine_imgui_files());

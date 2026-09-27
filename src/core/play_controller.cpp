@@ -194,7 +194,7 @@ void PlayController::capture_input() {
 void PlayController::release_input() {
     captured_ = false;
     if (s_.input->is_cursor_captured()) {
-        s_.input->set_cursor_captured(s_.window->handle(), false);
+        s_.input->set_cursor_captured(false);
     }
 }
 
@@ -463,7 +463,7 @@ void PlayController::stop() {
     // session with the cursor already locked.
     s_.input->set_cursor_lock_wanted(false);
     if (s_.input->is_cursor_captured()) {
-        s_.input->set_cursor_captured(s_.window->handle(), false);
+        s_.input->set_cursor_captured(false);
     }
     FJELL_CORE_INFO("Play mode stopped");
     on_stopped.broadcast();

@@ -2,9 +2,6 @@
 #include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <cstring>
 #include <set>
 #include <stdexcept>
@@ -650,10 +647,7 @@ bool Device::check_validation_layer_support() const {
 }
 
 std::vector<const char*> Device::get_required_extensions() const {
-    uint32_t glfw_count = 0;
-    const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_count);
-
-    std::vector<const char*> extensions(glfw_extensions, glfw_extensions + glfw_count);
+    auto extensions = Window::required_instance_extensions();
 
     if (enable_validation_) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);

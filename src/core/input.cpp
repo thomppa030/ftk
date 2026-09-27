@@ -141,12 +141,65 @@ void Input::load_gamepad_mappings() {
     }
 }
 
-void Input::attach(GLFWwindow* window) {
-    window_ = window;
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetCursorPosCallback(window, cursor_callback);
-    glfwSetMouseButtonCallback(window, mouse_button_callback);
-    glfwSetScrollCallback(window, scroll_callback);
+namespace {
+
+/// The Input attached to a GLFW window, found through the window's user
+/// pointer, or null when none is.
+Input* input_of(GLFWwindow* handle) {
+    auto* owner = static_cast<Window*>(glfwGetWindowUserPointer(handle));
+    return owner != nullptr ? owner->input() : nullptr;
+}
+
+} // namespace
+
+void Input::attach(Window& window) {
+    window_ = &window;
+    window.set_input(this);
+
+    GLFWwindow* handle = window.handle();
+    glfwSetKeyCallback(handle, [](GLFWwindow* w, int key, int /*scancode*/,
+                                  int action, int /*mods*/) {
+        auto* input = input_of(w);
+        if (input == nullptr || key < 0 || key >= MAX_KEYS) return;
+
+        if (action == GLFW_PRESS) {
+            input->keys_[key] = KeyState::Pressed;
+        } else if (action == GLFW_RELEASE) {
+            input->keys_[key] = KeyState::Released;
+        }
+    });
+    glfwSetCursorPosCallback(handle, [](GLFWwindow* w, double xpos, double ypos) {
+        auto* input = input_of(w);
+        if (input == nullptr) return;
+
+        glm::dvec2 pos{xpos, ypos};
+
+        if (input->first_mouse_) {
+            input->mouse_last_ = pos;
+            input->first_mouse_ = false;
+        }
+
+        input->mouse_delta_ += pos - input->mouse_last_;
+        input->mouse_last_ = pos;
+        input->mouse_pos_ = pos;
+    });
+    glfwSetMouseButtonCallback(handle, [](GLFWwindow* w, int button, int action,
+                                          int /*mods*/) {
+        auto* input = input_of(w);
+        if (input == nullptr || button < 0 || button >= MAX_BUTTONS) return;
+
+        if (action == GLFW_PRESS) {
+            input->mouse_buttons_[button] = KeyState::Pressed;
+        } else if (action == GLFW_RELEASE) {
+            input->mouse_buttons_[button] = KeyState::Released;
+        }
+    });
+    glfwSetScrollCallback(handle, [](GLFWwindow* w, double xoffset, double yoffset) {
+        auto* input = input_of(w);
+        if (input == nullptr) return;
+
+        input->scroll_delta_ += glm::dvec2{xoffset, yoffset};
+    });
 }
 
 void Input::resolve_pad() {
@@ -357,10 +410,10 @@ FJELL_SDK_EXPORT bool Input::is_cursor_captured() const {
     return cursor_captured_;
 }
 
-void Input::set_cursor_captured(GLFWwindow* window, bool captured) {
+void Input::set_cursor_captured(bool captured) {
+    if (window_ == nullptr) return;
     cursor_captured_ = captured;
-    glfwSetInputMode(window, GLFW_CURSOR,
-                     captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    window_->set_cursor_captured(captured);
     if (captured) {
         first_mouse_ = true;
     }
@@ -371,59 +424,7 @@ void Input::apply_cursor_lock(bool allowed) {
     if (locked == cursor_captured_ || window_ == nullptr) {
         return;
     }
-    set_cursor_captured(window_, locked);
-}
-
-static Input* get_input(GLFWwindow* window) {
-    auto* win = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    return win ? win->input() : nullptr;
-}
-
-void Input::key_callback(GLFWwindow* window, int key, int /*scancode*/,
-                          int action, int /*mods*/) {
-    auto* input = get_input(window);
-    if (!input || key < 0 || key >= MAX_KEYS) return;
-
-    if (action == GLFW_PRESS) {
-        input->keys_[key] = KeyState::Pressed;
-    } else if (action == GLFW_RELEASE) {
-        input->keys_[key] = KeyState::Released;
-    }
-}
-
-void Input::cursor_callback(GLFWwindow* window, double xpos, double ypos) {
-    auto* input = get_input(window);
-    if (!input) return;
-
-    glm::dvec2 pos{xpos, ypos};
-
-    if (input->first_mouse_) {
-        input->mouse_last_ = pos;
-        input->first_mouse_ = false;
-    }
-
-    input->mouse_delta_ += pos - input->mouse_last_;
-    input->mouse_last_ = pos;
-    input->mouse_pos_ = pos;
-}
-
-void Input::mouse_button_callback(GLFWwindow* window, int button,
-                                   int action, int /*mods*/) {
-    auto* input = get_input(window);
-    if (!input || button < 0 || button >= MAX_BUTTONS) return;
-
-    if (action == GLFW_PRESS) {
-        input->mouse_buttons_[button] = KeyState::Pressed;
-    } else if (action == GLFW_RELEASE) {
-        input->mouse_buttons_[button] = KeyState::Released;
-    }
-}
-
-void Input::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    auto* input = get_input(window);
-    if (!input) return;
-
-    input->scroll_delta_ += glm::dvec2{xoffset, yoffset};
+    set_cursor_captured(locked);
 }
 
 bool Input::pad_button_held(int button) const {

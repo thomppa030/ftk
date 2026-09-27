@@ -4,9 +4,6 @@
 #include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -63,11 +60,12 @@ void Swapchain::cleanup() {
 }
 
 void Swapchain::recreate() {
-    int width = 0, height = 0;
-    glfwGetFramebufferSize(window_.handle(), &width, &height);
-    while (width == 0 || height == 0) {
-        glfwGetFramebufferSize(window_.handle(), &width, &height);
-        glfwWaitEvents();
+    // A minimised window has no size to build a swapchain for: wait until
+    // it is restored.
+    auto size = window_.framebuffer_size();
+    while (size.width == 0 || size.height == 0) {
+        window_.wait_events();
+        size = window_.framebuffer_size();
     }
 
     vkDeviceWaitIdle(device_.handle());
