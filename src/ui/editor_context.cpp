@@ -3,7 +3,6 @@
 #include "ui/kit/asset_header.hpp"
 #include "ui/kit/asset_kind.hpp"
 #include "ui/kit/edit_record.hpp"
-#include "ui/viewport_manager.hpp"
 #include "core/log.hpp"
 
 #include <filesystem>
@@ -12,12 +11,10 @@
 
 namespace fjell {
 
-void EditorContext::draw_shared_panels(float dt) {
-    auto stats_title = ctx_title("Stats");
+void EditorContext::draw_shared_panels(float /*dt*/) {
     auto history_title = ctx_title("History");
     auto console_title = ctx_title("Console");
 
-    stats_panel_.draw(dt, stats_title.c_str());
     history_panel_.draw(history_title.c_str());
     if (auto* sink = console_sink()) {
         sink->draw(console_title.c_str());
@@ -142,12 +139,9 @@ void EditorContext::draw_header() {
     }
 }
 
-namespace {
-
-// The panels along the bottom of every asset editor, in this order.
-constexpr const char* BOTTOM_TABS[] = {"Console", "Stats", "History"};
-
-} // namespace
+std::vector<std::string> EditorContext::bottom_tabs() const {
+    return {"Console", "History"};
+}
 
 std::vector<std::string> EditorContext::docked_window_names() const {
     const DockPreset preset = dock_preset();
@@ -155,7 +149,7 @@ std::vector<std::string> EditorContext::docked_window_names() const {
     for (const auto* slot : {&preset.tree, &preset.preview, &preset.under_preview, &preset.inspector}) {
         for (const auto& name : *slot) names.push_back(ctx_title(name.c_str()));
     }
-    for (const char* name : BOTTOM_TABS) names.push_back(ctx_title(name));
+    for (const auto& name : bottom_tabs()) names.push_back(ctx_title(name.c_str()));
     return names;
 }
 
@@ -187,14 +181,7 @@ void EditorContext::setup_dockspace(ImGuiID main_area) {
     dock(preset.preview, centre);
     dock(preset.under_preview, under);
     dock(preset.inspector, inspector);
-    for (const char* name : BOTTOM_TABS) ImGui::DockBuilderDockWindow(ctx_title(name).c_str(), bottom);
-}
-
-void EditorContext::name_preview(ViewportManager& viewports) const {
-    if (auto* panel = viewports.active_panel()) {
-        auto title = ctx_title("Preview");
-        if (panel->title != title) panel->title = std::move(title);
-    }
+    for (const auto& name : bottom_tabs()) ImGui::DockBuilderDockWindow(ctx_title(name.c_str()).c_str(), bottom);
 }
 
 } // namespace fjell
