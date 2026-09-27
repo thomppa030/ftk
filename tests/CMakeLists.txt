@@ -76,41 +76,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_slot.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_visuals.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_header.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_kind.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/asset_tile.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/brand.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/button.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/canvas.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/node_graph.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/curve_editor.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/choice.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/color_field.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/component_block.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/dialog.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/edit_record.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/feedback.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/field.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/grouped_picker.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/inset_group.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/key_cap.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/overlay.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/texture_channels.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/list_editor.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/menu.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/pane.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/pages.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/row.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/save_bar.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/search.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/section.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/slot.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/status_bar.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/strip.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/tabs.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/text_field.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/tree.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/kit/viewport_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/state_graph.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/timeline_widget.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/vfx_graph.cpp
@@ -126,6 +92,7 @@ target_link_libraries(fjell-testable PUBLIC
     fjell-framegraph
     fjell-shader
     fjell-stb
+    fjell-ui-kit
     fjell-platform
     fjell-imgui-headless
     spdlog::spdlog
@@ -327,7 +294,8 @@ catch_discover_tests(fjell-tests)
 # display, so that one is built everywhere and run by hand.
 function(fjell_library_link_check name)
     cmake_parse_arguments(PARSE_ARGV 1 arg "NEEDS_GPU" "" "")
-    add_executable(fjell-link-${name} library_link/${name}.cpp)
+    string(REPLACE "-" "_" file ${name})
+    add_executable(fjell-link-${name} library_link/${file}.cpp)
     target_link_libraries(fjell-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-${name}>")
     fjell_target_defaults(fjell-link-${name})
     if(NOT arg_NEEDS_GPU)
@@ -340,4 +308,5 @@ fjell_library_link_check(platform)
 fjell_library_link_check(framegraph)
 fjell_library_link_check(shader)
 fjell_library_link_check(stb)
+fjell_library_link_check(ui-kit)
 fjell_library_link_check(gpu NEEDS_GPU)

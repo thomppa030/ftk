@@ -179,6 +179,91 @@ if(NOT MSVC)
     set_source_files_properties(renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
 endif()
 
+# fjell-ui-kit is how an editor looks: the theme's tokens, the icons and
+# every widget of the kit, on ImGui's core alone, so it draws headless in
+# the unit tests and in any window a program brings.
+fjell_library(ui-kit
+    SOURCES
+        ui/kit/asset_header.cpp
+        ui/kit/asset_kind.cpp
+        ui/kit/asset_tile.cpp
+        ui/kit/brand.cpp
+        ui/kit/button.cpp
+        ui/kit/canvas.cpp
+        ui/kit/choice.cpp
+        ui/kit/color_field.cpp
+        ui/kit/component_block.cpp
+        ui/kit/curve_editor.cpp
+        ui/kit/dialog.cpp
+        ui/kit/edit_record.cpp
+        ui/kit/feedback.cpp
+        ui/kit/field.cpp
+        ui/kit/gallery.cpp
+        ui/kit/grouped_picker.cpp
+        ui/kit/inset_group.cpp
+        ui/kit/key_cap.cpp
+        ui/kit/list_editor.cpp
+        ui/kit/menu.cpp
+        ui/kit/node_graph.cpp
+        ui/kit/overlay.cpp
+        ui/kit/pages.cpp
+        ui/kit/pane.cpp
+        ui/kit/row.cpp
+        ui/kit/save_bar.cpp
+        ui/kit/search.cpp
+        ui/kit/section.cpp
+        ui/kit/slot.cpp
+        ui/kit/status_bar.cpp
+        ui/kit/strip.cpp
+        ui/kit/tabs.cpp
+        ui/kit/text_field.cpp
+        ui/kit/tree.cpp
+        ui/kit/viewport_toolbar.cpp
+    HEADERS
+        ui/icons_lc.hpp
+        ui/kit/asset_header.hpp
+        ui/kit/asset_kind.hpp
+        ui/kit/asset_tile.hpp
+        ui/kit/brand.hpp
+        ui/kit/button.hpp
+        ui/kit/canvas.hpp
+        ui/kit/choice.hpp
+        ui/kit/color_field.hpp
+        ui/kit/component_block.hpp
+        ui/kit/curve_editor.hpp
+        ui/kit/dialog.hpp
+        ui/kit/edit.hpp
+        ui/kit/edit_record.hpp
+        ui/kit/feedback.hpp
+        ui/kit/field.hpp
+        ui/kit/gallery.hpp
+        ui/kit/grouped_picker.hpp
+        ui/kit/icons.hpp
+        ui/kit/inset_group.hpp
+        ui/kit/key_cap.hpp
+        ui/kit/list_editor.hpp
+        ui/kit/menu.hpp
+        ui/kit/node_graph.hpp
+        ui/kit/overlay.hpp
+        ui/kit/pages.hpp
+        ui/kit/pane.hpp
+        ui/kit/panel.hpp
+        ui/kit/row.hpp
+        ui/kit/save_bar.hpp
+        ui/kit/search.hpp
+        ui/kit/section.hpp
+        ui/kit/slot.hpp
+        ui/kit/status_bar.hpp
+        ui/kit/strip.hpp
+        ui/kit/tabs.hpp
+        ui/kit/text_field.hpp
+        ui/kit/tree.hpp
+        ui/kit/viewport_toolbar.hpp
+        ui/theme.hpp
+    LINKS
+        PUBLIC fjell-core fjell-imgui-headless glm::glm
+)
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -513,41 +598,6 @@ add_executable(fjell
     ui/inspectors/script_fields.cpp
     ui/inspectors/model_fields.cpp
     ui/inspectors/spline_inspectors.cpp
-    ui/kit/asset_header.cpp
-    ui/kit/asset_kind.cpp
-    ui/kit/asset_tile.cpp
-    ui/kit/brand.cpp
-    ui/kit/button.cpp
-    ui/kit/canvas.cpp
-    ui/kit/node_graph.cpp
-    ui/kit/curve_editor.cpp
-    ui/kit/choice.cpp
-    ui/kit/color_field.cpp
-    ui/kit/component_block.cpp
-    ui/kit/dialog.cpp
-    ui/kit/edit_record.cpp
-    ui/kit/feedback.cpp
-    ui/kit/field.cpp
-    ui/kit/gallery.cpp
-    ui/kit/grouped_picker.cpp
-    ui/kit/inset_group.cpp
-    ui/kit/key_cap.cpp
-    ui/kit/overlay.cpp
-    ui/kit/list_editor.cpp
-    ui/kit/menu.cpp
-    ui/kit/pane.cpp
-    ui/kit/pages.cpp
-    ui/kit/row.cpp
-    ui/kit/save_bar.cpp
-    ui/kit/search.cpp
-    ui/kit/section.cpp
-    ui/kit/slot.cpp
-    ui/kit/status_bar.cpp
-    ui/kit/strip.cpp
-    ui/kit/tabs.cpp
-    ui/kit/text_field.cpp
-    ui/kit/tree.cpp
-    ui/kit/viewport_toolbar.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
     ui/brush.cpp
@@ -620,6 +670,7 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-framegraph>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-shader>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-stb>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-ui-kit>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
@@ -750,20 +801,6 @@ add_executable(fjell-hub
     ui/file_browser.cpp
     ui/standalone_window.cpp
     core/hub_settings.cpp
-    ui/kit/asset_kind.cpp
-    ui/kit/brand.cpp
-    ui/kit/button.cpp
-    ui/kit/choice.cpp
-    ui/kit/dialog.cpp
-    ui/kit/edit_record.cpp
-    ui/kit/feedback.cpp
-    ui/kit/field.cpp
-    ui/kit/menu.cpp
-    ui/kit/pane.cpp
-    ui/kit/row.cpp
-    ui/kit/search.cpp
-    ui/kit/section.cpp
-    ui/kit/viewport_toolbar.cpp
     ui/imgui_layer.cpp
     ui/editor_view_settings.cpp
 )
@@ -778,6 +815,7 @@ target_link_libraries(fjell-hub PRIVATE
     fjell-core
     fjell-gpu
     fjell-platform
+    fjell-ui-kit
     fjell-imgui
     glfw
     glm::glm
