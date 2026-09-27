@@ -60,9 +60,12 @@ if(FJELL_BUILD_ENGINE)
 endif()
 
 include(cmake/FoundationDependencies.cmake)
+# Shader compiling, and fjell_stage_editor_data() for any program built on the
+# editor shell; glslc is only looked for once something compiles a shader.
+include(cmake/CompileShaders.cmake)
+include(cmake/EditorData.cmake)
 if(FJELL_BUILD_ENGINE)
     include(cmake/EngineDependencies.cmake)
-    include(cmake/CompileShaders.cmake)
     include(cmake/GenerateShaderConstants.cmake)
 endif()
 
