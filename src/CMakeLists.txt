@@ -163,6 +163,22 @@ fjell_library(shader
         PUBLIC fjell-core fjell-platform
 )
 
+# fjell-stb compiles stb's image reader, writer and resizer once for
+# everything that loads, saves or scales an image, and hands on stb's
+# headers as system headers.
+fjell_library(stb
+    SOURCES
+        renderer/resources/stb_image.cpp
+        renderer/resources/stb_image_resize.cpp
+        renderer/resources/stb_image_write.cpp
+)
+target_include_directories(fjell-stb SYSTEM PUBLIC ${stb_SOURCE_DIR})
+if(NOT MSVC)
+    # stb_image_resize2.h trips -Wunused-but-set-variable under some compiler
+    # and flag combinations.
+    set_source_files_properties(renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
+endif()
+
 # --- Dear ImGui ---
 # Built once for everything that draws with it. fjell-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
@@ -360,10 +376,7 @@ add_executable(fjell
     renderer/resources/asset_loader.cpp
     renderer/resources/resource_manager.cpp
     renderer/resources/skeletal_model.cpp
-    renderer/resources/stb_image.cpp
     renderer/resources/lut_asset.cpp
-    renderer/resources/stb_image_resize.cpp
-    renderer/resources/stb_image_write.cpp
     renderer/resources/texture.cpp
     renderer/viz_image.cpp
     renderer/gpu_context.cpp
@@ -585,7 +598,6 @@ add_executable(fjell
 target_include_directories(fjell PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripting
-    ${stb_SOURCE_DIR}
 )
 
 target_include_directories(fjell SYSTEM PRIVATE
@@ -607,6 +619,7 @@ target_link_libraries(fjell PRIVATE
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-gpu>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-framegraph>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-shader>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-stb>"
     fjell-imgui
     fastgltf::fastgltf
     glfw
@@ -645,9 +658,6 @@ if(MSVC)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
-    # stb_image_resize2.h (vendored, included from our .cpp wrapper) trips
-    # -Wunused-but-set-variable under some compiler/flag combinations.
-    set_source_files_properties(renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
     # miniaudio (vendored, included from our .cpp wrapper) makes GCC report a
     # bogus out-of-bounds inside <vector>'s move path once the optimiser is on,
     # so it only appears in release builds.
@@ -760,7 +770,6 @@ add_executable(fjell-hub
 
 target_include_directories(fjell-hub PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${stb_SOURCE_DIR}
 )
 # The hub draws its ImGui through the same sRGB-decoding fragment stage.
 add_dependencies(fjell-hub fjell_shaders)

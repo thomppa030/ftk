@@ -15,17 +15,15 @@ add_executable(fjimport
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjmesh_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/lut_asset.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/resources/stb_image_write.cpp
 )
 
 target_include_directories(fjimport PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
-target_include_directories(fjimport SYSTEM PRIVATE ${stb_SOURCE_DIR})
 
 target_link_libraries(fjimport PRIVATE
     fjell-core
+    fjell-stb
     assimp::assimp
     meshoptimizer
     msdfgen::msdfgen-core
