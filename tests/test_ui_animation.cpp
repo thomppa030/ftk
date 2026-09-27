@@ -1,15 +1,10 @@
 #include "ui/game_ui/ui_animation.hpp"
 #include "ui/game_ui/ui_node.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 static std::unique_ptr<UiNode> make_node(const std::string& tag) {
     auto n = std::make_unique<UiNode>();

@@ -3,7 +3,6 @@
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui_length_printer.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
@@ -11,10 +10,6 @@
 #include <cmath>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 static std::unique_ptr<UiNode> make_node(const std::string& tag, std::vector<std::string> classes = {}) {
     auto n = std::make_unique<UiNode>();

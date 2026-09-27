@@ -1,5 +1,4 @@
 #include "ui/game_ui/widget_check.hpp"
-#include "core/log.hpp"
 #include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -10,10 +9,6 @@
 
 using namespace fjell;
 namespace fs = std::filesystem;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 namespace {
 

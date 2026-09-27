@@ -1,6 +1,5 @@
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/fjss_parser.hpp"
-#include "core/log.hpp"
 
 #include "ui_length_printer.hpp"
 
@@ -8,10 +7,6 @@
 #include <catch2/catch_approx.hpp>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // --- Helpers to build node trees without the FJUI parser ---
 

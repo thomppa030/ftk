@@ -1,14 +1,9 @@
 #include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/fjss_parser.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // Parses, writes, parses again and returns both sheets' text so a test can
 // check the second parse reads exactly what the first one did.

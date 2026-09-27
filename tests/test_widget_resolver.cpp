@@ -2,7 +2,6 @@
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_context.hpp"
-#include "core/log.hpp"
 #include "platform/platform.hpp"
 
 #include "ui_length_printer.hpp"
@@ -15,10 +14,6 @@
 
 using namespace fjell;
 namespace fs = std::filesystem;
-
-static struct LogInit {
-    LogInit() { log::init(); }
-} log_init;
 
 // A throwaway project directory with one widget: <my-widget/> resolves to
 // widgets/my_widget.fjwidget and its stylesheet.

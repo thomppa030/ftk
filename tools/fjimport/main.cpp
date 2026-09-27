@@ -1688,7 +1688,7 @@ static int bake_font(const std::string& recipe_path) {
 }
 
 int main(int argc, char* argv[]) {
-    fjell::log::init();
+    fjell::log::init({.level = spdlog::level::info, .pattern = "%^[%T] [%n] [%l]%$ %v"});
 
     if (argc < 2) {
         print_usage(argv[0]);

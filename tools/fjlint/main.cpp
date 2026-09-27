@@ -43,6 +43,8 @@
 #include "ui/game_ui/widget_check.hpp"
 #include "core/log.hpp"
 
+#include <spdlog/sinks/base_sink.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -50,6 +52,8 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -57,10 +61,24 @@
 namespace fs = std::filesystem;
 using namespace fjell;
 
-/// Warnings and errors logged so far, from log_stub.cpp.
-int fjlint_logged_problems();
-
 namespace {
+
+/// Counts every warning and error the parsers and loaders log, so the exit
+/// status covers those as well as the problems the tool finds itself.
+class LoggedProblems : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    /// Read once the checks are done; nothing logs after them.
+    [[nodiscard]] int count() const { return count_; }
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        if (msg.level >= spdlog::level::warn) ++count_;
+    }
+    void flush_() override {}
+
+private:
+    int count_{0};
+};
 
 /// Files checked; problems are counted where they are logged, since the
 /// parsers and the widget loader all report through the log.
@@ -225,7 +243,11 @@ int main(int argc, char** argv) {
                              "       fjlint --stdin-filename <name> -\n");
         return 2;
     }
-    log::init();
+    // Reports are already "file:line:column: severity: message", the form
+    // editors parse, so a line is the message and nothing else.
+    log::init({.level = spdlog::level::warn, .pattern = "%v"});
+    auto logged_problems = std::make_shared<LoggedProblems>();
+    log::add_sink(logged_problems);
 
     Tally tally;
     std::string stdin_name = "<stdin>";
@@ -249,7 +271,7 @@ int main(int argc, char** argv) {
         check_path(argv[i], tally);
     }
 
-    int problems = tally.problems + fjlint_logged_problems();
+    int problems = tally.problems + logged_problems->count();
     std::printf("%d file%s checked, %d problem%s\n", tally.files, tally.files == 1 ? "" : "s",
                 problems, problems == 1 ? "" : "s");
     log::shutdown();

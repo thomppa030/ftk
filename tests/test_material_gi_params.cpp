@@ -1,5 +1,4 @@
 #include "renderer/resources/material_gi_params.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
@@ -9,10 +8,6 @@
 using namespace fjell;
 
 namespace {
-
-struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // Reads like the asset loader: the material's value when it has one, the
 // shader default otherwise.

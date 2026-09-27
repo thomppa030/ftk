@@ -5,7 +5,7 @@
 
 add_executable(fjimport
     main.cpp
-    log_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/log.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp

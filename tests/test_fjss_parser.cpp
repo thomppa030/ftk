@@ -1,5 +1,4 @@
 #include "ui/game_ui/fjss_parser.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
@@ -31,10 +30,6 @@ static std::string selector_text(const fjell::StyleSelector& sel) {
 }
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // --- Selector parsing ---
 

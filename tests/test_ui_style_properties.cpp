@@ -2,7 +2,6 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_node.hpp"
-#include "core/log.hpp"
 
 #include "ui_length_printer.hpp"
 
@@ -12,10 +11,6 @@
 #include <set>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 TEST_CASE("Property names are unique", "[props]") {
     std::set<std::string_view> seen;

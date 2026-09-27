@@ -1,5 +1,4 @@
 #include "renderer/resources/fjsl_parser.hpp"
-#include "core/log.hpp"
 #include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -11,10 +10,6 @@
 #include <sstream>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // The parser collects problems rather than throwing on the first, so one bad
 // line does not hide the rest of the file and a linter can report everything

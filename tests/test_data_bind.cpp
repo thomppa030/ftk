@@ -2,17 +2,12 @@
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "scripting/reflected_types.hpp"
-#include "core/log.hpp"
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
 using namespace fjell;
-
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // --- Helpers ---
 

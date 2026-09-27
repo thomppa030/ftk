@@ -1,5 +1,4 @@
 #include "renderer/resources/material_asset.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
@@ -10,10 +9,6 @@
 using namespace fjell;
 
 namespace {
-
-struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 std::string temp_fjmat() {
     auto path = std::filesystem::temp_directory_path() / "fjell_test_material.fjmat";

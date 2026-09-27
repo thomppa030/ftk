@@ -1,14 +1,8 @@
 #include "ui/game_ui/fjui_parser.hpp"
-#include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 using namespace fjell;
-
-// Ensure loggers exist so FJELL_CORE_WARN doesn't segfault.
-static struct LogInit {
-    LogInit() { if (!log::core()) log::init(); }
-} s_log_init;
 
 // --- Basic element parsing ---
 

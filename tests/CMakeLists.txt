@@ -1,6 +1,6 @@
 # --- Testable engine subset (no Vulkan, no GLFW, no ImGui backends) ---
 add_library(fjell-testable STATIC
-    test_log_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/log.cpp
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
@@ -189,6 +189,7 @@ endforeach()
 
 # --- Test executable ---
 add_executable(fjell-tests
+    test_log.cpp
     test_resource_handle.cpp
     test_collision_channel.cpp
     test_delegate.cpp
