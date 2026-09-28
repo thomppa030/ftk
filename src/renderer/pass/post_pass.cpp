@@ -38,6 +38,7 @@ namespace fjell {
 void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
                                   uint32_t width, uint32_t height) {
     extent = {width, height};
+    written = false;
 
     // Create output image (LDR sRGB)
     VkImageCreateInfo ci{};
@@ -598,17 +599,7 @@ void PostPass::record_into(const FrameContext& ctx, Images& imgs, const Inputs& 
     }
 
     vkCmdEndRendering(cmd);
-
-    // Transition to readable
-    vk_utils::finish_color_attachment(cmd, imgs.image);
-}
-
-void PostPass::declare_output_handoff(PassBuilder& builder, FgTexture output) {
-    builder.final_layout(output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    imgs.written = true;
 }
 
 PassSetup PostPass::setup() const {
@@ -634,7 +625,6 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // What the viewport shows, handed to ImGui after the graph.
     if (auto output = builder.import_named_optional(ctx, "post_output"); output.valid()) {
         builder.write(output, gpu::Access::color_attachment);
-        declare_output_handoff(builder, output);
     }
     // With TAA on, what the post pass reads is the history slot TAA just wrote.
     if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {

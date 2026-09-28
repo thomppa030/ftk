@@ -48,7 +48,6 @@ bool OutputOverlay::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!output.valid()) return false;
     builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_fragment);
     builder.write(output, gpu::Access::color_attachment);
-    PostPass::declare_output_handoff(builder, output);
     // ImGui reads the output after the graph, so nothing in it reads what an
     // overlay writes, and the cull walk would drop the pass.
     builder.has_side_effects();
@@ -98,7 +97,6 @@ bool OutputOverlay::begin(const FrameContext& ctx, VkPipelineLayout layout) cons
 
 void OutputOverlay::end(const FrameContext& ctx) const {
     vkCmdEndRendering(ctx.cmd);
-    vk_utils::finish_color_attachment(ctx.cmd, ctx.pp_resources->post()->image);
 }
 
 } // namespace fjell

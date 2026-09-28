@@ -44,12 +44,6 @@ public:
     /// into after this pass.
     static constexpr VkFormat OUTPUT_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
 
-    /// Declare that a pass writing the output leaves it as ImGui samples it
-    /// after the graph: shader-readable, its colour writes made visible to
-    /// fragment reads. The pass transitions it itself, at the end of its
-    /// record(), with vk_utils::finish_color_attachment().
-    static void declare_output_handoff(PassBuilder& builder, FgTexture output);
-
     /// The bindless index a sampler with this hint reads when nothing is
     /// bound: what the engine default's row holds in its texture slots, the
     /// neutral table for its grade among them.
@@ -72,6 +66,8 @@ public:
         VkImageView view{VK_NULL_HANDLE};
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
+        /// Whether the pass has drawn into the image since it was made.
+        bool written{false};
 
         void create(VkDevice device, VmaAllocator allocator,
                      uint32_t width, uint32_t height);

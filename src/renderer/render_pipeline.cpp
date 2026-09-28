@@ -310,12 +310,14 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             add_history_slot("taa_history_read", 1 - taa->write_index);
         }
         // The post pass's output, what the viewport shows: written as a colour
-        // attachment and left for ImGui to sample after the graph.
+        // attachment, and resting where ImGui samples it after the graph.
         if (auto* output = pp_resources->post();
             output != nullptr && output->image != VK_NULL_HANDLE) {
             ImportedImage img{};
             img.image = output->image;
             img.view = output->view;
+            img.resting = gpu::Access::sampled_fragment;
+            img.unwritten = !output->written;
             decl_ctx.imports.emplace(fg_name_hash("post_output"), img);
         }
     }
