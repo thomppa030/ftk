@@ -1,0 +1,21 @@
+#version 460
+
+// A compute shader for the GPU library's link test (tests/library_link/gpu.cpp)
+// to record through a command list: push data, a uniform in transient memory
+// and a storage buffer it writes, which the test reads back.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform Params { uint scale; } params;
+layout(set = 0, binding = 1) writeonly buffer Values { uint values[]; } results;
+
+layout(push_constant) uniform Push {
+    uint base;
+    uint count;
+} push;
+
+void main() {
+    const uint i = gl_GlobalInvocationID.x;
+    if (i >= push.count) return;
+    results.values[i] = push.base + params.scale * i;
+}

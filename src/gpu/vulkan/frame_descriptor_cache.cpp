@@ -11,8 +11,10 @@ namespace fjell {
 namespace {
 
 VkDescriptorPool create_pool(VkDevice device, const FrameCachePoolBudget& budget) {
-    std::array<VkDescriptorPoolSize, 4> sizes{{
+    std::array<VkDescriptorPoolSize, 6> sizes{{
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, budget.sampled_images},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          budget.separate_images},
+        {VK_DESCRIPTOR_TYPE_SAMPLER,                budget.samplers},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          budget.storage_images},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         budget.uniform_buffers},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         budget.storage_buffers},
@@ -131,6 +133,7 @@ void FrameDescriptorCache::write_bindings(VkDescriptorSet set,
         w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         w.dstSet = set;
         w.dstBinding = b.binding;
+        w.dstArrayElement = b.element;
         w.descriptorCount = 1;
         w.descriptorType = b.type;
         if (is_image_descriptor(b.type)) {

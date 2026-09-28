@@ -1,5 +1,6 @@
 #include "gpu/vulkan/device_impl.hpp"
 
+#include "gpu/command_list.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 
@@ -194,6 +195,8 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const ComputePipelineDe
     PipelineRecord record;
     record.bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
     record.shader_layout = stage.layout;
+    record.declared_sets = declared_sets(record.shader_layout);
+    record.name = "Compute pipeline " + what;
     auto layout = pipeline_layout(record.shader_layout, desc.shared);
     if (!layout) return make_error("Compute pipeline " + what + ": " + layout.error());
     record.layout = std::move(*layout);
@@ -257,6 +260,8 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     auto layout = pipeline_layout(record.shader_layout, desc.shared);
     if (!layout) return fail(layout.error());
     record.layout = std::move(*layout);
+    record.declared_sets = declared_sets(record.shader_layout);
+    record.name = "Graphics pipeline " + what;
 
     std::vector<VkPipelineShaderStageCreateInfo> stage_infos;
     for (const Stage& stage : stages) {

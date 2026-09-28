@@ -13,6 +13,8 @@ namespace fjell {
 /// call site; the cache copies the value into its key when interning.
 struct FrameCacheBinding {
     uint32_t binding{0};
+    /// The element of an array binding; 0 for a single one.
+    uint32_t element{0};
     VkDescriptorType type{VK_DESCRIPTOR_TYPE_MAX_ENUM};
 
     // Exactly one of these is populated depending on `type`.
@@ -24,6 +26,9 @@ struct FrameCacheBinding {
 /// pool per frame slot so reset-on-begin_frame reclaims everything at once.
 struct FrameCachePoolBudget {
     uint32_t sampled_images{256};
+    /// Textures and samplers bound apart (`texture2D`, `sampler`).
+    uint32_t separate_images{64};
+    uint32_t samplers{32};
     uint32_t storage_images{128};
     uint32_t uniform_buffers{64};
     uint32_t storage_buffers{128};

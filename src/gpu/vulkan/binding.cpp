@@ -1,5 +1,6 @@
 #include "gpu/vulkan/device_impl.hpp"
 
+#include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 
@@ -45,39 +46,6 @@ const Device::Impl::PipelineRecord* find_pipeline(const Device::Impl& self, cons
     return self.graphics_pipelines.get(ref.graphics);
 }
 
-// The placed entries' resources must all exist before a set is written with
-// them: a stale handle would write a null descriptor the GPU then reads.
-Result<> check_resources(const Device::Impl& self, const PlacedSet& placed) {
-    for (const auto& entry : placed.entries) {
-        const BindResource& r = entry.resource;
-        bool present = true;
-        switch (r.kind) {
-            case BindingKind::sampled_texture:
-                present = self.textures.contains(r.view.texture) && self.samplers.contains(r.sampler);
-                break;
-            case BindingKind::texture:
-            case BindingKind::storage_texture:
-                present = self.textures.contains(r.view.texture);
-                break;
-            case BindingKind::sampler:
-                present = self.samplers.contains(r.sampler);
-                break;
-            case BindingKind::uniform_buffer:
-            case BindingKind::storage_buffer:
-                present = self.buffers.contains(r.buffer.buffer);
-                break;
-            case BindingKind::acceleration_structure:
-                return make_error("Binding " + std::to_string(entry.binding) +
-                                  ": acceleration structures are not bound through groups yet");
-        }
-        if (!present) {
-            return make_error("Binding " + std::to_string(entry.binding) + " of set " +
-                              std::to_string(placed.set) + " is given a resource that no longer exists");
-        }
-    }
-    return {};
-}
-
 } // namespace
 
 // ── Impl ────────────────────────────────────────────────────────────────
@@ -108,59 +76,110 @@ std::pair<VkDescriptorSet, VkDescriptorPool> Device::Impl::allocate_set(VkDescri
     return {VK_NULL_HANDLE, VK_NULL_HANDLE};
 }
 
-void Device::Impl::write_set(VkDescriptorSet set, const PlacedSet& placed) {
-    // Reserved up front: the writes point into these.
-    std::vector<VkDescriptorImageInfo> image_infos;
-    std::vector<VkDescriptorBufferInfo> buffer_infos;
-    image_infos.reserve(placed.entries.size());
-    buffer_infos.reserve(placed.entries.size());
-    std::vector<VkWriteDescriptorSet> writes;
-    writes.reserve(placed.entries.size());
-
+Result<> Device::Impl::check_resources(const PlacedSet& placed) {
     for (const auto& entry : placed.entries) {
         const BindResource& r = entry.resource;
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = set;
-        write.dstBinding = entry.binding;
-        write.dstArrayElement = entry.element;
-        write.descriptorCount = 1;
-        write.descriptorType = vulkan::to_vk(r.kind);
-
-        auto view_format = [&] {
-            const TextureRecord* texture = textures.get(r.view.texture);
-            return resolve(r.view, texture->info).format;
-        };
-        const VkSampler* sampler = samplers.get(r.sampler);
+        bool present = true;
         switch (r.kind) {
             case BindingKind::sampled_texture:
-                image_infos.push_back({*sampler, image_view(r.view), vulkan::sampled_layout(view_format())});
-                write.pImageInfo = &image_infos.back();
+                present = textures.contains(r.view.texture) && samplers.contains(r.sampler);
                 break;
             case BindingKind::texture:
-                image_infos.push_back({VK_NULL_HANDLE, image_view(r.view), vulkan::sampled_layout(view_format())});
-                write.pImageInfo = &image_infos.back();
+            case BindingKind::storage_texture:
+                present = textures.contains(r.view.texture);
                 break;
             case BindingKind::sampler:
-                image_infos.push_back({*sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED});
-                write.pImageInfo = &image_infos.back();
-                break;
-            case BindingKind::storage_texture:
-                image_infos.push_back({VK_NULL_HANDLE, image_view(r.view), VK_IMAGE_LAYOUT_GENERAL});
-                write.pImageInfo = &image_infos.back();
+                present = samplers.contains(r.sampler);
                 break;
             case BindingKind::uniform_buffer:
             case BindingKind::storage_buffer:
-                buffer_infos.push_back({buffers.get(r.buffer.buffer)->buffer, r.buffer.offset,
-                                        r.buffer.size == BufferRange::REST ? VK_WHOLE_SIZE : r.buffer.size});
-                write.pBufferInfo = &buffer_infos.back();
+                present = buffers.contains(r.buffer.buffer);
                 break;
             case BindingKind::acceleration_structure:
-                continue;
+                return make_error("Binding " + std::to_string(entry.binding) +
+                                  ": acceleration structures are not bound through groups yet");
+        }
+        if (!present) {
+            return make_error("Binding " + std::to_string(entry.binding) + " of set " +
+                              std::to_string(placed.set) + " is given a resource that no longer exists");
+        }
+    }
+    return {};
+}
+
+FrameCacheBinding Device::Impl::describe(const PlacedEntry& entry) {
+    const BindResource& r = entry.resource;
+    FrameCacheBinding described;
+    described.binding = entry.binding;
+    described.element = entry.element;
+    described.type = vulkan::to_vk(r.kind);
+
+    auto view_format = [&] { return resolve(r.view, textures.get(r.view.texture)->info).format; };
+    const VkSampler* sampler = samplers.get(r.sampler);
+    switch (r.kind) {
+        case BindingKind::sampled_texture:
+            described.image = {*sampler, image_view(r.view), vulkan::sampled_layout(view_format())};
+            break;
+        case BindingKind::texture:
+            described.image = {VK_NULL_HANDLE, image_view(r.view), vulkan::sampled_layout(view_format())};
+            break;
+        case BindingKind::sampler:
+            described.image = {*sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+            break;
+        case BindingKind::storage_texture:
+            described.image = {VK_NULL_HANDLE, image_view(r.view), VK_IMAGE_LAYOUT_GENERAL};
+            break;
+        case BindingKind::uniform_buffer:
+        case BindingKind::storage_buffer:
+            described.buffer = {buffers.get(r.buffer.buffer)->buffer, r.buffer.offset,
+                                r.buffer.size == BufferRange::REST ? VK_WHOLE_SIZE : r.buffer.size};
+            break;
+        case BindingKind::acceleration_structure:
+            break;
+    }
+    return described;
+}
+
+void Device::Impl::write_set(VkDescriptorSet set, const PlacedSet& placed) {
+    // Kept whole while the writes point into them.
+    std::vector<FrameCacheBinding> described;
+    described.reserve(placed.entries.size());
+    for (const auto& entry : placed.entries) described.push_back(describe(entry));
+
+    std::vector<VkWriteDescriptorSet> writes;
+    writes.reserve(described.size());
+    for (const FrameCacheBinding& binding : described) {
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = set;
+        write.dstBinding = binding.binding;
+        write.dstArrayElement = binding.element;
+        write.descriptorCount = 1;
+        write.descriptorType = binding.type;
+        if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
+            binding.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+            write.pBufferInfo = &binding.buffer;
+        } else {
+            write.pImageInfo = &binding.image;
         }
         writes.push_back(write);
     }
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
+std::string Device::Impl::shared_at(const PipelineRecord& pipeline, uint32_t set) {
+    for (const auto& [shared, taken] : pipeline.layout.shared_sets) {
+        if (taken == set) {
+            return "set " + std::to_string(set) + " is the shared '" +
+                   shared_layouts.get(shared)->desc.name + "', bound through the engine's shared group";
+        }
+    }
+    return {};
+}
+
+void Device::Impl::report_once(const std::string& message) {
+    std::lock_guard lock(reported_mutex);
+    if (reported.insert(message).second) FJELL_GFX_ERROR("{}", message);
 }
 
 // ── Device ──────────────────────────────────────────────────────────────
@@ -173,14 +192,10 @@ Result<Owned<BindGroup>> Device::create(const BindGroupDesc& desc) {
 
     auto placed = place(pipeline->shader_layout, desc.entries);
     if (!placed) return make_error(what + ": " + placed.error());
-    for (const auto& [shared, set] : pipeline->layout.shared_sets) {
-        if (set == placed->set) {
-            return make_error(what + ": set " + std::to_string(set) + " is the shared '" +
-                              self.shared_layouts.get(shared)->desc.name +
-                              "', bound through the engine's shared group");
-        }
+    if (const std::string shared = self.shared_at(*pipeline, placed->set); !shared.empty()) {
+        return make_error(what + ": " + shared);
     }
-    if (auto present = check_resources(self, *placed); !present) {
+    if (auto present = self.check_resources(*placed); !present) {
         return make_error(what + ": " + present.error());
     }
 
@@ -190,6 +205,7 @@ Result<Owned<BindGroup>> Device::create(const BindGroupDesc& desc) {
     if (record.set == VK_NULL_HANDLE) return make_error(what + ": no descriptor set could be allocated");
     self.write_set(record.set, *placed);
     record.bindings = bindings_of(pipeline->shader_layout, placed->set);
+    record.set_index = placed->set;
     vulkan::name_object(self.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(record.set),
                         desc.name);
     return Owned<BindGroup>(*this, self.groups.emplace(std::move(record)));
@@ -204,7 +220,7 @@ Result<> Device::update(BindGroup group, std::span<const BindEntry> entries) {
     }
     auto placed = place(record->bindings, entries);
     if (!placed) return std::unexpected(placed.error());
-    if (auto present = check_resources(self, *placed); !present) return present;
+    if (auto present = self.check_resources(*placed); !present) return present;
 
     const auto [set, pool] = self.allocate_set(record->layout);
     if (set == VK_NULL_HANDLE) return make_error("No descriptor set could be allocated for the update");

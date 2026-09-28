@@ -1,6 +1,8 @@
 #pragma once
 
+#include "gpu/command_list.hpp"
 #include "gpu/device.hpp"
+#include "gpu/vulkan/command_list_impl.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <vulkan/vulkan.h>
@@ -78,5 +80,23 @@ void begin_frame(Device& device, uint32_t frame_slot);
 /// The device's one-frame descriptor sets, for passes that acquire their own.
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
 [[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);
+
+/// A command list recording into a command buffer that code still hands
+/// around: what it records lands in order with what is recorded into `cb`
+/// directly. Each starts with nothing bound.
+class CommandBufferList {
+public:
+    CommandBufferList(Device& device, VkCommandBuffer cb) noexcept
+        : impl_{.cb = cb}, list_(device, impl_) {}
+
+    CommandBufferList(const CommandBufferList&) = delete;
+    CommandBufferList& operator=(const CommandBufferList&) = delete;
+
+    [[nodiscard]] CommandList& list() noexcept { return list_; }
+
+private:
+    CommandList::Impl impl_;
+    CommandList list_;
+};
 
 } // namespace fjell::gpu::vulkan
