@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -27,11 +28,9 @@ class PassBuilder;
 class ThreadPool;
 class ThreadCommandPools;
 
-// How a pass uses an image
-// Subresource range tracked by the frame graph. A subrange of an image
-// with its own layout / last access state.
+// Subresource range tracked by the frame graph: a part of an image with a
+// state of its own. A count of gpu::TextureView::REST reaches to the last.
 struct SubresourceRange {
-    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
     uint32_t base_mip{0};
     uint32_t mip_count{1};
     uint32_t base_layer{0};
@@ -69,10 +68,10 @@ struct ImageSlice {
 // that passes touching specific mips or array layers don't invalidate
 // the rest of the image.
 struct TrackedImage {
+    /// Invalid for a transient until the pool backs it.
     gpu::Texture texture{};
-    /// The texture's VkImage, which the barriers name.
-    VkImage image{VK_NULL_HANDLE};
-    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
+    /// Whether it holds depth, which decides the states some accesses need.
+    bool depth{false};
     uint32_t mip_count{1};
     uint32_t array_layers{1};
     uint32_t base_layer{0};
@@ -115,9 +114,7 @@ struct ImageKeyHash {
 // Buffer tracked by the frame graph, as a whole: no pass declares part of
 // one.
 struct TrackedBuffer {
-    gpu::Buffer shared{};
-    /// The buffer's VkBuffer, which the barriers name.
-    VkBuffer buffer{VK_NULL_HANDLE};
+    gpu::Buffer buffer{};
     bool persistent{false};
     AccessState state;
     /// The name it was declared under; kept only while the barrier trace
@@ -187,6 +184,28 @@ struct AliasGroup {
     uint32_t last_free_pass{0};           // highest last_pass among members; used during packing
 };
 
+// What the graph needs to know of a texture it is handed.
+struct TextureShape {
+    uint32_t mips{1};
+    uint32_t layers{1};
+    bool depth{false};
+};
+
+// What the graph needs from outside itself for a run: the shape of a texture
+// it is handed, where the transitions it works out are recorded, and how a
+// state reads in its traces. The engine's comes from the GPU device; a test
+// makes its own, which is what lets it run the graph without a GPU.
+struct GraphHost {
+    std::function<TextureShape(gpu::Texture)> shape;
+    /// Records `transitions` into `cmd` on `queue`, and describes each
+    /// barrier they became as a line in `trace` when that is not null.
+    std::function<void(VkCommandBuffer cmd, gpu::Queue queue,
+                       std::span<const gpu::Transition> transitions, std::string* trace)>
+        record;
+    /// A state as the traces name it (on Vulkan, its layout).
+    std::function<std::string(gpu::AccessSet state, bool depth)> state_name;
+};
+
 // Tracks image layouts across the passes of one pipeline run and inserts
 // the barriers between them. Not a dependency graph — pass order is decided
 // by RenderPipeline, the graph handles transitions.
@@ -220,8 +239,13 @@ public:
     void new_frame();
 
     // Once per run: drop the previous run's passes and images. The
-    // remembered layouts survive. The run's textures are the device's.
+    // remembered layouts survive. The run's textures and buffers are the
+    // device's, and its transitions are recorded through it.
     void begin_frame(gpu::Device& device);
+
+    // begin_frame() with `host` in the device's place, which must outlive
+    // the run.
+    void begin_frame(const GraphHost& host);
 
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
     /// RenderPass::declare() or a pass's build()) plus the record
@@ -321,6 +345,10 @@ private:
     // The GPU interface's name for the queue a pass records on.
     [[nodiscard]] static gpu::Queue gpu_queue(QueueType queue);
 
+    // The host a run on `device` works with: shapes from what the device
+    // made or was handed, transitions recorded through its command lists.
+    [[nodiscard]] static GraphHost device_host(gpu::Device& device);
+
     // `range` of `img` as a view of its texture.
     [[nodiscard]] static gpu::TextureView image_range(const TrackedImage& img,
                                                       const SubresourceRange& range);
@@ -389,7 +417,11 @@ private:
     // is emitted for one already there.
     void return_to_rest(VkCommandBuffer cmd, const PassDecl& pass);
 
-    gpu::Device* device_{nullptr};
+    // The run's host, and the one made for the device begin_frame() was
+    // last handed.
+    const GraphHost* host_{nullptr};
+    GraphHost device_host_;
+    gpu::Device* device_host_for_{nullptr};
     std::vector<TrackedImage> images_;
     std::vector<TrackedBuffer> buffers_;
     std::vector<PassDecl> passes_;

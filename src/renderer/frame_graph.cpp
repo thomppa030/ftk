@@ -56,13 +56,13 @@ struct BarrierTrace {
 }
 
 // Clamp an externally-specified range against the image's actual
-// dimensions. VK_REMAINING_* expands to "whole image from base_*".
+// dimensions. A count of REST reaches to the last mip or layer.
 SubresourceRange clamp_range(const TrackedImage& img, SubresourceRange r) {
-    if (r.aspect == 0) { r.aspect = img.aspect; }
-    if (r.mip_count == VK_REMAINING_MIP_LEVELS || r.base_mip + r.mip_count > img.mip_count) {
+    constexpr uint32_t REST = gpu::TextureView::REST;
+    if (r.mip_count == REST || r.base_mip + r.mip_count > img.mip_count) {
         r.mip_count = (r.base_mip < img.mip_count) ? img.mip_count - r.base_mip : 0;
     }
-    if (r.layer_count == VK_REMAINING_ARRAY_LAYERS || r.base_layer + r.layer_count > img.array_layers) {
+    if (r.layer_count == REST || r.base_layer + r.layer_count > img.array_layers) {
         r.layer_count = (r.base_layer < img.array_layers) ? img.array_layers - r.base_layer : 0;
     }
     return r;
@@ -89,16 +89,20 @@ bool range_contains(const SubresourceRange& outer, const SubresourceRange& inner
 uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persistent,
                                      std::string_view name, gpu::AccessSet resting,
                                      bool unwritten) {
-    const gpu::ResolvedView tracked = gpu::resolve(view, device_->info(view.texture));
-    const uint32_t base_layer = tracked.base_layer;
-    const uint32_t layer_count = tracked.layer_count;
-    const uint32_t mip_count = tracked.base_mip + tracked.mip_count;
+    constexpr uint32_t REST = gpu::TextureView::REST;
+    const TextureShape shape = host_->shape(view.texture);
+    const uint32_t base_layer = view.base_layer;
+    const uint32_t layer_count =
+        view.layer_count == REST ? shape.layers - base_layer : view.layer_count;
+    const uint32_t mip_count =
+        view.base_mip + (view.mip_count == REST ? shape.mips - view.base_mip : view.mip_count);
+    const bool keep_names = tracing_ || layout_trace_enabled();
     const ImageKey key{view.texture, base_layer, layer_count};
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
         existing.persistent = existing.persistent || persistent;
         if (existing.resting.empty()) { existing.resting = resting; }
-        if (tracing_ && existing.name.empty()) { existing.name = name; }
+        if (keep_names && existing.name.empty()) { existing.name = name; }
         if (mip_count > existing.mip_count) {
             // An earlier importer undersized the mip count; widen the
             // tracked range to what the image really has.
@@ -110,13 +114,11 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
         return it->second;
     }
 
-    const VkImage image = gpu::vulkan::native_image(*device_, view.texture);
-    const VkImageAspectFlags aspect = gpu::vulkan::native_aspect(*device_, view.texture);
+    const bool depth = shape.depth;
     uint32_t id = static_cast<uint32_t>(images_.size());
     TrackedImage img{};
     img.texture = view.texture;
-    img.image = image;
-    img.aspect = aspect;
+    img.depth = depth;
     img.mip_count = mip_count;
     img.array_layers = layer_count;
     img.base_layer = base_layer;
@@ -124,10 +126,13 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
     img.resting = resting;
     // Without a memory of it, it starts at rest once something has written
     // it; else nothing it holds is known.
-    const bool depth = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
     gpu::AccessSet start{};
     if (!resting.empty()) {
-        if (gpu::vulkan::image_scope(resting, depth).has_value()) {
+        bool one_state = true;
+        resting.for_each([&](gpu::Access access) {
+            one_state = one_state && gpu::same_state(access, resting, depth);
+        });
+        if (one_state) {
             if (!unwritten) { start = resting; }
         } else {
             FJELL_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
@@ -154,7 +159,6 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
     }
     if (!seeded) {
         ImageSlice slice{};
-        slice.range.aspect = aspect;
         slice.range.base_mip = 0;
         slice.range.mip_count = mip_count;
         slice.range.base_layer = base_layer;
@@ -162,12 +166,11 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
         slice.in = start;
         img.slices.push_back(slice);
     }
-    if (tracing_) { img.name = name; }
-    if (layout_trace_enabled() && image != VK_NULL_HANDLE) {
-        FJELL_GFX_INFO("[layout] register img=0x{:x} '{}' layers={}+{} mips={} start={}{}",
-                       reinterpret_cast<uintptr_t>(image), name, base_layer, layer_count,
-                       mip_count,
-                       gpu::vulkan::layout_name(gpu::vulkan::merged_image_scope(img.slices.front().in, depth).layout),
+    if (keep_names) { img.name = name; }
+    if (layout_trace_enabled()) {
+        FJELL_GFX_INFO("[layout] register texture {} '{}' layers={}+{} mips={} start={}{}",
+                       view.texture.id, name, base_layer, layer_count, mip_count,
+                       host_->state_name(img.slices.front().in, depth),
                        seeded ? " (remembered)" : "");
     }
 
@@ -183,10 +186,9 @@ uint32_t FrameGraph::register_buffer(gpu::Buffer buffer, bool persistent, std::s
     }
     const auto id = static_cast<uint32_t>(buffers_.size());
     TrackedBuffer buf{};
-    buf.shared = buffer;
-    buf.buffer = gpu::vulkan::native_buffer(*device_, buffer);
+    buf.buffer = buffer;
     buf.persistent = persistent;
-    if (tracing_) { buf.name = name; }
+    if (tracing_ || layout_trace_enabled()) { buf.name = name; }
     if (auto remembered = remembered_buffers_.find(buffer);
         remembered != remembered_buffers_.end()) {
         buf.state = remembered->second.state;
@@ -211,7 +213,15 @@ void FrameGraph::new_frame() {
 }
 
 void FrameGraph::begin_frame(gpu::Device& device) {
-    device_ = &device;
+    if (device_host_for_ != &device) {
+        device_host_ = device_host(device);
+        device_host_for_ = &device;
+    }
+    begin_frame(device_host_);
+}
+
+void FrameGraph::begin_frame(const GraphHost& host) {
+    host_ = &host;
     const BarrierTrace* trace = barrier_trace();
     tracing_ = trace != nullptr && frame_serial_ >= trace->first_frame &&
                frame_serial_ < trace->first_frame + trace->frames;
@@ -236,7 +246,7 @@ void FrameGraph::remember_states() {
         state.seen = frame_serial_;
     }
     for (const auto& buf : buffers_) {
-        auto& state = remembered_buffers_[buf.shared];
+        auto& state = remembered_buffers_[buf.buffer];
         state.state = buf.state;
         state.seen = frame_serial_;
     }
@@ -247,7 +257,6 @@ void FrameGraph::bind_virtual_image(uint32_t image_id, gpu::Texture texture) {
     auto& img = images_[image_id];
     if (!img.virtual_resource) { return; }
     img.texture = texture;
-    img.image = gpu::vulkan::native_image(*device_, texture);
 }
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
@@ -289,8 +298,8 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     // Register created textures as virtual resources. Virtual resources
     // are deduped by name across passes so a transient written by one
     // pass and read by another (both call create() with the same name +
-    // desc) resolves to the same TrackedImage. VK_NULL_HANDLE image +
-    // one initial slice covering the whole surface so carve_slices
+    // desc) resolves to the same TrackedImage. No texture until the pool
+    // backs it, and one initial slice covering the whole surface so carve_slices
     // behaves normally during any stray range queries. A transient always
     // starts at UNDEFINED: its contents are dead between runs, and the
     // pool may back two of them with one image inside a run.
@@ -301,8 +310,8 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         }
 
         TrackedImage img{};
-        img.image = VK_NULL_HANDLE;
-        img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        img.depth = gpu::kind(cre.desc.format) == gpu::FormatKind::depth ||
+                    gpu::kind(cre.desc.format) == gpu::FormatKind::depth_stencil;
         img.mip_count = cre.desc.mip_levels;
         img.array_layers = cre.desc.array_layers;
         img.base_layer = 0;
@@ -312,7 +321,6 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         img.name = cre.name;
         img.name_hash = cre.name_hash;
         ImageSlice slice{};
-        slice.range.aspect = img.aspect;
         slice.range.base_mip = 0;
         slice.range.mip_count = img.mip_count;
         slice.range.base_layer = 0;
@@ -377,7 +385,6 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         // every access covers the whole image. Per-subresource reads
         // (Hi-Z mip-level reads, per-cascade shadow reads) arrive when
         // PassBuilder::read gains a range overload.
-        out.range.aspect = images_[image_id].aspect;
         out.range.base_mip = 0;
         out.range.mip_count = images_[image_id].mip_count;
         out.range.base_layer = images_[image_id].base_layer;
@@ -392,7 +399,6 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (image_id == UINT32_MAX) { continue; }
         FinalState out{};
         out.image_id = image_id;
-        out.range.aspect = images_[image_id].aspect;
         out.range.base_mip = 0;
         out.range.mip_count = images_[image_id].mip_count;
         out.range.base_layer = images_[image_id].base_layer;
@@ -628,6 +634,28 @@ void FrameGraph::log_queue_segments() const {
                    segment_index + 1, total_compute_passes);
 }
 
+GraphHost FrameGraph::device_host(gpu::Device& device) {
+    GraphHost host;
+    host.shape = [&device](gpu::Texture texture) {
+        const gpu::TextureInfo& info = device.info(texture);
+        const VkImageAspectFlags aspect = gpu::vulkan::native_aspect(device, texture);
+        return TextureShape{.mips = info.mips,
+                            .layers = info.layers,
+                            .depth = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0};
+    };
+    host.record = [&device](VkCommandBuffer cmd, gpu::Queue queue,
+                            std::span<const gpu::Transition> transitions, std::string* trace) {
+        gpu::vulkan::CommandBufferList commands(device, cmd, queue);
+        gpu::vulkan::trace_transitions(device, trace);
+        commands.list().transition(transitions);
+        gpu::vulkan::trace_transitions(device, nullptr);
+    };
+    host.state_name = [](gpu::AccessSet state, bool depth) {
+        return gpu::vulkan::layout_name(gpu::vulkan::merged_image_scope(state, depth).layout);
+    };
+    return host;
+}
+
 gpu::Queue FrameGraph::gpu_queue(QueueType queue) {
     return queue == QueueType::async_compute ? gpu::Queue::compute : gpu::Queue::graphics;
 }
@@ -705,7 +733,6 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
                 const auto& a = img.slices[i];
                 const auto& b = img.slices[j];
                 if (a.in != b.in || !(a.state == b.state)) { continue; }
-                if (a.range.aspect != b.range.aspect) { continue; }
                 // Horizontal merge (same layer range, adjacent mips)
                 if (a.range.base_layer == b.range.base_layer
                     && a.range.layer_count == b.range.layer_count
@@ -750,8 +777,7 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
 void FrameGraph::append_barrier_for_slice(const TrackedImage& img, ImageSlice& slice,
                                           gpu::AccessSet accesses, bool write, QueueType queue) {
     AccessState& s = slice.state;
-    const bool depth = (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
-    const bool layout_change = !gpu::same_state(slice.in, accesses, depth);
+    const bool layout_change = !gpu::same_state(slice.in, accesses, img.depth);
     const gpu::AccessSet writes = s.written_by | s.changed_for;
 
     // The same rule as for buffers, plus the layout. A layout change or a
@@ -771,7 +797,7 @@ void FrameGraph::append_barrier_for_slice(const TrackedImage& img, ImageSlice& s
         t.wait_for = writes | s.read_by;
         needed = layout_change || !t.wait_for.empty();
     } else if (!writes.empty() &&
-               !gpu::texture_already_visible(s.visible_to, accesses, depth, gpu_queue(queue))) {
+               !gpu::texture_already_visible(s.visible_to, accesses, img.depth, gpu_queue(queue))) {
         t.wait_for = writes;
         // Widen to everything made visible before, so the one state kept
         // covers every reader so far.
@@ -805,7 +831,7 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
     // to make available). A read waits for the last write unless an earlier
     // transition already made it visible to this access.
     gpu::Transition t{
-        .buffer = buf.shared,
+        .buffer = buf.buffer,
         .flush = s.written_by,
         .visible_to = use.access,
         .name = buf.name,
@@ -849,7 +875,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         // (bound via bind_virtual_image) after compute_alias_groups runs.
         // If the pool didn't hand out a VkImage this frame, there's nothing
         // to barrier.
-        if (img.image == VK_NULL_HANDLE) { continue; }
+        if (!img.texture.valid()) { continue; }
 
         const bool is_write = gpu::access_is_write(acc.access);
 
@@ -908,18 +934,15 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
     const bool trace = layout_trace_enabled();
     for (const auto& fs : pass.final_states) {
         auto& img = images_[fs.image_id];
-        if (img.image == VK_NULL_HANDLE) { continue; }
-        const VkImageLayout left_layout =
-            gpu::vulkan::merged_image_scope(fs.left_as, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
-                .layout;
-        if (trace) {
-            FJELL_GFX_INFO("[layout] leaves pass='{}' img=0x{:x} -> {}",
-                           pass.name, reinterpret_cast<uintptr_t>(img.image),
-                           gpu::vulkan::layout_name(left_layout));
-        }
-        if (tracing_) {
-            barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name,
-                                                 gpu::vulkan::layout_name(left_layout));
+        if (!img.texture.valid()) { continue; }
+        if (trace || tracing_) {
+            const std::string left = host_->state_name(fs.left_as, img.depth);
+            if (trace) {
+                FJELL_GFX_INFO("[layout] leaves pass='{}' '{}' -> {}", pass.name, img.name, left);
+            }
+            if (tracing_) {
+                barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name, left);
+            }
         }
         carve_slices(img, fs.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
@@ -941,9 +964,8 @@ void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
     transitions_scratch_.clear();
     for (const auto& use : pass.image_uses) {
         auto& img = images_[use.image_id];
-        if (img.resting.empty() || img.image == VK_NULL_HANDLE) { continue; }
-        const SubresourceRange whole{img.aspect, 0, img.mip_count, img.base_layer,
-                                     img.array_layers};
+        if (img.resting.empty() || !img.texture.valid()) { continue; }
+        const SubresourceRange whole{0, img.mip_count, img.base_layer, img.array_layers};
         carve_slices(img, whole, indices_scratch_);
         for (size_t idx : indices_scratch_) {
             append_barrier_for_slice(img, img.slices[idx], img.resting, false, pass.queue);
@@ -959,10 +981,7 @@ void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
 
 void FrameGraph::record_transitions(VkCommandBuffer cmd, QueueType queue) {
     if (transitions_scratch_.empty()) { return; }
-    gpu::vulkan::CommandBufferList commands(*device_, cmd, gpu_queue(queue));
-    gpu::vulkan::trace_transitions(*device_, tracing_ ? &trace_pending_ : nullptr);
-    commands.list().transition(transitions_scratch_);
-    gpu::vulkan::trace_transitions(*device_, nullptr);
+    host_->record(cmd, gpu_queue(queue), transitions_scratch_, tracing_ ? &trace_pending_ : nullptr);
 }
 
 gpu::TextureView FrameGraph::image_range(const TrackedImage& img, const SubresourceRange& range) {
