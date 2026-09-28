@@ -142,7 +142,7 @@ private:
     /// so two passes naming the same transient resolve to the same key.
     struct ResKey {
         gpu::Texture texture{};
-        VkBuffer buffer{VK_NULL_HANDLE};
+        gpu::Buffer buffer{};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
         uint64_t virtual_name_hash{0};  // non-zero iff neither texture nor buffer
@@ -154,7 +154,7 @@ private:
             auto h2 = std::hash<uint32_t>{}(k.base_layer);
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
             auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
-            auto h5 = std::hash<void*>{}(static_cast<void*>(k.buffer));
+            auto h5 = std::hash<uint32_t>{}(k.buffer.id);
             return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
         }
     };

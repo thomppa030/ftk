@@ -398,7 +398,7 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {
         builder.read(builder.import("subsystem_draw_input", input.buffer.buffer,
-                                    input.buffer.size, input.buffer.persistent),
+                                    input.buffer.persistent),
                      input.draw_access);
     }
 }

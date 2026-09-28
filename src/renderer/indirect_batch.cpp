@@ -14,8 +14,9 @@
 
 namespace fjell {
 
-IndirectBatch::IndirectBatch(VkDevice device, VmaAllocator allocator)
-    : device_{device}
+IndirectBatch::IndirectBatch(gpu::Device& gpu, VkDevice device, VmaAllocator allocator)
+    : gpu_{gpu}
+    , device_{device}
     , allocator_{allocator} {
 }
 
@@ -41,6 +42,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     indirect_buffers_[frame_index]->map();
+    indirect_buffers_[frame_index]->share(gpu_);
 
     retire(frame_index, std::move(draw_data_buffers_[frame_index]));
     draw_data_buffers_[frame_index] = std::make_unique<Buffer>(
@@ -106,6 +108,7 @@ void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t coun
         new_cap * sizeof(glm::mat4),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_AUTO);
+    visible_instance_buffers_[frame_index]->share(gpu_);
 
     instance_transform_capacities_[frame_index] = new_cap;
 }

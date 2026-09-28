@@ -393,7 +393,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         return {};
     };
 
-    // Buffer keys: imported buffers identify by VkBuffer handle (offset/range
+    // Buffer keys: imported buffers identify by their handle (offset/range
     // is sub-resource detail the graph doesn't model yet — coarse buffer
     // identity is enough for producer/consumer edges). Created (transient)
     // buffers key on FNV-1a hash of name, mirroring the texture path.
@@ -412,7 +412,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     };
 
     auto key_valid = [](const ResKey& k) {
-        return k.texture.valid() || k.buffer != VK_NULL_HANDLE || k.virtual_name_hash != 0;
+        return k.texture.valid() || k.buffer.valid() || k.virtual_name_hash != 0;
     };
 
     auto& dag_order = dag_order_;

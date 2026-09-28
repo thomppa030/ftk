@@ -28,6 +28,7 @@ namespace fjell {
 
 Result<> MeshletInstancePass::create(Device& device, const PassResources& resources) {
     draw_data_set_layout_ = resources.draw_data_layout;
+    gpu_device_ = resources.device;
     create(device.handle(), resources.allocator,
            resources.global_set_layout, resources.pipeline_cache);
     return {};
@@ -296,6 +297,12 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
         allocator_, sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_AUTO);
+
+    // The frame graph tracks every one of them.
+    for (auto* buffers : {&instance_buffers_, &visible_buffers_, &expand_counters_,
+                          &indirect_buffers_, &culled_buffers_, &culled_counters_}) {
+        (*buffers)[frame_index]->share(*gpu_device_);
+    }
 
     capacities_[frame_index] = new_cap;
 }
@@ -568,8 +575,7 @@ void MeshletInstancePass::collect_exports(DeclareContext& ctx) {
     const uint32_t slot = ctx.frame_index;
     auto add = [&](std::string_view name, const std::unique_ptr<Buffer>& buffer) {
         if (!buffer) { return; }
-        ctx.buffer_imports.emplace(fg_name_hash(name),
-                                   BufferImport{buffer->handle(), buffer->size(), false});
+        ctx.buffer_imports.emplace(fg_name_hash(name), BufferImport{.buffer = buffer->shared()});
     };
     add("meshlet_visible", visible_buffers_[slot]);
     add("meshlet_indirect", indirect_buffers_[slot]);
@@ -588,11 +594,9 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
     // zeroed by a transfer before the dispatch counts into them.
     const uint32_t slot = ctx.frame_index;
     if (instance_buffers_[slot] && expand_counters_[slot]) {
-        auto instances = builder.import("meshlet_instances", instance_buffers_[slot]->handle(),
-                                        instance_buffers_[slot]->size());
+        auto instances = builder.import("meshlet_instances", instance_buffers_[slot]->shared());
         builder.read_write(instances, gpu::Access::storage_buffer_read_write_compute);
-        auto count = builder.import("meshlet_expand_count", expand_counters_[slot]->handle(),
-                                    expand_counters_[slot]->size());
+        auto count = builder.import("meshlet_expand_count", expand_counters_[slot]->shared());
         builder.write(count, gpu::Access::copy_dst);
         builder.read_write(count, gpu::Access::storage_buffer_read_write_compute);
     }

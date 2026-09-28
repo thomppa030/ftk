@@ -200,6 +200,7 @@ private:
     [[nodiscard]] uint32_t particle_extent() const;
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     DeferredDeleter* deleter_{nullptr}; // retires replaced buffers instead of

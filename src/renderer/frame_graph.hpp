@@ -1,6 +1,8 @@
 #pragma once
 
+#include "core/handle.hpp"
 #include "gpu/access.hpp"
+#include "gpu/buffer.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
 
@@ -111,6 +113,8 @@ struct ImageKeyHash {
 // Buffer tracked by the frame graph, as a whole: no pass declares part of
 // one.
 struct TrackedBuffer {
+    gpu::Buffer shared{};
+    /// The buffer's VkBuffer, which the barriers name.
     VkBuffer buffer{VK_NULL_HANDLE};
     bool persistent{false};
     AccessState state;
@@ -205,7 +209,7 @@ public:
     // Register a buffer to track and return its id; the same buffer again
     // in one run returns the existing id. A new entry starts from what the
     // graph remembers of the buffer, else with no write to wait for.
-    uint32_t register_buffer(VkBuffer buffer, bool persistent = false,
+    uint32_t register_buffer(gpu::Buffer buffer, bool persistent = false,
                              std::string_view name = {});
 
     // Once per frame, before any run: forget the state of images and
@@ -396,7 +400,7 @@ private:
     std::unordered_map<ImageKey, uint32_t, ImageKeyHash> image_index_;
     std::unordered_map<uint64_t, uint32_t> virtual_index_;
 
-    std::unordered_map<VkBuffer, uint32_t> buffer_index_;
+    std::unordered_map<gpu::Buffer, uint32_t, HandleHash> buffer_index_;
 
     /// Whether this run is in the barrier trace's window
     /// (FJELL_LOG_BARRIERS), and which run of the frame it is.
@@ -407,7 +411,7 @@ private:
     std::string trace_pending_;
 
     std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
-    std::unordered_map<VkBuffer, RememberedBuffer> remembered_buffers_;
+    std::unordered_map<gpu::Buffer, RememberedBuffer, HandleHash> remembered_buffers_;
     uint64_t frame_serial_{0};
 
     // Reusable scratch, so a run allocates nothing on its hot path.

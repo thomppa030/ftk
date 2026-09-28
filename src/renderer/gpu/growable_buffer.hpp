@@ -52,6 +52,15 @@ public:
     }
     [[nodiscard]] VkDeviceSize capacity() const { return capacity_; }
 
+    /// Hands the buffer to the GPU interface's device, as `Buffer::share`
+    /// does; a growth that replaces the buffer hands on the new one.
+    void share(gpu::Device& device);
+
+    /// The buffer as the GPU interface knows it; invalid until shared.
+    [[nodiscard]] gpu::Buffer shared() const {
+        return sparse_buffer_ != VK_NULL_HANDLE ? sparse_shared_.get() : fallback_->shared();
+    }
+
     /// Bumps every time the handle changed (fallback growth only — stays 0
     /// in sparse mode). Consumers that baked the device address stamp this
     /// and rebuild when it moves.
@@ -80,6 +89,9 @@ private:
 
     // Fallback mode
     std::unique_ptr<Buffer> fallback_;
+
+    gpu::Device* shared_with_{nullptr};
+    gpu::Owned<gpu::Buffer> sparse_shared_;
 };
 
 } // namespace fjell

@@ -110,19 +110,18 @@ void InstanceCullPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) 
         || ctx.indirect_batch->instanced_draw_count(ctx.frame_index) == 0) {
         return;
     }
-    transforms_ = {ctx.indirect_batch->visible_instance_buffer(ctx.frame_index),
-                   ctx.indirect_batch->visible_instance_size(ctx.frame_index), false};
-    commands_ = {ctx.indirect_batch->indirect_buffer(ctx.frame_index), 0, false};
+    transforms_ = {.buffer = ctx.indirect_batch->shared_visible_instance_buffer(ctx.frame_index)};
+    commands_ = {.buffer = ctx.indirect_batch->shared_indirect_buffer(ctx.frame_index)};
 }
 
 void InstanceCullPass::collect_exports(DeclareContext& ctx) {
     // What the vertex path draws instanced geometry from: the transforms
     // that survived the cull, and the commands whose instance counts say
     // how many did.
-    if (transforms_.buffer != VK_NULL_HANDLE) {
+    if (transforms_.buffer.valid()) {
         ctx.buffer_imports.emplace(fg_name_hash("instance_transforms"), transforms_);
     }
-    if (commands_.buffer != VK_NULL_HANDLE) {
+    if (commands_.buffer.valid()) {
         ctx.buffer_imports.emplace(fg_name_hash("batch_indirect"), commands_);
     }
 }

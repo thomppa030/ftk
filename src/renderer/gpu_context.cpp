@@ -253,6 +253,7 @@ void GpuContext::create_descriptor_resources() {
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO, 0, 0,
             std::span<const uint32_t>{families, family_count});
+        tile_light_ssbo_[i]->share(core_.gpu_device());
 
         // Fog volume SSBO (host-visible for CPU upload)
         fog_volume_ssbo_[i] = std::make_unique<Buffer>(

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -41,6 +43,14 @@ public:
     void write(const void* data, VkDeviceSize size);
 
     [[nodiscard]] VkBuffer handle() const { return buffer_; }
+
+    /// Hands the buffer to the GPU interface's device, which knows it by
+    /// `shared()` from then on, for as long as this buffer lives: how a
+    /// buffer made before the interface reaches the frame graph.
+    void share(gpu::Device& device);
+
+    /// The buffer as the GPU interface knows it; invalid until shared.
+    [[nodiscard]] gpu::Buffer shared() const { return shared_; }
     [[nodiscard]] VkDeviceSize size() const { return size_; }
     [[nodiscard]] void* mapped() const { return mapped_; }
     [[nodiscard]] VmaAllocation allocation() const { return allocation_; }
@@ -52,6 +62,7 @@ private:
     VmaAllocation allocation_{VK_NULL_HANDLE};
     VkDeviceSize size_{0};
     void* mapped_{nullptr};
+    gpu::Owned<gpu::Buffer> shared_;
 };
 
 } // namespace fjell

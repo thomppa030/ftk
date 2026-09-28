@@ -57,6 +57,7 @@ constexpr uint32_t MAX_SUB_EVENTS_PER_EMITTER = 256;
 
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
@@ -112,6 +113,11 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         device, allocator_, upload, deleter,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_alive");
+
+    // The frame graph tracks the ones the draws read.
+    mega_particle_buffer_->share(*gpu_device_);
+    mega_indirect_buffer_->share(*gpu_device_);
+    mega_alive_buffer_->share(*gpu_device_);
 
     // ── Compute descriptor set layout ──
     // 0=particles, 1=counters, 3=emitter_data, 4=indirect, 5=modules
@@ -791,6 +797,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     if (mesh_instance_buffer_) deleter_->retire(std::move(mesh_instance_buffer_));
     mesh_instance_buffer_ = std::make_unique<Buffer>(
         allocator_, instance_size, STORAGE_FLAGS, VMA_MEMORY_USAGE_AUTO);
+    mesh_instance_buffer_->share(*gpu_device_);
 
     VkDeviceSize instance_count_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t);
     if (instance_count_size == 0) instance_count_size = sizeof(uint32_t);
@@ -807,6 +814,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         allocator_, mesh_indirect_size,
         STORAGE_FLAGS | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_AUTO);
+    mesh_indirect_buffer_->share(*gpu_device_);
 
     // Allocate mesh compute descriptor sets
     if (mesh_compute_set_layout_ != VK_NULL_HANDLE) {
@@ -966,36 +974,29 @@ void ParticleSystem::record_compute(const FrameContext& ctx) {
 }
 
 void ParticleSystem::collect_exports(DeclareContext& ctx) const {
-    auto add = [&](const VkBuffer buffer, VkDeviceSize size, bool persistent,
-                   gpu::Access draw_access) {
-        if (buffer == VK_NULL_HANDLE) { return; }
-        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, size, persistent}, draw_access});
+    auto add = [&](gpu::Buffer buffer, bool persistent, gpu::Access draw_access) {
+        if (!buffer.valid()) { return; }
+        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, persistent}, draw_access});
     };
     // The particles themselves carry into the next frame; the alive lists,
     // commands and mesh instances are rebuilt from them every frame.
     if (mega_particle_buffer_) {
-        add(mega_particle_buffer_->handle(), mega_particle_buffer_->capacity(), true,
-            gpu::Access::storage_buffer_read_vertex);
+        add(mega_particle_buffer_->shared(), true, gpu::Access::storage_buffer_read_vertex);
         // The ray-traced GI builds its particle instances from these.
         ctx.buffer_imports.emplace(fg_name_hash("particle_state"),
-                                   BufferImport{mega_particle_buffer_->handle(),
-                                                mega_particle_buffer_->capacity(), true});
+                                   BufferImport{mega_particle_buffer_->shared(), true});
     }
     if (mega_alive_buffer_) {
-        add(mega_alive_buffer_->handle(), mega_alive_buffer_->capacity(), false,
-            gpu::Access::storage_buffer_read_vertex);
+        add(mega_alive_buffer_->shared(), false, gpu::Access::storage_buffer_read_vertex);
     }
     if (mega_indirect_buffer_) {
-        add(mega_indirect_buffer_->handle(), mega_indirect_buffer_->capacity(), false,
-            gpu::Access::indirect_read);
+        add(mega_indirect_buffer_->shared(), false, gpu::Access::indirect_read);
     }
     if (mesh_instance_buffer_) {
-        add(mesh_instance_buffer_->handle(), mesh_instance_buffer_->size(), false,
-            gpu::Access::storage_buffer_read_vertex);
+        add(mesh_instance_buffer_->shared(), false, gpu::Access::storage_buffer_read_vertex);
     }
     if (mesh_indirect_buffer_) {
-        add(mesh_indirect_buffer_->handle(), mesh_indirect_buffer_->size(), false,
-            gpu::Access::indirect_read);
+        add(mesh_indirect_buffer_->shared(), false, gpu::Access::indirect_read);
     }
 }
 

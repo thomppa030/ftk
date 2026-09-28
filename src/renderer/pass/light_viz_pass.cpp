@@ -1,4 +1,5 @@
 #include "renderer/pass/light_viz_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -277,14 +278,15 @@ void LightVizPass::invalidate_imgui_texture() {
 
 void LightVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
-    if (tile_buffer_ == VK_NULL_HANDLE) return;
+    if (!tile_buffer_.valid()) return;
 
     FJELL_PROFILE_SCOPE_N("record_viz_light_viz");
     FJELL_GPU_ZONE(ctx, "Viz: Light");
 
     // Update descriptor: point at the tile light SSBO
     vk_utils::write_buffer_descriptor(device_, tile_sets_[ctx.frame_index], 0,
-                                      tile_buffer_, tile_buffer_size_);
+                                      gpu::vulkan::native_buffer(*ctx.device, tile_buffer_),
+                                      ctx.device->size(tile_buffer_));
 
     // Transition output image
     vk_utils::prepare_color_attachment(ctx.cmd, image_);
@@ -351,14 +353,12 @@ PassSetup LightVizPass::setup() const {
 void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Registered twice, once per view; each instance draws only while its
     // own view is showing.
-    tile_buffer_ = VK_NULL_HANDLE;
-    tile_buffer_size_ = 0;
+    tile_buffer_ = {};
     const auto source = mode_ == 0 ? ViewportSource::light_heatmap : ViewportSource::light_grid;
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(source))) == 0U) { return; }
     const auto tiles = ctx.buffer_imports.find(fg_name_hash("tile_light_ssbo"));
     if (tiles == ctx.buffer_imports.end()) { return; }
     tile_buffer_ = tiles->second.buffer;
-    tile_buffer_size_ = tiles->second.size;
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
                  gpu::Access::storage_buffer_read_fragment);
     // What it draws is its own image, shown by the editor.

@@ -96,6 +96,7 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
             allocator_, buf_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY);
+        buffers_[i]->share(*resources.device);
     }
 
     // Descriptor pool + per-frame sets
@@ -127,6 +128,7 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
         readback_buffers_[i]->map();
+        readback_buffers_[i]->share(*resources.device);
         float init = 0.18f;
         std::memcpy(readback_buffers_[i]->mapped(), &init, sizeof(float));
     }
@@ -309,12 +311,10 @@ void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // one viewport's count after the last one's copy.
     const uint32_t slot = ctx.frame_index;
     if (buffers_[slot] && readback_buffers_[slot]) {
-        auto histogram = builder.import("exposure_histogram", buffers_[slot]->handle(),
-                                        buffers_[slot]->size());
+        auto histogram = builder.import("exposure_histogram", buffers_[slot]->shared());
         builder.read_write(histogram, gpu::Access::storage_buffer_read_write_compute);
         builder.read(histogram, gpu::Access::copy_src);
-        auto readback = builder.import("exposure_readback", readback_buffers_[slot]->handle(),
-                                       readback_buffers_[slot]->size());
+        auto readback = builder.import("exposure_readback", readback_buffers_[slot]->shared());
         builder.write(readback, gpu::Access::copy_dst);
     }
     // The average's only reader is the CPU, on a later frame, which the

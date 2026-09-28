@@ -97,6 +97,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkDescriptorSetLayout draw_data_set_layout_{VK_NULL_HANDLE};

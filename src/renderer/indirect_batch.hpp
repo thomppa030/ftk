@@ -85,7 +85,9 @@ struct PipelineDrawRange {
 
 class IndirectBatch {
 public:
-    IndirectBatch(VkDevice device, VmaAllocator allocator);
+    /// `gpu` is the GPU interface's device, which is handed the buffers the
+    /// frame graph tracks.
+    IndirectBatch(gpu::Device& gpu, VkDevice device, VmaAllocator allocator);
 
     void build(const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
@@ -128,6 +130,10 @@ public:
 
     [[nodiscard]] VkBuffer indirect_buffer(uint32_t frame_index) const {
         return indirect_buffers_[frame_index]->handle();
+    }
+    /// The indirect commands as the GPU interface knows them.
+    [[nodiscard]] gpu::Buffer shared_indirect_buffer(uint32_t frame_index) const {
+        return indirect_buffers_[frame_index] ? indirect_buffers_[frame_index]->shared() : gpu::Buffer{};
     }
 
     [[nodiscard]] VkBuffer mesh_indirect_buffer(uint32_t frame_index) const {
@@ -179,6 +185,12 @@ public:
                    ? visible_instance_buffers_[frame_index]->handle()
                    : VK_NULL_HANDLE;
     }
+    /// The visible instances as the GPU interface knows them.
+    [[nodiscard]] gpu::Buffer shared_visible_instance_buffer(uint32_t frame_index) const {
+        return visible_instance_buffers_[frame_index]
+                   ? visible_instance_buffers_[frame_index]->shared()
+                   : gpu::Buffer{};
+    }
     [[nodiscard]] VkDeviceSize visible_instance_size(uint32_t frame_index) const {
         return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
     }
@@ -217,6 +229,7 @@ private:
     // freeing it inline (the GPU may still be reading it from a pending CB).
     void retire(uint32_t frame_index, std::unique_ptr<Buffer> buffer);
 
+    gpu::Device& gpu_;
     VkDevice device_;
     VmaAllocator allocator_;
 

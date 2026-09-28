@@ -67,20 +67,18 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
 
 FgBuffer PassBuilder::import_named_buffer(const DeclareContext& ctx, std::string_view name) {
     auto it = ctx.buffer_imports.find(fg_name_hash(name));
-    if (it == ctx.buffer_imports.end() || it->second.buffer == VK_NULL_HANDLE) {
+    if (it == ctx.buffer_imports.end() || !it->second.buffer.valid()) {
         return FgBuffer{};
     }
-    return import(name, it->second.buffer, it->second.size, it->second.persistent);
+    return import(name, it->second.buffer, it->second.persistent);
 }
 
-FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size,
-                              bool persistent) {
+FgBuffer PassBuilder::import(std::string_view name, gpu::Buffer buffer, bool persistent) {
     FgBuffer h{next_buffer_id_++};
     imported_buffers_.push_back({
         .handle = h,
         .name = std::string(name),
         .buffer = buffer,
-        .size = size,
         .persistent = persistent,
     });
     return h;

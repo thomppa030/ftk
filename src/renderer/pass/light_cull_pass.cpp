@@ -73,9 +73,7 @@ void LightCullPass::destroy() {
 }
 
 void LightCullPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
-    auto& buf = gpu.tile_light_ssbo(ctx.frame_index);
-    output_buffer_ = buf.handle();
-    output_buffer_size_ = buf.size();
+    output_ = &gpu.tile_light_ssbo(ctx.frame_index);
 }
 
 void LightCullPass::record(const FrameContext& ctx) {
@@ -107,9 +105,8 @@ PassSetup LightCullPass::setup() const {
 }
 
 void LightCullPass::register_resources(ResourceRegistry& registry) {
-    if (output_buffer_ != VK_NULL_HANDLE) {
-        registry.register_buffer("tile_light_ssbo", {
-            output_buffer_, output_buffer_size_});
+    if (output_ != nullptr) {
+        registry.register_buffer("tile_light_ssbo", {output_->handle(), output_->size()});
     }
 }
 
@@ -117,9 +114,9 @@ void LightCullPass::collect_exports(DeclareContext& ctx) {
     // This frame slot's tile lists, which pre_record() picked. Every surface
     // shader reads them through the global set; the passes that draw those
     // surfaces import them by this name so the graph sees them wait.
-    if (output_buffer_ == VK_NULL_HANDLE) { return; }
+    if (output_ == nullptr) { return; }
     ctx.buffer_imports.emplace(fg_name_hash("tile_light_ssbo"),
-                               BufferImport{output_buffer_, output_buffer_size_, false});
+                               BufferImport{.buffer = output_->shared()});
 }
 
 void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {

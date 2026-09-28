@@ -1,4 +1,5 @@
 #include "renderer/gpu/growable_buffer.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/upload_context.hpp"
@@ -114,10 +115,20 @@ void GrowableBuffer::ensure_capacity(VkDeviceSize needed) {
     upload_.copy_buffer(fallback_->handle(), new_buffer->handle(), capacity_);
     deleter_.retire(std::move(fallback_));
     fallback_ = std::move(new_buffer);
+    if (shared_with_ != nullptr) fallback_->share(*shared_with_);
     capacity_ = new_size;
     ++generation_;
     FJELL_GFX_INFO("GrowableBuffer '{}': grew to {}MB (copy, new address)",
                    name_, capacity_ / (1024 * 1024));
+}
+
+void GrowableBuffer::share(gpu::Device& device) {
+    shared_with_ = &device;
+    if (sparse_buffer_ != VK_NULL_HANDLE) {
+        sparse_shared_ = gpu::vulkan::adopt(device, sparse_buffer_, virtual_capacity_);
+    } else {
+        fallback_->share(device);
+    }
 }
 
 void GrowableBuffer::bind_pages(VkDeviceSize target) {

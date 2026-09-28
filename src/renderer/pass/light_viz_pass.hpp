@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/buffer.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
@@ -54,8 +55,7 @@ private:
 
     // The tile lists this run's light cull wrote, taken from the catalog in
     // declare(); null when there are none or the view is not showing.
-    VkBuffer tile_buffer_{VK_NULL_HANDLE};
-    VkDeviceSize tile_buffer_size_{0};
+    gpu::Buffer tile_buffer_{};
 };
 
 } // namespace fjell

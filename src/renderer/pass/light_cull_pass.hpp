@@ -8,6 +8,8 @@
 
 namespace fjell {
 
+class Buffer;
+
 class LightCullPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
@@ -25,8 +27,8 @@ private:
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
-    VkBuffer output_buffer_{VK_NULL_HANDLE};
-    VkDeviceSize output_buffer_size_{0};
+    /// This frame slot's tile lists, which the GPU context owns.
+    const Buffer* output_{nullptr};
 };
 
 } // namespace fjell

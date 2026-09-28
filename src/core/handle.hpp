@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 
 namespace fjell {
 
@@ -23,6 +25,14 @@ struct Handle {
     }
 
     bool operator==(const Handle&) const = default;
+};
+
+/// Hashes a handle by its id, for maps keyed by handles.
+struct HandleHash {
+    template <typename Tag>
+    [[nodiscard]] size_t operator()(Handle<Tag> handle) const noexcept {
+        return std::hash<uint32_t>{}(handle.id);
+    }
 };
 
 } // namespace fjell

@@ -1,4 +1,5 @@
 #include "renderer/gpu/buffer.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <cstring>
@@ -55,7 +56,8 @@ Buffer::Buffer(Buffer&& other) noexcept
     , buffer_{std::exchange(other.buffer_, VK_NULL_HANDLE)}
     , allocation_{std::exchange(other.allocation_, VK_NULL_HANDLE)}
     , size_{other.size_}
-    , mapped_{std::exchange(other.mapped_, nullptr)} {
+    , mapped_{std::exchange(other.mapped_, nullptr)}
+    , shared_{std::move(other.shared_)} {
 }
 
 Buffer& Buffer::operator=(Buffer&& other) noexcept {
@@ -70,8 +72,13 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept {
         allocation_ = std::exchange(other.allocation_, VK_NULL_HANDLE);
         size_ = other.size_;
         mapped_ = std::exchange(other.mapped_, nullptr);
+        shared_ = std::move(other.shared_);
     }
     return *this;
+}
+
+void Buffer::share(gpu::Device& device) {
+    shared_ = gpu::vulkan::adopt(device, buffer_, size_);
 }
 
 void Buffer::map() {
