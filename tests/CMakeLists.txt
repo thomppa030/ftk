@@ -214,6 +214,8 @@ add_executable(fjell-tests
     test_spline.cpp
     test_frame_descriptor_cache.cpp
     test_gpu_vocabulary.cpp
+    test_gpu_release.cpp
+    test_handle_pool.cpp
     test_clipmap.cpp
     test_character_controller.cpp
     test_sdk_headers.cpp

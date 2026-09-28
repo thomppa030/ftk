@@ -19,6 +19,8 @@ fjell_library(core
         core/command.hpp
         core/command_history.hpp
         core/delegate.hpp
+        core/handle.hpp
+        core/handle_pool.hpp
         core/log.hpp
         core/math/clipmap.hpp
         core/math/color_space.hpp
@@ -94,12 +96,15 @@ fjell_library(gpu
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
+        gpu/release_queue.cpp
         gpu/vulkan/translate.cpp
     HEADERS
         gpu/access.hpp
         gpu/clear.hpp
         gpu/flags.hpp
         gpu/format.hpp
+        gpu/owned.hpp
+        gpu/release_queue.hpp
         gpu/usage.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
