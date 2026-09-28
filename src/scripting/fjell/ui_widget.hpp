@@ -2,6 +2,7 @@
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/ref.hpp"
 #include "fjell/world.hpp"
 
 #include <cstddef>
@@ -22,14 +23,17 @@ class UiSubsystem;
 /// `UiWidget::models()`.
 class UiWidgetModels {
 public:
-    /// Read the Model `name` from this node instead of by its `from` rule,
+    /// Read the Model `name` from `node` instead of by its `from` rule,
     /// until `clear()` or another `bind()`: a target frame showing whatever
-    /// the player has targeted. A node that is destroyed, or does not carry
-    /// the Model's component, leaves it empty.
-    /// @param name    As declared in the widget's `<model name>`. A name the
-    ///                widget does not declare is reported once and ignored.
-    /// @param node_id The node, as `ScriptComponent::id()` or `Ref::node_id()` gives it.
-    FJELL_SDK_EXPORT void bind(const std::string& name, uint32_t node_id);
+    /// the player has targeted. A node that is gone stops the game (see
+    /// `Ref`); one destroyed later, or not carrying the Model's component,
+    /// leaves the Model empty.
+    /// @param name As declared in the widget's `<model name>`. A name the
+    ///             widget does not declare is reported once and ignored.
+    void bind(const std::string& name, const Ref<Node3D>& node) {
+        detail::require(node);
+        bind_node(name, node.node_id());
+    }
 
     /// Return the Model `name` to its `from` rule.
     FJELL_SDK_EXPORT void clear(const std::string& name);
@@ -37,6 +41,7 @@ public:
 private:
     friend class UiSubsystem;
     friend class UiWidget;
+    FJELL_SDK_EXPORT void bind_node(const std::string& name, uint32_t node_id);
     /// The component the Model reads now if it is a `type_name`; null
     /// otherwise.
     [[nodiscard]] FJELL_SDK_EXPORT const ScriptComponent* component(const std::string& name,

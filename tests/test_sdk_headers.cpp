@@ -15,6 +15,7 @@
 #include "fjell/viewport_api.hpp"
 #include "fjell/animator_component.hpp"
 #include "fjell/water_component.hpp"
+#include "fjell/ui_widget.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -116,6 +117,11 @@ struct Carried : fjell::ScriptComponent {
     static constexpr const char* type_name = "Carried";
 };
 
+// What a script may not reach for: a Ref is never made from a number, and a
+// script knows its node as self(), never as an id.
+template <typename T>
+concept has_id = requires(const T& t) { t.id(); };
+
 // The collision callbacks as a script overrides them.
 struct Toucher : fjell::ScriptComponent {
     void on_collision_enter(fjell::Ref<fjell::Node3D> other, const glm::vec3&, const glm::vec3&) override {
@@ -183,8 +189,14 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         const fjell::Asset<fjell::Weather> playing = fjell::weather::current();
         [[maybe_unused]] const bool same = playing == fjell::weather::forecast(0);
     };
+    // A widget's Model follows the node it is given.
+    [[maybe_unused]] auto target_frame = [](fjell::UiWidget& widget, const fjell::Ref<fjell::Node3D>& target) {
+        widget.models().bind("target", target);
+    };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);
+    STATIC_REQUIRE_FALSE(std::is_constructible_v<fjell::Ref<fjell::Node3D>, uint32_t>);
+    STATIC_REQUIRE_FALSE(sdk_check::has_id<fjell::ScriptComponent>);
     // So is an animator: the engine's component, reached only through a Ref.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::AnimatorComponent>);
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::WaterComponent>);

@@ -34,7 +34,7 @@ namespace scene {
 ///       authored: prefer a `[[fj::property]] Ref<Node3D>` picked in the
 ///       inspector, or `find<T>()` for the component you are after.
 inline Ref<Node3D> find_node(const char* name) {
-    return Ref<Node3D>{fjell_scene_find_node(name)};
+    return detail::ref_to<Node3D>(fjell_scene_find_node(name));
 }
 
 /// The component of type T, on whichever node carries one, wherever it sits
@@ -51,7 +51,7 @@ inline Ref<Node3D> find_node(const char* name) {
 /// @endcode
 template <typename T>
 inline Ref<T> find() {
-    return Ref<T>{fjell_scene_find(detail::component_type_id<T>())};
+    return detail::ref_to<T>(fjell_scene_find(detail::component_type_id<T>()));
 }
 
 /// Spawn an empty node — no mesh, no components — at a world position.
@@ -61,7 +61,7 @@ inline Ref<T> find() {
 /// @return The new node, usable at once, or an empty Ref when no scene is
 ///         loaded.
 inline Ref<Node3D> spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f}) {
-    return Ref<Node3D>{fjell_scene_spawn_empty(name, pos.x, pos.y, pos.z)};
+    return detail::ref_to<Node3D>(fjell_scene_spawn_empty(name, pos.x, pos.y, pos.z));
 }
 
 /// Instantiate a preset (`.fjp`) — a saved node hierarchy with its meshes,
@@ -82,7 +82,7 @@ inline Ref<Node3D> spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f
 /// @endcode
 inline Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos = glm::vec3{0.0f}) {
     detail::require(preset);
-    return Ref<Node3D>{fjell_scene_spawn_preset(preset.handle_id(), pos.x, pos.y, pos.z, 0)};
+    return detail::ref_to<Node3D>(fjell_scene_spawn_preset(preset.handle_id(), pos.x, pos.y, pos.z, 0));
 }
 
 /// Instantiate a preset under a parent, which it then moves with. `pos` is
@@ -91,7 +91,8 @@ inline Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos = glm
 inline Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos, const Ref<Node3D>& parent) {
     detail::require(preset);
     detail::require(parent);
-    return Ref<Node3D>{fjell_scene_spawn_preset(preset.handle_id(), pos.x, pos.y, pos.z, parent.node_id())};
+    return detail::ref_to<Node3D>(
+        fjell_scene_spawn_preset(preset.handle_id(), pos.x, pos.y, pos.z, parent.node_id()));
 }
 } // namespace scene
 

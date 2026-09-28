@@ -33,7 +33,7 @@ public:
 
 class UiWidgetModels {
 public:
-    void bind(const std::string& name, uint32_t node_id);
+    void bind(const std::string& name, const Ref<Node3D>& node);
     void clear(const std::string& name);
 };
 

@@ -5,7 +5,7 @@
 
 namespace fjell {
 
-FJELL_SDK_EXPORT void UiWidgetModels::bind(const std::string& name, uint32_t node_id) {
+FJELL_SDK_EXPORT void UiWidgetModels::bind_node(const std::string& name, uint32_t node_id) {
     if (models_ != nullptr && scope_ != nullptr) (void)models_->bind_node(*scope_, name, node_id);
 }
 

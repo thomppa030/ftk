@@ -34,6 +34,11 @@ namespace detail {
 template <typename T>
 [[nodiscard]] Ref<T> ref_at(uint32_t node_id, uint32_t generation);
 
+/// A Ref to node `node_id` as it is now: how the SDK's own lookups, spawns
+/// and queries turn the id the engine answers with into a Ref.
+template <typename T>
+[[nodiscard]] Ref<T> ref_to(uint32_t node_id);
+
 } // namespace detail
 
 /// What a Ref holds. The engine reads and writes it in place: it saves the
@@ -83,8 +88,8 @@ template <typename T>
 /// A reference to a node, `Ref<Node3D>`, or to the component of type T on a
 /// node: an engine component (`RigidbodyComponent`, `MeshComponent`, ...) or a
 /// script component. Hold it as a `[[fj::property]]` and pick the node in the
-/// inspector, which offers the nodes that carry a T; scene lookups, spawns and
-/// `get_component()` hand them out too.
+/// inspector, which offers the nodes that carry a T; scene lookups, spawns,
+/// queries and `get_component()` hand them out too.
 ///
 /// It knows when its target is gone: the node destroyed or taken out of the
 /// scene, the component removed, the game library reloading. It never finds
@@ -109,11 +114,6 @@ template <typename T>
 class Ref {
 public:
     Ref() = default;
-
-    /// The T on node `node_id` as it is now: a later node that takes the id
-    /// is not this one. For ids from the engine calls that still hand out
-    /// ids rather than Refs.
-    explicit Ref(uint32_t node_id) : data_{node_id, fjell_scene_generation(node_id), nullptr, 0} {}
 
     /// The T on `node`; for a `Ref<Node3D>`, the node itself, which is how a
     /// script passes its own node (`self()`) where a Ref is taken.
@@ -174,6 +174,11 @@ namespace detail {
 template <typename T>
 Ref<T> ref_at(uint32_t node_id, uint32_t generation) {
     return Ref<T>{node_id, generation};
+}
+
+template <typename T>
+Ref<T> ref_to(uint32_t node_id) {
+    return ref_at<T>(node_id, fjell_scene_generation(node_id));
 }
 
 /// Stops the game unless `ref` finds its target; what every SDK call that

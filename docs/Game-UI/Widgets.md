@@ -68,9 +68,10 @@ field goes back to the rule. The pick is saved with the scene. A nested widget's
 Models are not listed: it gets its data through props.
 
 A controller can choose a Model's node at runtime, for a target frame showing
-whatever the player has targeted: `models().bind("target", node.id())` reads that
-node until `models().clear("target")` returns the Model to its `from` rule. A
-destroyed node leaves the Model empty. A controller's choice wins over the
+whatever the player has targeted: `models().bind("target", enemy)`, with a
+`Ref<Node3D>`, reads that node until `models().clear("target")` returns the Model to
+its `from` rule. A node that is gone when bound stops the game, as any `Ref` does; one
+destroyed later leaves the Model empty. A controller's choice wins over the
 placement's, which wins over the rule. `model<PlayerStats>("player")` hands the
 controller the component its markup shows now, read-only, or null.
 

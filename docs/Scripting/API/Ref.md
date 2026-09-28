@@ -17,7 +17,6 @@ template <typename T>
 class Ref {
 public:
     Ref() = default;
-    explicit Ref(uint32_t node_id);
     Ref(const Node3D& node);   // explicit unless T is Node3D
 
     T*                     operator->() const;
@@ -43,7 +42,8 @@ the nodes that carry a `T` (any 3D node for a `Ref<Node3D>`), takes a node dragg
 the hierarchy if it fits, and says why when it does not. The scene file saves the node
 alone. The engine hands them out too: [`scene::find_node`](scene_api.md#scenefind_node),
 [`scene::find<T>`](scene_api.md#scenefind), [`scene::spawn`](scene_api.md) and
-[`get_component`](Node3D.md#node3dget_component) all give a `Ref`.
+[`get_component`](Node3D.md#node3dget_component) all give a `Ref`. There is no making one
+from a number: a node id is not a reference.
 
 ```cpp
 class Hunter : public fjell::ScriptComponent {
@@ -93,7 +93,6 @@ next use. Components never move while they live, so what it kept stays right unt
 
 | Name | Description |
 |---|---|
-| [`Ref(node_id)`](#refref) | Refer to the `T` on a node, by id |
 | [`Ref(node)`](#refref-node) | Refer to the `T` on a node, or to the node |
 | [`operator->`, `operator*`](#refoperator-) | The target; stops the game when it is gone |
 | [`get`](#refget) | The target, or null |
@@ -101,18 +100,6 @@ next use. Components never move while they live, so what it kept stays right unt
 | [`node`](#refnode) | The node the target sits on |
 | [`node_id`](#refnode_id) | The node it refers to |
 | [`operator==`](#refoperator) | The same node in the same life |
-
----
-
-## Ref::Ref
-
-```cpp
-explicit Ref(uint32_t node_id);
-```
-
-Refers to the `T` on node `node_id` as that node is now. The node need not carry a `T`
-yet: the reference finds nothing until it does. For the engine calls that still hand out
-node ids rather than `Ref`s.
 
 ---
 

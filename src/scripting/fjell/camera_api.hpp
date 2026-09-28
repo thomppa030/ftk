@@ -45,7 +45,7 @@ inline void set_active(const Ref<Node3D>& camera) {
 
 /// The camera the scene renders from, or an empty Ref when none is active.
 inline Ref<Node3D> active() {
-    return Ref<Node3D>{fjell_camera_get_active()};
+    return detail::ref_to<Node3D>(fjell_camera_get_active());
 }
 
 /// Vertical field of view in degrees. Returns 45 if no camera is active.

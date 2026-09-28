@@ -32,7 +32,6 @@ public:
     virtual void on_trigger_exit   (Ref<Node3D> other);
 
     // Identity
-    [[nodiscard]] uint32_t    id()   const;   // node ID
     [[nodiscard]] const char* name() const;
     [[nodiscard]] Node3D&     self() const;
 
@@ -100,7 +99,6 @@ Reflected fields are declared with `[[fj::property]]` and processed by the `fjre
 
 | Name | Description |
 |---|---|
-| [`id`](#scriptcomponentid) | Owning node's ID |
 | [`name`](#scriptcomponentname) | Owning node's name |
 | [`self`](#scriptcomponentself) | The node this script is on |
 | [`transform`](#scriptcomponenttransform) | Owning node's transform |
@@ -326,21 +324,6 @@ virtual void on_trigger_exit(Ref<Node3D> other);
 
 Fires once when another body leaves a trigger volume, also when its node was destroyed, as
 for [`on_collision_exit`](#scriptcomponenton_collision_exit).
-
----
-
-## ScriptComponent::id
-
-### Syntax
-```cpp
-[[nodiscard]] uint32_t id() const;
-```
-
-### Return value
-The owning node's ID.
-
-### Remarks
-For the engine calls that still take node IDs (`UiWidget::bind`). Where a `Ref<Node3D>` is taken, pass `self()`.
 
 ---
 

@@ -111,7 +111,7 @@ inline constexpr uint32_t MAX_HITS = 64;
 inline PhysicsHit to_hit(const FjellRaycastHit& raw) {
     return {{raw.position[0], raw.position[1], raw.position[2]},
             {raw.normal[0], raw.normal[1], raw.normal[2]},
-            raw.distance, Ref<Node3D>{raw.node_id}, raw.surface};
+            raw.distance, fjell::detail::ref_to<Node3D>(raw.node_id), raw.surface};
 }
 
 inline bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& origin,
@@ -136,7 +136,7 @@ inline std::vector<Ref<Node3D>> overlap(uint32_t shape, const glm::vec3& extents
                                            raw, MAX_HITS);
     std::vector<Ref<Node3D>> nodes;
     nodes.reserve(count);
-    for (uint32_t i = 0; i < count; ++i) nodes.emplace_back(raw[i]);
+    for (uint32_t i = 0; i < count; ++i) nodes.push_back(fjell::detail::ref_to<Node3D>(raw[i]));
     return nodes;
 }
 

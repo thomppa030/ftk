@@ -140,11 +140,6 @@ public:
     /// @param peer The departing peer's ID.
     virtual void on_player_disconnected(PeerId peer) { (void)peer; }
 
-    /// Node ID of the node this component is attached to, for the engine
-    /// calls that still take ids. Stable for the node's lifetime; 0 is never
-    /// a valid node.
-    [[nodiscard]] uint32_t id() const { return id_; }
-
     /// Name of the owning node, as shown in the editor hierarchy.
     [[nodiscard]] const char* name() const { return name_; }
 
@@ -205,7 +200,6 @@ private:
     Node3D* node_{nullptr};
     World* world_{nullptr};
     Transform* transform_{nullptr};
-    uint32_t id_{0};
     const char* name_{""};
     bool tick_enabled_{true};
     // For a type that ticks at an interval: game time since its last tick(),

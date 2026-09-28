@@ -595,7 +595,6 @@ void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
     entry.instance->node_ = &obj;
     entry.instance->world_ = &world_;
     entry.instance->transform_ = &obj.transform;
-    entry.instance->id_ = obj.id;
     entry.instance->name_ = obj.name.c_str();
     if (!entry.serialized.empty()) {
         auto_deserialize_fields(type->fields, entry.instance.get(), entry.serialized);

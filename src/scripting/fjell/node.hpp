@@ -107,7 +107,7 @@ struct Node3D {
     /// each spawned player has its own "Camera", and this finds the one under
     /// this node.
     [[nodiscard]] Ref<Node3D> find_child(const char* name) const {
-        return Ref<Node3D>{fjell_node_find_child(this, name)};
+        return detail::ref_to<Node3D>(fjell_node_find_child(this, name));
     }
 
     /// Queue this node for destruction along with its children. It is removed
