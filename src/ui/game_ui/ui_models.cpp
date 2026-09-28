@@ -76,9 +76,16 @@ void UiModels::bind() {
                             entry.decl.source_file, entry.decl.source_line, entry.decl.name,
                             entry.decl.component);
         }
-        entry.scope->set(entry.decl.name, component != nullptr
-                                              ? UiValue(UiObject{type->name, type->fields, component})
-                                              : UiValue());
+        if (component == nullptr) {
+            entry.scope->set(entry.decl.name, UiValue());
+            continue;
+        }
+        const uint32_t node = node_of(entry);
+        entry.scope->set(entry.decl.name, UiValue(UiObject{.type = type->name,
+                                                           .fields = type->fields,
+                                                           .address = component,
+                                                           .node = node,
+                                                           .generation = scene_->generation_of(node)}));
     }
 }
 
@@ -115,11 +122,13 @@ UiModels::Reading UiModels::reading(const UiContext& scope, std::string_view nam
     if (entry == nullptr || scene_ == nullptr || world_ == nullptr) return {};
     const void* component = resolve(*entry);
     if (component == nullptr) return {};
-    const uint32_t node = entry->bound != 0                      ? entry->bound
-                        : entry->placed != 0                     ? entry->placed
-                        : entry->decl.from == ModelSource::self ? self_node_
-                                                                 : entry->node;
-    return {node, component};
+    return {node_of(*entry), component};
+}
+
+uint32_t UiModels::node_of(const Entry& entry) const {
+    if (entry.bound != 0) return entry.bound;
+    if (entry.placed != 0) return entry.placed;
+    return entry.decl.from == ModelSource::self ? self_node_ : entry.node;
 }
 
 UiModels::Entry* UiModels::find(const UiContext& scope, std::string_view name) {

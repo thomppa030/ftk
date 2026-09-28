@@ -87,7 +87,7 @@ See [Widgets](../../Game-UI/Widgets.md) for the authoring side.
 |---|---|---|
 | `[[fj::model]]` | a struct field | A Model: `{hud.selected}` for `[[fj::model]] HudModel hud`. Every public member of the struct is readable, a `std::vector` of structs is a list for `foreach`. |
 | `[[fj::state]]` | a field or a `const` getter | Read by name, `if="open"`; a getter runs each time it is read. |
-| `[[fj::prop]]` | a `bool`, `int`, `float` or `std::string` field | Filled from the widget's prop of the same name before `begin_play()` and every `tick()`. |
+| `[[fj::prop]]` | a `bool`, `int`, `float` or `std::string` field, or a `Ref<T>` to a component | Filled from the widget's prop of the same name before `begin_play()` and every `tick()`; a Ref points at the component the prop holds. |
 | `[[fj::action]]` | a method | Called from `on:click`, see [Actions](#actions). |
 
 ## Models
@@ -97,7 +97,7 @@ A controller can pick the node at runtime:
 
 ```cpp
 void target_frame::tick(float) {
-    if (target_changed_) models().bind("target", target_id_); // reads that node
+    if (target_changed_) models().bind("target", target_); // a Ref<Node3D>: reads that node
 }
 void target_frame::end_target() { models().clear("target"); }   // back to the rule
 ```

@@ -27,10 +27,16 @@ struct UiObject {
     std::string_view type;                  ///< the type's name as its header spells it
     std::span<const OwnedFieldDesc> fields; ///< what a path may read
     const void* address{nullptr};           ///< null while there is nothing to read
+    /// For a component, the node it is on and which life of that node, so a
+    /// `Ref` can be made to it; 0 for anything else.
+    uint32_t node{0};
+    uint32_t generation{0};
 
-    /// The same object: same place, read as the same type.
+    /// The same object: same place, read as the same type, on the same node
+    /// (a slot another node's component took over is another object).
     friend bool operator==(const UiObject& a, const UiObject& b) {
-        return a.address == b.address && a.fields.data() == b.fields.data();
+        return a.address == b.address && a.fields.data() == b.fields.data() && a.node == b.node &&
+               a.generation == b.generation;
     }
 };
 
@@ -130,5 +136,11 @@ private:
 /// from text that is one, text as markup shows it. False, writing nothing,
 /// for another kind, or for a number the value cannot be read as.
 bool write_value(FjellFieldType kind, void* at, const UiValue& value);
+
+/// Points the `Ref<T>` at `at` at the component `value` holds, when that is a
+/// component of type `type`; empties it when `value` holds nothing. A Ref
+/// already pointing there is left as it is, keeping what it found. False,
+/// writing nothing, for a value that is something else.
+bool write_ref(void* at, std::string_view type, const UiValue& value);
 
 } // namespace fjell

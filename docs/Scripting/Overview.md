@@ -204,7 +204,7 @@ What gets reflected depends on context:
 - **`[[fj::action]]`** — on `UiWidget` methods taking nothing, an `int`, a `float` or a `glm::vec2`, private ones too. Markup calls them by name, `on:click="select_slot({slot.key})"`, with the argument converted to the parameter's type.
 - **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
 - **`[[fj::model]]`** — on `UiWidget` fields holding a struct: a Model the widget's markup reads by the field's name, `{hud.selected}` for `[[fj::model]] HudModel hud`. The struct is reflected in full, every public member with no attribute needed (see [Widgets](../Game-UI/Widgets.md#models)).
-- **`[[fj::prop]]`** — on `UiWidget` fields holding a `bool`, `int`, `float` or `std::string`: filled from the widget's prop of the same name before `begin_play()` and every `tick()` (see [Models](../Game-UI/Models.md#the-controllers-side)).
+- **`[[fj::prop]]`** — on `UiWidget` fields holding a `bool`, `int`, `float` or `std::string`, or a `Ref<T>` to a component: filled from the widget's prop of the same name before `begin_play()` and every `tick()` (see [Models](../Game-UI/Models.md#the-controllers-side)).
 
 An authored value is a property and a value the game changes while playing is state. Either may be private:
 

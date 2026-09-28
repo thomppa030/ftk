@@ -73,6 +73,7 @@ private:
 /// public:
 ///     [[fj::model]] InventoryModel inventory; // {inventory.selected} in markup
 ///     [[fj::prop]] int columns = 4;           // <prop name="columns" type="int"/>
+///     [[fj::prop]] fjell::Ref<Inventory> bag; // <prop name="bag" type="Inventory"/>
 ///     [[fj::state]] bool open = false;        // if="open"
 ///
 ///     [[fj::action]] void select(int slot) { inventory.selected = slot; }

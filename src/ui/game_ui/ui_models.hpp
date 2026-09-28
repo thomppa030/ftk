@@ -123,6 +123,8 @@ private:
     [[nodiscard]] Entry* find(const UiContext& scope, std::string_view name);
     /// The component the entry reads now, or null.
     [[nodiscard]] const void* resolve(Entry& entry);
+    /// The node the component resolve() found is on.
+    [[nodiscard]] uint32_t node_of(const Entry& entry) const;
     /// The component on a chosen node, while that node lives: its generation
     /// is taken the first time it is looked up.
     [[nodiscard]] const void* on_chosen(uint32_t node, uint32_t& generation, const std::string& type) const;

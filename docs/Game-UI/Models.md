@@ -66,6 +66,7 @@ public:
     [[fj::model]] HudModel hud;              // {hud.selected}, foreach over hud.slots
     [[fj::state]] bool open = false;         // if="open"
     [[fj::prop]] bool compact = false;       // filled from <prop name="compact">
+    [[fj::prop]] fjell::Ref<PlayerStats> stats; // the component <prop name="stats"> holds
     [[fj::action]] void select_slot(int key);
     void tick(float dt) override;
 };
@@ -78,14 +79,19 @@ public:
   controller changes what the UI shows by assigning to its own fields.
 - **`[[fj::prop]]`** marks a field filled from the widget's prop of the same name
   before the controller starts and before every `tick()`: a `bool`, `int`, `float`
-  or `std::string`, whatever the placement bound the prop to. The widget check
-  reports one whose `<prop>` is missing or of another kind. The markup reads the
-  prop itself, so a `[[fj::prop]]` is for the controller's own code.
+  or `std::string`, whatever the placement bound the prop to, or a `Ref<T>` to the
+  component a component prop holds (`stats="{player}"` hands a nested widget the
+  player's `PlayerStats`). The Ref follows the prop: it points at no component
+  while the Model behind it finds none, and like any Ref it knows when its node is
+  gone. The widget check reports a `[[fj::prop]]` whose `<prop>` is missing or of
+  another kind. The markup reads the prop itself, so a `[[fj::prop]]` is for the
+  controller's own code.
 - **`[[fj::action]]`** methods answer `on:click` and a placed widget's events,
   with typed arguments (see [Widgets](Widgets.md#controllers)).
 
 A controller reads the component a Model shows with `model<PlayerStats>("player")`
-and picks the node a Model reads at runtime with `models().bind("target", id)`.
+and picks the node a Model reads at runtime with `models().bind("target", enemy)`,
+`enemy` a `Ref<Node3D>`.
 
 ## Change tracking
 

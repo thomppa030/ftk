@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_value.hpp"
 #include "scripting/script_call.hpp"
 
+#include "scripting/fjell/ref.hpp"
 #include "scripting/reflected_types.hpp"
 
 #include <charconv>
@@ -125,6 +126,21 @@ bool write_value(FjellFieldType kind, void* at, const UiValue& value) {
         case FJELL_FIELD_STD_STRING: *static_cast<std::string*>(at) = value.text(); return true;
         default: return false;
     }
+}
+
+bool write_ref(void* at, std::string_view type, const UiValue& value) {
+    auto& ref = *static_cast<RefData*>(at);
+    uint32_t node = 0;
+    uint32_t generation = 0;
+    if (const UiObject* object = value.object()) {
+        if (object->type != type || object->node == 0) return false;
+        node = object->node;
+        generation = object->generation;
+    } else if (!value.empty()) {
+        return false;
+    }
+    if (ref.node_id != node || ref.generation != generation) ref = {.node_id = node, .generation = generation};
+    return true;
 }
 
 UiValue UiValue::parse(std::string_view text, std::string_view type) {

@@ -26,6 +26,7 @@ struct UiSchema {
         std::string element;      ///< a list's entries: their kind
         std::string element_type; ///< and their struct, for a list of structs
         bool prop{false};         ///< a controller's [[fj::prop]]: filled from the prop of its name
+        std::string ref{};        ///< a Ref<T>'s T
 
         bool operator==(const Field&) const = default;
     };

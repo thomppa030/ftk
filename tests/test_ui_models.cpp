@@ -2,6 +2,7 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/component.hpp"
+#include "scripting/fjell/ref.hpp"
 #include "scripting/reflected_types.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
@@ -332,6 +333,52 @@ TEST_CASE("A tree's widgets bring their Models, a repeat's once it is stamped", 
     models.remove_widgets(stamped);
     REQUIRE(models.reading(repeated, "player").component == nullptr);
     REQUIRE(models.reading(placed, "player").component != nullptr);
+}
+
+TEST_CASE("A Model's value names the node its component is on", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t player = spawn(scene, "player", 60.0f);
+
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("player", ModelSource::local), scope);
+    models.bind();
+    const UiObject* object = scope.find("player")->object();
+    REQUIRE(object != nullptr);
+    REQUIRE(object->node == player);
+    REQUIRE(object->generation == scene.generation_of(player));
+}
+
+TEST_CASE("A Ref is pointed at the component a prop holds", "[ui_models]") {
+    Scene scene;
+    TestWorld world;
+    const uint32_t player = spawn(scene, "player", 60.0f);
+    UiContext scope;
+    UiModels models;
+    models.attach(scene, world, 0);
+    models.add(model("player", ModelSource::local), scope);
+    models.bind();
+    const UiValue& value = *scope.find("player");
+
+    RefData ref;
+    REQUIRE(write_ref(&ref, "Stats", value));
+    REQUIRE(ref.node_id == player);
+    REQUIRE(ref.generation == scene.generation_of(player));
+
+    // Pointing it at the same component again keeps what it found.
+    int found = 0;
+    ref.cached = &found;
+    REQUIRE(write_ref(&ref, "Stats", value));
+    REQUIRE(ref.cached == &found);
+
+    REQUIRE_FALSE(write_ref(&ref, "Mana", value)); // another type: left alone
+    REQUIRE(ref.node_id == player);
+    REQUIRE_FALSE(write_ref(&ref, "Stats", UiValue(3)));
+    REQUIRE(write_ref(&ref, "Stats", UiValue())); // the Model found nothing
+    REQUIRE(ref.node_id == 0);
+    REQUIRE(ref.cached == nullptr);
 }
 
 TEST_CASE("Clearing the Models leaves no scope pointing at a component", "[ui_models]") {

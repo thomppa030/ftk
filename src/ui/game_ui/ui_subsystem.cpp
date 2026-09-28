@@ -217,8 +217,14 @@ void UiSubsystem::fill_props(WidgetInstance& wi) {
     auto* base = reinterpret_cast<char*>(wi.widget.get()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
     for (const auto& field : wi.type->fields) {
         if (!field.is_prop()) continue;
-        if (const UiValue* value = wi.widget_context->find_here(field.name)) {
-            (void)write_value(field.type, base + field.offset, *value);
+        const UiValue* value = wi.widget_context->find_here(field.name);
+        if (value == nullptr) continue;
+        void* at = base + field.offset;
+        if (field.type != FJELL_FIELD_REF) {
+            (void)write_value(field.type, at, *value);
+        } else if (!write_ref(at, field.ref_type_name, *value)) {
+            report_once("Widget '" + wi.type->name + "': the prop '" + field.name + "' holds no " +
+                        field.ref_type_name + ", which its [[fj::prop]] Ref refers to");
         }
     }
 }

@@ -49,7 +49,8 @@ UiSchema UiSchema::from_json(const nlohmann::json& manifest) {
                               .type = f.value("struct", ""),
                               .element = f.value("element", ""),
                               .element_type = f.value("element_struct", ""),
-                              .prop = f.value("prop", false)});
+                              .prop = f.value("prop", false),
+                              .ref = f.value("ref", "")});
         }
         return fields;
     };
@@ -261,10 +262,11 @@ WidgetCheck Checker::run() {
                 report_in_file("class=\"" + asset->class_name + "\"",
                                "the controller's [[fj::prop]] '" + field.name + "' has no <prop name=\"" +
                                    field.name + "\"> to be filled from");
-            } else if (declared->type != field.kind) {
+            } else if (const bool ref = field.kind == "ref"; declared->type != (ref ? field.ref : field.kind)) {
                 report_in_file("name=\"" + field.name + "\"",
                                "<prop> '" + field.name + "' is " + declared->type +
-                                   ", but the controller's [[fj::prop]] of that name is " + field.kind);
+                                   ", but the controller's [[fj::prop]] of that name is " +
+                                   (ref ? "Ref<" + field.ref + ">" : field.kind));
             }
         }
     }

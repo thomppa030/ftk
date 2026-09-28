@@ -284,6 +284,7 @@ class slot_controller : public fjell::UiWidget {
 public:
   [[fj::prop]] int index = 0;
   [[fj::prop]] std::string label;
+  [[fj::prop]] fjell::Ref<PlayerStats> stats;
 };
 )"}});
     REQUIRE(project.errors.empty());
@@ -293,6 +294,11 @@ public:
     REQUIRE(index->is_state);
     REQUIRE(index->fj_field_type == "FJELL_FIELD_INT");
     REQUIRE(project.find_field("slot_controller", "label")->fj_field_type == "FJELL_FIELD_STD_STRING");
+    // A component the placement passes is referred to, never copied.
+    const auto* stats = project.find_field("slot_controller", "stats");
+    REQUIRE(stats->is_prop);
+    REQUIRE(stats->fj_field_type == "FJELL_FIELD_REF");
+    REQUIRE(stats->ref_target == "PlayerStats");
 
     const auto bad = read_project({{"bad_prop.hpp", R"(
 #include <string>
@@ -302,6 +308,7 @@ class Panel : public fjell::UiWidget {
 public:
   [[fj::prop]] Pos where;
   [[fj::prop, fj::state]] int twice;
+  [[fj::prop]] fjell::Ref<fjell::Node3D> anchor;
 };
 class Mover : public fjell::ScriptComponent {
   FJELL_COMPONENT(Mover)
@@ -309,9 +316,11 @@ public:
   [[fj::prop]] int speed;
 };
 )"}});
-    REQUIRE(bad.has_error("bad_prop.hpp:7: error: [[fj::prop]] 'where' holds a bool, int, float or std::string"));
+    REQUIRE(bad.has_error("bad_prop.hpp:7: error: [[fj::prop]] 'where' holds a bool, int, float, std::string or "
+                          "a Ref<T> to a component"));
     REQUIRE(bad.has_error("bad_prop.hpp:8: error: 'twice' is filled from a prop"));
-    REQUIRE(bad.has_error("bad_prop.hpp:13: error: [[fj::prop]] on 'speed' belongs in a UI widget"));
+    REQUIRE(bad.has_error("bad_prop.hpp:9: error: [[fj::prop]] 'anchor' holds a bool"));
+    REQUIRE(bad.has_error("bad_prop.hpp:14: error: [[fj::prop]] on 'speed' belongs in a UI widget"));
 }
 
 TEST_CASE("A [[fj::state]] no Model reaches is worth a warning", "[fjreflect]") {

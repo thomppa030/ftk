@@ -114,8 +114,8 @@ private:
     static void read_controller_in_place(WidgetInstance& wi);
     // A controller's [[fj::prop]] fields from its widget's props of their
     // names, as the placement has bound them: before it starts and before
-    // every tick.
-    static void fill_props(WidgetInstance& wi);
+    // every tick. A Ref points at the component a component prop holds.
+    void fill_props(WidgetInstance& wi);
     void destroy_controllers(UiInstance& inst);
     // The game library is about to go, a script reload during play: every
     // controller ends and every Model lets go of its component while their

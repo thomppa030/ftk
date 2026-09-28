@@ -1119,10 +1119,15 @@ private:
             error(m.line, "[[fj::model]] on '" + m.name + "' needs a struct; '" + m.type + "' is not one");
             return;
         }
-        if (fi.is_prop && fi.fj_field_type != "FJELL_FIELD_BOOL" && fi.fj_field_type != "FJELL_FIELD_INT" &&
-            fi.fj_field_type != "FJELL_FIELD_FLOAT" && fi.fj_field_type != "FJELL_FIELD_STD_STRING") {
-            error(m.line, "[[fj::prop]] '" + m.name + "' holds a bool, int, float or std::string, the kinds "
-                          "a <prop> declares; '" + m.type + "' is not one");
+        // A prop holds a value, or a component the placement passes, which
+        // the controller refers to; never a node.
+        const bool prop_value = fi.fj_field_type == "FJELL_FIELD_BOOL" || fi.fj_field_type == "FJELL_FIELD_INT" ||
+                                fi.fj_field_type == "FJELL_FIELD_FLOAT" ||
+                                fi.fj_field_type == "FJELL_FIELD_STD_STRING";
+        const bool prop_component = fi.fj_field_type == "FJELL_FIELD_REF" && fi.ref_target != "Node3D";
+        if (fi.is_prop && !prop_value && !prop_component) {
+            error(m.line, "[[fj::prop]] '" + m.name + "' holds a bool, int, float, std::string or a Ref<T> to a "
+                          "component, the kinds a <prop> declares; '" + m.type + "' is not one");
             return;
         }
         const bool compound = fi.fj_field_type == "FJELL_FIELD_STRUCT" || fi.fj_field_type == "FJELL_FIELD_VECTOR";
