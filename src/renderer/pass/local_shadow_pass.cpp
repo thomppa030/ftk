@@ -31,6 +31,7 @@ namespace fjell {
 // ── Atlas image ─────────────────────────────────────────────────────────
 
 void LocalShadowPass::create_atlas() {
+    written_ = false;
     VkImageCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     info.imageType = VK_IMAGE_TYPE_2D;
@@ -447,13 +448,16 @@ PassSetup LocalShadowPass::setup() const {
 void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "local_shadow_atlas");
     if (atlas.valid()) {
-        builder.write(atlas, gpu::Access::depth_attachment);
-        builder.final_layout(atlas,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (has_work()) {
+            builder.write(atlas, gpu::Access::depth_attachment);
+        } else {
+            // No light casts a shadow, but the global set still binds the
+            // atlas: reading it at rest has the graph keep it where it is
+            // sampled, from the first frame on. That is the pass's whole
+            // effect, and it has no output to keep it from being culled.
+            builder.read(atlas, gpu::Access::sampled_fragment);
+            builder.has_side_effects();
+        }
     }
     // Draws the camera batch's commands through the vertex path, whose
     // instanced draws read the transforms the instance cull keeps. It runs
@@ -475,6 +479,11 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = 1;
     img.mip_count = 1;
     img.persistent = true;
+    // The lit surfaces sample it in the fragment shader and the fog light in
+    // compute, both through the global set. Nothing is in it before the pass
+    // first draws.
+    img.resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
+    img.unwritten = !written_;
     ctx.imports.emplace(fg_name_hash("local_shadow_atlas"), img);
 }
 
@@ -482,30 +491,7 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
 
 void LocalShadowPass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_local_shadows");
-    bool has_work = !spot_tiles_.empty() || !point_blocks_.empty();
-    if (!has_work) {
-        // No shadow-casting lights, but the atlas descriptor is still bound.
-        // Transition from UNDEFINED to READ_ONLY so sampling returns 1.0 (white = no shadow).
-        VkImageMemoryBarrier2 init_barrier{};
-        init_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        init_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        init_barrier.srcAccessMask = 0;
-        init_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        init_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        init_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        init_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        init_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        init_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        init_barrier.image = atlas_image_;
-        init_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &init_barrier;
-        vkCmdPipelineBarrier2(ctx.cmd, &dep);
-        return;
-    }
+    if (!has_work()) return;
     if (!ctx.mega_buffer || !ctx.indirect_batch) return;
 
 #ifdef FJELL_ENABLE_TRACY
@@ -514,25 +500,7 @@ void LocalShadowPass::record(const FrameContext& ctx) {
 
     auto cmd = ctx.cmd;
 
-    // Transition entire atlas to depth attachment
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = atlas_image_;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    // The graph has the atlas in DEPTH_ATTACHMENT_OPTIMAL.
 
     // Clear the entire atlas first
     VkRenderingAttachmentInfo clear_att{};
@@ -713,16 +681,7 @@ void LocalShadowPass::record(const FrameContext& ctx) {
             vkCmdEndRendering(cmd);
         }
     }
-
-    // Transition atlas to shader read for fragment sampling. The
-    // graph's final_layout() hint records this post-state.
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    written_ = true;
 }
 
 } // namespace fjell

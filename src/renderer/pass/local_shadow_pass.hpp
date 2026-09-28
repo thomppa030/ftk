@@ -87,6 +87,11 @@ private:
     // Per-frame tile assignments
     std::vector<ShadowTile> spot_tiles_;
     std::vector<PointShadowBlock> point_blocks_;
+    /// Whether the pass has drawn into the atlas since it was made.
+    bool written_{false};
+
+    /// Whether any light casts a shadow this frame.
+    [[nodiscard]] bool has_work() const { return !spot_tiles_.empty() || !point_blocks_.empty(); }
 
     // Cached scene pointer from prepare_frame
     Scene* active_scene_{nullptr};
