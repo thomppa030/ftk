@@ -75,7 +75,8 @@
                 "FETCHCONTENT_SOURCE_DIR_JSON": "${sourceDir}/build/_deps/json-src",
                 "FETCHCONTENT_SOURCE_DIR_TRACY": "${sourceDir}/build/_deps/tracy-src",
                 "FETCHCONTENT_SOURCE_DIR_IMGUI": "${sourceDir}/build/_deps/imgui-src",
-                "FETCHCONTENT_SOURCE_DIR_VULKANMEMORYALLOCATOR": "${sourceDir}/build/_deps/vulkanmemoryallocator-src"
+                "FETCHCONTENT_SOURCE_DIR_VULKANMEMORYALLOCATOR": "${sourceDir}/build/_deps/vulkanmemoryallocator-src",
+                "FETCHCONTENT_SOURCE_DIR_SPIRV_CROSS": "${sourceDir}/build/_deps/spirv_cross-src"
             }
         }
     ],

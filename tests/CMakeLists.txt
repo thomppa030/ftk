@@ -216,6 +216,7 @@ add_executable(fjell-tests
     test_frame_descriptor_cache.cpp
     test_vulkan_translate.cpp
     test_gpu_release.cpp
+    test_gpu_shader.cpp
     test_gpu_texture_view.cpp
     test_handle_pool.cpp
     test_clipmap.cpp
@@ -286,6 +287,10 @@ target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 # Tests that need a real font bake the engine's own.
 target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
+# Tests that read SPIR-V compile shaders of their own from tests/shaders/.
+compile_shaders(fjell-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+target_compile_definitions(fjell-tests PRIVATE
+    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 fjell_target_defaults(fjell-tests)
 # The libraries under test bring Vulkan and SDL for code no test calls.
