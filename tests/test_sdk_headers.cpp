@@ -14,6 +14,7 @@
 #include "fjell/material_api.hpp"
 #include "fjell/viewport_api.hpp"
 #include "fjell/animator_component.hpp"
+#include "fjell/water_component.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -172,11 +173,19 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         if (anim->finished && anim->state_machine.current_state_name() == "Attack") anim->playing = false;
         [[maybe_unused]] const fjell::AnimationState* run = anim->state_machine.find_state("Run");
         own.get_component<fjell::SpriteComponent>()->flip_h = true;
+
+        // A sea through its component.
+        if (auto sea = own.get_component<fjell::WaterComponent>()) {
+            const float silt = fjell::WaterComponent::advance_silt(
+                0.0f, sea->bed_agitation(fjell::WaterComponent::silt_reference_depth()), 1.0f / 60.0f);
+            fjell::material::set_param(sea.node(), "silt_load", silt + sea->wave_height());
+        }
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);
     // So is an animator: the engine's component, reached only through a Ref.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::AnimatorComponent>);
+    STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::WaterComponent>);
     STATIC_REQUIRE_FALSE(std::is_default_constructible_v<fjell::Node3D>);
     // A Ref<Node3D> is a Ref like any other.
     STATIC_REQUIRE(sizeof(fjell::Ref<fjell::Node3D>) == sizeof(fjell::RefData));

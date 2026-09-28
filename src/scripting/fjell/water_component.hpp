@@ -1,22 +1,22 @@
-// water_api.hpp — Reading a body of water from game scripts
+// water_component.hpp — A body of water, as a script reaches it
+// Shipped to game projects alongside fjell_api.h.
 #pragma once
 
 #include "fjell/api.h"
 
-#include <cstdint>
-
-// ── C ABI ──────────────────────────────────────────────────
 extern "C" {
-FJELL_SDK_EXPORT int   fjell_water_is_water(uint32_t node_id);
-FJELL_SDK_EXPORT float fjell_water_bed_agitation(uint32_t node_id, float depth);
-FJELL_SDK_EXPORT float fjell_water_wave_height(uint32_t node_id);
+FJELL_SDK_EXPORT float fjell_water_bed_agitation(const void* water, float depth);
+FJELL_SDK_EXPORT float fjell_water_wave_height(const void* water);
 FJELL_SDK_EXPORT float fjell_water_advance_silt(float load, float agitation, float dt);
 FJELL_SDK_EXPORT float fjell_water_silt_reference_depth();
 }
 
 namespace fjell {
 
-/// A body of water, as a script sees it.
+/// A body of water. A script reaches it through a `Ref<WaterComponent>` or
+/// `get_component<WaterComponent>()`, and never holds one by value: it is the
+/// engine's component itself, and everything about it goes through its
+/// methods. A node is water when it carries one.
 ///
 /// What a game asks a sea is not what it is made of but what it is doing:
 /// how hard it is working the bed, how big it has got. The wave field itself
@@ -28,13 +28,20 @@ namespace fjell {
 /// response, not the one authored on disk. That is the sea the player is
 /// looking at.
 ///
-/// A node with no WaterComponent answers zero throughout, so a script does
-/// not have to guard every call.
-struct Water {
-    /// Whether this node is a body of water at all.
-    [[nodiscard]] static bool is_water(uint32_t node_id) {
-        return fjell_water_is_water(node_id) != 0;
-    }
+/// @code
+/// // Cloud the water in a storm and let it settle slowly afterwards.
+/// void tick(float dt) override {
+///     const float agitation = sea->bed_agitation(bay_depth_);   // [[fj::property]] Ref<WaterComponent> sea
+///     silt_ = fjell::WaterComponent::advance_silt(silt_, agitation, dt);
+///     fjell::material::set_param(sea.node(), "silt_load", silt_);
+/// }
+/// @endcode
+struct WaterComponent {
+    static constexpr const char* type_name = "WaterComponent";
+
+    WaterComponent() = delete;
+    WaterComponent(const WaterComponent&) = delete;
+    WaterComponent& operator=(const WaterComponent&) = delete;
 
     /// How hard this sea is working a bed `depth` metres down, 0 (cannot
     /// reach it) to 1 (working it hard).
@@ -49,17 +56,13 @@ struct Water {
     /// What sediment a script suspends from it is `advance_silt()`.
     ///
     /// @param depth Still-water depth in metres. Zero or less answers 0.
-    [[nodiscard]] static float bed_agitation(uint32_t node_id, float depth) {
-        return fjell_water_bed_agitation(node_id, depth);
-    }
+    [[nodiscard]] float bed_agitation(float depth) const { return fjell_water_bed_agitation(this, depth); }
 
     /// The sum of the sea's train amplitudes in metres, after the wind
     /// response: how big it has got. For a script deciding whether a boat
     /// should be taking spray, not for placing anything — where the surface
     /// actually is comes from buoyancy.
-    [[nodiscard]] static float wave_height(uint32_t node_id) {
-        return fjell_water_wave_height(node_id);
-    }
+    [[nodiscard]] float wave_height() const { return fjell_water_wave_height(this); }
 
     /// One step of suspended sediment answering the sea working the bed.
     ///
@@ -75,16 +78,6 @@ struct Water {
     /// @param agitation What the sea is doing to the bed, from
     ///                  `bed_agitation()`.
     /// @return The new load, to keep and pass back next frame.
-    ///
-    /// @code
-    /// // Cloud the water in a storm and let it settle slowly afterwards.
-    /// void tick(float dt) override {
-    ///     const float agitation =
-    ///         fjell::Water::bed_agitation(sea_, bay_depth_);
-    ///     silt_ = fjell::Water::advance_silt(silt_, agitation, dt);
-    ///     fjell::material::set_param(sea_, "silt_load", silt_);
-    /// }
-    /// @endcode
     [[nodiscard]] static float advance_silt(float load, float agitation, float dt) {
         return fjell_water_advance_silt(load, agitation, dt);
     }
@@ -96,9 +89,7 @@ struct Water {
     /// `bed_agitation()` at this depth, push the load, and let the shader
     /// scale it by the depth it can see. A script that knows the depth it
     /// cares about should pass that instead.
-    [[nodiscard]] static float silt_reference_depth() {
-        return fjell_water_silt_reference_depth();
-    }
+    [[nodiscard]] static float silt_reference_depth() { return fjell_water_silt_reference_depth(); }
 };
 
 } // namespace fjell

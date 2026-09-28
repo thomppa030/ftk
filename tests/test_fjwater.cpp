@@ -560,7 +560,7 @@ TEST_CASE("A sea travels in the direction its waves do", "[fjwater]") {
 // --- What scripts are told about a sea ---
 
 TEST_CASE("A sea's wave height is the sum of its trains", "[fjwater]") {
-    // Scripts read this through Water::wave_height(), so what it means is part
+    // Scripts read this through WaterComponent::wave_height(), so what it means is part
     // of their ABI: a change here changes every game calling it, with no
     // compile error to say so. Pinned to numbers rather than to a formula
     // restated, so altering the meaning has to be done on purpose.

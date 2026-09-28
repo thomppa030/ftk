@@ -33,8 +33,8 @@ Reference pages for every type and static API exposed to game scripts. For the m
 
 Engine components a script reaches directly, through a `Ref<T>` or `get_component<T>()`.
 The ones whose fields a script reads are checked when the game library loads, so a library
-built against another engine is refused rather than misread; `AnimatorComponent` has no
-fields a script sees, only methods.
+built against another engine is refused rather than misread; `AnimatorComponent` and
+`WaterComponent` have no fields a script sees, only methods.
 
 | Component | Header | What a script does with it |
 |---|---|---|
@@ -45,6 +45,7 @@ fields a script sees, only methods.
 | `SpriteComponent` | `fjell/engine_components.hpp` | Tint, flip (`flip_h`) and look of a sprite |
 | `SpriteAnimComponent` | `fjell/sprite_anim_component.hpp` | Drive a sprite animation: `state_machine.set_param()`, `playing`, `finished` |
 | `AnimatorComponent` | `fjell/animator_component.hpp` | Drive a skeletal animation: `state_machine().set_param()`, `current_state_name()` |
+| `WaterComponent` | `fjell/water_component.hpp` | Ask a sea what it is doing: `wave_height()`, `bed_agitation(depth)`, and the silt model |
 
 ## Handles and value types
 

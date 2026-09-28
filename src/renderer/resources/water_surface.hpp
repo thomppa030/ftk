@@ -316,7 +316,7 @@ struct SurfaceMotion {
 /// of the waves an observer would call the sea's size.
 ///
 /// A property of the field rather than of a point. It is what scripts read as
-/// `Water::wave_height()`, so what it means is part of the script ABI.
+/// `WaterComponent::wave_height()`, so what it means is part of the script ABI.
 [[nodiscard]] float wave_height(const FjWaterData& water);
 
 /// The shortest wavelength the surface carries, in metres, or 0 when it
