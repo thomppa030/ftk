@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/access.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
 
 #include <vulkan/vulkan.h>
@@ -13,6 +14,10 @@
 #include <vector>
 
 namespace fjell {
+
+namespace gpu {
+class Device;
+}
 
 class PassBuilder;
 class ThreadPool;
@@ -60,6 +65,8 @@ struct ImageSlice {
 // that passes touching specific mips or array layers don't invalidate
 // the rest of the image.
 struct TrackedImage {
+    gpu::Texture texture{};
+    /// The texture's VkImage, which the barriers name.
     VkImage image{VK_NULL_HANDLE};
     VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
     uint32_t mip_count{1};
@@ -83,10 +90,10 @@ struct TrackedImage {
     std::vector<ImageSlice> slices;
 };
 
-// Identity of an imported image inside the graph: the same VkImage seen
-// through different layer ranges is tracked apart (shadow cascades).
+// Identity of an imported image inside the graph: the same texture seen
+// through different layer ranges is tracked apart.
 struct ImageKey {
-    VkImage image{VK_NULL_HANDLE};
+    gpu::Texture texture{};
     uint32_t base_layer{0};
     uint32_t layer_count{1};
     bool operator==(const ImageKey&) const noexcept = default;
@@ -94,7 +101,7 @@ struct ImageKey {
 
 struct ImageKeyHash {
     size_t operator()(const ImageKey& k) const noexcept {
-        auto h = std::hash<void*>{}(static_cast<void*>(k.image));
+        auto h = std::hash<uint32_t>{}(k.texture.id);
         h ^= std::hash<uint32_t>{}(k.base_layer) << 1;
         h ^= std::hash<uint32_t>{}(k.layer_count) << 2;
         return h;
@@ -186,15 +193,12 @@ struct AliasGroup {
 // of a frame a real source scope against the previous frame's readers.
 class FrameGraph {
 public:
-    // Register an image to track and return its id. Registering the same
-    // image and layer range again in one run returns the existing id. A new
-    // entry starts from what the graph remembers of the image, else at rest
-    // when it has a resting access and has been written, else undefined.
-    // `name` is only for the traces.
-    uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-                            uint32_t base_layer = 0, uint32_t layer_count = 1,
-                            uint32_t mip_count = 1,
-                            bool persistent = false,
+    // Register a texture to track, every mip and the layers `view` covers,
+    // and return its id. Registering the same texture and layers again in
+    // one run returns the existing id. A new entry starts from what the
+    // graph remembers of it, else at rest when it has a resting access and
+    // has been written, else undefined. `name` is only for the traces.
+    uint32_t register_image(const gpu::TextureView& view, bool persistent = false,
                             std::string_view name = {}, gpu::AccessSet resting = {},
                             bool unwritten = false);
 
@@ -210,8 +214,8 @@ public:
     void new_frame();
 
     // Once per run: drop the previous run's passes and images. The
-    // remembered layouts survive.
-    void begin_frame();
+    // remembered layouts survive. The run's textures are the device's.
+    void begin_frame(gpu::Device& device);
 
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
     /// RenderPass::declare() or a pass's build()) plus the record
@@ -299,13 +303,13 @@ public:
     // the named logical resources in ResourceRegistry.
     [[nodiscard]] const std::vector<TrackedImage>& images() const noexcept { return images_; }
 
-    // Bind a VkImage to a virtual (create()-declared) resource after the
-    // TransientImagePool assigns a physical allocation. Must be called
-    // before execute() so barrier emission can operate on the real
-    // image. Slice state stays at the begin_frame() seed (UNDEFINED) so
-    // the first access triggers a correct aliasing transition whether
-    // the pool handed back a fresh image or one reused from last frame.
-    void bind_virtual_image(uint32_t image_id, VkImage image);
+    // Bind a texture to a virtual (create()-declared) resource after the
+    // TransientImagePool assigns one. Must be called before execute() so
+    // barrier emission can operate on the real image. Slice state stays at
+    // the begin_frame() seed (UNDEFINED) so the first access triggers a
+    // correct aliasing transition whether the pool handed back a fresh
+    // texture or one reused from last frame.
+    void bind_virtual_image(uint32_t image_id, gpu::Texture texture);
 
 private:
     // When a barrier is recorded into a compute-queue CB, graphics-only
@@ -382,6 +386,7 @@ private:
     // is emitted for one already there.
     void return_to_rest(VkCommandBuffer cmd, const PassDecl& pass);
 
+    gpu::Device* device_{nullptr};
     std::vector<TrackedImage> images_;
     std::vector<TrackedBuffer> buffers_;
     std::vector<PassDecl> passes_;

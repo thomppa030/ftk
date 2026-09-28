@@ -47,6 +47,17 @@ namespace fjell::gpu::vulkan {
 [[nodiscard]] Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
                                    const TextureInfo& info);
 
+/// `adopt` for an image described by the create info it was made from: the
+/// usual way to hand the interface an image made before it, right after
+/// making it. A format `Format` does not name leaves the info's undefined;
+/// the texture then has only `whole_view`.
+[[nodiscard]] Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
+                                   const VkImageCreateInfo& made_as);
+
+/// The aspect a barrier on a texture names; colour when the handle finds
+/// none.
+[[nodiscard]] VkImageAspectFlags native_aspect(Device& device, Texture texture);
+
 /// Makes pipelines through the engine's pipeline cache, which the engine loads
 /// and saves; null stops using one. The cache must outlive its use here.
 void use_pipeline_cache(Device& device, VkPipelineCache cache);

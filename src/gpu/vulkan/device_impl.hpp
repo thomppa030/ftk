@@ -103,6 +103,10 @@ struct Device::Impl {
         /// Null for an adopted image, which the device does not destroy.
         VmaAllocation allocation{VK_NULL_HANDLE};
         TextureInfo info;
+        /// The aspect a barrier on the texture names: depth alone for any
+        /// depth format, as a view shows it, else colour. Kept from the
+        /// native format, which an adopted image may have outside `Format`.
+        VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
         /// Made on first use, destroyed with the texture. Guarded by
         /// `views_mutex`: any recording thread may ask for a view.
         std::vector<View> views;
