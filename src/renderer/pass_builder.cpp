@@ -29,9 +29,8 @@ FgBuffer PassBuilder::create(std::string_view name, const BufferDesc& desc) {
 }
 
 FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView view,
-                                   VkImageAspectFlags aspect,
-                                   uint32_t base_layer, uint32_t layer_count,
-                                   VkImageLayout initial_layout) {
+                              VkImageAspectFlags aspect, uint32_t base_layer,
+                              uint32_t layer_count) {
     FgTexture h{next_texture_id_++};
     imported_textures_.push_back({
         .handle = h,
@@ -42,7 +41,6 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
         .base_layer = base_layer,
         .layer_count = layer_count,
         .mip_count = 1,
-        .initial_layout = initial_layout,
         .persistent = false,
     });
     return h;
@@ -72,7 +70,6 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
         .base_layer = it->second.base_layer,
         .layer_count = it->second.layer_count,
         .mip_count = it->second.mip_count,
-        .initial_layout = it->second.initial_layout,
         .persistent = it->second.persistent,
         .resting = it->second.resting,
         .unwritten = it->second.unwritten,
@@ -134,19 +131,8 @@ FgBuffer PassBuilder::read_write(FgBuffer h, gpu::Access a) {
     return h;
 }
 
-FgTexture PassBuilder::final_layout(FgTexture h, VkImageLayout layout,
-                                     VkPipelineStageFlags2 written_stage,
-                                     VkAccessFlags2 written_access,
-                                     VkPipelineStageFlags2 visible_stage,
-                                     VkAccessFlags2 visible_access) {
-    final_layouts_.push_back({
-        .handle = h,
-        .layout = layout,
-        .written_stage = written_stage,
-        .written_access = written_access,
-        .visible_stage = visible_stage,
-        .visible_access = visible_access,
-    });
+FgTexture PassBuilder::leaves(FgTexture h, gpu::AccessSet written_by, gpu::AccessSet left_as) {
+    final_states_.push_back({.handle = h, .written_by = written_by, .left_as = left_as});
     return h;
 }
 
@@ -157,7 +143,7 @@ void PassBuilder::reset() {
     imported_buffers_.clear();
     created_textures_.clear();
     created_buffers_.clear();
-    final_layouts_.clear();
+    final_states_.clear();
     queue_ = QueueType::graphics;
     parallel_group_ = 0;
     never_cull_ = false;

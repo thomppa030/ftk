@@ -122,7 +122,6 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t base_layer, uint32_t layer_count,
                                      uint32_t mip_count,
                                      bool persistent,
-                                     VkImageLayout initial_layout,
                                      std::string_view name, gpu::AccessSet resting,
                                      bool unwritten) {
     const ImageKey key{image, base_layer, layer_count};
@@ -152,7 +151,8 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     img.persistent = persistent;
     img.resting = resting;
     // The layout it rests in, which it starts from without a memory of it
-    // once something has written it.
+    // once something has written it; else nothing it holds is known.
+    VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (!resting.empty()) {
         const auto rest = gpu::vulkan::image_scope(resting, (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
         if (rest.has_value()) {
@@ -308,7 +308,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     for (const auto& imp : builder.imported_textures()) {
         handle_to_image_id[imp.handle.id] = register_image(
             imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
-            imp.persistent, imp.initial_layout, imp.name, imp.resting, imp.unwritten);
+            imp.persistent, imp.name, imp.resting, imp.unwritten);
     }
 
     // Register created textures as virtual resources. Virtual resources
@@ -412,24 +412,32 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         pass.image_uses.push_back(out);
     }
 
-    pass.final_layouts.reserve(builder.final_layouts().size());
-    for (const auto& fl : builder.final_layouts()) {
-        if (fl.handle.id >= handle_to_image_id.size()) { continue; }
-        uint32_t image_id = handle_to_image_id[fl.handle.id];
+    pass.final_layouts.reserve(builder.final_states().size());
+    for (const auto& fs : builder.final_states()) {
+        if (fs.handle.id >= handle_to_image_id.size()) { continue; }
+        uint32_t image_id = handle_to_image_id[fs.handle.id];
         if (image_id == UINT32_MAX) { continue; }
 
+        const bool depth = (images_[image_id].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
+        const auto written = gpu::vulkan::image_scope(fs.written_by, depth);
+        const auto left = gpu::vulkan::image_scope(fs.left_as, depth);
+        if (!written || !left) {
+            FJELL_GFX_WARN("FrameGraph: pass '{}' leaves a texture in accesses that need "
+                           "different layouts", name.c_str());
+            continue;
+        }
         FinalLayoutOverride out{};
         out.image_id = image_id;
-        out.layout = fl.layout;
+        out.layout = left->layout;
         out.range.aspect = images_[image_id].aspect;
         out.range.base_mip = 0;
         out.range.mip_count = images_[image_id].mip_count;
         out.range.base_layer = images_[image_id].base_layer;
         out.range.layer_count = images_[image_id].array_layers;
-        out.written_stage = fl.written_stage;
-        out.written_access = fl.written_access;
-        out.visible_stage = fl.visible_stage;
-        out.visible_access = fl.visible_access;
+        out.written_stage = written->stages;
+        out.written_access = written->access & WRITE_ACCESS_BITS;
+        out.visible_stage = left->stages;
+        out.visible_access = left->access;
         pass.final_layouts.push_back(out);
     }
 
@@ -1098,12 +1106,12 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
         auto& img = images_[fl.image_id];
         if (img.image == VK_NULL_HANDLE) { continue; }
         if (trace) {
-            FJELL_GFX_INFO("[layout] final_layout pass='{}' img=0x{:x} -> {}",
+            FJELL_GFX_INFO("[layout] leaves pass='{}' img=0x{:x} -> {}",
                            pass.name, reinterpret_cast<uintptr_t>(img.image),
                            layout_str(fl.layout));
         }
         if (tracing_) {
-            barrier_trace()->file << std::format("    final_layout {} -> {}\n", img.name,
+            barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name,
                                                  layout_name(fl.layout));
         }
         carve_slices(img, fl.range, indices_scratch_);

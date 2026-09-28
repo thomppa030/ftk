@@ -35,11 +35,8 @@ namespace fjell {
 //                     post_create() via passes.get<BloomCore>("bloom_ds_0").
 //                     Records one downsample dispatch.
 //   • BloomUsPass   — follower for us_3..0. Reads mip[dst+1], blends into
-//                     mip[dst]. dst=0 is the final node — it claims
-//                     final_layout(SHADER_READ_ONLY) and flags
-//                     has_side_effects() so the graph keeps it alive
-//                     (the post pass samples bloom_mip0 through the registry
-//                     at record time, so the DAG can't see the reader).
+//                     mip[dst]. dst=0 is the final node — it flags
+//                     has_side_effects() so the graph keeps it alive.
 //
 // Resource flow:
 //   • bloom_mip0..4 are graph transients declared by the ds nodes. Each
@@ -50,9 +47,8 @@ namespace fjell {
 //
 // Barrier contract: each node declares only the reads/writes it actually
 // performs. The graph emits one merged barrier per image per node. No node
-// emits inline barriers — the final mip0 layout is carried by us_0's
-// final_layout(SHADER_READ_ONLY) promise so the graph transitions it on
-// the next read.
+// emits inline barriers — the post pass declares its read of mip0, so the
+// graph moves it for that read.
 
 constexpr uint32_t BLOOM_MIP_COUNT = 5;
 

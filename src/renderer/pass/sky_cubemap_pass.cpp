@@ -970,17 +970,14 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // graph culls it. On a dirty frame the declared write is what brings
     // the whole image (every mip, all six faces) to GENERAL before the
     // dispatch; the mip chain then blits through TRANSFER layouts and
-    // leaves everything readable by fragment shaders. The final_layout
-    // reports the blit write and that scope, so a fragment reader needs
-    // nothing more and a compute or ray tracing reader gets its barrier.
+    // leaves everything at rest, readable by fragment shaders, which is
+    // what leaves() reports: a fragment reader needs nothing more and a
+    // compute or ray tracing reader gets its barrier.
     if (!generates_this_frame()) { return; }
     auto cubemap = builder.import_named(ctx, "sky_cubemap");
     if (!cubemap.valid()) { return; }
     builder.write(cubemap, gpu::Access::storage_write_compute);
-    builder.final_layout(cubemap,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    builder.leaves(cubemap, gpu::Access::copy_dst, gpu::Access::sampled_fragment);
     // BRDF LUT is a static pass-private texture — not in the catalog.
 }
 
@@ -1001,9 +998,10 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = 6;
     img.mip_count = mips;
     img.persistent = true;
-    // Both cubemaps are generated once at creation, and an HDRI is never
-    // written again in the frame, so a reader can come first.
-    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Rests where the sky and every material sample it through the global
+    // set. Both cubemaps are generated there at creation, and an HDRI is
+    // never written again in the frame, so a reader can come first.
+    img.resting = gpu::Access::sampled_fragment;
     ctx.imports.emplace(fg_name_hash("sky_cubemap"), img);
 }
 

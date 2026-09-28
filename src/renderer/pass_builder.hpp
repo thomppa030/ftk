@@ -28,12 +28,6 @@ struct ImportedImage {
     // whose state at the start of frame N depends on frame N-1's exit
     // state.
     bool persistent{false};
-    // The layout the owner keeps the image in outside the graph: where its
-    // creation seeded it, or where every writer's closing barrier leaves it.
-    // The graph starts from here when it has no memory of the image, so a
-    // first read keeps what the owner put there instead of discarding it.
-    // UNDEFINED for an image no pass reads before one writes it.
-    VkImageLayout initial_layout{VK_IMAGE_LAYOUT_UNDEFINED};
     /// How readers the graph cannot see use the image (a shader sampling it
     /// through the global set, ImGui showing it): where it rests between
     /// the passes that declare it. The graph starts it there when it has no
@@ -181,14 +175,12 @@ public:
     FgTexture create(std::string_view name, const TextureDesc& desc);
     FgBuffer create(std::string_view name, const BufferDesc& desc);
 
-    /// Declare an externally-owned resource. The graph tracks layout but
-    /// does not allocate or destroy. Initial layout is what the pass
-    /// expects the resource to be in at graph start; final layout is
-    /// produced by the last access declared against the handle.
+    /// Declare an externally-owned resource. The graph tracks its state but
+    /// does not allocate or destroy it; with no memory of it, the graph
+    /// starts it undefined.
     FgTexture import(std::string_view name, VkImage image, VkImageView view,
-                          VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-                          uint32_t base_layer = 0, uint32_t layer_count = 1,
-                          VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
+                     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+                     uint32_t base_layer = 0, uint32_t layer_count = 1);
     /// `persistent=true` marks the buffer as cross-frame-live. Pass-cull
     /// keeps the producer alive even when no in-frame consumer reads it
     /// (the read happens next frame). Mirrors the image-side pattern used
@@ -229,15 +221,13 @@ public:
     FgTexture read_write(FgTexture, gpu::Access);
     FgBuffer read_write(FgBuffer, gpu::Access);
 
-    /// Promise that, after record() returns, the named texture is in
-    /// the stated layout, for a pass that transitions it inline. The pass
-    /// names its last write to the texture and the scope its own closing
-    /// barrier made that write visible to; the graph records both without
-    /// emitting a barrier, and puts one before any later reader outside
-    /// that scope.
-    FgTexture final_layout(FgTexture, VkImageLayout layout,
-                           VkPipelineStageFlags2 written_stage, VkAccessFlags2 written_access,
-                           VkPipelineStageFlags2 visible_stage, VkAccessFlags2 visible_access);
+    /// For a pass whose own work moves a texture through other accesses (a
+    /// mip chain): after record() returns, its last writes were
+    /// `written_by`, and it is left as `left_as`, those writes visible there.
+    /// The graph takes that as the texture's state after the pass without a
+    /// barrier of its own, and puts one before any later use it does not
+    /// cover. Left as its resting access, it is already at rest.
+    FgTexture leaves(FgTexture, gpu::AccessSet written_by, gpu::AccessSet left_as);
 
     // ── Pass-level flags ───────────────────────────────────────────────
 
@@ -280,7 +270,6 @@ public:
         uint32_t base_layer;
         uint32_t layer_count;
         uint32_t mip_count;
-        VkImageLayout initial_layout;
         bool persistent;
         gpu::AccessSet resting{};
         bool unwritten{false};
@@ -304,13 +293,10 @@ public:
         uint64_t name_hash;  // FNV-1a of name, computed in create()
         BufferDesc desc;
     };
-    struct FinalLayout {
+    struct FinalState {
         FgTexture handle{};
-        VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-        VkPipelineStageFlags2 written_stage{0};
-        VkAccessFlags2 written_access{0};
-        VkPipelineStageFlags2 visible_stage{0};
-        VkAccessFlags2 visible_access{0};
+        gpu::AccessSet written_by{};
+        gpu::AccessSet left_as{};
     };
 
     [[nodiscard]] const std::vector<TextureAccess>& texture_accesses() const noexcept { return texture_accesses_; }
@@ -319,7 +305,7 @@ public:
     [[nodiscard]] const std::vector<ImportedBuffer>&  imported_buffers()  const noexcept { return imported_buffers_; }
     [[nodiscard]] const std::vector<CreatedTexture>& created_textures() const noexcept { return created_textures_; }
     [[nodiscard]] const std::vector<CreatedBuffer>&  created_buffers()  const noexcept { return created_buffers_; }
-    [[nodiscard]] const std::vector<FinalLayout>& final_layouts() const noexcept { return final_layouts_; }
+    [[nodiscard]] const std::vector<FinalState>& final_states() const noexcept { return final_states_; }
     [[nodiscard]] QueueType queue() const noexcept { return queue_; }
     [[nodiscard]] uint32_t parallel_group() const noexcept { return parallel_group_; }
     [[nodiscard]] bool is_never_cull() const noexcept { return never_cull_; }
@@ -336,7 +322,7 @@ private:
     std::vector<ImportedBuffer>  imported_buffers_;
     std::vector<CreatedTexture>  created_textures_;
     std::vector<CreatedBuffer>   created_buffers_;
-    std::vector<FinalLayout>     final_layouts_;
+    std::vector<FinalState>      final_states_;
 
     QueueType queue_{QueueType::graphics};
     uint32_t parallel_group_{0};

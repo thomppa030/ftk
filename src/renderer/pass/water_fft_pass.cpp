@@ -40,6 +40,8 @@ constexpr int VERIFY_WAIT_FRAMES = static_cast<int>(MAX_FRAMES_IN_FLIGHT) + 2;
 constexpr VkPipelineStageFlags2 SURFACE_READERS = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT
                                                 | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT
                                                 | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+// The same readers as accesses: where the surfaces rest.
+constexpr gpu::AccessSet SURFACE_READS = gpu::Access::sampled_mesh | gpu::Access::sampled_compute;
 
 VkImageMemoryBarrier2 mip_barrier(VkImage image, std::uint32_t first_mip, std::uint32_t mip_count,
                                   VkImageLayout old_layout, VkImageLayout new_layout,
@@ -385,52 +387,45 @@ void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // the still texel is all there is and nothing is written.
     if (stepped_this_frame_ || !active()) { return; }
     // The graph moves both surfaces into GENERAL for the transform's write;
-    // the step's own mip chain leaves them where their readers sample them,
-    // which final_layout reports.
+    // the step's own mip chain, blitted, leaves them at rest.
     for (const char* name : {"water_displacement", "water_derivatives"}) {
         auto image = builder.import_named(ctx, name);
         builder.write(image, gpu::Access::storage_write_compute);
-        builder.final_layout(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        builder.leaves(image, gpu::Access::copy_dst, SURFACE_READS);
     }
-    // New images: last frame's surface is cleared to still water.
+    // New images: last frame's surface is cleared to still water, and the
+    // graph returns it to rest.
     if (images_fresh_) {
-        auto previous = builder.import_named(ctx, "water_displacement_prev");
-        builder.write(previous, gpu::Access::copy_dst);
-        builder.final_layout(previous, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        builder.write(builder.import_named(ctx, "water_displacement_prev"), gpu::Access::copy_dst);
     }
 }
 
 void WaterFftPass::collect_exports(DeclareContext& ctx) {
+    // Every surface rests where its readers sample it. Fresh images hold
+    // nothing until the first step; the still texel is seeded when made.
     auto add = [&](std::string_view name, const Image& image, std::uint32_t mips,
-                   VkImageLayout rest) {
+                   bool unwritten) {
         ImportedImage img{};
         img.image = image.image;
         img.view = image.sampled;
         img.mip_count = mips;
         img.persistent = true;   // this frame's surface is the next frame's previous one
-        img.initial_layout = rest;
+        img.resting = SURFACE_READS;
+        img.unwritten = unwritten;
         ctx.imports.emplace(fg_name_hash(name), img);
     };
     if (!active()) {
         if (still_.image == VK_NULL_HANDLE) { return; }
         for (const char* name : {"water_displacement", "water_displacement_prev",
                                  "water_derivatives"}) {
-            add(name, still_, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            add(name, still_, 1, false);
         }
         return;
     }
-    // Fresh images hold nothing until the first step; after it every one of
-    // them rests where its readers sample it.
-    const VkImageLayout rest = images_fresh_ ? VK_IMAGE_LAYOUT_UNDEFINED
-                                             : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     const std::uint32_t written = written_index();
-    add("water_displacement", displacement_[written], mips_, rest);
-    add("water_displacement_prev", displacement_[1 - written], mips_, rest);
-    add("water_derivatives", derivatives_, mips_, rest);
+    add("water_displacement", displacement_[written], mips_, images_fresh_);
+    add("water_displacement_prev", displacement_[1 - written], mips_, images_fresh_);
+    add("water_derivatives", derivatives_, mips_, images_fresh_);
 }
 
 Result<> WaterFftPass::seed_still(const PassResources& resources) {
@@ -560,12 +555,6 @@ void WaterFftPass::record(const FrameContext& ctx) {
         const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, mips_, 0, 1};
         vkCmdClearColorImage(cmd, previous.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &still, 1,
                              &all);
-        auto to_read = mip_barrier(previous.image, 0, mips_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        to_read.dstStageMask = SURFACE_READERS;
-        submit_barriers(cmd, &to_read, 1);
         images_fresh_ = false;
     }
 

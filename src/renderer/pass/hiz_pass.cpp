@@ -398,17 +398,11 @@ void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto hiz = builder.import_named(ctx, "hiz_pyramid");
     if (hiz.valid()) {
         // record_into() writes every mip of the pyramid as a storage
-        // image, then transitions the whole chain to
-        // SHADER_READ_ONLY_OPTIMAL inline. Tell the graph that's the
-        // post-state so downstream consumers (MeshletCullPass2, SSR)
-        // don't need any additional barrier before sampling.
+        // image, each handed to the next mip's reduction as a compute read,
+        // and leaves the whole chain sampled in compute: downstream
+        // consumers (MeshletCullPass2, SSR) need no further barrier.
         builder.write(hiz, gpu::Access::storage_write_compute);
-        // Each mip is written by compute and handed to the next mip's
-        // reduction, a compute read.
-        builder.final_layout(hiz,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        builder.leaves(hiz, gpu::Access::storage_write_compute, gpu::Access::sampled_compute);
     }
     // Keep Hi-Z alive independently of whether the declared write
     // is wired this frame — MeshletCullPass2 / cull viz / SSR reach

@@ -48,11 +48,9 @@ namespace fjell {
 //     transients.
 //
 // Barrier contract: nodes declare reads/writes; the graph emits one merged
-// barrier per image per node. The only inline barrier any AO node emits is
-// AoBlurVPass's final ao_image GENERAL → SHADER_READ_ONLY_OPTIMAL, which
-// matches the AoPass::declare-time final_layout() promise so the graph's
-// frame-to-frame tracking stays consistent with the global descriptor's
-// baked SHADER_READ layout.
+// barrier per image per node, and no node emits one of its own. The AO
+// image rests where the global descriptor samples it, and the graph returns
+// it there after each node that writes it.
 
 class AoPass : public RenderPass {
 public:
