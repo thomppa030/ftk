@@ -17,35 +17,6 @@
 
 namespace fjell {
 
-namespace {
-
-void batch_barriers(VkCommandBuffer cmd, const VkImageMemoryBarrier2* barriers, uint32_t count) {
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = count;
-    dep.pImageMemoryBarriers = barriers;
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
-VkImageMemoryBarrier2 make_barrier(VkImage image,
-                                   VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                   VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                                   VkImageLayout old_layout, VkImageLayout new_layout) {
-    VkImageMemoryBarrier2 b{};
-    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    b.srcStageMask = src_stage;
-    b.srcAccessMask = src_access;
-    b.dstStageMask = dst_stage;
-    b.dstAccessMask = dst_access;
-    b.oldLayout = old_layout;
-    b.newLayout = new_layout;
-    b.image = image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    return b;
-}
-
-} // namespace
-
 Result<> FogDensityFieldPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     allocator_ = resources.allocator;
@@ -310,31 +281,24 @@ void FogDensityFieldPass::declare(PassBuilder& builder, const DeclareContext& ct
     // stepped the field this frame: it is left as it is.
     if ((moving_count_ == 0 && settled_) || stepped_this_frame_) { return; }
     // Last frame's field carried forward into this frame's. The graph moves
-    // the one written into GENERAL; record() moves it to where the fog
-    // samples it, which final_layout reports.
+    // the one written into GENERAL, and back to rest afterwards.
     builder.read(builder.import_named(ctx, "fog_density_field_prev"),
                  gpu::Access::sampled_compute);
-    auto field = builder.import_named(ctx, "fog_density_field");
-    builder.write(field, gpu::Access::storage_write_compute);
-    builder.final_layout(field, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    builder.write(builder.import_named(ctx, "fog_density_field"),
+                  gpu::Access::storage_write_compute);
 }
 
 void FogDensityFieldPass::collect_exports(DeclareContext& ctx) {
     if (fields_[cur_].image == VK_NULL_HANDLE) { return; }
-    // Neither field holds anything before the pass first runs; after that
-    // both rest where the fog samples them.
-    const VkImageLayout rest = first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED
-                                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Both fields rest where the fog samples them, in compute through the
+    // global set; neither holds anything before the pass first runs.
     auto add = [&](std::string_view name, const Field& field) {
         ImportedImage img{};
         img.image = field.image;
         img.view = field.view;
         img.persistent = true;   // carried into the next frame's field
-        img.initial_layout = rest;
+        img.resting = gpu::Access::sampled_compute;
+        img.unwritten = first_frame_;
         ctx.imports.emplace(fg_name_hash(name), img);
     };
     // The field this frame writes is the one the global set binds.
@@ -408,14 +372,6 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     const uint32_t groups_xz = (RESOLUTION_XZ + 3) / 4;
     const uint32_t groups_y = (RESOLUTION_Y + 3) / 4;
     vkCmdDispatch(cmd, groups_xz, groups_y, groups_xz);
-
-    // Only the fog reads the field, in compute.
-    auto to_read = make_barrier(fields_[write].image,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    batch_barriers(cmd, &to_read, 1);
-
     first_frame_ = false;
     elapsed_ += ctx.delta_time;
     // Settled once nothing has moved for as long as a disturbance lasts: by

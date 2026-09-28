@@ -353,25 +353,15 @@ PassSetup ContactShadowPass::setup() const {
 }
 
 void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    // The graph moves the image into the layout the write needs; record()
-    // moves it back to where the surfaces sample it, which final_layout
-    // reports.
+    // The graph moves the image into the layout the write needs, and back to
+    // rest afterwards.
     auto shadow = builder.import_named(ctx, "contact_shadow");
     if (!enabled_) {
         builder.write(shadow, gpu::Access::copy_dst);
-        builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         return;
     }
     builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
     builder.write(shadow, gpu::Access::storage_write_compute);
-    builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void ContactShadowPass::collect_exports(DeclareContext& ctx) {
@@ -379,8 +369,9 @@ void ContactShadowPass::collect_exports(DeclareContext& ctx) {
     ImportedImage img{};
     img.image = shadow_image_;
     img.view = shadow_view_;
-    // Seeded when created or regrown, and every record leaves it there.
-    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // The surfaces sample it in the fragment shader through the global set.
+    // Seeded there when created or regrown.
+    img.resting = gpu::Access::sampled_fragment;
     ctx.imports.emplace(fg_name_hash("contact_shadow"), img);
 }
 
@@ -401,13 +392,6 @@ void ContactShadowPass::record(const FrameContext& ctx) {
         VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cmd, shadow_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                              &clear, 1, &range);
-
-        auto to_sampled = make_barrier(shadow_image_,
-            VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        batch_barriers(cmd, &to_sampled, 1);
-
         ++frame_counter_;
         return;
     }
@@ -431,13 +415,6 @@ void ContactShadowPass::record(const FrameContext& ctx) {
     uint32_t groups_x = (extent.width + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (extent.height + TILE_SIZE - 1) / TILE_SIZE;
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
-
-    auto to_sampled = make_barrier(shadow_image_,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    batch_barriers(cmd, &to_sampled, 1);
-
     ++frame_counter_;
 }
 

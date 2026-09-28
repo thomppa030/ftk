@@ -21,35 +21,6 @@
 
 namespace fjell {
 
-namespace {
-
-void batch_barriers(VkCommandBuffer cmd, const VkImageMemoryBarrier2* barriers, uint32_t count) {
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = count;
-    dep.pImageMemoryBarriers = barriers;
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
-VkImageMemoryBarrier2 make_barrier(VkImage image,
-                                   VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                   VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                                   VkImageLayout old_layout, VkImageLayout new_layout) {
-    VkImageMemoryBarrier2 b{};
-    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    b.srcStageMask = src_stage;
-    b.srcAccessMask = src_access;
-    b.dstStageMask = dst_stage;
-    b.dstAccessMask = dst_access;
-    b.oldLayout = old_layout;
-    b.newLayout = new_layout;
-    b.image = image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    return b;
-}
-
-} // namespace
-
 Result<> MotionFieldPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     allocator_ = resources.allocator;
@@ -278,37 +249,29 @@ PassSetup MotionFieldPass::setup() const {
 // Where the map is read: the surfaces and the editor's debug view in the
 // fragment shader, the fog in compute. A reader at any other stage declares
 // its read and gets its own barrier from the graph.
-constexpr VkPipelineStageFlags2 READER_STAGES =
-    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+constexpr gpu::AccessSet READERS = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
 
 void MotionFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Nothing moves and the marks have faded: the map is left as it is.
     if (moving_count_ == 0 && settled_) { return; }
     // Last frame's map carried forward into this frame's. The graph moves
-    // the one written into GENERAL; record() moves it to where its readers
-    // sample it, which final_layout reports.
+    // the one written into GENERAL, and back to rest afterwards.
     builder.read(builder.import_named(ctx, "motion_field_prev"),
                  gpu::Access::sampled_compute);
-    auto map = builder.import_named(ctx, "motion_field");
-    builder.write(map, gpu::Access::storage_write_compute);
-    builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         READER_STAGES, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    builder.write(builder.import_named(ctx, "motion_field"), gpu::Access::storage_write_compute);
 }
 
 void MotionFieldPass::collect_exports(DeclareContext& ctx) {
     if (maps_[cur_].image == VK_NULL_HANDLE) { return; }
-    // Neither map holds anything before the pass first runs; after that
-    // both rest where their readers sample them.
-    const VkImageLayout rest = first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED
-                                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Both maps rest where their readers sample them; neither holds anything
+    // before the pass first runs.
     auto add = [&](std::string_view name, const Map& map) {
         ImportedImage img{};
         img.image = map.image;
         img.view = map.view;
         img.persistent = true;   // carried into the next frame's map
-        img.initial_layout = rest;
+        img.resting = READERS;
+        img.unwritten = first_frame_;
         ctx.imports.emplace(fg_name_hash(name), img);
     };
     // The map this frame writes is the one the global set binds.
@@ -370,13 +333,6 @@ void MotionFieldPass::record(const FrameContext& ctx) {
                        0, sizeof(push), &push);
     const uint32_t groups = (RESOLUTION + 7) / 8;
     vkCmdDispatch(cmd, groups, groups, 1);
-
-    auto to_read = make_barrier(maps_[write].image,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        READER_STAGES, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    batch_barriers(cmd, &to_read, 1);
-
     first_frame_ = false;
     // Settled once nothing has moved for as long as the map remembers: by
     // then the last mark has decayed to nothing and further frames would
