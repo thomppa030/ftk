@@ -107,12 +107,39 @@ void destroy_buffer(VmaAllocator allocator, const Device::Impl::BufferRecord& re
     }
 }
 
+// Bytes of each chunk of transient memory; a frame's uniforms, lights and
+// fog volumes fit in one.
+constexpr uint64_t TRANSIENT_CHUNK_SIZE = 1u << 20;
+
+// Where transient slices start: somewhere every use they are bound as accepts.
+uint64_t transient_alignment(VkPhysicalDevice physical_device) {
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(physical_device, &properties);
+    return std::max<uint64_t>({properties.limits.minUniformBufferOffsetAlignment,
+                               properties.limits.minStorageBufferOffsetAlignment, 16});
+}
+
 } // namespace
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
 Device::Impl::Impl(GpuCore& gpu_core)
-    : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()) {
+    : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()),
+      transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
+                 .alignment = transient_alignment(gpu_core.physical_device()),
+                 .chunk_size = TRANSIENT_CHUNK_SIZE},
+                [this](uint64_t size) -> Result<TransientChunk> {
+                    auto made = make_buffer(BufferDesc{
+                        .size = size,
+                        .use = BufferUse::uniform | BufferUse::storage | BufferUse::vertex |
+                               BufferUse::index | BufferUse::indirect,
+                        .memory = Memory::upload,
+                        .name = "transient",
+                    });
+                    if (!made) return std::unexpected(made.error());
+                    const BufferRecord* record = buffers.get(*made);
+                    return TransientChunk{*made, {record->mapped, record->size}};
+                }) {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
@@ -124,8 +151,11 @@ Device::Impl::Impl(GpuCore& gpu_core)
 
 Device::Impl::~Impl() {
     // The GPU is idle here (GpuCore waits before destroying the device), so
-    // what is still held is destroyed now. Anything still held was never
-    // released by its owner, which outlived the device.
+    // what is still held is destroyed now: first the device's own buffers,
+    // then anything never released by an owner that outlived the device.
+    for (Buffer chunk : transient.chunks()) {
+        if (auto record = buffers.take(chunk)) destroy_buffer(allocator, *record);
+    }
     uint32_t leaked = buffers.size() + textures.size();
     buffers.for_each([&](Buffer, BufferRecord& record) { destroy_buffer(allocator, record); });
     textures.for_each([&](Texture, TextureRecord& record) {
@@ -181,7 +211,12 @@ Device::Device(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 Device::~Device() = default;
 
 Result<Owned<Buffer>> Device::create(const BufferDesc& desc) {
-    Impl& self = *impl_;
+    auto made = impl_->make_buffer(desc);
+    if (!made) return std::unexpected(made.error());
+    return Owned<Buffer>(*this, *made);
+}
+
+Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     if (desc.size == 0) return make_error(described("Empty buffer", desc.name));
 
     VkBufferCreateInfo create_info{};
@@ -190,7 +225,7 @@ Result<Owned<Buffer>> Device::create(const BufferDesc& desc) {
     create_info.usage = vulkan::to_vk(desc.use);
     // Uploads may run on the transfer queue and compute on its own: a buffer
     // shared across the families needs no ownership transfers between them.
-    const auto families = self.core.device().upload_sharing_families();
+    const auto families = core.device().upload_sharing_families();
     if (families.size() >= 2) {
         create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         create_info.queueFamilyIndexCount = static_cast<uint32_t>(families.size());
@@ -212,19 +247,19 @@ Result<Owned<Buffer>> Device::create(const BufferDesc& desc) {
             break;
     }
 
-    Impl::BufferRecord record;
+    BufferRecord record;
     record.size = desc.size;
     VmaAllocationInfo allocated{};
-    const VkResult result = vmaCreateBuffer(self.allocator, &create_info, &allocation_info,
+    const VkResult result = vmaCreateBuffer(allocator, &create_info, &allocation_info,
                                             &record.buffer, &record.allocation, &allocated);
     if (result != VK_SUCCESS) {
         return make_error("Failed to create " + described("buffer", desc.name) +
                           " (VkResult=" + std::to_string(static_cast<int>(result)) + ")");
     }
     record.mapped = static_cast<std::byte*>(allocated.pMappedData);
-    vulkan::name_object(self.device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
-                desc.name);
-    return Owned<Buffer>(*this, self.buffers.emplace(record));
+    vulkan::name_object(device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
+                        desc.name);
+    return buffers.emplace(record);
 }
 
 Result<Owned<Texture>> Device::create(const TextureDesc& desc) {

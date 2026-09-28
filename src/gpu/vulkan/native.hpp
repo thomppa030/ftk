@@ -71,7 +71,8 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 [[nodiscard]] VkDescriptorSet native_group(Device& device, BindGroup group);
 
 /// Tells the device a frame slot starts recording, right after the slot's
-/// fence wait: the sets that lasted one frame in that slot are reset.
+/// fence wait: the sets and transient memory that lasted one frame in that
+/// slot are free again.
 void begin_frame(Device& device, uint32_t frame_slot);
 
 /// The device's one-frame descriptor sets, for passes that acquire their own.
