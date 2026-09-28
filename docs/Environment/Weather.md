@@ -194,7 +194,10 @@ play-from-a-phase menu.
 
 The weather belongs to the scene it plays over. Opening another scene starts
 from that scene's own: its event in its start phase, dry ground, and nothing a
-script or the weather editor played over the scene before.
+script or the weather editor played over the scene before. Stopping play puts
+back the weather the editor had when play started, where it had got to, as it
+puts back the scene: what scripts played and the wet ground the session left
+go with the session.
 
 ## From a script
 

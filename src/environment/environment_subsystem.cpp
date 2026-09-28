@@ -238,16 +238,9 @@ void EnvironmentSubsystem::bind_node_materials(Scene& scene, ResourceManager* re
     });
 }
 
-void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManager* resources) {
-    if (env.weather == env.weather_bound) {
-        if (resources != nullptr && env.weather_handle.valid()) {
-            env.weather_asset = resources->get(env.weather_handle);
-        }
-        return;
-    }
-    env.weather_bound = env.weather;
-    env.weather_handle = {};
-    env.weather_asset = nullptr;
+void EnvironmentSubsystem::bind_weather(const WorldEnvironmentNode& env, ResourceManager* resources) {
+    if (env.weather == scene_weather_.bound_weather) return;
+    scene_weather_.bound_weather = env.weather;
     if (env.weather.empty()) {
         // The scene's weather was cleared: whatever plays tails out.
         scene_weather_.player.stop();
@@ -260,21 +253,12 @@ void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManag
         FJELL_CORE_ERROR("World environment: {}", handle.error());
         return;
     }
-    env.weather_handle = *handle;
-    env.weather_asset = resources->get(*handle);
     play_weather(*handle, env.weather_start_phase);
 }
 
-void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManager* resources) {
-    if (env.climate == env.climate_bound) {
-        if (resources != nullptr && env.climate_handle.valid()) {
-            env.climate_asset = resources->get(env.climate_handle);
-        }
-        return;
-    }
-    env.climate_bound = env.climate;
-    env.climate_handle = {};
-    env.climate_asset = nullptr;
+void EnvironmentSubsystem::bind_climate(const WorldEnvironmentNode& env, ResourceManager* resources) {
+    if (env.climate == scene_weather_.bound_climate) return;
+    scene_weather_.bound_climate = env.climate;
     if (env.climate.empty()) {
         scene_weather_.director.set_climate(nullptr, state_.hour);
         return;
@@ -286,9 +270,7 @@ void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManag
         FJELL_CORE_ERROR("World environment: {}", handle.error());
         return;
     }
-    env.climate_handle = *handle;
-    env.climate_asset = resources->get(*handle);
-    scene_weather_.director.set_climate(env.climate_asset, state_.hour);
+    scene_weather_.director.set_climate(resources->get(*handle), state_.hour);
     // The climate decides from here; its first state starts now rather than
     // waiting for the scene's own weather to run out.
     play_directed(resources);
@@ -813,16 +795,26 @@ void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
     last_time_phase_ = time_phase;
 }
 
+void EnvironmentSubsystem::on_play_start(const TickContext& /*ctx*/) {
+    editor_weather_ = scene_weather_;
+}
+
 void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
     end_session_effects(&ctx.scene);
-    // Leaving play puts the editor's own weather back; the sea starts from
-    // that rather than easing down from whatever the session ended in.
-    scene_weather_.sea_wind.reset();
+    // Leaving play puts back the weather the editor had, as the play
+    // snapshot puts back its scene: what scripts played, the wet ground the
+    // session left and the sea it raised were the session's.
+    if (editor_weather_.has_value()) {
+        scene_weather_ = std::move(*editor_weather_);
+        editor_weather_.reset();
+    }
 }
 
 void EnvironmentSubsystem::on_scene_replaced() {
     end_session_effects(nullptr);
     scene_weather_ = {};
+    // The editor's weather is left for a session under way to put back: it
+    // goes with the scene that session's snapshot restores.
 }
 
 void EnvironmentSubsystem::end_session_effects(Scene* scene) {

@@ -13,8 +13,6 @@
 namespace fjell {
 
 struct DayProfileAsset;
-struct ClimateAsset;
-struct WeatherAsset;
 class Material;
 
 // The same guard weather_asset.hpp uses, so the enum has one definition
@@ -461,11 +459,10 @@ struct WorldEnvironmentNode : Node3D {
 
     // The weather that plays when nothing else decides: a .fjweather event,
     // started when the scene loads or the path changes and held in its
-    // sustain. Bound at runtime like the day profile.
+    // sustain. The environment subsystem remembers which path it started,
+    // not the node: a play session's restore rebuilds the node, and that is
+    // the editor's scene coming back, not its weather starting over.
     std::string weather;
-    WeatherAssetHandle weather_handle{};
-    const WeatherAsset* weather_asset{nullptr};
-    std::string weather_bound;
 
     // Which phase that event opens in. Approach is weather arriving, and the
     // scene spends the event's approach and onset getting there; any later
@@ -476,11 +473,8 @@ struct WorldEnvironmentNode : Node3D {
 
     // Who decides the weather: a .fjclimate whose states the director rolls
     // between. With one set, the weather field above is only the event the
-    // scene opens on. Bound at runtime like the others.
+    // scene opens on. Started the same way as the weather.
     std::string climate;
-    ClimateAssetHandle climate_handle{};
-    const ClimateAsset* climate_asset{nullptr};
-    std::string climate_bound;
 
     // Values for the sky shader's uniforms, by name, as the picker shows
     // them (colours in sRGB). A uniform without an entry keeps the .fjsl

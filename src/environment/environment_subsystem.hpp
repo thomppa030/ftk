@@ -71,6 +71,9 @@ public:
     /// Start an event, optionally partway through: `from` skips the phases
     /// before it, for an editor that wants the weather now.
     void play_weather(WeatherAssetHandle event, WeatherPhase from = WeatherPhase::Approach);
+    /// Start the World Environment's own weather again on the next tick, in
+    /// its start phase, as when the scene opens.
+    void restart_scene_weather() { scene_weather_.bound_weather.clear(); }
     [[nodiscard]] const WeatherPlayer& weather() const { return scene_weather_.player; }
 
     /// Freeze the climate: whatever plays keeps playing and nothing new is
@@ -117,6 +120,7 @@ protected:
     /// that makes, and the wakes laid in it. What is only drawn stays in
     /// tick(). Lives in environment_fixed.cpp.
     void fixed_tick(const FixedTickContext& ctx) override;
+    void on_play_start(const TickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;
     void on_scene_replaced() override;
 
@@ -168,9 +172,10 @@ private:
     /// from plain data.
     static void bind_node_materials(Scene& scene, ResourceManager* resources,
                                     const Project* project);
-    // Keep the node's weather pointer following its path; a new path plays.
-    void bind_weather(WorldEnvironmentNode& env, ResourceManager* resources);
-    void bind_climate(WorldEnvironmentNode& env, ResourceManager* resources);
+    // Start the node's weather or climate when its path is not the one last
+    // started, so a new path plays.
+    void bind_weather(const WorldEnvironmentNode& env, ResourceManager* resources);
+    void bind_climate(const WorldEnvironmentNode& env, ResourceManager* resources);
     /// Start whatever the director's current roll names.
     void play_directed(ResourceManager* resources);
     [[nodiscard]] const DayProfileAsset* profile_for(const WeatherAsset& event) const;
@@ -187,6 +192,10 @@ private:
     struct SceneWeather {
         WeatherPlayer player;
         ClimateDirector director;
+        /// The World Environment's weather and climate paths as last
+        /// started, so a changed path is what starts one.
+        std::string bound_weather;
+        std::string bound_climate;
         /// How many events have played, which seeds their rolled durations.
         uint32_t play_count{0};
         std::vector<NamedValue> script_sky_uniforms;
@@ -202,6 +211,9 @@ private:
         bool moon_led{false};
     };
     SceneWeather scene_weather_;
+    /// The editor's weather while a play session runs, put back when it
+    /// stops, as the scene is: a session leaves no storm behind.
+    std::optional<SceneWeather> editor_weather_;
 
     /// The simulation's side, refreshed each fixed step: the wind it pushes
     /// with, what stirs the water and where each of those was last step, to

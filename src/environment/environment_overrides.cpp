@@ -48,10 +48,10 @@ void apply_environment_overrides(const EnvironmentOverrides& overrides,
             env->weather = *overrides.weather;
         }
     }
-    // Clearing what the node was last bound to is what makes the next tick
-    // start the event again — in the phase just set, and with the seed.
+    // The next tick starts the node's event again, in the phase just set and
+    // with the seed.
     if (overrides.weather || overrides.weather_phase) {
-        env->weather_bound.clear();
+        environment.restart_scene_weather();
     }
 
     if (overrides.hold_weather) {
