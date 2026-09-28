@@ -58,8 +58,7 @@ Result<SetAt> frame_set(Device::Impl& device, const PipelineRecord& pipeline,
         return std::unexpected(present.error());
     }
 
-    std::vector<FrameCacheBinding> described;
-    described.reserve(placed->entries.size());
+    SmallVector<FrameCacheBinding, INLINE_SET_ENTRIES> described;
     for (const PlacedEntry& entry : placed->entries) described.push_back(device.describe(entry));
 
     const VkDescriptorSet native =

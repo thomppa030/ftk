@@ -2,7 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 using namespace fjell;
 
@@ -160,4 +162,26 @@ TEST_CASE("FrameCacheKey: hash differentiates image layouts", "[frame_cache_key]
     FrameCacheKey read_only{layout, {sampled(0, view, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)}};
     FrameCacheKey general{layout, {sampled(0, view, sampler, VK_IMAGE_LAYOUT_GENERAL)}};
     REQUIRE(FrameCacheKeyHash{}(read_only) != FrameCacheKeyHash{}(general));
+}
+
+TEST_CASE("FrameCacheKey: a request's view finds the key it matches", "[frame_cache_key]") {
+    auto layout = fake_handle<VkDescriptorSetLayout>(0x300);
+    const FrameCacheKey key{layout, {sampled(0, fake_handle<VkImageView>(0x400)),
+                                     storage_buf(1, fake_handle<VkBuffer>(0x500), 64, 128)}};
+    const std::vector<FrameCacheBinding> request = key.bindings;
+    const FrameCacheKeyView view{layout, request};
+
+    CHECK(FrameCacheKeyEqual{}(key, view));
+    CHECK(FrameCacheKeyEqual{}(view, key));
+    CHECK(FrameCacheKeyHash{}(key) == FrameCacheKeyHash{}(view));
+
+    std::unordered_map<FrameCacheKey, int, FrameCacheKeyHash, FrameCacheKeyEqual> cache;
+    cache.emplace(key, 7);
+    const auto found = cache.find(view);
+    REQUIRE(found != cache.end());
+    CHECK(found->second == 7);
+
+    std::vector<FrameCacheBinding> other = request;
+    other[1].buffer.offset = 0;
+    CHECK(cache.find(FrameCacheKeyView{layout, other}) == cache.end());
 }

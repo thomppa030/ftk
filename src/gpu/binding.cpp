@@ -1,7 +1,6 @@
 #include "gpu/binding.hpp"
 
 #include <algorithm>
-#include <tuple>
 
 namespace fjell::gpu {
 
@@ -39,20 +38,17 @@ bool fits(const ShaderBinding& declared, const SharedLayoutDesc& shared) {
 Result<PlacedSet> place(const ShaderLayout& layout, std::span<const BindEntry> entries) {
     if (entries.empty()) return make_error("Nothing to bind");
 
-    PlacedSet placed;
-    bool set_known = false;
+    // Each entry's binding, checked on its own.
+    SmallVector<const ShaderBinding*, INLINE_SET_ENTRIES> declared;
     for (const BindEntry& entry : entries) {
         const ShaderBinding* binding = layout.find(entry.name);
         if (binding == nullptr) {
             return make_error("The shaders declare no binding '" + std::string(entry.name) + "'");
         }
-        if (!set_known) {
-            placed.set = binding->set;
-            set_known = true;
-        } else if (binding->set != placed.set) {
+        if (!declared.empty() && binding->set != declared[0]->set) {
             return make_error("'" + std::string(entry.name) + "' is in set " +
                               std::to_string(binding->set) + ", the others in set " +
-                              std::to_string(placed.set) + ": one bind fills one set");
+                              std::to_string(declared[0]->set) + ": one bind fills one set");
         }
         if (entry.resource.kind != binding->kind) {
             return make_error("'" + binding->name + "' is " + kind_name(binding->kind) + ", given " +
@@ -66,39 +62,37 @@ Result<PlacedSet> place(const ShaderLayout& layout, std::span<const BindEntry> e
             return make_error("'" + binding->name + "' has " + std::to_string(binding->count) +
                               " elements, given element " + std::to_string(entry.element));
         }
-        placed.entries.push_back({binding->binding, entry.element, entry.resource});
+        declared.push_back(binding);
     }
 
-    std::ranges::sort(placed.entries, [](const PlacedEntry& l, const PlacedEntry& r) {
-        return std::tie(l.binding, l.element) < std::tie(r.binding, r.element);
-    });
-    for (size_t i = 1; i < placed.entries.size(); ++i) {
-        const auto& before = placed.entries[i - 1];
-        const auto& now = placed.entries[i];
-        if (before.binding == now.binding && before.element == now.element) {
-            return make_error("Binding " + std::to_string(now.binding) + " element " +
-                              std::to_string(now.element) + " of set " + std::to_string(placed.set) +
-                              " is given twice");
-        }
-    }
-
-    // Every binding of the set, every element, must be filled; a set with a
-    // table sized at run time is a shared group's, whatever is given here.
-    for (const auto& binding : layout.bindings) {
+    // The set's bindings in their order, each element filled exactly once:
+    // the entries come out in binding order with nothing to sort. A set with
+    // a table sized at run time is a shared group's, whatever is given here.
+    PlacedSet placed;
+    placed.set = declared[0]->set;
+    for (const ShaderBinding& binding : layout.bindings) {
         if (binding.set != placed.set) continue;
         if (binding.count == 0) {
             return make_error("Set " + std::to_string(placed.set) + " holds '" + binding.name +
                               "', an array sized at run time, which only a shared group holds");
         }
         for (uint32_t element = 0; element < binding.count; ++element) {
-            const bool given = std::ranges::any_of(placed.entries, [&](const PlacedEntry& e) {
-                return e.binding == binding.binding && e.element == element;
-            });
-            if (!given) {
+            const BindEntry* filled = nullptr;
+            for (size_t i = 0; i < entries.size(); ++i) {
+                if (declared[i] != &binding || entries[i].element != element) continue;
+                if (filled != nullptr) {
+                    return make_error("Binding " + std::to_string(binding.binding) + " element " +
+                                      std::to_string(element) + " of set " +
+                                      std::to_string(placed.set) + " is given twice");
+                }
+                filled = &entries[i];
+            }
+            if (filled == nullptr) {
                 std::string what = "'" + binding.name + "'";
                 if (binding.count > 1) what += " element " + std::to_string(element);
                 return make_error("Set " + std::to_string(placed.set) + " is missing " + what);
             }
+            placed.entries.push_back({binding.binding, element, filled->resource});
         }
     }
     return placed;

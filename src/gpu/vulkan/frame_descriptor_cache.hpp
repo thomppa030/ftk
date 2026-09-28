@@ -40,14 +40,38 @@ struct FrameCachePoolBudget {
 /// correctness-critical logic in FrameDescriptorCache. A wrong hash or
 /// equality surfaces as a rendering bug many layers away, so these are
 /// kept free of Vulkan calls and covered by unit tests.
+/// A key as a request holds it, looked up without copying its bindings.
+struct FrameCacheKeyView {
+    VkDescriptorSetLayout layout{VK_NULL_HANDLE};
+    std::span<const FrameCacheBinding> bindings;
+
+    [[nodiscard]] bool operator==(const FrameCacheKeyView& o) const noexcept;
+};
+
 struct FrameCacheKey {
     VkDescriptorSetLayout layout{VK_NULL_HANDLE};
     std::vector<FrameCacheBinding> bindings;
 
-    bool operator==(const FrameCacheKey& o) const noexcept;
+    [[nodiscard]] FrameCacheKeyView view() const noexcept { return {layout, bindings}; }
+    bool operator==(const FrameCacheKey& o) const noexcept { return view() == o.view(); }
 };
+
+/// Hashes a key or a request's view of one alike, so a lookup copies nothing.
 struct FrameCacheKeyHash {
-    size_t operator()(const FrameCacheKey& k) const noexcept;
+    using is_transparent = void;
+    size_t operator()(const FrameCacheKeyView& k) const noexcept;
+    size_t operator()(const FrameCacheKey& k) const noexcept { return (*this)(k.view()); }
+};
+
+/// Compares keys and views of keys alike.
+struct FrameCacheKeyEqual {
+    using is_transparent = void;
+    static FrameCacheKeyView as_view(const FrameCacheKeyView& k) noexcept { return k; }
+    static FrameCacheKeyView as_view(const FrameCacheKey& k) noexcept { return k.view(); }
+    template <typename A, typename B>
+    bool operator()(const A& a, const B& b) const noexcept {
+        return as_view(a) == as_view(b);
+    }
 };
 
 /// Per-frame descriptor set cache. Passes call acquire() during record()
@@ -96,7 +120,8 @@ private:
     struct FrameSlot {
         VkDescriptorPool primary{VK_NULL_HANDLE};
         std::vector<VkDescriptorPool> overflow;
-        std::unordered_map<FrameCacheKey, VkDescriptorSet, FrameCacheKeyHash> cache;
+        std::unordered_map<FrameCacheKey, VkDescriptorSet, FrameCacheKeyHash, FrameCacheKeyEqual>
+            cache;
     };
 
     struct Stats {

@@ -224,6 +224,7 @@ add_executable(fjell-tests
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
     test_handle_pool.cpp
+    test_small_vector.cpp
     test_clipmap.cpp
     test_character_controller.cpp
     test_sdk_headers.cpp

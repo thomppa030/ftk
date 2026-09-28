@@ -9,18 +9,21 @@ namespace fjell {
 
 namespace {
 
+// Mixes `value` into `seed` so equal parts in other places hash apart.
+size_t combine(size_t seed, size_t value) {
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+}
+
 size_t hash_image_info(const VkDescriptorImageInfo& info) {
     size_t h = std::hash<void*>{}(static_cast<void*>(info.sampler));
-    h ^= std::hash<void*>{}(static_cast<void*>(info.imageView)) << 1;
-    h ^= std::hash<int>{}(static_cast<int>(info.imageLayout)) << 2;
-    return h;
+    h = combine(h, std::hash<void*>{}(static_cast<void*>(info.imageView)));
+    return combine(h, std::hash<int>{}(static_cast<int>(info.imageLayout)));
 }
 
 size_t hash_buffer_info(const VkDescriptorBufferInfo& info) {
     size_t h = std::hash<void*>{}(static_cast<void*>(info.buffer));
-    h ^= std::hash<uint64_t>{}(info.offset) << 1;
-    h ^= std::hash<uint64_t>{}(info.range) << 2;
-    return h;
+    h = combine(h, std::hash<uint64_t>{}(info.offset));
+    return combine(h, std::hash<uint64_t>{}(info.range));
 }
 
 bool image_info_equal(const VkDescriptorImageInfo& a, const VkDescriptorImageInfo& b) {
@@ -41,7 +44,7 @@ bool is_image_descriptor(VkDescriptorType t) {
 
 } // namespace
 
-bool FrameCacheKey::operator==(const FrameCacheKey& o) const noexcept {
+bool FrameCacheKeyView::operator==(const FrameCacheKeyView& o) const noexcept {
     if (layout != o.layout) { return false; }
     if (bindings.size() != o.bindings.size()) { return false; }
     for (size_t i = 0; i < bindings.size(); ++i) {
@@ -57,17 +60,14 @@ bool FrameCacheKey::operator==(const FrameCacheKey& o) const noexcept {
     return true;
 }
 
-size_t FrameCacheKeyHash::operator()(const FrameCacheKey& k) const noexcept {
+size_t FrameCacheKeyHash::operator()(const FrameCacheKeyView& k) const noexcept {
     size_t h = std::hash<void*>{}(static_cast<void*>(k.layout));
     for (const auto& b : k.bindings) {
-        h ^= std::hash<uint32_t>{}(b.binding) << 1;
-        h ^= std::hash<uint32_t>{}(b.element) << 4;
-        h ^= std::hash<int>{}(static_cast<int>(b.type)) << 2;
-        if (is_image_descriptor(b.type)) {
-            h ^= hash_image_info(b.image) << 3;
-        } else {
-            h ^= hash_buffer_info(b.buffer) << 3;
-        }
+        h = combine(h, std::hash<uint32_t>{}(b.binding));
+        h = combine(h, std::hash<uint32_t>{}(b.element));
+        h = combine(h, std::hash<int>{}(static_cast<int>(b.type)));
+        h = combine(h, is_image_descriptor(b.type) ? hash_image_info(b.image)
+                                                   : hash_buffer_info(b.buffer));
     }
     return h;
 }

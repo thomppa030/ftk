@@ -2,6 +2,7 @@
 
 #include "core/handle.hpp"
 #include "core/result.hpp"
+#include "core/small_vector.hpp"
 #include "gpu/buffer.hpp"
 #include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
@@ -128,10 +129,14 @@ struct PlacedEntry {
     BindResource resource;
 };
 
+/// As many entries as a set holds without going to the heap: more than any
+/// set the engine's shaders declare.
+inline constexpr size_t INLINE_SET_ENTRIES = 16;
+
 /// The entries of one set, placed and ordered by binding and element.
 struct PlacedSet {
     uint32_t set{0};
-    std::vector<PlacedEntry> entries;
+    SmallVector<PlacedEntry, INLINE_SET_ENTRIES> entries;
 };
 
 /// Places `entries` in the set their names give in `layout`. Every entry must

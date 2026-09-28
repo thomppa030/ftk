@@ -6,6 +6,9 @@
 // build (build-release); it prints nanoseconds per dispatch, the median and
 // the fastest of many runs taken in turn so each way sees the same machine,
 // then what binding by name spends that Vulkan does not, step by step.
+//
+// Given part of a way's name (`fjell-bench-command-list "bound by name"`), it
+// records only the ways that match, ten times as often, for a profiler.
 
 #include "core/log.hpp"
 #include "gpu/command_list.hpp"
@@ -21,6 +24,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -54,7 +58,7 @@ double median_ns(const std::function<void()>& step) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     fjell::log::init({.level = spdlog::level::warn});
     namespace gpu = fjell::gpu;
     int status = 1;
@@ -154,8 +158,17 @@ int main() {
         VkCommandBuffer cb{VK_NULL_HANDLE};
         vkAllocateCommandBuffers(core.vk_device(), &allocate, &cb);
 
+        // Only the ways asked for, longer, when profiling.
+        const bool profiling = argc > 1;
+        if (profiling) {
+            std::erase_if(ways, [&](const Way& way) {
+                return std::string_view(way.name).find(argv[1]) == std::string_view::npos;
+            });
+        }
+        const int runs = profiling ? RUNS * 10 : RUNS;
+
         const size_t reported_before = device.impl().reported.size();
-        for (int run = 0; run < RUNS; ++run) {
+        for (int run = 0; run < runs; ++run) {
             for (Way& way : ways) {
                 // A frame of its own each time: the frame sets start empty.
                 gpu::vulkan::begin_frame(device, static_cast<uint32_t>(run) % 2);
@@ -178,7 +191,7 @@ int main() {
             std::fprintf(stderr, "the command list refused something; the times mean nothing\n");
         } else {
             std::printf("%u dispatches, %d runs: ns per pipeline + bind + push + dispatch\n",
-                        DISPATCHES, RUNS);
+                        DISPATCHES, runs);
             for (Way& way : ways) {
                 std::ranges::sort(way.ns_per_dispatch);
                 std::printf("  %-32s median %6.1f   fastest %6.1f\n", way.name,
@@ -186,6 +199,9 @@ int main() {
                             way.ns_per_dispatch.front());
             }
 
+            status = 0;
+        }
+        if (status == 0 && !profiling) {
             // The steps of a bind by name the Vulkan way does not take.
             const gpu::ShaderLayout& shader_layout = device.layout(*pipeline);
             const std::array<gpu::BindEntry, 2> entries{
@@ -216,7 +232,6 @@ int main() {
                             }
                             (void)frame_sets.acquire(set_layout, described);
                         }));
-            status = 0;
         }
         core.wait_idle();
     }
