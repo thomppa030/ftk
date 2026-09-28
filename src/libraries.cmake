@@ -97,6 +97,7 @@ fjell_library(gpu
         renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
         gpu/release_queue.cpp
+        gpu/shader_reflection.cpp
         gpu/vulkan/device.cpp
         gpu/vulkan/native.cpp
         gpu/vulkan/translate.cpp
@@ -111,6 +112,7 @@ fjell_library(gpu
         gpu/owned.hpp
         gpu/release_queue.hpp
         gpu/sampler.hpp
+        gpu/shader.hpp
         gpu/texture.hpp
         gpu/usage.hpp
         gpu/vulkan/device_impl.hpp
@@ -135,7 +137,7 @@ fjell_library(gpu
         renderer/gpu/window.hpp
     LINKS
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
-        PRIVATE SDL3::SDL3
+        PRIVATE SDL3::SDL3 spirv-cross-core
 )
 # VMA's headers warn under our flags, so everything using fjell-gpu sees them
 # as system headers, and its implementation compiles without warnings.
