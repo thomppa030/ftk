@@ -18,7 +18,7 @@ public:
     [[nodiscard]] virtual std::string_view name() const = 0;
 
     // Engine calls run(), run_fixed() and the notify_ wrappers; subclasses
-    // override tick(), fixed_tick() and the on_play_ virtuals.
+    // override tick(), fixed_tick() and the on_ virtuals.
 
     /// Tick once, inside a profiler zone named after the subsystem.
     void run(const TickContext& ctx);
@@ -28,6 +28,11 @@ public:
 
     void notify_play_start(const TickContext& ctx) { playing_ = true; on_play_start(ctx); }
     void notify_play_stop(const TickContext& ctx)  { on_play_stop(ctx); playing_ = false; }
+
+    /// The scene the subsystem ticks is a different one now: loaded from a
+    /// file or made new. Not called when a play session puts back the scene
+    /// it started from, which is the same scene returning.
+    void notify_scene_replaced() { on_scene_replaced(); }
 
     [[nodiscard]] bool playing() const { return playing_; }
 
@@ -44,6 +49,9 @@ protected:
     virtual void fixed_tick(const FixedTickContext& /*ctx*/) {}
     virtual void on_play_start(const TickContext& /*ctx*/) {}
     virtual void on_play_stop(const TickContext& /*ctx*/) {}
+    /// Let go of what was kept about the scene before. It is gone: its nodes
+    /// with it, and its node ids may name different nodes in the new one.
+    virtual void on_scene_replaced() {}
 
 private:
     bool playing_{false};

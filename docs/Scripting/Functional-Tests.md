@@ -215,7 +215,8 @@ The step and the node say where to look. Runs are compared over the steps both
 took; a test finishing a frame earlier at one pacing is not a divergence.
 
 Every test run, paced or not, starts from game time zero, so a scene with waves
-or gusts plays from the same moment each time.
+or gusts plays from the same moment each time. It starts under its own scene's
+weather, too, whatever the test before it played.
 
 **Editor build only.** In a game build (one with `game.fjell` beside the
 executable) stopping play closes the window rather than ending the session, so

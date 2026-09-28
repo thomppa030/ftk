@@ -150,6 +150,8 @@ private:
     void bind_menu_bar();
 
     void load_scene(const std::string& path);
+    /// Tell every subsystem the scene it ticks is a different one now.
+    void notify_scene_replaced();
     void load_input_actions();
     void load_project_scripts();
     void flush_pending();

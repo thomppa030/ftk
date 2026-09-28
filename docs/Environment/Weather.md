@@ -192,6 +192,10 @@ list offers the project's `.fjweather` files, a line shows what is playing and
 its phase, and **Stop** and **Replay** are there, Replay with the same
 play-from-a-phase menu.
 
+The weather belongs to the scene it plays over. Opening another scene starts
+from that scene's own: its event in its start phase, dry ground, and nothing a
+script or the weather editor played over the scene before.
+
 ## From a script
 
 ```cpp

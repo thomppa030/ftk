@@ -71,14 +71,15 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
     // Water has mass: the field follows the wind rather than tracking it, so
     // a front raises a sea over its passage instead of at its arrival. The
     // curve and its rates live beside the evaluator, where they are tested.
-    if (!sea_wind_.has_value()) {
+    std::optional<glm::vec2>& sea_wind = scene_weather_.sea_wind;
+    if (!sea_wind.has_value()) {
         // First tick: start at what is already blowing, so a scene opens with
         // the sea its weather implies instead of building one up from calm.
-        sea_wind_ = blowing;
+        sea_wind = blowing;
     }
-    sea_wind_ = water::advance_sea_wind(*sea_wind_, blowing, dt);
+    sea_wind = water::advance_sea_wind(*sea_wind, blowing, dt);
 
-    const glm::vec2 wind_xz = *sea_wind_;
+    const glm::vec2 wind_xz = *sea_wind;
 
     scene.each<WaterComponent>([&](Node& node, WaterComponent& water_component) {
         auto* water = &water_component;

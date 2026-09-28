@@ -71,7 +71,7 @@ public:
     /// Start an event, optionally partway through: `from` skips the phases
     /// before it, for an editor that wants the weather now.
     void play_weather(WeatherAssetHandle event, WeatherPhase from = WeatherPhase::Approach);
-    [[nodiscard]] const WeatherPlayer& weather() const { return player_; }
+    [[nodiscard]] const WeatherPlayer& weather() const { return scene_weather_.player; }
 
     /// Freeze the climate: whatever plays keeps playing and nothing new is
     /// rolled until it is let go.
@@ -81,17 +81,17 @@ public:
     /// listener, or at `relative_position` when one is given.
     void strike_lightning(const glm::vec3& relative_position = glm::vec3(0.0f, 0.0f, 250.0f),
                           float intensity = 1.0f);
-    void hold_weather(bool held) { director_.hold(held); }
+    void hold_weather(bool held) { scene_weather_.director.hold(held); }
     /// Fix what every weather roll derives from, so two runs of the same
     /// scene roll the same phase durations. For a measured run; zero, the
     /// default, lets each play roll freshly.
     void set_seed_base(uint32_t seed) { seed_base_ = seed; }
     /// Put the wetness and snow integrators where they would have got to.
     /// See WeatherPlayer::set_wetness.
-    void set_wetness(float wetness) { player_.set_wetness(wetness); }
-    void set_snow(float snow) { player_.set_snow(snow); }
-    [[nodiscard]] bool weather_held() const { return director_.held(); }
-    [[nodiscard]] const ClimateDirector& director() const { return director_; }
+    void set_wetness(float wetness) { scene_weather_.player.set_wetness(wetness); }
+    void set_snow(float snow) { scene_weather_.player.set_snow(snow); }
+    [[nodiscard]] bool weather_held() const { return scene_weather_.director.held(); }
+    [[nodiscard]] const ClimateDirector& director() const { return scene_weather_.director; }
     /// The `.fjweather` path the climate's `index`-th forecast roll plays,
     /// empty past the end of the forecast.
     [[nodiscard]] std::string forecast_event(uint32_t index) const;
@@ -118,6 +118,7 @@ protected:
     /// tick(). Lives in environment_fixed.cpp.
     void fixed_tick(const FixedTickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;
+    void on_scene_replaced() override;
 
 private:
     // The looping sounds a playing event brings, and the event they belong to.
@@ -134,10 +135,16 @@ private:
     /// Carry each fog volume's noise field along by one frame's drift.
     void advance_fog_volumes(const TickContext& ctx);
     void update_precipitation(const TickContext& ctx);
-    void stop_precipitation(Scene& scene);
+    void stop_precipitation(Scene* scene);
     /// Light the world from a strike and set its thunder on its way.
     void update_lightning(const TickContext& ctx);
-    void stop_lightning(Scene& scene);
+    void stop_lightning(Scene* scene);
+    /// End everything a play session started over the weather: its sounds,
+    /// the nodes it parked in the scene, the hooks' baseline and where the
+    /// simulation last had each mover. `scene` is where those nodes are, to
+    /// be destroyed; null once that scene is gone, when their ids would name
+    /// another scene's nodes. The stop_ functions take it the same way.
+    void end_session_effects(Scene* scene);
     /// Keep what each body of water is made of, for the fog pass.
     void update_water_media(const TickContext& ctx);
     /// Blow the resolved wind through every body of water, so each one's
@@ -171,15 +178,30 @@ private:
     Scene* scene_{nullptr};
     ResourceManager* resources_{nullptr};
     EnvironmentState state_;
-    // Which body cast the shadows last frame, so the handoff has hysteresis.
-    bool moon_led_{false};
 
-    /// The wind the sea has caught up to, which lags the wind that is
-    /// blowing. Water has mass: a front does not raise a swell the instant
-    /// its wind arrives, and dropping the wind does not flatten one. Unset
-    /// until the first tick, which starts it at whatever is already blowing
-    /// rather than building the sea up from a calm the scene never had.
-    std::optional<glm::vec2> sea_wind_;
+    /// What the weather over the ticked scene has come to: the events
+    /// playing and the climate choosing them, how wet and snowed on the world
+    /// is, how far the sea has caught up with the wind, and what scripts have
+    /// laid over the sky. It belongs to that scene, so a scene loaded in its
+    /// place starts from a fresh one rather than under the last one's storm.
+    struct SceneWeather {
+        WeatherPlayer player;
+        ClimateDirector director;
+        /// How many events have played, which seeds their rolled durations.
+        uint32_t play_count{0};
+        std::vector<NamedValue> script_sky_uniforms;
+        /// The wind the sea has caught up to, which lags the wind that is
+        /// blowing. Water has mass: a front does not raise a swell the
+        /// instant its wind arrives, and dropping the wind does not flatten
+        /// one. Unset until the first tick, which starts it at whatever is
+        /// already blowing rather than building the sea up from a calm the
+        /// scene never had.
+        std::optional<glm::vec2> sea_wind;
+        /// Which body cast the shadows last frame, so the handoff has
+        /// hysteresis.
+        bool moon_led{false};
+    };
+    SceneWeather scene_weather_;
 
     /// The simulation's side, refreshed each fixed step: the wind it pushes
     /// with, what stirs the water and where each of those was last step, to
@@ -204,7 +226,7 @@ private:
     };
     std::vector<Breathing> breathing_;
     void update_breathing(const TickContext& ctx);
-    void stop_breathing(Scene& scene);
+    void stop_breathing(Scene* scene);
 
     /// Seconds between breaths, and how long the exhale lasts within one.
     static constexpr float BREATH_PERIOD = 3.4f;
@@ -220,8 +242,6 @@ private:
     static constexpr float BREATH_SPREAD_MARGIN = 0.06f;
     static constexpr std::string_view BREATH_EFFECT = "engine_assets/effects/breath.fjvfx";
 
-    WeatherPlayer player_;
-    ClimateDirector director_;
     WeatherRates rates_;
     AudioSubsystem* audio_{nullptr};
     ScriptSubsystem* scripts_{nullptr};
@@ -259,12 +279,10 @@ private:
         std::string clip;
     };
     std::vector<PendingThunder> pending_thunder_;
-    uint32_t play_count_{0};   // seeds the rolled durations
     // Mixed into every roll's seed. Zero lets the play count alone decide,
     // which is what an ordinary session wants: replaying an event gives it
     // fresh durations. A capture sets it so two runs roll identically.
     uint32_t seed_base_{0};
-    std::vector<NamedValue> script_sky_uniforms_;
 };
 
 } // namespace fjell

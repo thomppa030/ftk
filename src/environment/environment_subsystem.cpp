@@ -55,23 +55,24 @@ void EnvironmentSubsystem::tick(const TickContext& ctx) {
     }
 
     // Weather runs on game time like the clock: paused with it, scaled with it.
-    player_.tick(ctx.dt);
+    SceneWeather& weather = scene_weather_;
+    weather.player.tick(ctx.dt);
     // A climate keeps the weather going: when an event runs out, the
     // director rolls the next one for the hour it ends at.
-    if (director_.active() && player_.active() == nullptr) {
-        (void)director_.advance(state_.hour);
+    if (weather.director.active() && weather.player.active() == nullptr) {
+        (void)weather.director.advance(state_.hour);
         play_directed(ctx.resources);
     }
-    const WeatherSkyOverride sky = player_.sky_override();
-    state_ = resolve_environment(ctx.scene, moon_led_, &sky, ctx.dt);
-    player_.composite(state_, ctx.dt, rates_);
-    for (const auto& value : script_sky_uniforms_) {
+    const WeatherSkyOverride sky = weather.player.sky_override();
+    state_ = resolve_environment(ctx.scene, weather.moon_led, &sky, ctx.dt);
+    weather.player.composite(state_, ctx.dt, rates_);
+    for (const auto& value : weather.script_sky_uniforms) {
         auto it = std::find_if(state_.sky_uniforms.begin(), state_.sky_uniforms.end(),
                                [&](const NamedValue& n) { return n.name == value.name; });
         if (it != state_.sky_uniforms.end()) *it = value;
         else state_.sky_uniforms.push_back(value);
     }
-    moon_led_ = moon_leads(state_.sun, state_.moon, moon_led_);
+    weather.moon_led = moon_leads(state_.sun, state_.moon, weather.moon_led);
     advance_fog_volumes(ctx);
     update_beds(ctx);
     update_precipitation(ctx);
@@ -249,7 +250,7 @@ void EnvironmentSubsystem::bind_weather(WorldEnvironmentNode& env, ResourceManag
     env.weather_asset = nullptr;
     if (env.weather.empty()) {
         // The scene's weather was cleared: whatever plays tails out.
-        player_.stop();
+        scene_weather_.player.stop();
         return;
     }
     if (resources == nullptr) return;
@@ -275,7 +276,7 @@ void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManag
     env.climate_handle = {};
     env.climate_asset = nullptr;
     if (env.climate.empty()) {
-        director_.set_climate(nullptr, state_.hour);
+        scene_weather_.director.set_climate(nullptr, state_.hour);
         return;
     }
     if (resources == nullptr) return;
@@ -287,7 +288,7 @@ void EnvironmentSubsystem::bind_climate(WorldEnvironmentNode& env, ResourceManag
     }
     env.climate_handle = *handle;
     env.climate_asset = resources->get(*handle);
-    director_.set_climate(env.climate_asset, state_.hour);
+    scene_weather_.director.set_climate(env.climate_asset, state_.hour);
     // The climate decides from here; its first state starts now rather than
     // waiting for the scene's own weather to run out.
     play_directed(resources);
@@ -298,14 +299,14 @@ void EnvironmentSubsystem::set_climate(ClimateAssetHandle climate) {
     // The node keeps naming the scene's climate; a script's choice replaces
     // the director's table without rewriting the scene.
     const ClimateAsset* asset = climate.valid() ? resources_->get(climate) : nullptr;
-    director_.set_climate(asset, state_.hour);
+    scene_weather_.director.set_climate(asset, state_.hour);
     if (asset != nullptr) play_directed(resources_);
 }
 
 void EnvironmentSubsystem::play_directed(ResourceManager* resources) {
-    const ClimateAsset* climate = director_.climate();
+    const ClimateAsset* climate = scene_weather_.director.climate();
     if (climate == nullptr || resources == nullptr) return;
-    const ClimateRoll& roll = director_.current();
+    const ClimateRoll& roll = scene_weather_.director.current();
     if (!roll.valid() || static_cast<size_t>(roll.state_index) >= climate->states.size()) return;
     const std::string& event = climate->states[static_cast<size_t>(roll.state_index)].event;
     auto handle = resources->load_weather_asset(event);
@@ -317,9 +318,9 @@ void EnvironmentSubsystem::play_directed(ResourceManager* resources) {
 }
 
 std::string EnvironmentSubsystem::forecast_event(uint32_t index) const {
-    const ClimateAsset* climate = director_.climate();
+    const ClimateAsset* climate = scene_weather_.director.climate();
     if (climate == nullptr) return {};
-    const auto& forecast = director_.forecast();
+    const auto& forecast = scene_weather_.director.forecast();
     if (index >= forecast.size()) return {};
     const int state = forecast[index].state_index;
     if (state < 0 || static_cast<size_t>(state) >= climate->states.size()) return {};
@@ -338,20 +339,20 @@ const DayProfileAsset* EnvironmentSubsystem::profile_for(const WeatherAsset& eve
 
 void EnvironmentSubsystem::play_weather(WeatherAssetHandle event, WeatherPhase from) {
     if (!event.valid() || resources_ == nullptr) {
-        player_.stop();
+        scene_weather_.player.stop();
         return;
     }
     const WeatherAsset* asset = resources_->get(event);
     if (asset == nullptr) {
-        player_.stop();
+        scene_weather_.player.stop();
         return;
     }
-    ++play_count_;
+    ++scene_weather_.play_count;
     // A fixed base replaces the play count rather than adding to it, so the
     // seed does not depend on how many events happened to play before this
     // one — which is the whole point of fixing it.
-    const uint32_t roll = seed_base_ != 0 ? seed_base_ : play_count_ * 7919u;
-    player_.play(asset, event.id, roll + event.id, profile_for(*asset), from);
+    const uint32_t roll = seed_base_ != 0 ? seed_base_ : scene_weather_.play_count * 7919u;
+    scene_weather_.player.play(asset, event.id, roll + event.id, profile_for(*asset), from);
 
     // Starting partway through is someone asking to see that moment, not
     // weather arriving: the editor jumping to a phase, or a scene opening
@@ -360,19 +361,20 @@ void EnvironmentSubsystem::play_weather(WeatherAssetHandle event, WeatherPhase f
     // An event started from the beginning is a front approaching normally,
     // and that one the sea answers in its own time.
     if (from != WeatherPhase::Approach) {
-        sea_wind_.reset();
+        scene_weather_.sea_wind.reset();
     }
 }
 
 void EnvironmentSubsystem::set_sky_uniform(const NamedValue& value) {
-    auto it = std::find_if(script_sky_uniforms_.begin(), script_sky_uniforms_.end(),
+    std::vector<NamedValue>& uniforms = scene_weather_.script_sky_uniforms;
+    auto it = std::find_if(uniforms.begin(), uniforms.end(),
                            [&](const NamedValue& n) { return n.name == value.name; });
     if (value.count == 0) {
-        if (it != script_sky_uniforms_.end()) script_sky_uniforms_.erase(it);
+        if (it != uniforms.end()) uniforms.erase(it);
         return;
     }
-    if (it != script_sky_uniforms_.end()) *it = value;
-    else script_sky_uniforms_.push_back(value);
+    if (it != uniforms.end()) *it = value;
+    else uniforms.push_back(value);
 }
 
 namespace {
@@ -382,9 +384,9 @@ namespace {
 constexpr float PRECIPITATION_HEIGHT = 15.0f;
 } // namespace
 
-void EnvironmentSubsystem::stop_precipitation(Scene& scene) {
+void EnvironmentSubsystem::stop_precipitation(Scene* scene) {
     for (Precipitation* fall : {&active_fall_, &outgoing_fall_}) {
-        if (fall->node_id != 0) scene.queue_destroy(fall->node_id);
+        if (scene != nullptr && fall->node_id != 0) scene->queue_destroy(fall->node_id);
         *fall = Precipitation{};
     }
 }
@@ -421,7 +423,7 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
     // Falling weather belongs to play, like the sounds: an editor scrub
     // should not fill the viewport with rain nobody asked for.
     if (!playing()) {
-        stop_precipitation(ctx.scene);
+        stop_precipitation(&ctx.scene);
         return;
     }
 
@@ -486,17 +488,17 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
         }
     };
 
-    follow(active_fall_, player_.active());
-    follow(outgoing_fall_, player_.outgoing());
+    follow(active_fall_, scene_weather_.player.active());
+    follow(outgoing_fall_, scene_weather_.player.outgoing());
 }
 
 void EnvironmentSubsystem::strike_lightning(const glm::vec3& relative_position, float intensity) {
-    player_.strike(relative_position, intensity);
+    scene_weather_.player.strike(relative_position, intensity);
 }
 
-void EnvironmentSubsystem::stop_lightning(Scene& scene) {
+void EnvironmentSubsystem::stop_lightning(Scene* scene) {
     for (const auto& light : strike_lights_) {
-        if (light.node_id != 0) scene.queue_destroy(light.node_id);
+        if (scene != nullptr && light.node_id != 0) scene->queue_destroy(light.node_id);
     }
     strike_lights_.clear();
     pending_thunder_.clear();
@@ -572,7 +574,7 @@ void EnvironmentSubsystem::update_breathing(const TickContext& ctx) {
     // Breath belongs to play, like the rain: an editor scrub should not
     // wrap the character in bubbles.
     if (!playing() || resources_ == nullptr) {
-        stop_breathing(ctx.scene);
+        stop_breathing(&ctx.scene);
         return;
     }
     const float time = ctx.clock.game_elapsed();
@@ -703,16 +705,16 @@ void EnvironmentSubsystem::update_breathing(const TickContext& ctx) {
     }
 }
 
-void EnvironmentSubsystem::stop_breathing(Scene& scene) {
+void EnvironmentSubsystem::stop_breathing(Scene* scene) {
     for (const Breathing& b : breathing_) {
-        if (b.node_id != 0) scene.queue_destroy(b.node_id);
+        if (scene != nullptr && b.node_id != 0) scene->queue_destroy(b.node_id);
     }
     breathing_.clear();
 }
 
 void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
     if (!playing()) {
-        stop_lightning(ctx.scene);
+        stop_lightning(&ctx.scene);
         return;
     }
 
@@ -723,7 +725,7 @@ void EnvironmentSubsystem::update_lightning(const TickContext& ctx) {
     }
 
     // A new strike: its own light, its bolt, and thunder on its way.
-    if (const auto* strike = player_.strike_this_tick(); strike != nullptr && strike->asset != nullptr) {
+    if (const auto* strike = scene_weather_.player.strike_this_tick(); strike != nullptr && strike->asset != nullptr) {
         const auto& l = strike->asset->lightning;
         const glm::vec3 world = listener + strike->position;
         const float distance = glm::length(strike->position);
@@ -812,15 +814,25 @@ void EnvironmentSubsystem::dispatch_changes(const TickContext& ctx) {
 }
 
 void EnvironmentSubsystem::on_play_stop(const TickContext& ctx) {
-    stop_beds(active_beds_);
-    stop_beds(outgoing_beds_);
-    stop_precipitation(ctx.scene);
-    stop_lightning(ctx.scene);
-    stop_breathing(ctx.scene);
-    phases_seen_ = false;
+    end_session_effects(&ctx.scene);
     // Leaving play puts the editor's own weather back; the sea starts from
     // that rather than easing down from whatever the session ended in.
-    sea_wind_.reset();
+    scene_weather_.sea_wind.reset();
+}
+
+void EnvironmentSubsystem::on_scene_replaced() {
+    end_session_effects(nullptr);
+    scene_weather_ = {};
+}
+
+void EnvironmentSubsystem::end_session_effects(Scene* scene) {
+    stop_beds(active_beds_);
+    stop_beds(outgoing_beds_);
+    stop_precipitation(scene);
+    stop_lightning(scene);
+    stop_breathing(scene);
+    phases_seen_ = false;
+    fixed_source_positions_.clear();
 }
 
 void EnvironmentSubsystem::stop_beds(Beds& beds) {
@@ -864,8 +876,8 @@ void EnvironmentSubsystem::update_beds(const TickContext& ctx) {
         stop_beds(outgoing_beds_);
         return;
     }
-    follow_event(active_beds_, player_.active(), ctx);
-    follow_event(outgoing_beds_, player_.outgoing(), ctx);
+    follow_event(active_beds_, scene_weather_.player.active(), ctx);
+    follow_event(outgoing_beds_, scene_weather_.player.outgoing(), ctx);
 }
 
 void EnvironmentSubsystem::set_hour(float hour) {

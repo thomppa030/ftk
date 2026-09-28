@@ -1060,6 +1060,7 @@ void Engine::create_project(const std::filesystem::path& parent, const std::stri
         project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
     scene_.clear();
     create_default_scene();
+    notify_scene_replaced();
 }
 
 void Engine::create_default_scene() {
@@ -1394,7 +1395,12 @@ void Engine::load_scene(const std::string& path) {
     // The scene was replaced wholesale, so the DDGI atlases need the same
     // rebuild-once-settled treatment as a project open or play transition.
     vulkan_context_->request_ddgi_settle_rebuild();
+    notify_scene_replaced();
     load_input_actions();
+}
+
+void Engine::notify_scene_replaced() {
+    for (auto& subsystem : subsystems_) subsystem->notify_scene_replaced();
 }
 
 
@@ -1453,6 +1459,7 @@ void Engine::bind_menu_bar() {
                 } else {
                     scene_.clear();
                     create_default_scene();
+                    notify_scene_replaced();
                 }
                 load_project_scripts();
             }
