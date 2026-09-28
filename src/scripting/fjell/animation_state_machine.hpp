@@ -67,8 +67,8 @@ struct AnimationState {
     /// Playback rate multiplier. 1.0 is the authored speed.
     float speed{1.0f};
 
-    /// Whether playback repeats. Non-looping states drive
-    /// `sprite_anim::is_finished()`.
+    /// Whether playback repeats. A non-looping state sets
+    /// `SpriteAnimComponent::finished` when it ends.
     bool looping{true};
 
     /// Transitions leaving this state, evaluated in order — the first whose
@@ -86,9 +86,9 @@ struct AnimationState {
 /// Runs an animation graph authored in the editor: parameters go in,
 /// transitions fire, and the current state says what to play.
 ///
-/// Game code normally drives this through `animator` or `sprite_anim` rather
-/// than touching it directly. Reach for it when you need the graph's structure
-/// or the `on_transition` event.
+/// A sprite animation's machine is `SpriteAnimComponent::state_machine`,
+/// which scripts set parameters on directly; a skeletal animator's is driven
+/// through `animator::`.
 class AnimationStateMachine {
 public:
     /// Load a state machine asset, replacing the current graph.
@@ -109,17 +109,17 @@ public:
 
     /// Read a parameter.
     /// @return Its value, or 0.0 if never set.
-    [[nodiscard]] float get_param(const std::string& name) const;
+    [[nodiscard]] FJELL_SDK_EXPORT float get_param(const std::string& name) const;
 
     /// Name of the state currently playing. During a crossfade this stays the
     /// state being blended *from* until the transition completes.
     [[nodiscard]] const std::string& current_state_name() const { return current_; }
 
     /// The state currently playing, or null before any state is entered.
-    [[nodiscard]] const AnimationState* current_state() const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* current_state() const;
 
     /// The state being blended toward, or null when not transitioning.
-    [[nodiscard]] const AnimationState* next_state() const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* next_state() const;
 
     /// Crossfade progress, 0 at the start of a transition to 1 at its end.
     /// Meaningless unless `is_transitioning()`.
@@ -133,7 +133,7 @@ public:
 
     /// Look up a state by name.
     /// @return The state, or null if the graph has no such state.
-    [[nodiscard]] const AnimationState* find_state(const std::string& name) const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* find_state(const std::string& name) const;
 
     /// Fires when a transition begins, with `(from_state, to_state)`. Store
     /// the returned `Connection` — dropping it unsubscribes.
@@ -149,6 +149,7 @@ private:
     std::vector<AnimationState> states_;
     std::unordered_map<std::string, uint32_t> state_index_;
     std::unordered_map<std::string, float> params_;
+    std::string skeleton_path_;
 
     std::string current_;
     std::string next_;

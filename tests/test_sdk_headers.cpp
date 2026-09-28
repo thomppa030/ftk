@@ -13,11 +13,12 @@
 #include "fjell/camera_api.hpp"
 #include "fjell/material_api.hpp"
 #include "fjell/viewport_api.hpp"
+#include "fjell/animator_api.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
         sizeof(fjell::ENGINE_COMPONENT_LAYOUTS) / sizeof(fjell::ENGINE_COMPONENT_LAYOUTS[0]);
-    STATIC_REQUIRE(count == 5);
+    STATIC_REQUIRE(count == 6);
     for (const auto& layout : fjell::ENGINE_COMPONENT_LAYOUTS) {
         REQUIRE(layout.type_name != nullptr);
         REQUIRE(layout.size > 0);
@@ -160,6 +161,15 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         fjell::material::set_param(own, "tint", 1.0f, 0.2f, 0.2f);
         fjell::material::reset(door);
         fjell::viewport::set_camera("monitor", own);
+
+        // Skeletal animation through animator::, sprite animation on its component.
+        fjell::animator::set_param(own, "speed", fjell::animator::get_param(own, "speed") + 1.0f);
+        [[maybe_unused]] const char* state = fjell::animator::current_state(own);
+        auto anim = own.get_component<fjell::SpriteAnimComponent>();
+        anim->state_machine.set_param("speed", anim->state_machine.get_param("speed"));
+        if (anim->finished && anim->state_machine.current_state_name() == "Attack") anim->playing = false;
+        [[maybe_unused]] const fjell::AnimationState* run = anim->state_machine.find_state("Run");
+        own.get_component<fjell::SpriteComponent>()->flip_h = true;
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);

@@ -17,7 +17,6 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`audio`](API/audio_api.md) | `fjell/audio_api.hpp` | Play audio clips at world positions |
 | [`vfx`](API/vfx_api.md) | `fjell/vfx_api.hpp` | Spawn particle systems |
 | [`animator`](API/animator_api.md) | `fjell/animator_api.hpp` | Drive skeletal animation state machines |
-| [`sprite_anim`](API/sprite_anim_api.md) | `fjell/sprite_anim_api.hpp` | Drive 2D sprite state machines |
 | [`Debug`](API/Debug.md) | `fjell/debug_api.hpp` | Debug-draw lines, boxes, spheres, points; on-screen debug text |
 | [`viewport`](API/viewport_api.md) | `fjell/viewport_api.hpp` | Create render-to-texture viewports |
 
@@ -30,6 +29,21 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`UiWidget`](API/UiWidget.md) | `fjell/ui_widget.hpp` | Base for `.fjwidget`-bound UI controllers |
 | [`AnimNotify`](API/AnimNotify.md) | `fjell/notify.hpp` | Base for instant animation notifies |
 | [`AnimNotifyState`](API/AnimNotify.md#animnotifystate) | `fjell/notify.hpp` | Base for span-style animation notifies |
+
+## Engine components
+
+Engine components a script reaches directly, through a `Ref<T>` or `get_component<T>()`.
+Their layout is checked when the game library loads, so a library built against another
+engine is refused rather than misread.
+
+| Component | Header | What a script does with it |
+|---|---|---|
+| `RigidbodyComponent` | `fjell/engine_components.hpp` | Set up a body; `add_force`, `add_impulse`, read and set its velocity ([Physics](../Physics.md#script-api)) |
+| `ColliderComponent` | `fjell/engine_components.hpp` | Shape, channel and trigger of a collider |
+| `CharacterComponent` | `fjell/engine_components.hpp` | Move a character by intent or velocity, `jump()`, read its ground |
+| `MeshComponent` | `fjell/engine_components.hpp` | Read which model and material a mesh draws with |
+| `SpriteComponent` | `fjell/engine_components.hpp` | Tint, flip (`flip_h`) and look of a sprite |
+| `SpriteAnimComponent` | `fjell/sprite_anim_component.hpp` | Drive a sprite animation: `state_machine.set_param()`, `playing`, `finished` |
 
 ## Handles and value types
 

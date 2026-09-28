@@ -70,17 +70,17 @@ public:
 
     // Parameter access (used by gameplay code to drive transitions).
     FJELL_SDK_EXPORT void set_param(const std::string& name, float value);
-    [[nodiscard]] float get_param(const std::string& name) const;
+    [[nodiscard]] FJELL_SDK_EXPORT float get_param(const std::string& name) const;
 
     // Current playback state.
     [[nodiscard]] const std::string& current_state_name() const { return current_; }
-    [[nodiscard]] const AnimationState* current_state() const;
-    [[nodiscard]] const AnimationState* next_state() const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* current_state() const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* next_state() const;
     [[nodiscard]] float crossfade_alpha() const { return crossfade_alpha_; }
     [[nodiscard]] bool is_transitioning() const { return !next_.empty(); }
 
     [[nodiscard]] const std::vector<AnimationState>& states() const { return states_; }
-    [[nodiscard]] const AnimationState* find_state(const std::string& name) const;
+    [[nodiscard]] FJELL_SDK_EXPORT const AnimationState* find_state(const std::string& name) const;
 
     // Skeleton path stored in .fjanimset (relative asset path).
     [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }

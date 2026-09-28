@@ -5,6 +5,7 @@
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/sprite_anim_component.hpp"
 
 #include <glm/glm.hpp>
 
@@ -482,6 +483,7 @@ inline constexpr FjellComponentLayout ENGINE_COMPONENT_LAYOUTS[] = {
     {CharacterComponent::type_name, sizeof(CharacterComponent)},
     {MeshComponent::type_name, sizeof(MeshComponent)},
     {SpriteComponent::type_name, sizeof(SpriteComponent)},
+    {SpriteAnimComponent::type_name, sizeof(SpriteAnimComponent)},
 };
 
 } // namespace fjell

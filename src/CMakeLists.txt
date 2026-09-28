@@ -230,7 +230,6 @@ add_executable(fjell
     scripting/camera_api.cpp
     scripting/input_api.cpp
     scripting/animator_api.cpp
-    scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
     scripting/physics_api.cpp
     scripting/surface_api.cpp
