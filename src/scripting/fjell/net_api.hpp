@@ -7,6 +7,7 @@
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/ref.hpp"
 #include "fjell/asset.hpp"
 
 #include <glm/glm.hpp>
@@ -102,20 +103,24 @@ namespace net {
 
 /// Whether this peer may change the node's authoritative state. True on
 /// the server for every node, and on a client only for nodes it owns.
-/// @param node_id Node to test.
+/// @param node The node to test; `self()` for the script's own. One that is
+///             gone stops the game (see `Ref`).
 /// @note This is about who simulates, not who plays. For "is this MY
 ///       player" use `is_owned_by_local()`.
-[[nodiscard]] inline bool is_local_authority(uint32_t node_id) {
-    return fjell_net_is_local_authority(node_id) != 0;
+[[nodiscard]] inline bool is_local_authority(const Ref<Node3D>& node) {
+    detail::require(node);
+    return fjell_net_is_local_authority(node.node_id()) != 0;
 }
 
 /// Whether the local player owns this node — the check for possession, so
 /// only one player's pawn takes input and drives the camera.
-/// @param node_id Node to test.
+/// @param node The node to test; `self()` for the script's own. One that is
+///             gone stops the game (see `Ref`).
 /// @note Differs from `is_local_authority()`, which is additionally true
 ///       on the server for every node it simulates but does not play.
-[[nodiscard]] inline bool is_owned_by_local(uint32_t node_id) {
-    return fjell_net_is_owned_by_local(node_id) != 0;
+[[nodiscard]] inline bool is_owned_by_local(const Ref<Node3D>& node) {
+    detail::require(node);
+    return fjell_net_is_owned_by_local(node.node_id()) != 0;
 }
 
 /// Start listening as the server.
@@ -162,9 +167,9 @@ inline void set_owner(uint32_t net_id, PeerId p) { fjell_net_set_owner(net_id, p
 
 /// @internal Called by generated `[[fj::rpc]]` send-wrappers. Declare an
 /// RPC method instead of calling this directly.
-inline void send_rpc(uint32_t node_id, uint16_t rpc_index,
-                     const uint8_t* payload, uint32_t size) {
-    fjell_net_send_rpc(node_id, rpc_index, payload, size);
+inline void send_rpc(const Ref<Node3D>& node, uint16_t rpc_index, const uint8_t* payload, uint32_t size) {
+    detail::require(node);
+    fjell_net_send_rpc(node.node_id(), rpc_index, payload, size);
 }
 } // namespace net
 

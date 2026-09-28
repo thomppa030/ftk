@@ -295,8 +295,9 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         // ── Send-wrapper member definitions ────────────────────────────
         // The user declares `void method(args);` ([[fj::rpc]]) and writes the
         // handler as `method_impl(args)`. We define `method(args)` here: it
-        // serializes the POD args and hands them to net by (node id, rpc
-        // index). On the target peer the invoke trampoline calls method_impl.
+        // serializes the POD args and hands them to net with the script's own
+        // node and the rpc index. On the target peer the invoke trampoline
+        // calls method_impl.
         out << "// ── RPC send wrappers ──\n\n";
         for (size_t r = 0; r < comp.rpcs.size(); ++r) {
             const auto& rpc = comp.rpcs[r];
@@ -308,7 +309,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
             out << ") {\n";
             // pack args into a stack buffer
             if (rpc.params.empty()) {
-                out << "    fjell::net::send_rpc(id(), " << r << ", nullptr, 0);\n";
+                out << "    fjell::net::send_rpc(self(), " << r << ", nullptr, 0);\n";
             } else {
                 out << "    uint8_t buf[";
                 for (size_t p = 0; p < rpc.params.size(); ++p) {
@@ -322,7 +323,7 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
                         << ", sizeof(" << rpc.params[p].cpp_type << ")); off += sizeof("
                         << rpc.params[p].cpp_type << ");\n";
                 }
-                out << "    fjell::net::send_rpc(id(), " << r << ", buf, off);\n";
+                out << "    fjell::net::send_rpc(self(), " << r << ", buf, off);\n";
             }
             out << "}\n\n";
         }
@@ -385,7 +386,8 @@ std::string generated_file(const std::string& stem, const HeaderOutput& header) 
     out << "#include \"" << std::filesystem::path(header.source_file).filename().string() << "\"\n";
     const bool has_rpcs = std::any_of(header.components.begin(), header.components.end(),
                                       [](const ComponentInfo* c) { return !c->rpcs.empty(); });
-    if (has_rpcs) out << "#include \"fjell/net_api.hpp\"\n";
+    // A send wrapper hands the net layer the script's own node.
+    if (has_rpcs) out << "#include \"fjell/net_api.hpp\"\n#include \"fjell/node.hpp\"\n";
     // A list is reordered with std::rotate.
     auto has_list = [](const std::vector<FieldInfo>& fields) {
         return std::any_of(fields.begin(), fields.end(),

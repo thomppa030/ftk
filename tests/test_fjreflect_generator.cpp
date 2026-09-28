@@ -190,6 +190,10 @@ class [[fj::tick(order = 2, interval = 0.5)]] Sleeper : public fjell::ScriptComp
                        "static_cast<Panel*>(self)->close(); }") != std::string::npos);
     REQUIRE(kinds.find("{\"close\", FJELL_UI_ACTION_NONE, &fjell::FjellAccess<Panel>::action_close},") !=
             std::string::npos);
+    // An RPC's send wrapper hands the net layer the script's own node.
+    REQUIRE(kinds.find("#include \"fjell/node.hpp\"") != std::string::npos);
+    REQUIRE(kinds.find("void Mover::jump() {\n    fjell::net::send_rpc(self(), 0, nullptr, 0);\n}") !=
+            std::string::npos);
     // The three lists FJELL_REGISTER() walks, notifies included.
     REQUIRE(reg.find("fjell_auto_reg_head()") != std::string::npos);
     REQUIRE(reg.find("fjell_ui_auto_reg_head()") != std::string::npos);

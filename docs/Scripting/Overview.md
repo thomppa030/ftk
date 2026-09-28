@@ -299,7 +299,7 @@ Inside a `ScriptComponent`:
 |---|---|
 | `transform()` | Read/write position, rotation, scale of the node you're attached to |
 | `self()` | Your own [`Node3D`](API/Node3D.md): `self().find_child("Camera")`, `self().get_component<T>()` |
-| `id()` | `uint32_t` node id, for the calls that still take one (e.g. `net::is_owned_by_local`) |
+| `id()` | `uint32_t` node id, for the calls that still take one (`UiWidget::bind`) |
 | `input()` | Const ref to the current `Input` state |
 | `delta_time()`, `elapsed_time()` | Scaled gameplay clock; the step's own inside `fixed_tick()` |
 

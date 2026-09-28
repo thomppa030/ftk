@@ -340,7 +340,7 @@ for [`on_collision_exit`](#scriptcomponenton_collision_exit).
 The owning node's ID.
 
 ### Remarks
-For the engine calls that still take node IDs (`net::is_owned_by_local`, ...). Where a `Ref<Node3D>` is taken, pass `self()`.
+For the engine calls that still take node IDs (`UiWidget::bind`). Where a `Ref<Node3D>` is taken, pass `self()`.
 
 ---
 
