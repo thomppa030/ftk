@@ -6,10 +6,10 @@
 
 #include <optional>
 
-// What each `gpu::Access` is to Vulkan: the layout an image is in for it, the
-// pipeline stages and memory accesses a barrier names for it, and what an
-// image must be made able to do. The frame graph's barriers and a command
-// list's in-pass barriers are both derived from these.
+// What each `gpu::Access` is to Vulkan: the layout an image is in for it, and
+// the pipeline stages and memory accesses a barrier names for it. The frame
+// graph's barriers and a command list's in-pass barriers are both derived
+// from these.
 
 namespace fjell::gpu::vulkan {
 
@@ -51,9 +51,6 @@ struct BufferScope {
 
 /// What `accesses` are to a buffer together.
 [[nodiscard]] BufferScope buffer_scope(AccessSet accesses);
-
-/// What an image must be made able to do to be used as `access`.
-[[nodiscard]] VkImageUsageFlags image_usage(Access access);
 
 /// `stages` as a compute queue can wait on them: the stages only a graphics
 /// queue has (attachments, fragment and vertex work, blits, resolves) become

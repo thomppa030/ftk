@@ -80,6 +80,10 @@ public:
     /// format) for a handle that finds no texture.
     [[nodiscard]] const TextureInfo& info(Texture texture) const;
 
+    /// The bytes of GPU memory a texture takes; 0 for one made outside the
+    /// device and for a handle that finds no texture.
+    [[nodiscard]] uint64_t memory_size(Texture texture) const;
+
     /// A compute pipeline, its layout read from the shader.
     /// @return the pipeline, or why it could not be made (the message names it
     ///         and the shader).

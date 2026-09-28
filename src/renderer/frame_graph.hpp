@@ -159,7 +159,7 @@ struct PassDecl {
 struct ResourceLifetime {
     uint32_t first_pass{UINT32_MAX};
     uint32_t last_pass{0};
-    VkImageUsageFlags usage_flags{0};
+    gpu::TextureUses uses{};
 
     [[nodiscard]] bool used() const noexcept { return first_pass != UINT32_MAX; }
 };

@@ -17,6 +17,10 @@
 
 namespace fjell::gpu::vulkan {
 
+/// The VkFormat for a format, for Vulkan made outside the interface (pipelines,
+/// images) that shares a format with what is made through it.
+[[nodiscard]] VkFormat native_format(Format format);
+
 /// The VkBuffer behind a buffer; null when the handle finds none.
 [[nodiscard]] VkBuffer native_buffer(Device& device, Buffer buffer);
 

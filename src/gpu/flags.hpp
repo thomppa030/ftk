@@ -32,6 +32,11 @@ public:
         return (bits_ & bit(value)) != 0;
     }
 
+    /// Whether every value of `other` is in the set.
+    [[nodiscard]] constexpr bool has_all(Flags other) const noexcept {
+        return (bits_ & other.bits_) == other.bits_;
+    }
+
     /// Whether the set holds nothing.
     [[nodiscard]] constexpr bool empty() const noexcept { return bits_ == 0; }
 
