@@ -261,6 +261,14 @@ public:
     /// when the scene has none.
     [[nodiscard]] uint32_t generation_of(uint32_t id) const;
 
+    /// The first node called `name`, or null when there is none. Like
+    /// find(), it sees a node spawned during the running tick, which a
+    /// caller may use at once.
+    [[nodiscard]] Node* find_by_name(std::string_view name);
+
+    /// The first direct child of node `parent_id` called `name`, likewise.
+    [[nodiscard]] Node* find_child(uint32_t parent_id, std::string_view name);
+
     /// What a reference set to node `node_id` in its life `generation` finds
     /// of type `type` now: the component, or null when the node is gone, is
     /// another node that took the id, or has no such component.

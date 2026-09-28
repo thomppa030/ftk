@@ -341,6 +341,27 @@ void Scene::clear() {
     ++structure_revision_;
 }
 
+Node* Scene::find_by_name(std::string_view name) {
+    for (auto& node : objects_) {
+        if (node->name == name) return node.get();
+    }
+    for (auto& pending : pending_spawn_) {
+        if (pending->name == name) return pending.get();
+    }
+    return nullptr;
+}
+
+Node* Scene::find_child(uint32_t parent_id, std::string_view name) {
+    const auto parent = static_cast<int32_t>(parent_id);
+    for (auto& node : objects_) {
+        if (node->parent_id == parent && node->name == name) return node.get();
+    }
+    for (auto& pending : pending_spawn_) {
+        if (pending->parent_id == parent && pending->name == name) return pending.get();
+    }
+    return nullptr;
+}
+
 void* Scene::resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type) {
     Node* node = find(node_id);
     if (node == nullptr || node->generation != generation) return nullptr;

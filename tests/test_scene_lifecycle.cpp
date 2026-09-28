@@ -85,3 +85,24 @@ TEST_CASE("Untracked, nothing is remembered", "[scene_lifecycle]") {
     scene.track_added(false);
     CHECK_FALSE(scene.has_added());
 }
+
+TEST_CASE("A node spawned during a tick is found by name at once", "[scene_lifecycle]") {
+    // A script that spawns something uses it straight away: its children by
+    // name included, although it joins the scene only after the tick.
+    Scene scene;
+    const uint32_t rig = scene.add_empty({}, "Rig");
+    Scene::TickLock lock(scene);
+    const uint32_t spawned = scene.add_empty({}, "Spawned");
+    const uint32_t camera = scene.add_empty({}, "Camera");
+    scene.find(camera)->parent_id = static_cast<int32_t>(spawned);
+
+    const Node* by_name = scene.find_by_name("Spawned");
+    REQUIRE(by_name != nullptr);
+    CHECK(by_name->id == spawned);
+    const Node* child = scene.find_child(spawned, "Camera");
+    REQUIRE(child != nullptr);
+    CHECK(child->id == camera);
+    CHECK(scene.find_child(rig, "Camera") == nullptr);  // a child of another node
+    CHECK(scene.find_by_name("Rig")->id == rig);
+    CHECK(scene.find_by_name("Nobody") == nullptr);
+}
