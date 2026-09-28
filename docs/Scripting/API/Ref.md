@@ -18,6 +18,8 @@ public:
     Ref() = default;
     explicit Ref(uint32_t node_id);
 
+    T*                     operator->() const;
+    T&                     operator*()  const;
     [[nodiscard]] T*       get()     const;
     explicit operator bool()         const;
     [[nodiscard]] uint32_t node_id() const;
@@ -48,6 +50,27 @@ public:
 };
 ```
 
+**Using a Ref whose target is gone stops the game.** `->` and `*` reach the target
+directly, with no check to write. If the target is not there, the game stops on the
+spot, shipped builds included, and says which script, which hook, which field and which
+node: in the editor play ends with the script's node selected, a functional test fails
+with the message, and a shipped game writes `crash_report.txt` beside its executable and
+closes. Catching the `fjell::RefGone` it throws does not keep the game running. So use
+`->` for what is always there, and check with `if (ref)` or `get()` where absence is
+expected, as for an enemy that can be killed:
+
+```cpp
+[[fj::property]] fjell::Ref<PlayerStats> player;   // always there
+[[fj::property]] fjell::Ref<Enemy> target;          // may be killed
+
+void tick(float) override {
+    player->stamina += 1.0f;
+    if (auto* enemy = target.get()) chase(*enemy);
+}
+```
+
+A destructor cannot let an exception out, so use `get()` there, never `->`.
+
 **It knows when its target is gone.** A `Ref` finds nothing once its node is destroyed
 or taken out of the scene, once the node no longer carries a `T`, and while the game
 library reloads. It never finds another node that later took the same id, after a scene
@@ -64,6 +87,7 @@ next use. Components never move while they live, so what it kept stays right unt
 | Name | Description |
 |---|---|
 | [`Ref(node_id)`](#refref) | Refer to the `T` on a node |
+| [`operator->`, `operator*`](#refoperator-) | The target; stops the game when it is gone |
 | [`get`](#refget) | The target, or null |
 | [`operator bool`](#refoperator-bool) | Whether the target is there |
 | [`node_id`](#refnode_id) | The node it refers to |
@@ -79,6 +103,18 @@ explicit Ref(uint32_t node_id);
 
 Refers to the `T` on node `node_id` as that node is now. The node need not carry a `T`
 yet: the reference finds nothing until it does.
+
+---
+
+## Ref::operator->
+
+```cpp
+T* operator->() const;
+T& operator*()  const;
+```
+
+The target. When it is gone the game stops, naming the script, the hook, the field and
+the node (see Remarks). The pointer is good for the rest of the call you are in.
 
 ---
 

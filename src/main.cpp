@@ -167,6 +167,7 @@ int main(int argc, char* argv[]) {
         // leave that logging through a destroyed sink.
         if (!failed) engine.run();
         if (run_tests && !failed && !engine.tests_passed()) failed = true;
+        if (engine.stopped_by_error()) failed = true;
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", safe_what(e));
         fjell::log::shutdown();

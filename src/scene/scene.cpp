@@ -253,6 +253,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     }
     note_removal();
     const int idx = map_it->second;
+    remember_gone(*objects_[static_cast<std::size_t>(idx)]);
     auto result = std::move(objects_[static_cast<std::size_t>(idx)]);
     objects_.erase(objects_.begin() + idx);
     leave_kind(*result);
@@ -346,6 +347,29 @@ void* Scene::resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type
     return node->component(type);
 }
 
+void Scene::remember_gone(const Node& node) {
+    if (gone_capacity_ == 0) return;
+    if (gone_.size() < gone_capacity_) {
+        gone_.push_back({node.id, node.generation, node.name});
+        return;
+    }
+    gone_[gone_next_] = {node.id, node.generation, node.name};
+    gone_next_ = (gone_next_ + 1) % gone_capacity_;
+}
+
+void Scene::set_gone_remembered(std::size_t count) {
+    gone_.clear();
+    gone_next_ = 0;
+    gone_capacity_ = count;
+}
+
+std::string_view Scene::name_of_gone(uint32_t node_id, uint32_t generation) const {
+    for (const GoneNode& gone : gone_) {
+        if (gone.id == node_id && gone.generation == generation) return gone.name;
+    }
+    return {};
+}
+
 uint32_t Scene::generation_of(uint32_t id) const {
     const Node* node = find(id);
     return node != nullptr ? node->generation : 0;
@@ -385,6 +409,7 @@ void Scene::flush_destroyed() {
         auto map_it = id_to_index_.find(doomed);
         if (map_it == id_to_index_.end()) continue;
         int idx = map_it->second;
+        remember_gone(*objects_[static_cast<std::size_t>(idx)]);
         leave_kind(*objects_[static_cast<std::size_t>(idx)]);
         if (idx < static_cast<int>(objects_.size()) - 1) {
             uint32_t back_id = objects_.back()->id;

@@ -391,6 +391,8 @@ void PlayController::start() {
     const Project* project = s_.project_mgr->active();
     const std::uint32_t tick_rate = project != nullptr ? project->config().simulation.fixed_tick_rate
                                                        : FixedTimestep::DEFAULT_TICK_RATE;
+    s_.scene->set_gone_remembered(project != nullptr ? project->config().simulation.gone_nodes_remembered
+                                                     : ProjectConfig::SimulationConfig{}.gone_nodes_remembered);
     fixed_timestep_.reset(1.0 / tick_rate, s_.clock->game_elapsed());
     step_stats_ = {};
     step_stats_.tick_rate = tick_rate;

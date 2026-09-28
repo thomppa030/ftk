@@ -70,9 +70,13 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
             config.network.port        = static_cast<uint16_t>(n.value("port", 7777U));
         }
         if (j.contains("simulation")) {
+            const auto& sim = j["simulation"];
             config.simulation.fixed_tick_rate =
-                std::clamp(j["simulation"].value("fixed_tick_rate", FixedTimestep::DEFAULT_TICK_RATE),
+                std::clamp(sim.value("fixed_tick_rate", FixedTimestep::DEFAULT_TICK_RATE),
                            FixedTimestep::MIN_TICK_RATE, FixedTimestep::MAX_TICK_RATE);
+            config.simulation.gone_nodes_remembered =
+                std::min(sim.value("gone_nodes_remembered", config.simulation.gone_nodes_remembered),
+                         ProjectConfig::SimulationConfig::MAX_GONE_NODES_REMEMBERED);
         }
         if (j.contains("ui")) {
             const auto& u = j["ui"];
@@ -180,6 +184,7 @@ void Project::save() {
 
     j["simulation"] = {
         {"fixed_tick_rate", config_.simulation.fixed_tick_rate},
+        {"gone_nodes_remembered", config_.simulation.gone_nodes_remembered},
     };
 
     j["ui"] = {

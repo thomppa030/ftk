@@ -129,3 +129,41 @@ TEST_CASE("a reference finds its node's component only in that node's life", "[s
     scene.flush_destroyed();
     CHECK(scene.resolve(id, generation, probe_type) == nullptr);
 }
+
+TEST_CASE("a node that left the scene is remembered by name for a while", "[scene][lifetime]") {
+    Scene scene;
+    scene.set_gone_remembered(8);
+    auto named = [&](const char* name) {
+        auto node = std::make_unique<Node3D>();
+        node->name = name;
+        return scene.add_node(std::move(node));
+    };
+    const uint32_t target = named("Target");
+    const uint32_t generation = scene.generation_of(target);
+    scene.queue_destroy(target);
+    scene.flush_destroyed();
+    CHECK(scene.name_of_gone(target, generation) == "Target");
+    CHECK(scene.name_of_gone(target, generation + 1).empty());
+
+    const uint32_t taken = named("Taken out");
+    const uint32_t taken_generation = scene.generation_of(taken);
+    auto out = scene.extract(taken);
+    CHECK(scene.name_of_gone(taken, taken_generation) == "Taken out");
+
+    // However many go, only the last ones are kept.
+    for (int i = 0; i < 8; ++i) {
+        scene.queue_destroy(named("Bullet"));
+        scene.flush_destroyed();
+    }
+    CHECK(scene.name_of_gone(target, generation).empty());
+
+    // A scene not told to remember any keeps none.
+    Scene plain;
+    auto lone = std::make_unique<Node3D>();
+    lone->name = "Lone";
+    const uint32_t lone_id = plain.add_node(std::move(lone));
+    const uint32_t lone_generation = plain.generation_of(lone_id);
+    plain.queue_destroy(lone_id);
+    plain.flush_destroyed();
+    CHECK(plain.name_of_gone(lone_id, lone_generation).empty());
+}

@@ -8,11 +8,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
 
 extern "C" {
 FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t node_id, uint32_t generation, uint32_t type_id);
 FJELL_SDK_EXPORT uint32_t fjell_scene_generation(uint32_t node_id);
 FJELL_SDK_EXPORT const std::atomic<uint64_t>* fjell_removal_epoch();
+FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_id, uint32_t type_id);
 }
 
 namespace fjell {
@@ -31,7 +33,25 @@ struct RefData {
     uint64_t epoch{0};
 };
 
+/// Thrown by `->` and `*` on a Ref whose target is gone. The engine has
+/// already been told by then, and stops the game with the script, the field,
+/// the node and the hook named; the throw only ends what the script was doing.
+/// Catching it does not keep the game running.
+struct RefGone : std::exception {
+    [[nodiscard]] const char* what() const noexcept override {
+        return "a Ref was used after its target was gone";
+    }
+};
+
 namespace detail {
+
+/// Tells the engine a Ref at `ref` was used with nothing there, then throws.
+/// The throw is here, in the game library, rather than in the engine's C
+/// export, which a compiler may assume never throws.
+[[noreturn]] inline void ref_gone(const void* ref, uint32_t node_id, uint32_t type_id) {
+    fjell_ref_gone(ref, node_id, type_id);
+    throw RefGone{};
+}
 
 /// Moves whenever anything a Ref could point at goes away; until it does, a
 /// Ref keeps what it found.
@@ -56,10 +76,12 @@ namespace detail {
 /// goes away, and only then asks the engine again.
 ///
 /// @code
-/// [[fj::property]] fjell::Ref<PlayerStats> player;
+/// [[fj::property]] fjell::Ref<PlayerStats> player;   // always there
+/// [[fj::property]] fjell::Ref<Enemy> target;          // may be killed
 ///
 /// void tick(float) override {
-///     if (auto* stats = player.get()) stats->stamina += 1.0f;
+///     player->stamina += 1.0f;
+///     if (auto* enemy = target.get()) chase(*enemy);
 /// }
 /// @endcode
 template <typename T>
@@ -82,6 +104,18 @@ public:
         data_.epoch = now;
         return static_cast<T*>(data_.cached);
     }
+
+    /// The target's members. Using a Ref whose target is gone stops the game,
+    /// shipped builds included, naming the script, the field and the node: a
+    /// target that can be missing is checked with `if (ref)` or `get()` first.
+    T* operator->() const {
+        T* target = get();
+        if (target == nullptr) detail::ref_gone(this, data_.node_id, detail::component_type_id<T>());
+        return target;
+    }
+
+    /// The target itself, under the same rule as `->`.
+    T& operator*() const { return *operator->(); }
 
     /// Whether the target is there now.
     [[nodiscard]] explicit operator bool() const { return get() != nullptr; }

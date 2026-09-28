@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -265,6 +266,15 @@ public:
     /// another node that took the id, or has no such component.
     [[nodiscard]] void* resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type);
 
+    /// The name the node `node_id` had in its life `generation`, if it left
+    /// the scene recently enough to be remembered, for a report about a
+    /// reference to it; empty otherwise.
+    [[nodiscard]] std::string_view name_of_gone(uint32_t node_id, uint32_t generation) const;
+    /// How many of the nodes that leave the scene it remembers by name, the
+    /// last ones to go, however many a game destroys; forgets what it held.
+    /// None until told: the project's setting, set as play starts.
+    void set_gone_remembered(std::size_t count);
+
     // Deferred destruction for safe mid-tick removal
     /// Destroy the node, and every node under it, at the next flush.
     void queue_destroy(uint32_t id);
@@ -331,6 +341,17 @@ private:
 
     std::vector<std::unique_ptr<Node>> objects_;
     std::unordered_map<uint32_t, int> id_to_index_;
+    /// Nodes that left the scene, the oldest overwritten first; see
+    /// name_of_gone().
+    struct GoneNode {
+        uint32_t id;
+        uint32_t generation;
+        std::string name;
+    };
+    std::vector<GoneNode> gone_;
+    std::size_t gone_next_{0};
+    std::size_t gone_capacity_{0};
+    void remember_gone(const Node& node);
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};

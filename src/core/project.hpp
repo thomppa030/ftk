@@ -46,6 +46,11 @@ struct ProjectConfig {
         // all run at this rate, and drawing blends between their steps. Read
         // when play starts; a session keeps its rate to the end.
         uint32_t fixed_tick_rate{FixedTimestep::DEFAULT_TICK_RATE};
+        // How many of the nodes that leave the scene during play are
+        // remembered by name, the last ones to go: what a report names when a
+        // script uses a Ref whose node is gone. Read when play starts.
+        uint32_t gone_nodes_remembered{1024};
+        static constexpr uint32_t MAX_GONE_NODES_REMEMBERED = 65536;
 
         bool operator==(const SimulationConfig&) const = default;
     } simulation;

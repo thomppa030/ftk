@@ -50,6 +50,76 @@ struct FjellTypeRegistry {
 
 static auto& s_services = fjell::script_services();
 
+namespace {
+
+/// The name scripts write for component type `type_id`, for a report.
+std::string component_name(uint32_t type_id) {
+    if (s_services.manager != nullptr) {
+        if (const auto* type = s_services.manager->find_script_type_by_id(type_id)) return type->name;
+    }
+    if (const auto* meta = fjell::ComponentRegistry::instance().find(type_id)) return meta->script_type_name;
+    return "component";
+}
+
+/// Which reflected field of the running script the Ref at `ref` is, or empty
+/// when it is not one of them (a local, or an element of a list).
+std::string field_holding(const fjell::ScriptCall& call, const void* ref) {
+    if (call.instance == nullptr || s_services.manager == nullptr) return {};
+    const auto* base = static_cast<const std::byte*>(call.instance);
+    const auto* at = static_cast<const std::byte*>(ref);
+    if (at < base) return {};
+    const auto offset = static_cast<uint32_t>(at - base);
+    const std::string name(call.type_name);
+    const std::vector<fjell::OwnedFieldDesc>* fields = nullptr;
+    if (const auto* type = s_services.manager->find_script_type(name)) fields = &type->fields;
+    else if (const auto* ui = s_services.manager->find_ui_widget_type(name)) fields = &ui->fields;
+    if (fields == nullptr) return {};
+    for (const auto& f : *fields) {
+        if (f.type == FJELL_FIELD_REF && f.offset == offset) return f.name;
+    }
+    return {};
+}
+
+} // namespace
+
+// A Ref was used with nothing there. The game library throws right after
+// this returns; the report is made here, where the engine knows what was
+// running, and the game stops once the engine gets to it.
+extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_id, uint32_t type_id) {
+    const fjell::ScriptCall* call = fjell::current_script_call();
+    const std::string target_type = component_name(type_id);
+
+    std::string what = "a Ref<" + target_type + ">";
+    if (call != nullptr) {
+        if (const std::string field = field_holding(*call, ref); !field.empty()) {
+            what = "`" + field + "` (a Ref<" + target_type + ">)";
+        }
+    }
+
+    // What it was set to, by the name that node had: from the node itself
+    // while it is there, from what the scene remembers once it is gone.
+    const uint32_t generation = static_cast<const fjell::RefData*>(ref)->generation;
+    const fjell::Scene* scene = s_services.scene;
+    const fjell::Node* target = scene != nullptr ? scene->find(node_id) : nullptr;
+    std::string why;
+    if (node_id == 0) {
+        why = "it was never set";
+    } else if (target != nullptr && target->generation == generation) {
+        why = "'" + target->name + "' has no " + target_type;
+    } else if (const std::string_view name = scene != nullptr ? scene->name_of_gone(node_id, generation)
+                                                              : std::string_view();
+               !name.empty()) {
+        why = "'" + std::string(name) + "' is gone";
+    } else {
+        why = "the node it was set to (id " + std::to_string(node_id) + ") is gone";
+    }
+
+    const std::string where = call != nullptr ? fjell::describe(*call) : std::string("A script");
+    const uint32_t script_node = call != nullptr && call->node != nullptr ? call->node->id : 0;
+    fjell::halt_script_calls({.message = where + " used " + what + " with nothing there: " + why,
+                              .node_id = script_node});
+}
+
 extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
     if (!s_services.scene || id == 0) return nullptr;
     if (s_services.scene->generation_of(id) != generation) return nullptr;

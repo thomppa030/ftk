@@ -1,4 +1,5 @@
 #include "core/engine.hpp"
+#include "scripting/script_call.hpp"
 #include "core/asset_database.hpp"
 #include "scene/light_node.hpp"
 #include "core/asset_references.hpp"
@@ -2004,6 +2005,50 @@ void Engine::finish_current_test(TestOutcome outcome, const std::string& message
     test_phase_ = TestPhase::teardown;
 }
 
+namespace {
+
+// A shipped game has no editor to show the report in. It goes beside the
+// executable, or into the working directory when that cannot be written.
+void write_crash_report(const std::string& message) {
+    const std::string text = "The game stopped: " + message + "\n";
+    for (const auto& path : {platform::executable_path().parent_path() / "crash_report.txt",
+                             std::filesystem::path("crash_report.txt")}) {
+        if (std::ofstream out(path); out << text) {
+            FJELL_CORE_ERROR("Crash report written to {}", path.string());
+            return;
+        }
+    }
+}
+
+} // namespace
+
+void Engine::stop_on_dead_ref() {
+    auto report = take_ref_gone_report();
+    if (!report) return;
+    FJELL_CORE_ERROR("{}", report->message);
+    // The halt kept the rest of the frame's scripts from running. What ends
+    // the session from here (end_play, the editor's scripts made again from
+    // the snapshot) is game code too, and has to run.
+    resume_script_calls();
+    // A report from something that ran while stopping has no session left to
+    // stop.
+    if (!play_controller_.playing()) return;
+    if (test_phase_ == TestPhase::prepare || test_phase_ == TestPhase::run) {
+        finish_current_test(TestOutcome::failed, report->message);
+        return;
+    }
+    if (game_mode_) {
+        write_crash_report(report->message);
+        stopped_by_error_ = true;
+        window_.request_close();
+        return;
+    }
+    play_controller_.stop();
+    if (scene_context_ != nullptr && report->node_id != 0 && scene_.find(report->node_id) != nullptr) {
+        scene_context_->set_selected_id(report->node_id);
+    }
+}
+
 void Engine::tick_test_runner() {
     // Deliberately one transition per frame. stop() only flags the HUD for
     // destruction; the free happens in the next frame's
@@ -2276,6 +2321,10 @@ void Engine::run() {
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->run(ctx);
         }
+
+        // Where the test runner ends play too: every script of the frame has
+        // run, and nothing of the scene is in use.
+        stop_on_dead_ref();
 
         // After the play phases, so a test that reached its verdict this frame
         // is read this frame: scripts have ticked and collision events have

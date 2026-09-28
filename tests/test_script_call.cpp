@@ -23,6 +23,27 @@ TEST_CASE("a call into the game library is caught however it ends", "[scripts][c
     CHECK(describe({.type_name = "A timer's callback"}) == "A timer's callback");
 }
 
+TEST_CASE("a Ref used with nothing there halts the game library until resumed", "[scripts][call]") {
+    halt_script_calls({.message = "Probe.tick used `target` with nothing there", .node_id = 4});
+    halt_script_calls({.message = "what followed"});
+    CHECK(script_calls_halted());
+
+    bool ran = false;
+    CHECK_FALSE(call_script({.type_name = "Other"}, [&] { ran = true; }));
+    CHECK_FALSE(ran);
+
+    const auto report = take_ref_gone_report();
+    REQUIRE(report.has_value());
+    CHECK(report->message == "Probe.tick used `target` with nothing there");
+    CHECK(report->node_id == 4);
+    CHECK_FALSE(take_ref_gone_report().has_value());
+    CHECK(script_calls_halted());
+
+    resume_script_calls();
+    CHECK(call_script({.type_name = "Other"}, [&] { ran = true; }));
+    CHECK(ran);
+}
+
 TEST_CASE("a timer whose callback throws keeps its place", "[scripts][call]") {
     TimerManager timers;
     int repeats = 0;

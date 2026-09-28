@@ -242,6 +242,17 @@ void ProjectSettingsWindow::draw_simulation() {
         ui::hint(std::format("Below {:g} fps the game slows down: a frame runs at most {} steps",
                              slowest, FixedTimestep::MAX_STEPS_PER_FRAME)
                      .c_str());
+        ui::row("Gone nodes remembered",
+                "How many of the nodes that leave the scene during play keep their names, the last "
+                "ones to go, so that a script using a Ref whose node is gone is told that node's "
+                "name. Takes effect the next time play starts.",
+                [&] {
+                    constexpr int MAX = static_cast<int>(ProjectConfig::SimulationConfig::MAX_GONE_NODES_REMEMBERED);
+                    int count = static_cast<int>(simulation.gone_nodes_remembered);
+                    if (ui::drag_int("##gone_nodes_remembered", count, 4.0f, 0, MAX).changed) {
+                        simulation.gone_nodes_remembered = static_cast<uint32_t>(std::clamp(count, 0, MAX));
+                    }
+                });
     }
 }
 

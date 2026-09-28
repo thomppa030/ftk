@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -11,12 +12,19 @@ struct Node;
 
 /// A call from the engine into the game library: which script type, which of
 /// its hooks or callbacks, on which node, and the script object itself. For
-/// the report when what runs there throws.
+/// the report when what runs there throws, or uses a Ref whose target is gone.
 struct ScriptCall {
     std::string_view type_name;     ///< the script's type, or what is being called
     const char* hook{""};           ///< "tick", "timer", "on:click", ...
     const Node* node{nullptr};      ///< the node it runs for, when there is one
-    const void* instance{nullptr};  ///< the script object
+    const void* instance{nullptr};  ///< the script object, to find the field a Ref is in
+};
+
+/// What stopped the game: a Ref used after its target was gone.
+struct RefGoneReport {
+    std::string message;
+    /// The node whose script it was, for the editor to select; 0 for none.
+    uint32_t node_id{0};
 };
 
 /// The call running now, or null outside any.
@@ -24,6 +32,20 @@ struct ScriptCall {
 
 /// "PlayerController.tick on 'Player'", for a report.
 [[nodiscard]] std::string describe(const ScriptCall& call);
+
+/// Whether a Ref has been used after its target was gone, and nothing more
+/// runs in the game library until the engine has stopped the game.
+[[nodiscard]] bool script_calls_halted();
+
+/// Records the report and halts; see script_calls_halted().
+void halt_script_calls(RefGoneReport report);
+
+/// The report, once, for the engine to stop the game with. The halt stays
+/// until resume_script_calls().
+[[nodiscard]] std::optional<RefGoneReport> take_ref_gone_report();
+
+/// Lets the game library run again, as a new play session starts.
+void resume_script_calls();
 
 namespace detail {
 
@@ -44,9 +66,12 @@ void report_script_exception(const ScriptCall& call, const std::exception* error
 
 /// Runs `fn`, which calls into the game library, as `call`. An exception it
 /// throws is reported and never let out, so one script's mistake cannot take
-/// the engine down. Returns whether it ran through.
+/// the engine down; a Ref used after its target was gone has already halted
+/// the game library and is not reported twice. While halted, `fn` does not
+/// run. Returns whether it ran through.
 template <typename Fn>
 bool call_script(const ScriptCall& call, Fn&& fn) {
+    if (script_calls_halted()) return false;
     const detail::CurrentScriptCall current(call);
     try {
         fn();

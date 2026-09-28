@@ -4,6 +4,7 @@
 #include "core/result.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/fjell/registry.hpp"
+#include "scripting/script_call.hpp"
 #include "scripting/fjell/world.hpp"
 #include "scripting/timer_manager.hpp"
 #include "platform/shared_library.hpp"
@@ -171,11 +172,13 @@ public:
     /// the new ones.
     void set_playing(bool playing) {
         playing_ = playing;
-        // Each session reports afresh, and spreads its interval ticks afresh.
+        // Each session reports afresh, spreads its interval ticks afresh, and
+        // starts free of the last one's halt.
         if (playing) {
             reported_writes_.clear();
             blamed_writes_.clear();
             interval_starts_.clear();
+            resume_script_calls();
         }
     }
     [[nodiscard]] bool playing() const { return playing_; }
