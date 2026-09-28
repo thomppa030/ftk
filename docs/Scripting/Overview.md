@@ -29,8 +29,6 @@ class Greeter : public fjell::ScriptComponent {
 ### `UiWidget` (alias: `UiComponent`)
 The script-side counterpart to a `.fjwidget` template, its controller: lifecycle hooks, `[[fj::action]]` methods the markup calls, and fields and Models the markup reads where they are. Bound to a UI tree instead of a scene node. See [Widgets](../Game-UI/Widgets.md) and [Models](../Game-UI/Models.md).
 
-There's also an `Actor` base class in `fjell/actor.hpp`, but in practice you'll write `ScriptComponent`s attached to nodes. Actor exists for non-component game objects with their own transform.
-
 ## Lifecycle
 
 | Hook | When |
@@ -363,7 +361,6 @@ All under `src/scripting/fjell/`. The shape of the SDK:
 | `api.h` | C ABI: field types, action types, key codes (`FJELL_KEY_*`, `FJELL_MOUSE_*`), `EInputTrigger` |
 | `component.hpp` | `ScriptComponent`, lifecycle, collision hooks |
 | `fixed_step.hpp` | `FixedStep`, `StepInput` — what `fixed_tick()` receives |
-| `actor.hpp` | `Actor` base for non-component objects |
 | `node.hpp` | `Node3D` handle, `get_component<T>` |
 | `transform.hpp` | `Transform` struct, euler helpers, `decompose_matrix` |
 | `world.hpp` | `World` — frame state (input, delta_time, the fixed step's time) |

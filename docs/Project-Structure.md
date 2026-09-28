@@ -127,7 +127,6 @@ Each pass is its own class. They're instantiated and orchestrated by `VulkanCont
 | File | What it does |
 |---|---|
 | `fjell_api.h` | C header for field reflection types |
-| `fjell_actor` | Actor base class — lifecycle hooks, transform access |
 | `fjell_component` | Component base class — begin_play, tick, end_play |
 | `fjell_world` | World interface exposed to scripts (input, physics, logging) |
 | `fjell_registry` | Type registration macros and auto-registration |

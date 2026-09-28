@@ -470,7 +470,6 @@ private:
 ```
 
 ## See also
-- [`Actor`](Actor.md) — base for non-component objects
 - [`UiWidget`](UiWidget.md) — base for UI controllers
 - [`Node3D`](Node3D.md) — the node `self()` gives
 - [`World`](World.md) — per-frame state struct

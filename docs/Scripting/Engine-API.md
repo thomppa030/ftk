@@ -24,7 +24,6 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | Class | Header | Description |
 |---|---|---|
 | [`ScriptComponent`](API/ScriptComponent.md) | `fjell/component.hpp` | Base for components attached to scene nodes |
-| [`Actor`](API/Actor.md) | `fjell/actor.hpp` | Base for non-component game objects with a transform |
 | [`UiWidget`](API/UiWidget.md) | `fjell/ui_widget.hpp` | Base for `.fjwidget`-bound UI controllers |
 | [`AnimNotify`](API/AnimNotify.md) | `fjell/notify.hpp` | Base for instant animation notifies |
 | [`AnimNotifyState`](API/AnimNotify.md#animnotifystate) | `fjell/notify.hpp` | Base for span-style animation notifies |

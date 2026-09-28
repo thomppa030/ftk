@@ -29,7 +29,7 @@ struct Transform {
 
 ## Remarks
 
-`Transform` is the value type behind every scene node's transform. You'll see references to it from [`ScriptComponent::transform()`](ScriptComponent.md#scriptcomponenttransform) and [`Actor::transform()`](Actor.md). Reading and writing fields directly is the expected interface.
+`Transform` is the value type behind every scene node's transform. You'll see references to it from [`ScriptComponent::transform()`](ScriptComponent.md#scriptcomponenttransform). Reading and writing fields directly is the expected interface.
 
 Rotation is a quaternion (`glm::quat`, stored as `w, x, y, z`). The euler helpers exist for inspector / serialization use — they're convenient when you have angles in degrees but you should usually compose rotations with `glm::angleAxis` or `glm::quat_cast` for runtime math.
 
