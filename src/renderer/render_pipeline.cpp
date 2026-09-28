@@ -15,6 +15,7 @@
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
@@ -648,6 +649,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             [p = pp.pass, &ctx](VkCommandBuffer cb) {
                 FrameContext local = ctx;
                 local.cmd = cb;
+                gpu::vulkan::CommandBufferList commands(*ctx.device, cb);
+                local.command_list = &commands.list();
                 p->record(local);
             });
     }

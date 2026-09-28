@@ -47,7 +47,7 @@ bool FrameCacheKey::operator==(const FrameCacheKey& o) const noexcept {
     for (size_t i = 0; i < bindings.size(); ++i) {
         const auto& a = bindings[i];
         const auto& b = o.bindings[i];
-        if (a.binding != b.binding || a.type != b.type) { return false; }
+        if (a.binding != b.binding || a.element != b.element || a.type != b.type) { return false; }
         if (is_image_descriptor(a.type)) {
             if (!image_info_equal(a.image, b.image)) { return false; }
         } else {
@@ -61,6 +61,7 @@ size_t FrameCacheKeyHash::operator()(const FrameCacheKey& k) const noexcept {
     size_t h = std::hash<void*>{}(static_cast<void*>(k.layout));
     for (const auto& b : k.bindings) {
         h ^= std::hash<uint32_t>{}(b.binding) << 1;
+        h ^= std::hash<uint32_t>{}(b.element) << 4;
         h ^= std::hash<int>{}(static_cast<int>(b.type)) << 2;
         if (is_image_descriptor(b.type)) {
             h ^= hash_image_info(b.image) << 3;

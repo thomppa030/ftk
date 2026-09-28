@@ -409,6 +409,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     }
     ctx.pp_resources = pp;
     ctx.descriptor_cache = &gpu_.descriptor_cache();
+    ctx.device = &gpu_.core().gpu_device();
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = view.skip_shadows;

@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,11 @@ struct Device::Impl {
         LayoutInfo layout;
         VkPipelineBindPoint bind_point{VK_PIPELINE_BIND_POINT_COMPUTE};
         ShaderLayout shader_layout;
+        /// The sets its shaders declare, one bit each: what must be bound
+        /// before it runs.
+        uint32_t declared_sets{0};
+        /// What names it in errors: "Compute pipeline 'name'".
+        std::string name;
     };
 
     struct SharedRecord {
@@ -73,6 +79,9 @@ struct Device::Impl {
         VkDescriptorSetLayout layout{VK_NULL_HANDLE};
         /// The one set's bindings, what `update` checks entries against.
         ShaderLayout bindings;
+        /// The set of its pipeline it fills; for a shared group, the set a
+        /// pipeline naming its layout takes instead.
+        uint32_t set_index{0};
         /// For an adopted shared group, the shared layout it is.
         SharedLayout shared{};
     };
@@ -114,8 +123,25 @@ struct Device::Impl {
     /// pool when the last is full. Null when none can be made.
     [[nodiscard]] std::pair<VkDescriptorSet, VkDescriptorPool> allocate_set(VkDescriptorSetLayout layout);
 
+    /// Whether every resource the placed entries name still exists: a stale
+    /// handle would write a descriptor the GPU then reads as nothing.
+    /// @return nothing, or which binding is given a resource that is gone.
+    [[nodiscard]] Result<> check_resources(const PlacedSet& placed);
+
+    /// One placed entry as the descriptor that is written for it.
+    [[nodiscard]] FrameCacheBinding describe(const PlacedEntry& entry);
+
     /// Writes placed entries into `set`.
     void write_set(VkDescriptorSet set, const PlacedSet& placed);
+
+    /// Why `set` of `pipeline` cannot take a group of its own: a shared
+    /// layout takes it, bound through the engine's shared group. Empty when
+    /// the set is the pipeline's own.
+    [[nodiscard]] std::string shared_at(const PipelineRecord& pipeline, uint32_t set);
+
+    /// Logs `message` as an error the first time it is reported, so a
+    /// mistake recorded every frame is read once.
+    void report_once(const std::string& message);
 
     [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
     [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
@@ -154,8 +180,12 @@ struct Device::Impl {
     /// Every sampler made, by its description; few enough to search.
     std::vector<std::pair<SamplerDesc, Sampler>> sampler_by_desc;
 
+    /// What `report_once` has logged.
+    std::unordered_set<std::string> reported;
+
     std::mutex views_mutex;
     std::mutex samplers_mutex;
+    std::mutex reported_mutex;
 };
 
 namespace vulkan {

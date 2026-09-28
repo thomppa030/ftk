@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/command_list.hpp"
 #include "gpu/pipeline.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/pass_builder.hpp"
@@ -69,6 +70,14 @@ class TransientImagePool;
 // Shared state that every pass can read during recording.
 struct FrameContext {
     VkCommandBuffer cmd{VK_NULL_HANDLE};
+    /// The pass's commands through the GPU interface, recorded into `cmd` in
+    /// order with what is recorded there directly.
+    [[nodiscard]] gpu::CommandList& commands() const { return *command_list; }
+    /// Set by the frame graph for each pass it records; read through
+    /// `commands()`.
+    gpu::CommandList* command_list{nullptr};
+    /// The GPU interface's device.
+    gpu::Device* device{nullptr};
     // Secondary command buffer for async-hinted passes. Null when the
     // device doesn't expose a compute queue family, or for viewport
     // previews that share the main frame's submission. FrameGraph::execute

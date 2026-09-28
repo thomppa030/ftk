@@ -101,6 +101,16 @@ TEST_CASE("FrameCacheKey: binding index matters", "[frame_cache_key]") {
     REQUIRE_FALSE(a == b);
 }
 
+TEST_CASE("FrameCacheKey: array element matters", "[frame_cache_key]") {
+    auto layout = fake_handle<VkDescriptorSetLayout>(0x100);
+    auto view = fake_handle<VkImageView>(0x200);
+    FrameCacheKey a{layout, {sampled(0, view)}};
+    FrameCacheBinding second = sampled(0, view);
+    second.element = 1;
+    FrameCacheKey b{layout, {second}};
+    CHECK_FALSE(a == b);
+}
+
 TEST_CASE("FrameCacheKey: buffer binding equality is byte-exact",
           "[frame_cache_key]") {
     auto layout = fake_handle<VkDescriptorSetLayout>(0x10);
