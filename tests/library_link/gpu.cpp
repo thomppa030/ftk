@@ -1,12 +1,13 @@
 // Links fjell-gpu alone and whole (tests/CMakeLists.txt), so it builds only
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it opens a window, brings a device up and makes a
-// buffer, a texture with a view, a sampler and pipelines through the GPU
-// interface, which takes a GPU and a display: it is run by hand, not as a
-// test.
+// buffer, a texture with a view, a sampler, pipelines, bind groups and
+// transient memory through the GPU interface, which takes a GPU and a display:
+// it is run by hand, not as a test.
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
+#include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
@@ -107,6 +108,25 @@ int main() {
             const auto rebuilt = device.recreate(handle, {.shader = "pipeline.comp"});
             pipelines = pipelines && rebuilt.has_value() && device.layout(handle).push_size == 16;
         }
+
+        // Transient memory, which the command list hands out: two slices in
+        // one frame slot, the same ones again when that slot comes round.
+        auto& transient = device.impl().transient;
+        fjell::gpu::vulkan::begin_frame(device, 0);
+        auto first = transient.allocate(100);
+        auto second = transient.allocate(3u << 20);
+        fjell::gpu::vulkan::begin_frame(device, 1);
+        auto other_slot = transient.allocate(100);
+        fjell::gpu::vulkan::begin_frame(device, 0);
+        auto again = transient.allocate(100);
+        const bool transient_ok = first && second && other_slot && again &&
+                                  again->range == first->range &&
+                                  other_slot->range.buffer != first->range.buffer &&
+                                  second->bytes.size() == (3u << 20) &&
+                                  fjell::gpu::vulkan::native_buffer(device, first->range.buffer) != VK_NULL_HANDLE;
+        if (first) std::memset(first->bytes.data(), 0xCD, first->bytes.size());
+        if (!transient_ok) std::fprintf(stderr, "transient memory failed\n");
+        pipelines = pipelines && transient_ok;
 
         if (pipelines && buffer && texture && sampler.valid()) {
             const auto bytes = device.mapped(*buffer);

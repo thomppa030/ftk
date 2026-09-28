@@ -2,6 +2,7 @@
 
 #include "core/handle_pool.hpp"
 #include "gpu/device.hpp"
+#include "gpu/transient_memory.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <vk_mem_alloc.h>
@@ -92,6 +93,10 @@ struct Device::Impl {
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
 
+    /// A buffer as described, which its maker releases or destroys: what
+    /// `Device::create` wraps, and what transient chunks are made with.
+    [[nodiscard]] Result<Buffer> make_buffer(const BufferDesc& desc);
+
     /// The native view for `view`, made the first time it is asked for.
     /// Null when the handle finds no texture or the view cannot be made.
     [[nodiscard]] VkImageView image_view(const TextureView& view);
@@ -134,6 +139,9 @@ struct Device::Impl {
     FrameDescriptorCache frame_sets;
     /// The frame slot being recorded, set where each frame starts.
     uint32_t frame_slot{0};
+    /// Memory that lasts one frame, reset with `frame_sets`. Its chunks are
+    /// the device's own, destroyed with it.
+    TransientMemory transient;
     /// Set and pipeline layouts by what they hold, so pipelines declaring the
     /// same share one. Destroyed with the device.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;

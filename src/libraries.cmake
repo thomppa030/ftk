@@ -99,6 +99,7 @@ fjell_library(gpu
         gpu/binding.cpp
         gpu/release_queue.cpp
         gpu/shader_reflection.cpp
+        gpu/transient_memory.cpp
         gpu/vulkan/binding.cpp
         gpu/vulkan/device.cpp
         gpu/vulkan/frame_cache_key.cpp
@@ -121,6 +122,7 @@ fjell_library(gpu
         gpu/sampler.hpp
         gpu/shader.hpp
         gpu/texture.hpp
+        gpu/transient_memory.hpp
         gpu/usage.hpp
         gpu/vulkan/device_impl.hpp
         gpu/vulkan/frame_descriptor_cache.hpp
