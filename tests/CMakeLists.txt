@@ -330,4 +330,8 @@ fjell_library_link_check(shader)
 fjell_library_link_check(stb)
 fjell_library_link_check(ui-kit)
 fjell_library_link_check(gpu NEEDS_GPU)
+# The GPU link test builds pipelines from the test shaders.
+add_dependencies(fjell-link-gpu fjell-tests_shaders)
+target_compile_definitions(fjell-link-gpu PRIVATE
+    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 fjell_library_link_check(editor-shell NEEDS_GPU)

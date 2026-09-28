@@ -38,4 +38,16 @@ namespace fjell::gpu::vulkan {
 [[nodiscard]] Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
                                    const TextureInfo& info);
 
+/// Makes pipelines through the engine's pipeline cache, which the engine loads
+/// and saves; null stops using one. The cache must outlive its use here.
+void use_pipeline_cache(Device& device, VkPipelineCache cache);
+
+/// The VkPipeline behind a pipeline; null when the handle finds none.
+[[nodiscard]] VkPipeline native_pipeline(Device& device, ComputePipeline pipeline);
+[[nodiscard]] VkPipeline native_pipeline(Device& device, GraphicsPipeline pipeline);
+
+/// The VkPipelineLayout a pipeline binds with; null when the handle finds none.
+[[nodiscard]] VkPipelineLayout native_layout(Device& device, ComputePipeline pipeline);
+[[nodiscard]] VkPipelineLayout native_layout(Device& device, GraphicsPipeline pipeline);
+
 } // namespace fjell::gpu::vulkan

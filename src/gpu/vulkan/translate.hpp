@@ -3,7 +3,9 @@
 #include "gpu/clear.hpp"
 #include "gpu/compare.hpp"
 #include "gpu/format.hpp"
+#include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
+#include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
 #include "gpu/usage.hpp"
 
@@ -58,5 +60,18 @@ namespace fjell::gpu::vulkan {
 /// The aspect a view of `format` shows a shader: depth alone for a
 /// depth-stencil format, since a sampled view may show only one.
 [[nodiscard]] VkImageAspectFlags view_aspect(Format format);
+
+/// The Vulkan stages for `stages`.
+[[nodiscard]] VkShaderStageFlags to_vk(ShaderStages stages);
+
+/// The Vulkan descriptor type of a binding.
+[[nodiscard]] VkDescriptorType to_vk(BindingKind kind);
+
+[[nodiscard]] VkBlendFactor to_vk(BlendFactor factor);
+[[nodiscard]] VkPrimitiveTopology to_vk(Topology topology);
+[[nodiscard]] VkCullModeFlags to_vk(Cull cull);
+[[nodiscard]] VkFrontFace to_vk(FrontFace front_face);
+[[nodiscard]] VkPolygonMode to_vk(Fill fill);
+[[nodiscard]] VkColorComponentFlags to_vk(ChannelMask channels);
 
 } // namespace fjell::gpu::vulkan

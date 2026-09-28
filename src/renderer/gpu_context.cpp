@@ -1,4 +1,5 @@
 #include "renderer/gpu_context.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -103,6 +104,11 @@ GpuContext::GpuContext(Window& window)
     FJELL_GFX_INFO("Initializing GPU context");
 
     vk_pipeline_cache_ = load_pipeline_cache(core_.vk_device());
+    // The GPU interface's pipelines read the shaders the build compiled beside
+    // the program, through the engine's pipeline cache.
+    core_.gpu_device().set_shader_locator(
+        [](const std::string& relative) { return base_path::resolve(relative); });
+    gpu::vulkan::use_pipeline_cache(core_.gpu_device(), vk_pipeline_cache_);
 
     create_descriptor_resources();
     if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator(),
@@ -169,6 +175,7 @@ GpuContext::~GpuContext() {
     auto vk_device = core_.vk_device();
 
     save_pipeline_cache(vk_device, vk_pipeline_cache_);
+    gpu::vulkan::use_pipeline_cache(core_.gpu_device(), VK_NULL_HANDLE);
     if (vk_pipeline_cache_ != VK_NULL_HANDLE) {
         vkDestroyPipelineCache(vk_device, vk_pipeline_cache_, nullptr);
         vk_pipeline_cache_ = VK_NULL_HANDLE;

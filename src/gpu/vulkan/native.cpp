@@ -43,4 +43,28 @@ Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
     return Owned<Texture>(device, texture);
 }
 
+void use_pipeline_cache(Device& device, VkPipelineCache cache) {
+    device.impl().pipeline_cache = cache;
+}
+
+VkPipeline native_pipeline(Device& device, ComputePipeline pipeline) {
+    const auto* record = device.impl().compute_pipelines.get(pipeline);
+    return record != nullptr ? record->pipeline : VK_NULL_HANDLE;
+}
+
+VkPipeline native_pipeline(Device& device, GraphicsPipeline pipeline) {
+    const auto* record = device.impl().graphics_pipelines.get(pipeline);
+    return record != nullptr ? record->pipeline : VK_NULL_HANDLE;
+}
+
+VkPipelineLayout native_layout(Device& device, ComputePipeline pipeline) {
+    const auto* record = device.impl().compute_pipelines.get(pipeline);
+    return record != nullptr ? record->layout : VK_NULL_HANDLE;
+}
+
+VkPipelineLayout native_layout(Device& device, GraphicsPipeline pipeline) {
+    const auto* record = device.impl().graphics_pipelines.get(pipeline);
+    return record != nullptr ? record->layout : VK_NULL_HANDLE;
+}
+
 } // namespace fjell::gpu::vulkan
