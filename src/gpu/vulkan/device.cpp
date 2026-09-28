@@ -9,11 +9,7 @@
 
 namespace fjell::gpu {
 
-namespace {
-
-// Names a Vulkan object for validation messages and RenderDoc. Silent when
-// debug utils are not loaded (release builds without the extension).
-void name_object(VkDevice device, VkObjectType type, uint64_t handle, std::string_view name) {
+void vulkan::name_object(VkDevice device, VkObjectType type, uint64_t handle, std::string_view name) {
     if (name.empty() || handle == 0) return;
     static const auto fn = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
         vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
@@ -26,6 +22,8 @@ void name_object(VkDevice device, VkObjectType type, uint64_t handle, std::strin
     info.pObjectName = owned.c_str();
     fn(device, &info);
 }
+
+namespace {
 
 std::string described(std::string_view what, std::string_view name) {
     std::string text(what);
@@ -117,6 +115,9 @@ Device::Impl::Impl(GpuCore& gpu_core)
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
+    caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
+    caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
+    locator = [](const std::string& relative) { return relative; };
 }
 
 Device::Impl::~Impl() {
@@ -129,6 +130,14 @@ Device::Impl::~Impl() {
         destroy_texture(device, allocator, record);
     });
     samplers.for_each([&](Sampler, VkSampler& sampler) { vkDestroySampler(device, sampler, nullptr); });
+    compute_pipelines.for_each([&](ComputePipeline, PipelineRecord& record) {
+        vkDestroyPipeline(device, record.pipeline, nullptr);
+    });
+    graphics_pipelines.for_each([&](GraphicsPipeline, PipelineRecord& record) {
+        vkDestroyPipeline(device, record.pipeline, nullptr);
+    });
+    for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
+    for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);
     if (leaked > 0) {
         FJELL_GFX_WARN("GPU device destroyed with {} buffers and textures never released", leaked);
     }
@@ -209,7 +218,7 @@ Result<Owned<Buffer>> Device::create(const BufferDesc& desc) {
                           " (VkResult=" + std::to_string(static_cast<int>(result)) + ")");
     }
     record.mapped = static_cast<std::byte*>(allocated.pMappedData);
-    name_object(self.device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
                 desc.name);
     return Owned<Buffer>(*this, self.buffers.emplace(record));
 }
@@ -267,7 +276,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
         return make_error("Failed to create " + described("texture", desc.name) +
                           " (VkResult=" + std::to_string(static_cast<int>(result)) + ")");
     }
-    name_object(self.device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(record.image),
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(record.image),
                 desc.name);
     if (desc.initial.has_value()) {
         clear_on_upload_lane(self.core, record.image, info, *desc.initial);
@@ -317,6 +326,14 @@ std::span<std::byte> Device::mapped(Buffer buffer) const {
 uint64_t Device::size(Buffer buffer) const {
     const Impl::BufferRecord* record = impl_->buffers.get(buffer);
     return record != nullptr ? record->size : 0;
+}
+
+void Device::set_shader_locator(ShaderLocator locator) {
+    impl_->locator = std::move(locator);
+}
+
+const Caps& Device::caps() const {
+    return impl_->caps;
 }
 
 const TextureInfo& Device::info(Texture texture) const {

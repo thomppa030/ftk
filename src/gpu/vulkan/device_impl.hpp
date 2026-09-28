@@ -8,6 +8,9 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -36,6 +39,15 @@ struct Device::Impl {
         bool owned{true};
     };
 
+    struct PipelineRecord {
+        VkPipeline pipeline{VK_NULL_HANDLE};
+        /// Shared with every pipeline whose shaders declare the same; the
+        /// device keeps it.
+        VkPipelineLayout layout{VK_NULL_HANDLE};
+        VkPipelineBindPoint bind_point{VK_PIPELINE_BIND_POINT_COMPUTE};
+        ShaderLayout shader_layout;
+    };
+
     struct TextureRecord {
         VkImage image{VK_NULL_HANDLE};
         /// Null for an adopted image, which the device does not destroy.
@@ -56,6 +68,16 @@ struct Device::Impl {
     /// Null when the handle finds no texture or the view cannot be made.
     [[nodiscard]] VkImageView image_view(const TextureView& view);
 
+    /// A compiled shader's words, read through the locator for a path.
+    [[nodiscard]] Result<std::vector<uint32_t>> load(const ShaderCode& code) const;
+
+    /// The pipeline layout for what `layout` binds and takes, made the first
+    /// time a pipeline declares it and shared after.
+    [[nodiscard]] Result<VkPipelineLayout> pipeline_layout(const ShaderLayout& layout);
+
+    [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
+    [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
+
     GpuCore& core;
     VkDevice device{VK_NULL_HANDLE};
     VmaAllocator allocator{VK_NULL_HANDLE};
@@ -64,6 +86,17 @@ struct Device::Impl {
     HandlePool<BufferRecord, BufferTag> buffers;
     HandlePool<TextureRecord, TextureTag> textures;
     HandlePool<VkSampler, SamplerTag> samplers;
+    HandlePool<PipelineRecord, ComputePipelineTag> compute_pipelines;
+    HandlePool<PipelineRecord, GraphicsPipelineTag> graphics_pipelines;
+    /// Set and pipeline layouts by what they hold, so pipelines declaring the
+    /// same share one. Destroyed with the device.
+    std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
+    std::unordered_map<std::string, VkPipelineLayout> pipeline_layouts;
+    /// The engine's pipeline cache, which it loads and saves; null until the
+    /// engine hands it over.
+    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
+    ShaderLocator locator;
+    Caps caps;
     /// Every sampler made, by its description; few enough to search.
     std::vector<std::pair<SamplerDesc, Sampler>> sampler_by_desc;
 
@@ -72,6 +105,10 @@ struct Device::Impl {
 };
 
 namespace vulkan {
+
+/// Names a Vulkan object for validation messages and RenderDoc. Silent when
+/// debug utils are not loaded.
+void name_object(VkDevice device, VkObjectType type, uint64_t handle, std::string_view name);
 
 /// The device over what `core` already brought up. `GpuCore` makes it last
 /// and destroys it first, after the GPU is idle.

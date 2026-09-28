@@ -210,4 +210,90 @@ VkImageAspectFlags view_aspect(Format format) {
     return VK_IMAGE_ASPECT_COLOR_BIT;
 }
 
+VkShaderStageFlags to_vk(ShaderStages stages) {
+    VkShaderStageFlags flags = 0;
+    stages.for_each([&](ShaderStage stage) {
+        switch (stage) {
+            case ShaderStage::vertex:   flags |= VK_SHADER_STAGE_VERTEX_BIT; break;
+            case ShaderStage::fragment: flags |= VK_SHADER_STAGE_FRAGMENT_BIT; break;
+            case ShaderStage::compute:  flags |= VK_SHADER_STAGE_COMPUTE_BIT; break;
+            case ShaderStage::task:     flags |= VK_SHADER_STAGE_TASK_BIT_EXT; break;
+            case ShaderStage::mesh:     flags |= VK_SHADER_STAGE_MESH_BIT_EXT; break;
+        }
+    });
+    return flags;
+}
+
+VkDescriptorType to_vk(BindingKind kind) {
+    switch (kind) {
+        case BindingKind::uniform_buffer:         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        case BindingKind::storage_buffer:         return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        case BindingKind::sampled_texture:        return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        case BindingKind::texture:                return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        case BindingKind::sampler:                return VK_DESCRIPTOR_TYPE_SAMPLER;
+        case BindingKind::storage_texture:        return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        case BindingKind::acceleration_structure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    }
+    return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+}
+
+VkBlendFactor to_vk(BlendFactor factor) {
+    switch (factor) {
+        case BlendFactor::zero:                return VK_BLEND_FACTOR_ZERO;
+        case BlendFactor::one:                 return VK_BLEND_FACTOR_ONE;
+        case BlendFactor::src_alpha:           return VK_BLEND_FACTOR_SRC_ALPHA;
+        case BlendFactor::one_minus_src_alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        case BlendFactor::dst_color:           return VK_BLEND_FACTOR_DST_COLOR;
+        case BlendFactor::dst_alpha:           return VK_BLEND_FACTOR_DST_ALPHA;
+    }
+    return VK_BLEND_FACTOR_ONE;
+}
+
+VkPrimitiveTopology to_vk(Topology topology) {
+    switch (topology) {
+        case Topology::triangles:      return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case Topology::triangle_strip: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case Topology::lines:          return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    }
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+}
+
+VkCullModeFlags to_vk(Cull cull) {
+    switch (cull) {
+        case Cull::none:  return VK_CULL_MODE_NONE;
+        case Cull::back:  return VK_CULL_MODE_BACK_BIT;
+        case Cull::front: return VK_CULL_MODE_FRONT_BIT;
+    }
+    return VK_CULL_MODE_NONE;
+}
+
+VkFrontFace to_vk(FrontFace front_face) {
+    switch (front_face) {
+        case FrontFace::counter_clockwise: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        case FrontFace::clockwise:         return VK_FRONT_FACE_CLOCKWISE;
+    }
+    return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+}
+
+VkPolygonMode to_vk(Fill fill) {
+    switch (fill) {
+        case Fill::solid: return VK_POLYGON_MODE_FILL;
+        case Fill::lines: return VK_POLYGON_MODE_LINE;
+    }
+    return VK_POLYGON_MODE_FILL;
+}
+
+VkColorComponentFlags to_vk(ChannelMask channels) {
+    VkColorComponentFlags flags = 0;
+    channels.for_each([&](Channel channel) {
+        switch (channel) {
+            case Channel::r: flags |= VK_COLOR_COMPONENT_R_BIT; break;
+            case Channel::g: flags |= VK_COLOR_COMPONENT_G_BIT; break;
+            case Channel::b: flags |= VK_COLOR_COMPONENT_B_BIT; break;
+            case Channel::a: flags |= VK_COLOR_COMPONENT_A_BIT; break;
+        }
+    });
+    return flags;
+}
+
 } // namespace fjell::gpu::vulkan

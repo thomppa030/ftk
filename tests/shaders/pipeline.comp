@@ -1,0 +1,14 @@
+#version 460
+
+// A compute shader with nothing but its own bindings and push data, for the
+// GPU library's link test (tests/library_link/gpu.cpp) to build a pipeline from.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D target;
+
+layout(push_constant) uniform Push { vec4 colour; } push;
+
+void main() {
+    imageStore(target, ivec2(gl_GlobalInvocationID.xy), push.colour);
+}

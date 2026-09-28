@@ -100,6 +100,7 @@ fjell_library(gpu
         gpu/shader_reflection.cpp
         gpu/vulkan/device.cpp
         gpu/vulkan/native.cpp
+        gpu/vulkan/pipeline.cpp
         gpu/vulkan/translate.cpp
     HEADERS
         gpu/access.hpp
@@ -110,6 +111,7 @@ fjell_library(gpu
         gpu/flags.hpp
         gpu/format.hpp
         gpu/owned.hpp
+        gpu/pipeline.hpp
         gpu/release_queue.hpp
         gpu/sampler.hpp
         gpu/shader.hpp
