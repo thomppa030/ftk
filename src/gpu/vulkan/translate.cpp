@@ -128,4 +128,86 @@ VkClearValue to_vk(const Clear& clear, Format format) {
     return value;
 }
 
+VkFilter to_vk(Filter filter) {
+    switch (filter) {
+        case Filter::nearest: return VK_FILTER_NEAREST;
+        case Filter::linear:  return VK_FILTER_LINEAR;
+    }
+    return VK_FILTER_LINEAR;
+}
+
+VkSamplerMipmapMode to_vk_mipmap(Filter filter) {
+    switch (filter) {
+        case Filter::nearest: return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        case Filter::linear:  return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+    return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+}
+
+VkSamplerAddressMode to_vk(Address address) {
+    switch (address) {
+        case Address::repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case Address::mirror: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        case Address::clamp:  return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        case Address::border: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    }
+    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+}
+
+VkBorderColor to_vk(Border border) {
+    switch (border) {
+        case Border::transparent_black: return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+        case Border::opaque_black:      return VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+        case Border::opaque_white:      return VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    }
+    return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+}
+
+VkCompareOp to_vk(Compare compare) {
+    switch (compare) {
+        case Compare::never:         return VK_COMPARE_OP_NEVER;
+        case Compare::less:          return VK_COMPARE_OP_LESS;
+        case Compare::equal:         return VK_COMPARE_OP_EQUAL;
+        case Compare::less_equal:    return VK_COMPARE_OP_LESS_OR_EQUAL;
+        case Compare::greater:       return VK_COMPARE_OP_GREATER;
+        case Compare::not_equal:     return VK_COMPARE_OP_NOT_EQUAL;
+        case Compare::greater_equal: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        case Compare::always:        return VK_COMPARE_OP_ALWAYS;
+    }
+    return VK_COMPARE_OP_ALWAYS;
+}
+
+VkImageViewType to_vk(ViewKind kind) {
+    switch (kind) {
+        case ViewKind::automatic:
+        case ViewKind::tex2d:       return VK_IMAGE_VIEW_TYPE_2D;
+        case ViewKind::tex2d_array: return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        case ViewKind::cube:        return VK_IMAGE_VIEW_TYPE_CUBE;
+        case ViewKind::tex3d:       return VK_IMAGE_VIEW_TYPE_3D;
+    }
+    return VK_IMAGE_VIEW_TYPE_2D;
+}
+
+VkImageAspectFlags image_aspects(Format format) {
+    switch (kind(format)) {
+        case FormatKind::depth:         return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case FormatKind::depth_stencil: return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        case FormatKind::color:
+        case FormatKind::color_uint:
+        case FormatKind::none:          return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+    return VK_IMAGE_ASPECT_COLOR_BIT;
+}
+
+VkImageAspectFlags view_aspect(Format format) {
+    switch (kind(format)) {
+        case FormatKind::depth:
+        case FormatKind::depth_stencil: return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case FormatKind::color:
+        case FormatKind::color_uint:
+        case FormatKind::none:          return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+    return VK_IMAGE_ASPECT_COLOR_BIT;
+}
+
 } // namespace fjell::gpu::vulkan

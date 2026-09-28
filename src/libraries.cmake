@@ -97,15 +97,24 @@ fjell_library(gpu
         renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
         gpu/release_queue.cpp
+        gpu/vulkan/device.cpp
+        gpu/vulkan/native.cpp
         gpu/vulkan/translate.cpp
     HEADERS
         gpu/access.hpp
+        gpu/buffer.hpp
         gpu/clear.hpp
+        gpu/compare.hpp
+        gpu/device.hpp
         gpu/flags.hpp
         gpu/format.hpp
         gpu/owned.hpp
         gpu/release_queue.hpp
+        gpu/sampler.hpp
+        gpu/texture.hpp
         gpu/usage.hpp
+        gpu/vulkan/device_impl.hpp
+        gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
         renderer/gpu/deferred_deleter.hpp

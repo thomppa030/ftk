@@ -216,6 +216,7 @@ add_executable(fjell-tests
     test_frame_descriptor_cache.cpp
     test_gpu_vocabulary.cpp
     test_gpu_release.cpp
+    test_gpu_texture_view.cpp
     test_handle_pool.cpp
     test_clipmap.cpp
     test_character_controller.cpp

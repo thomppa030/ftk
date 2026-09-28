@@ -86,6 +86,16 @@ public:
     /// Objects held.
     [[nodiscard]] uint32_t size() const { return count_; }
 
+    /// Calls `fn(handle, object)` for every object held, in slot order.
+    template <typename Fn>
+    void for_each(Fn fn) {
+        const uint32_t used = slots_used_.load(std::memory_order_relaxed);
+        for (uint32_t index = 0; index < used; ++index) {
+            Slot& slot = slot_at(index);
+            if (slot.value.has_value()) fn(HandleT::make(index, slot.generation), *slot.value);
+        }
+    }
+
 private:
     static constexpr uint32_t CHUNK_SIZE = 256;
     static constexpr uint32_t MAX_SLOTS = 1u << 20;            // Handle's index bits

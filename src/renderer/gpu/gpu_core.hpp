@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/device.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/swapchain.hpp"
@@ -101,6 +102,11 @@ public:
     // ── Batched GPU uploads ─────────────────────────────────────────────
     [[nodiscard]] UploadContext& upload_context() { return *upload_; }
 
+    // ── The GPU interface ───────────────────────────────────────────────
+    /// The device of the GPU interface (gpu/device.hpp), over this core.
+    /// Everything made through it must be released before the core goes.
+    [[nodiscard]] gpu::Device& gpu_device() { return *gpu_device_; }
+
     void wait_idle();
 
 private:
@@ -113,6 +119,7 @@ private:
 
     DeferredDeleter deferred_deleter_;
     std::unique_ptr<UploadContext> upload_;
+    std::unique_ptr<gpu::Device> gpu_device_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;

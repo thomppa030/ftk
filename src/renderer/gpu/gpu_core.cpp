@@ -1,4 +1,5 @@
 #include "renderer/gpu/gpu_core.hpp"
+#include "gpu/vulkan/device_impl.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
@@ -133,6 +134,7 @@ GpuCore::GpuCore(Window& window)
     }
 
     upload_ = std::make_unique<UploadContext>(device_, allocator_);
+    gpu_device_ = gpu::vulkan::create_device(*this);
 
     FJELL_GFX_INFO("GpuCore initialized");
 }
@@ -143,6 +145,10 @@ GpuCore::~GpuCore() {
     // Retired resources may reference the allocator and device — destroy
     // them while both are still alive, once the GPU can't touch them.
     vkDeviceWaitIdle(dev);
+    // Uploads still open may clear textures the device holds: they run, and
+    // finish, before the device destroys what it still has.
+    upload_->wait_all();
+    gpu_device_.reset();
     deferred_deleter_.flush_all();
     upload_.reset();
 

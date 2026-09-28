@@ -1,7 +1,10 @@
 #pragma once
 
 #include "gpu/clear.hpp"
+#include "gpu/compare.hpp"
 #include "gpu/format.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 #include "gpu/usage.hpp"
 
 #include <vulkan/vulkan.h>
@@ -33,5 +36,27 @@ namespace fjell::gpu::vulkan {
 /// `clear` as Vulkan reads it for a texture of `format`: depth and stencil for
 /// a depth format, unsigned integers for `color_uint`, floats otherwise.
 [[nodiscard]] VkClearValue to_vk(const Clear& clear, Format format);
+
+/// The Vulkan filter for magnification and minification.
+[[nodiscard]] VkFilter to_vk(Filter filter);
+
+/// The Vulkan filter between mip levels.
+[[nodiscard]] VkSamplerMipmapMode to_vk_mipmap(Filter filter);
+
+[[nodiscard]] VkSamplerAddressMode to_vk(Address address);
+[[nodiscard]] VkBorderColor to_vk(Border border);
+[[nodiscard]] VkCompareOp to_vk(Compare compare);
+
+/// The Vulkan view type of a resolved view (`ViewKind::automatic` never
+/// reaches here: `resolve()` has chosen a kind).
+[[nodiscard]] VkImageViewType to_vk(ViewKind kind);
+
+/// Every aspect a texture of `format` has, for whole-image operations
+/// (barriers, clears): depth and stencil together for a depth-stencil format.
+[[nodiscard]] VkImageAspectFlags image_aspects(Format format);
+
+/// The aspect a view of `format` shows a shader: depth alone for a
+/// depth-stencil format, since a sampled view may show only one.
+[[nodiscard]] VkImageAspectFlags view_aspect(Format format);
 
 } // namespace fjell::gpu::vulkan
