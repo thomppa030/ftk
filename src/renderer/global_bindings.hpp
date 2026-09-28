@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -60,6 +61,11 @@ public:
         return descriptor_sets_[frame_index];
     }
 
+    /// The bindings the layout was made from, for the GPU interface's shared
+    /// layout.
+    [[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> layout_bindings() const {
+        return layout_bindings_;
+    }
     [[nodiscard]] uint32_t binding_number(const std::string& name) const;
     [[nodiscard]] bool has_binding(const std::string& name) const;
 
@@ -123,6 +129,7 @@ private:
 
     // Vulkan objects (created by finalize)
     std::unique_ptr<DescriptorSetLayout> layout_;
+    std::vector<VkDescriptorSetLayoutBinding> layout_bindings_;
     std::unique_ptr<DescriptorPool> pool_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
 

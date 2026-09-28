@@ -60,6 +60,8 @@ VulkanContext::VulkanContext(Window& window)
 
     // Scene gathering: indirect batches + draw data descriptors
     gatherer_.init(gpu_);
+    gpu_.share_draw_data_layout(gatherer_.draw_data_descriptor().layout(),
+                                gatherer_.draw_data_descriptor().layout_bindings());
 
     // Init pipelines now that draw_data_layout is available
     gpu_.init_pipelines(gatherer_.draw_data_descriptor().layout());
@@ -1171,6 +1173,11 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.material_set_layout = gpu_.bindless_textures().layout();
     res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
     res.meshlet_layout = gpu_.meshlet_descriptor().layout();
+    const auto& shared = gpu_.shared_layouts();
+    res.globals = shared.globals;
+    res.bindless = shared.bindless;
+    res.draw_data = shared.draw_data;
+    res.meshlets = shared.meshlets;
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();

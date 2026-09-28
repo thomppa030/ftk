@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace fjell {
 
@@ -37,6 +38,11 @@ public:
                                                   VkDeviceSize skinned_vertex_buffer_size) const;
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
+    /// The bindings the layout was made from, for the GPU interface's shared
+    /// layout.
+    [[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> layout_bindings() const {
+        return layout_bindings_;
+    }
     [[nodiscard]] VkDescriptorSet descriptor_set(uint32_t frame_index) const {
         return descriptor_sets_[frame_index];
     }
@@ -58,6 +64,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> layout_;
+    std::array<VkDescriptorSetLayoutBinding, 6> layout_bindings_{};
     std::unique_ptr<DescriptorPool> pool_;
     std::unique_ptr<Buffer> dummy_buffer_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};

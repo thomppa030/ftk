@@ -25,6 +25,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 
 namespace fjell {
@@ -181,6 +182,20 @@ public:
     // ── PassResources helper ────────────────────────────────────────────
     [[nodiscard]] PassResources pass_resources() const;
 
+    /// The engine's shared set layouts as the GPU interface knows them.
+    struct SharedLayouts {
+        gpu::SharedLayout globals{};
+        gpu::SharedLayout bindless{};
+        gpu::SharedLayout draw_data{};
+        gpu::SharedLayout meshlets{};
+    };
+    [[nodiscard]] const SharedLayouts& shared_layouts() const { return shared_layouts_; }
+
+    /// Hands the GPU interface the draw data layout, which the scene gatherer
+    /// owns and makes after this context.
+    void share_draw_data_layout(VkDescriptorSetLayout layout,
+                                std::span<const VkDescriptorSetLayoutBinding> bindings);
+
     void wait_idle() { core_.wait_idle(); }
 
 #ifdef FJELL_ENABLE_TRACY
@@ -213,6 +228,7 @@ private:
     std::unique_ptr<MegaBuffer> mega_buffer_;
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;
+    SharedLayouts shared_layouts_;
 
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;

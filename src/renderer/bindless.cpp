@@ -78,6 +78,7 @@ Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator,
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &layout_) != VK_SUCCESS) {
         return make_error("Failed to create bindless descriptor set layout");
     }
+    layout_bindings_ = bindings;
 
     // Descriptor pool: sampler array + 2 storage buffers
     std::array<VkDescriptorPoolSize, 2> pool_sizes{};

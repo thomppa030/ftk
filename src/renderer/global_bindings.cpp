@@ -101,6 +101,7 @@ void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight) {
     }
 
     layout_ = std::make_unique<DescriptorSetLayout>(device, std::span{bindings});
+    layout_bindings_ = bindings;
 
     // Compute pool sizes from actual bindings
     std::unordered_map<VkDescriptorType, uint32_t> type_counts;

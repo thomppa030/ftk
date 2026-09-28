@@ -30,6 +30,7 @@ void MeshletDescriptor::create(VkDevice device, VmaAllocator allocator) {
 
     layout_ = std::make_unique<DescriptorSetLayout>(
         device_, std::span{bindings});
+    layout_bindings_ = bindings;
 
     // Pool: 6 SSBOs per frame
     VkDescriptorPoolSize pool_size{};

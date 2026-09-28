@@ -7,9 +7,11 @@
 
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -112,6 +114,11 @@ public:
     void update_material_buffer();
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_; }
+    /// The bindings the layout was made from, for the GPU interface's shared
+    /// layout.
+    [[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> layout_bindings() const {
+        return layout_bindings_;
+    }
     [[nodiscard]] VkDescriptorSet descriptor_set() const { return set_; }
     [[nodiscard]] const GpuMaterial& material_at(uint32_t index) const { return materials_[index]; }
     [[nodiscard]] uint32_t material_count() const { return static_cast<uint32_t>(materials_.size()); }
@@ -129,6 +136,7 @@ private:
     DeferredDeleter* deleter_{nullptr};
 
     VkDescriptorSetLayout layout_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSetLayoutBinding, 3> layout_bindings_{};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
     VkDescriptorSet set_{VK_NULL_HANDLE};
     VkSampler default_sampler_{VK_NULL_HANDLE};

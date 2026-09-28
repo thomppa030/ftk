@@ -136,6 +136,7 @@ Device::Impl::~Impl() {
     graphics_pipelines.for_each([&](GraphicsPipeline, PipelineRecord& record) {
         vkDestroyPipeline(device, record.pipeline, nullptr);
     });
+    for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);
     if (leaked > 0) {

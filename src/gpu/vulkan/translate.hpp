@@ -11,6 +11,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <optional>
+
 namespace fjell::gpu::vulkan {
 
 /// The Vulkan format for `format`; `VK_FORMAT_UNDEFINED` for `Format::undefined`.
@@ -73,5 +75,13 @@ namespace fjell::gpu::vulkan {
 [[nodiscard]] VkFrontFace to_vk(FrontFace front_face);
 [[nodiscard]] VkPolygonMode to_vk(Fill fill);
 [[nodiscard]] VkColorComponentFlags to_vk(ChannelMask channels);
+
+/// The binding kind of a Vulkan descriptor type; nothing for a type the
+/// interface does not have.
+[[nodiscard]] std::optional<BindingKind> from_vk(VkDescriptorType type);
+
+/// The layout a sampled view of `format` is read in, the one the frame graph
+/// leaves it in: read-only depth for a depth format, shader-read otherwise.
+[[nodiscard]] VkImageLayout sampled_layout(Format format);
 
 } // namespace fjell::gpu::vulkan

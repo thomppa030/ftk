@@ -426,6 +426,15 @@ void GpuContext::finalize_descriptors() {
         global_bindings_.flush_writes();
     }
 
+    // The GPU interface's pipelines name these to bind the engine's own sets.
+    gpu::Device& device = core_.gpu_device();
+    shared_layouts_.globals = gpu::vulkan::share_layout(
+        device, "globals", 0, global_bindings_.layout(), global_bindings_.layout_bindings());
+    shared_layouts_.bindless = gpu::vulkan::share_layout(
+        device, "bindless", 1, bindless_textures_.layout(), bindless_textures_.layout_bindings());
+    shared_layouts_.meshlets = gpu::vulkan::share_layout(
+        device, "meshlets", 3, meshlet_descriptor_.layout(), meshlet_descriptor_.layout_bindings());
+
     FJELL_GFX_DEBUG("Global descriptors finalized");
 }
 
@@ -437,8 +446,18 @@ void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
     }
 }
 
+void GpuContext::share_draw_data_layout(VkDescriptorSetLayout layout,
+                                        std::span<const VkDescriptorSetLayoutBinding> bindings) {
+    shared_layouts_.draw_data =
+        gpu::vulkan::share_layout(core_.gpu_device(), "draw data", 2, layout, bindings);
+}
+
 PassResources GpuContext::pass_resources() const {
     PassResources res{};
+    res.globals = shared_layouts_.globals;
+    res.bindless = shared_layouts_.bindless;
+    res.draw_data = shared_layouts_.draw_data;
+    res.meshlets = shared_layouts_.meshlets;
     res.global_set_layout = global_bindings_.layout();
     res.material_set_layout = bindless_textures_.layout();
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed

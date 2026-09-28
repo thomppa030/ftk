@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/binding.hpp"
 #include "gpu/buffer.hpp"
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
@@ -100,6 +101,18 @@ public:
     /// that finds no pipeline.
     [[nodiscard]] const ShaderLayout& layout(ComputePipeline pipeline) const;
     [[nodiscard]] const ShaderLayout& layout(GraphicsPipeline pipeline) const;
+
+    /// A persistent bind group: the entries fill one of the pipeline's own
+    /// sets, checked against what its shaders declare. A set a shared layout
+    /// takes is bound through the engine's shared group instead.
+    /// @return the group, or which entry or binding is wrong (named).
+    [[nodiscard]] Result<Owned<BindGroup>> create(const BindGroupDesc& desc);
+
+    /// Fills a persistent group anew, safe at any time: commands recorded
+    /// after it bind the new resources, those recorded before keep the old.
+    /// @return nothing, or which entry is wrong, in which case the group keeps
+    ///         what it held.
+    [[nodiscard]] Result<> update(BindGroup group, std::span<const BindEntry> entries);
 
     /// How shaders named by path are found. Without one, a path is opened as
     /// given, relative to the working directory.

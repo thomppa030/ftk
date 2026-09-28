@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/render_pipeline.hpp"
@@ -37,6 +38,13 @@ struct PassResources {
     VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout draw_data_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout meshlet_layout{VK_NULL_HANDLE};
+    /// The same four as the GPU interface knows them: what a pipeline names
+    /// in `.shared` to bind the engine's globals, bindless table, draw data
+    /// and meshlets.
+    gpu::SharedLayout globals{};
+    gpu::SharedLayout bindless{};
+    gpu::SharedLayout draw_data{};
+    gpu::SharedLayout meshlets{};
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};

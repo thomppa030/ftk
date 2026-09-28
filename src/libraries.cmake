@@ -99,6 +99,7 @@ fjell_library(gpu
         gpu/binding.cpp
         gpu/release_queue.cpp
         gpu/shader_reflection.cpp
+        gpu/vulkan/binding.cpp
         gpu/vulkan/device.cpp
         gpu/vulkan/native.cpp
         gpu/vulkan/pipeline.cpp

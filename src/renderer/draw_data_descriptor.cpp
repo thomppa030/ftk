@@ -60,6 +60,7 @@ void DrawDataDescriptor::create(VkDevice device) {
 
     layout_ = std::make_unique<DescriptorSetLayout>(
         device_, std::span{bindings}, &flags_ci);
+    layout_bindings_ = bindings;
 
     // Pool: 5 storage buffer descriptors per frame
     VkDescriptorPoolSize pool_size{};

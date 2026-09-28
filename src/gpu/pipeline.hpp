@@ -5,6 +5,7 @@
 #include "gpu/flags.hpp"
 #include "gpu/format.hpp"
 
+#include <concepts>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -15,6 +16,7 @@ namespace fjell::gpu {
 class Device;
 struct ComputePipelineTag;
 struct GraphicsPipelineTag;
+struct SharedLayoutTag;
 
 /// A compute pipeline, by handle. Made by `Device::create`, held by
 /// `Owned<ComputePipeline>`; `Device::recreate` rebuilds it in place.
@@ -27,6 +29,30 @@ using GraphicsPipeline = Handle<GraphicsPipelineTag>;
 /// Hands a pipeline back to its device. `Owned<>` calls them.
 void release(Device& device, ComputePipeline pipeline);
 void release(Device& device, GraphicsPipeline pipeline);
+
+/// A set layout the engine shares between the pipelines that name it (the
+/// globals, the bindless table, draw data, meshlets), by handle. It lasts as
+/// long as the device.
+using SharedLayout = Handle<SharedLayoutTag>;
+
+/// A compute or a graphics pipeline, where either is taken.
+struct PipelineRef {
+    ComputePipeline compute{};
+    GraphicsPipeline graphics{};
+
+    constexpr PipelineRef(ComputePipeline pipeline) : compute(pipeline) {}
+    constexpr PipelineRef(GraphicsPipeline pipeline) : graphics(pipeline) {}
+
+    /// From anything that holds one (`Owned<ComputePipeline>`).
+    template <typename T>
+        requires(std::convertible_to<const T&, ComputePipeline> &&
+                 !std::same_as<T, ComputePipeline>)
+    constexpr PipelineRef(const T& held) : compute(static_cast<ComputePipeline>(held)) {}
+    template <typename T>
+        requires(std::convertible_to<const T&, GraphicsPipeline> &&
+                 !std::same_as<T, GraphicsPipeline>)
+    constexpr PipelineRef(const T& held) : graphics(static_cast<GraphicsPipeline>(held)) {}
+};
 
 /// A compiled shader: the path of one the build compiled (`"shaders/grid.vert"`
 /// names `shaders/grid.vert.spv` beside the program, found through the device's
@@ -56,6 +82,10 @@ struct ShaderCode {
 /// @endcode
 struct ComputePipelineDesc {
     ShaderCode shader{};
+    /// The shared layouts the pipeline binds; each takes the set the shader
+    /// declares it at (see `place_shared`). Every other set is the pipeline's
+    /// own.
+    std::vector<SharedLayout> shared{};
     /// Shown by debuggers and in error messages; not kept.
     std::string_view name{};
 };
@@ -207,6 +237,10 @@ struct GraphicsPipelineDesc {
     std::vector<ColorTarget> color{};
     Format depth_format{Format::undefined};
     Samples samples{Samples::x1};
+    /// The shared layouts the pipeline binds; each takes the set its shaders
+    /// declare it at (see `place_shared`). Every other set is the pipeline's
+    /// own.
+    std::vector<SharedLayout> shared{};
     /// Shown by debuggers and in error messages; not kept.
     std::string_view name{};
 };
