@@ -20,15 +20,6 @@ struct SetAt {
     VkDescriptorSet native{VK_NULL_HANDLE};
 };
 
-// Reports why the list refuses what it was asked, naming the pipeline, and
-// holds back its dispatches until the next pipeline.
-void refuse(Device& device, CommandList::Impl& self, const std::string& why) {
-    const std::string who =
-        self.pipeline != nullptr ? self.pipeline->name : std::string("A command list");
-    device.impl().report_once(who + ": " + why);
-    self.refused = true;
-}
-
 // Where a group goes for `pipeline`: a persistent group at the set it was
 // made for, a shared one at the set the pipeline's shaders declare it at.
 Result<SetAt> group_at(Device::Impl& device, const PipelineRecord& pipeline, BindGroup group) {
@@ -80,7 +71,7 @@ Result<SetAt> frame_set(Device::Impl& device, const PipelineRecord& pipeline,
 // Binds a group or frame set where it goes, or refuses it.
 void bind_at(Device& device, CommandList::Impl& self, const Result<SetAt>& at) {
     if (!at) {
-        refuse(device, self, at.error());
+        vulkan::refuse(device, self, at.error());
         return;
     }
     vkCmdBindDescriptorSets(self.cb, self.pipeline->bind_point, self.pipeline->layout.layout,
@@ -91,17 +82,67 @@ void bind_at(Device& device, CommandList::Impl& self, const Result<SetAt>& at) {
 // Whether a pipeline is set, refusing `what` when none is.
 bool has_pipeline(Device& device, CommandList::Impl& self, const char* what) {
     if (self.pipeline != nullptr) return true;
-    refuse(device, self, std::string(what) + " before a pipeline is set");
+    vulkan::refuse(device, self, std::string(what) + " before a pipeline is set");
     return false;
 }
 
-// Whether the pipeline may run: set, nothing refused, every set its shaders
-// declare bound.
-bool ready(Device& device, CommandList::Impl& self) {
-    if (!has_pipeline(device, self, "dispatches") || self.refused) return false;
-    const uint32_t missing = self.pipeline->declared_sets & ~self.bound_sets;
+} // namespace
+
+// ── Shared with the render encoder ──────────────────────────────────────
+
+void vulkan::refuse(Device& device, CommandList::Impl& list, const std::string& why) {
+    const std::string who =
+        list.pipeline != nullptr ? list.pipeline->name : std::string("A command list");
+    device.impl().report_once(who + ": " + why);
+    list.refused = true;
+}
+
+bool vulkan::outside_render(Device& device, CommandList::Impl& list, const char* what) {
+    if (!list.rendering) return true;
+    device.impl().report_once(std::string("A command list ") + what +
+                              " while its render scope is open; the encoder records until it ends");
+    return false;
+}
+
+void vulkan::use_pipeline(Device& device, CommandList::Impl& list,
+                          const Device::Impl::PipelineRecord* pipeline) {
+    list.pipeline = pipeline;
+    list.bound_sets = 0;
+    list.refused = false;
+    if (pipeline == nullptr) {
+        refuse(device, list, "sets a pipeline that no longer exists");
+        return;
+    }
+    vkCmdBindPipeline(list.cb, pipeline->bind_point, pipeline->pipeline);
+}
+
+void vulkan::bind_group(Device& device, CommandList::Impl& list, BindGroup group) {
+    if (!has_pipeline(device, list, "binds a group")) return;
+    bind_at(device, list, group_at(device.impl(), *list.pipeline, group));
+}
+
+void vulkan::bind_entries(Device& device, CommandList::Impl& list,
+                          std::span<const BindEntry> entries) {
+    if (!has_pipeline(device, list, "binds resources")) return;
+    bind_at(device, list, frame_set(device.impl(), *list.pipeline, entries));
+}
+
+void vulkan::push(Device& device, CommandList::Impl& list, std::span<const std::byte> bytes) {
+    if (!has_pipeline(device, list, "pushes data")) return;
+    const auto size = push_size(list.pipeline->shader_layout, bytes.size());
+    if (!size) {
+        refuse(device, list, size.error());
+        return;
+    }
+    vkCmdPushConstants(list.cb, list.pipeline->layout.layout,
+                       to_vk(list.pipeline->shader_layout.push_stages), 0, *size, bytes.data());
+}
+
+bool vulkan::ready(Device& device, CommandList::Impl& list, const char* what) {
+    if (!has_pipeline(device, list, what) || list.refused) return false;
+    const uint32_t missing = list.pipeline->declared_sets & ~list.bound_sets;
     if (missing != 0) {
-        refuse(device, self,
+        refuse(device, list,
                "set " + std::to_string(std::countr_zero(missing)) +
                    " is declared by its shaders and nothing is bound there");
         return false;
@@ -109,43 +150,26 @@ bool ready(Device& device, CommandList::Impl& self) {
     return true;
 }
 
-} // namespace
+// ── CommandList ─────────────────────────────────────────────────────────
 
 void CommandList::set_pipeline(ComputePipeline pipeline) {
-    Impl& self = *impl_;
-    self.pipeline = device_->impl().compute_pipelines.get(pipeline);
-    self.bound_sets = 0;
-    self.refused = false;
-    if (self.pipeline == nullptr) {
-        refuse(*device_, self, "sets a compute pipeline that no longer exists");
-        return;
-    }
-    vkCmdBindPipeline(self.cb, VK_PIPELINE_BIND_POINT_COMPUTE, self.pipeline->pipeline);
+    if (!vulkan::outside_render(*device_, *impl_, "sets a compute pipeline")) return;
+    vulkan::use_pipeline(*device_, *impl_, device_->impl().compute_pipelines.get(pipeline));
 }
 
 void CommandList::bind(BindGroup group) {
-    Impl& self = *impl_;
-    if (!has_pipeline(*device_, self, "binds a group")) return;
-    bind_at(*device_, self, group_at(device_->impl(), *self.pipeline, group));
+    if (!vulkan::outside_render(*device_, *impl_, "binds a group")) return;
+    vulkan::bind_group(*device_, *impl_, group);
 }
 
 void CommandList::bind(std::span<const BindEntry> entries) {
-    Impl& self = *impl_;
-    if (!has_pipeline(*device_, self, "binds resources")) return;
-    bind_at(*device_, self, frame_set(device_->impl(), *self.pipeline, entries));
+    if (!vulkan::outside_render(*device_, *impl_, "binds resources")) return;
+    vulkan::bind_entries(*device_, *impl_, entries);
 }
 
 void CommandList::push_bytes(std::span<const std::byte> bytes) {
-    Impl& self = *impl_;
-    if (!has_pipeline(*device_, self, "pushes data")) return;
-    const auto size = push_size(self.pipeline->shader_layout, bytes.size());
-    if (!size) {
-        refuse(*device_, self, size.error());
-        return;
-    }
-    vkCmdPushConstants(self.cb, self.pipeline->layout.layout,
-                       vulkan::to_vk(self.pipeline->shader_layout.push_stages), 0, *size,
-                       bytes.data());
+    if (!vulkan::outside_render(*device_, *impl_, "pushes data")) return;
+    vulkan::push(*device_, *impl_, bytes);
 }
 
 BufferRange CommandList::transient_bytes(std::span<const std::byte> bytes) {
@@ -159,20 +183,21 @@ BufferRange CommandList::transient_bytes(std::span<const std::byte> bytes) {
 }
 
 void CommandList::dispatch(uint32_t x, uint32_t y, uint32_t z) {
-    Impl& self = *impl_;
-    if (!ready(*device_, self)) return;
-    vkCmdDispatch(self.cb, x, y, z);
+    if (!vulkan::outside_render(*device_, *impl_, "dispatches")) return;
+    if (!vulkan::ready(*device_, *impl_, "dispatches")) return;
+    vkCmdDispatch(impl_->cb, x, y, z);
 }
 
 void CommandList::dispatch_indirect(BufferRange args) {
-    Impl& self = *impl_;
-    if (!ready(*device_, self)) return;
+    if (!vulkan::outside_render(*device_, *impl_, "dispatches")) return;
+    if (!vulkan::ready(*device_, *impl_, "dispatches")) return;
     const auto* buffer = device_->impl().buffers.get(args.buffer);
     if (buffer == nullptr) {
-        refuse(*device_, self, "dispatches from arguments in a buffer that no longer exists");
+        vulkan::refuse(*device_, *impl_,
+                       "dispatches from arguments in a buffer that no longer exists");
         return;
     }
-    vkCmdDispatchIndirect(self.cb, buffer->buffer, args.offset);
+    vkCmdDispatchIndirect(impl_->cb, buffer->buffer, args.offset);
 }
 
 } // namespace fjell::gpu

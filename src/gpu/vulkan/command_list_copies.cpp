@@ -254,6 +254,7 @@ Result<VkBufferMemoryBarrier2> buffer_barrier(Device::Impl& device, const Buffer
 } // namespace
 
 void CommandList::copy(BufferRange src, BufferRange dst) {
+    if (!vulkan::outside_render(*device_, *impl_, "copies")) return;
     const auto copy = buffer_copy(device_->impl(), src, dst);
     if (!copy) {
         report(*device_, "Buffer copy", copy.error());
@@ -263,6 +264,7 @@ void CommandList::copy(BufferRange src, BufferRange dst) {
 }
 
 void CommandList::copy(const TextureView& src, const TextureView& dst) {
+    if (!vulkan::outside_render(*device_, *impl_, "copies")) return;
     const auto copy = texture_copy(device_->impl(), src, dst);
     if (!copy) {
         report(*device_, "Texture copy", copy.error());
@@ -274,6 +276,7 @@ void CommandList::copy(const TextureView& src, const TextureView& dst) {
 }
 
 void CommandList::copy(BufferRange src, const TextureView& dst) {
+    if (!vulkan::outside_render(*device_, *impl_, "copies")) return;
     const auto copy = buffer_texture_copy(device_->impl(), src, dst);
     if (!copy) {
         report(*device_, "Buffer to texture copy", copy.error());
@@ -284,6 +287,7 @@ void CommandList::copy(BufferRange src, const TextureView& dst) {
 }
 
 void CommandList::copy(const TextureView& src, BufferRange dst) {
+    if (!vulkan::outside_render(*device_, *impl_, "copies")) return;
     const auto copy = buffer_texture_copy(device_->impl(), dst, src);
     if (!copy) {
         report(*device_, "Texture to buffer copy", copy.error());
@@ -295,6 +299,7 @@ void CommandList::copy(const TextureView& src, BufferRange dst) {
 }
 
 void CommandList::clear(const TextureView& view, const Clear& value) {
+    if (!vulkan::outside_render(*device_, *impl_, "clears")) return;
     const auto found = find(device_->impl(), view);
     if (!found) {
         report(*device_, "Clear", found.error());
@@ -316,6 +321,7 @@ void CommandList::clear(const TextureView& view, const Clear& value) {
 }
 
 void CommandList::fill(BufferRange range, uint32_t value) {
+    if (!vulkan::outside_render(*device_, *impl_, "fills")) return;
     const auto found = fill_range(device_->impl(), range);
     if (!found) {
         report(*device_, "Fill", found.error());
@@ -325,6 +331,7 @@ void CommandList::fill(BufferRange range, uint32_t value) {
 }
 
 void CommandList::generate_mipmaps(Texture texture) {
+    if (!vulkan::outside_render(*device_, *impl_, "generates mips")) return;
     const auto chain = mip_chain(device_->impl(), texture, impl_->queue);
     if (!chain) {
         report(*device_, "Mipmaps", chain.error());
@@ -378,6 +385,7 @@ void CommandList::generate_mipmaps(Texture texture) {
 }
 
 void CommandList::barrier(const TextureView& view, AccessSet before, AccessSet after) {
+    if (!vulkan::outside_render(*device_, *impl_, "places a barrier")) return;
     const auto barrier = image_barrier(device_->impl(), view, before, after, impl_->queue);
     if (!barrier) {
         report(*device_, "Barrier", barrier.error());
@@ -391,6 +399,7 @@ void CommandList::barrier(const TextureView& view, AccessSet before, AccessSet a
 }
 
 void CommandList::barrier(BufferRange range, AccessSet before, AccessSet after) {
+    if (!vulkan::outside_render(*device_, *impl_, "places a barrier")) return;
     const auto barrier = buffer_barrier(device_->impl(), range, before, after, impl_->queue);
     if (!barrier) {
         report(*device_, "Barrier", barrier.error());

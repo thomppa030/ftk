@@ -2,9 +2,9 @@
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it opens a window, brings a device up and makes a
 // buffer, a texture with a view, a sampler, pipelines, bind groups and
-// transient memory through the GPU interface, and records a dispatch, copies
-// and clears through a command list, which takes a GPU and a display: it is
-// run by hand, not as a test.
+// transient memory through the GPU interface, and records a dispatch, copies,
+// clears and draws through a command list, which takes a GPU and a display: it
+// is run by hand, not as a test.
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
@@ -247,6 +247,111 @@ int main() {
         }
         if (!copied) std::fprintf(stderr, "copies and clears failed\n");
         pipelines = pipelines && copied;
+        // Rendering: a triangle over a 4 × 4 target drawn with vertices and
+        // tested against depth, then with a mesh shader where the GPU has one,
+        // then into four samples resolved into one; each target read back.
+        // A pipeline for other targets and a copy inside the scope are refused.
+        bool rendered = false;
+        {
+            using fjell::gpu::Access;
+            using fjell::gpu::Format;
+            auto target = [&](Format format, fjell::gpu::TextureUse use, fjell::gpu::Samples samples) {
+                return device.create(fjell::gpu::TextureDesc{
+                    .format = format, .width = 4, .height = 4, .samples = samples, .use = use});
+            };
+            const auto x1 = fjell::gpu::Samples::x1;
+            const auto x4 = fjell::gpu::Samples::x4;
+            auto colour = target(Format::rgba8_unorm, fjell::gpu::TextureUse::color_target, x1);
+            auto depth = target(Format::d32_float, fjell::gpu::TextureUse::depth_target, x1);
+            auto samples = target(Format::rgba8_unorm, fjell::gpu::TextureUse::color_target, x4);
+            auto resolved = target(Format::rgba8_unorm, fjell::gpu::TextureUse::color_target, x1);
+            auto drawn = device.create(fjell::gpu::BufferDesc{
+                .size = 3 * 64, .memory = fjell::gpu::Memory::readback, .name = "link_drawn"});
+            auto vertex_pipeline = device.create(fjell::gpu::GraphicsPipelineDesc{
+                .vertex = "draw.vert",
+                .fragment = "draw.frag",
+                .depth = {.test = true, .write = true},
+                .color = {{Format::rgba8_unorm}},
+                .depth_format = Format::d32_float,
+                .name = "link_draw"});
+            const bool has_mesh = device.caps().mesh_max_output_vertices > 0;
+            auto mesh_pipeline = device.create(fjell::gpu::GraphicsPipelineDesc{
+                .mesh = "draw.mesh",
+                .fragment = "draw.frag",
+                .color = {{Format::rgba8_unorm}},
+                .name = "link_draw_mesh"});
+            auto sampled_pipeline = device.create(fjell::gpu::GraphicsPipelineDesc{
+                .vertex = "draw.vert",
+                .fragment = "draw.frag",
+                .color = {{Format::rgba8_unorm}},
+                .samples = x4,
+                .name = "link_draw_samples"});
+            struct Colour {
+                float r, g, b, a;
+            };
+            if (colour && depth && samples && resolved && drawn && vertex_pipeline &&
+                sampled_pipeline && (mesh_pipeline || !has_mesh)) {
+                const size_t reported_before = device.impl().reported.size();
+                run([&](fjell::gpu::CommandList& cmd) {
+                    cmd.barrier(*colour, {}, Access::color_attachment);
+                    cmd.barrier(*depth, {}, Access::depth_attachment);
+                    {
+                        auto pass = cmd.render({
+                            .color = {{.view = *colour, .load = fjell::gpu::Load::clear}},
+                            .depth = fjell::gpu::DepthAttachment{.view = *depth,
+                                                                 .load = fjell::gpu::Load::clear},
+                        });
+                        pass.set_pipeline(*sampled_pipeline);
+                        pass.draw(3);
+                        cmd.copy(*source, *drawn);
+                        pass.set_pipeline(*vertex_pipeline);
+                        pass.push(Colour{0.0f, 1.0f, 0.0f, 1.0f});
+                        pass.draw(3);
+                    }
+                    cmd.barrier(*colour, Access::color_attachment, Access::copy_src);
+                    cmd.copy(*colour, fjell::gpu::BufferRange(*drawn, 0, 64));
+
+                    if (has_mesh) {
+                        cmd.barrier(*colour, Access::copy_src, Access::color_attachment);
+                        {
+                            auto pass = cmd.render({.color = {{.view = *colour}}});
+                            pass.set_pipeline(*mesh_pipeline);
+                            pass.push(Colour{0.0f, 0.0f, 1.0f, 1.0f});
+                            pass.draw_mesh_tasks(1, 1, 1);
+                        }
+                        cmd.barrier(*colour, Access::color_attachment, Access::copy_src);
+                        cmd.copy(*colour, fjell::gpu::BufferRange(*drawn, 64, 64));
+                    }
+
+                    cmd.barrier(*samples, {}, Access::color_attachment);
+                    cmd.barrier(*resolved, {}, Access::color_attachment);
+                    {
+                        auto pass = cmd.render({.color = {{.view = *samples,
+                                                           .load = fjell::gpu::Load::clear,
+                                                           .store = fjell::gpu::Store::discard,
+                                                           .resolve = *resolved}}});
+                        pass.set_pipeline(*sampled_pipeline);
+                        pass.push(Colour{1.0f, 0.0f, 0.0f, 1.0f});
+                        pass.draw(3);
+                    }
+                    cmd.barrier(*resolved, Access::color_attachment, Access::copy_src);
+                    cmd.copy(*resolved, fjell::gpu::BufferRange(*drawn, 128, 64));
+                });
+                // The pipeline for other targets and the copy in the scope.
+                rendered = device.impl().reported.size() == reported_before + 2;
+                for (uint32_t i = 0; rendered && i < 16; ++i) {
+                    rendered = word(*drawn, i) == 0xFF00FF00U &&
+                               (!has_mesh || word(*drawn, 16 + i) == 0xFFFF0000U) &&
+                               word(*drawn, 32 + i) == 0xFF0000FFU;
+                }
+            }
+            if (!vertex_pipeline) std::fprintf(stderr, "%s\n", vertex_pipeline.error().c_str());
+            if (has_mesh && !mesh_pipeline) std::fprintf(stderr, "%s\n", mesh_pipeline.error().c_str());
+            if (!sampled_pipeline) std::fprintf(stderr, "%s\n", sampled_pipeline.error().c_str());
+        }
+        if (!rendered) std::fprintf(stderr, "rendering failed\n");
+        pipelines = pipelines && rendered;
+
         if (commands_pipeline) commands_pipeline->reset();
         if (results) results->reset();
         if (source) source->reset();

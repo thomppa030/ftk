@@ -110,6 +110,7 @@ fjell_library(gpu
         gpu/vulkan/frame_descriptor_cache.cpp
         gpu/vulkan/native.cpp
         gpu/vulkan/pipeline.cpp
+        gpu/vulkan/render_encoder.cpp
         gpu/vulkan/translate.cpp
     HEADERS
         gpu/access.hpp
@@ -124,6 +125,7 @@ fjell_library(gpu
         gpu/owned.hpp
         gpu/pipeline.hpp
         gpu/queue.hpp
+        gpu/render_encoder.hpp
         gpu/release_queue.hpp
         gpu/sampler.hpp
         gpu/shader.hpp

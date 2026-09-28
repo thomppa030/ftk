@@ -142,6 +142,9 @@ using ChannelMask = Flags<Channel>;
 /// Every channel.
 inline constexpr ChannelMask ALL_CHANNELS = Channel::r | Channel::g | Channel::b | Channel::a;
 
+/// The most colour attachments a pipeline draws to or a render scope has.
+inline constexpr uint32_t MAX_COLOR_TARGETS = 8;
+
 /// A colour attachment a graphics pipeline draws to.
 struct ColorTarget {
     Format format{Format::undefined};

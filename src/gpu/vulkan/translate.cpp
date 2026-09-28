@@ -296,6 +296,40 @@ VkColorComponentFlags to_vk(ChannelMask channels) {
     return flags;
 }
 
+VkAttachmentLoadOp to_vk(Load load) {
+    switch (load) {
+        case Load::load:    return VK_ATTACHMENT_LOAD_OP_LOAD;
+        case Load::clear:   return VK_ATTACHMENT_LOAD_OP_CLEAR;
+        case Load::discard: return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    }
+    return VK_ATTACHMENT_LOAD_OP_LOAD;
+}
+
+VkAttachmentStoreOp to_vk(Store store) {
+    switch (store) {
+        case Store::store:   return VK_ATTACHMENT_STORE_OP_STORE;
+        case Store::discard: return VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    }
+    return VK_ATTACHMENT_STORE_OP_STORE;
+}
+
+VkResolveModeFlagBits to_vk(DepthResolve resolve) {
+    switch (resolve) {
+        case DepthResolve::sample_zero: return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        case DepthResolve::min:         return VK_RESOLVE_MODE_MIN_BIT;
+        case DepthResolve::max:         return VK_RESOLVE_MODE_MAX_BIT;
+    }
+    return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+}
+
+VkIndexType to_vk(IndexType type) {
+    switch (type) {
+        case IndexType::u16: return VK_INDEX_TYPE_UINT16;
+        case IndexType::u32: return VK_INDEX_TYPE_UINT32;
+    }
+    return VK_INDEX_TYPE_UINT32;
+}
+
 std::optional<BindingKind> from_vk(VkDescriptorType type) {
     switch (type) {
         case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:             return BindingKind::uniform_buffer;

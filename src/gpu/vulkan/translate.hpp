@@ -4,6 +4,7 @@
 #include "gpu/compare.hpp"
 #include "gpu/format.hpp"
 #include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
 #include "gpu/sampler.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
@@ -75,6 +76,15 @@ namespace fjell::gpu::vulkan {
 [[nodiscard]] VkFrontFace to_vk(FrontFace front_face);
 [[nodiscard]] VkPolygonMode to_vk(Fill fill);
 [[nodiscard]] VkColorComponentFlags to_vk(ChannelMask channels);
+
+/// An attachment's load and store operations.
+[[nodiscard]] VkAttachmentLoadOp to_vk(Load load);
+[[nodiscard]] VkAttachmentStoreOp to_vk(Store store);
+
+/// How a depth attachment resolves.
+[[nodiscard]] VkResolveModeFlagBits to_vk(DepthResolve resolve);
+
+[[nodiscard]] VkIndexType to_vk(IndexType type);
 
 /// The binding kind of a Vulkan descriptor type; nothing for a type the
 /// interface does not have.

@@ -63,6 +63,13 @@ struct Device::Impl {
         uint32_t declared_sets{0};
         /// What names it in errors: "Compute pipeline 'name'".
         std::string name;
+        /// A graphics pipeline's: what it draws to, whether it is a mesh
+        /// pipeline, and whether it reads a vertex buffer.
+        std::vector<Format> color_formats;
+        Format depth_format{Format::undefined};
+        Samples samples{Samples::x1};
+        bool mesh{false};
+        bool reads_vertices{false};
     };
 
     struct SharedRecord {
@@ -172,6 +179,10 @@ struct Device::Impl {
     /// same share one. Destroyed with the device.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
     std::unordered_map<std::string, VkPipelineLayout> pipeline_layouts;
+    /// Mesh draws, loaded where the GPU has mesh shaders; null elsewhere.
+    PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks{nullptr};
+    PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect{nullptr};
+    PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count{nullptr};
     /// The engine's pipeline cache, which it loads and saves; null until the
     /// engine hands it over.
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};

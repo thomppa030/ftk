@@ -224,6 +224,9 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
         return make_error("Graphics pipeline " + what + ": " + why);
     };
     if (mesh == !desc.vertex.empty()) return fail("give either a vertex or a mesh shader");
+    if (desc.color.size() > MAX_COLOR_TARGETS) {
+        return fail("more than " + std::to_string(MAX_COLOR_TARGETS) + " colour targets");
+    }
     if (!desc.task.empty() && !mesh) return fail("a task shader needs a mesh shader");
 
     // Stages in pipeline order; the shaders' layouts merge into one.
@@ -262,6 +265,11 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     record.layout = std::move(*layout);
     record.declared_sets = declared_sets(record.shader_layout);
     record.name = "Graphics pipeline " + what;
+    for (const ColorTarget& target : desc.color) record.color_formats.push_back(target.format);
+    record.depth_format = desc.depth_format;
+    record.samples = desc.samples;
+    record.mesh = mesh;
+    record.reads_vertices = !mesh && desc.vertex_layout.stride > 0;
 
     std::vector<VkPipelineShaderStageCreateInfo> stage_infos;
     for (const Stage& stage : stages) {

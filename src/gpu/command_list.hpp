@@ -5,6 +5,7 @@
 #include "gpu/binding.hpp"
 #include "gpu/clear.hpp"
 #include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
 
@@ -20,7 +21,8 @@ namespace fjell::gpu {
 class Device;
 
 /// Records GPU work in order: a pass's commands, into the frame's command
-/// buffer. A list starts each pass with nothing bound.
+/// buffer. A list starts each pass with nothing bound. Drawing happens in a
+/// render scope, `render()`, while which the list records nothing itself.
 ///
 /// What is bound is checked against what the pipeline's shaders declare. A
 /// wrong binding or push is reported once, naming the pipeline and the
@@ -56,7 +58,9 @@ public:
     /// Resources by the names the shaders give them, filling one of the
     /// pipeline's own sets for this frame. Two binds of the same resources
     /// in one frame share one set.
-    void bind(std::initializer_list<BindEntry> entries) { bind(std::span(entries.begin(), entries.size())); }
+    void bind(std::initializer_list<BindEntry> entries) {
+        bind(std::span(entries.begin(), entries.size()));
+    }
     void bind(std::span<const BindEntry> entries);
 
     /// The pipeline's push data. The shaders read the first `push_size`
@@ -81,7 +85,8 @@ public:
     template <std::ranges::contiguous_range R>
         requires std::is_trivially_copyable_v<std::ranges::range_value_t<R>>
     [[nodiscard]] BufferRange transient(const R& values) {
-        return transient_bytes(std::as_bytes(std::span(std::ranges::data(values), std::ranges::size(values))));
+        const std::span all(std::ranges::data(values), std::ranges::size(values));
+        return transient_bytes(std::as_bytes(all));
     }
 
     /// Runs the pipeline over `x` × `y` × `z` workgroups.
@@ -123,6 +128,11 @@ public:
     /// before, filtered, every layer. The texture is in `Access::copy_dst`
     /// before and after.
     void generate_mipmaps(Texture texture);
+
+    /// Begins drawing into `targets` until the returned encoder goes out of
+    /// scope. Targets that cannot be drawn to are reported, and the encoder
+    /// records nothing.
+    [[nodiscard]] RenderEncoder render(const RenderTargets& targets);
 
     // Barriers between a pass's own commands. Between passes the frame graph
     // orders what they declare.
