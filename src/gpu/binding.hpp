@@ -3,6 +3,7 @@
 #include "core/handle.hpp"
 #include "core/result.hpp"
 #include "gpu/buffer.hpp"
+#include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
@@ -100,6 +101,24 @@ struct BindEntry {
     std::string_view name;
     BindResource resource;
     uint32_t element{0};
+};
+
+/// What `Device::create` makes a persistent bind group from: resources for one
+/// of a pipeline's own sets, which the entries' names pick. It binds to any
+/// pipeline whose shaders declare that set alike.
+///
+/// @code
+/// auto mip_set = device.create(gpu::BindGroupDesc{
+///     .pipeline = hiz_build_,
+///     .entries = {{"src_depth", gpu::sampled(gpu::mip(pyramid_, 2), nearest_)},
+///                 {"dst_mip", gpu::storage(gpu::mip(pyramid_, 3))}},
+/// });
+/// @endcode
+struct BindGroupDesc {
+    PipelineRef pipeline;
+    std::vector<BindEntry> entries;
+    /// Shown by debuggers and in error messages; not kept.
+    std::string_view name{};
 };
 
 /// One entry placed: its binding and element, checked against the shader.

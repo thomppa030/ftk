@@ -296,4 +296,28 @@ VkColorComponentFlags to_vk(ChannelMask channels) {
     return flags;
 }
 
+std::optional<BindingKind> from_vk(VkDescriptorType type) {
+    switch (type) {
+        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:             return BindingKind::uniform_buffer;
+        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:             return BindingKind::storage_buffer;
+        case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:     return BindingKind::sampled_texture;
+        case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:              return BindingKind::texture;
+        case VK_DESCRIPTOR_TYPE_SAMPLER:                    return BindingKind::sampler;
+        case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:              return BindingKind::storage_texture;
+        case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: return BindingKind::acceleration_structure;
+        default:                                            return std::nullopt;
+    }
+}
+
+VkImageLayout sampled_layout(Format format) {
+    switch (kind(format)) {
+        case FormatKind::depth:
+        case FormatKind::depth_stencil: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        case FormatKind::color:
+        case FormatKind::color_uint:
+        case FormatKind::none:          return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+    return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
 } // namespace fjell::gpu::vulkan

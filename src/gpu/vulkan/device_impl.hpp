@@ -39,13 +39,40 @@ struct Device::Impl {
         bool owned{true};
     };
 
-    struct PipelineRecord {
-        VkPipeline pipeline{VK_NULL_HANDLE};
+    /// What a pipeline layout is made of.
+    struct LayoutInfo {
         /// Shared with every pipeline whose shaders declare the same; the
         /// device keeps it.
         VkPipelineLayout layout{VK_NULL_HANDLE};
+        /// One per set up to the highest declared, the device's or shared.
+        std::vector<VkDescriptorSetLayout> set_layouts;
+        /// The set each shared layout the pipeline names took.
+        std::vector<std::pair<SharedLayout, uint32_t>> shared_sets;
+    };
+
+    struct PipelineRecord {
+        VkPipeline pipeline{VK_NULL_HANDLE};
+        LayoutInfo layout;
         VkPipelineBindPoint bind_point{VK_PIPELINE_BIND_POINT_COMPUTE};
         ShaderLayout shader_layout;
+    };
+
+    struct SharedRecord {
+        SharedLayoutDesc desc;
+        /// The engine's; the device never destroys it.
+        VkDescriptorSetLayout layout{VK_NULL_HANDLE};
+    };
+
+    struct GroupRecord {
+        VkDescriptorSet set{VK_NULL_HANDLE};
+        /// The pool it came from; null for an adopted set, which the device
+        /// never frees.
+        VkDescriptorPool pool{VK_NULL_HANDLE};
+        VkDescriptorSetLayout layout{VK_NULL_HANDLE};
+        /// The one set's bindings, what `update` checks entries against.
+        ShaderLayout bindings;
+        /// For an adopted shared group, the shared layout it is.
+        SharedLayout shared{};
     };
 
     struct TextureRecord {
@@ -71,9 +98,18 @@ struct Device::Impl {
     /// A compiled shader's words, read through the locator for a path.
     [[nodiscard]] Result<std::vector<uint32_t>> load(const ShaderCode& code) const;
 
-    /// The pipeline layout for what `layout` binds and takes, made the first
-    /// time a pipeline declares it and shared after.
-    [[nodiscard]] Result<VkPipelineLayout> pipeline_layout(const ShaderLayout& layout);
+    /// The pipeline layout for what `layout` binds and takes, with the shared
+    /// layouts `shared` at the sets they fit, made the first time a pipeline
+    /// declares it and shared after.
+    [[nodiscard]] Result<LayoutInfo> pipeline_layout(const ShaderLayout& layout,
+                                                     std::span<const SharedLayout> shared);
+
+    /// A descriptor set of `layout` from the device's group pools, adding a
+    /// pool when the last is full. Null when none can be made.
+    [[nodiscard]] std::pair<VkDescriptorSet, VkDescriptorPool> allocate_set(VkDescriptorSetLayout layout);
+
+    /// Writes placed entries into `set`.
+    void write_set(VkDescriptorSet set, const PlacedSet& placed);
 
     [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
     [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
@@ -88,6 +124,10 @@ struct Device::Impl {
     HandlePool<VkSampler, SamplerTag> samplers;
     HandlePool<PipelineRecord, ComputePipelineTag> compute_pipelines;
     HandlePool<PipelineRecord, GraphicsPipelineTag> graphics_pipelines;
+    HandlePool<SharedRecord, SharedLayoutTag> shared_layouts;
+    HandlePool<GroupRecord, BindGroupTag> groups;
+    /// Pools persistent groups come from, each allowing sets to be freed.
+    std::vector<VkDescriptorPool> group_pools;
     /// Set and pipeline layouts by what they hold, so pipelines declaring the
     /// same share one. Destroyed with the device.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
