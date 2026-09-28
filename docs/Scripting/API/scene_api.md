@@ -1,6 +1,6 @@
 # fjell::scene
 
-Finds, spawns, and destroys scene nodes.
+Finds and spawns nodes in the running scene.
 
 | | |
 |---|---|
@@ -12,114 +12,120 @@ Finds, spawns, and destroys scene nodes.
 ```cpp
 namespace fjell {
 namespace scene {
-    uint32_t find_node(const char* name);
-    uint32_t spawn    (const char* name, const glm::vec3& pos = glm::vec3{0.0f});
-    uint32_t spawn    (const Asset<Preset>& preset,
-                       const glm::vec3& pos = glm::vec3{0.0f},
-                       int32_t parent_id = -1);
+    Ref<Node3D> find_node(const char* name);
+    template <typename T> Ref<T> find();
+
+    Ref<Node3D> spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f});
+    Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos = glm::vec3{0.0f});
+    Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos, const Ref<Node3D>& parent);
 }
 }
 ```
 
 ## Remarks
 
-`scene` is the global access point for the scene graph. For *operations on a known node* (read/write its transform, get a component), use [`Node3D`](Node3D.md) — wrap an ID via `Node3D{id}` or get yours via `self()` on a [`ScriptComponent`](ScriptComponent.md).
+Everything here hands back a [`Ref`](Ref.md): to a node, or to the component you looked for.
+What you do with a node once you have it is on [`Node3D`](Node3D.md).
 
-Node IDs are `uint32_t`. ID `0` is reserved as the "invalid / null" sentinel — every call that returns an ID returns `0` on failure.
+Prefer a `[[fj::property]] Ref<T>` picked in the inspector over a lookup: it names exactly
+the node meant. Of the lookups, `find<T>()` finds what you are after by what it is, where
+`find_node` depends on how the scene happens to name things.
 
-Names are **not** unique. `find_node` returns the first match (engine-defined order). To keep hold of what is on a specific node, hold a [`Ref<T>`](Ref.md) to its component instead of looking it up by name every frame.
+A node spawned here is usable at once, in the same step, although it joins the scene's
+walks only after the frame's scripts have run.
 
 ## Functions
 
 | Name | Description |
 |---|---|
-| [`find_node`](#scenefind_node) | Look up a node by name |
+| [`find_node`](#scenefind_node) | A node by name |
+| [`find<T>`](#scenefind) | The component of type `T`, wherever it is |
 | [`spawn(name, pos)`](#scenespawn-empty) | Create an empty node |
-| [`spawn(preset, pos, parent)`](#scenespawn-preset) | Instantiate a `.fjp` preset |
+| [`spawn(preset, pos[, parent])`](#scenespawn-preset) | Instantiate a `.fjp` preset |
 
 ---
 
 ## scene::find_node
 
-### Syntax
 ```cpp
-uint32_t find_node(const char* name);
+Ref<Node3D> find_node(const char* name);
 ```
 
-### Parameters
-| Name | Type | Description |
-|---|---|---|
-| `name` | `const char*` | Node name to search for. Must not be null. Case-sensitive. |
+The first node called `name` (case-sensitive), or an empty `Ref` when there is none. Names
+are not unique, and the first match wins. A linear search over the scene: look up once,
+in `begin_play()`, and keep the `Ref`.
 
-### Return value
-The node's ID, or `0` if no node matches.
-
-### Remarks
-Linear search over the scene. Cheap for small scenes; for hot paths in large scenes, cache the ID after the first lookup or hold a [`Ref<T>`](Ref.md).
-
-### Example
 ```cpp
-uint32_t cam = fjell::scene::find_node("MainCamera");
-if (cam != 0) {
-    fjell::camera::set_active(cam);
+if (auto sun = fjell::scene::find_node("Sun")) {
+    sun->rotation() = glm::angleAxis(angle, glm::vec3{1, 0, 0});
 }
+```
+
+---
+
+## scene::find
+
+```cpp
+template <typename T>
+Ref<T> find();
+```
+
+The `T` on whichever node carries one, wherever it sits in the hierarchy and whatever the
+node is called; an empty `Ref` when none does. When several do, the one that has been in
+the scene longest. `T` is a script component or an engine component.
+
+Cheap: the engine keeps every `T` in the scene together and answers from there. The node
+it sits on is `.node()`:
+
+```cpp
+auto stats = fjell::scene::find<PlayerStats>();
+stats->hp = stats->max_hp;
+auto player = stats.node();
 ```
 
 ---
 
 ## scene::spawn (empty)
 
-### Syntax
 ```cpp
-uint32_t spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f});
+Ref<Node3D> spawn(const char* name, const glm::vec3& pos = glm::vec3{0.0f});
 ```
 
-### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `name` | `const char*` | Name to assign the new node. Need not be unique. |
-| `pos` | `glm::vec3` | Initial world position. Default origin. |
+| `name` | `const char*` | Name for the new node. Need not be unique. |
+| `pos` | `glm::vec3` | World position. Default origin. |
 
-### Return value
-The new node's ID. Always non-zero on success.
+A new node with no components, at the root of the scene, with identity rotation and scale.
+An empty `Ref` only when no scene is loaded.
 
-### Remarks
-The new node has no components, no parent (root-level), and identity rotation / scale. To add components, wrap the ID and use `Node3D::add_component<T>()`.
-
-### Example
 ```cpp
-uint32_t id = fjell::scene::spawn("Pickup", {0, 1, 0});
-fjell::Node3D node{id};
-node.add_component<CoinCollectible>();
+auto pickup = fjell::scene::spawn("Pickup", {0, 1, 0});
+pickup->add_component<CoinCollectible>();
 ```
 
 ---
 
 ## scene::spawn (preset)
 
-### Syntax
 ```cpp
-uint32_t spawn(const Asset<Preset>& preset,
-               const glm::vec3& pos = glm::vec3{0.0f},
-               int32_t parent_id = -1);
+Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos = glm::vec3{0.0f});
+Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos, const Ref<Node3D>& parent);
 ```
 
-### Parameters
 | Name | Type | Description |
 |---|---|---|
 | `preset` | `const Asset<Preset>&` | Preset reference (assigned in the inspector). One that is unset or failed to load stops the game (see [`Asset`](Asset.md)). |
 | `pos` | `glm::vec3` | World position for the preset's root node. Default origin. |
-| `parent_id` | `int32_t` | Parent node ID. `-1` (default) spawns at root. |
+| `parent` | `const Ref<Node3D>&` | Node to spawn it under, which it then moves with. One that is gone stops the game. `self()` passes the script's own node. |
 
-### Return value
-The ID of the spawned preset's **root node**, or `0` if the scene is unavailable.
+Instantiates the whole preset hierarchy — child nodes, components, property values — and
+gives its root node; `find_child` on it reaches the rest. Without a parent it spawns at
+the root of the scene. `pos` is in world space either way.
 
-### Remarks
-Instantiates the full preset hierarchy — child nodes, components, default field values are all created. The returned ID is just the root; walk children via `Node3D` or hold a [`Ref<T>`](Ref.md) to a component on a descendant if you need one.
+Single-player only: it creates the nodes locally. Use `net::spawn()` for anything that
+must exist on every peer.
 
-Spawning under a parent inherits the parent's transform; `pos` is in *world* space, applied to the root after parenting.
-
-### Example
 ```cpp
 class Spawner : public fjell::ScriptComponent {
     FJELL_COMPONENT(Spawner)
@@ -127,14 +133,14 @@ class Spawner : public fjell::ScriptComponent {
     [[fj::property]] fjell::Asset<fjell::Preset> enemy;
 
     void spawn_one() {
-        auto pos = transform().position + glm::vec3{5, 0, 0};
-        uint32_t id = fjell::scene::spawn(enemy, pos);
-        if (id == 0) fjell::Log::warn("enemy preset not assigned");
+        auto spawned = fjell::scene::spawn(enemy, transform().position + glm::vec3{5, 0, 0});
+        spawned->find_child("Weapon")->destroy();
     }
-}
+};
 ```
 
 ## See also
-- [`Node3D`](Node3D.md) — per-node operations
+
+- [`Node3D`](Node3D.md) — what a node offers
+- [`Ref`](Ref.md) — references to nodes and their components, which know when they are gone
 - [`Asset`](Asset.md) — how `Asset<Preset>` is resolved
-- [`Ref`](Ref.md) — references to components on spawned nodes, which know when they are gone

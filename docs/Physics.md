@@ -91,11 +91,11 @@ Who moves a character is its `movement`:
 // steers every step of the frame. camera_relative() is the game's own: the
 // stick turned into a world direction.
 void on_move(glm::vec2 value) {
-    auto* c = self().get_component<fjell::CharacterComponent>();
+    auto c = self().get_component<fjell::CharacterComponent>();
     c->move_intent = camera_relative(value);
 }
 void on_jump() {
-    auto* c = self().get_component<fjell::CharacterComponent>();
+    auto c = self().get_component<fjell::CharacterComponent>();
     if (c->ground_state == fjell::CharacterGroundState::OnGround) c->jump();
 }
 ```

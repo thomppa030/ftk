@@ -33,7 +33,7 @@ Reference pages for every type and static API exposed to game scripts. For the m
 
 | Type | Header | Description |
 |---|---|---|
-| [`Node3D`](API/Node3D.md) | `fjell/node.hpp` | Lightweight handle to a scene node |
+| [`Node3D`](API/Node3D.md) | `fjell/node.hpp` | A node in the scene, as a script sees it |
 | [`Transform`](API/Transform.md) | `fjell/transform.hpp` | Position / rotation / scale value type |
 | [`World`](API/World.md) | `fjell/world.hpp` | Per-frame state passed to components |
 | [`Input`](API/Input.md) | `fjell/input.hpp` | Keyboard / mouse polling |

@@ -34,7 +34,7 @@ public:
     // Identity
     [[nodiscard]] uint32_t    id()   const;   // node ID
     [[nodiscard]] const char* name() const;
-    [[nodiscard]] Node3D      self() const;
+    [[nodiscard]] Node3D&     self() const;
 
     // Owning node's transform
     [[nodiscard]] Transform&       transform();
@@ -102,7 +102,7 @@ Reflected fields are declared with `[[fj::property]]` and processed by the `fjre
 |---|---|
 | [`id`](#scriptcomponentid) | Owning node's ID |
 | [`name`](#scriptcomponentname) | Owning node's name |
-| [`self`](#scriptcomponentself) | `Node3D` handle for the owning node |
+| [`self`](#scriptcomponentself) | The node this script is on |
 | [`transform`](#scriptcomponenttransform) | Owning node's transform |
 | [`input`](#scriptcomponentinput) | Frame's input state |
 | [`delta_time`](#scriptcomponentdelta_time) | Scaled gameplay dt this frame, or the step's inside `fixed_tick` |
@@ -226,7 +226,7 @@ of where it is drawn, and a follower reading it judders.
 ### Example
 ```cpp
 void late_tick(float /*dt*/) override {
-    const fjell::Transform drawn = fjell::Node3D{target_id_}.render_transform();
+    const fjell::Transform drawn = target->render_transform();   // target: a Ref<Node3D>
     transform().position = drawn.position + offset_;
 }
 ```
@@ -332,10 +332,10 @@ Fires once when another body leaves a trigger volume.
 ```
 
 ### Return value
-The owning node's ID. Same value as `self().id()`.
+The owning node's ID.
 
 ### Remarks
-Useful as the first argument to APIs that take node IDs ([`animator::set_param`](animator_api.md#animatorset_param), [`scene::spawn`](scene_api.md#scenespawn-empty), etc.).
+For the engine calls that still take node IDs ([`animator::set_param`](animator_api.md#animatorset_param), `physics::`, ...). Where a `Ref<Node3D>` is taken, pass `self()`.
 
 ---
 
@@ -355,16 +355,18 @@ The owning node's name. Pointer owned by the engine — do not free.
 
 ### Syntax
 ```cpp
-[[nodiscard]] Node3D self() const;
+[[nodiscard]] Node3D& self() const;
 ```
 
 ### Return value
-A [`Node3D`](Node3D.md) handle wrapping this component's owning node ID.
+The [`Node3D`](Node3D.md) this script is on. It is there for as long as the script is, so
+there is nothing to check. It converts to a `Ref<Node3D>` where one is taken.
 
 ### Example
 ```cpp
+self().position().y += 1.0f;
+if (auto other = self().get_component<EnemyController>()) other->alert();
 self().destroy();
-auto* other = self().get_component<EnemyController>();
 ```
 
 ---
@@ -482,6 +484,6 @@ private:
 ## See also
 - [`Actor`](Actor.md) — base for non-component objects
 - [`UiWidget`](UiWidget.md) — base for UI controllers
-- [`Node3D`](Node3D.md) — handle returned by `self()`
+- [`Node3D`](Node3D.md) — the node `self()` gives
 - [`World`](World.md) — per-frame state struct
 - [Components guide](../Components.md) — authoring guide

@@ -91,7 +91,7 @@ ui::Edit draw_asset_ref(const OwnedFieldDesc& f, AssetData& ref, const Inspector
 }
 
 /// A Ref<T> field: the node it refers to, pickable among the nodes that carry
-/// a T.
+/// a T, or any 3D node for a Ref<Node3D>.
 ui::Edit draw_component_ref(const OwnedFieldDesc& f, RefData& ref, const Scene* scene) {
     const std::string& type = f.ref_type_name;
     const auto engine_type = ComponentRegistry::instance().find_id_by_script_name(type);
@@ -100,6 +100,11 @@ ui::Edit draw_component_ref(const OwnedFieldDesc& f, RefData& ref, const Scene* 
         .id = "##ref",
         .scene = scene,
         .refusal = [&](const Node& candidate) -> std::string {
+            // A Ref<Node3D> takes any 3D node, and refers to the node itself.
+            if (type == "Node3D") {
+                if (candidate.is_spatial()) return {};
+                return candidate.name + " is not a 3D node; this field refers to a Node3D.";
+            }
             const bool carries =
                 engine_type ? candidate.components.get_by_id(*engine_type) != nullptr
                             : std::ranges::any_of(candidate.scripts,

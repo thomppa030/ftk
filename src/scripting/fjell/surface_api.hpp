@@ -28,7 +28,7 @@ struct Surface;
 /// [[fj::property]] fjell::Asset<fjell::Surface> grass;
 /// [[fj::property]] fjell::Asset<fjell::Audio> grass_step;
 /// // ...
-/// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
+/// if (auto c = self().get_component<fjell::CharacterComponent>()) {
 ///     if (fjell::surface::is(c->ground_surface, grass)) {
 ///         fjell::audio::play(grass_step, transform().position);
 ///     }

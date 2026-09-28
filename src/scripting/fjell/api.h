@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 49
+#define FJELL_API_VERSION 50
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -59,6 +59,10 @@ typedef struct FjellComponentLayout {
 // What fjell_component_type_id() answers for a name that is no component
 // type scripts can reach. No lookup finds anything under it.
 #define FJELL_NO_COMPONENT_TYPE 0xFFFFFFFFu
+
+// What a Ref<Node3D> resolves under: the node itself, when it is a 3D node,
+// rather than a component on it.
+#define FJELL_NODE_TYPE 0xFFFFFFFEu
 
 // ── Field types for inspector / serialization reflection ────────────────
 

@@ -269,6 +269,10 @@ public:
     /// The first direct child of node `parent_id` called `name`, likewise.
     [[nodiscard]] Node* find_child(uint32_t parent_id, std::string_view name);
 
+    /// The node a reference set to node `node_id` in its life `generation`
+    /// finds now, or null when the node is gone or another node took the id.
+    [[nodiscard]] Node* resolve_node(uint32_t node_id, uint32_t generation);
+
     /// What a reference set to node `node_id` in its life `generation` finds
     /// of type `type` now: the component, or null when the node is gone, is
     /// another node that took the id, or has no such component.

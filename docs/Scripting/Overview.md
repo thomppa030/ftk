@@ -89,18 +89,14 @@ class Rocket : public fjell::ScriptComponent {
 class ChaseCamera : public fjell::ScriptComponent {
     FJELL_COMPONENT(ChaseCamera)
 
-    [[fj::property]] std::string target = "Rocket";
-
-    void begin_play() override { target_id_ = fjell::scene::find_node(target.c_str()); }
+    [[fj::property]] fjell::Ref<fjell::Node3D> target;   // the rocket, picked in the inspector
 
     void late_tick(float /*dt*/) override {
-        if (target_id_ == 0) return;
         // Where the rocket is drawn this frame, not where the last step left it.
-        transform().position = fjell::Node3D{target_id_}.render_transform().position + offset_;
+        transform().position = target->render_transform().position + offset_;
     }
 
 private:
-    uint32_t target_id_{0};
     glm::vec3 offset_{0.0f, 2.0f, -6.0f};
 };
 ```
@@ -290,7 +286,7 @@ stops the game, naming the script, the field and the node. Where absence is expe
 check with `if (target)` or `get()`. See [`Ref`](API/Ref.md).
 
 ### Raw pointers
-Avoid them across the hot-reload boundary. Within one tick, a raw `T*` from `Node3D::get_component<T>()` is fine; storing one in a member is asking for a use-after-reload. Hold a `Ref<T>` instead.
+Avoid them across the hot-reload boundary. Within one call, a raw `T*` from a `Ref`'s `get()` is fine; storing one in a member is asking for a use-after-reload. Hold the `Ref<T>` instead.
 
 ## Talking to the scene
 
@@ -299,14 +295,15 @@ Inside a `ScriptComponent`:
 | Call | Use |
 |---|---|
 | `transform()` | Read/write position, rotation, scale of the node you're attached to |
-| `self()` | The `Node3D` handle for your own node |
-| `id()` | `uint32_t` node id (e.g. for `animator::set_param`) |
+| `self()` | Your own [`Node3D`](API/Node3D.md): `self().find_child("Camera")`, `self().get_component<T>()` |
+| `id()` | `uint32_t` node id, for the calls that still take one (e.g. `animator::set_param`) |
 | `input()` | Const ref to the current `Input` state |
 | `delta_time()`, `elapsed_time()` | Scaled gameplay clock; the step's own inside `fixed_tick()` |
 
 Physics queries and forces go through `fjell::physics` (`fjell/physics_api.hpp`).
 
-To find or spawn nodes anywhere in the scene, use `fjell::scene` (see [Engine API](Engine-API.md)).
+Another node is reached through a [`Ref<Node3D>`](API/Ref.md), best a `[[fj::property]]`
+picked in the inspector; `fjell::scene` finds and spawns them ([`scene`](API/scene_api.md)).
 
 ## Events with `Delegate<>`
 

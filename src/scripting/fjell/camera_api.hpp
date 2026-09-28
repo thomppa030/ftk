@@ -30,8 +30,8 @@ namespace fjell {
 /// to defaults (fov 45, near 0.1, far 1000) rather than reporting an error.
 ///
 /// @code
-/// uint32_t cam = fjell::scene::find_child(self().id(), "Camera");
-/// fjell::camera::set_active(cam);
+/// auto cam = self().find_child("Camera");
+/// fjell::camera::set_active(cam.node_id());
 /// fjell::camera::set_fov(70.0f);
 /// @endcode
 namespace camera {

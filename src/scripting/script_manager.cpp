@@ -50,8 +50,10 @@ static auto& s_services = fjell::script_services();
 
 namespace {
 
-/// The name scripts write for component type `type_id`, for a report.
+/// The name scripts write for what a Ref of `type_id` refers to, for a
+/// report: a component type, or Node3D.
 std::string component_name(uint32_t type_id) {
+    if (type_id == FJELL_NODE_TYPE) return "Node3D";
     if (s_services.manager != nullptr) {
         if (const auto* type = s_services.manager->find_script_type_by_id(type_id)) return type->name;
     }
@@ -111,7 +113,8 @@ extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_i
     if (node_id == 0) {
         why = "it was never set";
     } else if (target != nullptr && target->generation == generation) {
-        why = "'" + target->name + "' has no " + target_type;
+        why = type_id == FJELL_NODE_TYPE ? "'" + target->name + "' is not a 3D node"
+                                         : "'" + target->name + "' has no " + target_type;
     } else if (const std::string_view name = scene != nullptr ? scene->name_of_gone(node_id, generation)
                                                               : std::string_view();
                !name.empty()) {

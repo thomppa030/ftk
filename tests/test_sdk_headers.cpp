@@ -7,6 +7,8 @@
 #include "fjell/registry.hpp"
 #include "fjell/ref.hpp"
 #include "fjell/environment_api.hpp"
+#include "fjell/scene_api.hpp"
+#include "fjell/engine_components.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -98,6 +100,38 @@ TEST_CASE("A Ref is its data and nothing more", "[sdk]") {
     STATIC_REQUIRE(sizeof(fjell::Ref<SamplePlain>) == sizeof(fjell::RefData));
     STATIC_REQUIRE(sizeof(fjell::Ref<Idle>) == sizeof(fjell::RefData));
     STATIC_REQUIRE(std::is_standard_layout_v<fjell::Ref<SamplePlain>>);
+}
+
+namespace sdk_check {
+
+// A script type with external linkage: the lookups instantiated for it are
+// emitted only where they are called, and the check below calls nothing.
+struct Carried : fjell::ScriptComponent {
+    static constexpr const char* type_name = "Carried";
+};
+
+} // namespace sdk_check
+
+TEST_CASE("The node API reads as a script writes it", "[sdk]") {
+    // Type-checked here and never run: it would call into the engine.
+    [[maybe_unused]] auto script = [](fjell::ScriptComponent& self_script, const fjell::Asset<fjell::Preset>& preset) {
+        fjell::Node3D& own = self_script.self();
+        own.position().y += 1.0f;
+        fjell::Ref<fjell::Node3D> door = fjell::scene::find_node("Door");
+        door->rotation() = own.rotation();
+        if (auto body = door->get_component<fjell::RigidbodyComponent>()) body->mass = 5.0f;
+        const fjell::Ref<sdk_check::Carried> sample = fjell::scene::find<sdk_check::Carried>();
+        const fjell::Ref<fjell::Node3D> holder = sample.node();
+        fjell::Ref<fjell::Node3D> spawned = fjell::scene::spawn(preset, holder->position(), own);
+        spawned->find_child("Weapon")->destroy();
+        [[maybe_unused]] fjell::Ref<sdk_check::Carried> added = own.add_component<sdk_check::Carried>();
+        [[maybe_unused]] fjell::Ref<fjell::Node3D> mine = own;  // a script's own node where a Ref is taken
+    };
+    // A Node3D is the node itself: never a copy.
+    STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);
+    STATIC_REQUIRE_FALSE(std::is_default_constructible_v<fjell::Node3D>);
+    // A Ref<Node3D> is a Ref like any other.
+    STATIC_REQUIRE(sizeof(fjell::Ref<fjell::Node3D>) == sizeof(fjell::RefData));
 }
 
 TEST_CASE("An Asset is its data and nothing more", "[sdk]") {

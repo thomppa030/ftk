@@ -362,10 +362,14 @@ Node* Scene::find_child(uint32_t parent_id, std::string_view name) {
     return nullptr;
 }
 
-void* Scene::resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type) {
+Node* Scene::resolve_node(uint32_t node_id, uint32_t generation) {
     Node* node = find(node_id);
-    if (node == nullptr || node->generation != generation) return nullptr;
-    return node->component(type);
+    return node != nullptr && node->generation == generation ? node : nullptr;
+}
+
+void* Scene::resolve(uint32_t node_id, uint32_t generation, ComponentTypeId type) {
+    Node* node = resolve_node(node_id, generation);
+    return node != nullptr ? node->component(type) : nullptr;
 }
 
 void Scene::remember_gone(const Node& node) {

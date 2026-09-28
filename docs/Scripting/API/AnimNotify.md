@@ -182,11 +182,11 @@ struct AttackWindow : public fjell::AnimNotifyState {
     [[fj::property]] float damage{10.0f};
 
     void notify_begin(fjell::Node3D& owner) override {
-        if (auto* hb = owner.get_component<Hitbox>()) hb->enable(damage);
+        if (auto hb = owner.get_component<Hitbox>()) hb->enable(damage);
     }
     void notify_tick(fjell::Node3D&, float /*dt*/) override {}
     void notify_end(fjell::Node3D& owner) override {
-        if (auto* hb = owner.get_component<Hitbox>()) hb->disable();
+        if (auto hb = owner.get_component<Hitbox>()) hb->disable();
     }
 };
 ```

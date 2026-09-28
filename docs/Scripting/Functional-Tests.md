@@ -228,29 +228,27 @@ The trap test: a character walks forward until a trigger volume notices it.
 bool TrapTriggerTest::is_ready() {
     // It starts above the floor and is dropped onto it by gravity. Walking
     // before it lands would test a fall, not a walk.
-    character_id_ = fjell::scene::find_node(character.c_str());
-    if (character_id_ == 0) return false;
+    walker_ = fjell::scene::find_node(character.c_str());
+    if (!walker_) return false;
 
-    fjell::Node3D walker{character_id_};
-    auto* cc = walker.get_component<fjell::CharacterComponent>();
-    if (cc == nullptr) return false;
-    return cc->ground_state == fjell::CharacterGroundState::OnGround;
+    const auto cc = walker_->get_component<fjell::CharacterComponent>();
+    return cc && cc->ground_state == fjell::CharacterGroundState::OnGround;
 }
 
 void TrapTriggerTest::start_test() {
     time_limit = 5.0f;
-    start_position_ = fjell::Node3D{character_id_}.position();
+    start_position_ = walker_->position();
 
     // Walked by intent, the way a player's controller moves a character.
-    if (auto* cc = fjell::Node3D{character_id_}.get_component<fjell::CharacterComponent>()) {
+    if (auto cc = walker_->get_component<fjell::CharacterComponent>()) {
         cc->movement = fjell::CharacterMovement::Intent;
         cc->max_speed = walk_speed;
     }
 }
 
 void TrapTriggerTest::test_fixed_tick(const fjell::FixedStep&) {
-    auto* cc = fjell::Node3D{character_id_}.get_component<fjell::CharacterComponent>();
-    if (cc == nullptr) return;
+    const auto cc = walker_->get_component<fjell::CharacterComponent>();
+    if (!cc) return;
 
     // Straight ahead, every step: intent is cleared before each frame's
     // input, the way a released stick lets go of it.
@@ -258,10 +256,10 @@ void TrapTriggerTest::test_fixed_tick(const fjell::FixedStep&) {
 }
 
 void TrapTriggerTest::on_trigger_enter(uint32_t other_id) {
-    if (!assert_true(other_id == character_id_,
+    if (!assert_true(other_id == walker_.node_id(),
                      "the trap was entered by the character")) return;
 
-    const auto travelled = fjell::Node3D{character_id_}.position() - start_position_;
+    const auto travelled = walker_->position() - start_position_;
     assert_true(travelled.z > 0.0f, "the character walked forward");
     finish_test(fjell::TestResult::passed, "the trap fired");
 }

@@ -28,7 +28,7 @@ public:
     /// the Model's component, leaves it empty.
     /// @param name    As declared in the widget's `<model name>`. A name the
     ///                widget does not declare is reported once and ignored.
-    /// @param node_id The node, as `Node3D::id()` gives it.
+    /// @param node_id The node, as `ScriptComponent::id()` or `Ref::node_id()` gives it.
     FJELL_SDK_EXPORT void bind(const std::string& name, uint32_t node_id);
 
     /// Return the Model `name` to its `from` rule.

@@ -1,6 +1,7 @@
 # fjell::Ref&lt;T&gt;
 
-A reference to the component of type `T` on a node, which knows when it is gone.
+A reference to a node, `Ref<Node3D>`, or to the component of type `T` on a node, which
+knows when it is gone.
 
 | | |
 |---|---|
@@ -17,11 +18,13 @@ class Ref {
 public:
     Ref() = default;
     explicit Ref(uint32_t node_id);
+    Ref(const Node3D& node);   // explicit unless T is Node3D
 
     T*                     operator->() const;
     T&                     operator*()  const;
     [[nodiscard]] T*       get()     const;
     explicit operator bool()         const;
+    [[nodiscard]] Ref<Node3D> node() const;
     [[nodiscard]] uint32_t node_id() const;
     bool operator==(const Ref&)      const;
 };
@@ -29,14 +32,18 @@ public:
 }
 ```
 
-`T` is a component type: an engine component such as `RigidbodyComponent` or
-`ColliderComponent`, or any script component declared with `FJELL_COMPONENT`.
+`T` is [`Node3D`](Node3D.md) for the node itself, or a component type: an engine
+component such as `RigidbodyComponent` or `ColliderComponent`, or any script component
+declared with `FJELL_COMPONENT`.
 
 ## Remarks
 
 Hold it as a `[[fj::property]]` and pick the node in the inspector. The picker offers
-the nodes that carry a `T`, takes a node dragged from the hierarchy if it carries one,
-and says why when it does not. The scene file saves the node alone.
+the nodes that carry a `T` (any 3D node for a `Ref<Node3D>`), takes a node dragged from
+the hierarchy if it fits, and says why when it does not. The scene file saves the node
+alone. The engine hands them out too: [`scene::find_node`](scene_api.md#scenefind_node),
+[`scene::find<T>`](scene_api.md#scenefind), [`scene::spawn`](scene_api.md) and
+[`get_component`](Node3D.md#node3dget_component) all give a `Ref`.
 
 ```cpp
 class Hunter : public fjell::ScriptComponent {
@@ -86,10 +93,12 @@ next use. Components never move while they live, so what it kept stays right unt
 
 | Name | Description |
 |---|---|
-| [`Ref(node_id)`](#refref) | Refer to the `T` on a node |
+| [`Ref(node_id)`](#refref) | Refer to the `T` on a node, by id |
+| [`Ref(node)`](#refref-node) | Refer to the `T` on a node, or to the node |
 | [`operator->`, `operator*`](#refoperator-) | The target; stops the game when it is gone |
 | [`get`](#refget) | The target, or null |
 | [`operator bool`](#refoperator-bool) | Whether the target is there |
+| [`node`](#refnode) | The node the target sits on |
 | [`node_id`](#refnode_id) | The node it refers to |
 | [`operator==`](#refoperator) | The same node in the same life |
 
@@ -102,7 +111,23 @@ explicit Ref(uint32_t node_id);
 ```
 
 Refers to the `T` on node `node_id` as that node is now. The node need not carry a `T`
-yet: the reference finds nothing until it does.
+yet: the reference finds nothing until it does. For the engine calls that still hand out
+node ids rather than `Ref`s.
+
+---
+
+## Ref::Ref (node) <a id="refref-node"></a>
+
+```cpp
+Ref(const Node3D& node);   // explicit unless T is Node3D
+```
+
+Refers to the `T` on `node`. A `Ref<Node3D>` made this way is the node itself, and the
+conversion is implicit, so a script passes its own node wherever a `Ref<Node3D>` is taken:
+
+```cpp
+fjell::scene::spawn(lantern, pos, self());
+```
 
 ---
 
@@ -124,7 +149,8 @@ the node (see Remarks). The pointer is good for the rest of the call you are in.
 [[nodiscard]] T* get() const;
 ```
 
-The target, or null when there is none: never set, gone, or the node carries no `T`.
+The target, or null when there is none: never set, gone, or the node carries no `T` (for
+a `Ref<Node3D>`, is a folder rather than a 3D node).
 The pointer is good for the rest of the call you are in; ask again next frame rather than
 keeping it.
 
@@ -137,6 +163,22 @@ explicit operator bool() const;
 ```
 
 Whether the target is there now: the same as `get() != nullptr`.
+
+---
+
+## Ref::node
+
+```cpp
+[[nodiscard]] Ref<Node3D> node() const;
+```
+
+The node the target sits on, as a `Ref<Node3D>`: gone when that node is, whether or not it
+still carries a `T`. For a `Ref<Node3D>`, the same node.
+
+```cpp
+auto stats = fjell::scene::find<PlayerStats>();
+stats.node()->position();
+```
 
 ---
 
@@ -161,4 +203,4 @@ True when both refer to the same node in the same life.
 ## See also
 
 - [`Asset`](Asset.md) — references to engine assets: presets, sounds, materials
-- [`Node3D`](Node3D.md) — the node handle
+- [`Node3D`](Node3D.md) — what a node offers

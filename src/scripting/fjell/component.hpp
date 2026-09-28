@@ -10,7 +10,7 @@
 
 namespace fjell {
 
-struct Node3D;  // SDK handle — defined in fjell/node.hpp
+struct Node3D;  // the node as scripts see it — defined in fjell/node.hpp
 class ScriptManager;
 
 // Network peer identity. Identical alias to fjell/net_api.hpp's PeerId, so both
@@ -90,7 +90,7 @@ public:
 
     /// Called when this node's collider begins touching a solid (non-trigger)
     /// collider. Requires a ColliderComponent on both nodes.
-    /// @param other_id Node ID of the other collider — pass to `Node3D{other_id}`.
+    /// @param other_id Node ID of the other collider — `Ref<Node3D>{other_id}` refers to it.
     /// @param point    World-space contact position.
     /// @param normal   World-space contact normal, pointing away from the other body.
     virtual void on_collision_enter(uint32_t other_id, const glm::vec3& point, const glm::vec3& normal) {
@@ -138,8 +138,9 @@ public:
     /// @param peer The departing peer's ID.
     virtual void on_player_disconnected(PeerId peer) { (void)peer; }
 
-    /// Node ID of the node this component is attached to. Stable for the
-    /// node's lifetime; 0 is never a valid node.
+    /// Node ID of the node this component is attached to, for the engine
+    /// calls that still take ids. Stable for the node's lifetime; 0 is never
+    /// a valid node.
     [[nodiscard]] uint32_t id() const { return id_; }
 
     /// Name of the owning node, as shown in the editor hierarchy.
@@ -151,13 +152,15 @@ public:
     [[nodiscard]] Transform& transform() { return *transform_; }
     [[nodiscard]] const Transform& transform() const { return *transform_; }
 
-    /// Handle to the owning node, for component lookup, spawning, and destroy.
+    /// The node this component is on. It is there for as long as the script
+    /// is, so there is nothing to check; pass it where a `Ref<Node3D>` is
+    /// taken as it is.
     /// @code
-    /// if (auto* body = self().get_component<fjell::RigidbodyComponent>()) {
+    /// if (auto body = self().get_component<fjell::RigidbodyComponent>()) {
     ///     body->mass = 5.0f;
     /// }
     /// @endcode
-    inline Node3D self() const;  // defined in fjell/node.hpp
+    inline Node3D& self() const;  // defined in fjell/node.hpp
 
     // --- World state ---
 

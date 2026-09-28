@@ -36,7 +36,7 @@ enum class ColliderShape : uint8_t {
 /// on the same node to have a shape to collide with.
 ///
 /// @code
-/// if (auto* rb = self().get_component<fjell::RigidbodyComponent>()) {
+/// if (auto rb = self().get_component<fjell::RigidbodyComponent>()) {
 ///     rb->gravity_enabled = false;
 /// }
 /// @endcode
@@ -182,12 +182,12 @@ enum class CharacterMovement : uint8_t {
 ///
 /// @code
 /// void on_move(glm::vec2 stick) {
-///     if (auto* c = self().get_component<fjell::CharacterComponent>()) {
+///     if (auto c = self().get_component<fjell::CharacterComponent>()) {
 ///         c->move_intent = glm::vec3{stick.x, 0.0f, -stick.y};
 ///     }
 /// }
 /// void on_jump() {
-///     if (auto* c = self().get_component<fjell::CharacterComponent>()) c->jump();
+///     if (auto c = self().get_component<fjell::CharacterComponent>()) c->jump();
 /// }
 /// @endcode
 struct CharacterComponent {
