@@ -100,6 +100,9 @@ struct TrackedBuffer {
     VkBuffer buffer{VK_NULL_HANDLE};
     bool persistent{false};
     AccessState state;
+    /// The name it was declared under; kept only while the barrier trace
+    /// records.
+    std::string name;
 };
 
 // One pass's use of a buffer.
@@ -196,7 +199,8 @@ public:
     // Register a buffer to track and return its id; the same buffer again
     // in one run returns the existing id. A new entry starts from what the
     // graph remembers of the buffer, else with no write to wait for.
-    uint32_t register_buffer(VkBuffer buffer, bool persistent = false);
+    uint32_t register_buffer(VkBuffer buffer, bool persistent = false,
+                             std::string_view name = {});
 
     // Once per frame, before any run: forget the state of images and
     // buffers no run touched last frame, so a destroyed handle cannot come
@@ -388,6 +392,11 @@ private:
     std::unordered_map<uint64_t, uint32_t> virtual_index_;
 
     std::unordered_map<VkBuffer, uint32_t> buffer_index_;
+
+    /// Whether this run is in the barrier trace's window
+    /// (FJELL_LOG_BARRIERS), and which run of the frame it is.
+    bool tracing_{false};
+    uint32_t run_in_frame_{0};
 
     std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
     std::unordered_map<VkBuffer, RememberedBuffer> remembered_buffers_;
