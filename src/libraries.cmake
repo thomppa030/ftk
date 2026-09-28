@@ -21,6 +21,7 @@ fjell_library(core
         core/delegate.hpp
         core/handle.hpp
         core/handle_pool.hpp
+        core/small_vector.hpp
         core/log.hpp
         core/math/clipmap.hpp
         core/math/color_space.hpp

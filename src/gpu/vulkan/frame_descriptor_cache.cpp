@@ -153,12 +153,8 @@ VkDescriptorSet FrameDescriptorCache::acquire(VkDescriptorSetLayout layout,
     std::lock_guard lock(mutex_);
     auto& slot = slots_[current_frame_];
 
-    FrameCacheKey key{};
-    key.layout = layout;
-    key.bindings.assign(bindings.begin(), bindings.end());
-
-    auto it = slot.cache.find(key);
-    if (it != slot.cache.end()) {
+    // A hit copies nothing; only a new set keeps a key of its own.
+    if (auto it = slot.cache.find(FrameCacheKeyView{layout, bindings}); it != slot.cache.end()) {
         ++stats_.hits_this_frame;
         return it->second;
     }
@@ -184,7 +180,7 @@ VkDescriptorSet FrameDescriptorCache::acquire(VkDescriptorSetLayout layout,
     }
 
     write_bindings(set, bindings);
-    slot.cache.emplace(std::move(key), set);
+    slot.cache.emplace(FrameCacheKey{layout, {bindings.begin(), bindings.end()}}, set);
     ++stats_.sets_this_frame;
     return set;
 }
