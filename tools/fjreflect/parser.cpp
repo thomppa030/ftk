@@ -896,7 +896,7 @@ private:
     static bool is_field_attribute(const std::string& name) {
         static const char* names[] = {"property", "bind", "state", "model", "prop", "range", "step",
                                       "tooltip", "category", "color", "enum", "readonly",
-                                      "replicated", "shader_type"};
+                                      "replicated", "shader_type", "required"};
         return std::any_of(std::begin(names), std::end(names),
                            [&](const char* n) { return name == n; });
     }
@@ -1067,6 +1067,13 @@ private:
             add_state_field(comp, m, std::move(fi));
             return;
         }
+        // Required is checked on the scene's scripts before it plays: a
+        // reference a widget, a notify or runtime state holds is not.
+        if (fi.is_required && (fi.is_state || comp.is_ui_component || comp.is_notify)) {
+            error(m.line, "[[fj::required]] on '" + m.name + "' belongs on a [[fj::property]] of a script "
+                          "component: that is what is checked before the scene plays");
+            return;
+        }
         if (fi.is_state && has_attribute(m, "property")) {
             error(m.line, "'" + m.name + "' is either authored ([[fj::property]]) or runtime state "
                           "([[fj::state]]), not both");
@@ -1153,6 +1160,11 @@ private:
         }
         if (auto message = shader_type_error(fi); !message.empty()) {
             error(m.line, message);
+            return false;
+        }
+        if (fi.is_required && fi.fj_field_type != "FJELL_FIELD_REF" && fi.fj_field_type != "FJELL_FIELD_ASSET") {
+            error(m.line, "[[fj::required]] needs a Ref<T> or Asset<T>, got '" + fi.cpp_type + "' on '" + fi.name +
+                              "': it says a reference must be set before the scene plays");
             return false;
         }
         return true;
@@ -1333,12 +1345,13 @@ private:
             };
             const bool takes_none = a.name == "property" || a.name == "bind" || a.name == "state" ||
                                     a.name == "model" || a.name == "prop" || a.name == "color" || a.name == "readonly" ||
-                                    a.name == "replicated";
+                                    a.name == "replicated" || a.name == "required";
             if (takes_none) {
                 if (a.has_args) return bad("no arguments");
                 if (a.name == "color") fi.is_color = true;
                 if (a.name == "readonly") fi.is_readonly = true;
                 if (a.name == "replicated") fi.is_replicated = true;
+                if (a.name == "required") fi.is_required = true;
             } else if (a.name == "range") {
                 if (args.size() != 2 || !read_number(args[0], fi.hint_min) ||
                     !read_number(args[1], fi.hint_max)) {

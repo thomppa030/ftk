@@ -206,6 +206,25 @@ public:
 
     void dispatch_collision_events(Scene& scene, class PhysicsWorld& physics);
 
+    /// A [[fj::required]] field of a script that is not set, or set to
+    /// something that is not there.
+    struct UnsetRequired {
+        uint32_t node_id{0};  ///< the node the script is on
+        /// "DoorController on 'Door' requires `hinge` (a Ref<Node3D>), but it
+        /// was never set"
+        std::string message;
+    };
+
+    /// Why the scene may not play: every required field of its scripts that
+    /// finds nothing, in scene order. Empty when it may.
+    [[nodiscard]] std::vector<UnsetRequired> unset_required(Scene& scene) const;
+
+    /// At play start, before any begin_play: when a required field finds
+    /// nothing, halts the game library with the list, which stops play at the
+    /// end of the frame as a gone Ref does, selecting the first node in the
+    /// editor. Returns whether the scene may play.
+    bool refuse_unset_required(Scene& scene);
+
     // Network connection events: call every script component's on_player_*
     // virtual. Fired on the server when a peer connects/disconnects. peer is the
     // connecting/leaving PeerId (uint32_t in the SDK).
@@ -266,6 +285,10 @@ private:
     /// character.
     [[nodiscard]] static bool simulation_owns(const Node& node);
     [[nodiscard]] static SimulatedState simulated_state(const Node& node);
+    /// Calls fn(node, index) for every live script, by its place in its node's
+    /// list, in the order run_scripts() takes them.
+    template <typename Fn>
+    void each_script(Scene& scene, Fn&& fn);
     /// Run a hook on every live script, type by type in tick order and, within
     /// a type, in the order its scripts joined the scene.
     template <typename Hook>

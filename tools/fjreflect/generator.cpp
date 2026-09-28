@@ -41,6 +41,7 @@ std::string flags_of(const FieldInfo& f) {
     if (f.is_getter) add("FJELL_FIELD_FLAG_GETTER");
     if (f.is_model) add("FJELL_FIELD_FLAG_MODEL");
     if (f.is_prop) add("FJELL_FIELD_FLAG_PROP");
+    if (f.is_required) add("FJELL_FIELD_FLAG_REQUIRED");
     return out.empty() ? "0" : out;
 }
 

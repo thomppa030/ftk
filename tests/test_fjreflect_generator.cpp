@@ -86,6 +86,28 @@ public:
     fs::remove_all(dir);
 }
 
+TEST_CASE("A required field carries its flag to the engine", "[fjreflect]") {
+    const auto dir = scratch_dir("required");
+    const auto comps = parse_components(dir, "gate.hpp", R"(
+class Gate : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Gate)
+public:
+  [[fj::property, fj::required]] fjell::Ref<fjell::Node3D> hinge;
+  [[fj::property]] fjell::Ref<fjell::Node3D> latch;
+};
+)");
+    const std::string generated = fjreflect::generate(comps).at("gate.generated.cpp");
+
+    const auto row = [&](const std::string& name) {
+        const auto at = generated.find("{\"" + name + "\"");
+        REQUIRE(at != std::string::npos);
+        return generated.substr(at, generated.find('\n', at) - at);
+    };
+    REQUIRE(row("hinge").find("FJELL_FIELD_FLAG_REQUIRED") != std::string::npos);
+    REQUIRE(row("latch").find("FJELL_FIELD_FLAG_REQUIRED") == std::string::npos);
+    fs::remove_all(dir);
+}
+
 TEST_CASE("Every component in a header lands in that header's files", "[fjreflect]") {
     const auto dir = scratch_dir("pair");
     const auto comps = parse_components(dir, "pair.hpp", R"(

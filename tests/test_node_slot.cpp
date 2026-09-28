@@ -114,6 +114,35 @@ TEST_CASE("Clearing a node slot empties it", "[ui][node_slot]") {
     CHECK(t.changes == 1);
 }
 
+TEST_CASE("A required node slot says so under itself while it is empty", "[ui][node_slot]") {
+    ImGuiHarness h;
+    Cave cave;
+    uint32_t node = 0;
+    bool required = true;
+    float below = 0.0f;
+    h.set_ui([&] {
+        NodeSlotConfig config = cave.config();
+        config.required = required;
+        ImGui::SetNextItemWidth(240.0f);
+        node_slot(config, node);
+        below = ImGui::GetCursorScreenPos().y;
+    });
+
+    h.step(2);
+    const float empty_required = below;
+    node = cave.goblin;
+    h.step(2);
+    const float set_required = below;
+    node = 0;
+    required = false;
+    h.step(2);
+    const float empty_optional = below;
+
+    CHECK(empty_required > set_required);
+    CHECK(empty_optional == set_required);
+    ui::grouped_picker::close();
+}
+
 TEST_CASE("A node's parent path runs from the root down", "[ui][node_slot]") {
     Cave cave;
     const uint32_t spawns = cave.scene.add_empty({}, "Spawns");

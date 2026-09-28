@@ -26,12 +26,15 @@ struct AssetRefConfig {
     /// The file the slot holds failed to load: it reads as missing, as a file
     /// that is gone does, though it is there.
     bool failed{false};
+    /// Empty is a problem: the scene cannot play until the slot is set.
+    bool required{false};
 };
 
 /// A field holding an asset reference, for the value column of a property
 /// row: the asset's kind icon and name (the path in the tooltip), "None" when
 /// empty and "missing: name" when the file is gone or failed to load
-/// (`config.failed`). Clicking it opens a
+/// (`config.failed`); a `required` slot left empty says it is required under
+/// the field. Clicking it opens a
 /// searchable picker of every asset the field takes, the content browser's
 /// selection first; an asset dragged onto it is taken if it fits and refused,
 /// with the reason, if it doesn't. A clear button follows it, disabled while

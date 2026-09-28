@@ -71,7 +71,8 @@ ui::Edit draw_asset_ref(const OwnedFieldDesc& f, AssetData& ref, const Inspector
                         asset_entry->resolve(*ctx.resource_manager, ref.handle_id) == nullptr;
     const std::string exts[] = {asset_entry->extension};
     if (!asset_slot({.label = f.name.c_str(), .id = "##ref", .extensions = exts, .ctx = &ctx,
-                     .asset_type = asset_entry, .shader_types = f.shader_types, .failed = failed},
+                     .asset_type = asset_entry, .shader_types = f.shader_types, .failed = failed,
+                     .required = f.is_required()},
                     path)) {
         return {};
     }
@@ -112,6 +113,7 @@ ui::Edit draw_component_ref(const OwnedFieldDesc& f, RefData& ref, const Scene* 
             if (carries) return {};
             return candidate.name + " has no " + type + "; this field refers to a " + type + ".";
         },
+        .required = f.is_required(),
     };
     if (!node_slot(slot, node)) return {};
     ref = {.node_id = node, .generation = node != 0 && scene != nullptr ? scene->generation_of(node) : 0};

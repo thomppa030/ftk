@@ -78,6 +78,22 @@ void tick(float) override {
 
 A destructor cannot let an exception out, so use `get()` there, never `->`.
 
+**A reference the script cannot do without is `[[fj::required]]`.** The scene then does
+not play without it: the inspector says so under the field while it is empty, and entering
+Play or `--run-tests` with it empty, or set to a node that is gone or carries no `T`, stops
+before any `begin_play()` runs, with every such field listed and the first one's node
+selected. A forgotten field shows as the scene starts rather than whenever the script first
+reaches for it. `fj::required` implies `fj::property`; on anything but a `Ref` or an
+`Asset` of a script component it is a build error.
+
+```cpp
+[[fj::required]] fjell::Ref<PlayerStats> player;
+```
+
+```
+The scene cannot play: Hud on 'Hud' requires `player` (a Ref<PlayerStats>), but it was never set
+```
+
 **It knows when its target is gone.** A `Ref` finds nothing once its node is destroyed
 or taken out of the scene, once the node no longer carries a `T`, and while the game
 library reloads. It never finds another node that later took the same id, after a scene

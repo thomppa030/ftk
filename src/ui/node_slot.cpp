@@ -145,7 +145,8 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
     const ui::SlotFace face = describe(config, node, held, text);
     // A node that was taken and has since stopped fitting: a script removed
     // from it, say.
-    const std::string problem = held != nullptr && config.refusal ? config.refusal(*held) : std::string();
+    std::string problem = held != nullptr && config.refusal ? config.refusal(*held) : std::string();
+    if (node == 0 && config.required) problem = ui::REQUIRED_PROBLEM;
     if (slot.finish(face, node == 0, problem)) {
         node = 0;
         changed = true;

@@ -90,6 +90,33 @@ void halt_for_missing(const fjell::ScriptCall* call, const std::string& what, co
                               .node_id = script_node});
 }
 
+/// Why a Ref finds nothing of `type_id`, by the name the node it was set to
+/// had: from the node itself while it is there, from what the scene
+/// remembers once it is gone.
+std::string why_ref_finds_nothing(const fjell::Scene* scene, const fjell::RefData& ref, uint32_t type_id) {
+    if (ref.node_id == 0) return "it was never set";
+    const fjell::Node* target = scene != nullptr ? scene->find(ref.node_id) : nullptr;
+    if (target != nullptr && target->generation == ref.generation) {
+        return type_id == FJELL_NODE_TYPE ? "'" + target->name + "' is not a 3D node"
+                                          : "'" + target->name + "' has no " + component_name(type_id);
+    }
+    const std::string_view name = scene != nullptr ? scene->name_of_gone(ref.node_id, ref.generation)
+                                                   : std::string_view();
+    if (!name.empty()) return "'" + std::string(name) + "' is gone";
+    return "the node it was set to (id " + std::to_string(ref.node_id) + ") is gone";
+}
+
+/// Why an Asset finds nothing: never set, or its file failed to load.
+std::string why_asset_finds_nothing(const fjell::AssetData& data) {
+    if (data.handle_id == 0) return "it was never set";
+    std::string path;
+    const auto* entry = fjell::AssetTypeRegistry::instance().find_by_id(data.asset_type_id);
+    if (entry != nullptr && entry->path_of != nullptr && s_services.resources != nullptr) {
+        path = entry->path_of(*s_services.resources, data.handle_id);
+    }
+    return path.empty() ? "its file failed to load" : "'" + path + "' failed to load";
+}
+
 } // namespace
 
 // A Ref was used with nothing there. The game library throws right after
@@ -103,26 +130,8 @@ extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_i
     if (const auto* field = call != nullptr ? field_at(*call, ref, FJELL_FIELD_REF) : nullptr) {
         what = "`" + field->name + "` (a Ref<" + target_type + ">)";
     }
-
-    // What it was set to, by the name that node had: from the node itself
-    // while it is there, from what the scene remembers once it is gone.
-    const uint32_t generation = static_cast<const fjell::RefData*>(ref)->generation;
-    const fjell::Scene* scene = s_services.scene;
-    const fjell::Node* target = scene != nullptr ? scene->find(node_id) : nullptr;
-    std::string why;
-    if (node_id == 0) {
-        why = "it was never set";
-    } else if (target != nullptr && target->generation == generation) {
-        why = type_id == FJELL_NODE_TYPE ? "'" + target->name + "' is not a 3D node"
-                                         : "'" + target->name + "' has no " + target_type;
-    } else if (const std::string_view name = scene != nullptr ? scene->name_of_gone(node_id, generation)
-                                                              : std::string_view();
-               !name.empty()) {
-        why = "'" + std::string(name) + "' is gone";
-    } else {
-        why = "the node it was set to (id " + std::to_string(node_id) + ") is gone";
-    }
-    halt_for_missing(call, what, why);
+    const fjell::RefData data{.node_id = node_id, .generation = static_cast<const fjell::RefData*>(ref)->generation};
+    halt_for_missing(call, what, why_ref_finds_nothing(s_services.scene, data, type_id));
 }
 
 // An Asset was handed to an SDK call unset, or holding a file that failed to
@@ -140,16 +149,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_asset_missing(const void* asset) {
                                                 : std::string();
     const std::string kind = type.empty() ? "an Asset" : "an Asset<" + type + ">";
     const std::string what = field != nullptr ? "`" + field->name + "` (" + kind + ")" : kind;
-
-    std::string why = "it was never set";
-    if (data.handle_id != 0) {
-        std::string path;
-        if (entry != nullptr && entry->path_of != nullptr && s_services.resources != nullptr) {
-            path = entry->path_of(*s_services.resources, data.handle_id);
-        }
-        why = path.empty() ? "its file failed to load" : "'" + path + "' failed to load";
-    }
-    halt_for_missing(call, what, why);
+    halt_for_missing(call, what, why_asset_finds_nothing(data));
 }
 
 // ── Asset<T> resolution (called from game .so) ───────────────────────────
@@ -726,6 +726,20 @@ void run_script_hook(const Node& node, const std::string& type_name, ScriptCompo
 
 } // namespace
 
+template <typename Fn>
+void ScriptManager::each_script(Scene& scene, Fn&& fn) {
+    for (const OwnedScriptType* type : tick_order_) {
+        scene.each_component(type->component.id, [&](Node& node, void* component) {
+            for (std::size_t i = 0; i < node.scripts.size(); ++i) {
+                if (node.scripts[i].instance.get() == component) {
+                    fn(node, i);
+                    break;
+                }
+            }
+        });
+    }
+}
+
 template <typename Hook>
 void ScriptManager::run_scripts(Scene& scene, const char* hook_name, Hook&& hook) {
     for (const OwnedScriptType* type : tick_order_) {
@@ -929,6 +943,56 @@ void ScriptManager::start_script(Node& node, std::size_t index) {
     });
 }
 
+std::vector<ScriptManager::UnsetRequired> ScriptManager::unset_required(Scene& scene) const {
+    std::vector<UnsetRequired> unset;
+    for (const auto& node : scene.objects()) {
+        for (const ScriptEntry& entry : node->scripts) {
+            const OwnedScriptType* type = entry.instance ? find_script_type(entry.type_name) : nullptr;
+            if (type == nullptr) continue;
+            const auto* base = reinterpret_cast<const std::byte*>(entry.instance.get());
+            for (const OwnedFieldDesc& f : type->fields) {
+                if (!f.is_required()) continue;
+                std::string what;
+                std::string why;
+                if (f.type == FJELL_FIELD_REF) {
+                    const auto& ref = *reinterpret_cast<const RefData*>(base + f.offset);
+                    const uint32_t target = f.ref_type_name == "Node3D"
+                                                ? FJELL_NODE_TYPE
+                                                : component_id_by_script_name(f.ref_type_name);
+                    if (ref.node_id != 0 && resolve_ref(scene, ref.node_id, ref.generation, target) != nullptr) {
+                        continue;
+                    }
+                    what = "a Ref<" + f.ref_type_name + ">";
+                    why = why_ref_finds_nothing(&scene, ref, target);
+                } else if (f.type == FJELL_FIELD_ASSET) {
+                    const auto& asset = *reinterpret_cast<const AssetData*>(base + f.offset);
+                    if (fjell_asset_resolve(asset.handle_id, asset.asset_type_id) != nullptr) continue;
+                    what = "an Asset<" + f.ref_type_name + ">";
+                    why = why_asset_finds_nothing(asset);
+                } else {
+                    continue;
+                }
+                unset.push_back({.node_id = node->id,
+                                 .message = entry.type_name + " on '" + node->name + "' requires `" + f.name +
+                                            "` (" + what + "), but " + why});
+            }
+        }
+    }
+    return unset;
+}
+
+bool ScriptManager::refuse_unset_required(Scene& scene) {
+    const std::vector<UnsetRequired> unset = unset_required(scene);
+    if (unset.empty()) return true;
+    std::string message = "The scene cannot play: ";
+    for (std::size_t i = 0; i < unset.size(); ++i) {
+        if (i > 0) message += "; ";
+        message += unset[i].message;
+    }
+    halt_script_calls({.message = std::move(message), .node_id = unset.front().node_id});
+    return false;
+}
+
 void ScriptManager::call_begin_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_begin_play");
     // begin_play() may spawn nodes (e.g. a server spawning a player on connect);
@@ -936,16 +1000,7 @@ void ScriptManager::call_begin_play(Scene& scene) {
     // are started with everything else that joins the game, by whoever
     // flushes spawns next.
     Scene::TickLock tick_lock(scene);
-    for (const OwnedScriptType* type : tick_order_) {
-        scene.each_component(type->component.id, [&](Node& node, void* component) {
-            for (std::size_t i = 0; i < node.scripts.size(); ++i) {
-                if (node.scripts[i].instance.get() == component) {
-                    start_script(node, i);
-                    break;
-                }
-            }
-        });
-    }
+    each_script(scene, [&](Node& node, std::size_t index) { start_script(node, index); });
 }
 
 void ScriptManager::initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids) {
@@ -978,7 +1033,12 @@ void ScriptManager::call_end_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_end_play");
     // An end_play that spawns must not move the list under this loop.
     Scene::TickLock tick_lock(scene);
-    run_scripts(scene, "end_play", [](ScriptComponent& script) { script.end_play(); });
+    // Only a script whose begin_play ran ends: a scene refused as it was
+    // about to play began none.
+    each_script(scene, [](Node& node, std::size_t index) {
+        if (!node.scripts[index].started) return;
+        run_hook_on(node, index, "end_play", [](ScriptComponent& script) { script.end_play(); });
+    });
     timers_.clear();
 }
 

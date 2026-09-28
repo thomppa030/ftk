@@ -27,31 +27,39 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name) {
     return node != nullptr ? node->id : 0;
 }
 
-// The type id scripts know by `type_name`. The library's own script types
-// come first: a script type may share a name only with an engine component
-// the library has no mirror of (the load refuses the others), so to that
-// library the name means its script. The answer holds for as long as the
-// library is loaded, and the SDK asks once per type.
-extern "C" FJELL_SDK_EXPORT uint32_t fjell_component_type_id(const char* type_name) {
-    if (!type_name) return FJELL_NO_COMPONENT_TYPE;
-    if (auto* manager = fjell::script_services().manager) {
-        if (const auto* type = manager->find_script_type(type_name)) return type->component.id;
+namespace fjell {
+
+// The library's own script types come first: a script type may share a name
+// only with an engine component the library has no mirror of (the load
+// refuses the others), so to that library the name means its script.
+uint32_t component_id_by_script_name(std::string_view type_name) {
+    if (auto* manager = script_services().manager) {
+        if (const auto* type = manager->find_script_type(std::string(type_name))) return type->component.id;
     }
-    if (auto id = fjell::ComponentRegistry::instance().find_id_by_script_name(type_name)) return *id;
+    if (auto id = ComponentRegistry::instance().find_id_by_script_name(type_name)) return *id;
     return FJELL_NO_COMPONENT_TYPE;
 }
 
-// What a Ref finds: the component of `type_id` on the node, or for a
-// Ref<Node3D> the node itself when it is a 3D node.
+void* resolve_ref(Scene& scene, uint32_t node_id, uint32_t generation, uint32_t type_id) {
+    if (type_id == FJELL_NODE_TYPE) {
+        Node* node = scene.resolve_node(node_id, generation);
+        return node != nullptr ? static_cast<void*>(node->as_spatial()) : nullptr;
+    }
+    return scene.resolve(node_id, generation, type_id);
+}
+
+} // namespace fjell
+
+// The answer holds for as long as the library is loaded, and the SDK asks
+// once per type.
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_component_type_id(const char* type_name) {
+    return type_name != nullptr ? fjell::component_id_by_script_name(type_name) : FJELL_NO_COMPONENT_TYPE;
+}
+
 extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t node_id, uint32_t generation,
                                                    uint32_t type_id) {
     auto* scene = fjell::script_services().scene;
-    if (scene == nullptr) return nullptr;
-    if (type_id == FJELL_NODE_TYPE) {
-        fjell::Node* node = scene->resolve_node(node_id, generation);
-        return node != nullptr ? static_cast<void*>(node->as_spatial()) : nullptr;
-    }
-    return scene->resolve(node_id, generation, type_id);
+    return scene != nullptr ? fjell::resolve_ref(*scene, node_id, generation, type_id) : nullptr;
 }
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_generation(uint32_t node_id) {

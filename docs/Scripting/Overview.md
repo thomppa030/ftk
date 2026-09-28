@@ -200,6 +200,7 @@ class Coin : public fjell::ScriptComponent {
 
 What gets reflected depends on context:
 - **`[[fj::property]]`** — on `ScriptComponent` fields. Shows up in the scene properties panel.
+- **`[[fj::required]]`** — on a `ScriptComponent`'s `Ref` or `Asset` fields, implying `[[fj::property]]`: the scene does not play until it is set to something that is there (see [Reference types](#reference-types)).
 - **`[[fj::action]]`** — on `UiWidget` methods taking nothing, an `int`, a `float` or a `glm::vec2`, private ones too. Markup calls them by name, `on:click="select_slot({slot.key})"`, with the argument converted to the parameter's type.
 - **`[[fj::state]]`** — on fields and `const` getters of any component: runtime values the game UI can read. Shown in the properties panel but not editable, and never saved. A state field may hold a value, a struct or a `std::vector` of either; a getter returns a value and runs each time it is read, so keep it cheap.
 - **`[[fj::model]]`** — on `UiWidget` fields holding a struct: a Model the widget's markup reads by the field's name, `{hud.selected}` for `[[fj::model]] HudModel hud`. The struct is reflected in full, every public member with no attribute needed (see [Widgets](../Game-UI/Widgets.md#models)).
@@ -285,6 +286,17 @@ void tick(float) override {
 `->` reaches the target with nothing to check, and using it after the target is gone
 stops the game, naming the script, the field and the node. Where absence is expected,
 check with `if (target)` or `get()`. See [`Ref`](API/Ref.md).
+
+### Required references
+A `Ref` or `Asset` the script cannot do without is marked `[[fj::required]]`. The scene
+then does not play until it is set: the inspector says so under the empty field, and
+entering Play with it empty, or pointing at nothing, stops before any `begin_play()` with
+every such field listed. The mistake shows when the scene starts, not at the first use.
+
+```cpp
+[[fj::required]] fjell::Ref<PlayerStats> player;
+[[fj::required]] fjell::Asset<fjell::Preset> enemy;
+```
 
 ### Raw pointers
 Avoid them across the hot-reload boundary. Within one call, a raw `T*` from a `Ref`'s `get()` is fine; storing one in a member is asking for a use-after-reload. Hold the `Ref<T>` instead.

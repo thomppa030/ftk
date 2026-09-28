@@ -433,6 +433,45 @@ class Hunter : public fjell::ScriptComponent {
     CHECK(hunter->fields[1].ref_target == "RigidbodyComponent");
 }
 
+TEST_CASE("[[fj::required]] marks a Ref or Asset property of a script", "[fjreflect]") {
+    auto result = parse_header("required.hpp", R"(
+class Gate : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Gate)
+public:
+  [[fj::property, fj::required]] fjell::Ref<fjell::Node3D> hinge;
+  [[fj::property, fj::required]] fjell::Asset<fjell::Preset> guard;
+  [[fj::property]] fjell::Ref<Door> door;
+};
+)");
+    REQUIRE(result.errors.empty());
+    REQUIRE(find_field(result, "hinge")->is_required);
+    REQUIRE(find_field(result, "guard")->is_required);
+    REQUIRE_FALSE(find_field(result, "door")->is_required);
+}
+
+TEST_CASE("[[fj::required]] anywhere else is an error", "[fjreflect]") {
+    auto result = parse_header("misrequired.hpp", R"(
+class Gate : public fjell::ScriptComponent {
+  FJELL_COMPONENT(Gate)
+public:
+  [[fj::property, fj::required]] float speed = 1.0f;
+  [[fj::state, fj::required]] fjell::Ref<fjell::Node3D> seen;
+  [[fj::property, fj::required(true)]] fjell::Ref<fjell::Node3D> hinge;
+};
+class Hud : public fjell::UiWidget {
+  FJELL_UI_WIDGET(Hud)
+public:
+  [[fj::property, fj::required]] fjell::Asset<fjell::Preset> icon;
+};
+)");
+    REQUIRE(has_error(result, "misrequired.hpp:5: error: [[fj::required]] needs a Ref<T> or Asset<T>, got 'float'"));
+    REQUIRE(has_error(result, "misrequired.hpp:6: error: [[fj::required]] on 'seen' belongs on a [[fj::property]] "
+                              "of a script component"));
+    REQUIRE(has_error(result, "misrequired.hpp:7: error: [[fj::required]] on 'hinge' expects no arguments"));
+    REQUIRE(has_error(result, "misrequired.hpp:12: error: [[fj::required]] on 'icon' belongs on a "
+                              "[[fj::property]] of a script component"));
+}
+
 TEST_CASE("A script component says how it ticks on its class head", "[fjreflect]") {
     auto result = parse_header("tick.hpp", R"(
 class [[fj::tick(order = 10)]] Follower : public fjell::ScriptComponent {

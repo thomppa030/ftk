@@ -26,7 +26,9 @@ public:
         manager_.prepare(ctx.scene, ctx.input, ctx.clock, ctx.physics);
         manager_.deserialize_all(ctx.scene);
         manager_.set_playing(true);
-        manager_.call_begin_play(ctx.scene);
+        // A scene that leaves a required reference unset does not play: no
+        // script begins, and the halt stops play at the end of the frame.
+        if (manager_.refuse_unset_required(ctx.scene)) manager_.call_begin_play(ctx.scene);
     }
 
     void on_play_stop(const TickContext& ctx) override {

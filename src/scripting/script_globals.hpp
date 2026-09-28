@@ -64,4 +64,14 @@ ScriptServices& script_services();
 /// the kind scripts write `type_name` for (`"Weather"`): unset for 0.
 [[nodiscard]] AssetData script_asset(std::string_view type_name, uint32_t handle_id);
 
+/// The component type id scripts know by `type_name`, or
+/// FJELL_NO_COMPONENT_TYPE: a script type of the loaded game library, else an
+/// engine component the library has no script of that name for.
+[[nodiscard]] uint32_t component_id_by_script_name(std::string_view type_name);
+
+/// What a Ref finds in `scene`: the component of `type_id` on the node in its
+/// `generation`th life, or for FJELL_NODE_TYPE the node itself when it is a
+/// 3D node. Null when there is none.
+[[nodiscard]] void* resolve_ref(Scene& scene, uint32_t node_id, uint32_t generation, uint32_t type_id);
+
 } // namespace fjell

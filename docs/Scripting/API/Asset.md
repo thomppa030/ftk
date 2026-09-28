@@ -65,6 +65,15 @@ void begin_play() override {
 }
 ```
 
+A field that must always be set can say so with `[[fj::required]]`, which implies
+`fj::property`. The scene then does not play while it is empty or its file failed to load:
+the inspector marks the empty field, and entering Play or `--run-tests` stops before any
+`begin_play()` runs, listing every such field, as for a [required `Ref`](Ref.md#remarks).
+
+```cpp
+[[fj::required]] fjell::Asset<fjell::Preset> enemy;
+```
+
 **A file that fails to load is kept.** The field goes on naming it: the inspector shows
 it as missing, saving the scene writes it back rather than erasing it, and the report says
 which file failed. The next time the scene loads, the file is tried again, and a field

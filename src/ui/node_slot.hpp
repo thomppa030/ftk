@@ -21,6 +21,8 @@ struct NodeSlotConfig {
     /// the default an empty slot stands for ("Local player").
     const char* empty_glyph{nullptr};
     std::string_view empty_text{"None"};
+    /// Empty is a problem: the scene cannot play until the slot is set.
+    bool required{false};
 };
 
 /// A field holding a scene node, for the value column of a property row: the
@@ -29,8 +31,9 @@ struct NodeSlotConfig {
 /// searchable picker of the nodes the slot takes, each with its parent path;
 /// a node dragged from the hierarchy is taken if it fits and refused, with
 /// the reason, if it doesn't. A clear button follows it, disabled while it is
-/// empty. A held node that is gone reads "missing: the node is gone", and one
-/// that no longer fits says why under the field. Returns true when `node`
+/// empty. A held node that is gone reads "missing: the node is gone", one
+/// that no longer fits says why under the field, and a `required` slot left
+/// empty says it is required. Returns true when `node`
 /// changed, 0 meaning empty; every change is a finished edit.
 bool node_slot(const NodeSlotConfig& config, uint32_t& node);
 

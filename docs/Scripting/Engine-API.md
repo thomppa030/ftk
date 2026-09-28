@@ -74,6 +74,7 @@ built against another engine is refused rather than misread; `AnimatorComponent`
 | Annotation | Where | Description |
 |---|---|---|
 | `[[fj::property]]` | `ScriptComponent` field | Reflected; shown in scene properties panel; serialized to `.fjscene` |
+| `[[fj::required]]` | `Ref` or `Asset` field of a `ScriptComponent` | Must be set, to something that is there, before the scene plays; implies `[[fj::property]]` |
 | `[[fj::state]]` | field or `const` getter | Runtime value the game UI reads; shown, never saved |
 | `[[fj::model]]` | `UiWidget` struct field | A Model the widget's markup reads by the field's name |
 | `[[fj::prop]]` | `UiWidget` field | Filled from the widget's prop of the same name |

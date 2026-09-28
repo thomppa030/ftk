@@ -99,8 +99,11 @@ template <typename T>
 /// Looking it up is cheap: it keeps what it found until anything anywhere
 /// goes away, and only then asks the engine again.
 ///
+/// A field marked `[[fj::required]]` keeps the scene from playing until it is
+/// set to a node carrying a T.
+///
 /// @code
-/// [[fj::property]] fjell::Ref<PlayerStats> player;   // always there
+/// [[fj::required]] fjell::Ref<PlayerStats> player;   // always there
 /// [[fj::property]] fjell::Ref<Enemy> target;          // may be killed
 /// [[fj::property]] fjell::Ref<fjell::Node3D> door;
 ///

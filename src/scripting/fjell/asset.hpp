@@ -52,10 +52,11 @@ struct AssetData {
 /// `scene::spawn(enemy, ...)`. **Handing over one with nothing there stops the
 /// game**, shipped builds included, naming the script, the field and the node:
 /// an unset field, or one whose file failed to load. Where leaving it empty is
-/// meant, check with `if (asset)` first.
+/// meant, check with `if (asset)` first. A field marked `[[fj::required]]`
+/// keeps the scene from playing until it is set to a file that loads.
 ///
 /// @code
-/// [[fj::property]] fjell::Asset<fjell::Preset> enemy;        // always set
+/// [[fj::required]] fjell::Asset<fjell::Preset> enemy;        // always set
 /// [[fj::property]] fjell::Asset<fjell::Audio> spawn_sound;   // optional
 ///
 /// void begin_play() override {

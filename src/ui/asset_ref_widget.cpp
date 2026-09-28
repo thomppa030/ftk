@@ -208,8 +208,9 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
 
     // What is wrong with what the field holds: a scene written by hand or
     // before the slot said what it takes.
-    const std::string problem =
+    std::string problem =
         has_value && !missing ? shader_type_refusal(path, project, config.shader_types) : std::string();
+    if (!has_value && config.required) problem = ui::REQUIRED_PROBLEM;
     if (slot.finish(face, !has_value, problem)) {
         path.clear();
         changed = true;
