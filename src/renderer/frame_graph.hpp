@@ -62,6 +62,9 @@ struct TrackedImage {
     uint32_t array_layers{1};
     uint32_t base_layer{0};
     bool persistent{false};   // state carries across begin_frame()
+    /// Where the image rests between the passes that declare it; empty when
+    /// only the graph's passes touch it.
+    gpu::AccessSet resting{};
 
     // Transient resources declared through PassBuilder::create(). For
     // C2 (lifetime analysis + bin-packing bookkeeping) these hold only
@@ -187,14 +190,15 @@ class FrameGraph {
 public:
     // Register an image to track and return its id. Registering the same
     // image and layer range again in one run returns the existing id. A new
-    // entry starts from what the graph remembers of the image, else from
-    // `initial_layout`. `name` is only for the layout trace.
+    // entry starts from what the graph remembers of the image, else at rest
+    // when it has a resting access, else from `initial_layout`. `name` is
+    // only for the traces.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                             uint32_t base_layer = 0, uint32_t layer_count = 1,
                             uint32_t mip_count = 1,
                             bool persistent = false,
                             VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                            std::string_view name = {});
+                            std::string_view name = {}, gpu::AccessSet resting = {});
 
     // Register a buffer to track and return its id; the same buffer again
     // in one run returns the existing id. A new entry starts from what the
@@ -382,6 +386,11 @@ private:
     // the image already ends up in that layout).
     void apply_final_layouts(const PassDecl& pass);
 
+    // After a pass, in its command buffer: return each resting image it
+    // declared to rest, as a read by the resting access would, so nothing
+    // is emitted for one already there.
+    void return_to_rest(VkCommandBuffer cmd, const PassDecl& pass);
+
     std::vector<TrackedImage> images_;
     std::vector<TrackedBuffer> buffers_;
     std::vector<PassDecl> passes_;
@@ -397,6 +406,9 @@ private:
     /// (FJELL_LOG_BARRIERS), and which run of the frame it is.
     bool tracing_{false};
     uint32_t run_in_frame_{0};
+    /// Barrier lines for the trace, written out after the line that says
+    /// what they are for.
+    std::string trace_pending_;
 
     std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
     std::unordered_map<VkBuffer, RememberedBuffer> remembered_buffers_;

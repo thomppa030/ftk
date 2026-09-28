@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/access.hpp"
 #include "renderer/resource_desc.hpp"
 
 #include <glm/vec2.hpp>
@@ -33,6 +34,13 @@ struct ImportedImage {
     // first read keeps what the owner put there instead of discarding it.
     // UNDEFINED for an image no pass reads before one writes it.
     VkImageLayout initial_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    /// How readers the graph cannot see use the image (a shader sampling it
+    /// through the global set, ImGui showing it): where it rests between
+    /// the passes that declare it. The graph starts it there when it has no
+    /// memory of it, and after a pass leaves it in any other access returns
+    /// it to rest before anything else runs, so an unseen reader always finds
+    /// it readable. Empty for an image only the graph's passes touch.
+    gpu::AccessSet resting{};
 };
 
 /// A named buffer made available to pass declare() bodies, the buffer
@@ -270,6 +278,7 @@ public:
         uint32_t mip_count;
         VkImageLayout initial_layout;
         bool persistent;
+        gpu::AccessSet resting{};
     };
     struct ImportedBuffer {
         FgBuffer handle;

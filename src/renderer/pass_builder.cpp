@@ -74,6 +74,7 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
         .mip_count = it->second.mip_count,
         .initial_layout = it->second.initial_layout,
         .persistent = it->second.persistent,
+        .resting = it->second.resting,
     });
     return h;
 }
