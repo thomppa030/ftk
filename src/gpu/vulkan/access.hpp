@@ -38,6 +38,13 @@ struct BufferScope {
 /// @return the scope, or nothing when the accesses need different layouts
 [[nodiscard]] std::optional<ImageScope> image_scope(AccessSet accesses, bool depth);
 
+/// What `accesses` are to an image when one pass uses it all these ways at
+/// once: every stage and access, in one layout that serves them all. Where
+/// the accesses' own layouts differ, an attachment layout wins (a read-only
+/// depth one serves sampling too), and anything else shares GENERAL. An
+/// empty set is an undefined layout and no stages.
+[[nodiscard]] ImageScope merged_image_scope(AccessSet accesses, bool depth);
+
 /// What `access` is to a buffer; no stages for an access that does not apply
 /// to buffers.
 [[nodiscard]] BufferScope buffer_scope(Access access);

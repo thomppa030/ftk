@@ -150,13 +150,13 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     img.base_layer = base_layer;
     img.persistent = persistent;
     img.resting = resting;
-    // The layout it rests in, which it starts from without a memory of it
-    // once something has written it; else nothing it holds is known.
-    VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Without a memory of it, it starts at rest once something has written
+    // it; else nothing it holds is known.
+    const bool depth = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
+    gpu::AccessSet start{};
     if (!resting.empty()) {
-        const auto rest = gpu::vulkan::image_scope(resting, (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
-        if (rest.has_value()) {
-            if (!unwritten) { initial_layout = rest->layout; }
+        if (gpu::vulkan::image_scope(resting, depth).has_value()) {
+            if (!unwritten) { start = resting; }
         } else {
             FJELL_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
                            std::string(name));
@@ -187,14 +187,15 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
         slice.range.mip_count = mip_count;
         slice.range.base_layer = base_layer;
         slice.range.layer_count = layer_count;
-        slice.layout = initial_layout;
+        slice.in = start;
         img.slices.push_back(slice);
     }
     if (tracing_) { img.name = name; }
     if (layout_trace_enabled() && image != VK_NULL_HANDLE) {
         FJELL_GFX_INFO("[layout] register img=0x{:x} '{}' layers={}+{} mips={} start={}{}",
                        reinterpret_cast<uintptr_t>(image), name, base_layer, layer_count,
-                       mip_count, layout_str(img.slices.front().layout),
+                       mip_count,
+                       layout_str(gpu::vulkan::merged_image_scope(img.slices.front().in, depth).layout),
                        seeded ? " (remembered)" : "");
     }
 
@@ -376,11 +377,9 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
                            "no buffer scope for.", name.c_str());
             continue;
         }
-        const gpu::vulkan::BufferScope scope = gpu::vulkan::buffer_scope(acc.access);
         pass.buffer_uses.push_back(BufferUse{
             .buffer_id = buffer_id,
-            .stages = scope.stages,
-            .access = scope.access,
+            .access = acc.access,
             .read = access_is_read(acc.access),
             .write = access_is_write(acc.access),
         });
@@ -412,33 +411,21 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         pass.image_uses.push_back(out);
     }
 
-    pass.final_layouts.reserve(builder.final_states().size());
+    pass.final_states.reserve(builder.final_states().size());
     for (const auto& fs : builder.final_states()) {
         if (fs.handle.id >= handle_to_image_id.size()) { continue; }
         uint32_t image_id = handle_to_image_id[fs.handle.id];
         if (image_id == UINT32_MAX) { continue; }
-
-        const bool depth = (images_[image_id].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
-        const auto written = gpu::vulkan::image_scope(fs.written_by, depth);
-        const auto left = gpu::vulkan::image_scope(fs.left_as, depth);
-        if (!written || !left) {
-            FJELL_GFX_WARN("FrameGraph: pass '{}' leaves a texture in accesses that need "
-                           "different layouts", name.c_str());
-            continue;
-        }
-        FinalLayoutOverride out{};
+        FinalState out{};
         out.image_id = image_id;
-        out.layout = left->layout;
         out.range.aspect = images_[image_id].aspect;
         out.range.base_mip = 0;
         out.range.mip_count = images_[image_id].mip_count;
         out.range.base_layer = images_[image_id].base_layer;
         out.range.layer_count = images_[image_id].array_layers;
-        out.written_stage = written->stages;
-        out.written_access = written->access & WRITE_ACCESS_BITS;
-        out.visible_stage = left->stages;
-        out.visible_access = left->access;
-        pass.final_layouts.push_back(out);
+        out.written_by = fs.written_by;
+        out.left_as = fs.left_as;
+        pass.final_states.push_back(out);
     }
 
     passes_.push_back(std::move(pass));
@@ -738,7 +725,7 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
             for (size_t j = i + 1; j < img.slices.size(); ++j) {
                 const auto& a = img.slices[i];
                 const auto& b = img.slices[j];
-                if (a.layout != b.layout || !(a.state == b.state)) { continue; }
+                if (a.in != b.in || !(a.state == b.state)) { continue; }
                 if (a.range.aspect != b.range.aspect) { continue; }
                 // Horizontal merge (same layer range, adjacent mips)
                 if (a.range.base_layer == b.range.base_layer
@@ -782,15 +769,22 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
 }
 
 void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                          ImageSlice& slice,
-                                          VkImageLayout new_layout,
-                                          VkPipelineStageFlags2 dst_stage,
-                                          VkAccessFlags2 dst_access,
-                                          bool write,
-                                          QueueType queue) {
+                                          ImageSlice& slice, gpu::AccessSet accesses,
+                                          bool write, QueueType queue) {
     AccessState& s = slice.state;
-    const VkPipelineStageFlags2 stage = stages_for_queue(dst_stage, queue);
-    const bool layout_change = slice.layout != new_layout;
+    const bool depth = (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
+    auto scope = [&](gpu::AccessSet set) { return gpu::vulkan::merged_image_scope(set, depth); };
+    const gpu::vulkan::ImageScope now = scope(slice.in);
+    const gpu::vulkan::ImageScope next = scope(accesses);
+    const VkPipelineStageFlags2 stage = stages_for_queue(next.stages, queue);
+    const VkAccessFlags2 dst_access = next.access;
+    const bool layout_change = now.layout != next.layout;
+
+    const VkPipelineStageFlags2 write_stages = scope(s.written_by | s.changed_for).stages;
+    const VkAccessFlags2 write_access = scope(s.written_by).access & WRITE_ACCESS_BITS;
+    const VkPipelineStageFlags2 read_stages = scope(s.read_by).stages;
+    const gpu::vulkan::ImageScope visible = scope(s.visible_to);
+    const VkPipelineStageFlags2 visible_stages = stages_for_queue(visible.stages, queue);
 
     // The same rule as for buffers, plus the layout. A layout change or a
     // write waits for the last write and every reader since; a read waits
@@ -800,19 +794,21 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     VkAccessFlags2 src_access = 0;
     VkPipelineStageFlags2 barrier_dst = stage;
     VkAccessFlags2 barrier_dst_access = dst_access;
+    gpu::AccessSet made_visible = accesses;
     bool needed = false;
     if (layout_change || write) {
-        src_stage = s.write_stages | s.read_stages;
-        src_access = s.write_access;
+        src_stage = write_stages | read_stages;
+        src_access = write_access;
         needed = layout_change || src_stage != 0;
-    } else if (s.write_stages != 0
-               && ((stage & ~s.visible_stages) != 0 || (dst_access & ~s.visible_access) != 0)) {
-        src_stage = s.write_stages;
-        src_access = s.write_access;
+    } else if (write_stages != 0
+               && ((stage & ~visible_stages) != 0 || (dst_access & ~visible.access) != 0)) {
+        src_stage = write_stages;
+        src_access = write_access;
         // Widen to everything made visible before, so the one scope kept
         // covers every reader so far.
-        barrier_dst = stages_for_queue(stage | s.visible_stages, queue);
-        barrier_dst_access = dst_access | s.visible_access;
+        barrier_dst = stages_for_queue(next.stages | visible.stages, queue);
+        barrier_dst_access = dst_access | visible.access;
+        made_visible = accesses | s.visible_to;
         needed = true;
     }
 
@@ -837,8 +833,8 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
             barrier.srcAccessMask = cross_queue ? 0 : src_access;
             barrier.dstStageMask = barrier_dst;
             barrier.dstAccessMask = barrier_dst_access;
-            barrier.oldLayout = slice.layout;
-            barrier.newLayout = new_layout;
+            barrier.oldLayout = now.layout;
+            barrier.newLayout = next.layout;
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.image = img.image;
@@ -851,7 +847,7 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
             if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
                 FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
                                reinterpret_cast<uintptr_t>(img.image),
-                               layout_str(slice.layout), layout_str(new_layout),
+                               layout_str(now.layout), layout_str(next.layout),
                                static_cast<uint64_t>(barrier.srcStageMask),
                                static_cast<uint64_t>(barrier.dstStageMask),
                                queue == QueueType::async_compute ? "compute" : "graphics",
@@ -869,65 +865,33 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
         }
     }
 
-    // Record the use. Stages are kept queue-translated, so the next barrier
-    // built from them is legal on whichever queue last touched the slice.
+    // Record the use.
     if (write) {
-        s.write_stages = stage;
-        s.write_access = dst_access & WRITE_ACCESS_BITS;
-        s.read_stages = 0;
-        s.visible_stages = 0;
-        s.visible_access = 0;
+        s = AccessState{.written_by = accesses};
     } else if (layout_change) {
         // The transition is ordered before this reader, so a later reader
         // chains through this reader's stage to wait for it.
-        s.write_stages |= stage;
-        s.read_stages = stage;
-        s.visible_stages = stage;
-        s.visible_access = dst_access;
+        s.changed_for |= accesses;
+        s.read_by = accesses;
+        s.visible_to = accesses;
     } else {
-        if (needed) {
-            s.visible_stages = barrier_dst;
-            s.visible_access = barrier_dst_access;
-        }
-        s.read_stages |= stage;
+        if (needed) { s.visible_to = made_visible; }
+        s.read_by |= accesses;
     }
-    slice.layout = new_layout;
+    slice.in = accesses;
 }
-
-namespace {
-
-// Pick the layout that satisfies every declared access. If any write is
-// involved we use a general/attachment write layout; pure reads keep the
-// read-only layout. Mixing read + storage-write collapses to GENERAL.
-VkImageLayout merge_layouts(VkImageLayout a, VkImageLayout b) {
-    if (a == VK_IMAGE_LAYOUT_UNDEFINED) { return b; }
-    if (b == VK_IMAGE_LAYOUT_UNDEFINED) { return a; }
-    if (a == b) { return a; }
-
-    auto is_attachment = [](VkImageLayout l) {
-        return l == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-            || l == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
-            || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    };
-
-    // Attachment layouts dominate sampled reads within the same pass —
-    // the attachment IS the access, and READ_ONLY variants satisfy
-    // sampled reads too.
-    if (is_attachment(a)) { return a; }
-    if (is_attachment(b)) { return b; }
-
-    // Anything else that doesn't agree: fall back to GENERAL. Covers
-    // STORAGE_WRITE + SHADER_READ, STORAGE_WRITE + TRANSFER_DST, etc.
-    return VK_IMAGE_LAYOUT_GENERAL;
-}
-
-} // namespace
 
 void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
                                           QueueType queue) {
     AccessState& s = buf.state;
-    const VkPipelineStageFlags2 dst_stage = stages_for_queue(use.stages, queue);
+    const gpu::vulkan::BufferScope scope = gpu::vulkan::buffer_scope(use.access);
+    const VkPipelineStageFlags2 dst_stage = stages_for_queue(scope.stages, queue);
+    const VkPipelineStageFlags2 write_stages = gpu::vulkan::buffer_scope(s.written_by).stages;
+    const VkAccessFlags2 write_access =
+        gpu::vulkan::buffer_scope(s.written_by).access & WRITE_ACCESS_BITS;
+    const VkPipelineStageFlags2 read_stages = gpu::vulkan::buffer_scope(s.read_by).stages;
+    const gpu::vulkan::BufferScope visible = gpu::vulkan::buffer_scope(s.visible_to);
+    const VkPipelineStageFlags2 visible_stages = stages_for_queue(visible.stages, queue);
 
     // A write waits for the last write (write-after-write) and for every
     // reader since (write-after-read: execution only, a read leaves nothing
@@ -935,22 +899,24 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
     // barrier already made it visible to this stage and access.
     VkPipelineStageFlags2 src_stage = 0;
     VkAccessFlags2 src_access = 0;
-    VkAccessFlags2 dst_access = use.access;
+    VkAccessFlags2 dst_access = scope.access;
+    gpu::AccessSet made_visible = use.access;
     if (use.write) {
-        src_stage = s.write_stages | s.read_stages;
-        src_access = s.write_access;
-    } else if (s.write_stages != 0
-               && ((dst_stage & ~s.visible_stages) != 0 || (use.access & ~s.visible_access) != 0)) {
-        src_stage = s.write_stages;
-        src_access = s.write_access;
+        src_stage = write_stages | read_stages;
+        src_access = write_access;
+    } else if (write_stages != 0
+               && ((dst_stage & ~visible_stages) != 0 || (scope.access & ~visible.access) != 0)) {
+        src_stage = write_stages;
+        src_access = write_access;
         // Widen to everything made visible before, so the one scope kept
         // covers every reader so far.
-        dst_access |= s.visible_access;
+        dst_access |= visible.access;
+        made_visible = use.access | s.visible_to;
     }
 
     if (src_stage != 0) {
         const VkPipelineStageFlags2 barrier_dst =
-            use.write ? dst_stage : stages_for_queue(dst_stage | s.visible_stages, queue);
+            use.write ? dst_stage : stages_for_queue(scope.stages | visible.stages, queue);
         // Same rule as for images: a source stage the recording queue does
         // not have means the last access happened on the other queue, and
         // the timeline semaphore between the submits is what orders them.
@@ -983,7 +949,7 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
             if (layout_trace_enabled()) {
                 FJELL_GFX_INFO("[layout] buffer barrier buf=0x{:x} {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
                                reinterpret_cast<uintptr_t>(buf.buffer),
-                               use.write ? (s.write_stages != 0 ? "WAW/WAR" : "WAR") : "RAW",
+                               use.write ? (write_stages != 0 ? "WAW/WAR" : "WAR") : "RAW",
                                static_cast<uint64_t>(barrier.srcStageMask),
                                static_cast<uint64_t>(barrier.srcAccessMask),
                                static_cast<uint64_t>(barrier.dstStageMask),
@@ -992,20 +958,13 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
             }
         }
 
-        if (!use.write) {
-            s.visible_stages = barrier_dst;
-            s.visible_access = dst_access;
-        }
+        if (!use.write) { s.visible_to = made_visible; }
     }
 
     if (use.write) {
-        s.write_stages = dst_stage;
-        s.write_access = use.access & WRITE_ACCESS_BITS;
-        s.read_stages = 0;
-        s.visible_stages = 0;
-        s.visible_access = 0;
+        s = AccessState{.written_by = use.access};
     } else {
-        s.read_stages |= dst_stage;
+        s.read_by |= use.access;
     }
 }
 
@@ -1030,12 +989,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         // to barrier.
         if (img.image == VK_NULL_HANDLE) { continue; }
 
-        const gpu::vulkan::ImageScope scope =
-            gpu::vulkan::image_scope(acc.access, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
-        auto layout = scope.layout;
-        auto stages = scope.stages;
-        auto access = scope.access;
-        bool is_write = gpu::access_is_write(acc.access);
+        const bool is_write = gpu::access_is_write(acc.access);
 
         // A pass touches a handful of images; a linear search beats a map.
         MergedAccess* m = nullptr;
@@ -1047,9 +1001,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
             merged.push_back(MergedAccess{.image_id = acc.image_id, .range = acc.range});
             m = &merged.back();
         }
-        m->layout = merge_layouts(m->layout, layout);
-        m->stages |= stages;
-        m->access |= access;
+        m->accesses |= acc.access;
         m->any_write = m->any_write || is_write;
     }
 
@@ -1057,9 +1009,8 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         auto& img = images_[m.image_id];
         carve_slices(img, m.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
-            append_barrier_for_slice(cmd, img, img.slices[idx],
-                                     m.layout, m.stages, m.access,
-                                     m.any_write, pass.queue);
+            append_barrier_for_slice(cmd, img, img.slices[idx], m.accesses, m.any_write,
+                                     pass.queue);
         }
         coalesce_slices(img);
     }
@@ -1077,7 +1028,6 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
             merged_buffers.push_back(use);
             continue;
         }
-        m->stages |= use.stages;
         m->access |= use.access;
         m->read = m->read || use.read;
         m->write = m->write || use.write;
@@ -1100,32 +1050,33 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
-void FrameGraph::apply_final_layouts(const PassDecl& pass) {
+void FrameGraph::apply_final_states(const PassDecl& pass) {
     const bool trace = layout_trace_enabled();
-    for (const auto& fl : pass.final_layouts) {
-        auto& img = images_[fl.image_id];
+    for (const auto& fs : pass.final_states) {
+        auto& img = images_[fs.image_id];
         if (img.image == VK_NULL_HANDLE) { continue; }
+        const VkImageLayout left_layout =
+            gpu::vulkan::merged_image_scope(fs.left_as, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
+                .layout;
         if (trace) {
             FJELL_GFX_INFO("[layout] leaves pass='{}' img=0x{:x} -> {}",
                            pass.name, reinterpret_cast<uintptr_t>(img.image),
-                           layout_str(fl.layout));
+                           layout_str(left_layout));
         }
         if (tracing_) {
             barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name,
-                                                 layout_name(fl.layout));
+                                                 layout_name(left_layout));
         }
-        carve_slices(img, fl.range, indices_scratch_);
+        carve_slices(img, fs.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
-            img.slices[idx].layout = fl.layout;
-            // What the pass made the write visible to is where it expects
+            // What the pass left the write visible to is where it expects
             // readers, some of which the graph never sees (ImGui showing a
             // viewport image), so the next write waits for those stages.
+            img.slices[idx].in = fs.left_as;
             img.slices[idx].state = AccessState{
-                .write_stages = fl.written_stage,
-                .write_access = fl.written_access,
-                .read_stages = fl.visible_stage,
-                .visible_stages = fl.visible_stage,
-                .visible_access = fl.visible_access,
+                .written_by = fs.written_by,
+                .read_by = fs.left_as,
+                .visible_to = fs.left_as,
             };
         }
         coalesce_slices(img);
@@ -1137,14 +1088,11 @@ void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
     for (const auto& use : pass.image_uses) {
         auto& img = images_[use.image_id];
         if (img.resting.empty() || img.image == VK_NULL_HANDLE) { continue; }
-        const auto rest =
-            gpu::vulkan::image_scope(img.resting, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
         const SubresourceRange whole{img.aspect, 0, img.mip_count, img.base_layer,
                                      img.array_layers};
         carve_slices(img, whole, indices_scratch_);
         for (size_t idx : indices_scratch_) {
-            append_barrier_for_slice(cmd, img, img.slices[idx], rest->layout, rest->stages,
-                                     rest->access, false, pass.queue);
+            append_barrier_for_slice(cmd, img, img.slices[idx], img.resting, false, pass.queue);
         }
         coalesce_slices(img);
     }
@@ -1208,7 +1156,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
             }
             {
                 FJELL_PROFILE_SCOPE_N("fg_final_layouts");
-                apply_final_layouts(pass);
+                apply_final_states(pass);
                 return_to_rest(cb, pass);
             }
             ++i;
@@ -1267,7 +1215,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
                               static_cast<uint32_t>(group_size), secondaries.data());
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
-            apply_final_layouts(passes_[p]);
+            apply_final_states(passes_[p]);
             return_to_rest(cb_for(passes_[p], p), passes_[p]);
         }
     }

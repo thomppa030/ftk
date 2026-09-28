@@ -29,18 +29,20 @@ struct SubresourceRange {
     uint32_t layer_count{1};
 };
 
-// Synchronisation state of one tracked resource, or one slice of an
-// image: who last wrote it, who has read it since, and which readers that
-// write has already been made visible to.
+// Synchronisation state of one tracked resource, or one slice of an image,
+// in accesses: what last wrote it, what has read it since, and what that
+// write has already been made visible to. The backend turns accesses into
+// stages and access masks, for the queue a barrier is recorded on, only when
+// it builds one.
 struct AccessState {
-    VkPipelineStageFlags2 write_stages{0};    // 0: no write seen
-    VkAccessFlags2 write_access{0};
-    VkPipelineStageFlags2 read_stages{0};     // every reader since that write
-    // The destination scope of the last barrier that made the write
-    // visible. Kept as one scope, widened each time, so a reader covered by
-    // it is covered for every stage and access in it together.
-    VkPipelineStageFlags2 visible_stages{0};
-    VkAccessFlags2 visible_access{0};
+    gpu::AccessSet written_by{};   // empty: no write seen
+    // Reads whose barrier also changed the image's layout: later work waits
+    // for them as for the write, since the change is ordered ahead of them.
+    gpu::AccessSet changed_for{};
+    gpu::AccessSet read_by{};      // every reader since that write
+    // What the last barrier made the write visible to, widened by each read
+    // barrier since, so a reader it covers needs no barrier of its own.
+    gpu::AccessSet visible_to{};
 
     bool operator==(const AccessState&) const noexcept = default;
 };
@@ -48,7 +50,9 @@ struct AccessState {
 // State for one non-overlapping slice of a tracked image.
 struct ImageSlice {
     SubresourceRange range;
-    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    // The accesses it is in, which give its layout; empty for nothing it
+    // holds being kept (undefined).
+    gpu::AccessSet in{};
     AccessState state;
 };
 
@@ -111,8 +115,7 @@ struct TrackedBuffer {
 // One pass's use of a buffer.
 struct BufferUse {
     uint32_t buffer_id{0};
-    VkPipelineStageFlags2 stages{0};
-    VkAccessFlags2 access{0};
+    gpu::AccessSet access{};
     bool read{false};
     bool write{false};
 };
@@ -124,20 +127,15 @@ struct ImageAccess {
     SubresourceRange range{};
 };
 
-// A post-pass state override. The pass promises that after its
-// record() returns, the named subresource is in the stated layout, last
-// written at `written_stage` with `written_access`, and made visible by
-// the pass's own closing barrier to `visible_stage` / `visible_access`.
-// The graph records it without emitting a barrier, and later readers
-// outside the visible scope get one.
-struct FinalLayoutOverride {
+// What a pass leaves a texture in when its own work moved it (a mip chain):
+// its last writes were `written_by`, and it is left as `left_as`, those
+// writes visible there. The graph takes it as the state after the pass
+// without a barrier, and later uses outside `left_as` get one.
+struct FinalState {
     uint32_t image_id{0};
     SubresourceRange range{};
-    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 written_stage{0};
-    VkAccessFlags2 written_access{0};
-    VkPipelineStageFlags2 visible_stage{0};
-    VkAccessFlags2 visible_access{0};
+    gpu::AccessSet written_by{};
+    gpu::AccessSet left_as{};
 };
 
 // A pass declaration: what images it reads and writes
@@ -146,7 +144,7 @@ struct PassDecl {
     std::function<void(VkCommandBuffer)> execute;
     std::vector<ImageAccess> image_uses;
     std::vector<BufferUse> buffer_uses;
-    std::vector<FinalLayoutOverride> final_layouts;
+    std::vector<FinalState> final_states;
     uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
     // Which queue should record this pass. Phase 3b reads this to split
     // the DAG across graphics and async compute command buffers; Phase 3a
@@ -333,15 +331,11 @@ private:
     // updating state so the list doesn't grow unboundedly.
     void coalesce_slices(TrackedImage& img);
 
-    // Append the barrier that brings one slice to the requested state to
+    // Append the barrier that brings one slice to `accesses` to
     // barriers_scratch_, and record the new state on the slice. Nothing is
-    // appended when the slice is already visible to that access.
+    // appended when the slice is already visible to those accesses.
     void append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                  ImageSlice& slice,
-                                  VkImageLayout new_layout,
-                                  VkPipelineStageFlags2 dst_stage,
-                                  VkAccessFlags2 dst_access,
-                                  bool write,
+                                  ImageSlice& slice, gpu::AccessSet accesses, bool write,
                                   QueueType queue);
 
     // Append the barrier one pass's use of a buffer needs to
@@ -359,14 +353,12 @@ private:
     void remember_states();
 
     // One image's merged pre-pass state, accumulated across all of the
-    // pass's declared accesses: one barrier per image per pass, combining
-    // every stage and access and a layout compatible with all of them.
+    // pass's declared accesses: one barrier per image per pass, for every
+    // access in one layout that serves them all.
     struct MergedAccess {
         uint32_t image_id{0};
         SubresourceRange range{};
-        VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
-        VkPipelineStageFlags2 stages{0};
-        VkAccessFlags2 access{0};
+        gpu::AccessSet accesses{};
         bool any_write{false};
     };
 
@@ -383,7 +375,7 @@ private:
 
     // Apply what a pass says it leaves its textures in: patch slice state
     // to it without emitting any barrier (the pass's own work got it there).
-    void apply_final_layouts(const PassDecl& pass);
+    void apply_final_states(const PassDecl& pass);
 
     // After a pass, in its command buffer: return each resting image it
     // declared to rest, as a read by the resting access would, so nothing
