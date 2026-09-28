@@ -6,8 +6,11 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/input_bindings.hpp"
+#include "scripting/script_call.hpp"
 #include "scripting/script_globals.hpp"
 
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -33,6 +36,22 @@ const char* resolve_action_name(uint32_t handle_id) {
 
 } // anonymous namespace
 
+namespace {
+
+/// What a binding hands its action's delegate: the script's function, run
+/// through call_script(). A throw out of a listener would leave the delegate
+/// halfway through its broadcast.
+template <typename F>
+auto guarded(const char* action, void* inst, F&& f) {
+    return [label = "The input action '" + std::string(action) + "'", inst,
+            f = std::forward<F>(f)](auto... args) {
+        const fjell::ScriptCall call{.type_name = label, .instance = inst};
+        fjell::call_script(call, [&] { f(args...); });
+    };
+}
+
+} // namespace
+
 extern "C" FJELL_SDK_EXPORT void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
                                        void* instance, void (*fn)(void*)) {
     auto* iam = get_iam();
@@ -45,16 +64,16 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_void(uint32_t action_handle_id
     void* inst = instance;
     switch (static_cast<fjell::EInputTrigger>(trigger)) {
         case fjell::EInputTrigger::Triggered:
-            s_input_connections.push_back({inst, d->on_triggered.bind([fn, inst]() { fn(inst); })});
+            s_input_connections.push_back({inst, d->on_triggered.bind(guarded(name, inst, [fn, inst]() { fn(inst); }))});
             break;
         case fjell::EInputTrigger::Pressed:
-            s_input_connections.push_back({inst, d->on_pressed.bind([fn, inst]() { fn(inst); })});
+            s_input_connections.push_back({inst, d->on_pressed.bind(guarded(name, inst, [fn, inst]() { fn(inst); }))});
             break;
         case fjell::EInputTrigger::Released:
-            s_input_connections.push_back({inst, d->on_released.bind([fn, inst]() { fn(inst); })});
+            s_input_connections.push_back({inst, d->on_released.bind(guarded(name, inst, [fn, inst]() { fn(inst); }))});
             break;
         case fjell::EInputTrigger::Completed:
-            s_input_connections.push_back({inst, d->on_completed.bind([fn, inst]() { fn(inst); })});
+            s_input_connections.push_back({inst, d->on_completed.bind(guarded(name, inst, [fn, inst]() { fn(inst); }))});
             break;
     }
 }
@@ -70,11 +89,11 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_float(uint32_t action_handle_i
 
     void* inst = instance;
     // axis1d fires continuously while active
-    s_input_connections.push_back({inst, d->on_axis1d.bind([fn, inst](float v) { fn(inst, v); })});
+    s_input_connections.push_back({inst, d->on_axis1d.bind(guarded(name, inst, [fn, inst](float v) { fn(inst, v); }))});
 
     // Also connect triggered/completed if requested
     if (static_cast<fjell::EInputTrigger>(trigger) == fjell::EInputTrigger::Completed) {
-        s_input_connections.push_back({inst, d->on_completed.bind([fn, inst]() { fn(inst, 0.0f); })});
+        s_input_connections.push_back({inst, d->on_completed.bind(guarded(name, inst, [fn, inst]() { fn(inst, 0.0f); }))});
     }
 }
 
@@ -90,12 +109,12 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id
     void* inst = instance;
     // axis2d fires continuously while active
     s_input_connections.push_back(
-        OwnedConnection{inst, d->on_axis2d.bind([fn, inst](glm::vec2 v) { fn(inst, v.x, v.y); })});
+        OwnedConnection{inst, d->on_axis2d.bind(guarded(name, inst, [fn, inst](glm::vec2 v) { fn(inst, v.x, v.y); }))});
 
     // Connect completed if requested (sends zero)
     if (static_cast<fjell::EInputTrigger>(trigger) == fjell::EInputTrigger::Completed) {
         s_input_connections.push_back(
-            OwnedConnection{inst, d->on_completed.bind([fn, inst]() { fn(inst, 0.0f, 0.0f); })});
+            OwnedConnection{inst, d->on_completed.bind(guarded(name, inst, [fn, inst]() { fn(inst, 0.0f, 0.0f); }))});
     }
 }
 

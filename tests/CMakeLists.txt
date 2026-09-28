@@ -47,6 +47,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/core/step_input_latch.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/test_pacing.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/timer_manager.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/script_call.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/component_pool.cpp
@@ -231,6 +232,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_component_pool.cpp
     test_node_lifetime.cpp
+    test_script_call.cpp
     test_scene_node_kinds.cpp
     test_script_pools.cpp
     test_curve_editor.cpp

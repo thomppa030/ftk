@@ -1,4 +1,6 @@
 #include "animation/animator_component.hpp"
+#include "scene/node.hpp"
+#include "scripting/script_call.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
@@ -526,6 +528,14 @@ void AnimatorComponent::fire_notifies(const AnimationClip* clip, float prev_time
                                        float current_time, float duration) {
     if (!clip || !owner_ || duration <= 0.0f) return;
 
+    // A notify is game code: it runs through call_script(), so what it throws
+    // is reported rather than let out.
+    auto run = [&](const AnimNotify& notify, const char* hook, auto&& fire) {
+        const ScriptCall call{.type_name = notify.notify_type_name(), .hook = hook, .node = owner_,
+                              .instance = &notify};
+        call_script(call, fire);
+    };
+
     for (const auto& ni : clip->notifies()) {
         if (!ni.instance) continue;
 
@@ -537,28 +547,28 @@ void AnimatorComponent::fire_notifies(const AnimationClip* clip, float prev_time
             bool now_in = (current_time >= ni.time && current_time < end);
 
             if (!was_in && now_in) {
-                state_notify->notify_begin(*owner_);
+                run(*state_notify, "notify_begin", [&] { state_notify->notify_begin(*owner_); });
             } else if (was_in && now_in) {
                 float dt = current_time - prev_time;
                 if (dt < 0.0f) dt += duration; // loop wraparound
-                state_notify->notify_tick(*owner_, dt);
+                run(*state_notify, "notify_tick", [&] { state_notify->notify_tick(*owner_, dt); });
             } else if (was_in && !now_in) {
-                state_notify->notify_end(*owner_);
+                run(*state_notify, "notify_end", [&] { state_notify->notify_end(*owner_); });
             }
         } else {
             // Instant notify: fire when time crosses the notify point
             if (current_time > prev_time) {
                 // Normal forward
                 if (ni.time > prev_time && ni.time <= current_time) {
-                    ni.instance->notify(*owner_);
+                    run(*ni.instance, "notify", [&] { ni.instance->notify(*owner_); });
                 }
             } else if (current_time < prev_time) {
                 // Loop wraparound
                 if (ni.time > prev_time && ni.time <= duration) {
-                    ni.instance->notify(*owner_);
+                    run(*ni.instance, "notify", [&] { ni.instance->notify(*owner_); });
                 }
                 if (ni.time >= 0.0f && ni.time <= current_time) {
-                    ni.instance->notify(*owner_);
+                    run(*ni.instance, "notify", [&] { ni.instance->notify(*owner_); });
                 }
             }
         }

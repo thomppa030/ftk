@@ -1,4 +1,5 @@
 #include "ui/game_ui/ui_pipes.hpp"
+#include "scripting/script_call.hpp"
 
 #include "core/log.hpp"
 #include "scripting/reflected_types.hpp"
@@ -196,7 +197,8 @@ bool UiPipes::call_game_pipe(const UiValue& value, const UiPipeCall& call, UiVal
         }
     }
     std::string text;
-    pipe->call(input, args.data(), &text);
+    const ScriptCall script{.type_name = call.name, .hook = "pipe"};
+    if (!call_script(script, [&] { pipe->call(input, args.data(), &text); })) return false;
     out = UiValue(std::move(text));
     return true;
 }

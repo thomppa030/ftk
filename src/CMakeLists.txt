@@ -218,6 +218,7 @@ add_executable(fjell
     scene/component_storage.cpp
     core/input_component_meta.cpp
     scripting/script_manager.cpp
+    scripting/script_call.cpp
     scripting/reflected_types.cpp
     scripting/test_pacing.cpp
     scripting/test_runner.cpp

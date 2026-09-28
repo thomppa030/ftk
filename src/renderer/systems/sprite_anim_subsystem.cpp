@@ -1,4 +1,5 @@
 #include "renderer/systems/sprite_anim_subsystem.hpp"
+#include "scripting/script_call.hpp"
 #include "renderer/components/sprite_anim_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -143,7 +144,9 @@ void SpriteAnimSubsystem::tick(const TickContext& ctx) {
         // Play mode: evaluate state machine transitions
         if (!anim->state_machine.states().empty()) {
             std::string prev_state = anim->state_machine.current_state_name();
-            anim->state_machine.update(ctx.dt);
+            // A transition tells the machine's listeners, which may be game code.
+            const ScriptCall call{.type_name = "A sprite animation's state listener", .node = obj};
+            call_script(call, [&] { anim->state_machine.update(ctx.dt); });
 
             // If state changed, reset frame and switch sheet
             if (anim->state_machine.current_state_name() != prev_state) {

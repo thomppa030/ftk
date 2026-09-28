@@ -1,5 +1,6 @@
 // timer_manager.cpp — Engine-side timer management
 #include "scripting/timer_manager.hpp"
+#include "scripting/script_call.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -72,7 +73,8 @@ void TimerManager::tick(float dt) {
         // under it without the function it is running going away.
         const uint32_t generation = entries_[i].generation;
         Callback callback = std::move(entries_[i].callback);
-        if (callback) callback();
+        const ScriptCall call{.type_name = "A timer's callback", .instance = entries_[i].owner};
+        if (callback) call_script(call, callback);
 
         Entry& e = entries_[i];
         if (e.generation != generation) continue;   // cancelled from its own callback

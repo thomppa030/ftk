@@ -2,6 +2,7 @@
 
 #include "core/result.hpp"
 #include "scene/component_type.hpp"
+#include "scripting/script_call.hpp"
 
 #include <cstdint>
 #include <string>
@@ -82,6 +83,8 @@ public:
 private:
     /// The test's script, or null once it is gone.
     [[nodiscard]] void* instance() const;
+    /// A call into the test, for call_script().
+    [[nodiscard]] ScriptCall call(const char* hook, const void* test) const;
 
     Scene* scene_{nullptr};
     uint32_t node_id_{0};

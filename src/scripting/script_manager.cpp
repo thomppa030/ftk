@@ -1,6 +1,7 @@
 #include "scripting/script_manager.hpp"
 #include "scene/component_registry.hpp"
 #include "scripting/script_globals.hpp"
+#include "scripting/script_call.hpp"
 #include "core/asset_type_registry.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"
@@ -89,23 +90,17 @@ namespace fjell {
 
 // ── Running script hooks ────────────────────────────────────────────────
 
-/// Run a hook on one of the node's scripts, reporting an exception rather
-/// than letting it out: one script's mistake must not stop the others. The
-/// entry is found again by index for the report, since a hook may add a
-/// script to its own node and move the list.
+/// Run a hook on one of the node's scripts through call_script(), which
+/// reports an exception rather than letting it out: one script's mistake must
+/// not stop the others. The type name is copied, since a hook may add a script
+/// to its own node and move the list.
 template <typename Hook>
 static void run_hook_on(Node& node, std::size_t index, const char* hook_name, Hook&& hook) {
     ScriptComponent* instance = node.scripts[index].instance.get();
     if (instance == nullptr) return;
-    try {
-        hook(*instance);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("Exception in {}.{} on '{}': {}", node.scripts[index].type_name,
-                         hook_name, node.name, e.what());
-    } catch (...) {
-        FJELL_CORE_ERROR("Unknown exception in {}.{} on '{}'", node.scripts[index].type_name,
-                         hook_name, node.name);
-    }
+    const std::string type_name = node.scripts[index].type_name;
+    const ScriptCall call{.type_name = type_name, .hook = hook_name, .node = &node, .instance = instance};
+    call_script(call, [&] { hook(*instance); });
 }
 
 /// Run a hook on each script the node has when the pass reaches it, by
@@ -180,8 +175,12 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const 
     if (!reg || !desc) return;
     fjell::NotifyTypeInfo info;
     info.name = desc->name;
-    info.create = [create = desc->create]() -> std::unique_ptr<fjell::AnimNotify> {
-        return std::unique_ptr<fjell::AnimNotify>(create());
+    info.create = [create = desc->create, name = std::string(desc->name)]() -> std::unique_ptr<fjell::AnimNotify> {
+        // The constructor is game code; a notify that cannot be made is left out.
+        std::unique_ptr<fjell::AnimNotify> made;
+        const fjell::ScriptCall call{.type_name = name, .hook = "constructor"};
+        fjell::call_script(call, [&] { made.reset(create()); });
+        return made;
     };
     info.trace = desc->trace;
     info.is_state = desc->is_state;
@@ -515,7 +514,9 @@ void ScriptManager::instantiate(Node3D& obj, ScriptEntry& entry) {
     if (!type || !type->loaded || !type->construct) return;
     // Made in the pool of the scene the node is in; a node in none keeps the
     // script as data until it joins one.
-    entry.instance = ScriptInstance::make(obj, type->component, type->construct);
+    // The constructor is game code.
+    const ScriptCall call{.type_name = type->name, .hook = "constructor", .node = &obj};
+    call_script(call, [&] { entry.instance = ScriptInstance::make(obj, type->component, type->construct); });
     if (!entry.instance) return;
     entry.instance->node_ = &obj;
     entry.instance->world_ = &world_;
@@ -640,19 +641,14 @@ template <typename State>
 
 namespace {
 
-/// Run a hook on one script, reporting an exception rather than letting it
-/// out: one script's mistake must not stop the others.
+/// Run a hook on one script through call_script(), which reports an
+/// exception rather than letting it out: one script's mistake must not stop
+/// the others.
 template <typename Hook>
 void run_script_hook(const Node& node, const std::string& type_name, ScriptComponent& script,
                      const char* hook_name, Hook&& hook) {
-    try {
-        hook(script);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("Exception in {}.{} on '{}': {}", type_name, hook_name, node.name,
-                         e.what());
-    } catch (...) {
-        FJELL_CORE_ERROR("Unknown exception in {}.{} on '{}'", type_name, hook_name, node.name);
-    }
+    const ScriptCall call{.type_name = type_name, .hook = hook_name, .node = &node, .instance = &script};
+    call_script(call, [&] { hook(script); });
 }
 
 } // namespace

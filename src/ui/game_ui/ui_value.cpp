@@ -1,4 +1,5 @@
 #include "ui/game_ui/ui_value.hpp"
+#include "scripting/script_call.hpp"
 
 #include "scripting/reflected_types.hpp"
 
@@ -21,7 +22,10 @@ std::string float_text(float value) {
 template <class T>
 UiValue call_getter(const OwnedFieldDesc& field, const void* object) {
     T value{};
-    field.get(object, &value);
+    // A getter is game code: through call_script(), so what it throws is
+    // reported and reads as the default.
+    const ScriptCall call{.type_name = field.name, .instance = object};
+    call_script(call, [&] { field.get(object, &value); });
     return UiValue(std::move(value));
 }
 

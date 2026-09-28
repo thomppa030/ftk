@@ -3,6 +3,7 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/functional_test.hpp"
+#include "scripting/script_call.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <algorithm>
@@ -88,15 +89,26 @@ void* TestHandle::instance() const {
 
 bool TestHandle::is_ready() const {
     FunctionalTest* test = as_test(instance());
-    return test != nullptr && test->is_ready();
+    if (test == nullptr) return false;
+    bool ready = false;
+    call_script(call("is_ready", test), [&] { ready = test->is_ready(); });
+    return ready;
 }
 
 void TestHandle::start_test() const {
-    if (FunctionalTest* test = as_test(instance())) test->begin_test();
+    if (FunctionalTest* test = as_test(instance())) {
+        call_script(call("start_test", test), [&] { test->begin_test(); });
+    }
 }
 
 void TestHandle::cleanup_test() const {
-    if (FunctionalTest* test = as_test(instance())) test->cleanup_test();
+    if (FunctionalTest* test = as_test(instance())) {
+        call_script(call("cleanup_test", test), [&] { test->cleanup_test(); });
+    }
+}
+
+ScriptCall TestHandle::call(const char* hook, const void* test) const {
+    return {.type_name = type_name_, .hook = hook, .node = scene_->find(node_id_), .instance = test};
 }
 
 bool TestHandle::finished() const {

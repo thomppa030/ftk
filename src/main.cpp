@@ -171,6 +171,10 @@ int main(int argc, char* argv[]) {
         FJELL_CORE_CRITICAL("Fatal: {}", safe_what(e));
         fjell::log::shutdown();
         return EXIT_FAILURE;
+    } catch (...) {
+        FJELL_CORE_CRITICAL("Fatal: an exception of unknown type");
+        fjell::log::shutdown();
+        return EXIT_FAILURE;
     }
 
     fjell::log::shutdown();

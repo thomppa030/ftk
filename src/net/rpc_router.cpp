@@ -1,4 +1,5 @@
 #include "net/rpc_router.hpp"
+#include "scripting/script_call.hpp"
 
 #include "net/packet_codec.hpp"
 #include "net/net_scene.hpp"
@@ -17,6 +18,13 @@ using netcodec::take;
 
 // Find the script component on a node whose type declares RPCs. Returns its
 // type (for the FjellRpcDesc[] table) and instance pointer, or {nullptr,...}.
+/// Runs an RPC's handler, which is game code, through call_script().
+void invoke(const OwnedScriptType& type, const FjellRpcDesc& desc, const Node* node, void* inst,
+            const uint8_t* payload, uint32_t size) {
+    const ScriptCall call{.type_name = type.name, .hook = desc.name, .node = node, .instance = inst};
+    call_script(call, [&] { desc.invoke(inst, payload, size); });
+}
+
 const OwnedScriptType* rpc_component(const Node& node, ScriptManager& scripts,
                                      void*& instance_out) {
     for (const auto& entry : node.scripts) {
@@ -64,7 +72,7 @@ void RpcRouter::send(Scene& scene, ScriptManager& scripts, const NetScene& net_s
     switch (desc.target) {
     case FJELL_RPC_SERVER:
         if (role == NetRole::server) {
-            desc.invoke(inst, payload, size);          // already authoritative
+            invoke(*type, desc, node, inst, payload, size);  // already authoritative
         } else {
             build_and_send(Channel::reliable, false);  // client → server
         }
@@ -76,7 +84,7 @@ void RpcRouter::send(Scene& scene, ScriptManager& scripts, const NetScene& net_s
         // a client calling a clients-RPC is a no-op (only the server may)
         break;
     case FJELL_RPC_ALL:
-        desc.invoke(inst, payload, size);              // run locally
+        invoke(*type, desc, node, inst, payload, size);  // run locally
         if (role == NetRole::server) build_and_send(Channel::reliable, true);
         else build_and_send(Channel::reliable, false);
         break;
@@ -110,7 +118,7 @@ void RpcRouter::apply(Scene& scene, ScriptManager& scripts, const NetScene& net_
         // follow-up once per-peer sender identity is plumbed through receive.
     }
 
-    desc.invoke(inst, size > 0 ? data.data() : nullptr, size);
+    invoke(*type, desc, node, inst, size > 0 ? data.data() : nullptr, size);
 
     // "all" RPCs received on the server are re-broadcast to clients.
     if (role == NetRole::server && desc.target == FJELL_RPC_ALL && transport) {

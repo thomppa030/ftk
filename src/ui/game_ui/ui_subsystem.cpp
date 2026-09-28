@@ -1,4 +1,5 @@
 #include "ui/game_ui/ui_subsystem.hpp"
+#include "scripting/script_call.hpp"
 #include "core/base_path.hpp"
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
@@ -24,6 +25,19 @@
 #include <filesystem>
 
 namespace fjell {
+
+namespace {
+
+/// Calls into a controller, which is game code, through call_script(), so
+/// what it throws is reported rather than let out.
+template <typename Fn>
+bool call_controller(const std::string& type_name, const void* widget, const char* hook, Fn&& fn) {
+    const ScriptCall call{.type_name = type_name, .hook = hook, .instance = widget};
+    return call_script(call, fn);
+}
+
+} // namespace
+
 
 UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager)
     : vulkan_context_{vulkan_context}, script_manager_{&script_manager} {
@@ -255,9 +269,11 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
             WidgetInstance wi;
             wi.type = wt;
             wi.widget_context = &inst.game_ui->context();
-            wi.widget.reset(wt->create());
-            inst.widgets.push_back(std::move(wi));
-            FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
+            call_controller(wt->name, nullptr, "create", [&] { wi.widget.reset(wt->create()); });
+            if (wi.widget) {
+                inst.widgets.push_back(std::move(wi));
+                FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
+            }
         }
     }
 
@@ -269,7 +285,9 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
 
     check_actions(inst);
     for (auto& wi : inst.widgets) wire_controller(inst, wi);
-    for (auto& wi : inst.widgets) wi.widget->begin_play();
+    for (auto& wi : inst.widgets) {
+        call_controller(wi.type->name, wi.widget.get(), "begin_play", [&] { wi.widget->begin_play(); });
+    }
 }
 
 void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
@@ -285,9 +303,10 @@ void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
     wi.widget_context->set_action_handler([this, target](std::string_view action, std::span<const UiValue> args) {
         for (const auto& declared : target->type->actions) {
             if (declared.name != action) continue;
-            if (const std::string why = call_action(declared, target->widget.get(), args); !why.empty()) {
-                report_once("Widget '" + target->type->name + "': on:click " + why);
-            }
+            std::string why;
+            call_controller(target->type->name, target->widget.get(), declared.name.c_str(),
+                            [&] { why = call_action(declared, target->widget.get(), args); });
+            if (!why.empty()) report_once("Widget '" + target->type->name + "': on:click " + why);
             return true;
         }
         return false;
@@ -296,7 +315,7 @@ void UiSubsystem::wire_controller(UiInstance& inst, WidgetInstance& wi) {
 
 void UiSubsystem::end_controller(WidgetInstance& wi) {
     if (!wi.widget) return;
-    wi.widget->end_play();
+    call_controller(wi.type->name, wi.widget.get(), "end_play", [&] { wi.widget->end_play(); });
     // A controller can bind input and set timers by its own pointer, like a
     // script; recreated on a hot reload mid-play, it has to take those with it.
     if (script_manager_ != nullptr) script_manager_->release(wi.widget.get());
@@ -376,7 +395,9 @@ void UiSubsystem::repeat_stamped(GameUi& ui, UiNode& repeat) {
     walk(walk, repeat, true);
     models.bind(); // after the frame's last destroy, as UI reading happens now
     for (WidgetInstance* wi : created) wire_controller(*inst, *wi);
-    for (WidgetInstance* wi : created) wi->widget->begin_play();
+    for (WidgetInstance* wi : created) {
+        call_controller(wi->type->name, wi->widget.get(), "begin_play", [&] { wi->widget->begin_play(); });
+    }
 }
 
 void UiSubsystem::repeat_removing(GameUi& ui, UiNode& repeat) {
@@ -434,7 +455,8 @@ UiSubsystem::WidgetInstance* UiSubsystem::add_controller(UiInstance& inst, UiNod
     WidgetInstance wi;
     wi.type = ui_type;
     wi.widget_context = node.scoped_context.get();
-    wi.widget.reset(ui_type->create());
+    call_controller(ui_type->name, nullptr, "create", [&] { wi.widget.reset(ui_type->create()); });
+    if (!wi.widget) return nullptr;
     node.has_controller = true;
     FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>", ui_type->name, node.widget_tag);
     return &inst.widgets.emplace_back(std::move(wi));
@@ -447,7 +469,7 @@ void UiSubsystem::tick(const TickContext& ctx) {
         for (auto& wi : inst.widgets) {
             if (!wi.widget) continue;
             fill_props(wi);
-            wi.widget->tick(ctx.dt);
+            call_controller(wi.type->name, wi.widget.get(), "tick", [&] { wi.widget->tick(ctx.dt); });
         }
     }
 }
