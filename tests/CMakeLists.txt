@@ -214,7 +214,7 @@ add_executable(fjell-tests
     test_ui_bar_dynamics.cpp
     test_spline.cpp
     test_frame_descriptor_cache.cpp
-    test_gpu_vocabulary.cpp
+    test_vulkan_translate.cpp
     test_gpu_release.cpp
     test_gpu_texture_view.cpp
     test_handle_pool.cpp
