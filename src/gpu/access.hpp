@@ -59,9 +59,11 @@ enum class Access : uint8_t {
     storage_buffer_write_compute,
     storage_buffer_read_write_compute,
 
-    // Copies
+    // Copies and clears
     copy_src,
     copy_dst,
+    /// Written by `clear` (a texture) or `fill` (a buffer).
+    clear,
 };
 
 template <>
@@ -82,6 +84,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_buffer_write_compute:
         case Access::storage_buffer_read_write_compute:
         case Access::copy_dst:
+        case Access::clear:
             return true;
         default:
             return false;
@@ -99,9 +102,59 @@ using AccessSet = Flags<Access>;
         case Access::storage_write_raytracing:
         case Access::storage_buffer_write_compute:
         case Access::copy_dst:
+        case Access::clear:
             return false;
         default:
             return true;
+    }
+}
+
+/// Whether a texture can be used this way.
+[[nodiscard]] constexpr bool applies_to_texture(Access a) noexcept {
+    switch (a) {
+        case Access::color_attachment:
+        case Access::depth_attachment:
+        case Access::depth_resolve:
+        case Access::depth_attachment_read:
+        case Access::depth_read_sampled:
+        case Access::input_attachment:
+        case Access::sampled_fragment:
+        case Access::sampled_vertex:
+        case Access::sampled_mesh:
+        case Access::sampled_compute:
+        case Access::storage_read_compute:
+        case Access::storage_write_compute:
+        case Access::storage_read_write_compute:
+        case Access::sampled_raytracing:
+        case Access::storage_write_raytracing:
+        case Access::copy_src:
+        case Access::copy_dst:
+        case Access::clear:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// Whether a buffer can be used this way.
+[[nodiscard]] constexpr bool applies_to_buffer(Access a) noexcept {
+    switch (a) {
+        case Access::uniform_read:
+        case Access::storage_buffer_read_compute:
+        case Access::storage_buffer_read_vertex:
+        case Access::storage_buffer_read_fragment:
+        case Access::storage_buffer_read_mesh:
+        case Access::indirect_read:
+        case Access::index_read:
+        case Access::vertex_read:
+        case Access::storage_buffer_write_compute:
+        case Access::storage_buffer_read_write_compute:
+        case Access::copy_src:
+        case Access::copy_dst:
+        case Access::clear:
+            return true;
+        default:
+            return false;
     }
 }
 

@@ -1,4 +1,5 @@
 #include "renderer/frame_graph.hpp"
+#include "gpu/vulkan/access.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
@@ -41,116 +42,6 @@ namespace {
         case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:         return "DEPTH_RO";
         case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                 return "PRESENT";
         default:                                              return "?";
-    }
-}
-
-ImageUsage image_usage_for(gpu::Access a) {
-    switch (a) {
-        case gpu::Access::color_attachment:
-            return ImageUsage::color_attachment;
-        case gpu::Access::depth_attachment:
-            return ImageUsage::depth_attachment;
-        case gpu::Access::depth_resolve:
-            return ImageUsage::depth_resolve;
-        case gpu::Access::depth_attachment_read:
-        case gpu::Access::input_attachment:
-            return ImageUsage::depth_attachment_read;
-        case gpu::Access::sampled_fragment:
-            return ImageUsage::shader_read;
-        case gpu::Access::sampled_vertex:
-            return ImageUsage::vertex_read;
-        case gpu::Access::sampled_mesh:
-            return ImageUsage::mesh_read;
-        case gpu::Access::sampled_compute:
-            return ImageUsage::compute_read;
-        // A storage image is only ever read in GENERAL, whatever the access:
-        // imageLoad through a SHADER_READ_ONLY_OPTIMAL layout is invalid.
-        case gpu::Access::storage_read_compute:
-            return ImageUsage::compute_storage_read;
-        case gpu::Access::storage_write_compute:
-            return ImageUsage::compute_write;
-        case gpu::Access::storage_read_write_compute:
-            return ImageUsage::compute_read_write;
-        case gpu::Access::depth_read_sampled:
-            return ImageUsage::depth_read_sampled;
-        case gpu::Access::sampled_raytracing:
-            return ImageUsage::raytracing_read;
-        case gpu::Access::storage_write_raytracing:
-            return ImageUsage::raytracing_write;
-        case gpu::Access::copy_src:
-            return ImageUsage::transfer_src;
-        case gpu::Access::copy_dst:
-            return ImageUsage::transfer_dst;
-        default:
-            return ImageUsage::shader_read;
-    }
-}
-
-[[nodiscard]] bool access_applies_to_image(gpu::Access a) {
-    switch (a) {
-        case gpu::Access::color_attachment:
-        case gpu::Access::depth_attachment:
-        case gpu::Access::depth_resolve:
-        case gpu::Access::depth_attachment_read:
-        case gpu::Access::depth_read_sampled:
-        case gpu::Access::input_attachment:
-        case gpu::Access::sampled_fragment:
-        case gpu::Access::sampled_vertex:
-        case gpu::Access::sampled_mesh:
-        case gpu::Access::sampled_compute:
-        case gpu::Access::storage_read_compute:
-        case gpu::Access::storage_write_compute:
-        case gpu::Access::storage_read_write_compute:
-        case gpu::Access::sampled_raytracing:
-        case gpu::Access::storage_write_raytracing:
-        case gpu::Access::copy_src:
-        case gpu::Access::copy_dst:
-            return true;
-        default:
-            return false;
-    }
-}
-
-// Where in the pipeline, and how, a buffer access happens. Zero for an
-// access kind that does not apply to buffers.
-struct BufferScope {
-    VkPipelineStageFlags2 stages{0};
-    VkAccessFlags2 access{0};
-};
-
-[[nodiscard]] BufferScope buffer_scope_for(gpu::Access a) {
-    switch (a) {
-        case gpu::Access::uniform_read:
-            return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    VK_ACCESS_2_UNIFORM_READ_BIT};
-        case gpu::Access::storage_buffer_read_compute:
-            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case gpu::Access::storage_buffer_read_vertex:
-            return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case gpu::Access::storage_buffer_read_fragment:
-            return {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case gpu::Access::storage_buffer_read_mesh:
-            return {VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
-                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case gpu::Access::indirect_read:
-            return {VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT};
-        case gpu::Access::index_read:
-            return {VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT};
-        case gpu::Access::vertex_read:
-            return {VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
-                    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT};
-        case gpu::Access::storage_buffer_write_compute:
-            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
-        case gpu::Access::storage_buffer_read_write_compute:
-            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
-        case gpu::Access::copy_src:
-            return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT};
-        case gpu::Access::copy_dst:
-            return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
-        default:
-            return {};
     }
 }
 
@@ -418,12 +309,12 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (acc.handle.id >= handle_to_buffer_id.size()) { continue; }
         const uint32_t buffer_id = handle_to_buffer_id[acc.handle.id];
         if (buffer_id == UINT32_MAX) { continue; }
-        const BufferScope scope = buffer_scope_for(acc.access);
-        if (scope.stages == 0) {
+        if (!gpu::applies_to_buffer(acc.access)) {
             FJELL_GFX_WARN("FrameGraph: pass '{}' declares a buffer access the graph has "
                            "no buffer scope for.", name.c_str());
             continue;
         }
+        const gpu::vulkan::BufferScope scope = gpu::vulkan::buffer_scope(acc.access);
         pass.buffer_uses.push_back(BufferUse{
             .buffer_id = buffer_id,
             .stages = scope.stages,
@@ -434,7 +325,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     }
 
     for (const auto& acc : builder.texture_accesses()) {
-        if (!access_applies_to_image(acc.access)) { continue; }
+        if (!gpu::applies_to_texture(acc.access)) { continue; }
         if (acc.handle.id >= handle_to_image_id.size()) {
             FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' accesses "
                            "texture handle {} which was not imported in this builder.",
@@ -446,7 +337,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
 
         ImageAccess out{};
         out.image_id = image_id;
-        out.usage = image_usage_for(acc.access);
+        out.access = acc.access;
         // Builder-level subresource ranges aren't exposed yet; for now
         // every access covers the whole image. Per-subresource reads
         // (Hi-Z mip-level reads, per-cascade shadow reads) arrive when
@@ -483,33 +374,6 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     passes_.push_back(std::move(pass));
 }
 
-namespace {
-
-VkImageUsageFlags usage_flag_for(ImageUsage u) {
-    switch (u) {
-        case ImageUsage::color_attachment:       return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        case ImageUsage::depth_attachment:
-        case ImageUsage::depth_resolve:
-        case ImageUsage::depth_attachment_read:  return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        case ImageUsage::shader_read:
-        case ImageUsage::vertex_read:
-        case ImageUsage::mesh_read:
-        case ImageUsage::compute_read:
-        case ImageUsage::raytracing_read:        return VK_IMAGE_USAGE_SAMPLED_BIT;
-        case ImageUsage::compute_storage_read:
-        case ImageUsage::compute_write:
-        case ImageUsage::compute_read_write:
-        case ImageUsage::raytracing_write:       return VK_IMAGE_USAGE_STORAGE_BIT;
-        case ImageUsage::depth_read_sampled:     return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                                                      | VK_IMAGE_USAGE_SAMPLED_BIT;
-        case ImageUsage::transfer_src:           return VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        case ImageUsage::transfer_dst:           return VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    }
-    return 0;
-}
-
-} // namespace
-
 void FrameGraph::compute_lifetimes(std::vector<ResourceLifetime>& out) const {
     out.assign(images_.size(), ResourceLifetime{});
     for (uint32_t p = 0; p < passes_.size(); ++p) {
@@ -517,7 +381,7 @@ void FrameGraph::compute_lifetimes(std::vector<ResourceLifetime>& out) const {
             auto& lt = out[acc.image_id];
             if (p < lt.first_pass) { lt.first_pass = p; }
             if (p > lt.last_pass || !lt.used()) { lt.last_pass = p; }
-            lt.usage_flags |= usage_flag_for(acc.usage);
+            lt.usage_flags |= gpu::vulkan::image_usage(acc.access);
         }
     }
 }
@@ -727,139 +591,9 @@ void FrameGraph::log_queue_segments() const {
                    segment_index + 1, total_compute_passes);
 }
 
-VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect) {
-    switch (usage) {
-        case ImageUsage::color_attachment:
-            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        case ImageUsage::depth_attachment:
-        case ImageUsage::depth_resolve:
-            return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        case ImageUsage::depth_attachment_read:
-            return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        case ImageUsage::shader_read:
-        case ImageUsage::vertex_read:
-        case ImageUsage::mesh_read:
-        case ImageUsage::compute_read:
-        case ImageUsage::raytracing_read:
-            if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) {
-                return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            }
-            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        case ImageUsage::compute_storage_read:
-        case ImageUsage::compute_write:
-        case ImageUsage::compute_read_write:
-        case ImageUsage::raytracing_write:
-            return VK_IMAGE_LAYOUT_GENERAL;
-        case ImageUsage::depth_read_sampled:
-            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        case ImageUsage::transfer_src:
-            return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        case ImageUsage::transfer_dst:
-            return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    }
-    return VK_IMAGE_LAYOUT_UNDEFINED;
-}
-
-VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
-    switch (usage) {
-        case ImageUsage::color_attachment:
-        // Multisample resolves, depth ones included, happen in this stage.
-        case ImageUsage::depth_resolve:
-            return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        case ImageUsage::depth_attachment:
-        case ImageUsage::depth_attachment_read:
-            return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-        case ImageUsage::shader_read:
-            return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        case ImageUsage::vertex_read:
-            return VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        case ImageUsage::mesh_read:
-            return VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
-        case ImageUsage::compute_read:
-        case ImageUsage::compute_storage_read:
-        case ImageUsage::compute_write:
-        case ImageUsage::compute_read_write:
-            return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        case ImageUsage::depth_read_sampled:
-            return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
-                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        case ImageUsage::raytracing_read:
-        case ImageUsage::raytracing_write:
-            return VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-        case ImageUsage::transfer_src:
-        case ImageUsage::transfer_dst:
-            return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    }
-    return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-}
-
 VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
                                                     QueueType queue) {
-    if (queue != QueueType::async_compute) { return stages; }
-
-    constexpr VkPipelineStageFlags2 graphics_only =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-      | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT
-      | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
-      | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-      | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
-      | VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT
-      | VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT
-      | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT
-      | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT
-      | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
-      | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT
-      | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT
-      | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT
-      | VK_PIPELINE_STAGE_2_BLIT_BIT
-      | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-
-    const VkPipelineStageFlags2 disallowed = stages & graphics_only;
-    if (disallowed == 0) { return stages; }
-
-    // Collapse the graphics-only bits to ALL_COMMANDS; keep the rest.
-    // Semaphore ordering from submit_and_present handles the real cross-
-    // queue wait, so we only need a stage the queue accepts.
-    return (stages & ~graphics_only) | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-}
-
-VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
-    switch (usage) {
-        // An attachment's load op reads what is there before the pass
-        // writes over it.
-        case ImageUsage::color_attachment:
-            return VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        case ImageUsage::depth_attachment:
-            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
-                 | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        // A resolve write, depth or colour, is a colour attachment write.
-        case ImageUsage::depth_resolve:
-            return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        case ImageUsage::depth_attachment_read:
-            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        case ImageUsage::shader_read:
-        case ImageUsage::vertex_read:
-        case ImageUsage::mesh_read:
-        case ImageUsage::compute_read:
-        case ImageUsage::raytracing_read:
-            return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        case ImageUsage::compute_storage_read:
-            return VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-        case ImageUsage::compute_write:
-        case ImageUsage::raytracing_write:
-            return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        case ImageUsage::compute_read_write:
-            return VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        case ImageUsage::depth_read_sampled:
-            return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        case ImageUsage::transfer_src:
-            return VK_ACCESS_2_TRANSFER_READ_BIT;
-        case ImageUsage::transfer_dst:
-            return VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    }
-    return 0;
+    return queue == QueueType::async_compute ? gpu::vulkan::compute_queue_stages(stages) : stages;
 }
 
 void FrameGraph::carve_slices(TrackedImage& img, const SubresourceRange& query,
@@ -1208,16 +942,12 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         // to barrier.
         if (img.image == VK_NULL_HANDLE) { continue; }
 
-        auto layout = layout_for(acc.usage, img.aspect);
-        auto stages = stage_for(acc.usage);
-        auto access = access_for(acc.usage);
-        bool is_write = acc.usage == ImageUsage::color_attachment
-                     || acc.usage == ImageUsage::depth_attachment
-                     || acc.usage == ImageUsage::depth_resolve
-                     || acc.usage == ImageUsage::compute_write
-                     || acc.usage == ImageUsage::compute_read_write
-                     || acc.usage == ImageUsage::raytracing_write
-                     || acc.usage == ImageUsage::transfer_dst;
+        const gpu::vulkan::ImageScope scope =
+            gpu::vulkan::image_scope(acc.access, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
+        auto layout = scope.layout;
+        auto stages = scope.stages;
+        auto access = scope.access;
+        bool is_write = gpu::access_is_write(acc.access);
 
         // A pass touches a handful of images; a linear search beats a map.
         MergedAccess* m = nullptr;
