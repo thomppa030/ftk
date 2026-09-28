@@ -13,7 +13,7 @@
 #include "fjell/camera_api.hpp"
 #include "fjell/material_api.hpp"
 #include "fjell/viewport_api.hpp"
-#include "fjell/animator_api.hpp"
+#include "fjell/animator_component.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -162,9 +162,11 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         fjell::material::reset(door);
         fjell::viewport::set_camera("monitor", own);
 
-        // Skeletal animation through animator::, sprite animation on its component.
-        fjell::animator::set_param(own, "speed", fjell::animator::get_param(own, "speed") + 1.0f);
-        [[maybe_unused]] const char* state = fjell::animator::current_state(own);
+        // Skeletal and sprite animation, each through its component's state machine.
+        auto skeletal = own.get_component<fjell::AnimatorComponent>();
+        auto& machine = skeletal->state_machine();
+        machine.set_param("speed", machine.get_param("speed") + 1.0f);
+        [[maybe_unused]] const bool landing = machine.current_state_name() == "Land";
         auto anim = own.get_component<fjell::SpriteAnimComponent>();
         anim->state_machine.set_param("speed", anim->state_machine.get_param("speed"));
         if (anim->finished && anim->state_machine.current_state_name() == "Attack") anim->playing = false;
@@ -173,6 +175,8 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);
+    // So is an animator: the engine's component, reached only through a Ref.
+    STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::AnimatorComponent>);
     STATIC_REQUIRE_FALSE(std::is_default_constructible_v<fjell::Node3D>);
     // A Ref<Node3D> is a Ref like any other.
     STATIC_REQUIRE(sizeof(fjell::Ref<fjell::Node3D>) == sizeof(fjell::RefData));

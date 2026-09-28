@@ -16,7 +16,6 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`input`](API/input_api.md) | `fjell/input_api.hpp` | Bind input actions to member functions |
 | [`audio`](API/audio_api.md) | `fjell/audio_api.hpp` | Play audio clips at world positions |
 | [`vfx`](API/vfx_api.md) | `fjell/vfx_api.hpp` | Spawn particle systems |
-| [`animator`](API/animator_api.md) | `fjell/animator_api.hpp` | Drive skeletal animation state machines |
 | [`Debug`](API/Debug.md) | `fjell/debug_api.hpp` | Debug-draw lines, boxes, spheres, points; on-screen debug text |
 | [`viewport`](API/viewport_api.md) | `fjell/viewport_api.hpp` | Create render-to-texture viewports |
 
@@ -33,8 +32,9 @@ Reference pages for every type and static API exposed to game scripts. For the m
 ## Engine components
 
 Engine components a script reaches directly, through a `Ref<T>` or `get_component<T>()`.
-Their layout is checked when the game library loads, so a library built against another
-engine is refused rather than misread.
+The ones whose fields a script reads are checked when the game library loads, so a library
+built against another engine is refused rather than misread; `AnimatorComponent` has no
+fields a script sees, only methods.
 
 | Component | Header | What a script does with it |
 |---|---|---|
@@ -44,6 +44,7 @@ engine is refused rather than misread.
 | `MeshComponent` | `fjell/engine_components.hpp` | Read which model and material a mesh draws with |
 | `SpriteComponent` | `fjell/engine_components.hpp` | Tint, flip (`flip_h`) and look of a sprite |
 | `SpriteAnimComponent` | `fjell/sprite_anim_component.hpp` | Drive a sprite animation: `state_machine.set_param()`, `playing`, `finished` |
+| `AnimatorComponent` | `fjell/animator_component.hpp` | Drive a skeletal animation: `state_machine().set_param()`, `current_state_name()` |
 
 ## Handles and value types
 

@@ -28,7 +28,7 @@ enum class CompareOp : uint8_t {
 /// One test against a state machine parameter. A transition fires only when
 /// all of its conditions hold.
 struct TransitionCondition {
-    /// Parameter name, as set through `animator::set_param()`.
+    /// Parameter name, as set through `AnimationStateMachine::set_param()`.
     std::string param;
 
     /// Comparison to apply.
@@ -54,7 +54,7 @@ struct StateTransition {
 /// One state in an animation state machine — a clip or blend space to play,
 /// plus the transitions leaving it.
 struct AnimationState {
-    /// State name, as reported by `animator::current_state()`.
+    /// State name, as `AnimationStateMachine::current_state_name()` reports it.
     std::string name;
 
     /// Path to a single `.fjanim` clip. Empty when using a blend space.
@@ -86,9 +86,9 @@ struct AnimationState {
 /// Runs an animation graph authored in the editor: parameters go in,
 /// transitions fire, and the current state says what to play.
 ///
-/// A sprite animation's machine is `SpriteAnimComponent::state_machine`,
-/// which scripts set parameters on directly; a skeletal animator's is driven
-/// through `animator::`.
+/// A sprite animation's machine is `SpriteAnimComponent::state_machine`, a
+/// skeletal one's `AnimatorComponent::state_machine()`: scripts set
+/// parameters on either directly.
 class AnimationStateMachine {
 public:
     /// Load a state machine asset, replacing the current graph.

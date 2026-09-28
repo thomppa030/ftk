@@ -3,7 +3,7 @@
 > Stub — fill in.
 
 ## Scope
-Authoring an `AnimationStateMachine`: states, transitions, conditions, notifies, blend spaces. Driven from script via `AnimatorAPI`.
+Authoring an `AnimationStateMachine`: states, transitions, conditions, notifies, blend spaces. Driven from script through the component's state machine: `AnimatorComponent::state_machine()` for a skeletal mesh, `SpriteAnimComponent::state_machine` for a sprite.
 
 ## Planned sections
 - The state machine editor (context tab)
@@ -20,7 +20,8 @@ Authoring an `AnimationStateMachine`: states, transitions, conditions, notifies,
   - Multi-clip blending
 - Driving from script:
   ```cpp
-  actor->animator()->set_float("speed", velocity.length());
-  actor->animator()->set_trigger("jump");
+  auto& machine = self().get_component<fjell::AnimatorComponent>()->state_machine();
+  machine.set_param("speed", glm::length(velocity));
+  machine.set_param("jump", 1.0f);   // a trigger is a float too
   ```
 - Performance notes — sampling cost, per-component bone budget

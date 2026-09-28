@@ -65,7 +65,7 @@ static const bool registered = [] {
             }
         },
 
-        .script_type_name = {},
+        .script_type_name = "AnimatorComponent",
 
         // Replicate the state-machine parameters that gameplay code feeds the
         // animator (e.g. "speed", "is_jumping"). Remote instances run the same

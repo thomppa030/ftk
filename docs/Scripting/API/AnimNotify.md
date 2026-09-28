@@ -193,5 +193,5 @@ struct AttackWindow : public fjell::AnimNotifyState {
 
 ## See also
 - [State Machine](../../Animation/State-Machine.md) — authoring side
-- [`animator`](animator_api.md) — runtime control of state machines
+- `AnimatorComponent` (`fjell/animator_component.hpp`) — runtime control of the state machine
 - [Components guide](../Components.md) — `[[fj::property]]` and reflection
