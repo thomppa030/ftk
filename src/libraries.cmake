@@ -94,7 +94,13 @@ fjell_library(gpu
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
+        gpu/vulkan/translate.cpp
     HEADERS
+        gpu/clear.hpp
+        gpu/flags.hpp
+        gpu/format.hpp
+        gpu/usage.hpp
+        gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
         renderer/gpu/deferred_deleter.hpp
         renderer/gpu/descriptor.hpp
