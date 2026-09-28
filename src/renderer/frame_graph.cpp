@@ -209,14 +209,15 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
     return id;
 }
 
-uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent, std::string_view name) {
+uint32_t FrameGraph::register_buffer(gpu::Buffer buffer, bool persistent, std::string_view name) {
     if (auto it = buffer_index_.find(buffer); it != buffer_index_.end()) {
         buffers_[it->second].persistent = buffers_[it->second].persistent || persistent;
         return it->second;
     }
     const auto id = static_cast<uint32_t>(buffers_.size());
     TrackedBuffer buf{};
-    buf.buffer = buffer;
+    buf.shared = buffer;
+    buf.buffer = gpu::vulkan::native_buffer(*device_, buffer);
     buf.persistent = persistent;
     if (tracing_) { buf.name = name; }
     if (auto remembered = remembered_buffers_.find(buffer);
@@ -268,7 +269,7 @@ void FrameGraph::remember_states() {
         state.seen = frame_serial_;
     }
     for (const auto& buf : buffers_) {
-        auto& state = remembered_buffers_[buf.buffer];
+        auto& state = remembered_buffers_[buf.shared];
         state.state = buf.state;
         state.seen = frame_serial_;
     }

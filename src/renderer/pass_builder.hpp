@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/access.hpp"
+#include "gpu/buffer.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
 
@@ -44,8 +45,8 @@ struct ImportedImage {
 /// RenderPass::collect_exports(); consumers reach them by name through
 /// PassBuilder::import_named_buffer().
 struct BufferImport {
-    VkBuffer buffer{VK_NULL_HANDLE};
-    VkDeviceSize size{0};
+    /// The buffer, which the graph tracks as a whole.
+    gpu::Buffer buffer{};
     // Read on a later frame than the one that wrote it, so a writer stays
     // alive with no reader in the frame.
     bool persistent{false};
@@ -181,8 +182,7 @@ public:
     /// keeps the producer alive even when no in-frame consumer reads it
     /// (the read happens next frame). Mirrors the image-side pattern used
     /// by exports like the shadow atlas.
-    FgBuffer import(std::string_view name, VkBuffer buffer, VkDeviceSize size,
-                    bool persistent = false);
+    FgBuffer import(std::string_view name, gpu::Buffer buffer, bool persistent = false);
 
     /// Import an image by the name it was registered under in the
     /// pipeline-provided DeclareContext catalog. Returns an invalid
@@ -268,8 +268,7 @@ public:
     struct ImportedBuffer {
         FgBuffer handle;
         std::string name;
-        VkBuffer buffer;
-        VkDeviceSize size;
+        gpu::Buffer buffer;
         bool persistent;
     };
     struct CreatedTexture {
