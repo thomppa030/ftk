@@ -19,9 +19,9 @@ namespace fjell {
 
 namespace {
 
-// Targeted tracing for the GTAO-async layout race (Step 4). Set
-// FJELL_TRACE_LAYOUT=1 to dump every begin_frame reset and every
-// graph-emitted image barrier with handle, name, layouts, queue.
+// FJELL_TRACE_LAYOUT=1 logs every image the graph starts tracking and what a
+// pass says it leaves one in, with its handle, name and layout; the backend
+// logs every barrier it records beside them.
 [[nodiscard]] bool layout_trace_enabled() {
     static const bool on = [] {
         const char* v = std::getenv("FJELL_TRACE_LAYOUT");
@@ -29,9 +29,6 @@ namespace {
     }();
     return on;
 }
-
-// A layout by its short name, or its number for one the trace does not name.
-[[nodiscard]] std::string layout_name(VkImageLayout l);
 
 // The barrier trace. FJELL_LOG_BARRIERS=<file> writes every barrier the
 // graph emits during a window of frames to <file>: FJELL_LOG_BARRIERS_FRAME
@@ -57,36 +54,6 @@ struct BarrierTrace {
     }();
     return trace;
 }
-
-[[nodiscard]] const char* layout_str(VkImageLayout l) {
-    switch (l) {
-        case VK_IMAGE_LAYOUT_UNDEFINED:                       return "UNDEFINED";
-        case VK_IMAGE_LAYOUT_GENERAL:                         return "GENERAL";
-        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:        return "COLOR_ATT";
-        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:return "DS_ATT";
-        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL: return "DS_RO";
-        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:        return "SHADER_RO";
-        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:            return "XFER_SRC";
-        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:            return "XFER_DST";
-        case VK_IMAGE_LAYOUT_PREINITIALIZED:                  return "PREINIT";
-        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:        return "DEPTH_ATT";
-        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:         return "DEPTH_RO";
-        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                 return "PRESENT";
-        default:                                              return "?";
-    }
-}
-
-std::string layout_name(VkImageLayout l) {
-    const std::string name = layout_str(l);
-    return name == "?" ? std::to_string(static_cast<int>(l)) : name;
-}
-
-// The access bits that write memory, as opposed to reading it.
-constexpr VkAccessFlags2 WRITE_ACCESS_BITS =
-    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-  | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT
-  | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-  | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 // Clamp an externally-specified range against the image's actual
 // dimensions. VK_REMAINING_* expands to "whole image from base_*".
@@ -200,7 +167,7 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
         FJELL_GFX_INFO("[layout] register img=0x{:x} '{}' layers={}+{} mips={} start={}{}",
                        reinterpret_cast<uintptr_t>(image), name, base_layer, layer_count,
                        mip_count,
-                       layout_str(gpu::vulkan::merged_image_scope(img.slices.front().in, depth).layout),
+                       gpu::vulkan::layout_name(gpu::vulkan::merged_image_scope(img.slices.front().in, depth).layout),
                        seeded ? " (remembered)" : "");
     }
 
@@ -661,9 +628,8 @@ void FrameGraph::log_queue_segments() const {
                    segment_index + 1, total_compute_passes);
 }
 
-VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
-                                                    QueueType queue) {
-    return queue == QueueType::async_compute ? gpu::vulkan::compute_queue_stages(stages) : stages;
+gpu::Queue FrameGraph::gpu_queue(QueueType queue) {
+    return queue == QueueType::async_compute ? gpu::Queue::compute : gpu::Queue::graphics;
 }
 
 void FrameGraph::carve_slices(TrackedImage& img, const SubresourceRange& query,
@@ -781,102 +747,38 @@ void FrameGraph::coalesce_slices(TrackedImage& img) {
     }
 }
 
-void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                          ImageSlice& slice, gpu::AccessSet accesses,
-                                          bool write, QueueType queue) {
+void FrameGraph::append_barrier_for_slice(const TrackedImage& img, ImageSlice& slice,
+                                          gpu::AccessSet accesses, bool write, QueueType queue) {
     AccessState& s = slice.state;
     const bool depth = (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
-    auto scope = [&](gpu::AccessSet set) { return gpu::vulkan::merged_image_scope(set, depth); };
-    const gpu::vulkan::ImageScope now = scope(slice.in);
-    const gpu::vulkan::ImageScope next = scope(accesses);
-    const VkPipelineStageFlags2 stage = stages_for_queue(next.stages, queue);
-    const VkAccessFlags2 dst_access = next.access;
-    const bool layout_change = now.layout != next.layout;
-
-    const VkPipelineStageFlags2 write_stages = scope(s.written_by | s.changed_for).stages;
-    const VkAccessFlags2 write_access = scope(s.written_by).access & WRITE_ACCESS_BITS;
-    const VkPipelineStageFlags2 read_stages = scope(s.read_by).stages;
-    const gpu::vulkan::ImageScope visible = scope(s.visible_to);
-    const VkPipelineStageFlags2 visible_stages = stages_for_queue(visible.stages, queue);
+    const bool layout_change = !gpu::same_state(slice.in, accesses, depth);
+    const gpu::AccessSet writes = s.written_by | s.changed_for;
 
     // The same rule as for buffers, plus the layout. A layout change or a
     // write waits for the last write and every reader since; a read waits
-    // for the last write unless an earlier barrier already made it visible
-    // to this stage and access.
-    VkPipelineStageFlags2 src_stage = 0;
-    VkAccessFlags2 src_access = 0;
-    VkPipelineStageFlags2 barrier_dst = stage;
-    VkAccessFlags2 barrier_dst_access = dst_access;
-    gpu::AccessSet made_visible = accesses;
+    // for the last write unless an earlier transition already made it
+    // visible to this access.
+    gpu::Transition t{
+        .texture = image_range(img, slice.range),
+        .flush = s.written_by,
+        .visible_to = accesses,
+        .from = slice.in,
+        .to = accesses,
+        .name = img.name,
+    };
     bool needed = false;
     if (layout_change || write) {
-        src_stage = write_stages | read_stages;
-        src_access = write_access;
-        needed = layout_change || src_stage != 0;
-    } else if (write_stages != 0
-               && ((stage & ~visible_stages) != 0 || (dst_access & ~visible.access) != 0)) {
-        src_stage = write_stages;
-        src_access = write_access;
-        // Widen to everything made visible before, so the one scope kept
+        t.wait_for = writes | s.read_by;
+        needed = layout_change || !t.wait_for.empty();
+    } else if (!writes.empty() &&
+               !gpu::texture_already_visible(s.visible_to, accesses, depth, gpu_queue(queue))) {
+        t.wait_for = writes;
+        // Widen to everything made visible before, so the one state kept
         // covers every reader so far.
-        barrier_dst = stages_for_queue(next.stages | visible.stages, queue);
-        barrier_dst_access = dst_access | visible.access;
-        made_visible = accesses | s.visible_to;
+        t.visible_to = accesses | s.visible_to;
         needed = true;
     }
-
-    if (needed) {
-        // A source stage the recording queue does not have means the last
-        // access happened on the other queue, and the timeline semaphore
-        // between the submits orders the work. The barrier is still needed
-        // for a layout change, and its source scope has to reach the
-        // semaphore wait for the transition to be ordered after it: an
-        // empty one would let the transition run before the wait. Every
-        // stage covers whichever stage the submit waits at; the semaphore
-        // has already made the memory available, so no access is named.
-        // Without a layout change the barrier would carry nothing.
-        const VkPipelineStageFlags2 translated_src = stages_for_queue(src_stage, queue);
-        const bool cross_queue = translated_src != src_stage;
-        if (layout_change || !cross_queue) {
-            VkImageMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = cross_queue      ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
-                                 : src_stage == 0   ? VK_PIPELINE_STAGE_2_NONE
-                                                    : src_stage;
-            barrier.srcAccessMask = cross_queue ? 0 : src_access;
-            barrier.dstStageMask = barrier_dst;
-            barrier.dstAccessMask = barrier_dst_access;
-            barrier.oldLayout = now.layout;
-            barrier.newLayout = next.layout;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image = img.image;
-            barrier.subresourceRange.aspectMask = slice.range.aspect;
-            barrier.subresourceRange.baseMipLevel = slice.range.base_mip;
-            barrier.subresourceRange.levelCount = slice.range.mip_count;
-            barrier.subresourceRange.baseArrayLayer = slice.range.base_layer;
-            barrier.subresourceRange.layerCount = slice.range.layer_count;
-
-            if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
-                FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
-                               reinterpret_cast<uintptr_t>(img.image),
-                               layout_str(now.layout), layout_str(next.layout),
-                               static_cast<uint64_t>(barrier.srcStageMask),
-                               static_cast<uint64_t>(barrier.dstStageMask),
-                               queue == QueueType::async_compute ? "compute" : "graphics",
-                               reinterpret_cast<uintptr_t>(cmd));
-            }
-            barriers_scratch_.push_back(barrier);
-            if (tracing_) {
-                trace_pending_ += std::format(
-                    "    image {} mips {}+{} layers {}+{} {} -> {} src {:x}/{:x} dst {:x}/{:x}\n",
-                    img.name, slice.range.base_mip, slice.range.mip_count, slice.range.base_layer,
-                    slice.range.layer_count, layout_name(barrier.oldLayout),
-                    layout_name(barrier.newLayout), barrier.srcStageMask, barrier.srcAccessMask,
-                    barrier.dstStageMask, barrier.dstAccessMask);
-            }
-        }
-    }
+    if (needed) { transitions_scratch_.push_back(t); }
 
     // Record the use.
     if (write) {
@@ -888,90 +790,38 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
         s.read_by = accesses;
         s.visible_to = accesses;
     } else {
-        if (needed) { s.visible_to = made_visible; }
+        if (needed) { s.visible_to = t.visible_to; }
         s.read_by |= accesses;
     }
     slice.in = accesses;
 }
 
 void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
-                                          QueueType queue) {
+                                           QueueType queue) {
     AccessState& s = buf.state;
-    const gpu::vulkan::BufferScope scope = gpu::vulkan::buffer_scope(use.access);
-    const VkPipelineStageFlags2 dst_stage = stages_for_queue(scope.stages, queue);
-    const VkPipelineStageFlags2 write_stages = gpu::vulkan::buffer_scope(s.written_by).stages;
-    const VkAccessFlags2 write_access =
-        gpu::vulkan::buffer_scope(s.written_by).access & WRITE_ACCESS_BITS;
-    const VkPipelineStageFlags2 read_stages = gpu::vulkan::buffer_scope(s.read_by).stages;
-    const gpu::vulkan::BufferScope visible = gpu::vulkan::buffer_scope(s.visible_to);
-    const VkPipelineStageFlags2 visible_stages = stages_for_queue(visible.stages, queue);
 
     // A write waits for the last write (write-after-write) and for every
     // reader since (write-after-read: execution only, a read leaves nothing
     // to make available). A read waits for the last write unless an earlier
-    // barrier already made it visible to this stage and access.
-    VkPipelineStageFlags2 src_stage = 0;
-    VkAccessFlags2 src_access = 0;
-    VkAccessFlags2 dst_access = scope.access;
-    gpu::AccessSet made_visible = use.access;
+    // transition already made it visible to this access.
+    gpu::Transition t{
+        .buffer = buf.shared,
+        .flush = s.written_by,
+        .visible_to = use.access,
+        .name = buf.name,
+    };
     if (use.write) {
-        src_stage = write_stages | read_stages;
-        src_access = write_access;
-    } else if (write_stages != 0
-               && ((dst_stage & ~visible_stages) != 0 || (scope.access & ~visible.access) != 0)) {
-        src_stage = write_stages;
-        src_access = write_access;
-        // Widen to everything made visible before, so the one scope kept
+        t.wait_for = s.written_by | s.read_by;
+    } else if (!s.written_by.empty() &&
+               !gpu::buffer_already_visible(s.visible_to, use.access, gpu_queue(queue))) {
+        t.wait_for = s.written_by;
+        // Widen to everything made visible before, so the one state kept
         // covers every reader so far.
-        dst_access |= visible.access;
-        made_visible = use.access | s.visible_to;
+        t.visible_to = use.access | s.visible_to;
     }
-
-    if (src_stage != 0) {
-        const VkPipelineStageFlags2 barrier_dst =
-            use.write ? dst_stage : stages_for_queue(scope.stages | visible.stages, queue);
-        // Same rule as for images: a source stage the recording queue does
-        // not have means the last access happened on the other queue, and
-        // the timeline semaphore between the submits is what orders them.
-        // An image still needs its barrier there for the layout change; a
-        // buffer has none, so the barrier would carry nothing and is left
-        // out.
-        const VkPipelineStageFlags2 translated_src = stages_for_queue(src_stage, queue);
-        const bool cross_queue = translated_src != src_stage;
-
-        if (!cross_queue) {
-            VkBufferMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-            barrier.srcStageMask = src_stage;
-            barrier.srcAccessMask = src_access;
-            barrier.dstStageMask = barrier_dst;
-            barrier.dstAccessMask = dst_access;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = buf.buffer;
-            barrier.offset = 0;
-            barrier.size = VK_WHOLE_SIZE;
-            buffer_barriers_scratch_.push_back(barrier);
-            if (tracing_) {
-                trace_pending_ += std::format("    buffer {} src {:x}/{:x} dst {:x}/{:x}\n",
-                                              buf.name, barrier.srcStageMask,
-                                              barrier.srcAccessMask, barrier.dstStageMask,
-                                              barrier.dstAccessMask);
-            }
-
-            if (layout_trace_enabled()) {
-                FJELL_GFX_INFO("[layout] buffer barrier buf=0x{:x} {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
-                               reinterpret_cast<uintptr_t>(buf.buffer),
-                               use.write ? (write_stages != 0 ? "WAW/WAR" : "WAR") : "RAW",
-                               static_cast<uint64_t>(barrier.srcStageMask),
-                               static_cast<uint64_t>(barrier.srcAccessMask),
-                               static_cast<uint64_t>(barrier.dstStageMask),
-                               static_cast<uint64_t>(barrier.dstAccessMask),
-                               queue == QueueType::async_compute ? "compute" : "graphics");
-            }
-        }
-
-        if (!use.write) { s.visible_to = made_visible; }
+    if (!t.wait_for.empty()) {
+        transitions_scratch_.push_back(t);
+        if (!use.write) { s.visible_to = t.visible_to; }
     }
 
     if (use.write) {
@@ -991,8 +841,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
     // we union stages + access flags and collapse layouts.
     auto& merged = merged_scratch_;
     merged.clear();
-    barriers_scratch_.clear();
-    buffer_barriers_scratch_.clear();
+    transitions_scratch_.clear();
 
     for (const auto& acc : pass.image_uses) {
         auto& img = images_[acc.image_id];
@@ -1022,8 +871,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         auto& img = images_[m.image_id];
         carve_slices(img, m.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
-            append_barrier_for_slice(cmd, img, img.slices[idx], m.accesses, m.any_write,
-                                     pass.queue);
+            append_barrier_for_slice(img, img.slices[idx], m.accesses, m.any_write, pass.queue);
         }
         coalesce_slices(img);
     }
@@ -1049,18 +897,11 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         append_barrier_for_buffer(buffers_[use.buffer_id], use, pass.queue);
     }
 
+    record_transitions(cmd, pass.queue);
     if (tracing_) {
         barrier_trace()->file << trace_pending_;
         trace_pending_.clear();
     }
-    if (barriers_scratch_.empty() && buffer_barriers_scratch_.empty()) { return; }
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers_scratch_.size());
-    dep.pImageMemoryBarriers = barriers_scratch_.data();
-    dep.bufferMemoryBarrierCount = static_cast<uint32_t>(buffer_barriers_scratch_.size());
-    dep.pBufferMemoryBarriers = buffer_barriers_scratch_.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 void FrameGraph::apply_final_states(const PassDecl& pass) {
@@ -1074,11 +915,11 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
         if (trace) {
             FJELL_GFX_INFO("[layout] leaves pass='{}' img=0x{:x} -> {}",
                            pass.name, reinterpret_cast<uintptr_t>(img.image),
-                           layout_str(left_layout));
+                           gpu::vulkan::layout_name(left_layout));
         }
         if (tracing_) {
             barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name,
-                                                 layout_name(left_layout));
+                                                 gpu::vulkan::layout_name(left_layout));
         }
         carve_slices(img, fs.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
@@ -1097,7 +938,7 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
 }
 
 void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
-    barriers_scratch_.clear();
+    transitions_scratch_.clear();
     for (const auto& use : pass.image_uses) {
         auto& img = images_[use.image_id];
         if (img.resting.empty() || img.image == VK_NULL_HANDLE) { continue; }
@@ -1105,20 +946,32 @@ void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
                                      img.array_layers};
         carve_slices(img, whole, indices_scratch_);
         for (size_t idx : indices_scratch_) {
-            append_barrier_for_slice(cmd, img, img.slices[idx], img.resting, false, pass.queue);
+            append_barrier_for_slice(img, img.slices[idx], img.resting, false, pass.queue);
         }
         coalesce_slices(img);
     }
-    if (barriers_scratch_.empty()) { return; }
-    if (tracing_) {
+    record_transitions(cmd, pass.queue);
+    if (tracing_ && !trace_pending_.empty()) {
         barrier_trace()->file << "  rest after " << pass.name << '\n' << trace_pending_;
         trace_pending_.clear();
     }
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers_scratch_.size());
-    dep.pImageMemoryBarriers = barriers_scratch_.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
+void FrameGraph::record_transitions(VkCommandBuffer cmd, QueueType queue) {
+    if (transitions_scratch_.empty()) { return; }
+    gpu::vulkan::CommandBufferList commands(*device_, cmd, gpu_queue(queue));
+    gpu::vulkan::trace_transitions(*device_, tracing_ ? &trace_pending_ : nullptr);
+    commands.list().transition(transitions_scratch_);
+    gpu::vulkan::trace_transitions(*device_, nullptr);
+}
+
+gpu::TextureView FrameGraph::image_range(const TrackedImage& img, const SubresourceRange& range) {
+    gpu::TextureView view(img.texture);
+    view.base_mip = range.base_mip;
+    view.mip_count = range.mip_count;
+    view.base_layer = range.base_layer;
+    view.layer_count = range.layer_count;
+    return view;
 }
 
 bool FrameGraph::execute(VkCommandBuffer graphics_pre,

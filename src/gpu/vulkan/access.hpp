@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 
 #include <optional>
+#include <string>
 
 // What each `gpu::Access` is to Vulkan: the layout an image is in for it, and
 // the pipeline stages and memory accesses a barrier names for it. The frame
@@ -51,6 +52,9 @@ struct BufferScope {
 
 /// What `accesses` are to a buffer together.
 [[nodiscard]] BufferScope buffer_scope(AccessSet accesses);
+
+/// A layout by its short name ("SHADER_RO"), or its number for one without.
+[[nodiscard]] std::string layout_name(VkImageLayout layout);
 
 /// `stages` as a compute queue can wait on them: the stages only a graphics
 /// queue has (attachments, fragment and vertex work, blits, resolves) become

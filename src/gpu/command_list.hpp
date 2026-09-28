@@ -8,6 +8,7 @@
 #include "gpu/render_encoder.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
+#include "gpu/transition.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -164,6 +165,12 @@ public:
     /// as `before`. Nothing before discards what the view holds.
     void barrier(const TextureView& view, AccessSet before, AccessSet after);
     void barrier(BufferRange range, AccessSet before, AccessSet after);
+
+    /// The frame graph's: every transition it worked out between two passes,
+    /// as one batch. Work waited on from the other queue is ordered by the
+    /// submission between the queues, so a buffer's transition then records
+    /// nothing and a texture's only its change of state.
+    void transition(std::span<const Transition> transitions);
 
     /// Plays lists recorded on other threads, in order, as if what they hold
     /// were recorded here. Each holds whole passes: none of them, nor this

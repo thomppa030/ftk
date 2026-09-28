@@ -3,7 +3,9 @@
 #include "core/handle.hpp"
 #include "gpu/access.hpp"
 #include "gpu/buffer.hpp"
+#include "gpu/queue.hpp"
 #include "gpu/texture.hpp"
+#include "gpu/transition.hpp"
 #include "renderer/resource_desc.hpp"
 
 #include <vulkan/vulkan.h>
@@ -316,18 +318,12 @@ public:
     void bind_virtual_image(uint32_t image_id, gpu::Texture texture);
 
 private:
-    // When a barrier is recorded into a compute-queue CB, graphics-only
-    // stage bits (COLOR_ATTACHMENT_OUTPUT, FRAGMENT_SHADER, vertex/tess/
-    // geometry, EARLY/LATE_FRAGMENT_TESTS) are rejected by the validator
-    // because they're not part of VK_QUEUE_COMPUTE_BIT's supported set.
-    // Cross-queue synchronisation between graphics_pre's signal and the
-    // compute wait is already handled by the timeline semaphore in
-    // submit_and_present, so rewriting srcStage on the compute CB to
-    // ALL_COMMANDS is safe: we aren't dropping any ordering, just naming
-    // a stage the queue actually supports. Same logic applies to any
-    // graphics-only dstStage coming back the other direction.
-    static VkPipelineStageFlags2 stages_for_queue(VkPipelineStageFlags2 stages,
-                                                  QueueType queue);
+    // The GPU interface's name for the queue a pass records on.
+    [[nodiscard]] static gpu::Queue gpu_queue(QueueType queue);
+
+    // `range` of `img` as a view of its texture.
+    [[nodiscard]] static gpu::TextureView image_range(const TrackedImage& img,
+                                                      const SubresourceRange& range);
 
     // Split the slice list so that every slice is either fully inside
     // the query range or fully outside it. Fills `out` with indices into
@@ -339,22 +335,25 @@ private:
     // updating state so the list doesn't grow unboundedly.
     void coalesce_slices(TrackedImage& img);
 
-    // Append the barrier that brings one slice to `accesses` to
-    // barriers_scratch_, and record the new state on the slice. Nothing is
-    // appended when the slice is already visible to those accesses.
-    void append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
-                                  ImageSlice& slice, gpu::AccessSet accesses, bool write,
-                                  QueueType queue);
+    // Append the transition that brings one slice to `accesses` to
+    // transitions_scratch_, and record the new state on the slice. Nothing
+    // is appended when the slice is already visible to those accesses.
+    void append_barrier_for_slice(const TrackedImage& img, ImageSlice& slice,
+                                  gpu::AccessSet accesses, bool write, QueueType queue);
 
-    // Append the barrier one pass's use of a buffer needs to
-    // buffer_barriers_scratch_, and record the use on the buffer's state.
+    // Append the transition one pass's use of a buffer needs to
+    // transitions_scratch_, and record the use on the buffer's state.
     // Nothing is appended when the use has nothing to wait for.
     void append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& use,
                                    QueueType queue);
 
-    // Every barrier a pass needs, image and buffer, issued as one
-    // vkCmdPipelineBarrier2.
+    // Every transition a pass needs, image and buffer, recorded as one
+    // batch.
     void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
+
+    // Records transitions_scratch_ into `cmd` on `queue`, describing each
+    // barrier in trace_pending_ while the barrier trace records.
+    void record_transitions(VkCommandBuffer cmd, QueueType queue);
 
     // After a run: store every imported image's slice state for the next
     // run to start from.
@@ -416,8 +415,7 @@ private:
 
     // Reusable scratch, so a run allocates nothing on its hot path.
     std::vector<VkCommandBuffer> secondaries_scratch_;
-    std::vector<VkImageMemoryBarrier2> barriers_scratch_;
-    std::vector<VkBufferMemoryBarrier2> buffer_barriers_scratch_;
+    std::vector<gpu::Transition> transitions_scratch_;
     std::vector<BufferUse> merged_buffers_scratch_;
     std::vector<uint32_t> handle_to_buffer_scratch_;
     std::vector<ImageSlice> rebuilt_scratch_;
