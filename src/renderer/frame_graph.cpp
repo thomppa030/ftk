@@ -123,11 +123,12 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t mip_count,
                                      bool persistent,
                                      VkImageLayout initial_layout,
-                                     std::string_view name) {
+                                     std::string_view name, gpu::AccessSet resting) {
     const ImageKey key{image, base_layer, layer_count};
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
         existing.persistent = existing.persistent || persistent;
+        if (existing.resting.empty()) { existing.resting = resting; }
         if (tracing_ && existing.name.empty()) { existing.name = name; }
         if (mip_count > existing.mip_count) {
             // An earlier importer undersized the mip count; widen the
@@ -148,6 +149,18 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     img.array_layers = layer_count;
     img.base_layer = base_layer;
     img.persistent = persistent;
+    img.resting = resting;
+    // The layout it rests in, which it starts from without a memory of it.
+    if (!resting.empty()) {
+        const auto rest = gpu::vulkan::image_scope(resting, (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
+        if (rest.has_value()) {
+            initial_layout = rest->layout;
+        } else {
+            FJELL_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
+                           std::string(name));
+            img.resting = {};
+        }
+    }
 
     // Start from where the last run left the image. A remembered state
     // whose slices no longer describe this range (the image was widened
@@ -293,7 +306,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     for (const auto& imp : builder.imported_textures()) {
         handle_to_image_id[imp.handle.id] = register_image(
             imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
-            imp.persistent, imp.initial_layout, imp.name);
+            imp.persistent, imp.initial_layout, imp.name, imp.resting);
     }
 
     // Register created textures as virtual resources. Virtual resources
@@ -836,7 +849,7 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
             }
             barriers_scratch_.push_back(barrier);
             if (tracing_) {
-                barrier_trace()->file << std::format(
+                trace_pending_ += std::format(
                     "    image {} mips {}+{} layers {}+{} {} -> {} src {:x}/{:x} dst {:x}/{:x}\n",
                     img.name, slice.range.base_mip, slice.range.mip_count, slice.range.base_layer,
                     slice.range.layer_count, layout_name(barrier.oldLayout),
@@ -951,10 +964,10 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
             barrier.size = VK_WHOLE_SIZE;
             buffer_barriers_scratch_.push_back(barrier);
             if (tracing_) {
-                barrier_trace()->file << std::format("    buffer {} src {:x}/{:x} dst {:x}/{:x}\n",
-                                                     buf.name, barrier.srcStageMask,
-                                                     barrier.srcAccessMask, barrier.dstStageMask,
-                                                     barrier.dstAccessMask);
+                trace_pending_ += std::format("    buffer {} src {:x}/{:x} dst {:x}/{:x}\n",
+                                              buf.name, barrier.srcStageMask,
+                                              barrier.srcAccessMask, barrier.dstStageMask,
+                                              barrier.dstAccessMask);
             }
 
             if (layout_trace_enabled()) {
@@ -1063,6 +1076,10 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         append_barrier_for_buffer(buffers_[use.buffer_id], use, pass.queue);
     }
 
+    if (tracing_) {
+        barrier_trace()->file << trace_pending_;
+        trace_pending_.clear();
+    }
     if (barriers_scratch_.empty() && buffer_barriers_scratch_.empty()) { return; }
     VkDependencyInfo dep{};
     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -1103,6 +1120,34 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
         }
         coalesce_slices(img);
     }
+}
+
+void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
+    barriers_scratch_.clear();
+    for (const auto& use : pass.image_uses) {
+        auto& img = images_[use.image_id];
+        if (img.resting.empty() || img.image == VK_NULL_HANDLE) { continue; }
+        const auto rest =
+            gpu::vulkan::image_scope(img.resting, (img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
+        const SubresourceRange whole{img.aspect, 0, img.mip_count, img.base_layer,
+                                     img.array_layers};
+        carve_slices(img, whole, indices_scratch_);
+        for (size_t idx : indices_scratch_) {
+            append_barrier_for_slice(cmd, img, img.slices[idx], rest->layout, rest->stages,
+                                     rest->access, false, pass.queue);
+        }
+        coalesce_slices(img);
+    }
+    if (barriers_scratch_.empty()) { return; }
+    if (tracing_) {
+        barrier_trace()->file << "  rest after " << pass.name << '\n' << trace_pending_;
+        trace_pending_.clear();
+    }
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = static_cast<uint32_t>(barriers_scratch_.size());
+    dep.pImageMemoryBarriers = barriers_scratch_.data();
+    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 bool FrameGraph::execute(VkCommandBuffer graphics_pre,
@@ -1154,6 +1199,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
             {
                 FJELL_PROFILE_SCOPE_N("fg_final_layouts");
                 apply_final_layouts(pass);
+                return_to_rest(cb, pass);
             }
             ++i;
             continue;
@@ -1212,6 +1258,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
             apply_final_layouts(passes_[p]);
+            return_to_rest(cb_for(passes_[p], p), passes_[p]);
         }
     }
     remember_states();
