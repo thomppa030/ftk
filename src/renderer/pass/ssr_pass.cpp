@@ -324,11 +324,6 @@ void SsrCore::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D
             prev_frame_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1, &region);
     }
-
-    emit_transition(cmd, prev_frame_image_,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
@@ -352,8 +347,9 @@ void SsrCore::collect_exports(DeclareContext& ctx) {
     img.image = prev_frame_image_;
     img.view = prev_frame_view_;
     img.persistent = true;   // read by the next frame's trace
-    // Cleared when created, and every copy leaves it there.
-    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Rests where the next frame's trace samples it; cleared there when
+    // created.
+    img.resting = gpu::Access::sampled_compute;
     ctx.imports.emplace(fg_name_hash("prev_frame_color"), img);
 }
 
@@ -391,13 +387,9 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // Off / RayTraced path clears ssr_output via vkCmdClearColorImage
         // so the composite reads zero from this resource. (When RayTraced,
         // the composite reads rt_reflection_output instead.) The graph
-        // barriers us into TRANSFER_DST; we honor the final_layout
-        // SHADER_READ promise inline after the clear.
+        // moves it into TRANSFER_DST for the clear, and on to where the
+        // composite reads it.
         builder.write(ssr_out, gpu::Access::copy_dst);
-        builder.final_layout(ssr_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 }
 
@@ -416,17 +408,11 @@ void SsrTracePass::record(const FrameContext& ctx) {
     auto* cmd = ctx.cmd;
 
     if (!screen_space_active()) {
-        // Graph barriered us into TRANSFER_DST. Clear, then emit the
-        // matching TRANSFER_DST → SHADER_READ transition to honor the
-        // final_layout promise.
+        // The graph has the image in TRANSFER_DST for the clear.
         VkClearColorValue clear{};
         VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cmd, ssr_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                              &clear, 1, &range);
-        emit_transition(cmd, ssr_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         return;
     }
 
@@ -626,11 +612,6 @@ void SsrHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!history.valid()) { return; }
     builder.read(builder.import_named(ctx, "color"), gpu::Access::copy_src);
     builder.write(history, gpu::Access::copy_dst);
-    // record() leaves the history where the next frame's trace samples it.
-    builder.final_layout(history, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void SsrHistoryPass::record(const FrameContext& ctx) {
