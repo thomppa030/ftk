@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/named_value.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/post_layers.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -64,15 +66,17 @@ public:
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
+        /// The output as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> texture;
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         /// Whether the pass has drawn into the image since it was made.
         bool written{false};
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

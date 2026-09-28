@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/access.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
 
 #include <glm/vec2.hpp>
@@ -17,12 +18,9 @@ namespace fjell {
 /// their persistent outputs via RenderPass::collect_exports(). Passes
 /// reach these by name through PassBuilder::import_named().
 struct ImportedImage {
-    VkImage image{VK_NULL_HANDLE};
-    VkImageView view{VK_NULL_HANDLE};
-    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
-    uint32_t base_layer{0};
-    uint32_t layer_count{1};
-    uint32_t mip_count{1};
+    /// The texture, every mip of it: the graph tracks the layers the view
+    /// covers apart from any others of the same texture.
+    gpu::TextureView view{};
     // Persistent images keep their tracked layout across begin_frame().
     // Set true for shadow atlases, Hi-Z pyramids, sky cubemaps — images
     // whose state at the start of frame N depends on frame N-1's exit
@@ -175,12 +173,10 @@ public:
     FgTexture create(std::string_view name, const TextureDesc& desc);
     FgBuffer create(std::string_view name, const BufferDesc& desc);
 
-    /// Declare an externally-owned resource. The graph tracks its state but
-    /// does not allocate or destroy it; with no memory of it, the graph
-    /// starts it undefined.
-    FgTexture import(std::string_view name, VkImage image, VkImageView view,
-                     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-                     uint32_t base_layer = 0, uint32_t layer_count = 1);
+    /// Declare an externally-owned texture. The graph tracks its state but
+    /// does not make or destroy it; with no memory of it, the graph starts
+    /// it undefined.
+    FgTexture import(std::string_view name, const gpu::TextureView& view);
     /// `persistent=true` marks the buffer as cross-frame-live. Pass-cull
     /// keeps the producer alive even when no in-frame consumer reads it
     /// (the read happens next frame). Mirrors the image-side pattern used
@@ -264,12 +260,7 @@ public:
     struct ImportedTexture {
         FgTexture handle;
         std::string name;
-        VkImage image;
-        VkImageView view;
-        VkImageAspectFlags aspect;
-        uint32_t base_layer;
-        uint32_t layer_count;
-        uint32_t mip_count;
+        gpu::TextureView view;
         bool persistent;
         gpu::AccessSet resting{};
         bool unwritten{false};

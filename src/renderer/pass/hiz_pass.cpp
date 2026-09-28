@@ -1,5 +1,6 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "core/profiler.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -20,7 +21,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void HizPass::Images::create(VkDevice device, VmaAllocator allocator,
+void HizPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                uint32_t width, uint32_t height) {
     // Hi-Z mip 0 = half-res
@@ -54,6 +55,7 @@ void HizPass::Images::create(VkDevice device, VmaAllocator allocator,
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, hiz_mip_count, 0, 1};
     vk_check(vkCreateImageView(device, &view_ci, nullptr, &hiz_sampled_view),
              "Failed to create Hi-Z sampled view");
+    hiz_texture = gpu::vulkan::adopt(gpu, hiz_image, hiz_sampled_view, image_ci);
 
     // Per-mip views for storage writes
     for (uint32_t i = 0; i < hiz_mip_count; ++i) {
@@ -137,6 +139,7 @@ void HizPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
         vkDestroyImageView(device, hiz_sampled_view, nullptr);
         hiz_sampled_view = VK_NULL_HANDLE;
     }
+    hiz_texture.reset();
     destroy_vma_image(allocator, hiz_image, hiz_memory);
     hiz_image = VK_NULL_HANDLE;
     hiz_memory = VK_NULL_HANDLE;
@@ -146,7 +149,7 @@ void HizPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     last_depth_view = VK_NULL_HANDLE;
 }
 
-void HizPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void HizPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                uint32_t width, uint32_t height) {
     uint32_t new_w = std::max(width / 2, 1u);
@@ -155,13 +158,14 @@ void HizPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, set_layout, sampler, width, height);
+    create(gpu, device, allocator, set_layout, sampler, width, height);
 }
 
 // ── HizPass (singleton) ─────────────────────────────────────────────────────
 
 Result<> HizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
 
@@ -243,7 +247,7 @@ void HizPass::destroy() {
 }
 
 void HizPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, set_layout_, sampler_, width, height);
+    default_images_.resize(*gpu_device_, device_, allocator_, set_layout_, sampler_, width, height);
 }
 
 void HizPass::record(const FrameContext& ctx) {
@@ -273,7 +277,8 @@ void HizPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     uint32_t needed_h = std::max(extent.height / 2, 1u);
     if (needed_w != imgs->hiz_width || needed_h != imgs->hiz_height) {
         imgs->destroy(device_, allocator_);
-        imgs->create(device_, allocator_, set_layout_, sampler_, extent.width, extent.height);
+        imgs->create(*gpu_device_, device_, allocator_, set_layout_, sampler_, extent.width,
+                     extent.height);
     }
 }
 

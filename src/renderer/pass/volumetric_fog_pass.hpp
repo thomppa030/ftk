@@ -2,6 +2,8 @@
 
 #include "renderer/pass/render_pass.hpp"
 #include "gpu/format.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -93,6 +95,8 @@ public:
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
+        /// The volume as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> texture;
     };
 
     struct Images {
@@ -102,10 +106,10 @@ public:
         uint32_t frame_counter{0};
         uint32_t ping_pong{0};  // index of the "current" volume this frame
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      uint32_t screen_w, uint32_t screen_h);
 
         void invalidate_imgui_texture();
@@ -235,7 +239,7 @@ public:
     [[nodiscard]] const std::vector<WaterDraw>& water_draws() const { return water_draws_; }
 
 private:
-    static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
+    static VolumeImage create_volume_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                             uint32_t w, uint32_t h, uint32_t d);
     static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
 
@@ -315,6 +319,7 @@ private:
     std::vector<WaterDraw> water_draws_;
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 

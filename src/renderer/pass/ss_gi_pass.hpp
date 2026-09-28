@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 
@@ -79,6 +81,8 @@ public:
         VkImage indirect_image{VK_NULL_HANDLE};
         VmaAllocation indirect_memory{VK_NULL_HANDLE};
         VkImageView indirect_view{VK_NULL_HANDLE};
+        /// The indirect output as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> indirect_texture;
         VkExtent2D indirect_extent{};
 
         // Constants UBO, one per frame in flight. It is host-written every
@@ -114,10 +118,10 @@ public:
         glm::mat4 prev_inv_view_proj{1.0f};
         bool history_valid{false};
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const SsGiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const SsGiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);

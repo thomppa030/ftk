@@ -1,5 +1,8 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
+
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -8,10 +11,15 @@
 namespace fjell {
 
 class Device;
+namespace gpu {
+class Device;
+}
 
 class OffscreenPass {
 public:
-    OffscreenPass(Device& device, VmaAllocator allocator,
+    /// `gpu` is the GPU interface's device, which is handed every image
+    /// made here as a texture.
+    OffscreenPass(Device& device, gpu::Device& gpu, VmaAllocator allocator,
                   uint32_t width, uint32_t height,
                   VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
     ~OffscreenPass();
@@ -120,11 +128,52 @@ public:
     [[nodiscard]] VkImage distortion_image() const { return distortion_image_; }
     [[nodiscard]] VkImageView distortion_view() const { return distortion_view_; }
 
+    // The images above as the GPU interface's textures, picked the same way:
+    // the resolve target under MSAA, the image itself at one sample.
+    [[nodiscard]] gpu::Texture color_texture() const { return pick(textures_.resolve_color, textures_.color); }
+    [[nodiscard]] gpu::Texture msaa_color_texture() const { return textures_.color; }
+    [[nodiscard]] gpu::Texture depth_texture() const { return pick(textures_.resolve_depth, textures_.depth); }
+    [[nodiscard]] gpu::Texture msaa_depth_texture() const { return textures_.depth; }
+    [[nodiscard]] gpu::Texture water_depth_texture() const { return textures_.water_depth; }
+    [[nodiscard]] gpu::Texture surface_depth_texture() const {
+        return pick(textures_.resolve_water_depth, textures_.water_depth);
+    }
+    [[nodiscard]] gpu::Texture mr_texture() const { return pick(textures_.resolve_mr, textures_.mr); }
+    [[nodiscard]] gpu::Texture msaa_mr_texture() const { return textures_.mr; }
+    [[nodiscard]] gpu::Texture normal_texture() const { return pick(textures_.resolve_normal, textures_.normal); }
+    [[nodiscard]] gpu::Texture msaa_normal_texture() const { return textures_.normal; }
+    [[nodiscard]] gpu::Texture velocity_texture() const {
+        return pick(textures_.resolve_velocity, textures_.velocity);
+    }
+    [[nodiscard]] gpu::Texture msaa_velocity_texture() const { return textures_.velocity; }
+    [[nodiscard]] gpu::Texture screen_color_texture() const { return textures_.screen_color; }
+    [[nodiscard]] gpu::Texture distortion_texture() const { return textures_.distortion; }
+
 private:
     void create(uint32_t width, uint32_t height);
     void cleanup_images();
 
+    // The resolve target when there is one, else the image rendered into.
+    [[nodiscard]] static gpu::Texture pick(const gpu::Owned<gpu::Texture>& resolve,
+                                           const gpu::Owned<gpu::Texture>& image) {
+        return resolve ? resolve.get() : image.get();
+    }
+
+    // Every image below as a texture, handed to the interface where it is
+    // made and forgotten where it is destroyed.
+    struct Textures {
+        gpu::Owned<gpu::Texture> color, resolve_color;
+        gpu::Owned<gpu::Texture> depth, resolve_depth;
+        gpu::Owned<gpu::Texture> water_depth, resolve_water_depth;
+        gpu::Owned<gpu::Texture> mr, resolve_mr;
+        gpu::Owned<gpu::Texture> normal, resolve_normal;
+        gpu::Owned<gpu::Texture> velocity, resolve_velocity;
+        gpu::Owned<gpu::Texture> screen_color;
+        gpu::Owned<gpu::Texture> distortion;
+    };
+
     Device& device_;
+    gpu::Device& gpu_;
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
 
@@ -201,6 +250,7 @@ private:
     VkImageView distortion_view_{VK_NULL_HANDLE};
 
     VkExtent2D extent_{};
+    Textures textures_;
 
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
     VkDescriptorSet depth_imgui_descriptor_{VK_NULL_HANDLE};

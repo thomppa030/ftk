@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <vk_mem_alloc.h>
@@ -58,6 +60,8 @@ public:
         VkImage ao_image{VK_NULL_HANDLE};
         VmaAllocation ao_memory{VK_NULL_HANDLE};
         VkImageView ao_view{VK_NULL_HANDLE};
+        /// The AO image as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> ao_texture;
 
         VkExtent2D extent{};  // half-res dimensions
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
@@ -69,14 +73,14 @@ public:
         // compute queue can write it while graphics reads through the
         // global descriptor. Null on hardware without an async compute
         // queue family; the image falls back to exclusive sharing.
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const uint32_t* concurrent_families,
                      uint32_t concurrent_family_count,
                      uint32_t half_w, uint32_t half_h,
                      VkQueue graphics_queue = VK_NULL_HANDLE,
                      VkCommandPool graphics_pool = VK_NULL_HANDLE);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const uint32_t* concurrent_families,
                      uint32_t concurrent_family_count,
                      uint32_t width, uint32_t height,
@@ -139,6 +143,7 @@ protected:
 
     // Shared Vulkan context for subclasses.
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};

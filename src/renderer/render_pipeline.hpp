@@ -141,16 +141,16 @@ private:
     /// transients by the FNV-1a hash of the name they were declared with,
     /// so two passes naming the same transient resolve to the same key.
     struct ResKey {
-        VkImage  image{VK_NULL_HANDLE};
+        gpu::Texture texture{};
         VkBuffer buffer{VK_NULL_HANDLE};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
-        uint64_t virtual_name_hash{0};  // non-zero iff image == buffer == NULL
+        uint64_t virtual_name_hash{0};  // non-zero iff neither texture nor buffer
         bool operator==(const ResKey& o) const noexcept = default;
     };
     struct ResKeyHash {
         size_t operator()(const ResKey& k) const noexcept {
-            auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
+            auto h1 = std::hash<uint32_t>{}(k.texture.id);
             auto h2 = std::hash<uint32_t>{}(k.base_layer);
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
             auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);

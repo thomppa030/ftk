@@ -1,4 +1,5 @@
 #include "renderer/pass/post_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -35,7 +36,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
+void PostPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                   uint32_t width, uint32_t height) {
     extent = {width, height};
     written = false;
@@ -70,23 +71,25 @@ void PostPass::Images::create(VkDevice device, VmaAllocator allocator,
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create post output view");
     }
+    texture = gpu::vulkan::adopt(gpu, image, view, ci);
 }
 
 void PostPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
+    texture.reset();
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
     destroy_vma_image(allocator, image, memory);
     image = VK_NULL_HANDLE; memory = VK_NULL_HANDLE;
     extent = {};
 }
 
-void PostPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void PostPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                   uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    if (width > 0 && height > 0) create(device, allocator, width, height);
+    if (width > 0 && height > 0) create(gpu, device, allocator, width, height);
 }
 
 VkDescriptorSet PostPass::Images::imgui_texture(VkSampler sampler) {

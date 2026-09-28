@@ -1,5 +1,6 @@
 #include "renderer/frame_graph.hpp"
 #include "gpu/vulkan/access.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
@@ -118,13 +119,14 @@ bool range_contains(const SubresourceRange& outer, const SubresourceRange& inner
 
 } // namespace
 
-uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
-                                     uint32_t base_layer, uint32_t layer_count,
-                                     uint32_t mip_count,
-                                     bool persistent,
+uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persistent,
                                      std::string_view name, gpu::AccessSet resting,
                                      bool unwritten) {
-    const ImageKey key{image, base_layer, layer_count};
+    const gpu::ResolvedView tracked = gpu::resolve(view, device_->info(view.texture));
+    const uint32_t base_layer = tracked.base_layer;
+    const uint32_t layer_count = tracked.layer_count;
+    const uint32_t mip_count = tracked.base_mip + tracked.mip_count;
+    const ImageKey key{view.texture, base_layer, layer_count};
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
         existing.persistent = existing.persistent || persistent;
@@ -141,8 +143,11 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
         return it->second;
     }
 
+    const VkImage image = gpu::vulkan::native_image(*device_, view.texture);
+    const VkImageAspectFlags aspect = gpu::vulkan::native_aspect(*device_, view.texture);
     uint32_t id = static_cast<uint32_t>(images_.size());
     TrackedImage img{};
+    img.texture = view.texture;
     img.image = image;
     img.aspect = aspect;
     img.mip_count = mip_count;
@@ -237,7 +242,8 @@ void FrameGraph::new_frame() {
     });
 }
 
-void FrameGraph::begin_frame() {
+void FrameGraph::begin_frame(gpu::Device& device) {
+    device_ = &device;
     const BarrierTrace* trace = barrier_trace();
     tracing_ = trace != nullptr && frame_serial_ >= trace->first_frame &&
                frame_serial_ < trace->first_frame + trace->frames;
@@ -256,8 +262,8 @@ void FrameGraph::begin_frame() {
 
 void FrameGraph::remember_states() {
     for (const auto& img : images_) {
-        if (img.virtual_resource || img.image == VK_NULL_HANDLE) { continue; }
-        auto& state = remembered_[ImageKey{img.image, img.base_layer, img.array_layers}];
+        if (img.virtual_resource || !img.texture.valid()) { continue; }
+        auto& state = remembered_[ImageKey{img.texture, img.base_layer, img.array_layers}];
         state.slices.assign(img.slices.begin(), img.slices.end());
         state.seen = frame_serial_;
     }
@@ -268,11 +274,12 @@ void FrameGraph::remember_states() {
     }
 }
 
-void FrameGraph::bind_virtual_image(uint32_t image_id, VkImage image) {
+void FrameGraph::bind_virtual_image(uint32_t image_id, gpu::Texture texture) {
     if (image_id >= images_.size()) { return; }
     auto& img = images_[image_id];
     if (!img.virtual_resource) { return; }
-    img.image = image;
+    img.texture = texture;
+    img.image = gpu::vulkan::native_image(*device_, texture);
 }
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
@@ -308,8 +315,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     }
     for (const auto& imp : builder.imported_textures()) {
         handle_to_image_id[imp.handle.id] = register_image(
-            imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
-            imp.persistent, imp.name, imp.resting, imp.unwritten);
+            imp.view, imp.persistent, imp.name, imp.resting, imp.unwritten);
     }
 
     // Register created textures as virtual resources. Virtual resources

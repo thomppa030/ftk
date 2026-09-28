@@ -154,6 +154,8 @@ public:
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
+  /// The GPU interface's device.
+  [[nodiscard]] gpu::Device &gpu_device() { return gpu_.core().gpu_device(); }
   [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
   [[nodiscard]] bool async_compute_supported() const { return gpu_.async_compute_supported(); }

@@ -351,7 +351,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
         if (preview_target_) vk.gpu().deferred_deleter().retire(std::move(preview_target_));
         preview_width_ = wanted_width_;
         preview_height_ = wanted_height_;
-        preview_target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.allocator(),
+        preview_target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
+                                                          vk.allocator(),
                                                           preview_width_, preview_height_,
                                                           VK_SAMPLE_COUNT_1_BIT);
     }

@@ -46,24 +46,25 @@ PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
     return cfg;
 }
 
-PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocator,
+PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
+                                            VmaAllocator allocator,
                                             uint32_t width, uint32_t height,
                                             const PostProcessConfig& config,
                                             const PassRefs& passes)
-    : device_(device), allocator_(allocator), config_(config)
+    : gpu_(&gpu), device_(device), allocator_(allocator), config_(config)
     , passes_storage_(std::make_unique<PassRefs>(passes)) {
 
     passes_ = passes_storage_.get();
 
     if (config_.hiz && width > 0 && height > 0) {
-        hiz_images_.create(device_, allocator_,
+        hiz_images_.create(*gpu_, device_, allocator_,
                            passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
                            width, height);
     }
     if (config_.gtao) {
         uint32_t half_w = std::max(1u, width / 2);
         uint32_t half_h = std::max(1u, height / 2);
-        gtao_images_.create(device_, allocator_,
+        gtao_images_.create(*gpu_, device_, allocator_,
                             passes_->gtao.concurrent_queue_families(),
                             passes_->gtao.concurrent_queue_family_count(),
                             half_w, half_h,
@@ -71,13 +72,13 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                             passes_->gtao.init_graphics_pool());
     }
     if (config_.volumetric_fog) {
-        fog_images_.create(device_, allocator_, width, height);
+        fog_images_.create(*gpu_, device_, allocator_, width, height);
     }
     if (config_.post && width > 0 && height > 0) {
-        post_images_.create(device_, allocator_, width, height);
+        post_images_.create(*gpu_, device_, allocator_, width, height);
     }
     if (config_.taa && width > 0 && height > 0) {
-        taa_images_.create(device_, allocator_,
+        taa_images_.create(*gpu_, device_, allocator_,
                            passes_->taa.image_set_layout(),
                            width, height);
     }
@@ -107,14 +108,14 @@ PostProcessResources::~PostProcessResources() {
 }
 
 PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcept
-    : device_(other.device_), allocator_(other.allocator_)
+    : gpu_(other.gpu_), device_(other.device_), allocator_(other.allocator_)
     , config_(other.config_)
     , passes_storage_(std::move(other.passes_storage_))
-    , hiz_images_(other.hiz_images_), gtao_images_(other.gtao_images_)
-    , fog_images_(other.fog_images_), post_images_(other.post_images_)
+    , hiz_images_(std::move(other.hiz_images_)), gtao_images_(std::move(other.gtao_images_))
+    , fog_images_(std::move(other.fog_images_)), post_images_(std::move(other.post_images_))
     , ddgi_images_(std::move(other.ddgi_images_))
     , ss_gi_images_(std::move(other.ss_gi_images_))
-    , taa_images_(other.taa_images_)
+    , taa_images_(std::move(other.taa_images_))
     , rt_reflection_images_(std::move(other.rt_reflection_images_))
     , view_history_(other.view_history_) {
     passes_ = passes_storage_.get();
@@ -141,18 +142,19 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
             taa_images_.destroy(device_, allocator_);
             rt_reflection_images_.destroy(device_, allocator_);
         }
+        gpu_ = other.gpu_;
         device_ = other.device_;
         allocator_ = other.allocator_;
         config_ = other.config_;
         passes_storage_ = std::move(other.passes_storage_);
         passes_ = passes_storage_.get();
-        hiz_images_ = other.hiz_images_;
-        gtao_images_ = other.gtao_images_;
-        fog_images_ = other.fog_images_;
-        post_images_ = other.post_images_;
+        hiz_images_ = std::move(other.hiz_images_);
+        gtao_images_ = std::move(other.gtao_images_);
+        fog_images_ = std::move(other.fog_images_);
+        post_images_ = std::move(other.post_images_);
         ddgi_images_ = std::move(other.ddgi_images_);
         ss_gi_images_ = std::move(other.ss_gi_images_);
-        taa_images_ = other.taa_images_;
+        taa_images_ = std::move(other.taa_images_);
         rt_reflection_images_ = std::move(other.rt_reflection_images_);
         view_history_ = other.view_history_;
         other.device_ = VK_NULL_HANDLE;
@@ -172,12 +174,12 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     if (passes_ == nullptr || width == 0 || height == 0) return;
 
     if (config_.hiz) {
-        hiz_images_.resize(device_, allocator_,
+        hiz_images_.resize(*gpu_, device_, allocator_,
                            passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
                            width, height);
     }
     if (config_.gtao) {
-        gtao_images_.resize(device_, allocator_,
+        gtao_images_.resize(*gpu_, device_, allocator_,
                             passes_->gtao.concurrent_queue_families(),
                             passes_->gtao.concurrent_queue_family_count(),
                             width, height,
@@ -185,13 +187,13 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                             passes_->gtao.init_graphics_pool());
     }
     if (config_.volumetric_fog) {
-        fog_images_.resize(device_, allocator_, width, height);
+        fog_images_.resize(*gpu_, device_, allocator_, width, height);
     }
     if (config_.post) {
-        post_images_.resize(device_, allocator_, width, height);
+        post_images_.resize(*gpu_, device_, allocator_, width, height);
     }
     if (config_.taa) {
-        taa_images_.resize(device_, allocator_,
+        taa_images_.resize(*gpu_, device_, allocator_,
                            passes_->taa.image_set_layout(),
                            width, height);
     }
@@ -204,7 +206,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                                       width, height);
     }
     if (config_.ddgi) {
-        ddgi_images_.resize(device_, allocator_,
+        ddgi_images_.resize(*gpu_, device_, allocator_,
                             passes_->ddgi.config(),
                             width, height);
     } else if (ddgi_images_.radiance_image != VK_NULL_HANDLE) {
@@ -213,7 +215,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     }
     // SS-GI: deferred creation like DDGI
     if (config_.ss_gi) {
-        ss_gi_images_.resize(device_, allocator_, passes_->ss_gi.config(), width, height);
+        ss_gi_images_.resize(*gpu_, device_, allocator_, passes_->ss_gi.config(), width, height);
     } else if (ss_gi_images_.indirect_image != VK_NULL_HANDLE) {
         ss_gi_images_.invalidate_imgui_texture();
         ss_gi_images_.destroy(device_, allocator_);

@@ -1,4 +1,5 @@
 #include "renderer/pass/ss_gi_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -24,7 +25,7 @@ namespace fjell {
 
 // ── Images lifecycle ────────────────────────────────────────────────────
 
-void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
+void SsGiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                 const SsGiConfig& config,
                                 uint32_t screen_w, uint32_t screen_h) {
     probe_count = {
@@ -37,6 +38,7 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
     uint32_t half_h = std::max(1u, screen_h / 2);
     indirect_extent = {half_w, half_h};
 
+    // Returns what the image was made as.
     auto make_image = [&](uint32_t w, uint32_t h, VkFormat format,
                           VkImageUsageFlags usage,
                           VkImage& img, VmaAllocation& mem, VkImageView& view) {
@@ -60,6 +62,7 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
         vi.format = format;
         vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCreateImageView(device, &vi, nullptr, &view);
+        return ci;
     };
 
     VkImageUsageFlags storage_sampled = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -82,9 +85,10 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
                history_image, history_memory, history_view);
 
     // Indirect output: half-res
-    make_image(half_w, half_h,
-               VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled,
-               indirect_image, indirect_memory, indirect_view);
+    const VkImageCreateInfo indirect_info =
+        make_image(half_w, half_h, VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled,
+                   indirect_image, indirect_memory, indirect_view);
+    indirect_texture = gpu::vulkan::adopt(gpu, indirect_image, indirect_view, indirect_info);
 
     // Constants UBO, one per frame slot
     for (auto& ubo : constants_ubo) {
@@ -101,11 +105,11 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
     history_valid = false;
 }
 
-void SsGiPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void SsGiPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                const SsGiConfig& config,
                                uint32_t screen_w, uint32_t screen_h) {
     if (indirect_image == VK_NULL_HANDLE) {
-        create(device, allocator, config, screen_w, screen_h);
+        create(gpu, device, allocator, config, screen_w, screen_h);
         return;
     }
 
@@ -128,7 +132,7 @@ void SsGiPass::Images::resize(VkDevice device, VmaAllocator allocator,
     // destroy() drops the pool and first_frame re-writes them.
     vkDeviceWaitIdle(device);
     destroy(device, allocator);
-    create(device, allocator, config, screen_w, screen_h);
+    create(gpu, device, allocator, config, screen_w, screen_h);
 }
 
 void SsGiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -138,6 +142,7 @@ void SsGiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     safe_view(raw_radiance_view); safe_img(raw_radiance_image, raw_radiance_memory);
     safe_view(resolved_view); safe_img(resolved_image, resolved_memory);
     safe_view(history_view); safe_img(history_image, history_memory);
+    indirect_texture.reset();
     safe_view(indirect_view); safe_img(indirect_image, indirect_memory);
     safe_view(prev_depth_view); safe_img(prev_depth_image, prev_depth_memory);
     for (auto& ubo : constants_ubo) ubo.reset();

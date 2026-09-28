@@ -463,6 +463,7 @@ PassResources GpuContext::pass_resources() const {
     auto& mutable_core = const_cast<GpuCore&>(core_);
     res.upload_context = &mutable_core.upload_context();
     res.deferred_deleter = &mutable_core.deferred_deleter();
+    res.device = &mutable_core.gpu_device();
     return res;
 }
 

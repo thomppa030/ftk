@@ -1,4 +1,5 @@
 #include "renderer/pass/contact_shadow_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -90,6 +91,7 @@ VkImageMemoryBarrier2 make_barrier(VkImage image,
 
 Result<> ContactShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
     auto global_set_layout = resources.global_set_layout;
@@ -249,6 +251,7 @@ void ContactShadowPass::create_image(uint32_t w, uint32_t h) {
     if (vkCreateImageView(device_, &vi, nullptr, &shadow_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create contact shadow view");
     }
+    shadow_texture_ = gpu::vulkan::adopt(*gpu_device_, shadow_image_, shadow_view_, ci);
 
     extent_ = {w, h};
 
@@ -256,6 +259,7 @@ void ContactShadowPass::create_image(uint32_t w, uint32_t h) {
 }
 
 void ContactShadowPass::destroy_image() {
+    shadow_texture_.reset();
     if (shadow_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(device_, shadow_view_, nullptr);
         shadow_view_ = VK_NULL_HANDLE;
@@ -367,8 +371,7 @@ void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx)
 void ContactShadowPass::collect_exports(DeclareContext& ctx) {
     if (shadow_image_ == VK_NULL_HANDLE) { return; }
     ImportedImage img{};
-    img.image = shadow_image_;
-    img.view = shadow_view_;
+    img.view = shadow_texture_;
     // The surfaces sample it in the fragment shader through the global set.
     // Seeded there when created or regrown.
     img.resting = gpu::Access::sampled_fragment;

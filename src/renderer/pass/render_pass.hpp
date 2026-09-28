@@ -46,6 +46,9 @@ struct PassResources {
     gpu::SharedLayout bindless{};
     gpu::SharedLayout draw_data{};
     gpu::SharedLayout meshlets{};
+    /// The GPU interface's device, for what a pass makes through it or hands
+    /// it: an image made before the interface is adopted where it is made.
+    gpu::Device* device{nullptr};
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};

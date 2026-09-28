@@ -339,6 +339,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
 
     Impl::TextureRecord record;
     record.info = info;
+    record.aspect = vulkan::view_aspect(info.format);
     const VkResult result = vmaCreateImage(self.allocator, &create_info, &allocation_info,
                                            &record.image, &record.allocation, nullptr);
     if (result != VK_SUCCESS) {

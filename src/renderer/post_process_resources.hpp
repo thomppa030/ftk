@@ -64,7 +64,9 @@ public:
         RtReflectionPass& rt_reflection;
     };
 
-    PostProcessResources(VkDevice device, VmaAllocator allocator,
+    /// `gpu` is the GPU interface's device, which is handed the images made
+    /// here that the frame graph tracks.
+    PostProcessResources(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                           uint32_t width, uint32_t height,
                           const PostProcessConfig& config,
                           const PassRefs& passes);
@@ -97,6 +99,7 @@ public:
     void invalidate_imgui_textures();
 
 private:
+    gpu::Device* gpu_{nullptr};
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     PostProcessConfig config_;

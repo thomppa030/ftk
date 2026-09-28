@@ -1,4 +1,5 @@
 #include "renderer/pass/fog_density_field_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "core/base_path.hpp"
 #include "core/profiler.hpp"
@@ -19,6 +20,7 @@ namespace fjell {
 
 Result<> FogDensityFieldPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
 
@@ -117,6 +119,7 @@ Result<> FogDensityFieldPass::create(Device& device, const PassResources& resour
         if (vkCreateImageView(device_, &vi, nullptr, &field.view) != VK_SUCCESS) {
             return make_error("FogDensityFieldPass: failed to create field view");
         }
+        field.texture = gpu::vulkan::adopt(*gpu_device_, field.image, field.view, ii);
     }
 
     for (auto& buffer : source_buffers_) {
@@ -294,8 +297,7 @@ void FogDensityFieldPass::collect_exports(DeclareContext& ctx) {
     // global set; neither holds anything before the pass first runs.
     auto add = [&](std::string_view name, const Field& field) {
         ImportedImage img{};
-        img.image = field.image;
-        img.view = field.view;
+        img.view = field.texture;
         img.persistent = true;   // carried into the next frame's field
         img.resting = gpu::Access::sampled_compute;
         img.unwritten = first_frame_;

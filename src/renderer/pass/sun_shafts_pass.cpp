@@ -1,4 +1,5 @@
 #include "renderer/pass/sun_shafts_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -165,8 +166,8 @@ void dispatch(VkCommandBuffer cmd, VkExtent2D extent) {
 
 // ── Image helpers ──────────────────────────────────────────────────────────
 
-SunShaftsPass::Image SunShaftsPass::create_image(VkDevice device, VmaAllocator allocator,
-                                                 uint32_t w, uint32_t h) {
+SunShaftsPass::Image SunShaftsPass::create_image(gpu::Device& gpu, VkDevice device,
+                                                 VmaAllocator allocator, uint32_t w, uint32_t h) {
     Image img{};
 
     VkImageCreateInfo ci{};
@@ -194,6 +195,7 @@ SunShaftsPass::Image SunShaftsPass::create_image(VkDevice device, VmaAllocator a
     if (vkCreateImageView(device, &vi, nullptr, &img.view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create sun shafts image view");
     }
+    img.texture = gpu::vulkan::adopt(gpu, img.image, img.view, ci);
 
     return img;
 }
@@ -208,7 +210,7 @@ void SunShaftsPass::destroy_image(VkDevice device, VmaAllocator allocator, Image
 
 // ── Images ─────────────────────────────────────────────────────────────────
 
-void SunShaftsPass::Images::create(VkDevice device, VmaAllocator allocator,
+void SunShaftsPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                    uint32_t screen_w, uint32_t screen_h) {
     uint32_t w = std::max(1u, screen_w / RESOLUTION_DIVISOR);
     uint32_t h = std::max(1u, screen_h / RESOLUTION_DIVISOR);
@@ -218,8 +220,8 @@ void SunShaftsPass::Images::create(VkDevice device, VmaAllocator allocator,
     frame_counter = 0;
     history_valid = false;
 
-    shafts[0] = create_image(device, allocator, w, h);
-    shafts[1] = create_image(device, allocator, w, h);
+    shafts[0] = create_image(gpu, device, allocator, w, h);
+    shafts[1] = create_image(gpu, device, allocator, w, h);
 }
 
 void SunShaftsPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -229,7 +231,7 @@ void SunShaftsPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     history_valid = false;
 }
 
-void SunShaftsPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void SunShaftsPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                    uint32_t screen_w, uint32_t screen_h) {
     uint32_t w = std::max(1u, screen_w / RESOLUTION_DIVISOR);
     uint32_t h = std::max(1u, screen_h / RESOLUTION_DIVISOR);
@@ -237,13 +239,14 @@ void SunShaftsPass::Images::resize(VkDevice device, VmaAllocator allocator,
     // A frame still in flight may reference the old images.
     vkDeviceWaitIdle(device);
     destroy(device, allocator);
-    create(device, allocator, screen_w, screen_h);
+    create(gpu, device, allocator, screen_w, screen_h);
 }
 
 // ── SunShaftsPass ──────────────────────────────────────────────────────────
 
 Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
@@ -288,7 +291,7 @@ Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
           "Failed to create sun shafts composite set layout",
           composite_set_layout_, composite_pipeline_layout_, composite_pipeline_);
 
-    default_images_.create(device_, allocator_, 2, 2);
+    default_images_.create(*gpu_device_, device_, allocator_, 2, 2);
 
     FJELL_GFX_DEBUG("Sun shafts pass created");
     return {};
@@ -362,7 +365,7 @@ PassSetup SunShaftsPass::setup() const {
 }
 
 SunShaftsPass::Images& SunShaftsPass::frame_images(VkExtent2D viewport) {
-    default_images_.resize(device_, allocator_, viewport.width, viewport.height);
+    default_images_.resize(*gpu_device_, device_, allocator_, viewport.width, viewport.height);
     return default_images_;
 }
 

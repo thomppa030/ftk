@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -44,24 +45,6 @@ Result<> SkyCubemapPass::create(Device& device, const PassResources& resources) 
 
     FJELL_GFX_DEBUG("Sky cubemap pass created");
     return {};
-}
-
-void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
-                            VkCommandPool command_pool, VkQueue queue,
-                            VkPipelineCache pipeline_cache) {
-    device_ = device;
-    vk_pipeline_cache_ = pipeline_cache;
-    allocator_ = allocator;
-    command_pool_ = command_pool;
-    queue_ = queue;
-
-    create_cubemap();
-    create_cubemap_pipeline();
-    create_brdf_lut();
-    create_brdf_pipeline();
-    generate_brdf_lut();
-
-    FJELL_GFX_DEBUG("Sky cubemap pass created");
 }
 
 void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
@@ -138,6 +121,7 @@ void SkyCubemapPass::destroy() {
     if (cubemap_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, cubemap_sampler_, nullptr);
     if (cubemap_storage_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_storage_view_, nullptr);
     if (cubemap_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_view_, nullptr);
+    cubemap_texture_.reset();
     destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
 
     destroy_hdri();
@@ -522,6 +506,7 @@ void SkyCubemapPass::create_cubemap() {
     vi.subresourceRange.layerCount = 6;
     vk_check(vkCreateImageView(device_, &vi, nullptr, &cubemap_view_),
              "Failed to create sky cubemap cube view");
+    cubemap_texture_ = gpu::vulkan::adopt(*resources_.device, cubemap_image_, cubemap_view_, ci);
 
     // 2D array view for compute storage writes (mip 0 only)
     VkImageViewCreateInfo si{};
@@ -983,20 +968,11 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
 void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     // HDRI takes precedence over the procedural cubemap when present.
-    VkImage image = hdri_cubemap_image_ != VK_NULL_HANDLE
-        ? hdri_cubemap_image_ : cubemap_image_;
-    VkImageView view = hdri_cubemap_view_ != VK_NULL_HANDLE
-        ? hdri_cubemap_view_ : cubemap_view_;
-    if (image == VK_NULL_HANDLE || view == VK_NULL_HANDLE) { return; }
-    const uint32_t mips = hdri_cubemap_view_ != VK_NULL_HANDLE
-        ? HDRI_MIP_LEVELS : MIP_LEVELS;
+    const gpu::Texture texture = hdri_cubemap_texture_ ? hdri_cubemap_texture_.get()
+                                                       : cubemap_texture_.get();
+    if (!texture.valid()) { return; }
     ImportedImage img{};
-    img.image = image;
-    img.view = view;
-    img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-    img.base_layer = 0;
-    img.layer_count = 6;
-    img.mip_count = mips;
+    img.view = texture;
     img.persistent = true;
     // Rests where the sky and every material sample it through the global
     // set. Both cubemaps are generated there at creation, and an HDRI is
@@ -1151,6 +1127,7 @@ void SkyCubemapPass::destroy_hdri() {
     if (hdri_cubemap_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdri_cubemap_sampler_, nullptr); hdri_cubemap_sampler_ = VK_NULL_HANDLE; }
     if (hdri_storage_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_storage_view_, nullptr); hdri_storage_view_ = VK_NULL_HANDLE; }
     if (hdri_cubemap_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_cubemap_view_, nullptr); hdri_cubemap_view_ = VK_NULL_HANDLE; }
+    hdri_cubemap_texture_.reset();
     if (hdri_cubemap_image_ != VK_NULL_HANDLE) { destroy_vma_image(allocator_, hdri_cubemap_image_, hdri_cubemap_memory_); hdri_cubemap_image_ = VK_NULL_HANDLE; }
 
     // Equirect source
@@ -1269,6 +1246,8 @@ void SkyCubemapPass::load_hdri(const std::string& path) {
     cube_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     cube_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
     vkCreateImageView(device_, &cube_vi, nullptr, &hdri_cubemap_view_);
+    hdri_cubemap_texture_ =
+        gpu::vulkan::adopt(*resources_.device, hdri_cubemap_image_, hdri_cubemap_view_, cube_ci);
 
     // 2D array view for mip 0 (equirect conversion output)
     VkImageViewCreateInfo storage_vi{};

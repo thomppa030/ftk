@@ -140,7 +140,7 @@ VkExtent3D froxel_grid(uint32_t screen_w, uint32_t screen_h) {
 // ── VolumeImage helpers ─────────────────────────────────────────────────────
 
 FogCore::VolumeImage FogCore::create_volume_image(
-        VkDevice device, VmaAllocator allocator,
+        gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
         uint32_t w, uint32_t h, uint32_t d) {
     VolumeImage img{};
 
@@ -170,6 +170,7 @@ FogCore::VolumeImage FogCore::create_volume_image(
     if (vkCreateImageView(device, &vi, nullptr, &img.view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create fog volume image view");
     }
+    img.texture = gpu::vulkan::adopt(gpu, img.image, img.view, ci);
 
     return img;
 }
@@ -182,15 +183,15 @@ void FogCore::destroy_volume_image(VkDevice device, VmaAllocator allocator, Volu
 
 // ── Images ──────────────────────────────────────────────────────────────────
 
-void FogCore::Images::create(VkDevice device, VmaAllocator allocator,
+void FogCore::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                               uint32_t screen_w, uint32_t screen_h) {
     volume_extent = froxel_grid(screen_w, screen_h);
     ping_pong = 0;
     frame_counter = 0;
 
     const auto [vol_w, vol_h, vol_d] = volume_extent;
-    scatter_volumes[0] = create_volume_image(device, allocator, vol_w, vol_h, vol_d);
-    scatter_volumes[1] = create_volume_image(device, allocator, vol_w, vol_h, vol_d);
+    scatter_volumes[0] = create_volume_image(gpu, device, allocator, vol_w, vol_h, vol_d);
+    scatter_volumes[1] = create_volume_image(gpu, device, allocator, vol_w, vol_h, vol_d);
 }
 
 void FogCore::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -199,14 +200,14 @@ void FogCore::Images::destroy(VkDevice device, VmaAllocator allocator) {
     volume_extent = {};
 }
 
-void FogCore::Images::resize(VkDevice device, VmaAllocator allocator,
+void FogCore::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                               uint32_t screen_w, uint32_t screen_h) {
     const VkExtent3D grid = froxel_grid(screen_w, screen_h);
     if (grid.width == volume_extent.width && grid.height == volume_extent.height) { return; }
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, screen_w, screen_h);
+    create(gpu, device, allocator, screen_w, screen_h);
 }
 
 void FogCore::Images::invalidate_imgui_texture() {
@@ -218,6 +219,7 @@ void FogCore::Images::invalidate_imgui_texture() {
 
 Result<> FogCore::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     deferred_deleter_ = resources.deferred_deleter;
@@ -371,7 +373,7 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
             device_, composite_pipeline_layout_, base_path::resolve("shaders/fog_composite.comp.spv"), vk_pipeline_cache_);
     }
 
-    default_images_.create(device_, allocator_, 1, 1);
+    default_images_.create(*gpu_device_, device_, allocator_, 1, 1);
 
     FJELL_GFX_DEBUG("Volumetric fog pass created");
     return {};
@@ -406,7 +408,7 @@ void FogCore::destroy() {
 }
 
 void FogCore::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, width, height);
+    default_images_.resize(*gpu_device_, device_, allocator_, width, height);
 }
 
 void FogCore::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {

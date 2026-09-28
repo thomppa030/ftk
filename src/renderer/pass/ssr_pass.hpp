@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/render_settings.hpp"
 
@@ -58,7 +60,7 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
 
     // Previous-frame color buffer management (for SSR history).
-    void ensure_prev_frame(VkDevice device, VmaAllocator allocator,
+    void ensure_prev_frame(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                             VkCommandPool command_pool, VkQueue queue,
                             uint32_t width, uint32_t height);
     /// Copy the scene colour, in TRANSFER_SRC_OPTIMAL, into the history, in
@@ -120,6 +122,8 @@ private:
     VkImage prev_frame_image_{VK_NULL_HANDLE};
     VmaAllocation prev_frame_allocation_{VK_NULL_HANDLE};
     VkImageView prev_frame_view_{VK_NULL_HANDLE};
+    /// The history as the GPU interface's texture.
+    gpu::Owned<gpu::Texture> prev_frame_texture_;
     VkExtent2D prev_frame_extent_{};
 };
 

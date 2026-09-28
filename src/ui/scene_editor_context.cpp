@@ -1327,7 +1327,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         // Use the same MSAA as the main viewport — pipelines are compiled
         // with this sample count and can't be changed per-viewport.
         camera_preview_target_ = std::make_unique<OffscreenPass>(
-            vk.device_ref(), vk.allocator(), 320, 180, vk.msaa_samples());
+            vk.device_ref(), vk.gpu_device(), vk.allocator(), 320, 180, vk.msaa_samples());
 
         // Pipeline-as-data: pp_config + per-call pass mask both flow from
         // editor_preview.fjgraph. If the file fails to load (parse error,
@@ -1346,7 +1346,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
             vk.rt_reflection_pass()};
 
         camera_preview_pp_ = std::make_unique<PostProcessResources>(
-            vk.device(), vk.allocator(), 320, 180, preview_config, refs);
+            vk.gpu_device(), vk.device(), vk.allocator(), 320, 180, preview_config, refs);
         // Private global set so the preview never rewrites the shared per-frame set.
         camera_preview_global_set_ = vk.gpu().global_bindings().allocate_set();
         camera_preview_node_id_ = selected_id_;

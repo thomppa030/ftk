@@ -1,4 +1,5 @@
 #include "renderer/pass/water_fft_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -156,6 +157,7 @@ void WaterFftPass::destroy_pipeline(Pipeline& pipeline) {
 
 Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
     deferred_deleter_ = resources.deferred_deleter;
@@ -191,7 +193,7 @@ Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
 
     if (auto r = create_image(still_, SURFACE_FORMAT, 1, 1,
                               VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                              "water_fft_still"); !r) {
+                              "water_fft_still", &still_texture_); !r) {
         return r;
     }
     if (auto r = seed_still(resources); !r) {
@@ -209,6 +211,9 @@ void WaterFftPass::destroy() {
     if (device_ == VK_NULL_HANDLE) return;
     verify_readback_.reset();
     for (auto& buffer : amplitude_buffers_) buffer.reset();
+    displacement_textures_ = {};
+    derivatives_texture_.reset();
+    still_texture_.reset();
     for (auto* set : {&spectra_a_, &spectra_b_, &displacement_}) {
         for (auto& image : *set) {
             if (image.sampled != VK_NULL_HANDLE) vkDestroyImageView(device_, image.sampled, nullptr);
@@ -239,7 +244,7 @@ void WaterFftPass::destroy() {
 
 Result<> WaterFftPass::create_image(Image& out, VkFormat format, std::uint32_t size,
                                     std::uint32_t mips, VkImageUsageFlags usage,
-                                    const char* name) {
+                                    const char* name, gpu::Owned<gpu::Texture>* texture) {
     VkImageCreateInfo ii{};
     ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ii.imageType = VK_IMAGE_TYPE_2D;
@@ -265,6 +270,7 @@ Result<> WaterFftPass::create_image(Image& out, VkFormat format, std::uint32_t s
     if (vkCreateImageView(device_, &vi, nullptr, &out.sampled) != VK_SUCCESS) {
         return make_error(std::string("WaterFftPass: failed to create view of ") + name);
     }
+    if (texture != nullptr) *texture = gpu::vulkan::adopt(*gpu_device_, out.image, out.sampled, ii);
     vi.subresourceRange.levelCount = 1;
     if (vkCreateImageView(device_, &vi, nullptr, &out.top) != VK_SUCCESS) {
         return make_error(std::string("WaterFftPass: failed to create top view of ") + name);
@@ -284,6 +290,8 @@ void WaterFftPass::retire_image(Image& image) {
 }
 
 void WaterFftPass::retire_images() {
+    displacement_textures_ = {};
+    derivatives_texture_.reset();
     for (auto* set : {&spectra_a_, &spectra_b_, &displacement_}) {
         for (auto& image : *set) retire_image(image);
     }
@@ -308,10 +316,12 @@ Result<> WaterFftPass::build_images() {
         if (auto r = create_image(spectra_b_[i], SPECTRUM_FORMAT, resolution_, 1, SPECTRUM_USAGE,
                                   "water_fft_spectra_b"); !r) return r;
         if (auto r = create_image(displacement_[i], SURFACE_FORMAT, resolution_, mips_, SURFACE_USAGE,
-                                  "water_fft_displacement"); !r) return r;
+                                  "water_fft_displacement", &displacement_textures_[i]); !r) {
+            return r;
+        }
     }
     if (auto r = create_image(derivatives_, SURFACE_FORMAT, resolution_, mips_, SURFACE_USAGE,
-                              "water_fft_derivatives"); !r) return r;
+                              "water_fft_derivatives", &derivatives_texture_); !r) return r;
 
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(resolution_) * resolution_
                              * sizeof(glm::vec2);
@@ -403,12 +413,9 @@ void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void WaterFftPass::collect_exports(DeclareContext& ctx) {
     // Every surface rests where its readers sample it. Fresh images hold
     // nothing until the first step; the still texel is seeded when made.
-    auto add = [&](std::string_view name, const Image& image, std::uint32_t mips,
-                   bool unwritten) {
+    auto add = [&](std::string_view name, gpu::Texture texture, bool unwritten) {
         ImportedImage img{};
-        img.image = image.image;
-        img.view = image.sampled;
-        img.mip_count = mips;
+        img.view = texture;
         img.persistent = true;   // this frame's surface is the next frame's previous one
         img.resting = SURFACE_READS;
         img.unwritten = unwritten;
@@ -418,14 +425,14 @@ void WaterFftPass::collect_exports(DeclareContext& ctx) {
         if (still_.image == VK_NULL_HANDLE) { return; }
         for (const char* name : {"water_displacement", "water_displacement_prev",
                                  "water_derivatives"}) {
-            add(name, still_, 1, false);
+            add(name, still_texture_, false);
         }
         return;
     }
     const std::uint32_t written = written_index();
-    add("water_displacement", displacement_[written], mips_, images_fresh_);
-    add("water_displacement_prev", displacement_[1 - written], mips_, images_fresh_);
-    add("water_derivatives", derivatives_, mips_, images_fresh_);
+    add("water_displacement", displacement_textures_[written], images_fresh_);
+    add("water_displacement_prev", displacement_textures_[1 - written], images_fresh_);
+    add("water_derivatives", derivatives_texture_, images_fresh_);
 }
 
 Result<> WaterFftPass::seed_still(const PassResources& resources) {

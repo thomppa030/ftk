@@ -1,6 +1,8 @@
 #pragma once
 
 #include "renderer/pass/depth_pipeline.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
@@ -59,6 +61,7 @@ private:
     void destroy_images();
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
@@ -68,6 +71,8 @@ private:
     bool written_{false};
     VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView array_view_{VK_NULL_HANDLE};                          // all layers
+    /// The atlas as the GPU interface's texture, every cascade.
+    gpu::Owned<gpu::Texture> texture_;
     std::array<VkImageView, CASCADE_COUNT> cascade_views_{};          // per-layer
     VkSampler sampler_{VK_NULL_HANDLE};
 

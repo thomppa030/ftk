@@ -1,6 +1,8 @@
 #pragma once
 
 #include "renderer/gpu/buffer.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/fjwater.hpp"
@@ -129,9 +131,12 @@ private:
                                            const std::vector<VkDescriptorType>& bindings,
                                            std::uint32_t push_size);
     void destroy_pipeline(Pipeline& pipeline);
+    /// Makes `out`; `texture`, for an image other passes import, is handed it
+    /// as the GPU interface's texture.
     [[nodiscard]] Result<> create_image(Image& out, VkFormat format, std::uint32_t size,
                                         std::uint32_t mips, VkImageUsageFlags usage,
-                                        const char* name);
+                                        const char* name,
+                                        gpu::Owned<gpu::Texture>* texture = nullptr);
     void retire_image(Image& image);
     [[nodiscard]] Result<> build_images();
     void retire_images();
@@ -155,6 +160,7 @@ private:
     void finish_verification();
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     DeferredDeleter* deferred_deleter_{nullptr};
@@ -192,10 +198,15 @@ private:
     // This frame's surface and last frame's, swapped each step.
     std::array<Image, 2> displacement_;
     Image derivatives_;
+    // The surfaces as the GPU interface's textures, apart from the images so
+    // that those stay copyable into a deferred destruction.
+    std::array<gpu::Owned<gpu::Texture>, 2> displacement_textures_;
+    gpu::Owned<gpu::Texture> derivatives_texture_;
     std::uint32_t cur_{0};
     /// One texel of zeros: what there is to sample when no sea is running.
     /// Cleared when created, and never written again.
     Image still_;
+    gpu::Owned<gpu::Texture> still_texture_;
 
     bool verifying_{false};
     /// The fixed sea the verification runs, kept alive for the pass to animate.

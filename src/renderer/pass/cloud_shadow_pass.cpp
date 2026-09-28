@@ -1,4 +1,5 @@
 #include "renderer/pass/cloud_shadow_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -87,6 +88,7 @@ VkImageMemoryBarrier2 make_barrier(VkImage image,
 
 Result<> CloudShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
 
@@ -218,6 +220,7 @@ void CloudShadowPass::create_image() {
     if (vkCreateImageView(device_, &vi, nullptr, &view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create cloud shadow view");
     }
+    texture_ = gpu::vulkan::adopt(*gpu_device_, image_, view_, ci);
 
     VkDescriptorImageInfo info{};
     info.imageView = view_;
@@ -233,6 +236,7 @@ void CloudShadowPass::create_image() {
 }
 
 void CloudShadowPass::destroy_image() {
+    texture_.reset();
     if (view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, view_, nullptr);
     view_ = VK_NULL_HANDLE;
     destroy_vma_image(allocator_, image_, memory_);
@@ -317,8 +321,7 @@ void CloudShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void CloudShadowPass::collect_exports(DeclareContext& ctx) {
     if (image_ == VK_NULL_HANDLE) { return; }
     ImportedImage img{};
-    img.image = image_;
-    img.view = view_;
+    img.view = texture_;
     // Every surface, the fog light and the sun shafts sample it through the
     // global set, which the graph cannot see. Seeded there when created.
     img.resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;

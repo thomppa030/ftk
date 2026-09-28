@@ -1,6 +1,8 @@
 #pragma once
 
 #include "environment/cloud_shadow_frame.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
@@ -45,12 +47,15 @@ private:
     void seed_layout();
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
 
     VkImage image_{VK_NULL_HANDLE};
     VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
+    /// The map as the GPU interface's texture.
+    gpu::Owned<gpu::Texture> texture_;
     VkSampler sampler_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};

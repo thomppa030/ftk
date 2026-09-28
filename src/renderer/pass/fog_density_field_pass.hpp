@@ -3,6 +3,8 @@
 #include "renderer/gpu/buffer.hpp"
 
 #include <memory>
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
@@ -134,6 +136,7 @@ private:
     float elapsed_{0.0f};
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
 
@@ -145,6 +148,8 @@ private:
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
+        /// The field as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> texture;
     };
     Field fields_[2];
     uint32_t cur_{0};

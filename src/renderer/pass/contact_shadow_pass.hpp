@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
@@ -59,12 +61,15 @@ private:
     int step_count_{12};
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
 
     VkImage shadow_image_{VK_NULL_HANDLE};
     VmaAllocation shadow_memory_{VK_NULL_HANDLE};
     VkImageView shadow_view_{VK_NULL_HANDLE};
+    /// The image as the GPU interface's texture.
+    gpu::Owned<gpu::Texture> shadow_texture_;
     VkSampler sampler_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
 

@@ -1,4 +1,5 @@
 #include "renderer/pass/motion_field_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -23,6 +24,7 @@ namespace fjell {
 
 Result<> MotionFieldPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
 
@@ -119,6 +121,7 @@ Result<> MotionFieldPass::create(Device& device, const PassResources& resources)
         if (vkCreateImageView(device_, &vi, nullptr, &maps_[i].view) != VK_SUCCESS) {
             return make_error("MotionFieldPass: failed to create map view");
         }
+        maps_[i].texture = gpu::vulkan::adopt(*gpu_device_, maps_[i].image, maps_[i].view, ii);
     }
 
     for (auto& buffer : source_buffers_) {
@@ -267,8 +270,7 @@ void MotionFieldPass::collect_exports(DeclareContext& ctx) {
     // before the pass first runs.
     auto add = [&](std::string_view name, const Map& map) {
         ImportedImage img{};
-        img.image = map.image;
-        img.view = map.view;
+        img.view = map.texture;
         img.persistent = true;   // carried into the next frame's map
         img.resting = READERS;
         img.unwritten = first_frame_;

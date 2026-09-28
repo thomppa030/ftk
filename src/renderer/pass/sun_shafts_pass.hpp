@@ -2,6 +2,8 @@
 
 #include "renderer/pass/render_pass.hpp"
 #include "gpu/format.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 
 #include <array>
 #include <glm/glm.hpp>
@@ -48,13 +50,15 @@ public:
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
+        /// The image as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> texture;
     };
 
     struct Images {
         // Ping-pong: each frame resolves into shafts[cur] and samples
         // shafts[prev] as history. The graph tracks their layouts; they reach
         // it as imports each frame.
-        std::array<Image, 2> shafts{};
+        std::array<Image, 2> shafts;
         /// False until a resolve has written, and again after a resize: the
         /// history holds nothing worth blending with.
         bool history_valid{false};
@@ -66,10 +70,10 @@ public:
         [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                     uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                     uint32_t screen_w, uint32_t screen_h);
     };
 
@@ -124,7 +128,7 @@ public:
     }
 
 private:
-    static Image create_image(VkDevice device, VmaAllocator allocator,
+    static Image create_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                               uint32_t w, uint32_t h);
     static void destroy_image(VkDevice device, VmaAllocator allocator, Image& img);
 
@@ -149,6 +153,7 @@ private:
     float upsample_depth_tolerance_{0.05f};
 
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkSampler linear_sampler_{VK_NULL_HANDLE};

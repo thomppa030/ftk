@@ -165,62 +165,48 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.water_draws = water_draws;
     {
         FJELL_PROFILE_SCOPE_N("rp_imports_fill");
-        auto add_import = [&](std::string_view name, VkImage img, VkImageView view,
-                               VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
-            decl_ctx.imports.emplace(fg_name_hash(name),
-                ImportedImage{.image = img, .view = view, .aspect = aspect});
+        auto add_import = [&](std::string_view name, gpu::Texture texture) {
+            decl_ctx.imports.emplace(fg_name_hash(name), ImportedImage{.view = texture});
         };
-        add_import("color",        target.color_image(),        target.color_view());
-        add_import("depth",        target.depth_image(),        target.depth_view(),
-                   VK_IMAGE_ASPECT_DEPTH_BIT);
+        add_import("color",        target.color_texture());
+        add_import("depth",        target.depth_texture());
         // The water's own depth attachment, multisampled with the target, is
         // "msaa_surface_depth"; like the other msaa_* names it is the same image
         // as the resolved one without MSAA, and the scene's where no water draws.
         if (water_draws) {
-            add_import("surface_depth", target.surface_depth_image(),
-                       target.surface_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
-            add_import("msaa_surface_depth", target.water_depth_image(),
-                       target.water_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("surface_depth",      target.surface_depth_texture());
+            add_import("msaa_surface_depth", target.water_depth_texture());
         } else {
-            add_import("surface_depth", target.depth_image(), target.depth_view(),
-                       VK_IMAGE_ASPECT_DEPTH_BIT);
-            add_import("msaa_surface_depth", target.msaa_depth_image(),
-                       target.msaa_depth_view(), VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("surface_depth",      target.depth_texture());
+            add_import("msaa_surface_depth", target.msaa_depth_texture());
         }
-        add_import("mr",           target.mr_image(),           target.mr_view());
-        add_import("normal",       target.normal_image(),       target.normal_view());
-        add_import("velocity",     target.velocity_image(),     target.velocity_view());
-        add_import("screen_color", target.screen_color_image(), target.screen_color_view());
-        add_import("distortion",   target.distortion_image(),   target.distortion_view());
+        add_import("mr",           target.mr_texture());
+        add_import("normal",       target.normal_texture());
+        add_import("velocity",     target.velocity_texture());
+        add_import("screen_color", target.screen_color_texture());
+        add_import("distortion",   target.distortion_texture());
         if (has_msaa) {
-            add_import("msaa_color",    target.msaa_color_image(),    target.msaa_color_view());
-            add_import("msaa_depth",    target.msaa_depth_image(),    target.msaa_depth_view(),
-                       VK_IMAGE_ASPECT_DEPTH_BIT);
-            add_import("msaa_mr",       target.msaa_mr_image(),       target.msaa_mr_view());
-            add_import("msaa_normal",   target.msaa_normal_image(),   target.msaa_normal_view());
-            add_import("msaa_velocity", target.msaa_velocity_image(), target.msaa_velocity_view());
+            add_import("msaa_color",    target.msaa_color_texture());
+            add_import("msaa_depth",    target.msaa_depth_texture());
+            add_import("msaa_mr",       target.msaa_mr_texture());
+            add_import("msaa_normal",   target.msaa_normal_texture());
+            add_import("msaa_velocity", target.msaa_velocity_texture());
         } else {
             // MSAA off: the msaa_* slots alias the non-MSAA images so
             // passes that unconditionally import by the msaa name still
-            // resolve to a valid VkImage.
-            add_import("msaa_color",    target.color_image(),    target.color_view());
-            add_import("msaa_depth",    target.depth_image(),    target.depth_view(),
-                       VK_IMAGE_ASPECT_DEPTH_BIT);
-            add_import("msaa_mr",       target.mr_image(),       target.mr_view());
-            add_import("msaa_normal",   target.normal_image(),   target.normal_view());
-            add_import("msaa_velocity", target.velocity_image(), target.velocity_view());
+            // resolve to a valid texture.
+            add_import("msaa_color",    target.color_texture());
+            add_import("msaa_depth",    target.depth_texture());
+            add_import("msaa_mr",       target.mr_texture());
+            add_import("msaa_normal",   target.normal_texture());
+            add_import("msaa_velocity", target.velocity_texture());
         }
 
         if (pp_resources != nullptr) {
         if (auto* hiz = pp_resources->hiz()) {
             if (hiz->ready() && hiz->hiz_sampled_view != VK_NULL_HANDLE) {
                 ImportedImage img{};
-                img.image = hiz->hiz_image;
-                img.view = hiz->hiz_sampled_view;
-                img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-                img.base_layer = 0;
-                img.layer_count = 1;
-                img.mip_count = hiz->hiz_mip_count;
+                img.view = hiz->hiz_texture;
                 img.persistent = true;
                 decl_ctx.imports.emplace(fg_name_hash("hiz_pyramid"), img);
             }
@@ -234,12 +220,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         if (auto* gtao = pp_resources->gtao()) {
             if (gtao->ao_image != VK_NULL_HANDLE && gtao->ao_view != VK_NULL_HANDLE) {
                 ImportedImage img{};
-                img.image = gtao->ao_image;
-                img.view = gtao->ao_view;
-                img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-                img.base_layer = 0;
-                img.layer_count = 1;
-                img.mip_count = 1;
+                img.view = gtao->ao_texture;
                 img.persistent = true;
                 // Sampled by the blur in compute, and by every fragment
                 // shader through the global set's "ao_texture": a GTAO
@@ -258,12 +239,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             if (fog->scatter_volumes[0].view != VK_NULL_HANDLE) {
                 auto add_scatter = [&](std::string_view name, uint32_t idx) {
                     ImportedImage img{};
-                    img.image = fog->scatter_volumes[idx].image;
-                    img.view = fog->scatter_volumes[idx].view;
-                    img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-                    img.base_layer = 0;
-                    img.layer_count = 1;
-                    img.mip_count = 1;
+                    img.view = fog->scatter_volumes[idx].texture;
                     img.persistent = true;
                     decl_ctx.imports.emplace(fg_name_hash(name), img);
                 };
@@ -277,8 +253,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         if (auto* ddgi = pp_resources->ddgi();
             ddgi != nullptr && ddgi->indirect_image != VK_NULL_HANDLE) {
             ImportedImage img{};
-            img.image = ddgi->indirect_image;
-            img.view = ddgi->indirect_view;
+            img.view = ddgi->indirect_texture;
             img.persistent = true;   // the opaque pass reads it the next frame
             img.resting = gpu::Access::sampled_fragment;
             img.unwritten = ddgi->indirect_needs_init;
@@ -287,8 +262,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         if (auto* ss_gi = pp_resources->ss_gi();
             ss_gi != nullptr && ss_gi->indirect_image != VK_NULL_HANDLE) {
             ImportedImage img{};
-            img.image = ss_gi->indirect_image;
-            img.view = ss_gi->indirect_view;
+            img.view = ss_gi->indirect_texture;
             img.persistent = true;   // the opaque pass reads it the next frame
             img.resting = gpu::Access::sampled_fragment;
             img.unwritten = ss_gi->first_frame;
@@ -301,8 +275,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             taa != nullptr && taa->history[0] != VK_NULL_HANDLE && taa->history[1] != VK_NULL_HANDLE) {
             auto add_history_slot = [&](std::string_view name, uint32_t idx) {
                 ImportedImage img{};
-                img.image = taa->history[idx];
-                img.view = taa->history_view[idx];
+                img.view = taa->history_texture[idx];
                 img.persistent = true;
                 decl_ctx.imports.emplace(fg_name_hash(name), img);
             };
@@ -314,8 +287,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         if (auto* output = pp_resources->post();
             output != nullptr && output->image != VK_NULL_HANDLE) {
             ImportedImage img{};
-            img.image = output->image;
-            img.view = output->view;
+            img.view = output->texture;
             img.resting = gpu::Access::sampled_fragment;
             img.unwritten = !output->written;
             decl_ctx.imports.emplace(fg_name_hash("post_output"), img);
@@ -334,12 +306,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 {decl_ctx.viewport_extent.x, decl_ctx.viewport_extent.y});
             auto add_history = [&](std::string_view name, uint32_t idx) {
                 ImportedImage img{};
-                img.image = imgs.shafts[idx].image;
-                img.view = imgs.shafts[idx].view;
-                img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-                img.base_layer = 0;
-                img.layer_count = 1;
-                img.mip_count = 1;
+                img.view = imgs.shafts[idx].texture;
                 img.persistent = true;
                 decl_ctx.imports.emplace(fg_name_hash(name), img);
             };
@@ -358,7 +325,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         auto name_if_bound = [&](std::string_view slot, std::string_view output, VkImage bound) {
             const auto it = decl_ctx.imports.find(fg_name_hash(output));
             if (bound == VK_NULL_HANDLE || it == decl_ctx.imports.end()
-                || it->second.image != bound) {
+                || gpu::vulkan::native_image(*ctx.device, it->second.view.texture) != bound) {
                 return;
             }
             const ImportedImage img = it->second;
@@ -413,9 +380,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto resolve_texture_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
             if (imp.handle.id == h.id) {
-                return {.image = imp.image,
-                        .base_layer = imp.base_layer,
-                        .layer_count = imp.layer_count};
+                return {.texture = imp.view.texture,
+                        .base_layer = imp.view.base_layer,
+                        .layer_count = imp.view.layer_count};
             }
         }
         for (const auto& cre : b.created_textures()) {
@@ -445,8 +412,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     };
 
     auto key_valid = [](const ResKey& k) {
-        return k.image != VK_NULL_HANDLE || k.buffer != VK_NULL_HANDLE
-            || k.virtual_name_hash != 0;
+        return k.texture.valid() || k.buffer != VK_NULL_HANDLE || k.virtual_name_hash != 0;
     };
 
     auto& dag_order = dag_order_;
@@ -618,20 +584,20 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     graph.set_aliasing_enabled(aliasing_enabled_);
     {
     FJELL_PROFILE_SCOPE_N("rp_graph_submit");
-    graph.begin_frame();
-    auto color_id        = graph.register_image(target.color_image());
-    auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_image()) : color_id;
-    auto depth_id        = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto msaa_depth_id   = has_msaa ? graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT) : depth_id;
-    auto surface_depth_id = water_draws ? graph.register_image(target.surface_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT) : depth_id;
-    auto mr_id           = graph.register_image(target.mr_image());
-    auto msaa_mr_id      = has_msaa ? graph.register_image(target.msaa_mr_image()) : mr_id;
-    auto normal_id       = graph.register_image(target.normal_image());
-    auto msaa_normal_id  = has_msaa ? graph.register_image(target.msaa_normal_image()) : normal_id;
-    auto velocity_id     = graph.register_image(target.velocity_image());
-    auto msaa_velocity_id = has_msaa ? graph.register_image(target.msaa_velocity_image()) : velocity_id;
-    auto screen_color_id = graph.register_image(target.screen_color_image());
-    auto distortion_id   = graph.register_image(target.distortion_image());
+    graph.begin_frame(*ctx.device);
+    auto color_id        = graph.register_image(target.color_texture());
+    auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_texture()) : color_id;
+    auto depth_id        = graph.register_image(target.depth_texture());
+    auto msaa_depth_id   = has_msaa ? graph.register_image(target.msaa_depth_texture()) : depth_id;
+    auto surface_depth_id = water_draws ? graph.register_image(target.surface_depth_texture()) : depth_id;
+    auto mr_id           = graph.register_image(target.mr_texture());
+    auto msaa_mr_id      = has_msaa ? graph.register_image(target.msaa_mr_texture()) : mr_id;
+    auto normal_id       = graph.register_image(target.normal_texture());
+    auto msaa_normal_id  = has_msaa ? graph.register_image(target.msaa_normal_texture()) : normal_id;
+    auto velocity_id     = graph.register_image(target.velocity_texture());
+    auto msaa_velocity_id = has_msaa ? graph.register_image(target.msaa_velocity_texture()) : velocity_id;
+    auto screen_color_id = graph.register_image(target.screen_color_texture());
+    auto distortion_id   = graph.register_image(target.distortion_texture());
 
     registry.register_image("color",         {.frame_graph_id = color_id,         .image = target.color_image(),         .view = target.color_view()});
     registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
@@ -711,13 +677,13 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 res.sampler = VK_NULL_HANDLE;
                 res.mip_count = img.mip_count;
                 registry.register_image(img.name, res);
-                // Tell the graph which VkImage backs this virtual resource
+                // Tell the graph which texture backs this virtual resource
                 // this frame, so emit_barriers_for_pass has something to
                 // transition. Slice state is already seeded to UNDEFINED
                 // by begin_frame(), which is what we want — the first
                 // access will barrier out of UNDEFINED regardless of
                 // whether the pool handed back a fresh or reused image.
-                graph.bind_virtual_image(rid, image);
+                graph.bind_virtual_image(rid, texture);
             }
         }
 

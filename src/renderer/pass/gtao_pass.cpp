@@ -10,6 +10,7 @@
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
@@ -53,10 +54,11 @@ struct BlurPushConstants {
     float depth_threshold;
 };
 
-void create_ao_image(VkDevice device, VmaAllocator allocator,
+void create_ao_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                       const uint32_t* concurrent_families, uint32_t concurrent_family_count,
                       uint32_t width, uint32_t height,
-                      VkImage& image, VmaAllocation& allocation, VkImageView& view) {
+                      VkImage& image, VmaAllocation& allocation, VkImageView& view,
+                      gpu::Owned<gpu::Texture>& texture) {
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ci.imageType = VK_IMAGE_TYPE_2D;
@@ -92,10 +94,13 @@ void create_ao_image(VkDevice device, VmaAllocator allocator,
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create AO image view");
     }
+    texture = gpu::vulkan::adopt(gpu, image, view, ci);
 }
 
 void destroy_ao_image(VkDevice device, VmaAllocator allocator,
-                       VkImage& image, VmaAllocation& allocation, VkImageView& view) {
+                       VkImage& image, VmaAllocation& allocation, VkImageView& view,
+                       gpu::Owned<gpu::Texture>& texture) {
+    texture.reset();
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
     destroy_vma_image(allocator, image, allocation);
     image = VK_NULL_HANDLE; allocation = VK_NULL_HANDLE;
@@ -105,15 +110,15 @@ void destroy_ao_image(VkDevice device, VmaAllocator allocator,
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void AoPass::Images::create(VkDevice device, VmaAllocator allocator,
+void AoPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                              const uint32_t* concurrent_families,
                              uint32_t concurrent_family_count,
                              uint32_t half_w, uint32_t half_h,
                              VkQueue graphics_queue,
                              VkCommandPool graphics_pool) {
     extent = {half_w, half_h};
-    create_ao_image(device, allocator, concurrent_families, concurrent_family_count,
-                    half_w, half_h, ao_image, ao_memory, ao_view);
+    create_ao_image(gpu, device, allocator, concurrent_families, concurrent_family_count,
+                    half_w, half_h, ao_image, ao_memory, ao_view, ao_texture);
     images_need_init = true;
 
     // Seed the image in SHADER_READ so the global ao_texture descriptor
@@ -172,11 +177,11 @@ void AoPass::Images::create(VkDevice device, VmaAllocator allocator,
 
 void AoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
-    destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view);
+    destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view, ao_texture);
     extent = {};
 }
 
-void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void AoPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                              const uint32_t* concurrent_families,
                              uint32_t concurrent_family_count,
                              uint32_t width, uint32_t height,
@@ -190,7 +195,7 @@ void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, concurrent_families, concurrent_family_count,
+    create(gpu, device, allocator, concurrent_families, concurrent_family_count,
            half_w, half_h, graphics_queue, graphics_pool);
 }
 
@@ -213,6 +218,7 @@ void AoPass::Images::invalidate_imgui_texture() {
 
 Result<> AoPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     concurrent_families_ = device.concurrent_queue_families(concurrent_family_count_);
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
@@ -293,7 +299,7 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, comp_module, nullptr);
 
     // 1x1 placeholder so the global "ao_texture" binding is valid from frame 1.
-    default_images_.create(device_, allocator_,
+    default_images_.create(*gpu_device_, device_, allocator_,
                            concurrent_families_, concurrent_family_count_, 1, 1);
 
     if (auto r = create_trace(device, resources); !r) { return r; }
@@ -312,7 +318,7 @@ void AoPass::destroy() {
 }
 
 void AoPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_,
+    default_images_.resize(*gpu_device_, device_, allocator_,
                            concurrent_families_, concurrent_family_count_,
                            width, height,
                            init_graphics_queue_, init_graphics_pool_);

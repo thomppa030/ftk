@@ -131,7 +131,8 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
         if (panel.needs_offscreen && device_) {
             auto w = std::max(static_cast<uint32_t>(panel.size.x), 256u);
             auto h = std::max(static_cast<uint32_t>(panel.size.y), 256u);
-            panel.offscreen = std::make_unique<OffscreenPass>(*device_, allocator_, w, h, msaa_samples_);
+            panel.offscreen = std::make_unique<OffscreenPass>(*device_, ctx.gpu_device(), allocator_,
+                                                              w, h, msaa_samples_);
             panel.needs_offscreen = false;
         }
         if (!panel.offscreen) continue;

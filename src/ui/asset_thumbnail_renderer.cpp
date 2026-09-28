@@ -505,8 +505,9 @@ protected:
             frame_h = deps.project->config().ui.design_height;
         }
         if (!target_ || target_->extent().width != frame_w || target_->extent().height != frame_h) {
-            target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.allocator(),
-                                                      frame_w, frame_h, VK_SAMPLE_COUNT_1_BIT);
+            target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
+                                                      vk.allocator(), frame_w, frame_h,
+                                                      VK_SAMPLE_COUNT_1_BIT);
         }
         return {frame_w, frame_h};
     }
@@ -847,14 +848,14 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
     }
 
     // Pipelines are compiled for the main viewport's sample count.
-    target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.allocator(),
+    target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(), vk.allocator(),
                                               SIZE, SIZE, vk.msaa_samples());
     PostProcessResources::PassRefs refs{
         vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
         vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
         vk.rt_reflection_pass()};
-    pp_ = std::make_unique<PostProcessResources>(vk.device(), vk.allocator(), SIZE, SIZE,
-                                                 pp_config_from_graph(*graph_), refs);
+    pp_ = std::make_unique<PostProcessResources>(vk.gpu_device(), vk.device(), vk.allocator(),
+                                                 SIZE, SIZE, pp_config_from_graph(*graph_), refs);
     global_set_ = vk.gpu().global_bindings().allocate_set();
     skip_frames_ = DRAIN_FRAMES;
     return true;

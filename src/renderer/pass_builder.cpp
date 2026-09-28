@@ -28,19 +28,12 @@ FgBuffer PassBuilder::create(std::string_view name, const BufferDesc& desc) {
     return h;
 }
 
-FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView view,
-                              VkImageAspectFlags aspect, uint32_t base_layer,
-                              uint32_t layer_count) {
+FgTexture PassBuilder::import(std::string_view name, const gpu::TextureView& view) {
     FgTexture h{next_texture_id_++};
     imported_textures_.push_back({
         .handle = h,
         .name = std::string(name),
-        .image = image,
         .view = view,
-        .aspect = aspect,
-        .base_layer = base_layer,
-        .layer_count = layer_count,
-        .mip_count = 1,
         .persistent = false,
     });
     return h;
@@ -64,12 +57,7 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
     imported_textures_.push_back({
         .handle = h,
         .name = std::string(name),
-        .image = it->second.image,
         .view = it->second.view,
-        .aspect = it->second.aspect,
-        .base_layer = it->second.base_layer,
-        .layer_count = it->second.layer_count,
-        .mip_count = it->second.mip_count,
         .persistent = it->second.persistent,
         .resting = it->second.resting,
         .unwritten = it->second.unwritten,

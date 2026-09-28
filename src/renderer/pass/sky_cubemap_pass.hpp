@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
@@ -31,11 +33,6 @@ public:
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void register_resources(ResourceRegistry& registry) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
-
-    // Legacy create — forwards to standard create (needs command pool + queue)
-    void create(VkDevice device, VmaAllocator allocator,
-                VkCommandPool command_pool, VkQueue queue,
-                VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
 
     /// Set sky gradient colors. Marks dirty so next generate() re-renders.
     void set_colors(const glm::vec3& top, const glm::vec3& bottom);
@@ -121,6 +118,7 @@ private:
     VkImage cubemap_image_{VK_NULL_HANDLE};
     VmaAllocation cubemap_memory_{VK_NULL_HANDLE};
     VkImageView cubemap_view_{VK_NULL_HANDLE};        // CUBE view for sampling
+    gpu::Owned<gpu::Texture> cubemap_texture_;        // as the GPU interface's texture
     VkImageView cubemap_storage_view_{VK_NULL_HANDLE}; // 2D_ARRAY view for compute storage (mip 0)
     VkSampler cubemap_sampler_{VK_NULL_HANDLE};
 
@@ -193,6 +191,7 @@ private:
     VkImage hdri_cubemap_image_{VK_NULL_HANDLE};
     VmaAllocation hdri_cubemap_memory_{VK_NULL_HANDLE};
     VkImageView hdri_cubemap_view_{VK_NULL_HANDLE};       // CUBE view (all mips)
+    gpu::Owned<gpu::Texture> hdri_cubemap_texture_;       // as the GPU interface's texture
     VkImageView hdri_storage_view_{VK_NULL_HANDLE};       // 2D_ARRAY (mip 0, for equirect conversion)
     VkSampler hdri_cubemap_sampler_{VK_NULL_HANDLE};
 

@@ -1,4 +1,5 @@
 #include "renderer/pass/local_shadow_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -59,6 +60,7 @@ void LocalShadowPass::create_atlas() {
     if (vkCreateImageView(device_, &view_info, nullptr, &atlas_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create local shadow atlas view");
     }
+    atlas_texture_ = gpu::vulkan::adopt(*gpu_device_, atlas_image_, atlas_view_, info);
 
     // Comparison sampler (same as cascade shadows)
     VkSamplerCreateInfo sampler_info{};
@@ -82,6 +84,7 @@ void LocalShadowPass::create_atlas() {
 void LocalShadowPass::destroy_atlas() {
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
     if (atlas_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, atlas_view_, nullptr); atlas_view_ = VK_NULL_HANDLE; }
+    atlas_texture_.reset();
     destroy_vma_image(allocator_, atlas_image_, atlas_memory_);
     atlas_image_ = VK_NULL_HANDLE;
     atlas_memory_ = VK_NULL_HANDLE;
@@ -91,6 +94,7 @@ void LocalShadowPass::destroy_atlas() {
 
 Result<> LocalShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     draw_data_layout_ = resources.draw_data_layout;
@@ -472,12 +476,7 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     if (atlas_image_ == VK_NULL_HANDLE || atlas_view_ == VK_NULL_HANDLE) { return; }
     ImportedImage img{};
-    img.image = atlas_image_;
-    img.view = atlas_view_;
-    img.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    img.base_layer = 0;
-    img.layer_count = 1;
-    img.mip_count = 1;
+    img.view = atlas_texture_;
     img.persistent = true;
     // The lit surfaces sample it in the fragment shader and the fog light in
     // compute, both through the global set. Nothing is in it before the pass

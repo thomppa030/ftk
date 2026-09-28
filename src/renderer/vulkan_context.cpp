@@ -153,7 +153,8 @@ VulkanContext::VulkanContext(Window& window)
     default_config.taa = true;
     default_config.rt_reflection = gpu_.device_ref().ray_tracing_supported();
     PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), post_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(), rt_reflection_pass()};
-    default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
+    default_pp_ = std::make_unique<PostProcessResources>(gpu_device(), gpu_.device(), gpu_.allocator(),
+                                                         256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
@@ -1176,6 +1177,7 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.bindless = shared.bindless;
     res.draw_data = shared.draw_data;
     res.meshlets = shared.meshlets;
+    res.device = &gpu_.core().gpu_device();
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
@@ -2136,7 +2138,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
         rt_reflection_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
-        gpu_.device_ref(), gpu_.device(), gpu_.allocator(),
+        gpu_.device_ref(), gpu_device(), gpu_.device(), gpu_.allocator(),
         config, refs, bindless_idx);
     // Private global set — keeps the viewport's view-dependent image bindings
     // off the shared per-frame set bound by the main command buffer.

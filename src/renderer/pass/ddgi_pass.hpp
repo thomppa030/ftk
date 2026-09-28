@@ -1,6 +1,8 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -271,6 +273,8 @@ public:
         VkImage indirect_image{VK_NULL_HANDLE};
         VmaAllocation indirect_memory{VK_NULL_HANDLE};
         VkImageView indirect_view{VK_NULL_HANDLE};
+        /// The indirect output as the GPU interface's texture.
+        gpu::Owned<gpu::Texture> indirect_texture;
         VkExtent2D indirect_extent{};
 
         // Atlas dimensions (computed from config)
@@ -330,11 +334,11 @@ public:
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> update_set{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sample_set{};
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
 

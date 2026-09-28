@@ -1,4 +1,5 @@
 #include "renderer/pass/taa_resolve_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_utils.hpp"
@@ -22,7 +23,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void TaaResolvePass::Images::create(VkDevice device, VmaAllocator allocator,
+void TaaResolvePass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                      VkDescriptorSetLayout set_layout,
                                      uint32_t width, uint32_t height) {
     extent = {width, height};
@@ -55,6 +56,7 @@ void TaaResolvePass::Images::create(VkDevice device, VmaAllocator allocator,
         if (vkCreateImageView(device, &view_ci, nullptr, &history_view[i]) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create TAA history view");
         }
+        history_texture[i] = gpu::vulkan::adopt(gpu, history[i], history_view[i], ci);
     }
 
     // Descriptor pool: 4 image descriptors per set (current, history, velocity, output) × frames
@@ -93,6 +95,7 @@ void TaaResolvePass::Images::create(VkDevice device, VmaAllocator allocator,
 void TaaResolvePass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     if (pool != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, pool, nullptr); pool = VK_NULL_HANDLE; }
     for (int i = 0; i < 2; ++i) {
+        history_texture[i].reset();
         if (history_view[i] != VK_NULL_HANDLE) { vkDestroyImageView(device, history_view[i], nullptr); history_view[i] = VK_NULL_HANDLE; }
         destroy_vma_image(allocator, history[i], history_memory[i]);
         history[i] = VK_NULL_HANDLE;
@@ -102,13 +105,13 @@ void TaaResolvePass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     for (auto& s : sets) s = VK_NULL_HANDLE;
 }
 
-void TaaResolvePass::Images::resize(VkDevice device, VmaAllocator allocator,
+void TaaResolvePass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                      VkDescriptorSetLayout set_layout,
                                      uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
     destroy(device, allocator);
-    if (width > 0 && height > 0) create(device, allocator, set_layout, width, height);
+    if (width > 0 && height > 0) create(gpu, device, allocator, set_layout, width, height);
 }
 
 // ── TaaResolvePass (singleton) ─────────────────────────────────────────────

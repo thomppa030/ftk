@@ -1,7 +1,7 @@
 // Links fjell-framegraph alone and whole (tests/CMakeLists.txt), so it builds
 // only if everything in the library finds what it needs in the library and
-// its own dependencies. Running it uses the parts that need no device: a
-// frame's bookkeeping in the graph and the descriptor cache's key.
+// its own dependencies. Running it uses the parts that need no device: the
+// graph's frame bookkeeping and the descriptor cache's key.
 
 #include "core/log.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
@@ -12,7 +12,6 @@ int main() {
 
     fjell::FrameGraph graph;
     graph.new_frame();
-    graph.begin_frame();
 
     const fjell::FrameCacheKey first;
     const fjell::FrameCacheKey second;

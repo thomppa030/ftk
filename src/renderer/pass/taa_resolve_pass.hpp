@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
@@ -15,6 +17,8 @@ public:
         VkImage history[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
         VmaAllocation history_memory[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
         VkImageView history_view[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        /// The histories as the GPU interface's textures.
+        gpu::Owned<gpu::Texture> history_texture[2];
         VkExtent2D extent{};
         uint32_t write_index{0}; // ping-pong: write to [write_index], read from [1-write_index]
         bool needs_init{true};
@@ -22,11 +26,11 @@ public:
         VkDescriptorPool pool{VK_NULL_HANDLE};
         VkDescriptorSet sets[MAX_FRAMES_IN_FLIGHT]{};
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
     };

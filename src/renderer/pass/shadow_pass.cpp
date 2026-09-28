@@ -1,4 +1,5 @@
 #include "renderer/pass/shadow_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "renderer/pass_registry.hpp"
 #include "renderer/pass/terrain_pass.hpp"
@@ -198,6 +199,7 @@ void ShadowPass::create_images() {
     if (vkCreateImageView(device_, &array_view_info, nullptr, &array_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create shadow map array view");
     }
+    texture_ = gpu::vulkan::adopt(*gpu_device_, image_, array_view_, image_info);
 
     // Per-layer views for rendering into each cascade
     for (uint32_t i = 0; i < CASCADE_COUNT; ++i) {
@@ -251,6 +253,7 @@ void ShadowPass::destroy_images() {
         vkDestroyImageView(device_, array_view_, nullptr);
         array_view_ = VK_NULL_HANDLE;
     }
+    texture_.reset();
     destroy_vma_image(allocator_, image_, memory_);
     image_ = VK_NULL_HANDLE;
     memory_ = VK_NULL_HANDLE;
@@ -260,6 +263,7 @@ void ShadowPass::destroy_images() {
 
 Result<> ShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     draw_data_layout_ = resources.draw_data_layout;
@@ -722,12 +726,7 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void ShadowPass::collect_exports(DeclareContext& ctx) {
     if (image_ == VK_NULL_HANDLE || array_view_ == VK_NULL_HANDLE) { return; }
     ImportedImage img{};
-    img.image = image_;
-    img.view = array_view_;
-    img.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    img.base_layer = 0;
-    img.layer_count = CASCADE_COUNT;
-    img.mip_count = 1;
+    img.view = texture_;
     img.persistent = true;
     // Every lit surface samples it in the fragment shader through the global
     // set. Nothing is in it before the pass first draws.

@@ -45,7 +45,7 @@ struct SceneViewportView {
 /// as a bindless texture index, usable by any material.
 class SceneViewport {
 public:
-    SceneViewport(Device& device, VkDevice vk_device, VmaAllocator allocator,
+    SceneViewport(Device& device, gpu::Device& gpu, VkDevice vk_device, VmaAllocator allocator,
                   const SceneViewportConfig& config,
                   const PostProcessResources::PassRefs& pass_refs,
                   uint32_t reserved_bindless_index);

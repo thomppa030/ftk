@@ -210,6 +210,19 @@ VkImageAspectFlags view_aspect(Format format) {
     return VK_IMAGE_ASPECT_COLOR_BIT;
 }
 
+VkImageAspectFlags view_aspect(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_X8_D24_UNORM_PACK32:
+        case VK_FORMAT_D32_SFLOAT:
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT: return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_FORMAT_S8_UINT:            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:                           return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+}
+
 VkShaderStageFlags to_vk(ShaderStages stages) {
     VkShaderStageFlags flags = 0;
     stages.for_each([&](ShaderStage stage) {

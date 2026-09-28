@@ -60,6 +60,10 @@ namespace fjell::gpu::vulkan {
 /// (barriers, clears): depth and stencil together for a depth-stencil format.
 [[nodiscard]] VkImageAspectFlags image_aspects(Format format);
 
+/// The aspect a view of a Vulkan format shows a shader, for an image made
+/// before the interface in a format `Format` may not name.
+[[nodiscard]] VkImageAspectFlags view_aspect(VkFormat format);
+
 /// The aspect a view of `format` shows a shader: depth alone for a
 /// depth-stencil format, since a sampled view may show only one.
 [[nodiscard]] VkImageAspectFlags view_aspect(Format format);

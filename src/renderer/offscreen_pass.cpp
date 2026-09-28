@@ -1,4 +1,5 @@
 #include "renderer/offscreen_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 
@@ -8,10 +9,10 @@
 
 namespace fjell {
 
-OffscreenPass::OffscreenPass(Device& device, VmaAllocator allocator,
+OffscreenPass::OffscreenPass(Device& device, gpu::Device& gpu, VmaAllocator allocator,
                              uint32_t width, uint32_t height,
                              VkSampleCountFlagBits samples)
-    : device_{device}, allocator_{allocator}, msaa_samples_{samples} {
+    : device_{device}, gpu_{gpu}, allocator_{allocator}, msaa_samples_{samples} {
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -60,6 +61,7 @@ void OffscreenPass::cleanup_images() {
 
     invalidate_imgui_texture();
     invalidate_depth_imgui_texture();
+    textures_ = {};
 
     if (color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, color_view_, nullptr);
     destroy_vma_image(allocator_, color_image_, color_allocation_);
@@ -185,6 +187,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &color_view_info, nullptr, &color_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen color view");
     }
+    textures_.color = gpu::vulkan::adopt(gpu_, color_image_, color_view_, color_info);
 
     // -- Resolve color image (single-sample, only when MSAA) --
     if (msaa) {
@@ -215,6 +218,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_view_info, nullptr, &resolve_color_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve color view");
         }
+        textures_.resolve_color = gpu::vulkan::adopt(
+            gpu_, resolve_color_image_, resolve_color_view_, resolve_info);
     }
 
     // -- Depth image (MSAA when enabled) --
@@ -263,6 +268,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &depth_view_info, nullptr, &depth_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen depth view");
     }
+    textures_.depth = gpu::vulkan::adopt(gpu_, depth_image_, depth_view_, depth_info);
 
     // -- Resolve depth image (single-sample, only when MSAA) --
     if (msaa) {
@@ -300,6 +306,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_depth_view_info, nullptr, &resolve_depth_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve depth view");
         }
+        textures_.resolve_depth = gpu::vulkan::adopt(
+            gpu_, resolve_depth_image_, resolve_depth_view_, resolve_depth_info);
     }
 
     // -- Water depth image --
@@ -351,6 +359,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &water_depth_view_info, nullptr, &water_depth_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create water depth view");
     }
+    textures_.water_depth = gpu::vulkan::adopt(
+        gpu_, water_depth_image_, water_depth_view_, water_depth_info);
 
     // -- Resolve water depth image (single-sample, only when MSAA) --
     if (msaa) {
@@ -370,6 +380,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
                               &resolve_water_depth_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve water depth view");
         }
+        textures_.resolve_water_depth = gpu::vulkan::adopt(
+            gpu_, resolve_water_depth_image_, resolve_water_depth_view_, resolve_water_info);
     }
 
     // -- Metallic/roughness image (MSAA when enabled) --
@@ -401,6 +413,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &mr_view_info, nullptr, &mr_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen MR view");
     }
+    textures_.mr = gpu::vulkan::adopt(gpu_, mr_image_, mr_view_, mr_info);
 
     // -- Resolve MR image (single-sample, only when MSAA) --
     if (msaa) {
@@ -430,6 +443,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_mr_view_info, nullptr, &resolve_mr_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve MR view");
         }
+        textures_.resolve_mr = gpu::vulkan::adopt(
+            gpu_, resolve_mr_image_, resolve_mr_view_, resolve_mr_info);
     }
 
     // -- Normal image (octahedral-encoded world normals, MSAA when enabled) --
@@ -461,6 +476,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &normal_view_info, nullptr, &normal_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen normal view");
     }
+    textures_.normal = gpu::vulkan::adopt(gpu_, normal_image_, normal_view_, normal_info);
 
     // -- Resolve normal image (single-sample, only when MSAA) --
     if (msaa) {
@@ -490,6 +506,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_normal_view_info, nullptr, &resolve_normal_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve normal view");
         }
+        textures_.resolve_normal = gpu::vulkan::adopt(
+            gpu_, resolve_normal_image_, resolve_normal_view_, resolve_normal_info);
     }
 
     // -- Velocity buffer (screen-space motion vectors, MSAA when enabled) --
@@ -521,6 +539,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &vel_view_info, nullptr, &velocity_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create velocity view");
     }
+    textures_.velocity = gpu::vulkan::adopt(gpu_, velocity_image_, velocity_view_, vel_info);
 
     // -- Resolve velocity image (single-sample, only when MSAA) --
     if (msaa) {
@@ -550,6 +569,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_vel_view_info, nullptr, &resolve_velocity_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve velocity view");
         }
+        textures_.resolve_velocity = gpu::vulkan::adopt(
+            gpu_, resolve_velocity_image_, resolve_velocity_view_, resolve_vel_info);
     }
 
     // -- Screen color copy (single-sample, for SCREEN_TEXTURE) --
@@ -579,6 +600,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &sc_view_info, nullptr, &screen_color_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create screen color view");
     }
+    textures_.screen_color = gpu::vulkan::adopt(
+        gpu_, screen_color_image_, screen_color_view_, sc_info);
 
     // -- Distortion buffer (single-sample, RG16F UV offsets) --
     VkImageCreateInfo dist_info{};
@@ -607,6 +630,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &dist_view_info, nullptr, &distortion_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create distortion view");
     }
+    textures_.distortion = gpu::vulkan::adopt(gpu_, distortion_image_, distortion_view_, dist_info);
 
     static int offscreen_counter = 0;
     const std::string tag = "offscreen#" + std::to_string(offscreen_counter++);

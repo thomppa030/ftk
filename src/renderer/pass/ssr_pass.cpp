@@ -8,6 +8,7 @@
 // is a graph transient deduped by name across the two nodes.
 
 #include "renderer/pass/ssr_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
@@ -204,6 +205,7 @@ Result<> SsrCore::create(Device& device, const PassResources& resources) {
 }
 
 void SsrCore::destroy() {
+    prev_frame_texture_.reset();
     if (prev_frame_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(device_, prev_frame_view_, nullptr);
         prev_frame_view_ = VK_NULL_HANDLE;
@@ -230,7 +232,7 @@ void SsrCore::destroy() {
     safe_destroy(vkDestroyPipelineLayout, composite_pipeline_layout_);
 }
 
-void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
+void SsrCore::ensure_prev_frame(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                   VkCommandPool command_pool, VkQueue queue,
                                   uint32_t width, uint32_t height) {
     if (prev_frame_image_ != VK_NULL_HANDLE &&
@@ -241,6 +243,7 @@ void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
 
     vkDeviceWaitIdle(device);
 
+    prev_frame_texture_.reset();
     if (prev_frame_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(device, prev_frame_view_, nullptr);
         prev_frame_view_ = VK_NULL_HANDLE;
@@ -271,6 +274,7 @@ void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCreateImageView(device, &vi, nullptr, &prev_frame_view_);
+    prev_frame_texture_ = gpu::vulkan::adopt(gpu, prev_frame_image_, prev_frame_view_, ci);
 
     // Clear to black and transition to SHADER_READ_ONLY so first-frame
     // SSR reads valid (black) data.
@@ -330,7 +334,7 @@ void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
     bool in_graph = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
     if (in_graph && screen_space_active() && ctx.target != nullptr) {
         auto ext = ctx.target->extent();
-        ensure_prev_frame(gpu.device(), gpu.allocator(),
+        ensure_prev_frame(gpu.core().gpu_device(), gpu.device(), gpu.allocator(),
                           gpu.command_pool(), gpu.graphics_queue(),
                           ext.width, ext.height);
     }
@@ -344,8 +348,7 @@ void SsrCore::register_resources(ResourceRegistry& registry) {
 void SsrCore::collect_exports(DeclareContext& ctx) {
     if (prev_frame_image_ == VK_NULL_HANDLE) { return; }
     ImportedImage img{};
-    img.image = prev_frame_image_;
-    img.view = prev_frame_view_;
+    img.view = prev_frame_texture_;
     img.persistent = true;   // read by the next frame's trace
     // Rests where the next frame's trace samples it; cleared there when
     // created.

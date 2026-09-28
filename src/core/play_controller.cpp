@@ -275,7 +275,8 @@ void PlayController::apply_pending_hud_resize() {
     auto h = static_cast<uint32_t>(hud_img_size_.y);
     if (!hud_target_) {
         hud_target_ = std::make_unique<OffscreenPass>(
-            s_.vulkan->device_ref(), s_.vulkan->allocator(), w, h, VK_SAMPLE_COUNT_1_BIT);
+            s_.vulkan->device_ref(), s_.vulkan->gpu_device(), s_.vulkan->allocator(), w, h,
+            VK_SAMPLE_COUNT_1_BIT);
     } else {
         // Unlike the destroy branch above, this was never the vulnerable
         // path: OffscreenPass::resize() already calls vkDeviceWaitIdle

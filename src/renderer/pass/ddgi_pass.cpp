@@ -1,4 +1,5 @@
 #include "renderer/pass/ddgi_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "core/profiler.hpp"
@@ -53,11 +54,12 @@ static void compute_atlas_dims(const DdgiConfig& config,
     vis_h = ((total + probes_per_row - 1) / probes_per_row) * vis_side_with_border;
 }
 
-void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
+void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                const DdgiConfig& config,
                                uint32_t screen_w, uint32_t screen_h) {
     compute_atlas_dims(config, irr_width, irr_height, vis_width, vis_height, total_probes);
 
+    // Returns what the image was made as.
     auto create_image = [&](VkImage& img, VmaAllocation& alloc, VkImageView& view,
                             uint32_t w, uint32_t h, VkFormat format,
                             VkImageUsageFlags usage) {
@@ -83,6 +85,7 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
         view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         vkCreateImageView(device, &view_info, nullptr, &view);
+        return info;
     };
 
     VkImageUsageFlags storage_sampled = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -210,9 +213,10 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
     uint32_t out_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
     indirect_extent = {out_w, out_h};
 
-    create_image(indirect_image, indirect_memory, indirect_view,
-                 out_w, out_h,
-                 VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+    const VkImageCreateInfo indirect_info =
+        create_image(indirect_image, indirect_memory, indirect_view, out_w, out_h,
+                     VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+    indirect_texture = gpu::vulkan::adopt(gpu, indirect_image, indirect_view, indirect_info);
 
     images_need_init = true;
     indirect_needs_init = true;
@@ -248,6 +252,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     destroy_img(irradiance_filtered_view, irradiance_filtered_image, irradiance_filtered_memory);
     destroy_img(visibility_view, visibility_image, visibility_memory);
     destroy_img(probe_offset_view, probe_offset_image, probe_offset_memory);
+    indirect_texture.reset();
     destroy_img(indirect_view, indirect_image, indirect_memory);
     for (int i = 0; i < 2; ++i) {
         destroy_img(indirection_view[i], indirection_image[i], indirection_memory[i]);
@@ -259,12 +264,12 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     for (auto& ubo : constants_ubo) ubo.reset();
 }
 
-void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void DdgiPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                const DdgiConfig& config,
                                uint32_t screen_w, uint32_t screen_h) {
     // First call: create everything
     if (radiance_image == VK_NULL_HANDLE) {
-        create(device, allocator, config, screen_w, screen_h);
+        create(gpu, device, allocator, config, screen_w, screen_h);
         return;
     }
 
@@ -278,7 +283,7 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
         // frames referencing these images may still be in flight.
         vkDeviceWaitIdle(device);
         destroy(device, allocator);
-        create(device, allocator, config, screen_w, screen_h);
+        create(gpu, device, allocator, config, screen_w, screen_h);
         return;
     }
 
@@ -289,6 +294,7 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
 
     // Only destroy/recreate the indirect output image, not the probe images
     vkDeviceWaitIdle(device);
+    indirect_texture.reset();
     if (indirect_view != VK_NULL_HANDLE) vkDestroyImageView(device, indirect_view, nullptr);
     destroy_vma_image(allocator, indirect_image, indirect_memory);
     indirect_view = VK_NULL_HANDLE;
@@ -319,6 +325,7 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
     view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     vkCreateImageView(device, &view_info, nullptr, &indirect_view);
+    indirect_texture = gpu::vulkan::adopt(gpu, indirect_image, indirect_view, info);
 
     // Descriptors reference indirect_view, so they need rewriting. The probe
     // atlases were not touched: only this image is back in UNDEFINED, and
