@@ -193,8 +193,8 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
         }
     };
 
-    // Handing the bodies to the workers and waiting for them costs about
-    // fifteen microseconds whatever they do, so it is only done when there is
+    // Handing the bodies to the workers and waiting for them costs a few
+    // microseconds whatever they do, so it is only done when there is
     // a good deal more than that to do: the work is one wave summed at one
     // sample point, and the threshold is a few thousand of those, about four
     // dispatches' worth serially. Below it a scene of a few boats on an
@@ -221,7 +221,7 @@ void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
     // threads touch the same record.
     const auto count = static_cast<uint32_t>(floating.size());
     if (ctx.workers != nullptr && point_waves > PARALLEL_ABOVE_POINT_WAVES) {
-        ctx.workers->parallel_for(0, count, [&](uint32_t, uint32_t begin, uint32_t end) {
+        ctx.workers->parallel_for(0, count, 1, [&](uint32_t, uint32_t begin, uint32_t end) {
             for (uint32_t i = begin; i < end; ++i) evaluate(floating[i]);
         });
     } else {

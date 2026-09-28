@@ -154,6 +154,7 @@ add_executable(fjell-tests
     test_resource_handle.cpp
     test_collision_channel.cpp
     test_delegate.cpp
+    test_thread_pool.cpp
     test_fjui_parser.cpp
     test_fjss_parser.cpp
     test_fjsl_compiler.cpp

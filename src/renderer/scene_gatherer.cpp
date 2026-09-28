@@ -100,7 +100,11 @@ void SceneGatherer::gather(const GatherInput& input) {
             for (auto& sc : local_shadow_commands_[ch]) sc.clear();
         }
 
-        input.pool->parallel_for(0, object_count,
+        // Culling a candidate costs about a tenth of a microsecond, so a chunk
+        // has to hold over a hundred before it outweighs the few microseconds
+        // it takes a worker to wake.
+        constexpr uint32_t CULL_GRAIN = 128;
+        input.pool->parallel_for(0, object_count, CULL_GRAIN,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
                 auto& commands = local_commands_[chunk_id];
                 auto& gi_cmds = local_gi_commands_[chunk_id];

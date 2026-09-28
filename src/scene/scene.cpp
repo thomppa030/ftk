@@ -630,8 +630,12 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
         }
     };
 
-    if (pool && n > 64) {
-        pool->parallel_for(0, static_cast<uint32_t>(n), detect_dirty);
+    // Checking a node that has not moved costs some 10 ns, so a chunk has to
+    // hold about a thousand before it outweighs the few microseconds it takes
+    // a worker to wake.
+    constexpr uint32_t DIRTY_CHECK_GRAIN = 1024;
+    if (pool) {
+        pool->parallel_for(0, static_cast<uint32_t>(n), DIRTY_CHECK_GRAIN, detect_dirty);
     } else {
         detect_dirty(0, 0, static_cast<uint32_t>(n));
     }
