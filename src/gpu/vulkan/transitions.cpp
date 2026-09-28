@@ -163,8 +163,9 @@ void CommandList::transition(std::span<const Transition> transitions) {
             }
             if (layout_trace_enabled()) {
                 FJELL_GFX_INFO(
-                    "[layout] graph barrier img=0x{:x} {} -> {} src=0x{:x} dst=0x{:x} on {} cb=0x{:x}",
-                    reinterpret_cast<uintptr_t>(barrier->image),
+                    "[layout] graph barrier img=0x{:x} '{}' {} -> {} src=0x{:x} dst=0x{:x} on {} "
+                    "cb=0x{:x}",
+                    reinterpret_cast<uintptr_t>(barrier->image), t.name,
                     vulkan::layout_name(barrier->oldLayout), vulkan::layout_name(barrier->newLayout),
                     static_cast<uint64_t>(barrier->srcStageMask),
                     static_cast<uint64_t>(barrier->dstStageMask), queue_name(queue),
@@ -187,8 +188,8 @@ void CommandList::transition(std::span<const Transition> transitions) {
         }
         if (layout_trace_enabled()) {
             FJELL_GFX_INFO(
-                "[layout] buffer barrier buf=0x{:x} {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
-                reinterpret_cast<uintptr_t>(barrier->buffer), buffer_hazard(t),
+                "[layout] buffer barrier buf=0x{:x} '{}' {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
+                reinterpret_cast<uintptr_t>(barrier->buffer), t.name, buffer_hazard(t),
                 static_cast<uint64_t>(barrier->srcStageMask),
                 static_cast<uint64_t>(barrier->srcAccessMask),
                 static_cast<uint64_t>(barrier->dstStageMask),
