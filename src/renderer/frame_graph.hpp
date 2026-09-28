@@ -191,14 +191,15 @@ public:
     // Register an image to track and return its id. Registering the same
     // image and layer range again in one run returns the existing id. A new
     // entry starts from what the graph remembers of the image, else at rest
-    // when it has a resting access, else from `initial_layout`. `name` is
-    // only for the traces.
+    // when it has a resting access and has been written, else from
+    // `initial_layout`. `name` is only for the traces.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                             uint32_t base_layer = 0, uint32_t layer_count = 1,
                             uint32_t mip_count = 1,
                             bool persistent = false,
                             VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                            std::string_view name = {}, gpu::AccessSet resting = {});
+                            std::string_view name = {}, gpu::AccessSet resting = {},
+                            bool unwritten = false);
 
     // Register a buffer to track and return its id; the same buffer again
     // in one run returns the existing id. A new entry starts from what the

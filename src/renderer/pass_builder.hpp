@@ -41,6 +41,10 @@ struct ImportedImage {
     /// it to rest before anything else runs, so an unseen reader always finds
     /// it readable. Empty for an image only the graph's passes touch.
     gpu::AccessSet resting{};
+    /// Nothing has written the image yet (its first frame): the graph starts
+    /// it undefined rather than at rest, and returns it to rest after the
+    /// pass that first writes it.
+    bool unwritten{false};
 };
 
 /// A named buffer made available to pass declare() bodies, the buffer
@@ -279,6 +283,7 @@ public:
         VkImageLayout initial_layout;
         bool persistent;
         gpu::AccessSet resting{};
+        bool unwritten{false};
     };
     struct ImportedBuffer {
         FgBuffer handle;
