@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <format>
+#include <fstream>
 #include <latch>
 #include <unordered_map>
 
@@ -27,6 +29,34 @@ namespace {
     return on;
 }
 
+// A layout by its short name, or its number for one the trace does not name.
+[[nodiscard]] std::string layout_name(VkImageLayout l);
+
+// The barrier trace. FJELL_LOG_BARRIERS=<file> writes every barrier the
+// graph emits during a window of frames to <file>: FJELL_LOG_BARRIERS_FRAME
+// frames in (300 by default), for three frames. Resources go by the names
+// they were declared under and masks as numbers, so the traces of two runs
+// or two builds compare line for line.
+struct BarrierTrace {
+    std::ofstream file;
+    uint64_t first_frame{300};
+    uint64_t frames{3};
+};
+
+[[nodiscard]] BarrierTrace* barrier_trace() {
+    static BarrierTrace* const trace = []() -> BarrierTrace* {
+        const char* path = std::getenv("FJELL_LOG_BARRIERS");
+        if (path == nullptr || path[0] == '\0') { return nullptr; }
+        static BarrierTrace opened;
+        opened.file.open(path);
+        if (const char* first = std::getenv("FJELL_LOG_BARRIERS_FRAME")) {
+            opened.first_frame = std::strtoull(first, nullptr, 10);
+        }
+        return &opened;
+    }();
+    return trace;
+}
+
 [[nodiscard]] const char* layout_str(VkImageLayout l) {
     switch (l) {
         case VK_IMAGE_LAYOUT_UNDEFINED:                       return "UNDEFINED";
@@ -43,6 +73,11 @@ namespace {
         case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                 return "PRESENT";
         default:                                              return "?";
     }
+}
+
+std::string layout_name(VkImageLayout l) {
+    const std::string name = layout_str(l);
+    return name == "?" ? std::to_string(static_cast<int>(l)) : name;
 }
 
 // The access bits that write memory, as opposed to reading it.
@@ -93,6 +128,7 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
         existing.persistent = existing.persistent || persistent;
+        if (tracing_ && existing.name.empty()) { existing.name = name; }
         if (mip_count > existing.mip_count) {
             // An earlier importer undersized the mip count; widen the
             // tracked range to what the image really has.
@@ -139,6 +175,7 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
         slice.layout = initial_layout;
         img.slices.push_back(slice);
     }
+    if (tracing_) { img.name = name; }
     if (layout_trace_enabled() && image != VK_NULL_HANDLE) {
         FJELL_GFX_INFO("[layout] register img=0x{:x} '{}' layers={}+{} mips={} start={}{}",
                        reinterpret_cast<uintptr_t>(image), name, base_layer, layer_count,
@@ -151,7 +188,7 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     return id;
 }
 
-uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent) {
+uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent, std::string_view name) {
     if (auto it = buffer_index_.find(buffer); it != buffer_index_.end()) {
         buffers_[it->second].persistent = buffers_[it->second].persistent || persistent;
         return it->second;
@@ -160,6 +197,7 @@ uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent) {
     TrackedBuffer buf{};
     buf.buffer = buffer;
     buf.persistent = persistent;
+    if (tracing_) { buf.name = name; }
     if (auto remembered = remembered_buffers_.find(buffer);
         remembered != remembered_buffers_.end()) {
         buf.state = remembered->second.state;
@@ -171,6 +209,7 @@ uint32_t FrameGraph::register_buffer(VkBuffer buffer, bool persistent) {
 
 void FrameGraph::new_frame() {
     ++frame_serial_;
+    run_in_frame_ = 0;
     // An image or buffer no run imported last frame is gone or idle; either
     // way its state is not worth carrying, and a handle the driver reuses
     // must not inherit it.
@@ -183,6 +222,14 @@ void FrameGraph::new_frame() {
 }
 
 void FrameGraph::begin_frame() {
+    const BarrierTrace* trace = barrier_trace();
+    tracing_ = trace != nullptr && frame_serial_ >= trace->first_frame &&
+               frame_serial_ < trace->first_frame + trace->frames;
+    if (tracing_) {
+        barrier_trace()->file << "frame " << frame_serial_ - trace->first_frame << " run "
+                              << run_in_frame_ << '\n';
+    }
+    ++run_in_frame_;
     passes_.clear();
     images_.clear();
     image_index_.clear();
@@ -295,7 +342,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (imp.handle.id >= handle_to_buffer_id.size()) {
             handle_to_buffer_id.resize(imp.handle.id + 1, UINT32_MAX);
         }
-        handle_to_buffer_id[imp.handle.id] = register_buffer(imp.buffer, imp.persistent);
+        handle_to_buffer_id[imp.handle.id] = register_buffer(imp.buffer, imp.persistent, imp.name);
     }
 
     PassDecl pass;
@@ -788,6 +835,14 @@ void FrameGraph::append_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
                                reinterpret_cast<uintptr_t>(cmd));
             }
             barriers_scratch_.push_back(barrier);
+            if (tracing_) {
+                barrier_trace()->file << std::format(
+                    "    image {} mips {}+{} layers {}+{} {} -> {} src {:x}/{:x} dst {:x}/{:x}\n",
+                    img.name, slice.range.base_mip, slice.range.mip_count, slice.range.base_layer,
+                    slice.range.layer_count, layout_name(barrier.oldLayout),
+                    layout_name(barrier.newLayout), barrier.srcStageMask, barrier.srcAccessMask,
+                    barrier.dstStageMask, barrier.dstAccessMask);
+            }
         }
     }
 
@@ -895,6 +950,12 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
             barrier.offset = 0;
             barrier.size = VK_WHOLE_SIZE;
             buffer_barriers_scratch_.push_back(barrier);
+            if (tracing_) {
+                barrier_trace()->file << std::format("    buffer {} src {:x}/{:x} dst {:x}/{:x}\n",
+                                                     buf.name, barrier.srcStageMask,
+                                                     barrier.srcAccessMask, barrier.dstStageMask,
+                                                     barrier.dstAccessMask);
+            }
 
             if (layout_trace_enabled()) {
                 FJELL_GFX_INFO("[layout] buffer barrier buf=0x{:x} {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
@@ -926,6 +987,10 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
 }
 
 void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
+    if (tracing_) {
+        barrier_trace()->file << "  pass " << pass.name
+                              << (pass.queue == QueueType::async_compute ? " on compute\n" : "\n");
+    }
     // Merge every declared access per image into one required pre-pass
     // state. Iteration order of image_uses doesn't matter for the merge —
     // we union stages + access flags and collapse layouts.
@@ -1017,6 +1082,10 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
             FJELL_GFX_INFO("[layout] final_layout pass='{}' img=0x{:x} -> {}",
                            pass.name, reinterpret_cast<uintptr_t>(img.image),
                            layout_str(fl.layout));
+        }
+        if (tracing_) {
+            barrier_trace()->file << std::format("    final_layout {} -> {}\n", img.name,
+                                                 layout_name(fl.layout));
         }
         carve_slices(img, fl.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
@@ -1146,6 +1215,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
         }
     }
     remember_states();
+    if (tracing_) { barrier_trace()->file.flush(); }
     return recorded_async;
 }
 
