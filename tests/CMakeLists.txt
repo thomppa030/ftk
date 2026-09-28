@@ -218,6 +218,7 @@ add_executable(fjell-tests
     test_vulkan_frame_descriptor_cache.cpp
     test_vulkan_translate.cpp
     test_gpu_access.cpp
+    test_frame_graph.cpp
     test_gpu_binding.cpp
     test_gpu_command_list.cpp
     test_gpu_release.cpp
