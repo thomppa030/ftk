@@ -10,7 +10,8 @@
 # allowlist are relative to the calling directory.
 #
 # A backend's own code is exempt by its place: src/gpu/<backend>/, and the
-# tests of it, tests/test_<backend>_*.cpp. The allowlist names the files
+# tests and benchmarks of it, tests/test_<backend>_*.cpp and
+# tests/bench_<backend>_*.cpp. The allowlist names the files
 # written before the interface, skipped until they move onto it. It only
 # shrinks: a listed file with no hit left fails too, so a file that has moved
 # comes off the list and cannot slide back. Comment lines are not read.
@@ -31,7 +32,7 @@ function(_fjell_scan_gpu_backend base allowlist)
         "(^|[^A-Za-z0-9_])(VK|VMA)_[A-Z0-9]"
     )
     list(JOIN patterns "|" pattern)
-    set(backend_path "^(src/gpu/(vulkan|metal)/|tests/test_(vulkan|metal)_)")
+    set(backend_path "^(src/gpu/(vulkan|metal)/|tests/(test|bench)_(vulkan|metal)_)")
 
     set(allowed "")
     if(allowlist AND EXISTS "${allowlist}")

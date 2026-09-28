@@ -340,3 +340,14 @@ add_dependencies(fjell-link-gpu fjell-tests_shaders)
 target_compile_definitions(fjell-link-gpu PRIVATE
     FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 fjell_library_link_check(editor-shell NEEDS_GPU)
+
+# --- Benchmarks ---
+# Programs that time part of the engine on a real GPU against the same work
+# done straight through Vulkan. Built everywhere, run by hand in an optimised
+# build; they print what they measured.
+add_executable(fjell-bench-command-list bench_vulkan_command_list.cpp)
+target_link_libraries(fjell-bench-command-list PRIVATE fjell-gpu)
+add_dependencies(fjell-bench-command-list fjell-tests_shaders)
+target_compile_definitions(fjell-bench-command-list PRIVATE
+    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
+fjell_target_defaults(fjell-bench-command-list)
