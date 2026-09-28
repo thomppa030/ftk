@@ -81,6 +81,15 @@ void begin_frame(Device& device, uint32_t frame_slot);
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
 [[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);
 
+/// The profiler's GPU context, for zones recorded outside command lists
+/// (`FJELL_GPU_ZONE`); null in builds without the profiler.
+[[nodiscard]] void* profiler_context(Device& device);
+
+/// Reads back the times of the zones that finished, once a frame into a
+/// command buffer on the graphics queue. Nothing in builds without the
+/// profiler.
+void collect_zones(Device& device, VkCommandBuffer cb);
+
 /// A command list recording into a command buffer that code still hands
 /// around: what it records lands in order with what is recorded into `cb`
 /// directly. Each starts with nothing bound.

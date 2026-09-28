@@ -199,6 +199,7 @@ int main() {
                     uint32_t count;
                 };
                 const uint32_t scale = 3;
+                auto zone = cmd.zone("link dispatch");
                 cmd.set_pipeline(*commands_pipeline);
                 cmd.bind({{"params", fjell::gpu::uniform(cmd.transient(scale))},
                           {"results", fjell::gpu::storage(*results)}});
@@ -315,6 +316,7 @@ int main() {
                         cmd.barrier(*colour, Access::copy_src, Access::color_attachment);
                         {
                             auto pass = cmd.render({.color = {{.view = *colour}}});
+                            auto zone = cmd.zone("link mesh draw");
                             pass.set_pipeline(*mesh_pipeline);
                             pass.push(Colour{0.0f, 0.0f, 1.0f, 1.0f});
                             pass.draw_mesh_tasks(1, 1, 1);

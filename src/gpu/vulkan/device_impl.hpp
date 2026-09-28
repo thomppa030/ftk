@@ -8,8 +8,13 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
+
 #include <memory>
 #include <mutex>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -179,6 +184,48 @@ struct Device::Impl {
     /// same share one. Destroyed with the device.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
     std::unordered_map<std::string, VkPipelineLayout> pipeline_layouts;
+    /// Labels debuggers show around a zone, loaded where debug utils are;
+    /// null elsewhere.
+    PFN_vkCmdBeginDebugUtilsLabelEXT begin_label{nullptr};
+    PFN_vkCmdEndDebugUtilsLabelEXT end_label{nullptr};
+#ifdef FJELL_ENABLE_TRACY
+    /// Where a zone was opened: its name and its place in the source.
+    struct ZoneSite {
+        std::string name;
+        const char* file{nullptr};
+        uint32_t line{0};
+    };
+    struct ZoneSiteKey {
+        std::string_view name;
+        const char* file{nullptr};
+        uint32_t line{0};
+    };
+    struct ZoneSiteHash {
+        using is_transparent = void;
+        size_t operator()(const ZoneSiteKey& key) const noexcept;
+        size_t operator()(const ZoneSite& site) const noexcept {
+            return (*this)(ZoneSiteKey{site.name, site.file, site.line});
+        }
+    };
+    struct ZoneSiteEqual {
+        using is_transparent = void;
+        template <typename A, typename B>
+        bool operator()(const A& a, const B& b) const noexcept {
+            return std::string_view(a.name) == std::string_view(b.name) && a.file == b.file &&
+                   a.line == b.line;
+        }
+    };
+
+    /// The profiler's GPU context on the graphics queue.
+    tracy::VkCtx* profiler{nullptr};
+    /// Every zone site seen, which the profiler keeps pointing at.
+    std::unordered_map<ZoneSite, tracy::SourceLocationData, ZoneSiteHash, ZoneSiteEqual> zone_sites;
+    std::mutex zone_sites_mutex;
+
+    /// The profiler's record of a zone site, made the first time it opens.
+    [[nodiscard]] const tracy::SourceLocationData* zone_source(std::string_view name,
+                                                               const std::source_location& where);
+#endif
     /// Mesh draws, loaded where the GPU has mesh shaders; null elsewhere.
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect{nullptr};

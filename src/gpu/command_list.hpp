@@ -13,12 +13,33 @@
 #include <cstdint>
 #include <initializer_list>
 #include <ranges>
+#include <source_location>
 #include <span>
+#include <string_view>
 #include <type_traits>
 
 namespace fjell::gpu {
 
+class CommandList;
 class Device;
+
+/// A named span of a list's commands, open until it goes out of scope: a GPU
+/// zone in the profiler and a label debuggers show. Zones nest.
+class Zone {
+public:
+    ~Zone();
+
+    Zone(const Zone&) = delete;
+    Zone& operator=(const Zone&) = delete;
+    Zone(Zone&&) = delete;
+    Zone& operator=(Zone&&) = delete;
+
+private:
+    friend class CommandList;
+    explicit Zone(CommandList& list) noexcept : list_(&list) {}
+
+    CommandList* list_;
+};
 
 /// Records GPU work in order: a pass's commands, into the frame's command
 /// buffer. A list starts each pass with nothing bound. Drawing happens in a
@@ -142,14 +163,27 @@ public:
     void barrier(const TextureView& view, AccessSet before, AccessSet after);
     void barrier(BufferRange range, AccessSet before, AccessSet after);
 
+    /// Opens a zone named `name` until the returned one goes out of scope;
+    /// the profiler shows where it was opened. A zone may be opened inside a
+    /// render scope too.
+    ///
+    /// @code
+    /// auto zone = cmd.zone("Cloud Shadow");
+    /// @endcode
+    [[nodiscard]] Zone zone(std::string_view name,
+                            std::source_location where = std::source_location::current());
+
     [[nodiscard]] Device& device() const noexcept { return *device_; }
 
     /// The backend's state, for the backend's own code.
     [[nodiscard]] Impl& impl() const noexcept { return *impl_; }
 
 private:
+    friend class Zone;
+
     void push_bytes(std::span<const std::byte> bytes);
     [[nodiscard]] BufferRange transient_bytes(std::span<const std::byte> bytes);
+    void end_zone();
 
     Device* device_;
     Impl* impl_;

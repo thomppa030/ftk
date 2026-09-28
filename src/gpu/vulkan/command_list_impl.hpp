@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -38,6 +39,13 @@ struct CommandList::Impl {
     Samples target_samples{Samples::x1};
     bool vertex_buffer_set{false};
     bool index_buffer_set{false};
+
+    /// Zones open on the list; the profiler times the first `MAX_ZONE_DEPTH`.
+    static constexpr uint32_t MAX_ZONE_DEPTH = 8;
+    uint32_t zone_depth{0};
+#ifdef FJELL_ENABLE_TRACY
+    std::array<std::optional<tracy::VkCtxScope>, MAX_ZONE_DEPTH> zones{};
+#endif
 };
 
 namespace vulkan {
