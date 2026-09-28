@@ -1066,9 +1066,10 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
 
 void ScriptManager::dispatch_weather_changed(Scene& scene, uint32_t event, int phase) {
     const auto weather_phase = static_cast<WeatherPhase>(phase);
+    const auto weather = fjell::detail::asset_at<Weather>(script_asset("Weather", event));
     Scene::TickLock tick_lock(scene);
     run_scripts(scene, "on_weather_changed", [&](ScriptComponent& script) {
-        script.on_weather_changed(event, weather_phase);
+        script.on_weather_changed(weather, weather_phase);
     });
 }
 

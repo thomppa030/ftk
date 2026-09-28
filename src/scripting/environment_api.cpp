@@ -1,5 +1,6 @@
 // environment_api.cpp — C ABI bridge from game .so to the environment subsystem
 #include "fjell/api.h"
+#include "scripting/fjell/asset.hpp"
 #include "scripting/script_globals.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -54,9 +55,9 @@ extern "C" FJELL_SDK_EXPORT void fjell_weather_stop() {
     if (env) env->play_weather(fjell::WeatherAssetHandle{});
 }
 
-extern "C" FJELL_SDK_EXPORT uint32_t fjell_weather_current() {
+extern "C" FJELL_SDK_EXPORT void fjell_weather_current(fjell::AssetData* out) {
     auto* env = fjell::script_services().environment;
-    return env ? env->state().weather.event_id : 0u;
+    *out = fjell::script_asset("Weather", env ? env->state().weather.event_id : 0u);
 }
 
 extern "C" FJELL_SDK_EXPORT int fjell_weather_phase() {
@@ -160,14 +161,15 @@ extern "C" FJELL_SDK_EXPORT int fjell_weather_is_held() {
     return env && env->weather_held() ? 1 : 0;
 }
 
-extern "C" FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index) {
+extern "C" FJELL_SDK_EXPORT void fjell_weather_forecast(uint32_t index, fjell::AssetData* out) {
+    *out = {};
     auto* env = fjell::script_services().environment;
     auto* resources = fjell::script_services().resources;
-    if (!env || !resources) return 0;
+    if (!env || !resources) return;
     const std::string path = env->forecast_event(index);
-    if (path.empty()) return 0;
+    if (path.empty()) return;
     auto handle = resources->load_weather_asset(path);
-    return handle ? handle->id : 0u;
+    *out = fjell::script_asset("Weather", handle ? handle->id : 0u);
 }
 
 extern "C" FJELL_SDK_EXPORT void fjell_weather_strike(float x, float y, float z, float intensity) {

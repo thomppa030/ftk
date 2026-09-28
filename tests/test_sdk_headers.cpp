@@ -174,12 +174,14 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         [[maybe_unused]] const fjell::AnimationState* run = anim->state_machine.find_state("Run");
         own.get_component<fjell::SpriteComponent>()->flip_h = true;
 
-        // A sea through its component.
+        // A sea through its component; the weather's events as assets.
         if (auto sea = own.get_component<fjell::WaterComponent>()) {
             const float silt = fjell::WaterComponent::advance_silt(
                 0.0f, sea->bed_agitation(fjell::WaterComponent::silt_reference_depth()), 1.0f / 60.0f);
             fjell::material::set_param(sea.node(), "silt_load", silt + sea->wave_height());
         }
+        const fjell::Asset<fjell::Weather> playing = fjell::weather::current();
+        [[maybe_unused]] const bool same = playing == fjell::weather::forecast(0);
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);

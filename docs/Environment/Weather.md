@@ -204,8 +204,8 @@ void begin_play() override {
     fjell::weather::set_climate(climate);
 }
 
-void on_weather_changed(uint32_t event, fjell::WeatherPhase phase) override {
-    if (event == storm.handle_id() && phase == fjell::WeatherPhase::Onset) {
+void on_weather_changed(fjell::Asset<fjell::Weather> event, fjell::WeatherPhase phase) override {
+    if (event == storm && phase == fjell::WeatherPhase::Onset) {
         village_.take_cover();
     }
 }
@@ -222,8 +222,8 @@ void tick(float) override {
 | `weather::set_climate(ref)` | Hand the weather to a climate. |
 | `weather::clear_climate()` | Take it away again: what plays runs out, nothing follows. |
 | `weather::hold(bool)` / `is_held()` | Freeze the director. |
-| `weather::forecast(i)` | The handle id of the i-th event to come, 0 past the end. |
-| `weather::current()` | The playing event's handle id, 0 when clear. |
+| `weather::forecast(i)` | The i-th event to come, as an `Asset<Weather>`; unset past the end. |
+| `weather::current()` | The playing event, as an `Asset<Weather>`; unset when clear. |
 | `weather::phase()` / `phase_progress()` | Where it is in its life. |
 | `weather::precipitation()` / `precipitation_type()` | How hard, and what. |
 | `weather::wetness()` / `snow()` | How wet and how covered the world is. |
@@ -235,7 +235,8 @@ void tick(float) override {
 | `weather::strike(offset, intensity)` | Fire one lightning strike. |
 
 The hook `on_weather_changed(event, phase)` fires during play when a new event
-starts or the playing one changes phase, so nothing has to poll.
+starts or the playing one changes phase, so nothing has to poll. `event` is an
+`Asset<Weather>`, compared with the script's own with `==`.
 
 ## Lightning
 

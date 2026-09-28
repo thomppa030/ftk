@@ -15,6 +15,19 @@ FJELL_SDK_EXPORT void fjell_asset_missing(const void* asset);
 
 namespace fjell {
 
+struct AssetData;
+template <typename T>
+class Asset;
+
+namespace detail {
+
+/// An Asset holding `data`: how the engine hands a script an asset it names
+/// by handle, a weather event starting, say.
+template <typename T>
+[[nodiscard]] Asset<T> asset_at(const AssetData& data);
+
+} // namespace detail
+
 /// What an Asset holds. The engine reads and writes it in place: it saves the
 /// file the handle was loaded from, and sets both when the field is loaded or
 /// picked in the inspector.
@@ -66,11 +79,23 @@ public:
     /// weather playing). 0 while unset.
     [[nodiscard]] uint32_t handle_id() const { return data_.handle_id; }
 
+    /// The same asset: the same file, or both unset.
+    [[nodiscard]] bool operator==(const Asset& other) const { return data_.handle_id == other.data_.handle_id; }
+
 private:
+    friend Asset detail::asset_at<T>(const AssetData& data);
+
     AssetData data_;
 };
 
 namespace detail {
+
+template <typename T>
+Asset<T> asset_at(const AssetData& data) {
+    Asset<T> asset;
+    asset.data_ = data;
+    return asset;
+}
 
 /// Stops the game unless `asset` holds an asset that is there; what every
 /// SDK call that takes one does first. The throw is here, in the game

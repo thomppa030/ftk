@@ -20,6 +20,7 @@ public:
 
     explicit operator bool()           const;
     [[nodiscard]] uint32_t handle_id() const;
+    bool operator==(const Asset&)      const;
 };
 
 }
@@ -90,6 +91,7 @@ module.
 |---|---|
 | [`operator bool`](#assetoperator-bool) | Whether it holds an asset that is there |
 | [`handle_id`](#assethandle_id) | The asset's handle, 0 while unset |
+| [`operator==`](#assetoperator) | The same asset |
 
 ---
 
@@ -111,9 +113,19 @@ file it names failed to load. Asks the engine each time; it is cheap.
 ```
 
 The asset's handle, 0 while unset. A file that failed to load has a handle of its own, so
-this is not a check that the asset is there. It is what the engine reports assets by: a
-hit's surface, the weather playing. Compare those with `surface::is` (`fjell/surface_api.hpp`)
-or against `handle_id()`.
+this is not a check that the asset is there. Physics reports the surface a hit touched by
+this handle; compare it with `surface::is` (`fjell/surface_api.hpp`).
+
+---
+
+## Asset::operator==
+
+```cpp
+bool operator==(const Asset& other) const;
+```
+
+The same asset: the same file, or both unset. How a script tells which weather is playing,
+`fjell::weather::current() == storm`.
 
 ## See also
 

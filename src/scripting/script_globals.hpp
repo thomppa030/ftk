@@ -2,7 +2,12 @@
 // Internal to the engine, not shipped to game projects.
 #pragma once
 
+#include <cstdint>
+#include <string_view>
+
 namespace fjell {
+
+struct AssetData;
 
 class AudioSubsystem;
 class CameraSubsystem;
@@ -54,5 +59,9 @@ struct ScriptServices {
 };
 
 ScriptServices& script_services();
+
+/// What a script's `Asset` holds for the asset with handle `handle_id`, of
+/// the kind scripts write `type_name` for (`"Weather"`): unset for 0.
+[[nodiscard]] AssetData script_asset(std::string_view type_name, uint32_t handle_id);
 
 } // namespace fjell

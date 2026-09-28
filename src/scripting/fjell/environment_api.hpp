@@ -47,7 +47,7 @@ FJELL_SDK_EXPORT void  fjell_time_of_day_sun_direction(float* x, float* y, float
 
 FJELL_SDK_EXPORT void     fjell_weather_play(uint32_t event_handle_id);
 FJELL_SDK_EXPORT void     fjell_weather_stop();
-FJELL_SDK_EXPORT uint32_t fjell_weather_current();
+FJELL_SDK_EXPORT void     fjell_weather_current(fjell::AssetData* out);
 FJELL_SDK_EXPORT int      fjell_weather_phase();
 FJELL_SDK_EXPORT float    fjell_weather_phase_progress();
 FJELL_SDK_EXPORT float    fjell_weather_precipitation();
@@ -63,7 +63,7 @@ FJELL_SDK_EXPORT void     fjell_weather_set_sky_param(const char* name, int coun
 FJELL_SDK_EXPORT void     fjell_weather_set_climate(uint32_t climate_handle_id);
 FJELL_SDK_EXPORT void     fjell_weather_hold(int held);
 FJELL_SDK_EXPORT int      fjell_weather_is_held();
-FJELL_SDK_EXPORT uint32_t fjell_weather_forecast(uint32_t index);
+FJELL_SDK_EXPORT void     fjell_weather_forecast(uint32_t index, fjell::AssetData* out);
 FJELL_SDK_EXPORT void     fjell_weather_strike(float x, float y, float z, float intensity);
 }
 
@@ -166,9 +166,13 @@ inline void play(const Asset<Weather>& event) {
 /// Let the current event tail out with nothing to follow: clear weather.
 inline void stop() { fjell_weather_stop(); }
 
-/// Handle id of the event playing, 0 when the sky is clear. Compare with
-/// a ref's `handle_id()` to know which one it is.
-[[nodiscard]] inline uint32_t current() { return fjell_weather_current(); }
+/// The event playing, or an unset Asset when the sky is clear. Compare it
+/// with an `Asset<Weather>` the script holds to know which one it is.
+[[nodiscard]] inline Asset<Weather> current() {
+    AssetData event;
+    fjell_weather_current(&event);
+    return detail::asset_at<Weather>(event);
+}
 
 /// Where the playing event is in its life.
 [[nodiscard]] inline WeatherPhase phase() {
@@ -291,13 +295,15 @@ inline void clear_climate() { fjell_weather_set_climate(0); }
 inline void hold(bool held = true) { fjell_weather_hold(held ? 1 : 0); }
 [[nodiscard]] inline bool is_held() { return fjell_weather_is_held() != 0; }
 
-/// What the climate will play after this, soonest first: the handle id
-/// of that event, 0 past the end of the forecast or without a climate.
-/// Compare it with an `Asset<Weather>`'s `handle_id()` to see a storm
-/// coming and act before it arrives.
+/// What the climate will play after this, soonest first: an unset Asset
+/// past the end of the forecast or without a climate. Compare it with an
+/// `Asset<Weather>` the script holds to see a storm coming and act before
+/// it arrives.
 /// @param index 0 is the next event, 1 the one after it.
-[[nodiscard]] inline uint32_t forecast(uint32_t index = 0) {
-    return fjell_weather_forecast(index);
+[[nodiscard]] inline Asset<Weather> forecast(uint32_t index = 0) {
+    AssetData event;
+    fjell_weather_forecast(index, &event);
+    return detail::asset_at<Weather>(event);
 }
 
 /// Strike lightning now, without waiting for the storm to roll one: the
