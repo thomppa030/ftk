@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 
 namespace fjell {
 
@@ -65,6 +66,27 @@ void ComponentPool::admit(uint32_t slot) {
 Node* ComponentPool::first_owner() const {
     for (const Member& m : members_) {
         if (m.component != nullptr) return m.owner;
+    }
+    return nullptr;
+}
+
+Node* ComponentPool::owner_of(const void* component) const {
+    // Components sit at the start of their slots, and chunks never move: the
+    // address says which slot, and the slot which member.
+    const auto at = reinterpret_cast<std::uintptr_t>(component);
+    const std::size_t chunk_bytes = std::size_t{slots_per_chunk_} * stride_;
+    for (std::size_t chunk = 0; chunk < chunks_.size(); ++chunk) {
+        const auto begin = reinterpret_cast<std::uintptr_t>(chunks_[chunk].get());
+        if (at < begin || at >= begin + chunk_bytes) continue;
+        const std::size_t offset = at - begin;
+        if (offset % stride_ != 0) return nullptr;
+        const auto slot = static_cast<uint32_t>(chunk * slots_per_chunk_ + offset / stride_);
+        if (slot >= slot_count_) return nullptr;
+        // A slot given back may still name a member compacted away since.
+        const uint32_t member = member_of_[slot];
+        if (member >= members_.size()) return nullptr;
+        const Member& m = members_[member];
+        return m.slot == slot && m.component == component ? m.owner : nullptr;
     }
     return nullptr;
 }

@@ -3,6 +3,7 @@
 
 #include "fjell/environment_api.hpp"
 #include "fjell/fixed_step.hpp"
+#include "fjell/ref.hpp"
 #include "fjell/world.hpp"
 #include "fjell/transform.hpp"
 
@@ -90,27 +91,28 @@ public:
 
     /// Called when this node's collider begins touching a solid (non-trigger)
     /// collider. Requires a ColliderComponent on both nodes.
-    /// @param other_id Node ID of the other collider — `Ref<Node3D>{other_id}` refers to it.
-    /// @param point    World-space contact position.
-    /// @param normal   World-space contact normal, pointing away from the other body.
-    virtual void on_collision_enter(uint32_t other_id, const glm::vec3& point, const glm::vec3& normal) {
-        (void)other_id; (void)point; (void)normal;
+    /// @param other  The node of the other collider.
+    /// @param point  World-space contact position.
+    /// @param normal World-space contact normal, pointing away from the other body.
+    virtual void on_collision_enter(Ref<Node3D> other, const glm::vec3& point, const glm::vec3& normal) {
+        (void)other; (void)point; (void)normal;
     }
 
-    /// Called when a solid contact ends, including when the other node is
-    /// destroyed — do not assume `other_id` still resolves to a live node.
-    /// @param other_id Node ID of the collider that was being touched.
-    virtual void on_collision_exit(uint32_t other_id) { (void)other_id; }
+    /// Called when a solid contact ends, also when the other node was
+    /// destroyed: `other` then reads as gone, and still compares equal to a
+    /// Ref to it the script kept.
+    /// @param other The node of the collider that was being touched.
+    virtual void on_collision_exit(Ref<Node3D> other) { (void)other; }
 
     /// Called when something enters a collider marked `is_trigger`. Triggers
     /// report overlaps without generating a physical response.
-    /// @param other_id Node ID of the node that entered.
-    virtual void on_trigger_enter(uint32_t other_id) { (void)other_id; }
+    /// @param other The node that entered.
+    virtual void on_trigger_enter(Ref<Node3D> other) { (void)other; }
 
-    /// Called when something leaves a trigger collider, including when the
-    /// other node is destroyed.
-    /// @param other_id Node ID of the node that left.
-    virtual void on_trigger_exit(uint32_t other_id) { (void)other_id; }
+    /// Called when something leaves a trigger collider, also when the other
+    /// node was destroyed, as for `on_collision_exit()`.
+    /// @param other The node that left.
+    virtual void on_trigger_exit(Ref<Node3D> other) { (void)other; }
 
     /// Fires on the SERVER only, when a client finishes connecting. Spawn and
     /// assign that peer's player here via `net::spawn(preset, pos, peer)`.
@@ -193,7 +195,7 @@ public:
     /// the dt of a type that ticks at an interval.
     /// @code
     /// void Door::begin_play() { set_tick_enabled(false); }
-    /// void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }  // tick while it opens
+    /// void Door::on_trigger_enter(fjell::Ref<fjell::Node3D>) { set_tick_enabled(true); }  // tick while it opens
     /// @endcode
     void set_tick_enabled(bool enabled) { tick_enabled_ = enabled; }
     [[nodiscard]] bool tick_enabled() const { return tick_enabled_; }

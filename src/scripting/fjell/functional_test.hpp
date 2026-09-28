@@ -50,7 +50,7 @@ enum class TestResult : uint8_t {
 ///     FJELL_COMPONENT(TrapTriggerTest)
 /// public:
 ///     // A test's own properties are reflected as any component's are.
-///     [[fj::property]] uint32_t trap_id = 0;
+///     [[fj::property]] fjell::Ref<fjell::Node3D> trap;
 ///
 ///     void start_test() override {
 ///         time_limit = 5.0f;
@@ -61,8 +61,8 @@ enum class TestResult : uint8_t {
 ///         transform().position.z += 2.0f * step.dt;
 ///     }
 ///
-///     void on_trigger_enter(uint32_t other) override {
-///         if (other != trap_id) return;
+///     void on_trigger_enter(fjell::Ref<fjell::Node3D> other) override {
+///         if (other != trap) return;
 ///         assert_true(transform().position != start_pos, "the character moved");
 ///         finish_test(fjell::TestResult::passed, "trap fired");
 ///     }

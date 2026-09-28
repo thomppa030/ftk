@@ -1035,28 +1035,32 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
     // Each event goes to the scripts on the node it happened to. The events
     // are the physics world's own lists, which no hook can change; a node a
     // hook spawns joins the scene and is started with the rest.
+    // The other node as a Ref to it in its own life: when it has been
+    // destroyed since, as a node a collider was left by often is, the Ref
+    // reads as gone and still equals one the script kept.
     auto deliver = [&](const auto& events, const char* hook_name, auto&& hook) {
         for (const auto& [node_id, event] : events) {
             Node* node = scene.find(node_id);
             if (node == nullptr) continue;
-            run_hook(*node, hook_name, [&](ScriptComponent& script) { hook(script, event); });
+            const auto other = fjell::detail::ref_at<Node3D>(event.other_id, scene.generation_of(event.other_id));
+            run_hook(*node, hook_name, [&](ScriptComponent& script) { hook(script, other, event); });
         }
     };
     deliver(physics.collision_enter_events(), "on_collision_enter",
-            [](ScriptComponent& script, const CollisionEvent& e) {
-                script.on_collision_enter(e.other_id, e.contact_point, e.contact_normal);
+            [](ScriptComponent& script, const Ref<Node3D>& other, const CollisionEvent& e) {
+                script.on_collision_enter(other, e.contact_point, e.contact_normal);
             });
     deliver(physics.collision_exit_events(), "on_collision_exit",
-            [](ScriptComponent& script, const CollisionEvent& e) {
-                script.on_collision_exit(e.other_id);
+            [](ScriptComponent& script, const Ref<Node3D>& other, const CollisionEvent&) {
+                script.on_collision_exit(other);
             });
     deliver(physics.trigger_enter_events(), "on_trigger_enter",
-            [](ScriptComponent& script, const CollisionEvent& e) {
-                script.on_trigger_enter(e.other_id);
+            [](ScriptComponent& script, const Ref<Node3D>& other, const CollisionEvent&) {
+                script.on_trigger_enter(other);
             });
     deliver(physics.trigger_exit_events(), "on_trigger_exit",
-            [](ScriptComponent& script, const CollisionEvent& e) {
-                script.on_trigger_exit(e.other_id);
+            [](ScriptComponent& script, const Ref<Node3D>& other, const CollisionEvent&) {
+                script.on_trigger_exit(other);
             });
 }
 

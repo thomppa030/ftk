@@ -257,8 +257,11 @@ public:
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
 
-    /// The generation of the node with this id (see Node::generation), or 0
-    /// when the scene has none.
+    /// The generation of the node with this id (see Node::generation). For
+    /// a node that has left, the one it had, while the scene remembers it
+    /// (see set_gone_remembered()): ids are never reused within a scene's
+    /// life, so a reference made from the id of a node gone this moment is
+    /// still the reference to it. 0 when there is neither.
     [[nodiscard]] uint32_t generation_of(uint32_t id) const;
 
     /// The first node called `name`, or null when there is none. Like
@@ -268,6 +271,10 @@ public:
 
     /// The first direct child of node `parent_id` called `name`, likewise.
     [[nodiscard]] Node* find_child(uint32_t parent_id, std::string_view name);
+
+    /// The node the component of type `type` at `component` belongs to, or
+    /// null when it is none of this scene's components.
+    [[nodiscard]] Node* owner_of(ComponentTypeId type, const void* component);
 
     /// The node a reference set to node `node_id` in its life `generation`
     /// finds now, or null when the node is gone or another node took the id.

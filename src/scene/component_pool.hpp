@@ -99,6 +99,10 @@ public:
     /// is none.
     [[nodiscard]] Node* first_owner() const;
 
+    /// The owner of the live component at `component`, or null when no live
+    /// component of this pool is there.
+    [[nodiscard]] Node* owner_of(const void* component) const;
+
 private:
     static constexpr uint32_t RELEASED = UINT32_MAX;
 

@@ -9,6 +9,7 @@
 #include "fjell/environment_api.hpp"
 #include "fjell/scene_api.hpp"
 #include "fjell/engine_components.hpp"
+#include "fjell/physics_api.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -110,6 +111,14 @@ struct Carried : fjell::ScriptComponent {
     static constexpr const char* type_name = "Carried";
 };
 
+// The collision callbacks as a script overrides them.
+struct Toucher : fjell::ScriptComponent {
+    void on_collision_enter(fjell::Ref<fjell::Node3D> other, const glm::vec3&, const glm::vec3&) override {
+        (void)other;
+    }
+    void on_trigger_exit(fjell::Ref<fjell::Node3D> other) override { (void)other; }
+};
+
 } // namespace sdk_check
 
 TEST_CASE("The node API reads as a script writes it", "[sdk]") {
@@ -126,6 +135,20 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         spawned->find_child("Weapon")->destroy();
         [[maybe_unused]] fjell::Ref<sdk_check::Carried> added = own.add_component<sdk_check::Carried>();
         [[maybe_unused]] fjell::Ref<fjell::Node3D> mine = own;  // a script's own node where a Ref is taken
+
+        // A body through its component; the world through physics::.
+        auto body = own.get_component<fjell::RigidbodyComponent>();
+        body->add_force({0.0f, 1.0f, 0.0f});
+        body->add_impulse({0.0f, 1.0f, 0.0f});
+        body->set_linear_velocity(body->linear_velocity());
+        body->set_angular_velocity(body->angular_velocity());
+        fjell::PhysicsHit hit;
+        if (fjell::physics::raycast(own.position(), {0.0f, -1.0f, 0.0f}, 1.0f, hit, {FJ_MASK_ALL, own})) {
+            hit.node->destroy();
+        }
+        for (const fjell::Ref<fjell::Node3D>& near : fjell::physics::overlap_sphere(own.position(), 2.0f)) {
+            (void)near;
+        }
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);

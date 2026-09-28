@@ -148,7 +148,7 @@ inline void set_day_length(float seconds) { fjell_time_of_day_set_day_length(sec
 ///
 /// @code
 /// [[fj::property]] fjell::Asset<fjell::Weather> storm;
-/// void on_trigger_enter(uint32_t) override { fjell::weather::play(storm); }
+/// void on_trigger_enter(fjell::Ref<fjell::Node3D>) override { fjell::weather::play(storm); }
 /// void tick(float) override {
 ///     footsteps_.set_wet(fjell::weather::wetness() > 0.5f);
 /// }

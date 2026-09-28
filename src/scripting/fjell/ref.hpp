@@ -22,6 +22,19 @@ FJELL_SDK_EXPORT void fjell_node_identity(const void* node, uint32_t* node_id, u
 namespace fjell {
 
 struct Node3D;
+template <typename T>
+class Ref;
+
+namespace detail {
+
+/// A Ref to node `node_id` in its life `generation`, which the engine knows
+/// even once the node is gone: how it hands a script the node a callback is
+/// about (the collider that was left, say), so that it still compares equal
+/// to a Ref the script kept.
+template <typename T>
+[[nodiscard]] Ref<T> ref_at(uint32_t node_id, uint32_t generation);
+
+} // namespace detail
 
 /// What a Ref holds. The engine reads and writes it in place: it saves the
 /// node, and sets the node and its generation when the field is loaded or
@@ -149,6 +162,7 @@ public:
 private:
     template <typename>
     friend class Ref;
+    friend Ref detail::ref_at<T>(uint32_t node_id, uint32_t generation);
 
     Ref(uint32_t node_id, uint32_t generation) : data_{node_id, generation, nullptr, 0} {}
 
@@ -156,6 +170,11 @@ private:
 };
 
 namespace detail {
+
+template <typename T>
+Ref<T> ref_at(uint32_t node_id, uint32_t generation) {
+    return Ref<T>{node_id, generation};
+}
 
 /// Stops the game unless `ref` finds its target; what every SDK call that
 /// takes a Ref does first.

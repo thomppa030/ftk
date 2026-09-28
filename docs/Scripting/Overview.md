@@ -46,13 +46,15 @@ There's also an `Actor` base class in `fjell/actor.hpp`, but in practice you'll 
 Plus collision callbacks on `ScriptComponent`:
 
 ```cpp
-void on_collision_enter(uint32_t other_id, const glm::vec3& point, const glm::vec3& normal);
-void on_collision_exit(uint32_t other_id);
-void on_trigger_enter(uint32_t other_id);
-void on_trigger_exit(uint32_t other_id);
+void on_collision_enter(fjell::Ref<fjell::Node3D> other, const glm::vec3& point, const glm::vec3& normal);
+void on_collision_exit(fjell::Ref<fjell::Node3D> other);
+void on_trigger_enter(fjell::Ref<fjell::Node3D> other);
+void on_trigger_exit(fjell::Ref<fjell::Node3D> other);
 ```
 
-`other_id` is the other node's id — pass it to `scene::find_node` or look up a component on the node.
+`other` is the other node: `other->get_component<Enemy>()`, or `other == player` against a
+Ref the script holds. An exit can come after the other node was destroyed; it then reads
+as gone (`if (other)`) and still equals a Ref to it the script kept.
 
 ## The three ticks
 
@@ -78,10 +80,11 @@ class Rocket : public fjell::ScriptComponent {
     [[fj::property]] fjell::Asset<fjell::InputAction> boost;
 
     void fixed_tick(const fjell::FixedStep& step) override {
-        // A force acts on the step it is applied in: apply it in every step.
-        fjell::physics::apply_force(id(), {0.0f, thrust, 0.0f});
+        auto body = self().get_component<fjell::RigidbodyComponent>();
+        // A force acts on the step it is added before: add it in every step.
+        body->add_force({0.0f, thrust, 0.0f});
         if (step.input.pressed(boost)) {
-            fjell::physics::apply_impulse(id(), {0.0f, 8.0f, 0.0f});
+            body->add_impulse({0.0f, 8.0f, 0.0f});
         }
     }
 };
@@ -171,7 +174,7 @@ class [[fj::tick(interval = 0.5)]] Scanner : public fjell::ScriptComponent {
 };
 
 void Door::begin_play() { set_tick_enabled(false); }
-void Door::on_trigger_enter(uint32_t) { set_tick_enabled(true); }
+void Door::on_trigger_enter(fjell::Ref<fjell::Node3D>) { set_tick_enabled(true); }
 ```
 
 **What the editor tells you.** A script whose `tick()` or `late_tick()` moves
@@ -300,7 +303,8 @@ Inside a `ScriptComponent`:
 | `input()` | Const ref to the current `Input` state |
 | `delta_time()`, `elapsed_time()` | Scaled gameplay clock; the step's own inside `fixed_tick()` |
 
-Physics queries and forces go through `fjell::physics` (`fjell/physics_api.hpp`).
+Physics queries go through `fjell::physics` (`fjell/physics_api.hpp`); a body is pushed, and
+its velocity read, through its `RigidbodyComponent` (see [Physics](../Physics.md#script-api)).
 
 Another node is reached through a [`Ref<Node3D>`](API/Ref.md), best a `[[fj::property]]`
 picked in the inspector; `fjell::scene` finds and spawns them ([`scene`](API/scene_api.md)).

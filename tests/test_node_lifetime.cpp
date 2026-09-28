@@ -144,6 +144,8 @@ TEST_CASE("a node that left the scene is remembered by name for a while", "[scen
     scene.flush_destroyed();
     CHECK(scene.name_of_gone(target, generation) == "Target");
     CHECK(scene.name_of_gone(target, generation + 1).empty());
+    // A reference made from its id now is still the reference to it.
+    CHECK(scene.generation_of(target) == generation);
 
     const uint32_t taken = named("Taken out");
     const uint32_t taken_generation = scene.generation_of(taken);
@@ -156,6 +158,7 @@ TEST_CASE("a node that left the scene is remembered by name for a while", "[scen
         scene.flush_destroyed();
     }
     CHECK(scene.name_of_gone(target, generation).empty());
+    CHECK(scene.generation_of(target) == 0);
 
     // A scene not told to remember any keeps none.
     Scene plain;

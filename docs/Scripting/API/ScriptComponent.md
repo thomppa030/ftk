@@ -24,12 +24,12 @@ public:
     virtual void end_play();
 
     // Collision hooks
-    virtual void on_collision_enter(uint32_t other_id,
+    virtual void on_collision_enter(Ref<Node3D> other,
                                     const glm::vec3& point,
                                     const glm::vec3& normal);
-    virtual void on_collision_exit (uint32_t other_id);
-    virtual void on_trigger_enter  (uint32_t other_id);
-    virtual void on_trigger_exit   (uint32_t other_id);
+    virtual void on_collision_exit (Ref<Node3D> other);
+    virtual void on_trigger_enter  (Ref<Node3D> other);
+    virtual void on_trigger_exit   (Ref<Node3D> other);
 
     // Identity
     [[nodiscard]] uint32_t    id()   const;   // node ID
@@ -196,7 +196,7 @@ action that is unset or failed to load stops the game (see [`Asset`](Asset.md)).
 ```cpp
 void fixed_tick(const fjell::FixedStep& step) override {
     if (step.input.held(thrust_action)) {
-        fjell::physics::apply_force(id(), {0.0f, thrust, 0.0f});
+        self().get_component<fjell::RigidbodyComponent>()->add_force({0.0f, thrust, 0.0f});
     }
 }
 ```
@@ -254,7 +254,7 @@ Use this to:
 
 ### Syntax
 ```cpp
-virtual void on_collision_enter(uint32_t other_id,
+virtual void on_collision_enter(Ref<Node3D> other,
                                 const glm::vec3& point,
                                 const glm::vec3& normal);
 ```
@@ -262,7 +262,7 @@ virtual void on_collision_enter(uint32_t other_id,
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `other_id` | `uint32_t` | Node ID of the other collider. |
+| `other` | `Ref<Node3D>` | The node of the other collider. |
 | `point` | `glm::vec3` | World-space contact point. |
 | `normal` | `glm::vec3` | Surface normal at the contact, pointing **away** from the other body. |
 
@@ -275,16 +275,20 @@ Fires once per contact pair when the contact begins. Requires both nodes to have
 
 ### Syntax
 ```cpp
-virtual void on_collision_exit(uint32_t other_id);
+virtual void on_collision_exit(Ref<Node3D> other);
 ```
 
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `other_id` | `uint32_t` | Node ID of the other collider. |
+| `other` | `Ref<Node3D>` | The node of the other collider. |
 
 ### Remarks
 Fires once when a contact pair ends. No contact point/normal — by definition there's no contact anymore.
+
+It also fires when the other node was destroyed. `other` then reads as gone, so check
+`if (other)` before `->`, and it still compares equal to a `Ref` to that node the script
+kept.
 
 ---
 
@@ -292,20 +296,20 @@ Fires once when a contact pair ends. No contact point/normal — by definition t
 
 ### Syntax
 ```cpp
-virtual void on_trigger_enter(uint32_t other_id);
+virtual void on_trigger_enter(Ref<Node3D> other);
 ```
 
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `other_id` | `uint32_t` | Node ID of the other body. |
+| `other` | `Ref<Node3D>` | The node that entered. |
 
 ### Remarks
 Fires when another body enters a `ColliderComponent` flagged `is_trigger = true`. Triggers don't generate physical response — they only fire callbacks.
 
 ### Example
 ```cpp
-void on_trigger_enter(uint32_t /*other*/) override {
+void on_trigger_enter(fjell::Ref<fjell::Node3D> /*other*/) override {
     fjell::vfx::spawn(collect_effect, transform().position);
     self().destroy();
 }
@@ -317,10 +321,11 @@ void on_trigger_enter(uint32_t /*other*/) override {
 
 ### Syntax
 ```cpp
-virtual void on_trigger_exit(uint32_t other_id);
+virtual void on_trigger_exit(Ref<Node3D> other);
 ```
 
-Fires once when another body leaves a trigger volume.
+Fires once when another body leaves a trigger volume, also when its node was destroyed, as
+for [`on_collision_exit`](#scriptcomponenton_collision_exit).
 
 ---
 
@@ -470,7 +475,7 @@ class Coin : public fjell::ScriptComponent {
         transform().rotation = rot;
     }
 
-    void on_trigger_enter(uint32_t /*other*/) override {
+    void on_trigger_enter(fjell::Ref<fjell::Node3D> /*other*/) override {
         fjell::vfx::spawn(collect_effect, transform().position);
         fjell::audio::play(collect_sound, transform().position);
         self().destroy();

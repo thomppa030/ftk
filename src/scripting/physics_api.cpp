@@ -1,6 +1,10 @@
 #include "fjell/api.h"
 #include "fjell/physics_api.hpp"
+#include "physics/physics_types.hpp"
 #include "physics/physics_world.hpp"
+#include "scene/component_type.hpp"
+#include "scene/node.hpp"
+#include "scene/scene.hpp"
 #include "scripting/script_globals.hpp"
 
 #include <algorithm>
@@ -23,6 +27,22 @@ fjell::QueryFilter make_filter(uint32_t channel_mask, uint32_t ignore_node) {
 
 glm::vec3 to_vec3(const float* v) {
     return v != nullptr ? glm::vec3{v[0], v[1], v[2]} : glm::vec3{0.0F};
+}
+
+void write_vec3(const glm::vec3& v, float* out) {
+    out[0] = v.x;
+    out[1] = v.y;
+    out[2] = v.z;
+}
+
+// The node a script's RigidbodyComponent sits on, which the physics world
+// knows its body by; 0 when it is no component in the scene.
+uint32_t body_node(const void* body) {
+    auto* scene = fjell::script_services().scene;
+    if (scene == nullptr) return 0;
+    const fjell::Node* owner =
+        scene->owner_of(fjell::component_type_id<fjell::RigidbodyComponent>(), body);
+    return owner != nullptr ? owner->id : 0;
 }
 
 void write_hit(const fjell::RaycastHit& hit, FjellRaycastHit* out) {
@@ -107,45 +127,45 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_physics_overlap(
     return count;
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_physics_apply_force(uint32_t node_id,
-                                                           const float* force) {
-    if (auto* physics = world()) physics->apply_force(node_id, to_vec3(force));
+// ── A body, through the RigidbodyComponent a script holds ───────────────
+
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_add_force(const void* body, const float* force) {
+    if (auto* physics = world(); physics != nullptr) {
+        if (const uint32_t node = body_node(body); node != 0) physics->apply_force(node, to_vec3(force));
+    }
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_physics_apply_impulse(uint32_t node_id,
-                                                             const float* impulse) {
-    if (auto* physics = world()) physics->apply_impulse(node_id, to_vec3(impulse));
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_add_impulse(const void* body, const float* impulse) {
+    if (auto* physics = world(); physics != nullptr) {
+        if (const uint32_t node = body_node(body); node != 0) physics->apply_impulse(node, to_vec3(impulse));
+    }
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_physics_set_linear_velocity(uint32_t node_id,
-                                                                   const float* v) {
-    if (auto* physics = world()) physics->set_linear_velocity(node_id, to_vec3(v));
-}
-
-extern "C" FJELL_SDK_EXPORT void fjell_physics_get_linear_velocity(uint32_t node_id,
-                                                                   float* out) {
-    if (out == nullptr) return;
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_linear_velocity(const void* body, float* out) {
     auto* physics = world();
-    auto v = physics != nullptr ? physics->get_linear_velocity(node_id) : glm::vec3{0.0F};
-    out[0] = v.x;
-    out[1] = v.y;
-    out[2] = v.z;
+    const uint32_t node = physics != nullptr ? body_node(body) : 0;
+    write_vec3(node != 0 ? physics->get_linear_velocity(node) : glm::vec3{0.0F}, out);
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_physics_set_angular_velocity(uint32_t node_id,
-                                                                    const float* v) {
-    if (auto* physics = world()) physics->set_angular_velocity(node_id, to_vec3(v));
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_set_linear_velocity(const void* body, const float* velocity) {
+    if (auto* physics = world(); physics != nullptr) {
+        if (const uint32_t node = body_node(body); node != 0) physics->set_linear_velocity(node, to_vec3(velocity));
+    }
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_physics_get_angular_velocity(uint32_t node_id,
-                                                                    float* out) {
-    if (out == nullptr) return;
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_angular_velocity(const void* body, float* out) {
     auto* physics = world();
-    auto v = physics != nullptr ? physics->get_angular_velocity(node_id) : glm::vec3{0.0F};
-    out[0] = v.x;
-    out[1] = v.y;
-    out[2] = v.z;
+    const uint32_t node = physics != nullptr ? body_node(body) : 0;
+    write_vec3(node != 0 ? physics->get_angular_velocity(node) : glm::vec3{0.0F}, out);
 }
+
+extern "C" FJELL_SDK_EXPORT void fjell_rigidbody_set_angular_velocity(const void* body, const float* velocity) {
+    if (auto* physics = world(); physics != nullptr) {
+        if (const uint32_t node = body_node(body); node != 0) physics->set_angular_velocity(node, to_vec3(velocity));
+    }
+}
+
+// ── The world ────────────────────────────────────────────────────────────
 
 extern "C" FJELL_SDK_EXPORT void fjell_physics_set_gravity(const float* gravity) {
     if (auto* physics = world()) physics->set_gravity(to_vec3(gravity));

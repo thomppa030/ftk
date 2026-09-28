@@ -198,33 +198,46 @@ Static-vs-static collisions are skipped. Everything else is checked.
 
 ## Script API
 
-Scripts reach the running world through `fjell::physics`
+Scripts push a body and read its motion through its `RigidbodyComponent`
+(`fjell/engine_components.hpp`), and query the world through `fjell::physics`
 (`fjell/physics_api.hpp`). Every call is inert outside play mode.
 
 ```cpp
+[[fj::property]] fjell::Ref<fjell::RigidbodyComponent> body;
+
 void fixed_tick(const fjell::FixedStep& step) override {
-    // A continuous push acts on the step it is applied in, so apply it in
+    // A continuous push acts on the step it is added before, so add it in
     // every step it should act.
-    fjell::physics::apply_force(id(), thrust_);
+    body->add_force(thrust_);
 
     fjell::PhysicsHit hit;
     if (fjell::physics::raycast(transform().position, {0.0f, -1.0f, 0.0f}, 1.1f, hit,
-                                   {FJ_MASK_ALL, id()})) {
-        // grounded: hit.position, hit.normal, hit.distance, hit.node_id, hit.surface
+                                {FJ_MASK_ALL, self()})) {
+        // grounded: hit.position, hit.normal, hit.distance, hit.node, hit.surface
     }
 }
 ```
 
-- `apply_force(id, vec3)` — a push over the step. Jolt clears forces after
-  every step, so apply it in `fixed_tick()`: from `tick()` it only reaches the
+On the `RigidbodyComponent`:
+
+- `add_force(vec3)` — a push over the next step. Jolt clears forces after
+  every step, so add it in `fixed_tick()`: from `tick()` it only reaches the
   first step of the frame.
-- `apply_impulse(id, vec3)` — an instant change of momentum.
-- `set_linear_velocity` / `linear_velocity`, `set_angular_velocity` /
-  `angular_velocity` — the body's motion as the last step left it.
+- `add_impulse(vec3)` — an instant change of momentum.
+- `linear_velocity()` / `set_linear_velocity()`, `angular_velocity()` /
+  `set_angular_velocity()` — the body's motion as the physics world has it.
+
+In `fjell::physics`:
+
 - `raycast`, `raycast_all`, `sphere_cast`, `box_cast`, `capsule_cast`,
   `overlap_sphere`, `overlap_box` — queries against the world as the last step
-  left it, narrowed by a `PhysicsQuery` (channels, a node to ignore).
+  left it, narrowed by a `PhysicsQuery` (channels, a node to ignore). A hit's
+  `node` and an overlap's results are `Ref<Node3D>`s.
 - `set_gravity` / `gravity`.
+
+The collision and trigger callbacks hand over the other node as a `Ref<Node3D>`.
+When it was destroyed, as on leaving a collider whose node went away, the Ref
+reads as gone and still equals a Ref to it the script kept.
 
 **Don't write a dynamic body's transform.** Physics owns where a dynamic body
 is, and puts it back at its next step; the editor reports a script that moves

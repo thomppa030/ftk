@@ -1,7 +1,8 @@
-// physics_api.hpp — Static physics API for game scripts
+// physics_api.hpp — Physics queries and the world's gravity, for game scripts
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/ref.hpp"
 
 #include <glm/glm.hpp>
 
@@ -54,12 +55,6 @@ FJELL_SDK_EXPORT uint32_t fjell_physics_overlap(uint32_t shape, const float* ext
                                                 const float* position, uint32_t channel_mask,
                                                 uint32_t ignore_node,
                                                 uint32_t* out_nodes, uint32_t max_nodes);
-FJELL_SDK_EXPORT void     fjell_physics_apply_force(uint32_t node_id, const float* force);
-FJELL_SDK_EXPORT void     fjell_physics_apply_impulse(uint32_t node_id, const float* impulse);
-FJELL_SDK_EXPORT void     fjell_physics_set_linear_velocity(uint32_t node_id, const float* v);
-FJELL_SDK_EXPORT void     fjell_physics_get_linear_velocity(uint32_t node_id, float* out);
-FJELL_SDK_EXPORT void     fjell_physics_set_angular_velocity(uint32_t node_id, const float* v);
-FJELL_SDK_EXPORT void     fjell_physics_get_angular_velocity(uint32_t node_id, float* out);
 FJELL_SDK_EXPORT void     fjell_physics_set_gravity(const float* gravity);
 FJELL_SDK_EXPORT void     fjell_physics_get_gravity(float* out);
 }
@@ -71,7 +66,8 @@ struct PhysicsHit {
     glm::vec3 position{0.0F};
     glm::vec3 normal{0.0F};
     float distance{0.0F};
-    uint32_t node_id{0};
+    /// The node whose collider was hit.
+    Ref<Node3D> node;
     /// Surface id of what was hit — the handle id of the `.fjsurface` on the
     /// collider or terrain layer, 0 for none. See `surface`.
     uint32_t surface{0};
@@ -80,13 +76,15 @@ struct PhysicsHit {
 /// Narrows what a query looks at.
 ///
 /// `ignore` is the node the query came from, which would otherwise be the
-/// first thing a cast started inside its own collider reports.
+/// first thing a cast started inside its own collider reports: `self()`
+/// passes a script's own.
 struct PhysicsQuery {
     uint32_t channels{FJ_MASK_ALL};
-    uint32_t ignore{0};
+    Ref<Node3D> ignore;
 };
 
-/// Queries and forces against the running physics world.
+/// Queries against the running physics world, and its gravity. A body is
+/// pushed and its velocity read through its `RigidbodyComponent`.
 ///
 /// Every call is inert outside play mode — there is no physics world in the
 /// editor — so a query returns no hit rather than misbehaving.
@@ -94,9 +92,8 @@ struct PhysicsQuery {
 /// @code
 /// // What is the player looking at, ignoring triggers and itself?
 /// fjell::PhysicsHit hit;
-/// if (fjell::physics::raycast(eye, forward, 100.0F, hit,
-///                                {FJ_MASK_WORLD | FJ_MASK_PAWN, node_id()})) {
-///     log("looking at node {}", hit.node_id);
+/// if (fjell::physics::raycast(eye, forward, 100.0F, hit, {FJ_MASK_WORLD | FJ_MASK_PAWN, self()})) {
+///     if (auto door = hit.node->get_component<Door>()) door->open();
 /// }
 /// @endcode
 namespace physics {
@@ -114,7 +111,7 @@ inline constexpr uint32_t MAX_HITS = 64;
 inline PhysicsHit to_hit(const FjellRaycastHit& raw) {
     return {{raw.position[0], raw.position[1], raw.position[2]},
             {raw.normal[0], raw.normal[1], raw.normal[2]},
-            raw.distance, raw.node_id, raw.surface};
+            raw.distance, Ref<Node3D>{raw.node_id}, raw.surface};
 }
 
 inline bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& origin,
@@ -122,7 +119,7 @@ inline bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& orig
                  const PhysicsQuery& query) {
     FjellRaycastHit hit{};
     if (fjell_physics_shape_cast(shape, &extents.x, &origin.x, &direction.x,
-                                 max_distance, query.channels, query.ignore,
+                                 max_distance, query.channels, query.ignore.node_id(),
                                  &hit) == 0) {
         return false;
     }
@@ -130,14 +127,17 @@ inline bool cast(uint32_t shape, const glm::vec3& extents, const glm::vec3& orig
     return true;
 }
 
-inline std::vector<uint32_t> overlap(uint32_t shape, const glm::vec3& extents,
-                                     const glm::vec3& position,
-                                     const PhysicsQuery& query) {
+inline std::vector<Ref<Node3D>> overlap(uint32_t shape, const glm::vec3& extents,
+                                        const glm::vec3& position,
+                                        const PhysicsQuery& query) {
     uint32_t raw[MAX_HITS];
     uint32_t count = fjell_physics_overlap(shape, &extents.x, &position.x,
-                                           query.channels, query.ignore,
+                                           query.channels, query.ignore.node_id(),
                                            raw, MAX_HITS);
-    return {raw, raw + count};
+    std::vector<Ref<Node3D>> nodes;
+    nodes.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) nodes.emplace_back(raw[i]);
+    return nodes;
 }
 
 } // namespace detail
@@ -148,7 +148,7 @@ inline bool raycast(const glm::vec3& origin, const glm::vec3& direction,
                     const PhysicsQuery& query = {}) {
     FjellRaycastHit hit{};
     if (fjell_physics_raycast(&origin.x, &direction.x, max_distance,
-                              query.channels, query.ignore, &hit) == 0) {
+                              query.channels, query.ignore.node_id(), &hit) == 0) {
         return false;
     }
     out = detail::to_hit(hit);
@@ -162,7 +162,7 @@ inline std::vector<PhysicsHit> raycast_all(const glm::vec3& origin,
                                            const PhysicsQuery& query = {}) {
     FjellRaycastHit raw[detail::MAX_HITS];
     uint32_t count = fjell_physics_raycast_all(&origin.x, &direction.x, max_distance,
-                                               query.channels, query.ignore,
+                                               query.channels, query.ignore.node_id(),
                                                raw, detail::MAX_HITS);
     std::vector<PhysicsHit> hits;
     hits.reserve(count);
@@ -194,47 +194,19 @@ inline bool capsule_cast(const glm::vec3& origin, float radius, float height,
 }
 
 /// Nodes whose colliders intersect a sphere at `center`. Unordered.
-inline std::vector<uint32_t> overlap_sphere(const glm::vec3& center, float radius,
+inline std::vector<Ref<Node3D>> overlap_sphere(const glm::vec3& center, float radius,
                                             const PhysicsQuery& query = {}) {
     return detail::overlap(detail::SHAPE_SPHERE, {radius, 0.0F, 0.0F}, center, query);
 }
 
-inline std::vector<uint32_t> overlap_box(const glm::vec3& center,
-                                         const glm::vec3& half_extents,
-                                         const PhysicsQuery& query = {}) {
+/// Nodes whose colliders intersect a box at `center`. Unordered.
+inline std::vector<Ref<Node3D>> overlap_box(const glm::vec3& center,
+                                            const glm::vec3& half_extents,
+                                            const PhysicsQuery& query = {}) {
     return detail::overlap(detail::SHAPE_BOX, half_extents, center, query);
 }
 
-/// Continuous push, applied over the step. For an instant change in
-/// momentum — a jump, an explosion — use apply_impulse.
-inline void apply_force(uint32_t node_id, const glm::vec3& force) {
-    fjell_physics_apply_force(node_id, &force.x);
-}
-
-inline void apply_impulse(uint32_t node_id, const glm::vec3& impulse) {
-    fjell_physics_apply_impulse(node_id, &impulse.x);
-}
-
-inline void set_linear_velocity(uint32_t node_id, const glm::vec3& velocity) {
-    fjell_physics_set_linear_velocity(node_id, &velocity.x);
-}
-
-[[nodiscard]] inline glm::vec3 linear_velocity(uint32_t node_id) {
-    glm::vec3 v{0.0F};
-    fjell_physics_get_linear_velocity(node_id, &v.x);
-    return v;
-}
-
-inline void set_angular_velocity(uint32_t node_id, const glm::vec3& velocity) {
-    fjell_physics_set_angular_velocity(node_id, &velocity.x);
-}
-
-[[nodiscard]] inline glm::vec3 angular_velocity(uint32_t node_id) {
-    glm::vec3 v{0.0F};
-    fjell_physics_get_angular_velocity(node_id, &v.x);
-    return v;
-}
-
+/// The gravity of the whole physics world, in metres per second squared.
 inline void set_gravity(const glm::vec3& gravity) {
     fjell_physics_set_gravity(&gravity.x);
 }

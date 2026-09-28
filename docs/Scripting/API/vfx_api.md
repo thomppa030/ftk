@@ -58,7 +58,7 @@ class Coin : public fjell::ScriptComponent {
     [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
     [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
 
-    void on_trigger_enter(uint32_t /*other*/) override {
+    void on_trigger_enter(fjell::Ref<fjell::Node3D> /*other*/) override {
         fjell::vfx::spawn(collect_effect, transform().position);
         fjell::audio::play(collect_sound, transform().position);
         self().destroy();

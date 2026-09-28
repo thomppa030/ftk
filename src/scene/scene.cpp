@@ -362,6 +362,11 @@ Node* Scene::find_child(uint32_t parent_id, std::string_view name) {
     return nullptr;
 }
 
+Node* Scene::owner_of(ComponentTypeId type, const void* component) {
+    const ComponentPool* pool = pools().find(type);
+    return pool != nullptr ? pool->owner_of(component) : nullptr;
+}
+
 Node* Scene::resolve_node(uint32_t node_id, uint32_t generation) {
     Node* node = find(node_id);
     return node != nullptr && node->generation == generation ? node : nullptr;
@@ -396,8 +401,11 @@ std::string_view Scene::name_of_gone(uint32_t node_id, uint32_t generation) cons
 }
 
 uint32_t Scene::generation_of(uint32_t id) const {
-    const Node* node = find(id);
-    return node != nullptr ? node->generation : 0;
+    if (const Node* node = find(id)) return node->generation;
+    for (const GoneNode& gone : gone_) {
+        if (gone.id == id) return gone.generation;
+    }
+    return 0;
 }
 
 void Scene::queue_destroy(uint32_t id) {

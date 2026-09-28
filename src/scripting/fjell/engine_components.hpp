@@ -12,6 +12,15 @@
 #include <string>
 #include <vector>
 
+extern "C" {
+FJELL_SDK_EXPORT void fjell_rigidbody_add_force(const void* body, const float* force);
+FJELL_SDK_EXPORT void fjell_rigidbody_add_impulse(const void* body, const float* impulse);
+FJELL_SDK_EXPORT void fjell_rigidbody_linear_velocity(const void* body, float* out);
+FJELL_SDK_EXPORT void fjell_rigidbody_set_linear_velocity(const void* body, const float* velocity);
+FJELL_SDK_EXPORT void fjell_rigidbody_angular_velocity(const void* body, float* out);
+FJELL_SDK_EXPORT void fjell_rigidbody_set_angular_velocity(const void* body, const float* velocity);
+}
+
 namespace fjell {
 
 // ── Physics ──────────────────────────────────────────────────────────────
@@ -35,9 +44,16 @@ enum class ColliderShape : uint8_t {
 /// Makes a node participate in physics simulation. Needs a ColliderComponent
 /// on the same node to have a shape to collide with.
 ///
+/// The fields are how the body is set up; pushing it and its velocity go
+/// through the methods, which reach the body in the physics world as it is
+/// now. Outside play there is no physics world, and they do nothing.
+///
 /// @code
-/// if (auto rb = self().get_component<fjell::RigidbodyComponent>()) {
-///     rb->gravity_enabled = false;
+/// [[fj::property]] fjell::Ref<fjell::RigidbodyComponent> crate;
+///
+/// void fixed_tick(const fjell::FixedStep&) override {
+///     crate->add_force({0.0f, thrust, 0.0f});
+///     if (glm::length(crate->linear_velocity()) > 20.0f) crate->set_linear_velocity({});
 /// }
 /// @endcode
 struct RigidbodyComponent {
@@ -69,6 +85,37 @@ struct RigidbodyComponent {
     /// leaves the body unmoved by the weather; a loose tarp wants more than
     /// a crate of the same size.
     float wind_area{0.0f};
+
+    /// Push it through the next step, in newtons: a force acts over the one
+    /// step it is added before, so a steady push is added in `fixed_tick()`,
+    /// every step. For an instant change of momentum — a jump, an explosion —
+    /// use `add_impulse()`.
+    void add_force(const glm::vec3& force) { fjell_rigidbody_add_force(this, &force.x); }
+
+    /// Change its momentum at once, in newton-seconds: its velocity moves by
+    /// the impulse over its mass.
+    void add_impulse(const glm::vec3& impulse) { fjell_rigidbody_add_impulse(this, &impulse.x); }
+
+    /// How fast it moves, in metres per second, as the physics world has it
+    /// now.
+    [[nodiscard]] glm::vec3 linear_velocity() const {
+        glm::vec3 velocity{0.0f};
+        fjell_rigidbody_linear_velocity(this, &velocity.x);
+        return velocity;
+    }
+
+    /// Move it at `velocity`, in metres per second, from now on.
+    void set_linear_velocity(const glm::vec3& velocity) { fjell_rigidbody_set_linear_velocity(this, &velocity.x); }
+
+    /// How fast it turns, in radians per second about each world axis.
+    [[nodiscard]] glm::vec3 angular_velocity() const {
+        glm::vec3 velocity{0.0f};
+        fjell_rigidbody_angular_velocity(this, &velocity.x);
+        return velocity;
+    }
+
+    /// Turn it at `velocity`, in radians per second about each world axis.
+    void set_angular_velocity(const glm::vec3& velocity) { fjell_rigidbody_set_angular_velocity(this, &velocity.x); }
 };
 
 /// Category a collider belongs to, used to decide what it interacts with.

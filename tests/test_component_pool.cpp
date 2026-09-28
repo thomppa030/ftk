@@ -287,3 +287,32 @@ TEST_CASE("a second add of a type puts nothing more in its pool", "[components][
     CHECK(again.value == 1);
     CHECK(walk<Health>(scene) == std::vector{id});
 }
+
+TEST_CASE("a component's node is found from its address", "[components][pool]") {
+    Scene scene;
+    const ComponentTypeId health = component_type_id<Health>();
+    const uint32_t a = scene.add_node(node_with_health(1));
+    const uint32_t b = scene.add_node(node_with_health(2));
+    const Health* on_a = scene.find(a)->components.get<Health>();
+    const Health* on_b = scene.find(b)->components.get<Health>();
+    REQUIRE(scene.owner_of(health, on_a) != nullptr);
+    CHECK(scene.owner_of(health, on_a)->id == a);
+    CHECK(scene.owner_of(health, on_b)->id == b);
+
+    // Nothing of that type is there.
+    const int elsewhere = 0;
+    CHECK(scene.owner_of(health, &elsewhere) == nullptr);
+    CHECK(scene.owner_of(component_type_id<Armour>(), on_a) == nullptr);
+
+    // Once it is gone its slot answers for nothing, until another component
+    // takes the slot and answers for its own node.
+    scene.find(a)->components.remove<Health>();
+    CHECK(scene.owner_of(health, on_a) == nullptr);
+    const uint32_t c = scene.add_node(node_with_health(3));
+    CHECK(scene.owner_of(health, scene.find(c)->components.get<Health>())->id == c);
+
+    // A node spawned during a tick is found too.
+    Scene::TickLock lock(scene);
+    const uint32_t spawned = scene.add_node(node_with_health(4));
+    CHECK(scene.owner_of(health, scene.find(spawned)->components.get<Health>())->id == spawned);
+}

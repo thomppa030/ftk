@@ -187,7 +187,7 @@ Add a `.fjvfx` asset, drag it into the new `Burst` slot in the inspector, hit pl
 Add a `ColliderComponent` (set `is_trigger = true`) to the same node, then:
 
 ```cpp
-void on_trigger_enter(uint32_t /*other*/) override {
+void on_trigger_enter(fjell::Ref<fjell::Node3D> /*other*/) override {
     fjell::Log::info("Spinner: something touched me");
 }
 ```

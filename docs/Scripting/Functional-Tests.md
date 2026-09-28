@@ -56,6 +56,7 @@ class DoorOpensTest : public fjell::FunctionalTest {
     FJELL_COMPONENT(DoorOpensTest)
 
     [[fj::property]] float pull_force = 40.0f;
+    [[fj::property]] fjell::Ref<fjell::Node3D> lever;
 
     void start_test() override {
         time_limit = 5.0f;
@@ -66,14 +67,13 @@ class DoorOpensTest : public fjell::FunctionalTest {
         // drive the world here
     }
 
-    void on_trigger_enter(uint32_t other_id) override {
-        assert_true(other_id == expected_id_, "the lever was pulled");
+    void on_trigger_enter(fjell::Ref<fjell::Node3D> other) override {
+        assert_true(other == lever, "the lever was pulled");
         finish_test(fjell::TestResult::passed, "the door opened");
     }
 
 private:
     float start_height_{0.0f};
-    uint32_t expected_id_{0};
 };
 ```
 
@@ -255,8 +255,8 @@ void TrapTriggerTest::test_fixed_tick(const fjell::FixedStep&) {
     cc->move_intent = glm::vec3{0.0f, 0.0f, 1.0f};
 }
 
-void TrapTriggerTest::on_trigger_enter(uint32_t other_id) {
-    if (!assert_true(other_id == walker_.node_id(),
+void TrapTriggerTest::on_trigger_enter(fjell::Ref<fjell::Node3D> other) {
+    if (!assert_true(other == walker_,
                      "the trap was entered by the character")) return;
 
     const auto travelled = walker_->position() - start_position_;
