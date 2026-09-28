@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/device.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -68,5 +69,13 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 
 /// The VkDescriptorSet behind a bind group; null when the handle finds none.
 [[nodiscard]] VkDescriptorSet native_group(Device& device, BindGroup group);
+
+/// Tells the device a frame slot starts recording, right after the slot's
+/// fence wait: the sets that lasted one frame in that slot are reset.
+void begin_frame(Device& device, uint32_t frame_slot);
+
+/// The device's one-frame descriptor sets, for passes that acquire their own.
+[[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
+[[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);
 
 } // namespace fjell::gpu::vulkan

@@ -1,4 +1,4 @@
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -1,4 +1,4 @@
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 // Pure hashing / equality for FrameCacheKey. Lives in its own .cpp so
 // fjell-testable can link the logic without pulling in the full
