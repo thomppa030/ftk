@@ -24,8 +24,8 @@ PassSetup ScreenColorCopyPass::setup() const {
 void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto src = builder.import_named(ctx, "color");
     auto dst = builder.import_named(ctx, "screen_color");
-    builder.read(src, ResourceAccess::transfer_src);
-    builder.write(dst, ResourceAccess::transfer_dst);
+    builder.read(src, gpu::Access::copy_src);
+    builder.write(dst, gpu::Access::copy_dst);
 }
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {

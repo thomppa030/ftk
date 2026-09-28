@@ -207,15 +207,15 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     auto velocity = builder.import_named(ctx, "velocity");
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(color, ResourceAccess::sampled_compute);
-    builder.read(velocity, ResourceAccess::sampled_compute);
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(color, gpu::Access::sampled_compute);
+    builder.read(velocity, gpu::Access::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
     // Blends into this frame's history slot from last frame's. The slots
     // are persistent, which keeps the pass alive for the frame after even
     // when nothing reads its output now.
-    builder.read(builder.import_named(ctx, "taa_history_read"), ResourceAccess::sampled_compute);
+    builder.read(builder.import_named(ctx, "taa_history_read"), gpu::Access::sampled_compute);
     builder.write(builder.import_named(ctx, "taa_history_write"),
-                  ResourceAccess::storage_write_compute);
+                  gpu::Access::storage_write_compute);
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {

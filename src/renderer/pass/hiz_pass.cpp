@@ -393,7 +393,7 @@ PassSetup HizPass::setup() const {
 
 void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
 
     auto hiz = builder.import_named(ctx, "hiz_pyramid");
     if (hiz.valid()) {
@@ -402,7 +402,7 @@ void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // SHADER_READ_ONLY_OPTIMAL inline. Tell the graph that's the
         // post-state so downstream consumers (MeshletCullPass2, SSR)
         // don't need any additional barrier before sampling.
-        builder.write(hiz, ResourceAccess::storage_write_compute);
+        builder.write(hiz, gpu::Access::storage_write_compute);
         // Each mip is written by compute and handed to the next mip's
         // reduction, a compute read.
         builder.final_layout(hiz,

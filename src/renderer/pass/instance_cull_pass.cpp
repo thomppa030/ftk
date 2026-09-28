@@ -129,10 +129,10 @@ void InstanceCullPass::collect_exports(DeclareContext& ctx) {
 
 void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(builder.import_named_buffer(ctx, "instance_transforms"),
-                  ResourceAccess::storage_buffer_write_compute);
+                  gpu::Access::storage_buffer_write_compute);
     // The instance counts are patched in place in commands the CPU wrote.
     builder.read_write(builder.import_named_buffer(ctx, "batch_indirect"),
-                       ResourceAccess::storage_buffer_read_write_compute);
+                       gpu::Access::storage_buffer_read_write_compute);
 }
 
 void InstanceCullPass::record(const FrameContext& ctx) {

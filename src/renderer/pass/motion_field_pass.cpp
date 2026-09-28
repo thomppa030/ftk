@@ -288,9 +288,9 @@ void MotionFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // the one written into GENERAL; record() moves it to where its readers
     // sample it, which final_layout reports.
     builder.read(builder.import_named(ctx, "motion_field_prev"),
-                 ResourceAccess::sampled_compute);
+                 gpu::Access::sampled_compute);
     auto map = builder.import_named(ctx, "motion_field");
-    builder.write(map, ResourceAccess::storage_write_compute);
+    builder.write(map, gpu::Access::storage_write_compute);
     builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,

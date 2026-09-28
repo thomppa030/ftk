@@ -206,13 +206,13 @@ MipResolved resolve_mip(const FrameContext& ctx, uint32_t idx) {
     return out;
 }
 
-void declare_mip(PassBuilder& builder, uint32_t idx, ResourceAccess access) {
+void declare_mip(PassBuilder& builder, uint32_t idx, gpu::Access access) {
     TextureDesc desc{};
     desc.format = BLOOM_FORMAT;
     desc.size_class = SizeClass::viewport;
     desc.viewport_divisor = 1U << (idx + 1);
     auto h = builder.create(mip_name(idx), desc);
-    if (access == ResourceAccess::color_attachment) {
+    if (access == gpu::Access::color_attachment) {
         builder.write(h, access);
     } else {
         builder.read(h, access);
@@ -225,8 +225,8 @@ void declare_mip_read_write(PassBuilder& builder, uint32_t idx) {
     desc.size_class = SizeClass::viewport;
     desc.viewport_divisor = 1U << (idx + 1);
     auto h = builder.create(mip_name(idx), desc);
-    builder.read(h, ResourceAccess::color_attachment);
-    builder.write(h, ResourceAccess::color_attachment);
+    builder.read(h, gpu::Access::color_attachment);
+    builder.write(h, gpu::Access::color_attachment);
 }
 
 } // namespace
@@ -335,8 +335,8 @@ void BloomDs0Pass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled()) { return; }
 
     auto color = builder.import_named(ctx, "color");
-    builder.read(color, ResourceAccess::sampled_fragment);
-    declare_mip(builder, 0, ResourceAccess::color_attachment);
+    builder.read(color, gpu::Access::sampled_fragment);
+    declare_mip(builder, 0, gpu::Access::color_attachment);
 }
 
 void BloomDs0Pass::record(const FrameContext& ctx) {
@@ -385,8 +385,8 @@ void BloomDsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     (void)ctx;
     if (core_ == nullptr || !core_->enabled()) { return; }
 
-    declare_mip(builder, mip_index_ - 1, ResourceAccess::sampled_fragment);
-    declare_mip(builder, mip_index_, ResourceAccess::color_attachment);
+    declare_mip(builder, mip_index_ - 1, gpu::Access::sampled_fragment);
+    declare_mip(builder, mip_index_, gpu::Access::color_attachment);
 }
 
 void BloomDsPass::record(const FrameContext& ctx) {
@@ -442,7 +442,7 @@ void BloomUsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     (void)ctx;
     if (core_ == nullptr || !core_->enabled()) { return; }
 
-    declare_mip(builder, dst_mip_ + 1, ResourceAccess::sampled_fragment);
+    declare_mip(builder, dst_mip_ + 1, gpu::Access::sampled_fragment);
     declare_mip_read_write(builder, dst_mip_);
     // No final_layout/has_side_effects on dst_mip 0: the post pass declares a
     // read on "bloom_mip0" (when bloom is enabled), so the DAG sees the

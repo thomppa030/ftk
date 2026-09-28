@@ -109,7 +109,7 @@ public:
     /// binds, for a pass that binds one: the draws, and the waterline in the
     /// fog medium. Absent when the graph has no water_fft pass.
     static void declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
-                                         ResourceAccess access);
+                                         gpu::Access access);
 
     /// Draw every water node's depth, and nothing else, into the water's
     /// depth attachment the seed filled, resolving it into the surface depth

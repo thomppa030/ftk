@@ -315,13 +315,13 @@ void CloudShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     constexpr VkPipelineStageFlags2 readers =
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     if (!active_) {
-        builder.write(map, ResourceAccess::transfer_dst);
+        builder.write(map, gpu::Access::copy_dst);
         builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              readers, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         return;
     }
-    builder.write(map, ResourceAccess::storage_write_compute);
+    builder.write(map, gpu::Access::storage_write_compute);
     builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,

@@ -967,7 +967,7 @@ void ParticleSystem::record_compute(const FrameContext& ctx) {
 
 void ParticleSystem::collect_exports(DeclareContext& ctx) const {
     auto add = [&](const VkBuffer buffer, VkDeviceSize size, bool persistent,
-                   ResourceAccess draw_access) {
+                   gpu::Access draw_access) {
         if (buffer == VK_NULL_HANDLE) { return; }
         ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, size, persistent}, draw_access});
     };
@@ -975,7 +975,7 @@ void ParticleSystem::collect_exports(DeclareContext& ctx) const {
     // commands and mesh instances are rebuilt from them every frame.
     if (mega_particle_buffer_) {
         add(mega_particle_buffer_->handle(), mega_particle_buffer_->capacity(), true,
-            ResourceAccess::storage_buffer_read_vertex);
+            gpu::Access::storage_buffer_read_vertex);
         // The ray-traced GI builds its particle instances from these.
         ctx.buffer_imports.emplace(fg_name_hash("particle_state"),
                                    BufferImport{mega_particle_buffer_->handle(),
@@ -983,19 +983,19 @@ void ParticleSystem::collect_exports(DeclareContext& ctx) const {
     }
     if (mega_alive_buffer_) {
         add(mega_alive_buffer_->handle(), mega_alive_buffer_->capacity(), false,
-            ResourceAccess::storage_buffer_read_vertex);
+            gpu::Access::storage_buffer_read_vertex);
     }
     if (mega_indirect_buffer_) {
         add(mega_indirect_buffer_->handle(), mega_indirect_buffer_->capacity(), false,
-            ResourceAccess::indirect_read);
+            gpu::Access::indirect_read);
     }
     if (mesh_instance_buffer_) {
         add(mesh_instance_buffer_->handle(), mesh_instance_buffer_->size(), false,
-            ResourceAccess::storage_buffer_read_vertex);
+            gpu::Access::storage_buffer_read_vertex);
     }
     if (mesh_indirect_buffer_) {
         add(mesh_indirect_buffer_->handle(), mesh_indirect_buffer_->size(), false,
-            ResourceAccess::indirect_read);
+            gpu::Access::indirect_read);
     }
 }
 

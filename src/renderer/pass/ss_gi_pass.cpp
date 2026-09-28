@@ -595,17 +595,17 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     // The trace reads both in the ray tracing stages, the resolve and the
     // upsample in compute.
-    builder.read(depth, ResourceAccess::sampled_raytracing);
-    builder.read(normal, ResourceAccess::sampled_raytracing);
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read(normal, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_raytracing);
+    builder.read(normal, gpu::Access::sampled_raytracing);
+    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(normal, gpu::Access::sampled_compute);
     // The emissive light the surfaces sample, kept for them into the next
     // frame, which is also what keeps the pass alive. The graph moves it
     // into GENERAL; record() leaves it back where the surfaces read it on
     // every way out, which final_layout reports.
     if (active()) {
         if (auto out = builder.import_named_optional(ctx, "ss_gi_output"); out.valid()) {
-            builder.write(out, ResourceAccess::storage_write_compute);
+            builder.write(out, gpu::Access::storage_write_compute);
             builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                  VK_ACCESS_2_SHADER_WRITE_BIT,
@@ -1055,7 +1055,7 @@ PassSetup SsGiDepthHistoryPass::setup() const {
 
 void SsGiDepthHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->active()) { return; }
-    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::transfer_src);
+    builder.read(builder.import_named(ctx, "depth"), gpu::Access::copy_src);
     // What it writes is SS-GI's private history, for the next frame.
     builder.has_side_effects();
 }

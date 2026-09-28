@@ -272,12 +272,12 @@ void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // The sky clears metallic-roughness and normal on background pixels.
     // GTAO, SS-GI and RT reflections all sample those targets, so dropping
     // the writes would leave them reading whatever the opaque clear left.
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    builder.write(msaa_mr, ResourceAccess::color_attachment);
-    builder.write(msaa_normal, ResourceAccess::color_attachment);
+    builder.write(msaa_color, gpu::Access::color_attachment);
+    builder.write(msaa_mr, gpu::Access::color_attachment);
+    builder.write(msaa_normal, gpu::Access::color_attachment);
     // Depth-tested so the sky only fills pixels no geometry reached, but
     // never written.
-    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
+    builder.read(msaa_depth, gpu::Access::depth_attachment_read);
     // The backward cull walk starts at the post pass and follows readers of the
     // resolved `color`. With MSAA on, `msaa_color` is a separate image
     // nothing samples, so without this anchor the sky is culled entirely.

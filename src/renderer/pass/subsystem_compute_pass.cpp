@@ -30,7 +30,7 @@ void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& c
     for (const auto& input : ctx.subsystem_draw_inputs) {
         builder.read_write(builder.import("subsystem_draw_input", input.buffer.buffer,
                                           input.buffer.size, input.buffer.persistent),
-                           ResourceAccess::storage_buffer_read_write_compute);
+                           gpu::Access::storage_buffer_read_write_compute);
     }
 }
 

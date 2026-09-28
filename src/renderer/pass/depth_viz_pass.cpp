@@ -368,7 +368,7 @@ void DepthVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         return;
     }
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_fragment);
+    builder.read(depth, gpu::Access::sampled_fragment);
     builder.has_side_effects();
 }
 

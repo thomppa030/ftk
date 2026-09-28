@@ -334,22 +334,22 @@ void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
     const bool has_msaa = ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT;
     auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
-    builder.write(depth, ResourceAccess::depth_attachment);
+    builder.write(depth, gpu::Access::depth_attachment);
     // On the mesh-shader path the prepass draws what the first meshlet cull
     // found visible. Without mesh shaders nothing exports these, and the
     // imports come back empty.
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
-                 ResourceAccess::storage_buffer_read_mesh);
+                 gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                 ResourceAccess::indirect_read);
+                 gpu::Access::indirect_read);
     // The vertex path draws the camera batch's commands, and its instanced
     // draws read the transforms the instance cull kept. The mesh path reads
     // the uploaded transforms instead.
     if (!ctx.mesh_shader_supported) {
         builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                     ResourceAccess::storage_buffer_read_vertex);
+                     gpu::Access::storage_buffer_read_vertex);
         builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
-                     ResourceAccess::indirect_read);
+                     gpu::Access::indirect_read);
     }
 }
 

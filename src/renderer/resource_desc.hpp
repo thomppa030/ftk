@@ -1,101 +1,12 @@
 #pragma once
 
+#include "gpu/access.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
 
 namespace fjell {
-
-/// How a pass uses a resource. Drives layout, pipeline stage, and access
-/// flags for automatic barrier insertion, and declares the edge type in
-/// the DAG (read / write / read-write).
-enum class ResourceAccess : uint8_t {
-    // Graphics attachment uses (write)
-    color_attachment,
-    depth_attachment,
-    /// The single-sample image a multisampled depth attachment resolves
-    /// into when rendering ends. The resolve writes it at the colour
-    /// attachment output stage, not in the depth tests.
-    depth_resolve,
-
-    // Graphics attachment uses (read-only)
-    depth_attachment_read,
-    /// Depth bound read-only for the depth test while the fragment shader
-    /// also samples it: one layout serves both.
-    depth_read_sampled,
-    input_attachment,
-
-    // Shader reads
-    sampled_fragment,
-    sampled_vertex,
-    /// Sampled by a task or mesh shader.
-    sampled_mesh,
-    sampled_compute,
-
-    // Storage image
-    storage_read_compute,
-    storage_write_compute,
-    storage_read_write_compute,
-
-    // Ray tracing shaders (vkCmdTraceRaysKHR). A distinct pipeline stage
-    // from compute: a barrier addressed to the compute stage does not
-    // order a trace.
-    sampled_raytracing,
-    storage_write_raytracing,
-
-    // Buffers (reads)
-    uniform_read,
-    storage_buffer_read_compute,
-    storage_buffer_read_vertex,
-    storage_buffer_read_fragment,
-    /// Read by a task or mesh shader.
-    storage_buffer_read_mesh,
-    indirect_read,
-    index_read,
-    vertex_read,
-
-    // Buffers (writes)
-    storage_buffer_write_compute,
-    storage_buffer_read_write_compute,
-
-    // Copies
-    transfer_src,
-    transfer_dst,
-};
-
-[[nodiscard]] constexpr bool access_is_write(ResourceAccess a) noexcept {
-    switch (a) {
-        case ResourceAccess::color_attachment:
-        case ResourceAccess::depth_attachment:
-        case ResourceAccess::depth_resolve:
-        case ResourceAccess::storage_write_compute:
-        case ResourceAccess::storage_read_write_compute:
-        case ResourceAccess::storage_write_raytracing:
-        case ResourceAccess::storage_buffer_write_compute:
-        case ResourceAccess::storage_buffer_read_write_compute:
-        case ResourceAccess::transfer_dst:
-            return true;
-        default:
-            return false;
-    }
-}
-
-/// Whether the access depends on what the resource already holds. An
-/// attachment counts: a pass loads what earlier passes drew before it draws
-/// over them, and two writers of one image have to be ordered either way,
-/// so the earlier one is a producer the later one reads.
-[[nodiscard]] constexpr bool access_is_read(ResourceAccess a) noexcept {
-    switch (a) {
-        case ResourceAccess::depth_resolve:
-        case ResourceAccess::storage_write_compute:
-        case ResourceAccess::storage_write_raytracing:
-        case ResourceAccess::storage_buffer_write_compute:
-        case ResourceAccess::transfer_dst:
-            return false;
-        default:
-            return true;
-    }
-}
 
 /// Resolution of a TextureDesc at compile time.
 /// "viewport" and fractions are resolved from the active viewport extent.
@@ -120,7 +31,7 @@ struct TextureDesc {
 
     /// Additional usage flags beyond what the graph infers from pass
     /// declarations. Usually left 0 — the compile step ORs in flags from
-    /// every declared ResourceAccess against this resource.
+    /// every declared gpu::Access against this resource.
     VkImageUsageFlags extra_usage{0};
 
     /// Persistent resources survive across frames (shadow atlas, DDGI

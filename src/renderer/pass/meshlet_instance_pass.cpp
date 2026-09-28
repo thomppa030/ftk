@@ -579,7 +579,7 @@ void MeshletInstancePass::collect_exports(DeclareContext& ctx) {
 
 void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
-        builder.read(hiz, ResourceAccess::sampled_compute);
+        builder.read(hiz, gpu::Access::sampled_compute);
     }
 
     // The expansion never leaves this pass, but every viewport in the frame
@@ -590,26 +590,26 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
     if (instance_buffers_[slot] && expand_counters_[slot]) {
         auto instances = builder.import("meshlet_instances", instance_buffers_[slot]->handle(),
                                         instance_buffers_[slot]->size());
-        builder.read_write(instances, ResourceAccess::storage_buffer_read_write_compute);
+        builder.read_write(instances, gpu::Access::storage_buffer_read_write_compute);
         auto count = builder.import("meshlet_expand_count", expand_counters_[slot]->handle(),
                                     expand_counters_[slot]->size());
-        builder.write(count, ResourceAccess::transfer_dst);
-        builder.read_write(count, ResourceAccess::storage_buffer_read_write_compute);
+        builder.write(count, gpu::Access::copy_dst);
+        builder.read_write(count, gpu::Access::storage_buffer_read_write_compute);
     }
 
     // What the draws read: visible instances appended by atomics, and the
     // indirect commands, uploaded by a transfer and then counted into.
     auto visible = builder.import_named_buffer(ctx, "meshlet_visible");
-    builder.read_write(visible, ResourceAccess::storage_buffer_read_write_compute);
+    builder.read_write(visible, gpu::Access::storage_buffer_read_write_compute);
     auto indirect = builder.import_named_buffer(ctx, "meshlet_indirect");
-    builder.write(indirect, ResourceAccess::transfer_dst);
-    builder.read_write(indirect, ResourceAccess::storage_buffer_read_write_compute);
+    builder.write(indirect, gpu::Access::copy_dst);
+    builder.read_write(indirect, gpu::Access::storage_buffer_read_write_compute);
     // What the Hi-Z rejected, for the second cull to test again.
     auto culled = builder.import_named_buffer(ctx, "meshlet_culled");
-    builder.write(culled, ResourceAccess::storage_buffer_write_compute);
+    builder.write(culled, gpu::Access::storage_buffer_write_compute);
     auto culled_count = builder.import_named_buffer(ctx, "meshlet_culled_count");
-    builder.write(culled_count, ResourceAccess::transfer_dst);
-    builder.read_write(culled_count, ResourceAccess::storage_buffer_read_write_compute);
+    builder.write(culled_count, gpu::Access::copy_dst);
+    builder.read_write(culled_count, gpu::Access::storage_buffer_read_write_compute);
 }
 
 void MeshletInstancePass::record(const FrameContext& ctx) {

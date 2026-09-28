@@ -976,7 +976,7 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!generates_this_frame()) { return; }
     auto cubemap = builder.import_named(ctx, "sky_cubemap");
     if (!cubemap.valid()) { return; }
-    builder.write(cubemap, ResourceAccess::storage_write_compute);
+    builder.write(cubemap, gpu::Access::storage_write_compute);
     builder.final_layout(cubemap,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,

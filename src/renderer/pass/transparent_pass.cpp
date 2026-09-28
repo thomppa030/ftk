@@ -377,20 +377,20 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     auto screen = builder.import_named(ctx, "screen_color");
 
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    builder.write(color, ResourceAccess::color_attachment);
-    builder.write(msaa_mr, ResourceAccess::color_attachment);
-    builder.write(mr, ResourceAccess::color_attachment);
-    builder.write(msaa_normal, ResourceAccess::color_attachment);
-    builder.write(normal, ResourceAccess::color_attachment);
-    builder.write(msaa_velocity, ResourceAccess::color_attachment);
-    builder.write(velocity, ResourceAccess::color_attachment);
+    builder.write(msaa_color, gpu::Access::color_attachment);
+    builder.write(color, gpu::Access::color_attachment);
+    builder.write(msaa_mr, gpu::Access::color_attachment);
+    builder.write(mr, gpu::Access::color_attachment);
+    builder.write(msaa_normal, gpu::Access::color_attachment);
+    builder.write(normal, gpu::Access::color_attachment);
+    builder.write(msaa_velocity, gpu::Access::color_attachment);
+    builder.write(velocity, gpu::Access::color_attachment);
     // The multisampled depth is the read-only attachment the draws test
     // against; the resolved one is what the shaders sample. Without MSAA
     // they are one image and the graph merges the two.
-    builder.read(msaa_depth, ResourceAccess::depth_read_sampled);
-    builder.read(depth, ResourceAccess::sampled_fragment);
-    builder.read(screen, ResourceAccess::sampled_fragment);
+    builder.read(msaa_depth, gpu::Access::depth_read_sampled);
+    builder.read(depth, gpu::Access::sampled_fragment);
+    builder.read(screen, gpu::Access::sampled_fragment);
 
     // Glass, lit particles and sprites.
     declare_lit_surface_reads(builder, ctx);

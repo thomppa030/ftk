@@ -369,7 +369,7 @@ PassSetup SsrTracePass::setup() const {
 
 void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
 
     TextureDesc ssr_desc{};
     ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -377,15 +377,15 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto ssr_out = builder.create("ssr_output", ssr_desc);
 
     if (screen_space_active()) {
-        builder.write(ssr_out, ResourceAccess::storage_write_compute);
+        builder.write(ssr_out, gpu::Access::storage_write_compute);
         // The trace steps through the Hi-Z pyramid and takes the colour it
         // hits from the last frame's.
         if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
-            builder.read(hiz, ResourceAccess::sampled_compute);
+            builder.read(hiz, gpu::Access::sampled_compute);
         }
         if (auto history = builder.import_named_optional(ctx, "prev_frame_color");
             history.valid()) {
-            builder.read(history, ResourceAccess::sampled_compute);
+            builder.read(history, gpu::Access::sampled_compute);
         }
     } else {
         // Off / RayTraced path clears ssr_output via vkCmdClearColorImage
@@ -393,7 +393,7 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // the composite reads rt_reflection_output instead.) The graph
         // barriers us into TRANSFER_DST; we honor the final_layout
         // SHADER_READ promise inline after the clear.
-        builder.write(ssr_out, ResourceAccess::transfer_dst);
+        builder.write(ssr_out, gpu::Access::copy_dst);
         builder.final_layout(ssr_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -511,12 +511,12 @@ void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     refl_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     refl_desc.size_class = SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", refl_desc);
-    builder.read(ssr_out, ResourceAccess::sampled_compute);
+    builder.read(ssr_out, gpu::Access::sampled_compute);
 
     auto color = builder.import_named(ctx, "color");
     auto mr = builder.import_named(ctx, "mr");
-    builder.read_write(color, ResourceAccess::storage_read_write_compute);
-    builder.read(mr, ResourceAccess::sampled_compute);
+    builder.read_write(color, gpu::Access::storage_read_write_compute);
+    builder.read(mr, gpu::Access::sampled_compute);
 }
 
 void SsrCompositePass::record(const FrameContext& ctx) {
@@ -624,8 +624,8 @@ void SsrHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->screen_space_active()) { return; }
     auto history = builder.import_named_optional(ctx, "prev_frame_color");
     if (!history.valid()) { return; }
-    builder.read(builder.import_named(ctx, "color"), ResourceAccess::transfer_src);
-    builder.write(history, ResourceAccess::transfer_dst);
+    builder.read(builder.import_named(ctx, "color"), gpu::Access::copy_src);
+    builder.write(history, gpu::Access::copy_dst);
     // record() leaves the history where the next frame's trace samples it.
     builder.final_layout(history, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,

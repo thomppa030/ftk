@@ -51,7 +51,7 @@ struct BufferImport {
 /// read, with how the draws read it.
 struct SubsystemDrawInput {
     BufferImport buffer;
-    ResourceAccess draw_access{ResourceAccess::storage_buffer_read_vertex};
+    gpu::Access draw_access{gpu::Access::storage_buffer_read_vertex};
 };
 
 /// FNV-1a over a string_view. Used to key the DeclareContext::imports
@@ -158,7 +158,7 @@ struct DeclareContext {
 ///   - imported resources: externally-owned VkImage/VkBuffer handed to the graph
 ///   - reads / writes: accesses against handles
 ///
-/// Writes and reads carry a ResourceAccess that drives both the DAG edge
+/// Writes and reads carry a gpu::Access that drives both the DAG edge
 /// type and the barrier the graph emits before the pass runs.
 class PassBuilder {
 public:
@@ -205,17 +205,17 @@ public:
 
     /// Declare that this pass reads a resource. Returns the handle so
     /// builder code can chain.
-    FgTexture read(FgTexture, ResourceAccess);
-    FgBuffer read(FgBuffer, ResourceAccess);
+    FgTexture read(FgTexture, gpu::Access);
+    FgBuffer read(FgBuffer, gpu::Access);
 
     /// Declare that this pass writes a resource.
-    FgTexture write(FgTexture, ResourceAccess);
-    FgBuffer write(FgBuffer, ResourceAccess);
+    FgTexture write(FgTexture, gpu::Access);
+    FgBuffer write(FgBuffer, gpu::Access);
 
     /// Declare that this pass reads and writes the same resource
     /// (storage image ping-pong, depth test+write, etc.).
-    FgTexture read_write(FgTexture, ResourceAccess);
-    FgBuffer read_write(FgBuffer, ResourceAccess);
+    FgTexture read_write(FgTexture, gpu::Access);
+    FgBuffer read_write(FgBuffer, gpu::Access);
 
     /// Promise that, after record() returns, the named texture is in
     /// the stated layout, for a pass that transitions it inline. The pass
@@ -253,11 +253,11 @@ public:
 
     struct TextureAccess {
         FgTexture handle{};
-        ResourceAccess access{ResourceAccess::sampled_fragment};
+        gpu::Access access{gpu::Access::sampled_fragment};
     };
     struct BufferAccess {
         FgBuffer handle{};
-        ResourceAccess access{ResourceAccess::uniform_read};
+        gpu::Access access{gpu::Access::uniform_read};
     };
     struct ImportedTexture {
         FgTexture handle;

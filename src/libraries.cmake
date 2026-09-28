@@ -96,6 +96,7 @@ fjell_library(gpu
         renderer/gpu/window.cpp
         gpu/vulkan/translate.cpp
     HEADERS
+        gpu/access.hpp
         gpu/clear.hpp
         gpu/flags.hpp
         gpu/format.hpp

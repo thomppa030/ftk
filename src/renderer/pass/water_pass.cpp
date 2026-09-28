@@ -862,30 +862,30 @@ void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.water_draws) { return; }
     // The colour targets the transparent pass then loads, drawn over.
     for (const char* name : {"msaa_color", "msaa_mr", "msaa_normal", "msaa_velocity"}) {
-        builder.write(builder.import_named(ctx, name), ResourceAccess::color_attachment);
+        builder.write(builder.import_named(ctx, name), gpu::Access::color_attachment);
     }
     // The depth the prepass wrote, tested and not written.
     builder.read(builder.import_named(ctx, "msaa_surface_depth"),
-                 ResourceAccess::depth_attachment_read);
+                 gpu::Access::depth_attachment_read);
     // What the surface shader samples through the global set: the lighting,
     // the scene depth behind it for WATER_DEPTH, and the copy of the scene
     // it refracts.
     declare_lit_surface_reads(builder, ctx);
-    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_fragment);
-    builder.read(builder.import_named(ctx, "screen_color"), ResourceAccess::sampled_fragment);
+    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "screen_color"), gpu::Access::sampled_fragment);
     // The simulated sea, which the mesh stage moves the surface by.
-    declare_simulation_reads(builder, ctx, ResourceAccess::sampled_mesh);
+    declare_simulation_reads(builder, ctx, gpu::Access::sampled_mesh);
     // The fog integrated front to back, for the medium behind the surface.
     // A transient: read by re-creating it by name, which is also what keeps
     // it from being aliased before this reads it.
     if (ctx.volumetric_fog_enabled) {
         builder.read(builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc()),
-                     ResourceAccess::sampled_fragment);
+                     gpu::Access::sampled_fragment);
     }
 }
 
 void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
-                                         ResourceAccess access) {
+                                         gpu::Access access) {
     for (const char* name : {"water_displacement", "water_displacement_prev",
                              "water_derivatives"}) {
         if (auto image = builder.import_named_optional(ctx, name); image.valid()) {
@@ -1110,8 +1110,8 @@ PassSetup WaterDepthSeedPass::setup() const {
 
 void WaterDepthSeedPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.water_draws) { return; }
-    builder.read(builder.import_named(ctx, "msaa_depth"), ResourceAccess::transfer_src);
-    builder.write(builder.import_named(ctx, "msaa_surface_depth"), ResourceAccess::transfer_dst);
+    builder.read(builder.import_named(ctx, "msaa_depth"), gpu::Access::copy_src);
+    builder.write(builder.import_named(ctx, "msaa_surface_depth"), gpu::Access::copy_dst);
 }
 
 void WaterDepthSeedPass::record(const FrameContext& ctx) {
@@ -1144,12 +1144,12 @@ void WaterDepthPrepass::declare(PassBuilder& builder, const DeclareContext& ctx)
     // the surface depth as the rendering ends, and without MSAA the two are
     // one image.
     builder.write(builder.import_named(ctx, "msaa_surface_depth"),
-                  ResourceAccess::depth_attachment);
+                  gpu::Access::depth_attachment);
     builder.write(builder.import_named(ctx, "surface_depth"),
-                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? ResourceAccess::depth_resolve
-                                                            : ResourceAccess::depth_attachment);
+                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? gpu::Access::depth_resolve
+                                                            : gpu::Access::depth_attachment);
     // The simulated sea, which the mesh stage moves the surface by.
-    WaterPass::declare_simulation_reads(builder, ctx, ResourceAccess::sampled_mesh);
+    WaterPass::declare_simulation_reads(builder, ctx, gpu::Access::sampled_mesh);
 }
 
 void WaterDepthPrepass::record(const FrameContext& ctx) {

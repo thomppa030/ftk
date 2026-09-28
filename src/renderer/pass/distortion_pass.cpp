@@ -18,9 +18,9 @@ PassSetup DistortionPass::setup() const {
 void DistortionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto distortion = builder.import_named(ctx, "distortion");
     auto depth = builder.import_named(ctx, "depth");
-    builder.write(distortion, ResourceAccess::color_attachment);
+    builder.write(distortion, gpu::Access::color_attachment);
     // Bound read-only for the depth test and sampled by the fragment shader.
-    builder.read(depth, ResourceAccess::depth_read_sampled);
+    builder.read(depth, gpu::Access::depth_read_sampled);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {

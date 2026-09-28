@@ -787,22 +787,22 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled()) { return; }
 
     auto medium = builder.create(MEDIUM_NAME, volume_desc());
-    builder.write(medium, ResourceAccess::storage_write_compute);
+    builder.write(medium, gpu::Access::storage_write_compute);
     // The surface depth, for which froxels lie inside a body of water. Read
     // whether or not a water draws this frame, so the set is one shape.
     auto depth = builder.import_named(ctx, COMPOSITE_DEPTH_NAME);
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
     auto scene_depth = builder.import_named(ctx, "depth");
-    builder.read(scene_depth, ResourceAccess::sampled_compute);
+    builder.read(scene_depth, gpu::Access::sampled_compute);
     // The waterline dispatch recorded at the head of this node binds the
     // water's set, and so the simulated sea's textures.
-    WaterPass::declare_simulation_reads(builder, ctx, ResourceAccess::sampled_compute);
+    WaterPass::declare_simulation_reads(builder, ctx, gpu::Access::sampled_compute);
     // What stirs the fog, through the global set.
     if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
-        builder.read(motion, ResourceAccess::sampled_compute);
+        builder.read(motion, gpu::Access::sampled_compute);
     }
     if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
-        builder.read(stir, ResourceAccess::sampled_compute);
+        builder.read(stir, gpu::Access::sampled_compute);
     }
     // The waterline mask, written by the water pass's dispatch at the start
     // of this node's recording and read by every medium dispatch after it.
@@ -812,7 +812,7 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     line_desc.size_class = SizeClass::viewport;
     line_desc.viewport_divisor = SCREEN_DIVISOR;
     auto line = builder.create(WATER_LINE_NAME, line_desc);
-    builder.write(line, ResourceAccess::storage_write_compute);
+    builder.write(line, gpu::Access::storage_write_compute);
 }
 
 void FogMediumPass::record(const FrameContext& ctx) {
@@ -996,27 +996,27 @@ void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto medium = builder.create(FogCore::MEDIUM_NAME, FogCore::volume_desc());
-    builder.read(medium, ResourceAccess::storage_read_compute);
+    builder.read(medium, gpu::Access::storage_read_compute);
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
-    builder.write(scatter_cur, ResourceAccess::storage_write_compute);
+    builder.write(scatter_cur, gpu::Access::storage_write_compute);
     builder.has_side_effects();  // writes a persistent cross-frame volume
 
     // What the light variant samples through the global set.
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_compute);
+        builder.read(atlas, gpu::Access::sampled_compute);
     }
     if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_compute);
+        builder.read(atlas, gpu::Access::sampled_compute);
     }
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
-        builder.read(sky, ResourceAccess::sampled_compute);
+        builder.read(sky, gpu::Access::sampled_compute);
     }
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
-        builder.read(clouds, ResourceAccess::sampled_compute);
+        builder.read(clouds, gpu::Access::sampled_compute);
     }
     if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
-        builder.read(stir, ResourceAccess::sampled_compute);
+        builder.read(stir, gpu::Access::sampled_compute);
     }
 }
 
@@ -1090,9 +1090,9 @@ void FogTemporalPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
     auto scatter_prev = builder.import_named(ctx, "fog_scatter_prev");
-    builder.read(scatter_cur, ResourceAccess::storage_read_compute);
-    builder.write(scatter_cur, ResourceAccess::storage_write_compute);
-    builder.read(scatter_prev, ResourceAccess::sampled_compute);
+    builder.read(scatter_cur, gpu::Access::storage_read_compute);
+    builder.write(scatter_cur, gpu::Access::storage_write_compute);
+    builder.read(scatter_prev, gpu::Access::sampled_compute);
     builder.has_side_effects();
 }
 
@@ -1165,10 +1165,10 @@ void FogIntegratePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
-    builder.read(scatter_cur, ResourceAccess::sampled_compute);
+    builder.read(scatter_cur, gpu::Access::sampled_compute);
 
     auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
-    builder.write(integrated, ResourceAccess::storage_write_compute);
+    builder.write(integrated, gpu::Access::storage_write_compute);
 }
 
 void FogIntegratePass::record(const FrameContext& ctx) {
@@ -1242,12 +1242,12 @@ void FogCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
-    builder.read(integrated, ResourceAccess::sampled_compute);
+    builder.read(integrated, gpu::Access::sampled_compute);
 
     auto depth = builder.import_named(ctx, FogCore::COMPOSITE_DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read_write(color, ResourceAccess::storage_read_write_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read_write(color, gpu::Access::storage_read_write_compute);
     // Increment the frame counter once per frame after the last node that
     // uses it. Composite is always last in the fog chain, so flip here.
     // (We mutate through core_ in record(), not declare — here we just

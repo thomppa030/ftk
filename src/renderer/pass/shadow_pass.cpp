@@ -739,7 +739,7 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
     auto atlas = builder.import_named(ctx, "shadow_atlas");
     if (atlas.valid()) {
-        builder.write(atlas, ResourceAccess::depth_attachment);
+        builder.write(atlas, gpu::Access::depth_attachment);
         // record() finishes with every cascade transitioned to
         // DEPTH_STENCIL_READ_ONLY_OPTIMAL inline so consumers can
         // sample without an extra barrier from the graph.

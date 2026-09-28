@@ -103,9 +103,9 @@ void DistortionApplyPass::declare(PassBuilder& builder, const DeclareContext& ct
     auto distortion = builder.import_named(ctx, "distortion");
     auto screen = builder.import_named(ctx, "screen_color");
     auto msaa_color = builder.import_named(ctx, "msaa_color");
-    builder.read(distortion, ResourceAccess::sampled_fragment);
-    builder.read(screen, ResourceAccess::sampled_fragment);
-    builder.write(msaa_color, ResourceAccess::color_attachment);
+    builder.read(distortion, gpu::Access::sampled_fragment);
+    builder.read(screen, gpu::Access::sampled_fragment);
+    builder.write(msaa_color, gpu::Access::color_attachment);
 }
 
 void DistortionApplyPass::record(const FrameContext& ctx) {

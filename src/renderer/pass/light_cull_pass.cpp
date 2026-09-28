@@ -124,11 +124,11 @@ void LightCullPass::collect_exports(DeclareContext& ctx) {
 
 void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
     // No reader, no reason to run: the opaque and transparent passes read
     // the tile lists, and a viewport without them culls this pass.
     auto tiles = builder.import_named_buffer(ctx, "tile_light_ssbo");
-    builder.write(tiles, ResourceAccess::storage_buffer_write_compute);
+    builder.write(tiles, gpu::Access::storage_buffer_write_compute);
 }
 
 } // namespace fjell

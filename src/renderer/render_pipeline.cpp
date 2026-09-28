@@ -449,7 +449,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // access whose key has been written earlier this frame. Update
         // `last_writer[k]` for every write. Buffers and textures share
         // the `ResKey` map — the discriminator is which field is set.
-        auto record_access = [&](size_t j, const ResKey& k, ResourceAccess access) {
+        auto record_access = [&](size_t j, const ResKey& k, gpu::Access access) {
             if (!key_valid(k)) { return; }
             if (access_is_read(access)) {
                 auto it = last_writer.find(k);

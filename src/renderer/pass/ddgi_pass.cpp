@@ -2065,24 +2065,24 @@ PassSetup DdgiPass::setup() const {
 void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     auto normal = builder.import_named(ctx, "normal");
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read(normal, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(normal, gpu::Access::sampled_compute);
     // The particle TLAS build reads the simulated particles.
     builder.read(builder.import_named_buffer(ctx, "particle_state"),
-                 ResourceAccess::storage_buffer_read_compute);
+                 gpu::Access::storage_buffer_read_compute);
     // Probe rays that miss read the sky, in the ray tracing stages or in the
     // SDF trace's compute shader.
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
         const bool traced = backend_ == DdgiBackend::ray_traced && rt_pipeline_ != VK_NULL_HANDLE;
-        builder.read(sky, traced ? ResourceAccess::sampled_raytracing
-                                 : ResourceAccess::sampled_compute);
+        builder.read(sky, traced ? gpu::Access::sampled_raytracing
+                                 : gpu::Access::sampled_compute);
     }
     // The per-pixel indirect light the surfaces sample. The graph moves it
     // into GENERAL; record() leaves it back where the surfaces read it on
     // every way out, which final_layout reports.
     if (config_.enabled) {
         if (auto out = builder.import_named_optional(ctx, "ddgi_indirect"); out.valid()) {
-            builder.write(out, ResourceAccess::storage_write_compute);
+            builder.write(out, gpu::Access::storage_write_compute);
             builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                  VK_ACCESS_2_SHADER_WRITE_BIT,

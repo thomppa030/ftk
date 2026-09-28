@@ -705,12 +705,12 @@ void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) 
         auto depth = builder.import_named(ctx, "depth");
         auto normal = builder.import_named(ctx, "normal");
         auto mr = builder.import_named(ctx, "mr");
-        builder.read(depth, ResourceAccess::sampled_raytracing);
-        builder.read(normal, ResourceAccess::sampled_raytracing);
-        builder.read(mr, ResourceAccess::sampled_raytracing);
+        builder.read(depth, gpu::Access::sampled_raytracing);
+        builder.read(normal, gpu::Access::sampled_raytracing);
+        builder.read(mr, gpu::Access::sampled_raytracing);
         // A reflection ray that misses reads the sky.
         if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
-            builder.read(sky, ResourceAccess::sampled_raytracing);
+            builder.read(sky, gpu::Access::sampled_raytracing);
         }
     }
 }

@@ -56,31 +56,31 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
 
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    builder.write(color, ResourceAccess::color_attachment);
-    builder.write(msaa_mr, ResourceAccess::color_attachment);
-    builder.write(mr, ResourceAccess::color_attachment);
-    builder.write(msaa_normal, ResourceAccess::color_attachment);
-    builder.write(normal, ResourceAccess::color_attachment);
-    builder.write(msaa_velocity, ResourceAccess::color_attachment);
-    builder.write(velocity, ResourceAccess::color_attachment);
-    builder.write(msaa_depth, ResourceAccess::depth_attachment);
+    builder.write(msaa_color, gpu::Access::color_attachment);
+    builder.write(color, gpu::Access::color_attachment);
+    builder.write(msaa_mr, gpu::Access::color_attachment);
+    builder.write(mr, gpu::Access::color_attachment);
+    builder.write(msaa_normal, gpu::Access::color_attachment);
+    builder.write(normal, gpu::Access::color_attachment);
+    builder.write(msaa_velocity, gpu::Access::color_attachment);
+    builder.write(velocity, gpu::Access::color_attachment);
+    builder.write(msaa_depth, gpu::Access::depth_attachment);
     // Under MSAA the depth attachment resolves into `depth` as rendering
     // ends; without it the two names are one attachment.
     builder.write(depth, ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
-                             ? ResourceAccess::depth_resolve
-                             : ResourceAccess::depth_attachment);
+                             ? gpu::Access::depth_resolve
+                             : gpu::Access::depth_attachment);
 
     declare_lit_surface_reads(builder, ctx);
     // The GPU-driven draws: every meshlet both culls found visible.
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
-                 ResourceAccess::storage_buffer_read_mesh);
+                 gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                 ResourceAccess::indirect_read);
+                 gpu::Access::indirect_read);
     // The selection outline is drawn through the vertex path, which reads
     // the transforms the instance cull kept.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                 ResourceAccess::storage_buffer_read_vertex);
+                 gpu::Access::storage_buffer_read_vertex);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {

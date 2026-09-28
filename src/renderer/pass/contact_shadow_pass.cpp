@@ -358,15 +358,15 @@ void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx)
     // reports.
     auto shadow = builder.import_named(ctx, "contact_shadow");
     if (!enabled_) {
-        builder.write(shadow, ResourceAccess::transfer_dst);
+        builder.write(shadow, gpu::Access::copy_dst);
         builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         return;
     }
-    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_compute);
-    builder.write(shadow, ResourceAccess::storage_write_compute);
+    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
+    builder.write(shadow, gpu::Access::storage_write_compute);
     builder.final_layout(shadow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,

@@ -389,7 +389,7 @@ void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // which final_layout reports.
     for (const char* name : {"water_displacement", "water_derivatives"}) {
         auto image = builder.import_named(ctx, name);
-        builder.write(image, ResourceAccess::storage_write_compute);
+        builder.write(image, gpu::Access::storage_write_compute);
         builder.final_layout(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
@@ -397,7 +397,7 @@ void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // New images: last frame's surface is cleared to still water.
     if (images_fresh_) {
         auto previous = builder.import_named(ctx, "water_displacement_prev");
-        builder.write(previous, ResourceAccess::transfer_dst);
+        builder.write(previous, gpu::Access::copy_dst);
         builder.final_layout(previous, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              SURFACE_READERS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);

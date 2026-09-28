@@ -29,18 +29,18 @@ PassSetup MeshletCullPass2::setup() const {
 
 void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
-        builder.read(hiz, ResourceAccess::sampled_compute);
+        builder.read(hiz, gpu::Access::sampled_compute);
     }
     // Tests again what the first cull set aside, and appends what is now
     // visible to the same instances and indirect commands.
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled"),
-                 ResourceAccess::storage_buffer_read_compute);
+                 gpu::Access::storage_buffer_read_compute);
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled_count"),
-                 ResourceAccess::storage_buffer_read_compute);
+                 gpu::Access::storage_buffer_read_compute);
     builder.read_write(builder.import_named_buffer(ctx, "meshlet_visible"),
-                       ResourceAccess::storage_buffer_read_write_compute);
+                       gpu::Access::storage_buffer_read_write_compute);
     builder.read_write(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                       ResourceAccess::storage_buffer_read_write_compute);
+                       gpu::Access::storage_buffer_read_write_compute);
 }
 
 void MeshletCullPass2::record(const FrameContext& ctx) {

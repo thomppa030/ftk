@@ -447,7 +447,7 @@ PassSetup LocalShadowPass::setup() const {
 void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "local_shadow_atlas");
     if (atlas.valid()) {
-        builder.write(atlas, ResourceAccess::depth_attachment);
+        builder.write(atlas, gpu::Access::depth_attachment);
         builder.final_layout(atlas,
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
@@ -460,9 +460,9 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // before the cull, so these reads are what the cull has to wait for
     // before overwriting either buffer.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                 ResourceAccess::storage_buffer_read_vertex);
+                 gpu::Access::storage_buffer_read_vertex);
     builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
-                 ResourceAccess::indirect_read);
+                 gpu::Access::indirect_read);
 }
 
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {

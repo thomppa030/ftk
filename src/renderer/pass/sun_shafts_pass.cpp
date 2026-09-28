@@ -378,20 +378,20 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled_) { return; }
 
     auto depth = builder.import_named(ctx, DEPTH_NAME);
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
     // The march samples the cascades every step, so the shadow pass has to
     // finish first. Declared rather than left to the producer's inline
     // finalize barrier, which is the edge the DAG could not otherwise see.
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, ResourceAccess::sampled_compute);
+        builder.read(atlas, gpu::Access::sampled_compute);
     }
     // Clouds shade the shafts too.
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
-        builder.read(clouds, ResourceAccess::sampled_compute);
+        builder.read(clouds, gpu::Access::sampled_compute);
     }
 
     auto raw = builder.create(RAW_NAME, raw_desc());
-    builder.write(raw, ResourceAccess::storage_write_compute);
+    builder.write(raw, gpu::Access::storage_write_compute);
 }
 
 void SunShaftsPass::record(const FrameContext& ctx) {
@@ -489,11 +489,11 @@ void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& c
     auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     // The resolved velocity: under MSAA the multisampled one cannot be sampled.
     auto velocity = builder.import_named(ctx, "velocity");
-    builder.read(raw, ResourceAccess::sampled_compute);
-    builder.read(prev, ResourceAccess::sampled_compute);
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read(velocity, ResourceAccess::sampled_compute);
-    builder.write(cur, ResourceAccess::storage_write_compute);
+    builder.read(raw, gpu::Access::sampled_compute);
+    builder.read(prev, gpu::Access::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(velocity, gpu::Access::sampled_compute);
+    builder.write(cur, gpu::Access::storage_write_compute);
 }
 
 void SunShaftsResolvePass::record(const FrameContext& ctx) {
@@ -560,9 +560,9 @@ void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext&
     auto shafts = builder.import_named(ctx, SunShaftsPass::HISTORY_CUR_NAME);
     auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
-    builder.read(shafts, ResourceAccess::sampled_compute);
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read_write(color, ResourceAccess::storage_read_write_compute);
+    builder.read(shafts, gpu::Access::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read_write(color, gpu::Access::storage_read_write_compute);
 }
 
 void SunShaftsCompositePass::record(const FrameContext& ctx) {

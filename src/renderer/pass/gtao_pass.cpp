@@ -330,11 +330,11 @@ void AoPass::invalidate_imgui_texture() {
 
 void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(depth, gpu::Access::sampled_compute);
 
     auto ao = builder.import_named(ctx, "gtao_ao");
     if (enabled_) {
-        builder.write(ao, ResourceAccess::storage_write_compute);
+        builder.write(ao, gpu::Access::storage_write_compute);
         declare_trace(builder, ctx);
         // Enabled path: blur_v is the last node to touch ao, and it
         // declares its own final_layout to SHADER_READ. Nothing to
@@ -344,7 +344,7 @@ void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // This is the only ao node running when disabled — claim the
         // final SHADER_READ layout here. record() emits the matching
         // TRANSFER_DST → SHADER_READ transition inline.
-        builder.write(ao, ResourceAccess::transfer_dst);
+        builder.write(ao, gpu::Access::copy_dst);
         builder.final_layout(ao, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -542,17 +542,17 @@ void AoBlurHPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (owner_ == nullptr || !owner_->enabled()) { return; }
 
     auto ao = builder.import_named(ctx, "gtao_ao");
-    builder.read(ao, ResourceAccess::sampled_compute);
+    builder.read(ao, gpu::Access::sampled_compute);
 
     auto normal = builder.import_named(ctx, "normal");
-    builder.read(normal, ResourceAccess::sampled_compute);
+    builder.read(normal, gpu::Access::sampled_compute);
 
     TextureDesc blur_desc{};
     blur_desc.format = VK_FORMAT_R8_UNORM;
     blur_desc.size_class = SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);
-    builder.write(blur, ResourceAccess::storage_write_compute);
+    builder.write(blur, gpu::Access::storage_write_compute);
 }
 
 void AoBlurHPass::record(const FrameContext& ctx) {
@@ -647,13 +647,13 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     blur_desc.size_class = SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);
-    builder.read(blur, ResourceAccess::sampled_compute);
+    builder.read(blur, gpu::Access::sampled_compute);
 
     auto normal = builder.import_named(ctx, "normal");
-    builder.read(normal, ResourceAccess::sampled_compute);
+    builder.read(normal, gpu::Access::sampled_compute);
 
     auto ao = builder.import_named(ctx, "gtao_ao");
-    builder.write(ao, ResourceAccess::storage_write_compute);
+    builder.write(ao, gpu::Access::storage_write_compute);
     // blur_v is the last node to touch ao — claim the final SHADER_READ
     // layout so the graph's cross-frame tracker matches the actual state
     // (mesh.frag's pre-baked "ao_texture" global descriptor expects

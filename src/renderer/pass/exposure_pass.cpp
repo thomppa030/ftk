@@ -302,7 +302,7 @@ void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Off without auto-exposure: nothing declared, and the graph culls it.
     if (!enabled_) { return; }
     auto color = builder.import_named(ctx, "color");
-    builder.read(color, ResourceAccess::sampled_compute);
+    builder.read(color, gpu::Access::sampled_compute);
 
     // The histogram is counted into and reduced in place, then copied from.
     // Every viewport in the frame uses this slot's, so declaring it orders
@@ -311,11 +311,11 @@ void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (buffers_[slot] && readback_buffers_[slot]) {
         auto histogram = builder.import("exposure_histogram", buffers_[slot]->handle(),
                                         buffers_[slot]->size());
-        builder.read_write(histogram, ResourceAccess::storage_buffer_read_write_compute);
-        builder.read(histogram, ResourceAccess::transfer_src);
+        builder.read_write(histogram, gpu::Access::storage_buffer_read_write_compute);
+        builder.read(histogram, gpu::Access::copy_src);
         auto readback = builder.import("exposure_readback", readback_buffers_[slot]->handle(),
                                        readback_buffers_[slot]->size());
-        builder.write(readback, ResourceAccess::transfer_dst);
+        builder.write(readback, gpu::Access::copy_dst);
     }
     // The average's only reader is the CPU, on a later frame, which the
     // graph cannot see.

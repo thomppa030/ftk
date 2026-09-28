@@ -360,7 +360,7 @@ void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     tile_buffer_ = tiles->second.buffer;
     tile_buffer_size_ = tiles->second.size;
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
-                 ResourceAccess::storage_buffer_read_fragment);
+                 gpu::Access::storage_buffer_read_fragment);
     // What it draws is its own image, shown by the editor.
     builder.has_side_effects();
 }

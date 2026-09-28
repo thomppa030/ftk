@@ -621,24 +621,24 @@ PassSetup PostPass::setup() const {
 
 void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
-    builder.read(color, ResourceAccess::sampled_fragment);
+    builder.read(color, gpu::Access::sampled_fragment);
 
     // DEPTH in a post shader: the opaque scene with the water laid over it.
     auto depth = builder.import_named(ctx, "surface_depth");
-    builder.read(depth, ResourceAccess::sampled_fragment);
+    builder.read(depth, gpu::Access::sampled_fragment);
 
     // normal_at() and velocity_at(): the resolved G-buffer.
-    builder.read(builder.import_named(ctx, "normal"), ResourceAccess::sampled_fragment);
-    builder.read(builder.import_named(ctx, "velocity"), ResourceAccess::sampled_fragment);
+    builder.read(builder.import_named(ctx, "normal"), gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "velocity"), gpu::Access::sampled_fragment);
 
     // What the viewport shows, handed to ImGui after the graph.
     if (auto output = builder.import_named_optional(ctx, "post_output"); output.valid()) {
-        builder.write(output, ResourceAccess::color_attachment);
+        builder.write(output, gpu::Access::color_attachment);
         declare_output_handoff(builder, output);
     }
     // With TAA on, what the post pass reads is the history slot TAA just wrote.
     if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {
-        builder.read(taa, ResourceAccess::sampled_fragment);
+        builder.read(taa, gpu::Access::sampled_fragment);
     }
 
     // Declared read on bloom_mip0 so the DAG sees the post ← bloom_us_0
@@ -654,7 +654,7 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         bloom_desc.size_class = SizeClass::viewport;
         bloom_desc.viewport_divisor = 2;
         auto bloom_mip0 = builder.create("bloom_mip0", bloom_desc);
-        builder.read(bloom_mip0, ResourceAccess::sampled_fragment);
+        builder.read(bloom_mip0, gpu::Access::sampled_fragment);
     }
 
     // The post pass is the frame terminator: its output (the post pp

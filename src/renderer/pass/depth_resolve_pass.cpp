@@ -18,8 +18,8 @@ void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     if (ctx.msaa_samples == VK_SAMPLE_COUNT_1_BIT) { return; }
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    builder.write(depth, ResourceAccess::depth_resolve);
+    builder.read(msaa_depth, gpu::Access::depth_attachment_read);
+    builder.write(depth, gpu::Access::depth_resolve);
 }
 
 void DepthResolvePass::record(const FrameContext& ctx) {

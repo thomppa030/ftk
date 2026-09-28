@@ -46,8 +46,8 @@ void OutputOverlay::destroy() {
 bool OutputOverlay::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto output = builder.import_named_optional(ctx, "post_output");
     if (!output.valid()) return false;
-    builder.read(builder.import_named(ctx, "depth"), ResourceAccess::sampled_fragment);
-    builder.write(output, ResourceAccess::color_attachment);
+    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_fragment);
+    builder.write(output, gpu::Access::color_attachment);
     PostPass::declare_output_handoff(builder, output);
     // ImGui reads the output after the graph, so nothing in it reads what an
     // overlay writes, and the cull walk would drop the pass.
