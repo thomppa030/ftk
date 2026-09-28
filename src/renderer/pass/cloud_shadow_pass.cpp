@@ -307,25 +307,11 @@ PassSetup CloudShadowPass::setup() const {
 
 void CloudShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Nothing to do while the map already holds full transmittance. The
-    // graph moves the image into the layout the clear or the dispatch needs;
-    // record() moves it back to where the surfaces, the fog light and the
-    // sun shafts sample it, which final_layout reports.
+    // graph moves the image into the layout the clear or the dispatch needs,
+    // and back to rest afterwards.
     if (!active_ && cleared_) { return; }
     auto map = builder.import_named(ctx, "cloud_shadow");
-    constexpr VkPipelineStageFlags2 readers =
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    if (!active_) {
-        builder.write(map, gpu::Access::copy_dst);
-        builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             readers, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        return;
-    }
-    builder.write(map, gpu::Access::storage_write_compute);
-    builder.final_layout(map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         readers, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    builder.write(map, active_ ? gpu::Access::storage_write_compute : gpu::Access::copy_dst);
 }
 
 void CloudShadowPass::collect_exports(DeclareContext& ctx) {
@@ -333,8 +319,9 @@ void CloudShadowPass::collect_exports(DeclareContext& ctx) {
     ImportedImage img{};
     img.image = image_;
     img.view = view_;
-    // Seeded when created, and every record leaves it there.
-    img.initial_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Every surface, the fog light and the sun shafts sample it through the
+    // global set, which the graph cannot see. Seeded there when created.
+    img.resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
     ctx.imports.emplace(fg_name_hash("cloud_shadow"), img);
 }
 
@@ -351,12 +338,6 @@ void CloudShadowPass::record(const FrameContext& ctx) {
         clear.float32[0] = 1.0f;
         VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cmd, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
-        auto to_sampled = make_barrier(image_,
-            VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        batch_barriers(cmd, &to_sampled, 1);
         cleared_ = true;
         return;
     }
@@ -377,13 +358,6 @@ void CloudShadowPass::record(const FrameContext& ctx) {
     vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
     const uint32_t groups = (RESOLUTION + 7) / 8;
     vkCmdDispatch(cmd, groups, groups, 1);
-
-    auto to_sampled = make_barrier(image_,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    batch_barriers(cmd, &to_sampled, 1);
     cleared_ = false;
 }
 
