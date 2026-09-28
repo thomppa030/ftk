@@ -233,6 +233,7 @@ add_executable(fjell-tests
     test_component_pool.cpp
     test_node_lifetime.cpp
     test_script_call.cpp
+    test_resource_pool.cpp
     test_scene_node_kinds.cpp
     test_script_pools.cpp
     test_curve_editor.cpp

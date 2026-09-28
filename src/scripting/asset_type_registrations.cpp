@@ -31,6 +31,9 @@ static const bool reg_vfx = [] {
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::VfxAssetHandle>(path).id;
+        },
     });
     return true;
 }();
@@ -50,6 +53,9 @@ static const bool reg_audio = [] {
             auto r = rm.load_audio_asset(path);
             if (!r) return fjell::make_error(r.error());
             return r->id;
+        },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::AudioAssetHandle>(path).id;
         },
     });
     return true;
@@ -71,6 +77,9 @@ static const bool reg_surface = [] {
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::SurfaceAssetHandle>(path).id;
+        },
     });
     return true;
 }();
@@ -90,6 +99,9 @@ static const bool reg_day_profile = [] {
             auto r = rm.load_day_profile(path);
             if (!r) return fjell::make_error(r.error());
             return r->id;
+        },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::DayProfileAssetHandle>(path).id;
         },
     });
     return true;
@@ -111,6 +123,9 @@ static const bool reg_weather = [] {
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::WeatherAssetHandle>(path).id;
+        },
     });
     return true;
 }();
@@ -131,6 +146,9 @@ static const bool reg_climate = [] {
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::ClimateAssetHandle>(path).id;
+        },
     });
     return true;
 }();
@@ -150,6 +168,9 @@ static const bool reg_material = [] {
             auto r = rm.load_material_asset(path);
             if (!r) return fjell::make_error(r.error());
             return r->id;
+        },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::MaterialHandle>(path).id;
         },
         .draw_preview = [](const std::string& path, ResourceManager& /*rm*/,
                            fjell::IconCache* icons, const fjell::Project* project,
@@ -194,6 +215,9 @@ static const bool reg_input_action = [] {
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::InputActionHandle>(path).id;
+        },
     });
     return true;
 }();
@@ -213,6 +237,9 @@ static const bool reg_preset = [] {
             auto r = rm.load_preset_asset(path);
             if (!r) return fjell::make_error(r.error());
             return r->id;
+        },
+        .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
+            return rm.asset_handle_of<fjell::PresetAssetHandle>(path).id;
         },
     });
     return true;

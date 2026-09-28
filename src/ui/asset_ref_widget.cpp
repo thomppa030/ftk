@@ -192,7 +192,8 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     // What the field shows: the asset's kind and name, "None" when empty,
     // and a missing asset by name in the error colour, never as empty.
     const std::string& reference = path;
-    const bool missing = has_value && (shown_path.empty() || !asset_exists(reference, project));
+    const bool missing =
+        has_value && (config.failed || shown_path.empty() || !asset_exists(reference, project));
     const std::string name = shown_path.empty()
         ? reference
         : std::filesystem::path(shown_path).filename().string();

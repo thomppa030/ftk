@@ -1221,16 +1221,23 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 auto* ref = static_cast<AssetData*>(ptr);
                 auto& j = in[f.name];
                 if (j.is_object() && j.contains("asset_path") && s_services.resources) {
-                    auto path = j["asset_path"].get<std::string>();
-                    if (path.empty()) {
+                    const auto path = j["asset_path"].get<std::string>();
+                    const auto* entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
+                    if (path.empty() || entry == nullptr) {
                         *ref = {};
                     } else {
-                        auto result = s_services.resources->load_asset_by_type(
-                            f.ref_type_name, path);
-                        if (result) {
-                            ref->handle_id = *result;
-                            auto* at = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
-                            ref->asset_type_id = at ? at->type_id : 0;
+                        // A path known and not loaded has failed before; it
+                        // is tried again, but said once.
+                        const bool failed_before = entry->find(*s_services.resources, path) != 0;
+                        if (auto loaded = entry->load(*s_services.resources, path)) {
+                            *ref = {.handle_id = *loaded, .asset_type_id = entry->type_id};
+                        } else {
+                            // Missing, not empty: the field keeps the file it
+                            // names, so saving writes it back and using it
+                            // says which file failed.
+                            if (!failed_before) FJELL_CORE_ERROR("`{}`: {}", f.name, loaded.error());
+                            *ref = {.handle_id = entry->find(*s_services.resources, path),
+                                    .asset_type_id = entry->type_id};
                         }
                     }
                 }

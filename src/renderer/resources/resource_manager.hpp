@@ -5,6 +5,7 @@
 #include "platform/file_watcher.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/resource_handle.hpp"
+#include "renderer/resources/resource_pool.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
@@ -12,7 +13,7 @@
 #include "environment/day_profile_asset.hpp"
 #include "environment/climate_asset.hpp"
 #include "environment/weather_asset.hpp"
-// Complete type required: Pool<TerrainAsset> destroys unique_ptrs inline.
+// Complete type required: ResourcePool<TerrainAsset> destroys unique_ptrs inline.
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "scene/preset_asset.hpp"
@@ -26,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -171,6 +173,24 @@ public:
     [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
     [[nodiscard]] std::string asset_path_of(PresetAssetHandle handle) const;
 
+    /// The handle kept for `path` among the assets of `HandleT`'s kind,
+    /// whether it loaded or failed to: a failed load keeps its slot, so a
+    /// field holding it still names the file. Invalid when nothing was ever
+    /// loaded under `path`.
+    template <typename HandleT>
+    [[nodiscard]] HandleT asset_handle_of(const std::string& path) const {
+        if constexpr (std::is_same_v<HandleT, VfxAssetHandle>) return vfx_assets_.find(path);
+        else if constexpr (std::is_same_v<HandleT, AudioAssetHandle>) return audio_assets_.find(path);
+        else if constexpr (std::is_same_v<HandleT, SurfaceAssetHandle>) return surface_assets_.find(path);
+        else if constexpr (std::is_same_v<HandleT, DayProfileAssetHandle>) return day_profiles_.find(path);
+        else if constexpr (std::is_same_v<HandleT, WeatherAssetHandle>) return weather_assets_.find(path);
+        else if constexpr (std::is_same_v<HandleT, ClimateAssetHandle>) return climate_assets_.find(path);
+        else if constexpr (std::is_same_v<HandleT, MaterialHandle>) return materials_.find(path);
+        else if constexpr (std::is_same_v<HandleT, InputActionHandle>) return input_actions_.find(path);
+        else if constexpr (std::is_same_v<HandleT, PresetAssetHandle>) return preset_assets_.find(path);
+        else static_assert(sizeof(HandleT) == 0, "not a kind of asset scripts refer to");
+    }
+
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
@@ -219,34 +239,6 @@ public:
     void update_viewport_bindings(const std::string& viewport_name, uint32_t bindless_idx);
 
 private:
-    template <typename T, typename HandleT>
-    struct Pool {
-        std::vector<std::unique_ptr<T>> slots;
-        std::vector<uint32_t> generations;
-        std::vector<LoadState> states;
-        std::unordered_map<std::string, HandleT> name_to_handle;
-
-        HandleT insert(const std::string& key, std::unique_ptr<T> resource);
-        T* get(HandleT handle) const;
-
-        // Reserve a slot (nullptr + Loading state), returns handle immediately
-        HandleT reserve(const std::string& key);
-
-        // Fill a previously reserved slot
-        void emplace(HandleT handle, std::unique_ptr<T> resource);
-
-        // Query load state
-        [[nodiscard]] LoadState state(HandleT handle) const;
-
-        // Reverse lookup: handle → key (path)
-        [[nodiscard]] std::string path_of(HandleT handle) const {
-            for (const auto& [k, v] : name_to_handle) {
-                if (v == handle) return k;
-            }
-            return {};
-        }
-    };
-
     VkDevice device_;
     VmaAllocator allocator_;
     VkPhysicalDevice physical_device_;
@@ -257,19 +249,19 @@ private:
     PipelineCache* pipeline_cache_;
     std::filesystem::path cache_dir_;
 
-    Pool<Model, ModelHandle> models_;
-    Pool<SkeletalModel, SkeletalModelHandle> skeletal_models_;
-    Pool<Texture, TextureHandle> textures_;
-    Pool<Material, MaterialHandle> materials_;
-    Pool<VfxEffect, VfxAssetHandle> vfx_assets_;
-    Pool<TerrainAsset, TerrainAssetHandle> terrain_assets_;
-    Pool<AudioAsset, AudioAssetHandle> audio_assets_;
-    Pool<SurfaceAsset, SurfaceAssetHandle> surface_assets_;
-    Pool<DayProfileAsset, DayProfileAssetHandle> day_profiles_;
-    Pool<WeatherAsset, WeatherAssetHandle> weather_assets_;
-    Pool<ClimateAsset, ClimateAssetHandle> climate_assets_;
-    Pool<InputActionDef, InputActionHandle> input_actions_;
-    Pool<PresetAsset, PresetAssetHandle> preset_assets_;
+    ResourcePool<Model, ModelHandle> models_;
+    ResourcePool<SkeletalModel, SkeletalModelHandle> skeletal_models_;
+    ResourcePool<Texture, TextureHandle> textures_;
+    ResourcePool<Material, MaterialHandle> materials_;
+    ResourcePool<VfxEffect, VfxAssetHandle> vfx_assets_;
+    ResourcePool<TerrainAsset, TerrainAssetHandle> terrain_assets_;
+    ResourcePool<AudioAsset, AudioAssetHandle> audio_assets_;
+    ResourcePool<SurfaceAsset, SurfaceAssetHandle> surface_assets_;
+    ResourcePool<DayProfileAsset, DayProfileAssetHandle> day_profiles_;
+    ResourcePool<WeatherAsset, WeatherAssetHandle> weather_assets_;
+    ResourcePool<ClimateAsset, ClimateAssetHandle> climate_assets_;
+    ResourcePool<InputActionDef, InputActionHandle> input_actions_;
+    ResourcePool<PresetAsset, PresetAssetHandle> preset_assets_;
 
     // Maps texture pool slot index → bindless texture index
     std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;

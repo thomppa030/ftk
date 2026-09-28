@@ -66,9 +66,12 @@ ui::Edit draw_asset_ref(const OwnedFieldDesc& f, AssetData& ref, const Inspector
     if (ref.handle_id != 0 && asset_entry->path_of) {
         path = asset_entry->path_of(*ctx.resource_manager, ref.handle_id);
     }
+    // A file that failed to load is still held, by a handle that finds nothing.
+    const bool failed = ref.handle_id != 0 && asset_entry->resolve != nullptr &&
+                        asset_entry->resolve(*ctx.resource_manager, ref.handle_id) == nullptr;
     const std::string exts[] = {asset_entry->extension};
     if (!asset_slot({.label = f.name.c_str(), .id = "##ref", .extensions = exts, .ctx = &ctx,
-                     .asset_type = asset_entry, .shader_types = f.shader_types},
+                     .asset_type = asset_entry, .shader_types = f.shader_types, .failed = failed},
                     path)) {
         return {};
     }

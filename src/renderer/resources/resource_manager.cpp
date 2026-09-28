@@ -31,69 +31,6 @@ namespace fjell {
 
 namespace fs = std::filesystem;
 
-// -- Pool implementation -----------------------------------------------------
-
-template <typename T, typename HandleT>
-HandleT ResourceManager::Pool<T, HandleT>::insert(const std::string& key,
-                                                   std::unique_ptr<T> resource) {
-    uint32_t index = static_cast<uint32_t>(slots.size());
-    uint32_t gen = 1;
-    slots.push_back(std::move(resource));
-    generations.push_back(gen);
-    states.push_back(LoadState::Ready);
-    auto handle = HandleT::make(index, gen);
-    if (!key.empty()) {
-        name_to_handle.emplace(key, handle);
-    }
-    return handle;
-}
-
-template <typename T, typename HandleT>
-T* ResourceManager::Pool<T, HandleT>::get(HandleT handle) const {
-    if (!handle.valid()) return nullptr;
-    uint32_t idx = handle.index();
-    if (idx >= slots.size()) return nullptr;
-    if (generations[idx] != handle.generation()) return nullptr;
-    return slots[idx].get();
-}
-
-template <typename T, typename HandleT>
-HandleT ResourceManager::Pool<T, HandleT>::reserve(const std::string& key) {
-    uint32_t index = static_cast<uint32_t>(slots.size());
-    uint32_t gen = 1;
-    slots.push_back(nullptr);
-    generations.push_back(gen);
-    states.push_back(LoadState::Loading);
-    auto handle = HandleT::make(index, gen);
-    if (!key.empty()) {
-        name_to_handle.emplace(key, handle);
-    }
-    return handle;
-}
-
-template <typename T, typename HandleT>
-void ResourceManager::Pool<T, HandleT>::emplace(HandleT handle, std::unique_ptr<T> resource) {
-    uint32_t idx = handle.index();
-    if (idx < slots.size() && generations[idx] == handle.generation()) {
-        slots[idx] = std::move(resource);
-        states[idx] = LoadState::Ready;
-    }
-}
-
-template <typename T, typename HandleT>
-LoadState ResourceManager::Pool<T, HandleT>::state(HandleT handle) const {
-    if (!handle.valid()) return LoadState::Failed;
-    uint32_t idx = handle.index();
-    if (idx >= states.size()) return LoadState::Failed;
-    if (generations[idx] != handle.generation()) return LoadState::Failed;
-    return states[idx];
-}
-
-// Explicit instantiations
-template struct ResourceManager::Pool<Model, ModelHandle>;
-template struct ResourceManager::Pool<Texture, TextureHandle>;
-template struct ResourceManager::Pool<Material, MaterialHandle>;
-
 // -- ResourceManager ---------------------------------------------------------
 
 ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
@@ -481,10 +418,7 @@ std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_ha
 
 Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& path,
                                                              const Project* project) {
-    auto it = materials_.name_to_handle.find(path);
-    if (it != materials_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = materials_.ready(path); ready.valid()) return ready;
 
     // The parser throws on a missing or malformed file. Callers get a Result,
     // so the failure belongs in it rather than escaping into whoever happens to
@@ -493,6 +427,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     try {
         asset = fjell::load_material_asset(path);
     } catch (const std::exception& e) {
+        materials_.fail(path);
         return make_error("Failed to load material '" + path + "': " + e.what());
     }
 
@@ -665,7 +600,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         bindless_.update_material(mat_id, material->gpu_material());
     }
 
-    return materials_.insert(path, std::move(material));
+    return materials_.store(path, std::move(material));
 }
 
 ModelHandle ResourceManager::find_model(const std::string& path) const {
@@ -779,25 +714,19 @@ Material* ResourceManager::get(MaterialHandle handle) const {
 }
 
 MaterialHandle ResourceManager::find_material(const std::string& name) const {
-    auto it = materials_.name_to_handle.find(name);
-    if (it != materials_.name_to_handle.end()) {
-        return it->second;
-    }
-    return {};
+    return materials_.ready(name);
 }
 
 // ── VFX assets ───────────────────────────────────────────────────────────
 
 Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) {
-    auto it = vfx_assets_.name_to_handle.find(path);
-    if (it != vfx_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = vfx_assets_.ready(path); ready.valid()) return ready;
 
     try {
         auto effect = std::make_unique<VfxEffect>(load_vfx_effect(path));
-        return vfx_assets_.insert(path, std::move(effect));
+        return vfx_assets_.store(path, std::move(effect));
     } catch (const std::exception& e) {
+        vfx_assets_.fail(path);
         return make_error(e.what());
     }
 }
@@ -866,29 +795,29 @@ TerrainAsset* ResourceManager::get(TerrainAssetHandle handle) const {
 // ── Audio assets ─────────────────────────────────────────────────────────
 
 Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& path) {
-    auto it = audio_assets_.name_to_handle.find(path);
-    if (it != audio_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = audio_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_audio_asset_file(path);
-    if (!result) return make_error(result.error());
+    if (!result) {
+        audio_assets_.fail(path);
+        return make_error(result.error());
+    }
     auto asset = std::make_unique<AudioAsset>(std::move(*result));
-    return audio_assets_.insert(path, std::move(asset));
+    return audio_assets_.store(path, std::move(asset));
 }
 
 // ── Surface assets ───────────────────────────────────────────────────────
 
 Result<SurfaceAssetHandle> ResourceManager::load_surface_asset(const std::string& path) {
-    auto it = surface_assets_.name_to_handle.find(path);
-    if (it != surface_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = surface_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_surface_asset_file(path);
-    if (!result) return make_error(result.error());
+    if (!result) {
+        surface_assets_.fail(path);
+        return make_error(result.error());
+    }
     auto asset = std::make_unique<SurfaceAsset>(std::move(*result));
-    return surface_assets_.insert(path, std::move(asset));
+    return surface_assets_.store(path, std::move(asset));
 }
 
 SurfaceAsset* ResourceManager::get(SurfaceAssetHandle handle) const {
@@ -902,15 +831,15 @@ std::string ResourceManager::asset_path_of(SurfaceAssetHandle handle) const {
 // ── Day profiles ─────────────────────────────────────────────────────────
 
 Result<DayProfileAssetHandle> ResourceManager::load_day_profile(const std::string& path) {
-    auto it = day_profiles_.name_to_handle.find(path);
-    if (it != day_profiles_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = day_profiles_.ready(path); ready.valid()) return ready;
 
     auto result = load_day_profile_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) {
+        day_profiles_.fail(path);
+        return make_error(result.error());
+    }
     auto asset = std::make_unique<DayProfileAsset>(std::move(*result));
-    return day_profiles_.insert(path, std::move(asset));
+    return day_profiles_.store(path, std::move(asset));
 }
 
 Result<> ResourceManager::reload_day_profile(const std::string& path) {
@@ -920,6 +849,8 @@ Result<> ResourceManager::reload_day_profile(const std::string& path) {
     if (!result) return make_error(result.error());
     if (auto* live = day_profiles_.get(it->second)) {
         *live = std::move(*result);
+    } else {
+        day_profiles_.emplace(it->second, std::make_unique<DayProfileAsset>(std::move(*result)));
     }
     return {};
 }
@@ -935,15 +866,15 @@ std::string ResourceManager::asset_path_of(DayProfileAssetHandle handle) const {
 // ── Weather events ───────────────────────────────────────────────────────
 
 Result<WeatherAssetHandle> ResourceManager::load_weather_asset(const std::string& path) {
-    auto it = weather_assets_.name_to_handle.find(path);
-    if (it != weather_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = weather_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_weather_asset_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) {
+        weather_assets_.fail(path);
+        return make_error(result.error());
+    }
     auto asset = std::make_unique<WeatherAsset>(std::move(*result));
-    return weather_assets_.insert(path, std::move(asset));
+    return weather_assets_.store(path, std::move(asset));
 }
 
 Result<> ResourceManager::reload_weather_asset(const std::string& path) {
@@ -953,6 +884,8 @@ Result<> ResourceManager::reload_weather_asset(const std::string& path) {
     if (!result) return make_error(result.error());
     if (auto* live = weather_assets_.get(it->second)) {
         *live = std::move(*result);
+    } else {
+        weather_assets_.emplace(it->second, std::make_unique<WeatherAsset>(std::move(*result)));
     }
     return {};
 }
@@ -968,15 +901,15 @@ std::string ResourceManager::asset_path_of(WeatherAssetHandle handle) const {
 // ── Climates ─────────────────────────────────────────────────────────────
 
 Result<ClimateAssetHandle> ResourceManager::load_climate_asset(const std::string& path) {
-    auto it = climate_assets_.name_to_handle.find(path);
-    if (it != climate_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = climate_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_climate_asset_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) {
+        climate_assets_.fail(path);
+        return make_error(result.error());
+    }
     auto asset = std::make_unique<ClimateAsset>(std::move(*result));
-    return climate_assets_.insert(path, std::move(asset));
+    return climate_assets_.store(path, std::move(asset));
 }
 
 Result<> ResourceManager::reload_climate_asset(const std::string& path) {
@@ -986,6 +919,8 @@ Result<> ResourceManager::reload_climate_asset(const std::string& path) {
     if (!result) return make_error(result.error());
     if (auto* live = climate_assets_.get(it->second)) {
         *live = std::move(*result);
+    } else {
+        climate_assets_.emplace(it->second, std::make_unique<ClimateAsset>(std::move(*result)));
     }
     return {};
 }
@@ -1005,18 +940,17 @@ AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
 // ── Input action assets ──────────────────────────────────────────────────
 
 Result<InputActionHandle> ResourceManager::load_input_action(const std::string& path) {
-    auto it = input_actions_.name_to_handle.find(path);
-    if (it != input_actions_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = input_actions_.ready(path); ready.valid()) return ready;
 
     std::ifstream f(path);
     if (!f.is_open()) {
+        input_actions_.fail(path);
         return make_error("Cannot open " + path);
     }
 
     auto j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) {
+        input_actions_.fail(path);
         return make_error("Invalid JSON in " + path);
     }
 
@@ -1027,7 +961,7 @@ Result<InputActionHandle> ResourceManager::load_input_action(const std::string& 
     else if (type_str == "axis2d") def->type = ActionType::axis2d;
     else def->type = ActionType::button;
 
-    return input_actions_.insert(path, std::move(def));
+    return input_actions_.store(path, std::move(def));
 }
 
 InputActionDef* ResourceManager::get(InputActionHandle handle) const {
@@ -1065,19 +999,17 @@ std::string ResourceManager::asset_path_of(InputActionHandle handle) const {
 
 Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path,
                                                              const Project* project) {
-    auto it = preset_assets_.name_to_handle.find(path);
-    if (it != preset_assets_.name_to_handle.end()) {
-        return it->second;
-    }
+    if (const auto ready = preset_assets_.ready(path); ready.valid()) return ready;
 
     auto result = PresetTemplate::load(path, *this, project ? project : project_);
     if (!result) {
+        preset_assets_.fail(path);
         return make_error(result.error());
     }
 
     auto asset = std::make_unique<PresetAsset>();
     asset->preset = std::move(*result);
-    return preset_assets_.insert(path, std::move(asset));
+    return preset_assets_.store(path, std::move(asset));
 }
 
 PresetAsset* ResourceManager::get(PresetAssetHandle handle) const {

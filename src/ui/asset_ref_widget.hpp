@@ -23,11 +23,15 @@ struct AssetRefConfig {
     /// are not offered, not accepted, and named under the field when one is
     /// already there. Empty takes any.
     std::span<const ShaderType> shader_types{};
+    /// The file the slot holds failed to load: it reads as missing, as a file
+    /// that is gone does, though it is there.
+    bool failed{false};
 };
 
 /// A field holding an asset reference, for the value column of a property
 /// row: the asset's kind icon and name (the path in the tooltip), "None" when
-/// empty and "missing: name" when the file is gone. Clicking it opens a
+/// empty and "missing: name" when the file is gone or failed to load
+/// (`config.failed`). Clicking it opens a
 /// searchable picker of every asset the field takes, the content browser's
 /// selection first; an asset dragged onto it is taken if it fits and refused,
 /// with the reason, if it doesn't. A clear button follows it, disabled while

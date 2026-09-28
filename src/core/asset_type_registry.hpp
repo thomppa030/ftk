@@ -25,6 +25,10 @@ struct AssetTypeEntry {
     void*            (*resolve)(ResourceManager& rm, uint32_t handle_id){nullptr};
     std::string      (*path_of)(const ResourceManager& rm, uint32_t handle_id){nullptr};
     Result<uint32_t> (*load)(ResourceManager& rm, const std::string& path){nullptr};
+    /// The handle kept for `path`, whether it loaded or failed to load; 0
+    /// when nothing was ever loaded under it. What a field that names a file
+    /// which failed to load holds, so the file is still known.
+    uint32_t         (*find)(const ResourceManager& rm, const std::string& path){nullptr};
 
     /// Optional preview callback for the inspector widget.
     /// Draws a type-specific preview (thumbnail, metadata, etc.) at the given width.

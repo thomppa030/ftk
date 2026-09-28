@@ -64,6 +64,11 @@ void begin_play() override {
 }
 ```
 
+**A file that fails to load is kept.** The field goes on naming it: the inspector shows
+it as missing, saving the scene writes it back rather than erasing it, and the report says
+which file failed. The next time the scene loads, the file is tried again, and a field
+holding it finds it once it loads.
+
 **Which materials an `Asset<Material>` takes.** It takes any material unless it says which
 shader types it can use:
 
@@ -105,7 +110,8 @@ file it names failed to load. Asks the engine each time; it is cheap.
 [[nodiscard]] uint32_t handle_id() const;
 ```
 
-The asset's handle, 0 while unset. It is what the engine reports assets by: a
+The asset's handle, 0 while unset. A file that failed to load has a handle of its own, so
+this is not a check that the asset is there. It is what the engine reports assets by: a
 hit's surface, the weather playing. Compare those with `surface::is` (`fjell/surface_api.hpp`)
 or against `handle_id()`.
 

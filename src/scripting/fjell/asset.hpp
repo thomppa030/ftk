@@ -19,7 +19,8 @@ namespace fjell {
 /// file the handle was loaded from, and sets both when the field is loaded or
 /// picked in the inspector.
 struct AssetData {
-    /// The asset's handle, 0 while unset.
+    /// The asset's handle, 0 while unset. A file that failed to load keeps a
+    /// handle of its own, so the field still names it.
     uint32_t handle_id{0};
     uint8_t  asset_type_id{0};
     uint8_t  reserved_[3]{};     // keeps sizeof(AssetData) == 8
