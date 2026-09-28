@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -539,4 +540,22 @@ TEST_CASE("Disconnect last listener during broadcast, earlier ones unaffected", 
     fired.clear();
     d.broadcast();
     REQUIRE(fired == std::vector<int>{1, 2});
+}
+
+TEST_CASE("A broadcast a listener threw out of still lets later binds join", "[delegate][edge]") {
+    Delegate<void()> event;
+    int later = 0;
+    Connection late;
+    auto thrower = event.bind([&] {
+        // Bound mid-broadcast: waits for the broadcast to finish.
+        late = event.bind([&] { ++later; });
+        throw std::runtime_error("listener failed");
+    });
+    CHECK_THROWS(event.broadcast());
+    thrower.disconnect();
+
+    // Had the broadcast been left unfinished, the listener bound during it
+    // would never have joined.
+    event.broadcast();
+    CHECK(later == 1);
 }

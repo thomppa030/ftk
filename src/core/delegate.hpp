@@ -111,6 +111,31 @@ public:
     void broadcast(Args... args) {
         auto s = state_; // local copy keeps state alive if Delegate is destroyed mid-broadcast
         s->broadcast_depth++;
+        // Settles the broadcast however it ends: one a listener threw out of
+        // is as finished as one that ran through, or the delegate would stay
+        // mid-broadcast and hold every later bind back.
+        struct Settle {
+            State& state;
+            explicit Settle(State& settled) : state{settled} {}
+            Settle(const Settle&) = delete;
+            Settle& operator=(const Settle&) = delete;
+            ~Settle() {
+                state.broadcast_depth--;
+                if (state.broadcast_depth != 0) return;
+                if (state.dirty) {
+                    std::erase_if(state.listeners, [](const Listener& l) { return !l.callback; });
+                    state.dirty = false;
+                }
+                // Anything bound while broadcasting joins now, after the cleanup
+                // above so a clear() during the broadcast cannot take it with it.
+                if (!state.pending.empty()) {
+                    state.listeners.insert(state.listeners.end(),
+                                           std::make_move_iterator(state.pending.begin()),
+                                           std::make_move_iterator(state.pending.end()));
+                    state.pending.clear();
+                }
+            }
+        } const settle{*s};
 
         // The size is snapshotted so a listener bound during the broadcast
         // waits for the next one. Binding also reallocates the vector, so the
@@ -122,23 +147,6 @@ public:
             auto& callback = s->listeners[i].callback;
             if (!callback) continue;
             callback(args...);
-        }
-
-        s->broadcast_depth--;
-
-        if (s->broadcast_depth == 0) {
-            if (s->dirty) {
-                std::erase_if(s->listeners, [](const Listener& l) { return !l.callback; });
-                s->dirty = false;
-            }
-            // Anything bound while broadcasting joins now, after the cleanup
-            // above so a clear() during the broadcast cannot take it with it.
-            if (!s->pending.empty()) {
-                s->listeners.insert(s->listeners.end(),
-                                    std::make_move_iterator(s->pending.begin()),
-                                    std::make_move_iterator(s->pending.end()));
-                s->pending.clear();
-            }
         }
     }
 
