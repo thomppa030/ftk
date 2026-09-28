@@ -105,4 +105,18 @@ VkDescriptorSet native_group(Device& device, BindGroup group) {
     return record != nullptr ? record->set : VK_NULL_HANDLE;
 }
 
+void begin_frame(Device& device, uint32_t frame_slot) {
+    Device::Impl& self = device.impl();
+    self.frame_slot = frame_slot;
+    self.frame_sets.begin_frame(frame_slot);
+}
+
+FrameDescriptorCache& frame_cache(Device& device) {
+    return device.impl().frame_sets;
+}
+
+const FrameDescriptorCache& frame_cache(const Device& device) {
+    return device.impl().frame_sets;
+}
+
 } // namespace fjell::gpu::vulkan

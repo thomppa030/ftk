@@ -2,6 +2,7 @@
 
 #include "core/handle_pool.hpp"
 #include "gpu/device.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -128,6 +129,11 @@ struct Device::Impl {
     HandlePool<GroupRecord, BindGroupTag> groups;
     /// Pools persistent groups come from, each allowing sets to be freed.
     std::vector<VkDescriptorPool> group_pools;
+    /// Sets that last one frame, from a pool per frame slot reset when the
+    /// slot comes round again; deduplicated within a frame.
+    FrameDescriptorCache frame_sets;
+    /// The frame slot being recorded, set where each frame starts.
+    uint32_t frame_slot{0};
     /// Set and pipeline layouts by what they hold, so pipelines declaring the
     /// same share one. Destroyed with the device.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;

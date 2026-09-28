@@ -101,6 +101,8 @@ fjell_library(gpu
         gpu/shader_reflection.cpp
         gpu/vulkan/binding.cpp
         gpu/vulkan/device.cpp
+        gpu/vulkan/frame_cache_key.cpp
+        gpu/vulkan/frame_descriptor_cache.cpp
         gpu/vulkan/native.cpp
         gpu/vulkan/pipeline.cpp
         gpu/vulkan/translate.cpp
@@ -121,6 +123,7 @@ fjell_library(gpu
         gpu/texture.hpp
         gpu/usage.hpp
         gpu/vulkan/device_impl.hpp
+        gpu/vulkan/frame_descriptor_cache.hpp
         gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
@@ -161,13 +164,10 @@ endif()
 # transient images and per-frame descriptor sets.
 fjell_library(framegraph
     SOURCES
-        renderer/frame_cache_key.cpp
-        renderer/frame_descriptor_cache.cpp
         renderer/frame_graph.cpp
         renderer/pass_builder.cpp
         renderer/transient_image_pool.cpp
     HEADERS
-        renderer/frame_descriptor_cache.hpp
         renderer/frame_graph.hpp
         renderer/pass_builder.hpp
         renderer/resource_desc.hpp

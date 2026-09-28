@@ -2,6 +2,7 @@
 
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
+#include "renderer/gpu/frames_in_flight.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 
 #include <algorithm>
@@ -118,6 +119,7 @@ Device::Impl::Impl(GpuCore& gpu_core)
     caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
     locator = [](const std::string& relative) { return relative; };
+    frame_sets.create(device, MAX_FRAMES_IN_FLIGHT, {});
 }
 
 Device::Impl::~Impl() {
@@ -137,6 +139,7 @@ Device::Impl::~Impl() {
         vkDestroyPipeline(device, record.pipeline, nullptr);
     });
     for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
+    frame_sets.destroy();
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);
     if (leaked > 0) {

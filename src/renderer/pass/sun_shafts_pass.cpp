@@ -5,7 +5,7 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/resource_registry.hpp"

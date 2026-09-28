@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "environment/environment_ubo.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
 #include "renderer/pass/fog_density_field_pass.hpp"
@@ -1615,7 +1616,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     }
 
     // Reclaim descriptor sets from the previous iteration of this slot.
-    gpu_.descriptor_cache().begin_frame(current_frame_);
+    gpu::vulkan::begin_frame(gpu_.core().gpu_device(), current_frame_);
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());

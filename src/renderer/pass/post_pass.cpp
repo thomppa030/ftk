@@ -4,7 +4,7 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "renderer/bindless.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"

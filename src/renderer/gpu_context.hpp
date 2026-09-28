@@ -1,7 +1,7 @@
 #pragma once
 
 #include "renderer/bindless.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu/buffer.hpp"
@@ -146,8 +146,9 @@ public:
     [[nodiscard]] BindlessTextures& bindless_textures() { return bindless_textures_; }
 
     // ── Per-frame descriptor set cache ─────────────────────────────────
-    [[nodiscard]] FrameDescriptorCache& descriptor_cache() { return descriptor_cache_; }
-    [[nodiscard]] const FrameDescriptorCache& descriptor_cache() const { return descriptor_cache_; }
+    /// The GPU interface device's one-frame descriptor sets.
+    [[nodiscard]] FrameDescriptorCache& descriptor_cache();
+    [[nodiscard]] const FrameDescriptorCache& descriptor_cache() const;
 
     // ── Transient image pool (FrameGraph aliasing) ─────────────────────
     [[nodiscard]] TransientImagePool& transient_pool() { return transient_pool_; }
@@ -216,7 +217,6 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> environment_buffers_;
 
     BindlessTextures bindless_textures_;
-    FrameDescriptorCache descriptor_cache_;
     TransientImagePool transient_pool_;
 
     // Pipelines

@@ -106,6 +106,7 @@ public:
     /// The device of the GPU interface (gpu/device.hpp), over this core.
     /// Everything made through it must be released before the core goes.
     [[nodiscard]] gpu::Device& gpu_device() { return *gpu_device_; }
+    [[nodiscard]] const gpu::Device& gpu_device() const { return *gpu_device_; }
 
     void wait_idle();
 

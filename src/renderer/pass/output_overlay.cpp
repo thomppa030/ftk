@@ -1,5 +1,5 @@
 #include "renderer/pass/output_overlay.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/render_pass.hpp"

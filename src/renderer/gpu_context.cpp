@@ -116,7 +116,6 @@ GpuContext::GpuContext(Window& window)
         throw std::runtime_error(r.error());
     }
 
-    descriptor_cache_.create(core_.vk_device(), MAX_FRAMES_IN_FLIGHT, {});
     transient_pool_.create(core_.vk_device(), core_.allocator());
 
     // Multi-draw indirect setup
@@ -209,7 +208,6 @@ GpuContext::~GpuContext() {
     transient_pool_.destroy();
     global_bindings_.destroy();
     bindless_textures_.destroy();
-    descriptor_cache_.destroy();
     pipeline_cache_.reset();
     pipeline_.reset();
 
@@ -444,6 +442,14 @@ void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
                                 thread_count + 1);
         secondary_pools_initialized_ = true;
     }
+}
+
+FrameDescriptorCache& GpuContext::descriptor_cache() {
+    return gpu::vulkan::frame_cache(core_.gpu_device());
+}
+
+const FrameDescriptorCache& GpuContext::descriptor_cache() const {
+    return gpu::vulkan::frame_cache(core_.gpu_device());
 }
 
 void GpuContext::share_draw_data_layout(VkDescriptorSetLayout layout,

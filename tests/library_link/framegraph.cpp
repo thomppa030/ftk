@@ -4,7 +4,7 @@
 // frame's bookkeeping in the graph and the descriptor cache's key.
 
 #include "core/log.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/frame_graph.hpp"
 
 int main() {

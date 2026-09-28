@@ -24,9 +24,6 @@ src/renderer/debug_draw.cpp
 src/renderer/debug_draw.hpp
 src/renderer/draw_data_descriptor.cpp
 src/renderer/draw_data_descriptor.hpp
-src/renderer/frame_cache_key.cpp
-src/renderer/frame_descriptor_cache.cpp
-src/renderer/frame_descriptor_cache.hpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/global_bindings.cpp
@@ -240,4 +237,3 @@ src/ui/ui_editor_context.cpp
 src/ui/viewport_manager.cpp
 src/ui/viewport_manager.hpp
 tests/library_link/gpu.cpp
-tests/test_frame_descriptor_cache.cpp

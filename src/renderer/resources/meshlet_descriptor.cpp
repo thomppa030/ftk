@@ -1,7 +1,7 @@
 #include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
-#include "renderer/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "core/log.hpp"
 
 #include <array>
