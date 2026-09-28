@@ -1,4 +1,5 @@
 #include "gpu/vulkan/access.hpp"
+#include "gpu/transition.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -58,4 +59,26 @@ TEST_CASE("A compute queue waits on all commands for graphics-only stages", "[vu
     CHECK(vulkan::compute_queue_stages(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
                                        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) ==
           (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
+}
+
+TEST_CASE("Accesses in one layout are one state; nothing is no state", "[vulkan][access]") {
+    CHECK(same_state(Access::sampled_fragment, Access::sampled_compute, false));
+    CHECK_FALSE(same_state(Access::sampled_fragment, Access::storage_write_compute, false));
+    CHECK_FALSE(same_state({}, Access::sampled_fragment, false));
+    // Sampled depth reads in the read-only depth layout, which a depth test
+    // that also samples uses too.
+    CHECK(same_state(Access::sampled_fragment, Access::depth_read_sampled, true));
+    CHECK_FALSE(same_state(Access::sampled_fragment, Access::depth_read_sampled, false));
+}
+
+TEST_CASE("What was made visible to a stage stays visible to it", "[vulkan][access]") {
+    const AccessSet both = Access::sampled_fragment | Access::sampled_compute;
+    CHECK(texture_already_visible(both, Access::sampled_compute, false, Queue::graphics));
+    CHECK_FALSE(
+        texture_already_visible(Access::sampled_compute, Access::sampled_fragment, false,
+                                Queue::graphics));
+    CHECK(buffer_already_visible(Access::storage_buffer_read_compute | Access::indirect_read,
+                                 Access::indirect_read, Queue::compute));
+    CHECK_FALSE(buffer_already_visible(Access::indirect_read, Access::uniform_read,
+                                       Queue::graphics));
 }

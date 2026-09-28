@@ -176,6 +176,24 @@ BufferScope buffer_scope(AccessSet accesses) {
     return merged;
 }
 
+std::string layout_name(VkImageLayout layout) {
+    switch (layout) {
+        case VK_IMAGE_LAYOUT_UNDEFINED:                        return "UNDEFINED";
+        case VK_IMAGE_LAYOUT_GENERAL:                          return "GENERAL";
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:         return "COLOR_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL: return "DS_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:  return "DS_RO";
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:         return "SHADER_RO";
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:             return "XFER_SRC";
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:             return "XFER_DST";
+        case VK_IMAGE_LAYOUT_PREINITIALIZED:                   return "PREINIT";
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:         return "DEPTH_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:           return "DEPTH_RO";
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                  return "PRESENT";
+        default:                                               return std::to_string(static_cast<int>(layout));
+    }
+}
+
 VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages) {
     constexpr VkPipelineStageFlags2 GRAPHICS_ONLY =
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | FRAGMENT_TESTS |

@@ -92,6 +92,11 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 /// slot are free again.
 void begin_frame(Device& device, uint32_t frame_slot);
 
+/// Makes `CommandList::transition` describe each barrier it records as a
+/// line appended to `lines`, resources by the names their transitions carry
+/// (the frame graph's barrier trace); null stops it.
+void trace_transitions(Device& device, std::string* lines);
+
 /// The device's one-frame descriptor sets, for passes that acquire their own.
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
 [[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);

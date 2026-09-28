@@ -245,6 +245,10 @@ struct Device::Impl {
     /// What `report_once` has logged.
     std::unordered_set<std::string> reported;
 
+    /// Where `CommandList::transition` describes the barriers it records, a
+    /// line each; null records nothing. Set by `vulkan::trace_transitions`.
+    std::string* transition_trace{nullptr};
+
     std::mutex views_mutex;
     std::mutex samplers_mutex;
     std::mutex reported_mutex;
