@@ -246,6 +246,11 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
                                     VMA_ALLOCATION_CREATE_MAPPED_BIT;
             break;
     }
+    // Mapped memory is coherent, so nothing flushes what the CPU wrote or
+    // invalidates what it reads: `mapped()` is all its users are given.
+    if (desc.memory != Memory::gpu) {
+        allocation_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
 
     BufferRecord record;
     record.size = desc.size;

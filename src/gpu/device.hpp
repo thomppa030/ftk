@@ -68,7 +68,9 @@ public:
     [[nodiscard]] Sampler sampler(const SamplerDesc& desc);
 
     /// The CPU's view of a buffer in `Memory::upload` or `Memory::readback`;
-    /// empty for `Memory::gpu` and for a handle that finds no buffer.
+    /// empty for `Memory::gpu` and for a handle that finds no buffer. Nothing
+    /// needs flushing: what the CPU writes there is seen by work submitted
+    /// after it.
     [[nodiscard]] std::span<std::byte> mapped(Buffer buffer) const;
 
     /// A buffer's size in bytes; 0 for a handle that finds no buffer.
