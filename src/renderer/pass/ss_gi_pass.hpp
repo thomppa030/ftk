@@ -136,10 +136,9 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    /// Returns whether it upsampled into the indirect output; where it stops
-    /// before that, the output is left in GENERAL, where the graph put it
-    /// for the write.
-    bool record_into(const FrameContext& ctx, Images& imgs);
+    /// Where it stops before upsampling into the indirect output, the
+    /// output holds what it held.
+    void record_into(const FrameContext& ctx, Images& imgs);
 
     /// Copy the scene depth into `imgs.prev_depth_image` for the next frame's
     /// resolve, once this frame's resolve has read the last copy. The scene

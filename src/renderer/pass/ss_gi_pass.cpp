@@ -569,17 +569,8 @@ void SsGiPass::record(const FrameContext& ctx) {
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ss_gi");
     FJELL_GPU_ZONE(ctx, "SS-GI");
-    if (!record_into(ctx, *imgs) && imgs->indirect_image != VK_NULL_HANDLE) {
-        // Stopped before the upsample. The graph moved the output to GENERAL
-        // for the write declare() promised; it goes back to where the
-        // surfaces read it, holding what it held.
-        transition_image(ctx.cmd, imgs->indirect_image,
-                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    }
+    // Stopping before the upsample leaves the output holding what it held.
+    record_into(ctx, *imgs);
 }
 
 PassSetup SsGiPass::setup() const {
@@ -601,32 +592,26 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(normal, gpu::Access::sampled_compute);
     // The emissive light the surfaces sample, kept for them into the next
     // frame, which is also what keeps the pass alive. The graph moves it
-    // into GENERAL; record() leaves it back where the surfaces read it on
-    // every way out, which final_layout reports.
+    // into GENERAL, and back to rest afterwards however record() ends.
     if (active()) {
         if (auto out = builder.import_named_optional(ctx, "ss_gi_output"); out.valid()) {
             builder.write(out, gpu::Access::storage_write_compute);
-            builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                 VK_ACCESS_2_SHADER_WRITE_BIT,
-                                 VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         }
     }
 }
 
 // ── Record ──────────────────────────────────────────────────────────────
 
-bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (trace_pipeline_ == VK_NULL_HANDLE) return false;
-    if (imgs.raw_radiance_image == VK_NULL_HANDLE) return false;
-    if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return false;
-    if (!ctx.target) return false;
+void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
+    if (trace_pipeline_ == VK_NULL_HANDLE) return;
+    if (imgs.raw_radiance_image == VK_NULL_HANDLE) return;
+    if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return;
+    if (!ctx.target) return;
 
     // All required views must be valid before we can dispatch
     auto depth_view = ctx.target->depth_view();
     auto normal_view = ctx.target->normal_view();
-    if (depth_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE) return false;
+    if (depth_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
 
@@ -1023,14 +1008,7 @@ bool SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                       (imgs.indirect_extent.height + 7) / 8, 1);
     }
 
-    // ── 9. Final barrier: indirect → shader read ──
-    barrier_image(imgs.indirect_image,
-                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-
     frame_counter_++;
-    return true;
 }
 
 // ── SsGiDepthHistoryPass ────────────────────────────────────────────────────

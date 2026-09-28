@@ -271,16 +271,17 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 add_scatter("fog_scatter_prev", fog->prev_index());
             }
         }
-        // The GI outputs, under their producers' names. Resting where the
-        // surfaces sample them once the pass has written them.
+        // The GI outputs, under their producers' names. Both rest where the
+        // surfaces sample them through the global set, in the fragment
+        // shader; neither holds anything before its pass first runs.
         if (auto* ddgi = pp_resources->ddgi();
             ddgi != nullptr && ddgi->indirect_image != VK_NULL_HANDLE) {
             ImportedImage img{};
             img.image = ddgi->indirect_image;
             img.view = ddgi->indirect_view;
             img.persistent = true;   // the opaque pass reads it the next frame
-            img.initial_layout = ddgi->indirect_needs_init
-                ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            img.resting = gpu::Access::sampled_fragment;
+            img.unwritten = ddgi->indirect_needs_init;
             decl_ctx.imports.emplace(fg_name_hash("ddgi_indirect"), img);
         }
         if (auto* ss_gi = pp_resources->ss_gi();
@@ -289,8 +290,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             img.image = ss_gi->indirect_image;
             img.view = ss_gi->indirect_view;
             img.persistent = true;   // the opaque pass reads it the next frame
-            img.initial_layout = ss_gi->first_frame
-                ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            img.resting = gpu::Access::sampled_fragment;
+            img.unwritten = ss_gi->first_frame;
             decl_ctx.imports.emplace(fg_name_hash("ss_gi_output"), img);
         }
         // TAA's history ping-pong: the slot it writes this frame, which the

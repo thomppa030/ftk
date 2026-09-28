@@ -349,10 +349,9 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    /// Record into externally-provided images. Returns whether it sampled
-    /// into the indirect output; where it stops before that, the output is
-    /// left in GENERAL, where the graph put it for the write.
-    bool record_into(const FrameContext& ctx, Images& imgs);
+    /// Record into externally-provided images. Where it stops before
+    /// sampling into the indirect output, the output holds what it held.
+    void record_into(const FrameContext& ctx, Images& imgs);
 
     /// Build acceleration structures before command buffer recording.
     /// Must be called outside of command buffer recording (uses synchronous GPU submits).

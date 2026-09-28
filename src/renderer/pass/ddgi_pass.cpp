@@ -935,17 +935,8 @@ void DdgiPass::record(const FrameContext& ctx) {
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ddgi");
     FJELL_GPU_ZONE(ctx, "DDGI");
-    if (!record_into(ctx, *imgs) && imgs->indirect_image != VK_NULL_HANDLE) {
-        // Stopped before sampling. The graph moved the indirect output to
-        // GENERAL for the write declare() promised; it goes back to where
-        // the surfaces read it, holding what it held.
-        transition_image(ctx.cmd, imgs->indirect_image,
-                         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    }
+    // Stopping before sampling leaves the output holding what it held.
+    record_into(ctx, *imgs);
     imgs->indirect_needs_init = false;
 }
 
@@ -1183,10 +1174,10 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     }
 }
 
-bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (trace_pipeline_ == VK_NULL_HANDLE) return false;
-    if (imgs.radiance_image == VK_NULL_HANDLE) return false;
-    if (ctx.registry == nullptr) return false;
+void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
+    if (trace_pipeline_ == VK_NULL_HANDLE) return;
+    if (imgs.radiance_image == VK_NULL_HANDLE) return;
+    if (ctx.registry == nullptr) return;
 
     const auto* sdf_res = ctx.registry->find_image("scene_sdf");
     const auto* sky_res = ctx.registry->find_image("sky_cubemap");
@@ -1277,12 +1268,12 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         if (sdf_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
             frame_counter_++;
-            return false;
+            return;
         }
         if (sky_cubemap_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: Sky cubemap view not available, skipping");
             frame_counter_++;
-            return false;
+            return;
         }
         // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
@@ -1495,7 +1486,7 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // SDF backend requires the SDF view
     if (backend_ == DdgiBackend::sdf_fallback && sdf_view == VK_NULL_HANDLE) {
         frame_counter_++;
-        return false;
+        return;
     }
 
     auto barrier_image = [&](VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
@@ -1814,7 +1805,7 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // RT backend but TLAS not ready — skip trace this frame, keep previous
         // radiance and the previous indirect output.
         frame_counter_++;
-        return false;
+        return;
     }
 
     // ── 3. Barrier: radiance write → read ──
@@ -2039,10 +2030,6 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                       (imgs.indirect_extent.height + 7) / 8, 1);
     }
 
-    // ── 12. Barrier: indirect image → shader read for fragment sampling ──
-    barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-
     if (imgs.first_frame_) {
         FJELL_GFX_DEBUG("DDGI: First frame dispatched ({} probes, {} rays, indirect {}x{})",
                         imgs.total_probes, config_.probe_rays,
@@ -2051,7 +2038,6 @@ bool DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     imgs.first_frame_ = false;
     imgs.reset_generation_ = grid_generation_;
     frame_counter_++;
-    return true;
 }
 
 PassSetup DdgiPass::setup() const {
@@ -2078,16 +2064,10 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                                  : gpu::Access::sampled_compute);
     }
     // The per-pixel indirect light the surfaces sample. The graph moves it
-    // into GENERAL; record() leaves it back where the surfaces read it on
-    // every way out, which final_layout reports.
+    // into GENERAL, and back to rest afterwards however record() ends.
     if (config_.enabled) {
         if (auto out = builder.import_named_optional(ctx, "ddgi_indirect"); out.valid()) {
             builder.write(out, gpu::Access::storage_write_compute);
-            builder.final_layout(out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                 VK_ACCESS_2_SHADER_WRITE_BIT,
-                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         }
     }
     // Writes pass-private probe atlases (irradiance, visibility,
