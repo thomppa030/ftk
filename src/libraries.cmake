@@ -96,6 +96,7 @@ fjell_library(gpu
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
+        gpu/binding.cpp
         gpu/release_queue.cpp
         gpu/shader_reflection.cpp
         gpu/vulkan/device.cpp
@@ -104,6 +105,7 @@ fjell_library(gpu
         gpu/vulkan/translate.cpp
     HEADERS
         gpu/access.hpp
+        gpu/binding.hpp
         gpu/buffer.hpp
         gpu/clear.hpp
         gpu/compare.hpp

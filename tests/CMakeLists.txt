@@ -215,6 +215,7 @@ add_executable(fjell-tests
     test_spline.cpp
     test_frame_descriptor_cache.cpp
     test_vulkan_translate.cpp
+    test_gpu_binding.cpp
     test_gpu_release.cpp
     test_gpu_shader.cpp
     test_gpu_texture_view.cpp
