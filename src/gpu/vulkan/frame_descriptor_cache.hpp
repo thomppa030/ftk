@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <mutex>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -58,6 +59,9 @@ struct FrameCacheKeyHash {
 ///
 /// Within a single frame, two acquire() calls with identical bindings
 /// return the same VkDescriptorSet; the cache dedups on (layout, bindings).
+///
+/// Any thread may acquire, under a lock: passes recorded in parallel bind
+/// through the same cache.
 class FrameDescriptorCache {
 public:
     FrameDescriptorCache() = default;
@@ -115,6 +119,8 @@ private:
     std::vector<FrameSlot> slots_;
     uint32_t current_frame_{0};
     Stats stats_{};
+    /// Guards the slots, their pools and the stats while sets are acquired.
+    std::mutex mutex_;
 };
 
 } // namespace fjell

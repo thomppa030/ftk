@@ -3,8 +3,8 @@
 // dependencies. Running it opens a window, brings a device up and makes a
 // buffer, a texture with a view, a sampler, pipelines, bind groups and
 // transient memory through the GPU interface, and records a dispatch, copies,
-// clears and draws through a command list, which takes a GPU and a display: it
-// is run by hand, not as a test.
+// clears and draws through command lists, two of them at once on two threads,
+// which takes a GPU and a display: it is run by hand, not as a test.
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 
 int main() {
     fjell::log::init({.level = spdlog::level::warn});
@@ -214,6 +215,71 @@ int main() {
         if (!commands_pipeline) std::fprintf(stderr, "%s\n", commands_pipeline.error().c_str());
         if (!recorded) std::fprintf(stderr, "command list failed\n");
         pipelines = pipelines && recorded;
+
+        // Lists recorded at once on two threads, into secondary command
+        // buffers from pools of their own, then played in order by the
+        // primary: each dispatch binds transient memory through the shared
+        // frame sets and writes its own half of a buffer.
+        bool parallel = false;
+        auto halves = device.create(fjell::gpu::BufferDesc{
+            .size = 512,
+            .use = fjell::gpu::BufferUse::storage,
+            .memory = fjell::gpu::Memory::readback,
+            .name = "link_halves",
+        });
+        if (commands_pipeline && halves) {
+            std::array<VkCommandPool, 2> pools{};
+            std::array<VkCommandBuffer, 2> secondaries{};
+            for (size_t i = 0; i < 2; ++i) {
+                VkCommandPoolCreateInfo pool_info{};
+                pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+                pool_info.queueFamilyIndex = *core.device().find_queue_families().graphics;
+                vkCreateCommandPool(core.vk_device(), &pool_info, nullptr, &pools[i]);
+                VkCommandBufferAllocateInfo allocate{};
+                allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                allocate.commandPool = pools[i];
+                allocate.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+                allocate.commandBufferCount = 1;
+                vkAllocateCommandBuffers(core.vk_device(), &allocate, &secondaries[i]);
+            }
+            fjell::gpu::vulkan::CommandBufferList here(device, secondaries[0]);
+            fjell::gpu::vulkan::CommandBufferList there(device, secondaries[1]);
+            auto record_half = [&](fjell::gpu::CommandList& cmd, VkCommandBuffer cb, uint32_t half) {
+                VkCommandBufferInheritanceInfo inheritance{};
+                inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+                VkCommandBufferBeginInfo begin{};
+                begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                begin.pInheritanceInfo = &inheritance;
+                vkBeginCommandBuffer(cb, &begin);
+                struct Push {
+                    uint32_t base;
+                    uint32_t count;
+                };
+                const uint32_t scale = 5 + half;
+                cmd.set_pipeline(*commands_pipeline);
+                cmd.bind({{"params", fjell::gpu::uniform(cmd.transient(scale))},
+                          {"results", fjell::gpu::storage(fjell::gpu::BufferRange(*halves, 256 * half, 128))}});
+                cmd.push(Push{.base = 100 * half, .count = 32});
+                cmd.dispatch(1, 1, 1);
+                vkEndCommandBuffer(cb);
+            };
+            run([&](fjell::gpu::CommandList& cmd) {
+                std::thread other([&] { record_half(there.list(), secondaries[1], 1); });
+                record_half(here.list(), secondaries[0], 0);
+                other.join();
+                const std::array<fjell::gpu::CommandList*, 2> lists{&here.list(), &there.list()};
+                cmd.execute(lists);
+            });
+            for (VkCommandPool pool : pools) vkDestroyCommandPool(core.vk_device(), pool, nullptr);
+            parallel = true;
+            for (uint32_t i = 0; parallel && i < 32; ++i) {
+                parallel = word(*halves, i) == 5 * i && word(*halves, 64 + i) == 100 + 6 * i;
+            }
+        }
+        if (!parallel) std::fprintf(stderr, "parallel lists failed\n");
+        pipelines = pipelines && parallel;
+        if (halves) halves->reset();
 
         // Copies and clears: a buffer filled and copied; a texture cleared,
         // its mips filtered down from the first and the smallest read back.

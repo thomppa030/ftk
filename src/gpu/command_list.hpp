@@ -44,6 +44,8 @@ private:
 /// Records GPU work in order: a pass's commands, into the frame's command
 /// buffer. A list starts each pass with nothing bound. Drawing happens in a
 /// render scope, `render()`, while which the list records nothing itself.
+/// A list belongs to one thread; lists on different threads record at once,
+/// and `execute()` plays them into one.
 ///
 /// What is bound is checked against what the pipeline's shaders declare. A
 /// wrong binding or push is reported once, naming the pipeline and the
@@ -162,6 +164,11 @@ public:
     /// as `before`. Nothing before discards what the view holds.
     void barrier(const TextureView& view, AccessSet before, AccessSet after);
     void barrier(BufferRange range, AccessSet before, AccessSet after);
+
+    /// Plays lists recorded on other threads, in order, as if what they hold
+    /// were recorded here. Each holds whole passes: none of them, nor this
+    /// list, is inside a render scope.
+    void execute(std::span<CommandList* const> recorded_in_parallel);
 
     /// Opens a zone named `name` until the returned one goes out of scope;
     /// the profiler shows where it was opened. A zone may be opened inside a
