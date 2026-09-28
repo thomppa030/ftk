@@ -105,6 +105,29 @@ std::optional<ImageScope> image_scope(AccessSet accesses, bool depth) {
     return merged;
 }
 
+ImageScope merged_image_scope(AccessSet accesses, bool depth) {
+    auto is_attachment = [](VkImageLayout layout) {
+        return layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+               layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL ||
+               layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+               layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    };
+    ImageScope merged;
+    accesses.for_each([&](Access access) {
+        const ImageScope scope = image_scope(access, depth);
+        const VkImageLayout a = merged.layout;
+        const VkImageLayout b = scope.layout;
+        if (a == VK_IMAGE_LAYOUT_UNDEFINED || a == b) {
+            merged.layout = b;
+        } else if (b != VK_IMAGE_LAYOUT_UNDEFINED && !is_attachment(a)) {
+            merged.layout = is_attachment(b) ? b : VK_IMAGE_LAYOUT_GENERAL;
+        }
+        merged.stages |= scope.stages;
+        merged.access |= scope.access;
+    });
+    return merged;
+}
+
 BufferScope buffer_scope(Access access) {
     switch (access) {
         case Access::uniform_read:
