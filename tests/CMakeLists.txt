@@ -50,6 +50,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/scripting/script_call.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/reflected_types.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/preset.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/component_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/removal_epoch.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/component_storage.cpp
@@ -235,6 +236,7 @@ add_executable(fjell-tests
     test_component_storage.cpp
     test_component_pool.cpp
     test_node_lifetime.cpp
+    test_presets.cpp
     test_script_call.cpp
     test_resource_pool.cpp
     test_scene_node_kinds.cpp

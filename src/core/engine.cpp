@@ -416,7 +416,16 @@ void Engine::init_content_browser() {
         }));
     connections_.push_back(content_browser_.on_create_preset.bind(
         [this](uint32_t node_id, const std::string& directory) {
+            // The preset is written from what the scripts' entries hold, as a
+            // scene is.
+            if (!play_controller_.playing()) {
+                script_subsystem_->manager().serialize_all(scene_);
+            }
             auto preset = PresetTemplate::from_subtree(scene_, node_id);
+            if (!preset) {
+                FJELL_CORE_ERROR("{}", preset.error());
+                return;
+            }
             auto* node = scene_.find(node_id);
             std::string name = node ? node->name : "preset";
             auto path = std::filesystem::path(directory) / (name + ".fjp");
@@ -426,7 +435,7 @@ void Engine::init_content_browser() {
                     if (!std::filesystem::exists(alt)) { path = alt; break; }
                 }
             }
-            auto result = preset.save(path.string(), project_mgr_.active());
+            auto result = preset->save(path.string(), project_mgr_.active());
             if (!result) {
                 FJELL_CORE_ERROR("Failed to save preset: {}", result.error());
             }

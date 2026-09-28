@@ -63,6 +63,11 @@ static const bool registered = [] {
             if (j.contains("offset")) { auto& off = j["offset"]; wc.offset = {off[0].get<float>(), off[1].get<float>(), off[2].get<float>()}; }
         },
 
+        // A node picked for a model, by the model's name.
+        .node_references = [](void* ptr, const std::function<void(std::string_view, uint32_t&)>& fn) {
+            for (auto& picked : static_cast<UiWidgetComponent*>(ptr)->model_nodes) fn(picked.model, picked.node);
+        },
+
         .script_type_name = {},
     });
     return true;

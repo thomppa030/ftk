@@ -8,9 +8,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -99,6 +102,28 @@ struct ScriptEntry {
     ScriptEntry& operator=(ScriptEntry&&) noexcept;
 };
 
+// ── References between nodes ────────────────────────────────────────────
+
+/// How a script's saved fields hold a reference to a node: `{"node": 12}`,
+/// the node's id and nothing else, 0 while unset. The id is the scene's in a
+/// scene and the preset's own in a preset. The form says what it is, so a
+/// reference can be found in saved fields without the game library.
+[[nodiscard]] nlohmann::json saved_node_reference(uint32_t node_id);
+
+/// The node a saved value refers to, 0 when unset; nothing when the value is
+/// no node reference.
+[[nodiscard]] std::optional<uint32_t> read_node_reference(const nlohmann::json& value);
+
+/// Where a node holds a reference to another: the script type or component
+/// holding it, and which of its fields.
+struct NodeReferenceSite {
+    std::string_view holder;
+    std::string_view field;
+};
+
+/// Handed each reference a node holds, as the id to read or rewrite.
+using NodeReferenceFn = std::function<void(const NodeReferenceSite& site, uint32_t& node)>;
+
 // ── Node (base) ─────────────────────────────────────────────────────────
 // Pure hierarchy node — id, parent, name, components, scripts.
 // No spatial transform. Used for organizational folders.
@@ -155,6 +180,14 @@ struct Node {
     /// The node's component of type `type`, an engine component or a live
     /// script, or null when it has none.
     [[nodiscard]] void* component(ComponentTypeId type);
+
+    /// Calls `fn` for every reference this node holds to another node that is
+    /// set: its scripts' Ref fields as their entries hold them (a live
+    /// script's values are saved into its entry first by whoever asks) and
+    /// its components' node fields. Rewriting the id rewrites the reference,
+    /// which is how a preset makes them its own and points each placed copy
+    /// at its own nodes.
+    void each_node_reference(const NodeReferenceFn& fn);
 
 protected:
     bool is_spatial_{false};

@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/component_registry.hpp"
 #include "scene/removal_epoch.hpp"
 #include "scene/transform_blend.hpp"
 #include "core/thread_pool.hpp"
@@ -104,6 +105,51 @@ std::unique_ptr<Node> Node::clone() const {
     auto copy = std::make_unique<Node>();
     clone_base_into(*copy);
     return copy;
+}
+
+// ── References between nodes ────────────────────────────────────────────
+
+namespace {
+
+/// Every node reference inside a saved value, however deep it sits: a list
+/// of them, say.
+void each_saved_reference(nlohmann::json& value, const NodeReferenceSite& site, const NodeReferenceFn& fn) {
+    if (const std::optional<uint32_t> id = read_node_reference(value)) {
+        if (*id == 0) return;
+        uint32_t node = *id;
+        fn(site, node);
+        if (node != *id) value["node"] = node;
+        return;
+    }
+    if (!value.is_structured()) return;
+    for (auto& child : value) each_saved_reference(child, site, fn);
+}
+
+} // namespace
+
+nlohmann::json saved_node_reference(uint32_t node_id) { return {{"node", node_id}}; }
+
+std::optional<uint32_t> read_node_reference(const nlohmann::json& value) {
+    if (!value.is_object() || value.size() != 1) return std::nullopt;
+    const auto it = value.find("node");
+    if (it == value.end() || !it->is_number_unsigned()) return std::nullopt;
+    return it->get<uint32_t>();
+}
+
+void Node::each_node_reference(const NodeReferenceFn& fn) {
+    for (auto& entry : scripts) {
+        if (!entry.serialized.is_object()) continue;
+        for (auto it = entry.serialized.begin(); it != entry.serialized.end(); ++it) {
+            each_saved_reference(it.value(), {.holder = entry.type_name, .field = it.key()}, fn);
+        }
+    }
+    components.for_each([&](ComponentTypeId type, void* component) {
+        const ComponentMeta* meta = ComponentRegistry::instance().find(type);
+        if (meta == nullptr || !meta->node_references) return;
+        meta->node_references(component, [&](std::string_view field, uint32_t& node) {
+            if (node != 0) fn({.holder = meta->display_name, .field = field}, node);
+        });
+    });
 }
 
 // ── Node3D ──────────────────────────────────────────────────────────────

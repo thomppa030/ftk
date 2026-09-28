@@ -1,75 +1,48 @@
 #include "scene/preset.hpp"
-#include "scene/node_serializer.hpp"
 #include "scene/scene.hpp"
 #include "core/log.hpp"
 
-#include <nlohmann/json.hpp>
-
-#include <fstream>
+#include <algorithm>
 #include <unordered_map>
 
 namespace fjell {
 
-// ── Save ─────────────────────────────────────────────────────────────────
+namespace {
 
-Result<> PresetTemplate::save(const std::string& path, const Project* project) const {
-    nlohmann::json j;
-    j["preset"] = {{"name", header_.name}};
-    j["next_id"] = local_next_id_;
-    j["objects"] = nlohmann::json::array();
-
-    for (const auto& node : nodes_) {
-        j["objects"].push_back(serialize_node(*node, project));
-    }
-
-    std::ofstream file(path);
-    if (!file.is_open()) {
-        return make_error("Failed to save preset: " + path);
-    }
-    file << j.dump(2);
-    FJELL_CORE_INFO("Preset saved: {} ({} nodes)", path, nodes_.size());
-    return {};
+/// "DoorController `lever` on 'Door'", for a report.
+std::string describe(const NodeReferenceSite& site, const Node& holder) {
+    return std::string(site.holder) + " `" + std::string(site.field) + "` on '" + holder.name + "'";
 }
 
-// ── Load ─────────────────────────────────────────────────────────────────
+} // namespace
 
-Result<PresetTemplate> PresetTemplate::load(const std::string& path,
-                            ResourceManager& resources,
-                            const Project* project) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        return make_error("Preset file not found: " + path);
-    }
+// ── From nodes ───────────────────────────────────────────────────────────
 
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(file);
-    } catch (const nlohmann::json::parse_error& e) {
-        return make_error(std::string("Failed to parse preset: ") + e.what());
-    }
-
+PresetTemplate PresetTemplate::from_nodes(std::string name, std::vector<std::unique_ptr<Node>> nodes,
+                                          std::string_view source) {
     PresetTemplate preset;
+    preset.header_.name = std::move(name);
+    preset.nodes_ = std::move(nodes);
 
-    if (j.contains("preset")) {
-        preset.header_.name = j["preset"].value("name", "");
+    std::unordered_map<uint32_t, const Node*> own;
+    for (const auto& node : preset.nodes_) {
+        own[node->id] = node.get();
+        preset.local_next_id_ = std::max(preset.local_next_id_, node->id + 1);
     }
-    preset.local_next_id_ = j.value("next_id", 1u);
-
-    for (const auto& jobj : j["objects"]) {
-        auto node = deserialize_node(jobj, resources, project);
-        if (node) {
-            preset.nodes_.push_back(std::move(node));
-        }
+    for (const auto& node : preset.nodes_) {
+        node->each_node_reference([&](const NodeReferenceSite& site, uint32_t& id) {
+            if (own.contains(id)) return;
+            FJELL_CORE_WARN("{}: {} refers to node {}, which is not in the preset; the reference is dropped",
+                            source, describe(site, *node), id);
+            id = 0;
+        });
     }
-
-    FJELL_CORE_INFO("Preset loaded: {} ({} nodes)", path, preset.nodes_.size());
     return preset;
 }
 
 // ── Instantiate ──────────────────────────────────────────────────────────
 
-uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id,
-                             Transform offset) const {
+uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id, Transform offset) const {
     if (nodes_.empty()) return 0;
 
     // Build ID remap: preset-local ID → new scene ID
@@ -105,6 +78,13 @@ uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id,
             }
         }
 
+        // Before it joins the scene, whose scripts read their references as
+        // they are made. A preset holds none to anything outside it.
+        clone->each_node_reference([&](const NodeReferenceSite&, uint32_t& id) {
+            const auto it = remap.find(id);
+            id = it != remap.end() ? it->second : 0;
+        });
+
         scene.add_node(std::move(clone));
     }
 
@@ -113,9 +93,9 @@ uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id,
 
 // ── From subtree ─────────────────────────────────────────────────────────
 
-PresetTemplate PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id) {
+Result<PresetTemplate> PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id) {
     auto subtree = scene.collect_subtree(root_id);
-    if (subtree.empty()) return {};
+    if (subtree.empty()) return PresetTemplate{};
 
     PresetTemplate preset;
     preset.header_.name = subtree[0]->name;
@@ -128,6 +108,7 @@ PresetTemplate PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id
     }
     preset.local_next_id_ = next_local;
 
+    std::vector<std::string> outside;
     for (const auto* node : subtree) {
         auto clone = node->clone();
         clone->id = remap[node->id];
@@ -148,17 +129,35 @@ PresetTemplate PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id
             }
         }
 
+        clone->each_node_reference([&](const NodeReferenceSite& site, uint32_t& id) {
+            if (const auto it = remap.find(id); it != remap.end()) {
+                id = it->second;
+                return;
+            }
+            const Node* target = scene.find(id);
+            outside.push_back(describe(site, *node) + " refers to " +
+                              (target != nullptr ? "'" + target->name + "'" : "a node that is gone"));
+        });
+
         preset.nodes_.push_back(std::move(clone));
     }
 
+    if (!outside.empty()) {
+        std::string message = "'" + preset.header_.name +
+                              "' cannot be made a preset, which may not refer to nodes outside it: ";
+        for (std::size_t i = 0; i < outside.size(); ++i) {
+            if (i > 0) message += "; ";
+            message += outside[i];
+        }
+        return make_error(std::move(message));
+    }
     return preset;
 }
 
 // ── From selection ───────────────────────────────────────────────────────
 
-PresetTemplate PresetTemplate::from_selection(const Scene& scene,
-                              const std::unordered_set<uint32_t>& ids) {
-    if (ids.empty()) return {};
+Result<PresetTemplate> PresetTemplate::from_selection(const Scene& scene, const std::unordered_set<uint32_t>& ids) {
+    if (ids.empty()) return PresetTemplate{};
 
     // Find the "topmost" selected node — the one whose parent is not in the
     // selection. If multiple, just pick the first one.

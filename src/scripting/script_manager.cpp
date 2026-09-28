@@ -1197,7 +1197,7 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_REF: {
                 // The node alone: its generation is its life in this run.
                 const auto* ref = static_cast<const RefData*>(ptr);
-                out[f.name] = {{"node", ref->node_id}};
+                out[f.name] = saved_node_reference(ref->node_id);
                 break;
             }
             case FJELL_FIELD_ASSET: {
@@ -1275,12 +1275,10 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 break;
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
-                const auto& j = in[f.name];
-                if (j.is_object()) {
-                    const uint32_t node = j.value("node", uint32_t{0});
+                if (const std::optional<uint32_t> node = read_node_reference(in[f.name])) {
                     const uint32_t generation =
-                        node != 0 && s_services.scene != nullptr ? s_services.scene->generation_of(node) : 0;
-                    *ref = {.node_id = node, .generation = generation};
+                        *node != 0 && s_services.scene != nullptr ? s_services.scene->generation_of(*node) : 0;
+                    *ref = {.node_id = *node, .generation = generation};
                 }
                 break;
             }

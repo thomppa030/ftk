@@ -6,6 +6,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -50,6 +51,13 @@ struct ComponentMeta {
     std::function<void(const void* component, const Node& node, nlohmann::json& out,
                        const Project* proj)> serialize;
     std::function<void(Node& node, const nlohmann::json& j, ResourceManager& res, const Project* proj)> deserialize;
+
+    /// Each node the component refers to by id, handed to `fn` with the
+    /// field's name to read or rewrite: a preset makes them its own when it
+    /// is saved and points them at each placed copy's nodes. Null for a
+    /// component that refers to no node.
+    std::function<void(void* component, const std::function<void(std::string_view field, uint32_t& node)>& fn)>
+        node_references{};
 
     /// The material this component paints itself with, or null if it has
     /// none. The inspector draws that material's own parameters under the

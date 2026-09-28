@@ -121,7 +121,8 @@ Ref<Node3D> spawn(const Asset<Preset>& preset, const glm::vec3& pos, const Ref<N
 
 Instantiates the whole preset hierarchy — child nodes, components, property values — and
 gives its root node; `find_child` on it reaches the rest. Without a parent it spawns at
-the root of the scene. `pos` is in world space either way.
+the root of the scene. `pos` is in world space either way. A `Ref` between the preset's
+own nodes refers to this copy's node (see [`Ref`](Ref.md#remarks)).
 
 Single-player only: it creates the nodes locally. Use `net::spawn()` for anything that
 must exist on every peer.

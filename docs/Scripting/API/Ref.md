@@ -105,6 +105,14 @@ references find it again.
 destroy, a removed component, a reload) and only then asks the engine again, once, on its
 next use. Components never move while they live, so what it kept stays right until then.
 
+**In a preset, a `Ref` stays inside the preset.** One between the preset's own nodes, a
+door's `Ref` to the lever under it say, is kept, and in every placed copy it refers to that
+copy's own lever, whether placed in the editor or spawned with
+[`scene::spawn`](scene_api.md#scenespawn-preset). Making a preset from nodes that refer to
+anything outside them is refused, with each such field named: every copy would share that
+node, and a preset belongs to no one scene. A placed copy may then be pointed at scene
+nodes like any other node.
+
 ## Functions
 
 | Name | Description |

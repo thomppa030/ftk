@@ -211,6 +211,7 @@ add_executable(fjell
     scene/node_type_serializer.cpp
     scene/spline_editable.cpp
     scene/preset.cpp
+    scene/preset_file.cpp
     scene/camera_subsystem.cpp
     scene/component_registry.cpp
     scene/component_pool.cpp
