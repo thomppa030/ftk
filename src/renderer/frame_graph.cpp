@@ -123,7 +123,8 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t mip_count,
                                      bool persistent,
                                      VkImageLayout initial_layout,
-                                     std::string_view name, gpu::AccessSet resting) {
+                                     std::string_view name, gpu::AccessSet resting,
+                                     bool unwritten) {
     const ImageKey key{image, base_layer, layer_count};
     if (auto it = image_index_.find(key); it != image_index_.end()) {
         auto& existing = images_[it->second];
@@ -150,11 +151,12 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
     img.base_layer = base_layer;
     img.persistent = persistent;
     img.resting = resting;
-    // The layout it rests in, which it starts from without a memory of it.
+    // The layout it rests in, which it starts from without a memory of it
+    // once something has written it.
     if (!resting.empty()) {
         const auto rest = gpu::vulkan::image_scope(resting, (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0);
         if (rest.has_value()) {
-            initial_layout = rest->layout;
+            if (!unwritten) { initial_layout = rest->layout; }
         } else {
             FJELL_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
                            std::string(name));
@@ -306,7 +308,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     for (const auto& imp : builder.imported_textures()) {
         handle_to_image_id[imp.handle.id] = register_image(
             imp.image, imp.aspect, imp.base_layer, imp.layer_count, imp.mip_count,
-            imp.persistent, imp.initial_layout, imp.name, imp.resting);
+            imp.persistent, imp.initial_layout, imp.name, imp.resting, imp.unwritten);
     }
 
     // Register created textures as virtual resources. Virtual resources
