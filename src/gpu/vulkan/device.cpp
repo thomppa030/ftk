@@ -145,6 +145,9 @@ Device::Impl::Impl(GpuCore& gpu_core)
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
     caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
+    draw_mesh_tasks = gpu_core.device().draw_mesh_tasks_fn();
+    draw_mesh_tasks_indirect = gpu_core.device().draw_mesh_tasks_indirect_fn();
+    draw_mesh_tasks_indirect_count = gpu_core.device().draw_mesh_tasks_indirect_count_fn();
     locator = [](const std::string& relative) { return relative; };
     frame_sets.create(device, MAX_FRAMES_IN_FLIGHT, {});
 }

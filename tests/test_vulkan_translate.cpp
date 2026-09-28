@@ -116,3 +116,16 @@ TEST_CASE("a flag set holds what was put in it", "[gpu]") {
     uses.for_each([&](TextureUse use) { walked.push_back(use); });
     CHECK(walked == std::vector<TextureUse>{TextureUse::sampled, TextureUse::color_target});
 }
+
+TEST_CASE("attachment operations, depth resolves and index types map", "[gpu]") {
+    CHECK(vulkan::to_vk(Load::load) == VK_ATTACHMENT_LOAD_OP_LOAD);
+    CHECK(vulkan::to_vk(Load::clear) == VK_ATTACHMENT_LOAD_OP_CLEAR);
+    CHECK(vulkan::to_vk(Load::discard) == VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+    CHECK(vulkan::to_vk(Store::store) == VK_ATTACHMENT_STORE_OP_STORE);
+    CHECK(vulkan::to_vk(Store::discard) == VK_ATTACHMENT_STORE_OP_DONT_CARE);
+    CHECK(vulkan::to_vk(DepthResolve::sample_zero) == VK_RESOLVE_MODE_SAMPLE_ZERO_BIT);
+    CHECK(vulkan::to_vk(DepthResolve::min) == VK_RESOLVE_MODE_MIN_BIT);
+    CHECK(vulkan::to_vk(DepthResolve::max) == VK_RESOLVE_MODE_MAX_BIT);
+    CHECK(vulkan::to_vk(IndexType::u16) == VK_INDEX_TYPE_UINT16);
+    CHECK(vulkan::to_vk(IndexType::u32) == VK_INDEX_TYPE_UINT32);
+}
