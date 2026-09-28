@@ -16,7 +16,6 @@ struct NotifyTypeInfo {
     std::string name;
     std::function<std::unique_ptr<AnimNotify>()> create;
     std::vector<OwnedFieldDesc> fields;
-    void (*trace)(void*, void*){nullptr};
     bool is_state{false};
 };
 

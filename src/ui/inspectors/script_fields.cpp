@@ -10,7 +10,6 @@
 #include "scene/component_registry.hpp"
 #include "scripting/fjell/asset.hpp"
 #include "scripting/fjell/ref.hpp"
-#include "scripting/fjell/weak_ref.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/asset_rows.hpp"
 #include "ui/kit/button.hpp"
@@ -111,31 +110,6 @@ ui::Edit draw_component_ref(const OwnedFieldDesc& f, RefData& ref, const Scene* 
     return {true, true};
 }
 
-ui::Edit draw_node_ref(WeakRefData& ref, const Scene* scene) {
-    std::string target = "None";
-    if (ref.id != 0) {
-        const Node* node = scene != nullptr ? scene->find(ref.id) : nullptr;
-        if (scene == nullptr) {
-            target = "Node " + std::to_string(ref.id);
-        } else if (node != nullptr && scene->generation_of(ref.id) == ref.generation) {
-            target = node->name;
-        } else {
-            target = "Missing: the node is gone";
-        }
-    }
-    // The name, then the clear button at the end of the row.
-    const float start = ImGui::GetCursorPosX();
-    const float clear_at = start + std::max(ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight(), 0.0f);
-    ui::readout(target.c_str());
-    ImGui::SameLine(clear_at);
-    ImGui::BeginDisabled(ref.id == 0);
-    const bool cleared = ui::icon_button("##clear", ui::icon::clear, "Clear");
-    ImGui::EndDisabled();
-    if (!cleared) return {};
-    ref = {};
-    return {true, true};
-}
-
 } // namespace
 
 ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorContext& ctx, const Scene* scene) {
@@ -193,8 +167,6 @@ ui::Edit draw_script_field(const OwnedFieldDesc& f, void* ptr, const InspectorCo
             if (edit.changed) value = index;
             return edit;
         }
-        case FJELL_FIELD_WEAK_REF:
-            return draw_node_ref(*static_cast<WeakRefData*>(ptr), scene);
         case FJELL_FIELD_REF:
             return draw_component_ref(f, *static_cast<RefData*>(ptr), scene);
         case FJELL_FIELD_ASSET:

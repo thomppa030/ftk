@@ -36,7 +36,7 @@ bool is_word(const Token& t) {
 
 /// Tokens written back out the way the engine's own code writes a type: a
 /// space between two words and after a comma, none around `::`, `<`, `>`, `*`
-/// or `&`. `fjell::WeakRef<fjell::Node3D>`, `const int&`, `std::map<int, float>`.
+/// or `&`. `fjell::Ref<game::Enemy>`, `const int&`, `std::map<int, float>`.
 std::string join(const TokenList& tokens, std::size_t begin, std::size_t end) {
     std::string out;
     for (std::size_t i = begin; i < end; ++i) {
@@ -1079,7 +1079,7 @@ private:
 
         if (is_engine_pointer(m.type)) {
             error(m.line, "[[fj::property]] on raw pointer '" + m.type + " " + m.name +
-                              "' — use WeakRef<T> or Asset<T>");
+                              "' — use Ref<T> or Asset<T>");
             return;
         }
 

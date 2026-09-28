@@ -8,9 +8,9 @@ namespace fjreflect {
 
 struct FieldInfo {
     std::string name;
-    std::string cpp_type;      // "float", "fjell::WeakRef<Node3D>", etc.
+    std::string cpp_type;      // "float", "fjell::Ref<Enemy>", etc.
     std::string fj_field_type; // "FJELL_FIELD_FLOAT", etc.
-    std::string ref_target;    // for WeakRef<X>/Asset<X>: "X", else empty
+    std::string ref_target;    // for Asset<X>/Ref<X>: "X", else empty
     unsigned line{0};          // source line number
 
     // Hints

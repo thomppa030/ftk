@@ -42,7 +42,7 @@ public:
 
 `Asset<T>` references an *engine asset* — `Vfx`, `Audio`, `Preset`, `InputAction`, etc. The handle is 64 bits (`AssetData`), stable across reloads, and serializable to `.fjscene`.
 
-It is **not** for scene-side objects (other nodes, other components) — use [`WeakRef<T>`](WeakRef.md) for those. The difference matters because engine assets live in a different pool with different lifetime rules.
+It is **not** for scene-side objects (other nodes, other components) — use [`Ref<T>`](Ref.md) for those. The difference matters because engine assets live in a different pool with different lifetime rules.
 
 Assigned in the editor via the inspector's asset picker. When you declare:
 
@@ -198,5 +198,5 @@ void begin_play() override {
 ```
 
 ## See also
-- [`WeakRef`](WeakRef.md) — for scene-side (generation-checked) references
+- [`Ref`](Ref.md) — references to components on nodes
 - [Overview — Reference types](../Overview.md#reference-types)

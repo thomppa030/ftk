@@ -42,7 +42,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 47
+#define FJELL_API_VERSION 48
 
 // ── Engine component layout check ───────────────────────────────────────
 // The size of an engine component struct as the game module's copy of
@@ -73,7 +73,6 @@ typedef enum FjellFieldType {
     FJELL_FIELD_COLOR4,
     FJELL_FIELD_STRING,        // fixed char[N] buffer; `size` is its capacity
     FJELL_FIELD_ENUM,
-    FJELL_FIELD_WEAK_REF,
     FJELL_FIELD_ASSET,
     // New enumerators go at the end: inserting one mid-enum renumbers the rest
     // and silently misreads every already-compiled game module.
@@ -111,7 +110,7 @@ typedef struct FjellFieldDesc {
     float              min;
     float              max;
     float              speed;        // drag speed (0 = default 0.1)
-    const char*        ref_type_name; // ASSET/REF/WEAK_REF: the type referred to (null otherwise)
+    const char*        ref_type_name; // ASSET/REF: the type referred to (null otherwise)
     const char*        tooltip;      // hover help in inspector (null if none)
     const char*        category;     // group header in inspector (null if none)
     uint8_t            readonly;     // 1 = inspector shows but disables editing

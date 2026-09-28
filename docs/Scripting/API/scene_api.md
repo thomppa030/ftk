@@ -27,7 +27,7 @@ namespace scene {
 
 Node IDs are `uint32_t`. ID `0` is reserved as the "invalid / null" sentinel — every call that returns an ID returns `0` on failure.
 
-Names are **not** unique. `find_node` returns the first match (engine-defined order). For persistent references to a specific node, use [`WeakRef`](WeakRef.md) instead of looking up by name every frame.
+Names are **not** unique. `find_node` returns the first match (engine-defined order). To keep hold of what is on a specific node, hold a [`Ref<T>`](Ref.md) to its component instead of looking it up by name every frame.
 
 ## Functions
 
@@ -55,7 +55,7 @@ uint32_t find_node(const char* name);
 The node's ID, or `0` if no node matches.
 
 ### Remarks
-Linear search over the scene. Cheap for small scenes; for hot paths in large scenes, cache the ID after the first lookup or use a [`WeakRef`](WeakRef.md).
+Linear search over the scene. Cheap for small scenes; for hot paths in large scenes, cache the ID after the first lookup or hold a [`Ref<T>`](Ref.md).
 
 ### Example
 ```cpp
@@ -115,7 +115,7 @@ uint32_t spawn(const Asset<Preset>& preset,
 The ID of the spawned preset's **root node**, or `0` if `preset` is null.
 
 ### Remarks
-Instantiates the full preset hierarchy — child nodes, components, default field values are all created. The returned ID is just the root; walk children via `Node3D` or hold a [`WeakRef`](WeakRef.md) to specific descendants if you need them.
+Instantiates the full preset hierarchy — child nodes, components, default field values are all created. The returned ID is just the root; walk children via `Node3D` or hold a [`Ref<T>`](Ref.md) to a component on a descendant if you need one.
 
 Spawning under a parent inherits the parent's transform; `pos` is in *world* space, applied to the root after parenting.
 
@@ -137,4 +137,4 @@ class Spawner : public fjell::ScriptComponent {
 ## See also
 - [`Node3D`](Node3D.md) — per-node operations
 - [`Asset`](Asset.md) — how `Asset<Preset>` is resolved
-- [`WeakRef`](WeakRef.md) — persistent references to spawned nodes
+- [`Ref`](Ref.md) — references to components on spawned nodes, which know when they are gone

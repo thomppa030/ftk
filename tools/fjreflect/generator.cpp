@@ -14,25 +14,6 @@ namespace fjreflect {
 
 namespace {
 
-/// The reference kinds among a component's fields, each traced for the
-/// garbage collector through its own bridge function.
-struct RefKinds {
-    bool weak{false};
-    bool asset{false};
-    bool shared{false};
-    [[nodiscard]] bool any() const { return weak || asset || shared; }
-};
-
-RefKinds ref_kinds(const ComponentInfo& comp) {
-    RefKinds kinds;
-    for (const auto& f : comp.fields) {
-        if (f.fj_field_type == "FJELL_FIELD_WEAK_REF") kinds.weak = true;
-        if (f.fj_field_type == "FJELL_FIELD_ASSET") kinds.asset = true;
-        if (f.fj_field_type == "FJELL_FIELD_SHARED_REF") kinds.shared = true;
-    }
-    return kinds;
-}
-
 /// A qualified name as part of a C identifier: `game::Slot` → `game__Slot`.
 std::string mangle(const std::string& qualified) {
     std::string out;
@@ -225,10 +206,9 @@ void emit_field_entries(std::ostream& out, const std::vector<FieldInfo>& fields,
     }
 }
 
-/// One component's field table, trace function, action trampolines and RPC
-/// code, in that order.
+/// One component's field table, action trampolines and RPC code, in that
+/// order.
 void emit_component(std::ostream& out, const ComponentInfo& comp) {
-    const auto kinds = ref_kinds(comp);
     const TableNames names{"fjell::FjellAccess<" + comp.qualified_name + ">::", "fjreflect_" + comp.class_name + "_",
                            "fjreflect_vector_" + mangle(comp.qualified_name) + "_"};
     const auto& access = names.access;
@@ -245,26 +225,6 @@ void emit_component(std::ostream& out, const ComponentInfo& comp) {
         out << "};\n\n";
     }
 
-    // Trace function
-    if (kinds.any()) {
-        out << "extern \"C\" void fjreflect_" << comp.class_name
-            << "_trace(void* instance, void* visitor) {\n";
-        out << "    char* base = static_cast<char*>(instance);\n";
-        out << "    (void)visitor;\n";
-        for (const auto& f : comp.fields) {
-            const char* bridge = f.fj_field_type == "FJELL_FIELD_WEAK_REF"     ? "fjell_gc_trace_weak"
-                                 : f.fj_field_type == "FJELL_FIELD_ASSET"        ? "fjell_gc_trace_asset"
-                                 : f.fj_field_type == "FJELL_FIELD_SHARED_REF" ? "fjell_gc_trace_shared"
-                                                                               : nullptr;
-            if (bridge != nullptr) {
-                out << "    " << bridge << "(visitor, base + " << access << "offset_" << f.name << ");\n";
-            }
-        }
-        out << "}\n";
-    } else {
-        // No ref fields — emit a null-able trace (won't be registered)
-        out << "// No reference fields — no trace function needed.\n";
-    }
     // UI widget actions: what markup may call, and how.
     if (comp.is_ui_component && !comp.actions.empty()) {
         out << "\n";
@@ -450,19 +410,6 @@ std::string generated_file(const std::string& stem, const HeaderOutput& header) 
     // tables are specialisations of this.
     if (!header.structs.empty()) out << "namespace fjell { template <class T> struct FjellAccess; }\n\n";
 
-    // Declare trace bridge functions if needed
-    RefKinds kinds;
-    for (const auto* comp : header.components) {
-        const auto k = ref_kinds(*comp);
-        kinds.weak = kinds.weak || k.weak;
-        kinds.asset = kinds.asset || k.asset;
-        kinds.shared = kinds.shared || k.shared;
-    }
-    if (kinds.weak) out << "extern \"C\" void fjell_gc_trace_weak(void*, void*);\n";
-    if (kinds.asset) out << "extern \"C\" void fjell_gc_trace_asset(void*, void*);\n";
-    if (kinds.shared) out << "extern \"C\" void fjell_gc_trace_shared(void*, void*);\n";
-    if (kinds.any()) out << "\n";
-
     // Every struct description this file names, wherever it is defined: a
     // table may name one defined further down, or in another header's file.
     std::vector<std::string> named;
@@ -511,9 +458,8 @@ const char* field_kind(const FieldInfo& f) {
         {"FJELL_FIELD_BOOL", "bool"},         {"FJELL_FIELD_VEC2", "vec2"},
         {"FJELL_FIELD_VEC3", "vec3"},         {"FJELL_FIELD_VEC4", "vec4"},
         {"FJELL_FIELD_COLOR3", "color3"},     {"FJELL_FIELD_COLOR4", "color4"},
-        {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_WEAK_REF", "weak_ref"},
-        {"FJELL_FIELD_ASSET", "asset"},       {"FJELL_FIELD_REF", "ref"},
-        {"FJELL_FIELD_SHARED_REF", "shared_ref"},
+        {"FJELL_FIELD_ENUM", "enum"},         {"FJELL_FIELD_ASSET", "asset"},
+        {"FJELL_FIELD_REF", "ref"},
         {"FJELL_FIELD_STD_STRING", "string"},
         {"FJELL_FIELD_STRUCT", "struct"},     {"FJELL_FIELD_VECTOR", "list"},
     };
@@ -689,7 +635,6 @@ std::string register_file(const std::vector<ComponentInfo>& components, const st
     for (const auto& comp : components) {
         const auto& n = comp.class_name;
         if (!comp.fields.empty()) out << "extern \"C\" const FjellFieldDesc fjreflect_" << n << "_fields[];\n";
-        if (ref_kinds(comp).any()) out << "extern \"C\" void fjreflect_" << n << "_trace(void*, void*);\n";
         if (!comp.rpcs.empty()) out << "extern \"C\" const FjellRpcDesc fjreflect_" << n << "_rpcs[];\n";
         if (comp.is_ui_component && !comp.actions.empty()) {
             out << "extern \"C\" const FjellUiActionDesc fjreflect_" << n << "_ui_actions[];\n";
@@ -699,15 +644,11 @@ std::string register_file(const std::vector<ComponentInfo>& components, const st
     auto fields = [](const ComponentInfo& comp) {
         return comp.fields.empty() ? std::string("nullptr") : "fjreflect_" + comp.class_name + "_fields";
     };
-    auto trace = [](const ComponentInfo& comp) {
-        return ref_kinds(comp).any() ? "fjreflect_" + comp.class_name + "_trace" : std::string("nullptr");
-    };
     if (!scripts.empty()) {
         out << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
         for (const auto* comp : scripts) {
             const auto& n = comp->class_name;
-            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", "
-                << trace(*comp) << ", ";
+            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", ";
             if (comp->rpcs.empty()) out << "nullptr, 0";
             else out << "fjreflect_" << n << "_rpcs, " << comp->rpcs.size();
             out << ", " << comp->tick_order << ", " << std::format("{:.6f}f", comp->tick_interval) << "},\n";
@@ -718,8 +659,7 @@ std::string register_file(const std::vector<ComponentInfo>& components, const st
         out << "\nstatic const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
         for (const auto* comp : widgets) {
             const auto& n = comp->class_name;
-            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", "
-                << trace(*comp) << ", ";
+            out << "    {\"" << n << "\", " << fields(*comp) << ", " << comp->fields.size() << ", ";
             if (comp->actions.empty()) out << "nullptr, 0";
             else out << "fjreflect_" << n << "_ui_actions, " << comp->actions.size();
             out << "},\n";

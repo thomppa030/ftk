@@ -41,7 +41,7 @@ struct OwnedFieldDesc {
     float min;
     float max;
     float speed;
-    std::string ref_type_name;  // for WEAK_REF/REF/SHARED_REF: target type name
+    std::string ref_type_name;  // for ASSET/REF: the type referred to
     std::string tooltip;        // hover help (empty if none)
     std::string category;       // group header (empty if none)
     bool readonly{false};

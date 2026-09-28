@@ -14,7 +14,6 @@ struct FjellUiWidgetTypeOOP {
     fjell::UiWidget* (*create)();
     const FjellFieldDesc* fields;
     uint32_t field_count;
-    void (*trace)(void* instance, void* visitor);
     const FjellUiActionDesc* actions;
     uint32_t action_count;
 };
@@ -28,7 +27,6 @@ struct FjellUiGeneratedInfo {
     const char* name;
     const FjellFieldDesc* fields;
     uint32_t field_count;
-    void (*trace)(void* instance, void* visitor);
     const FjellUiActionDesc* actions;
     uint32_t action_count;
 };
@@ -54,7 +52,6 @@ void register_ui_widget(FjellTypeRegistry* reg) {
     if (gen) {
         desc.fields = gen->fields;
         desc.field_count = gen->field_count;
-        desc.trace = gen->trace;
         desc.actions = gen->actions;
         desc.action_count = gen->action_count;
     }

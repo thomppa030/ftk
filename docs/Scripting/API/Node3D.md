@@ -39,9 +39,9 @@ struct Node3D {
 
 ## Remarks
 
-`Node3D` is a value type — copying it is just copying a `uint32_t`. The underlying node lives in the engine; the handle doesn't extend its lifetime. Use [`WeakRef<T>`](WeakRef.md) when you need generational safety (an ID that was reused by a different node returns the wrong object).
+`Node3D` is a value type — copying it is just copying a `uint32_t`. The underlying node lives in the engine; the handle doesn't extend its lifetime, and an ID a later node reuses finds that node. To keep hold of a component on a node and know when it is gone, hold a [`Ref<T>`](Ref.md).
 
-`valid()` distinguishes the null/default handle (`id == 0`) from a real one. It does **not** check whether the node still exists in the scene — for that, look up via [`scene::find_node`](scene_api.md#scenefind_node) or wrap the ID in a `WeakRef`.
+`valid()` distinguishes the null/default handle (`id == 0`) from a real one. It does **not** check whether the node still exists in the scene — for that, look up via [`scene::find_node`](scene_api.md#scenefind_node) or hold a [`Ref<T>`](Ref.md) to one of its components.
 
 The transform accessors return references into engine memory. They're safe to write through within a frame; don't hold the reference across ticks.
 
@@ -98,7 +98,7 @@ The wrapped ID. Same as the `node_id` field.
 `true` if `node_id != 0`.
 
 ### Remarks
-A cheap structural check. Does **not** verify that the node still exists in the scene. For generational safety use [`WeakRef`](WeakRef.md).
+A cheap structural check. Does **not** verify that the node still exists in the scene. A [`Ref<T>`](Ref.md) does.
 
 ---
 
@@ -316,4 +316,4 @@ if (id != 0) {
 ## See also
 - [`scene`](scene_api.md) — finding and spawning nodes
 - [`ScriptComponent::self`](ScriptComponent.md#scriptcomponentself) — your own node's handle
-- [`WeakRef`](WeakRef.md) — persistent, generation-checked node references
+- [`Ref`](Ref.md) — references to components on nodes, which know when they are gone

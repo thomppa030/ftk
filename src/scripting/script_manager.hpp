@@ -66,7 +66,6 @@ struct OwnedScriptType {
     // overrides. It is walked only for those.
     uint32_t polls{0};
     std::vector<OwnedFieldDesc> fields;
-    void (*trace)(void* instance, void* visitor){nullptr};
     const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
     uint32_t rpc_count{0};
     bool loaded{true};
@@ -81,7 +80,6 @@ struct OwnedUiWidgetType {
     UiWidget* (*create)();
     std::vector<OwnedFieldDesc> fields;
     std::vector<OwnedUiActionDesc> actions;
-    void (*trace)(void* instance, void* visitor){nullptr};
     bool loaded{true};
 };
 
@@ -206,7 +204,6 @@ public:
     /// see PlayController::flush_spawned().
     void initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids);
 
-    void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
     void dispatch_collision_events(Scene& scene, class PhysicsWorld& physics);
 
     // Network connection events: call every script component's on_player_*

@@ -232,8 +232,8 @@ Supported field types (from `FjellFieldType` in `fjell/api.h`):
 | `COLOR3/4` | `glm::vec3` / `vec4` | color picker |
 | `STRING` | `std::string` | text field |
 | `ENUM` | `enum class` | dropdown |
-| `REF` | `fjell::Asset<T>` | asset picker (Vfx, Audio, InputAction, ...) |
-| `WEAK_REF` | `fjell::WeakRef<T>` | scene-object picker |
+| `ASSET` | `fjell::Asset<T>` | asset picker (Vfx, Audio, InputAction, ...) |
+| `REF` | `fjell::Ref<T>` | picker of the nodes that carry a `T` |
 
 ### When fjreflect runs
 Build & Reload runs fjreflect over every header in `scripts/` before it builds the
@@ -252,7 +252,8 @@ for) stops the build with the file and line.
 
 ## Reference types
 
-Three flavors. Pick by lifetime:
+Two kinds: `Asset<T>` for something in the project's files, `Ref<T>` for something in
+the scene.
 
 ### `fjell::Asset<T>` — asset reference
 For *engine-owned assets*: `Vfx`, `Audio`, `InputAction`, `Preset`, etc. The handle is 64 bits, stable, and resolved through the engine on every dereference (cheap — a pool lookup).
@@ -267,23 +268,27 @@ void play_it() {
 
 Assigned in the inspector via drag-drop or asset picker. `hit_sound.valid()` tells you whether it points at anything.
 
-### `fjell::WeakRef<T>` — non-owning scene reference
-For *scene-side things that might be destroyed under you*: another node, another component. Uses (id, generation) so a destroyed-and-replaced node doesn't resolve to the wrong object.
+### `fjell::Ref<T>` — a component on a node
+For the component of type `T` on another node: an engine component or a script. It
+knows when its target is gone (destroyed, taken out of the scene, the component
+removed) and never finds a different node that later took the same id.
 
 ```cpp
-[[fj::property]] fjell::WeakRef<EnemyController> target;
+[[fj::property]] fjell::Ref<PlayerStats> player;   // always there
+[[fj::property]] fjell::Ref<Enemy> target;          // may be killed
 
-void shoot() {
-    if (auto* t = target.get()) {
-        t->take_damage(10);
-    }
+void tick(float) override {
+    player->stamina += 1.0f;
+    if (auto* enemy = target.get()) chase(*enemy);
 }
 ```
 
-Always null-check `get()` — that's the whole point of WeakRef.
+`->` reaches the target with nothing to check, and using it after the target is gone
+stops the game, naming the script, the field and the node. Where absence is expected,
+check with `if (target)` or `get()`. See [`Ref`](API/Ref.md).
 
 ### Raw pointers
-Avoid them across the hot-reload boundary. Within one tick, a raw `T*` from `Node3D::get_component<T>()` is fine; storing one in a member is asking for a use-after-reload. Use `WeakRef` for persistent references.
+Avoid them across the hot-reload boundary. Within one tick, a raw `T*` from `Node3D::get_component<T>()` is fine; storing one in a member is asking for a use-after-reload. Hold a `Ref<T>` instead.
 
 ## Talking to the scene
 
@@ -339,17 +344,13 @@ What survives:
 
 What does **not** survive:
 - Any runtime member that isn't a `[[fj::property]]`. Reset it in `begin_play()`.
-- Raw pointers between components (re-resolve via `WeakRef` or `get_component<T>()`).
+- Raw pointers between components (hold a `Ref<T>`, or ask `get_component<T>()` again).
 - Bound input actions, timers, delegate connections — `begin_play()` should re-bind everything.
 
 If a reload crashes you're usually looking at one of:
 - Changed a `virtual` signature without bumping `FJELL_API_VERSION` or running a clean reconfigure.
 - Held a raw pointer to something the engine recreated.
 - Stored a `Connection` in a member that didn't get cleared in `end_play()`.
-
-## Garbage collection
-
-Field-based GC traces reachable `Ref<>` / `WeakRef<>` graphs starting from registered components and widgets. The codegen emits a `trace` function per type — that's the function pointer in `FjellComponentTypeOOP::trace`. You don't need to call into it; just annotate fields with `[[fj::property]]` and the codegen does the rest.
 
 ## SDK headers — where to look
 
@@ -365,7 +366,7 @@ All under `src/scripting/fjell/`. The shape of the SDK:
 | `transform.hpp` | `Transform` struct, euler helpers, `decompose_matrix` |
 | `world.hpp` | `World` — frame state (input, delta_time, the fixed step's time) |
 | `input.hpp` | `Input` class — `is_key_pressed`, mouse position, cursor capture |
-| `ref.hpp`, `weak_ref.hpp` | `Asset<T>`, `WeakRef<T>` |
+| `asset.hpp`, `ref.hpp` | `Asset<T>`, `Ref<T>` |
 | `delegate.hpp` | `Delegate<>`, `Connection` |
 | `registry.hpp` | `FJELL_COMPONENT`, `FJELL_NOTIFY`, `FJELL_REGISTER` |
 | `ui_widget.hpp`, `ui_registry.hpp` | `UiWidget`, `FJELL_UI_WIDGET` |

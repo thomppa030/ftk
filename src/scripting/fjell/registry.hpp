@@ -42,7 +42,6 @@ struct FjellComponentTypeOOP {
     fjell::ScriptComponent* (*construct)(void* memory);
     const FjellFieldDesc* fields;
     uint32_t field_count;
-    void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
     bool is_functional_test;  // true for FunctionalTest subclasses
     uint32_t polls;           // FjellPolledHook bits: the polled hooks the type overrides
 };
@@ -60,7 +59,6 @@ struct FjellNotifyTypeOOP {
     fjell::AnimNotify* (*create)();
     const FjellFieldDesc* fields;
     uint32_t field_count;
-    void (*trace)(void* instance, void* visitor);
     bool is_state;  // true for AnimNotifyState subclasses
 };
 
@@ -70,7 +68,6 @@ struct FjellGeneratedInfo {
     const char* name;
     const FjellFieldDesc* fields;
     uint32_t field_count;
-    void (*trace)(void* instance, void* visitor);
     const FjellRpcDesc* rpcs;   // null if the component has no [[fj::rpc]] methods
     uint32_t rpc_count;
     int32_t tick_order;         // [[fj::tick(order = n)]]: lower runs earlier, 0 when unsaid
@@ -132,12 +129,11 @@ void register_component(FjellTypeRegistry* reg) {
                  (inherits_fixed_tick<T> ? 0u : FJELL_POLLS_FIXED_TICK) |
                  (inherits_late_tick<T> ? 0u : FJELL_POLLS_LATE_TICK);
 
-    // Fields and trace come from fjreflect codegen
+    // Fields come from fjreflect codegen
     const auto* gen = fjell_find_generated(T::type_name);
     if (gen) {
         desc.fields = gen->fields;
         desc.field_count = gen->field_count;
-        desc.trace = gen->trace;
     }
 
     fjell_reg_component(reg, &desc);
@@ -154,7 +150,6 @@ void register_notify(FjellTypeRegistry* reg) {
     if (gen) {
         desc.fields = gen->fields;
         desc.field_count = gen->field_count;
-        desc.trace = gen->trace;
     }
 
     fjell_reg_notify(reg, &desc);

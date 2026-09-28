@@ -5,8 +5,7 @@
 namespace fjreflect {
 
 /// The field kind (`FJELL_FIELD_...`) a C++ type maps to, or empty when it
-/// maps to none. For WeakRef<T>, Asset<T> and SharedRef<T>, `ref_target` gets
-/// T's bare name.
+/// maps to none. For Asset<T> and Ref<T>, `ref_target` gets T's bare name.
 [[nodiscard]] std::string map_field_type(const std::string& cpp_type, std::string& ref_target);
 
 /// A raw pointer to something the engine owns (a node, a component, an

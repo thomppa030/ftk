@@ -1854,7 +1854,6 @@ void Engine::flush_pending() {
         scripts.end_play_destroyed(scene_, batch);
     }
 
-    scripts.trace_doomed_refs(scene_, scene_.pending_destroy());
     if (physics_subsystem_->world()) {
         for (uint32_t id : scene_.pending_destroy()) {
             physics_subsystem_->world()->destroy_body(id);

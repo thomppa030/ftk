@@ -48,7 +48,7 @@ class Mover : public fjell::ScriptComponent {
   FJELL_COMPONENT(Mover)
 public:
   [[fj::property, fj::range(0.0, 10.0), fj::tooltip("Metres per second")]] float speed = 2.0f;
-  [[fj::property]] fjell::WeakRef<fjell::Node3D> target;
+  [[fj::property]] fjell::Ref<fjell::RigidbodyComponent> target;
 };
 } // namespace game
 )");
@@ -67,8 +67,6 @@ public:
             "#pragma GCC diagnostic ignored \"-Winvalid-offsetof\"\n"
             "#endif\n"
             "\n"
-            "extern \"C\" void fjell_gc_trace_weak(void*, void*);\n"
-            "\n"
             "namespace fjell { template <> struct FjellAccess<game::Mover> {\n"
             "    static constexpr uint32_t offset_speed = static_cast<uint32_t>(offsetof(game::Mover, speed));\n"
             "    static constexpr uint32_t size_speed = static_cast<uint32_t>(sizeof(game::Mover::speed));\n"
@@ -80,16 +78,11 @@ public:
             "    {\"speed\", FJELL_FIELD_FLOAT, fjell::FjellAccess<game::Mover>::offset_speed, "
             "fjell::FjellAccess<game::Mover>::size_speed, nullptr, 0.000000f, 10.000000f, 0.000000f, nullptr, "
             "\"Metres per second\", nullptr, 0, 0, nullptr, 0, nullptr, nullptr, nullptr},\n"
-            "    {\"target\", FJELL_FIELD_WEAK_REF, fjell::FjellAccess<game::Mover>::offset_target, "
+            "    {\"target\", FJELL_FIELD_REF, fjell::FjellAccess<game::Mover>::offset_target, "
             "fjell::FjellAccess<game::Mover>::size_target, nullptr, 0.000000f, 0.000000f, 0.000000f, "
-            "\"Node3D\", nullptr, nullptr, 0, 0, nullptr, 0, nullptr, nullptr, nullptr},\n"
+            "\"RigidbodyComponent\", nullptr, nullptr, 0, 0, nullptr, 0, nullptr, nullptr, nullptr},\n"
             "};\n"
-            "\n"
-            "extern \"C\" void fjreflect_Mover_trace(void* instance, void* visitor) {\n"
-            "    char* base = static_cast<char*>(instance);\n"
-            "    (void)visitor;\n"
-            "    fjell_gc_trace_weak(visitor, base + fjell::FjellAccess<game::Mover>::offset_target);\n"
-            "}\n");
+            "\n");
     fs::remove_all(dir);
 }
 
@@ -182,13 +175,12 @@ class [[fj::tick(order = 2, interval = 0.5)]] Sleeper : public fjell::ScriptComp
 )");
     const auto reg = fjreflect::register_file(comps);
 
-    REQUIRE(reg.find("{\"Mover\", fjreflect_Mover_fields, 1, nullptr, fjreflect_Mover_rpcs, 1, 0, 0.000000f},") !=
+    REQUIRE(reg.find("{\"Mover\", fjreflect_Mover_fields, 1, fjreflect_Mover_rpcs, 1, 0, 0.000000f},") !=
             std::string::npos);
-    REQUIRE(reg.find("{\"Step\", fjreflect_Step_fields, 1, nullptr, nullptr, 0, 0, 0.000000f},") !=
-            std::string::npos);
-    REQUIRE(reg.find("{\"Sleeper\", nullptr, 0, nullptr, nullptr, 0, 2, 0.500000f},") != std::string::npos);
+    REQUIRE(reg.find("{\"Step\", fjreflect_Step_fields, 1, nullptr, 0, 0, 0.000000f},") != std::string::npos);
+    REQUIRE(reg.find("{\"Sleeper\", nullptr, 0, nullptr, 0, 2, 0.500000f},") != std::string::npos);
     // A widget without fields has no table to point at.
-    REQUIRE(reg.find("{\"Panel\", nullptr, 0, nullptr, fjreflect_Panel_ui_actions, 1},") != std::string::npos);
+    REQUIRE(reg.find("{\"Panel\", nullptr, 0, fjreflect_Panel_ui_actions, 1},") != std::string::npos);
     REQUIRE(reg.find("fjreflect_Panel_fields") == std::string::npos);
     const std::string kinds = fjreflect::generate(comps).at("kinds.generated.cpp");
     REQUIRE(kinds.find("fjreflect_Panel_fields") == std::string::npos);

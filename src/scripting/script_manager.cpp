@@ -8,10 +8,8 @@
 #include "animation/anim_notify_registry.hpp"
 #include "scripting/fjell/ui_component.hpp"
 #include "scripting/fjell/ui_registry.hpp"
-#include "scripting/fjell/weak_ref.hpp"
 #include "scripting/fjell/asset.hpp"
 #include "scripting/fjell/ref.hpp"
-#include "scripting/gc_visitor.hpp"
 #include "scripting/input_bindings.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
@@ -120,12 +118,6 @@ extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_i
                               .node_id = script_node});
 }
 
-extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
-    if (!s_services.scene || id == 0) return nullptr;
-    if (s_services.scene->generation_of(id) != generation) return nullptr;
-    return s_services.scene->find_spatial(id);
-}
-
 // ── Asset<T> resolution (called from game .so) ───────────────────────────
 
 extern "C" FJELL_SDK_EXPORT void* fjell_asset_resolve(uint32_t handle_id, uint8_t asset_type_id) {
@@ -136,25 +128,6 @@ extern "C" FJELL_SDK_EXPORT void* fjell_asset_resolve(uint32_t handle_id, uint8_
     if (!entry || !entry->resolve) return nullptr;
     return entry->resolve(*rm, handle_id);
 }
-
-// ── Legacy stubs (kept so old .so files don't crash on dlopen) ──────────
-
-extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_acquire(uint32_t) {}
-extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_release(uint32_t) {}
-extern "C" FJELL_SDK_EXPORT void* fjell_shared_ref_resolve(uint32_t) { return nullptr; }
-
-// ── GC trace bridge functions (called from generated code in game .so) ──
-
-static fjell::GcVisitor* s_active_visitor = nullptr;
-
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_weak(void* /*visitor*/, void* weak_ref_data) {
-    if (s_active_visitor && weak_ref_data) {
-        s_active_visitor->trace_weak(*static_cast<fjell::WeakRefData*>(weak_ref_data));
-    }
-}
-
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_asset(void*, void*) {}
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void*, void*) {}
 
 namespace fjell {
 
@@ -226,7 +199,6 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     owned.size = desc->size;
     owned.align = desc->align;
     owned.construct = desc->construct;
-    owned.trace = desc->trace;
     owned.loaded = true;
     owned.is_functional_test = desc->is_functional_test;
     owned.polls = desc->polls;
@@ -252,7 +224,6 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const 
         fjell::call_script(call, [&] { made.reset(create()); });
         return made;
     };
-    info.trace = desc->trace;
     info.is_state = desc->is_state;
     reg->types->copy_fields(desc->fields, desc->field_count, desc->name, info.fields);
     reg->notifies.push_back(std::move(info));
@@ -282,7 +253,6 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_ui_component(FjellTypeRegistry* reg, 
     fjell::OwnedUiWidgetType owned;
     owned.name = desc->name;
     owned.create = desc->create;
-    owned.trace = desc->trace;
     owned.loaded = true;
     reg->types->copy_fields(desc->fields, desc->field_count, desc->name, owned.fields);
     for (uint32_t i = 0; i < desc->action_count; ++i) {
@@ -1025,25 +995,6 @@ void ScriptManager::release_address(const void* owner) {
     timers_.cancel_owned(owner);
 }
 
-// ── GC trace — null WeakRefs pointing at doomed nodes ───────────────────
-
-void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids) {
-    if (doomed_ids.empty()) return;
-
-    GcVisitor visitor;
-    visitor.set_doomed_ids(doomed_ids);
-    s_active_visitor = &visitor;
-
-    for (const OwnedScriptType* type : tick_order_) {
-        if (type->trace == nullptr) continue;
-        scene.each_component(type->component.id, [&](Node&, void* component) {
-            type->trace(component, &visitor);
-        });
-    }
-
-    s_active_visitor = nullptr;
-}
-
 // ── Collision/trigger event dispatch ─────────────────────────────────────
 
 void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physics) {
@@ -1145,13 +1096,6 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_STD_STRING:
                 out[f.name] = *static_cast<const std::string*>(ptr);
                 break;
-            case FJELL_FIELD_WEAK_REF: {
-                // The generation is the node's life in this run; a file keeps
-                // the id, and loading takes the generation the node has then.
-                const auto* ref = static_cast<const WeakRefData*>(ptr);
-                out[f.name] = {{"id", ref->id}};
-                break;
-            }
             case FJELL_FIELD_REF: {
                 // The node alone: its generation is its life in this run.
                 const auto* ref = static_cast<const RefData*>(ptr);
@@ -1231,17 +1175,6 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
             case FJELL_FIELD_STD_STRING:
                 *static_cast<std::string*>(ptr) = in[f.name].get<std::string>();
                 break;
-            case FJELL_FIELD_WEAK_REF: {
-                auto* ref = static_cast<WeakRefData*>(ptr);
-                auto& j = in[f.name];
-                if (j.is_object()) {
-                    ref->id = j.value("id", uint32_t{0});
-                    ref->generation = s_services.scene != nullptr
-                                          ? s_services.scene->generation_of(ref->id)
-                                          : 0;
-                }
-                break;
-            }
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
                 const auto& j = in[f.name];

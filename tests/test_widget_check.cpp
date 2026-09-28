@@ -23,7 +23,7 @@ nlohmann::json game_manifest() {
                 {"name": "max_hp", "kind": "int"},
                 {"name": "low", "kind": "bool", "getter": true},
                 {"name": "pos", "kind": "vec2"},
-                {"name": "target", "kind": "weak_ref"}
+                {"name": "target", "kind": "ref", "ref": "Stats"}
             ]},
             {"name": "hud", "kind": "ui_widget", "fields": [
                 {"name": "model", "kind": "struct", "struct": "HudModel"},
