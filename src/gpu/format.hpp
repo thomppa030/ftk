@@ -72,6 +72,39 @@ enum class FormatKind : uint8_t {
     return FormatKind::none;
 }
 
+/// Bytes of one texel of `format` as it is copied to or from a buffer; 0 for
+/// `Format::undefined` and for depth with stencil, which is copied an aspect
+/// at a time.
+[[nodiscard]] constexpr uint32_t texel_size(Format format) noexcept {
+    switch (format) {
+        case Format::undefined:
+        case Format::d32_float_s8_uint:
+            return 0;
+        case Format::r8_unorm:
+            return 1;
+        case Format::rg8_unorm:
+        case Format::r16_unorm:
+        case Format::r16_float:
+            return 2;
+        case Format::rgba8_unorm:
+        case Format::rgba8_srgb:
+        case Format::bgra8_unorm:
+        case Format::bgra8_srgb:
+        case Format::rg16_unorm:
+        case Format::rg16_float:
+        case Format::r32_float:
+        case Format::r32_uint:
+        case Format::d32_float:
+            return 4;
+        case Format::rgba16_unorm:
+        case Format::rgba16_float:
+            return 8;
+        case Format::rgba32_float:
+            return 16;
+    }
+    return 0;
+}
+
 /// A vertex attribute's format, kept apart from `Format` as Metal keeps its
 /// vertex formats apart from its pixel formats.
 enum class VertexFormat : uint8_t {

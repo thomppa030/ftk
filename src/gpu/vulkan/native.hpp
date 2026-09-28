@@ -86,8 +86,8 @@ void begin_frame(Device& device, uint32_t frame_slot);
 /// directly. Each starts with nothing bound.
 class CommandBufferList {
 public:
-    CommandBufferList(Device& device, VkCommandBuffer cb) noexcept
-        : impl_{.cb = cb}, list_(device, impl_) {}
+    CommandBufferList(Device& device, VkCommandBuffer cb, Queue queue = Queue::graphics) noexcept
+        : impl_{.cb = cb, .queue = queue}, list_(device, impl_) {}
 
     CommandBufferList(const CommandBufferList&) = delete;
     CommandBufferList& operator=(const CommandBufferList&) = delete;

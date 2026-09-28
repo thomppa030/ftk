@@ -213,8 +213,10 @@ add_executable(fjell-tests
     test_ui_animation.cpp
     test_ui_bar_dynamics.cpp
     test_spline.cpp
+    test_vulkan_access.cpp
     test_vulkan_frame_descriptor_cache.cpp
     test_vulkan_translate.cpp
+    test_gpu_access.cpp
     test_gpu_binding.cpp
     test_gpu_command_list.cpp
     test_gpu_release.cpp

@@ -1,9 +1,12 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/access.hpp"
 #include "gpu/binding.hpp"
+#include "gpu/clear.hpp"
 #include "gpu/pipeline.hpp"
 #include "gpu/shader.hpp"
+#include "gpu/texture.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -87,6 +90,47 @@ public:
     /// Runs the pipeline over the workgroups `args` holds (three `uint32_t`s),
     /// written by the GPU or the CPU earlier.
     void dispatch_indirect(BufferRange args);
+
+    // Copies and clears. A texture is in `Access::copy_src` to be copied
+    // from, `Access::copy_dst` to be copied into, `Access::clear` to be
+    // cleared; a buffer needs nothing. A copy or clear that cannot be done is
+    // reported once and not recorded.
+
+    /// Copies `src` into `dst`, which must be as large; a range reaching to
+    /// its buffer's end is the rest of the buffer.
+    void copy(BufferRange src, BufferRange dst);
+
+    /// Copies texels between two views of the same size and texel size, mip
+    /// for mip and layer for layer.
+    void copy(const TextureView& src, const TextureView& dst);
+
+    /// Copies texels packed row after row, layer after layer, from `src` into
+    /// one mip of a texture.
+    void copy(BufferRange src, const TextureView& dst);
+
+    /// Copies one mip of a texture into `dst`, packed row after row, layer
+    /// after layer.
+    void copy(const TextureView& src, BufferRange dst);
+
+    /// Sets every texel of `view` to `value`.
+    void clear(const TextureView& view, const Clear& value);
+
+    /// Sets every 32-bit word of `range` to `value`: its offset and size are
+    /// multiples of four.
+    void fill(BufferRange range, uint32_t value);
+
+    /// Fills each mip of a colour texture after the first from the one
+    /// before, filtered, every layer. The texture is in `Access::copy_dst`
+    /// before and after.
+    void generate_mipmaps(Texture texture);
+
+    // Barriers between a pass's own commands. Between passes the frame graph
+    // orders what they declare.
+
+    /// Orders what comes after on `view` as `after` behind what came before
+    /// as `before`. Nothing before discards what the view holds.
+    void barrier(const TextureView& view, AccessSet before, AccessSet after);
+    void barrier(BufferRange range, AccessSet before, AccessSet after);
 
     [[nodiscard]] Device& device() const noexcept { return *device_; }
 

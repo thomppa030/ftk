@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/access.hpp"
 #include "renderer/resource_desc.hpp"
 
 #include <vulkan/vulkan.h>
@@ -18,25 +19,6 @@ class ThreadPool;
 class ThreadCommandPools;
 
 // How a pass uses an image
-enum class ImageUsage : uint8_t {
-    color_attachment,       // write as color render target
-    depth_attachment,       // write as depth render target
-    depth_resolve,          // written by a multisample depth resolve at the end of rendering
-    depth_attachment_read,  // read depth (no write) during rendering
-    shader_read,            // sample in a fragment shader
-    vertex_read,            // sample in a vertex shader
-    mesh_read,              // sample in a task or mesh shader
-    compute_read,           // sample in a compute shader
-    compute_storage_read,   // read as a storage image in a compute shader (GENERAL)
-    compute_write,          // write as a storage image in a compute shader
-    compute_read_write,     // load and store a storage image in a compute shader
-    depth_read_sampled,     // depth-test against an image the fragment shader also samples
-    raytracing_read,        // sample in a ray tracing shader
-    raytracing_write,       // write as a storage image in a ray tracing shader
-    transfer_src,           // source of a copy/blit operation
-    transfer_dst,           // destination of a copy/blit operation
-};
-
 // Subresource range tracked by the frame graph. A subrange of an image
 // with its own layout / last access state.
 struct SubresourceRange {
@@ -129,10 +111,10 @@ struct BufferUse {
     bool write{false};
 };
 
-// One (image, subresource, usage) tuple inside a pass declaration.
+// One (image, subresource, access) tuple inside a pass declaration.
 struct ImageAccess {
     uint32_t image_id{0};
-    ImageUsage usage{ImageUsage::shader_read};
+    gpu::Access access{gpu::Access::sampled_fragment};
     SubresourceRange range{};
 };
 
@@ -227,8 +209,8 @@ public:
 
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
     /// RenderPass::declare() or a pass's build()) plus the record
-    /// callback. Registers all imported images into the graph, derives
-    /// legacy ImageUsage values from declared gpu::Access, reads
+    /// callback. Registers all imported images into the graph, keeps the
+    /// declared gpu::Access of each, reads
     /// parallel-group assignment from the builder, and enqueues the
     /// pass the same way add_pass() does. Created (non-imported)
     /// resources are not yet allocated — that lands with Phase 3
@@ -320,10 +302,6 @@ public:
     void bind_virtual_image(uint32_t image_id, VkImage image);
 
 private:
-    static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);
-    static VkPipelineStageFlags2 stage_for(ImageUsage usage);
-    static VkAccessFlags2 access_for(ImageUsage usage);
-
     // When a barrier is recorded into a compute-queue CB, graphics-only
     // stage bits (COLOR_ATTACHMENT_OUTPUT, FRAGMENT_SHADER, vertex/tess/
     // geometry, EARLY/LATE_FRAGMENT_TESTS) are rejected by the validator

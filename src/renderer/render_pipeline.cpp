@@ -649,7 +649,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             [p = pp.pass, &ctx](VkCommandBuffer cb) {
                 FrameContext local = ctx;
                 local.cmd = cb;
-                gpu::vulkan::CommandBufferList commands(*ctx.device, cb);
+                const gpu::Queue queue = cb == ctx.async_compute_cmd ? gpu::Queue::compute
+                                                                      : gpu::Queue::graphics;
+                gpu::vulkan::CommandBufferList commands(*ctx.device, cb, queue);
                 local.command_list = &commands.list();
                 p->record(local);
             });

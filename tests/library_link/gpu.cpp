@@ -2,9 +2,9 @@
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it opens a window, brings a device up and makes a
 // buffer, a texture with a view, a sampler, pipelines, bind groups and
-// transient memory through the GPU interface, and records a dispatch through a
-// command list, which takes a GPU and a display: it is run by hand, not as a
-// test.
+// transient memory through the GPU interface, and records a dispatch, copies
+// and clears through a command list, which takes a GPU and a display: it is
+// run by hand, not as a test.
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
@@ -129,19 +129,9 @@ int main() {
         if (!transient_ok) std::fprintf(stderr, "transient memory failed\n");
         pipelines = pipelines && transient_ok;
 
-        // A command list recording a dispatch on the GPU: a pipeline, a uniform
-        // in transient memory, a buffer the CPU reads back, push data. Then a
-        // second dispatch with nothing bound, which the list refuses.
-        bool recorded = false;
-        auto commands_pipeline = device.create(
-            fjell::gpu::ComputePipelineDesc{.shader = "commands.comp", .name = "link_commands"});
-        auto results = device.create(fjell::gpu::BufferDesc{
-            .size = 64 * sizeof(uint32_t),
-            .use = fjell::gpu::BufferUse::storage,
-            .memory = fjell::gpu::Memory::readback,
-            .name = "link_results",
-        });
-        if (commands_pipeline && results) {
+        // Records into a command buffer through a command list, makes what it
+        // wrote readable by the CPU, submits it and waits for it.
+        auto run = [&](auto&& record) {
             VkCommandBufferAllocateInfo allocate{};
             allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocate.commandPool = core.command_pool();
@@ -153,30 +143,14 @@ int main() {
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer(cb, &begin);
-
-            const size_t reported_before = device.impl().reported.size();
             {
                 fjell::gpu::vulkan::CommandBufferList commands(device, cb);
-                fjell::gpu::CommandList& cmd = commands.list();
-                struct Push {
-                    uint32_t base;
-                    uint32_t count;
-                };
-                const uint32_t scale = 3;
-                cmd.set_pipeline(*commands_pipeline);
-                cmd.bind({{"params", fjell::gpu::uniform(cmd.transient(scale))},
-                          {"results", fjell::gpu::storage(*results)}});
-                cmd.push(Push{.base = 7, .count = 64});
-                cmd.dispatch(1, 1, 1);
-                cmd.set_pipeline(*commands_pipeline);
-                cmd.dispatch(1, 1, 1);
+                record(commands.list());
             }
-            const bool refused = device.impl().reported.size() == reported_before + 1;
-
             VkMemoryBarrier2 written{};
             written.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            written.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            written.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+            written.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+            written.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
             written.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
             written.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
             VkDependencyInfo dependency{};
@@ -198,20 +172,85 @@ int main() {
             vkWaitForFences(core.vk_device(), 1, &fence, VK_TRUE, UINT64_MAX);
             vkDestroyFence(core.vk_device(), fence, nullptr);
             vkFreeCommandBuffers(core.vk_device(), core.command_pool(), 1, &cb);
+        };
+        auto word = [&](fjell::gpu::Buffer read_back, uint32_t index) {
+            uint32_t value = 0;
+            std::memcpy(&value, device.mapped(read_back).data() + index * sizeof(uint32_t), sizeof(value));
+            return value;
+        };
 
-            const auto bytes = device.mapped(*results);
-            recorded = refused && bytes.size() == 64 * sizeof(uint32_t);
-            for (uint32_t i = 0; recorded && i < 64; ++i) {
-                uint32_t value = 0;
-                std::memcpy(&value, bytes.data() + i * sizeof(uint32_t), sizeof(value));
-                recorded = value == 7 + 3 * i;
-            }
+        // A dispatch: a pipeline, a uniform in transient memory, a buffer the
+        // CPU reads back, push data. Then a second with nothing bound, which
+        // the list refuses.
+        bool recorded = false;
+        auto commands_pipeline = device.create(
+            fjell::gpu::ComputePipelineDesc{.shader = "commands.comp", .name = "link_commands"});
+        auto results = device.create(fjell::gpu::BufferDesc{
+            .size = 64 * sizeof(uint32_t),
+            .use = fjell::gpu::BufferUse::storage,
+            .memory = fjell::gpu::Memory::readback,
+            .name = "link_results",
+        });
+        if (commands_pipeline && results) {
+            const size_t reported_before = device.impl().reported.size();
+            run([&](fjell::gpu::CommandList& cmd) {
+                struct Push {
+                    uint32_t base;
+                    uint32_t count;
+                };
+                const uint32_t scale = 3;
+                cmd.set_pipeline(*commands_pipeline);
+                cmd.bind({{"params", fjell::gpu::uniform(cmd.transient(scale))},
+                          {"results", fjell::gpu::storage(*results)}});
+                cmd.push(Push{.base = 7, .count = 64});
+                cmd.dispatch(1, 1, 1);
+                cmd.set_pipeline(*commands_pipeline);
+                cmd.dispatch(1, 1, 1);
+            });
+            recorded = device.impl().reported.size() == reported_before + 1;
+            for (uint32_t i = 0; recorded && i < 64; ++i) recorded = word(*results, i) == 7 + 3 * i;
         }
         if (!commands_pipeline) std::fprintf(stderr, "%s\n", commands_pipeline.error().c_str());
         if (!recorded) std::fprintf(stderr, "command list failed\n");
         pipelines = pipelines && recorded;
+
+        // Copies and clears: a buffer filled and copied; a texture cleared,
+        // its mips filtered down from the first and the smallest read back.
+        bool copied = false;
+        auto source = device.create(fjell::gpu::BufferDesc{.size = 16, .name = "link_fill"});
+        auto mipped = device.create(fjell::gpu::TextureDesc{
+            .format = fjell::gpu::Format::rgba8_unorm,
+            .width = 4,
+            .height = 4,
+            .mips = 3,
+            .use = fjell::gpu::TextureUse::sampled,
+            .name = "link_mips",
+        });
+        if (source && mipped && results) {
+            using fjell::gpu::Access;
+            const size_t reported_before = device.impl().reported.size();
+            run([&](fjell::gpu::CommandList& cmd) {
+                cmd.fill(*source, 0xABCD1234U);
+                cmd.barrier(*source, Access::clear, Access::copy_src);
+                cmd.copy(*source, fjell::gpu::BufferRange(*results, 0, 16));
+
+                cmd.barrier(*mipped, {}, Access::clear);
+                cmd.clear(fjell::gpu::mip(*mipped, 0), fjell::gpu::Clear{1.0f, 0.0f, 1.0f, 1.0f});
+                cmd.barrier(*mipped, Access::clear, Access::copy_dst);
+                cmd.generate_mipmaps(*mipped);
+                cmd.barrier(fjell::gpu::mip(*mipped, 2), Access::copy_dst, Access::copy_src);
+                cmd.copy(fjell::gpu::mip(*mipped, 2), fjell::gpu::BufferRange(*results, 16, 4));
+            });
+            copied = device.impl().reported.size() == reported_before;
+            for (uint32_t i = 0; copied && i < 4; ++i) copied = word(*results, i) == 0xABCD1234U;
+            copied = copied && word(*results, 4) == 0xFFFF00FFU;
+        }
+        if (!copied) std::fprintf(stderr, "copies and clears failed\n");
+        pipelines = pipelines && copied;
         if (commands_pipeline) commands_pipeline->reset();
         if (results) results->reset();
+        if (source) source->reset();
+        if (mipped) mipped->reset();
 
         if (pipelines && buffer && texture && sampler.valid()) {
             const auto bytes = device.mapped(*buffer);
