@@ -516,7 +516,7 @@ void AoBlurHPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(normal, gpu::Access::sampled_compute);
 
     TextureDesc blur_desc{};
-    blur_desc.format = VK_FORMAT_R8_UNORM;
+    blur_desc.format = gpu::Format::r8_unorm;
     blur_desc.size_class = SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);
@@ -611,7 +611,7 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // the same TrackedImage. This lets the DAG sort see the blur_h →
     // blur_v edge and keeps blur_h alive through the pass-culling walk.
     TextureDesc blur_desc{};
-    blur_desc.format = VK_FORMAT_R8_UNORM;
+    blur_desc.format = gpu::Format::r8_unorm;
     blur_desc.size_class = SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);

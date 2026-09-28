@@ -667,10 +667,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
     } // rp_graph_submit
 
-    // Allocate a VkImage per alias group from the cross-frame pool and
+    // Take a texture per alias group from the cross-frame pool and
     // register each logical resource under the name it was declared
-    // with. Passes rewire their record() reads through
-    // ctx.registry->image_view(name) in C3.3+.
+    // with, where passes read it through ctx.registry->image_view(name).
     if (ctx.transient_pool != nullptr) {
         FJELL_PROFILE_SCOPE_N("rp_alias_bind");
         auto& lifetimes = lifetimes_;
@@ -693,20 +692,22 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         }
 
         for (const auto& group : groups) {
-            VkImageUsageFlags usage_flags = 0;
+            gpu::TextureUses uses{};
             for (uint32_t rid : group.resource_ids) {
-                usage_flags |= lifetimes[rid].usage_flags;
+                uses |= lifetimes[rid].uses;
             }
-            const auto* alloc = ctx.transient_pool->acquire(
-                group.desc, target.extent(), usage_flags);
-            if (alloc == nullptr) { continue; }
+            const gpu::Texture texture =
+                ctx.transient_pool->acquire(group.desc, decl_ctx.viewport_extent, uses);
+            if (!texture.valid()) { continue; }
+            const VkImage image = gpu::vulkan::native_image(*ctx.device, texture);
+            const VkImageView view = gpu::vulkan::native_view(*ctx.device, texture);
             for (uint32_t rid : group.resource_ids) {
                 const auto& img = imgs[rid];
                 if (img.name.empty()) { continue; }
                 ResourceRegistry::ImageResource res{};
                 res.frame_graph_id = rid;
-                res.image = alloc->image;
-                res.view = alloc->full_view;
+                res.image = image;
+                res.view = view;
                 res.sampler = VK_NULL_HANDLE;
                 res.mip_count = img.mip_count;
                 registry.register_image(img.name, res);
@@ -716,7 +717,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 // by begin_frame(), which is what we want — the first
                 // access will barrier out of UNDEFINED regardless of
                 // whether the pool handed back a fresh or reused image.
-                graph.bind_virtual_image(rid, alloc->image);
+                graph.bind_virtual_image(rid, image);
             }
         }
 

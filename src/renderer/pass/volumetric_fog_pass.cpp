@@ -22,6 +22,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -129,7 +130,9 @@ FogCore::Images* images_for(const FrameContext& ctx, FogCore* core) {
 // integrated volume across the whole screen, so any froxel column the
 // dispatches miss reaches the screen as unwritten memory.
 VkExtent3D froxel_grid(uint32_t screen_w, uint32_t screen_h) {
-    return TransientImagePool::resolve_extent(FogCore::volume_desc(), {screen_w, screen_h});
+    const glm::uvec3 grid =
+        TransientImagePool::resolve_extent(FogCore::volume_desc(), {screen_w, screen_h});
+    return {grid.x, grid.y, grid.z};
 }
 
 } // namespace
@@ -144,7 +147,7 @@ FogCore::VolumeImage FogCore::create_volume_image(
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ci.imageType = VK_IMAGE_TYPE_3D;
-    ci.format = VOLUME_FORMAT;
+    ci.format = gpu::vulkan::native_format(VOLUME_FORMAT);
     ci.extent = {w, h, d};
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
@@ -161,7 +164,7 @@ FogCore::VolumeImage FogCore::create_volume_image(
     vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     vi.image = img.image;
     vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
-    vi.format = VOLUME_FORMAT;
+    vi.format = gpu::vulkan::native_format(VOLUME_FORMAT);
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(device, &vi, nullptr, &img.view) != VK_SUCCESS) {
@@ -691,7 +694,7 @@ TextureDesc FogCore::volume_desc() {
     desc.size_class = SizeClass::viewport;
     desc.viewport_divisor = SCREEN_DIVISOR;
     desc.depth = DEPTH_SLICES;
-    desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
+    desc.kind = gpu::TextureKind::tex3d;
     return desc;
 }
 
@@ -808,7 +811,7 @@ void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // of this node's recording and read by every medium dispatch after it.
     // One texel per froxel column.
     TextureDesc line_desc{};
-    line_desc.format = VK_FORMAT_R8_UNORM;
+    line_desc.format = gpu::Format::r8_unorm;
     line_desc.size_class = SizeClass::viewport;
     line_desc.viewport_divisor = SCREEN_DIVISOR;
     auto line = builder.create(WATER_LINE_NAME, line_desc);

@@ -1,8 +1,9 @@
 #pragma once
 
 #include "gpu/access.hpp"
-
-#include <vulkan/vulkan.h>
+#include "gpu/format.hpp"
+#include "gpu/texture.hpp"
+#include "gpu/usage.hpp"
 
 #include <cstdint>
 
@@ -25,14 +26,14 @@ struct TextureDesc {
     uint32_t mip_levels{1};
     uint32_t array_layers{1};
 
-    VkFormat format{VK_FORMAT_UNDEFINED};
-    VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
-    VkImageViewType view_type{VK_IMAGE_VIEW_TYPE_2D};
+    gpu::Format format{gpu::Format::undefined};
+    gpu::Samples samples{gpu::Samples::x1};
+    gpu::TextureKind kind{gpu::TextureKind::tex2d};
 
-    /// Additional usage flags beyond what the graph infers from pass
-    /// declarations. Usually left 0 — the compile step ORs in flags from
-    /// every declared gpu::Access against this resource.
-    VkImageUsageFlags extra_usage{0};
+    /// Uses beyond what the graph infers from pass declarations. Usually
+    /// left empty: the graph adds the use of every gpu::Access declared
+    /// against this resource.
+    gpu::TextureUses extra_use{};
 
     /// Persistent resources survive across frames (shadow atlas, DDGI
     /// atlases, Hi-Z history, TAA history). Non-persistent resources are
@@ -41,8 +42,8 @@ struct TextureDesc {
 };
 
 struct BufferDesc {
-    VkDeviceSize size{0};
-    VkBufferUsageFlags extra_usage{0};
+    uint64_t size{0};
+    gpu::BufferUses extra_use{};
     bool persistent{false};
     bool host_visible{false};
 };

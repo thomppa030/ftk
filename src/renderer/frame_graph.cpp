@@ -438,7 +438,7 @@ void FrameGraph::compute_lifetimes(std::vector<ResourceLifetime>& out) const {
             auto& lt = out[acc.image_id];
             if (p < lt.first_pass) { lt.first_pass = p; }
             if (p > lt.last_pass || !lt.used()) { lt.last_pass = p; }
-            lt.usage_flags |= gpu::vulkan::image_usage(acc.access);
+            lt.uses |= gpu::texture_use(acc.access);
         }
     }
 }
@@ -453,6 +453,7 @@ void FrameGraph::log_lifetimes() const {
     const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
 
+    constexpr const char* use_names[] = {"sampled", "storage", "color_target", "depth_target"};
     const auto lifetimes = compute_lifetimes();
     FJELL_GFX_INFO("FrameGraph lifetimes ({} images, {} passes):",
                    static_cast<unsigned>(images_.size()),
@@ -467,11 +468,16 @@ void FrameGraph::log_lifetimes() const {
                            static_cast<unsigned>(i), kind);
             continue;
         }
-        FJELL_GFX_INFO("  img#{} [{}] [{}..{}] ({} passes) usage=0x{:x} first='{}' last='{}'",
+        std::string uses;
+        lt.uses.for_each([&](gpu::TextureUse use) {
+            if (!uses.empty()) { uses += '|'; }
+            uses += use_names[static_cast<size_t>(use)];
+        });
+        FJELL_GFX_INFO("  img#{} [{}] [{}..{}] ({} passes) uses={} first='{}' last='{}'",
                        static_cast<unsigned>(i), kind,
                        lt.first_pass, lt.last_pass,
                        lt.last_pass - lt.first_pass + 1,
-                       static_cast<unsigned>(lt.usage_flags),
+                       uses.empty() ? std::string("none") : uses,
                        passes_[lt.first_pass].name.c_str(),
                        passes_[lt.last_pass].name.c_str());
     }
@@ -489,7 +495,7 @@ bool desc_matches_exactly(const TextureDesc& a, const TextureDesc& b) {
         && a.height == b.height
         && a.depth == b.depth
         && a.viewport_divisor == b.viewport_divisor
-        && a.view_type == b.view_type;
+        && a.kind == b.kind;
 }
 
 } // namespace

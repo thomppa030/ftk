@@ -23,6 +23,19 @@ TEST_CASE("Every access applies to a texture, a buffer, or to both only for copi
     }
 }
 
+TEST_CASE("Every texture access but a copy or a clear asks a use of the texture",
+          "[gpu][access]") {
+    for (int i = 0; i < ACCESS_COUNT; ++i) {
+        const auto access = static_cast<Access>(i);
+        INFO("access " << i);
+        const bool copy_or_clear =
+            access == Access::copy_src || access == Access::copy_dst || access == Access::clear;
+        CHECK(texture_use(access).empty() == (!applies_to_texture(access) || copy_or_clear));
+    }
+    CHECK(texture_use(Access::depth_read_sampled) ==
+          (TextureUse::depth_target | TextureUse::sampled));
+}
+
 TEST_CASE("A clear writes without reading what was there", "[gpu][access]") {
     CHECK(access_is_write(Access::clear));
     CHECK_FALSE(access_is_read(Access::clear));

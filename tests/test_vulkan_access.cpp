@@ -10,7 +10,7 @@ constexpr int ACCESS_COUNT = static_cast<int>(Access::clear) + 1;
 
 } // namespace
 
-TEST_CASE("Every texture access has a layout, stages and an image use", "[vulkan][access]") {
+TEST_CASE("Every texture access has a layout and stages", "[vulkan][access]") {
     for (int i = 0; i < ACCESS_COUNT; ++i) {
         const auto access = static_cast<Access>(i);
         INFO("access " << i);
@@ -19,7 +19,6 @@ TEST_CASE("Every texture access has a layout, stages and an image use", "[vulkan
             CHECK((scope.layout != VK_IMAGE_LAYOUT_UNDEFINED) == applies_to_texture(access));
             CHECK((scope.stages != 0) == applies_to_texture(access));
         }
-        CHECK((vulkan::image_usage(access) != 0) == applies_to_texture(access));
         CHECK((vulkan::buffer_scope(access).stages != 0) == applies_to_buffer(access));
     }
 }

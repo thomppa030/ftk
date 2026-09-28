@@ -368,7 +368,7 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, gpu::Access::sampled_compute);
 
     TextureDesc ssr_desc{};
-    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ssr_desc.format = gpu::Format::rgba16_float;
     ssr_desc.size_class = SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", ssr_desc);
 
@@ -494,7 +494,7 @@ void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     // accessed through ResourceRegistry, not the graph — see the comment
     // on RtReflectionPass::declare for the rationale.
     TextureDesc refl_desc{};
-    refl_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    refl_desc.format = gpu::Format::rgba16_float;
     refl_desc.size_class = SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", refl_desc);
     builder.read(ssr_out, gpu::Access::sampled_compute);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "gpu/format.hpp"
 
 #include <array>
 #include <glm/glm.hpp>
@@ -34,7 +35,7 @@ public:
     static constexpr uint32_t RESOLUTION_DIVISOR = 2;  // half-res
     /// The march's output, this frame only: a graph transient. Alpha carries
     /// each ray's length, which the resolve filters by.
-    static constexpr VkFormat RAW_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr gpu::Format RAW_FORMAT = gpu::Format::rgba16_float;
     static constexpr const char* RAW_NAME = "sun_shafts_raw";
     /// The resolved shafts, kept from frame to frame. Alpha keeps the length
     /// of the ray each texel was resolved for, which is how the next frame

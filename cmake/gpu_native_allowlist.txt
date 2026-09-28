@@ -170,7 +170,6 @@ src/renderer/render_queue.cpp
 src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
-src/renderer/resource_desc.hpp
 src/renderer/resource_registry.hpp
 src/renderer/resources/asset_loader.cpp
 src/renderer/resources/asset_loader.hpp
@@ -201,8 +200,6 @@ src/renderer/systems/sprite_renderer.cpp
 src/renderer/systems/sprite_renderer.hpp
 src/renderer/systems/tilemap_renderer.cpp
 src/renderer/systems/tilemap_renderer.hpp
-src/renderer/transient_image_pool.cpp
-src/renderer/transient_image_pool.hpp
 src/renderer/viewport_source.hpp
 src/renderer/viz_image.cpp
 src/renderer/viz_image.hpp

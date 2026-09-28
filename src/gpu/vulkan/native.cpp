@@ -5,6 +5,10 @@
 
 namespace fjell::gpu::vulkan {
 
+VkFormat native_format(Format format) {
+    return to_vk(format);
+}
+
 VkBuffer native_buffer(Device& device, Buffer buffer) {
     const auto* record = device.impl().buffers.get(buffer);
     return record != nullptr ? record->buffer : VK_NULL_HANDLE;

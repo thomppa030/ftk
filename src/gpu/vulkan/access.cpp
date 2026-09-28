@@ -176,38 +176,6 @@ BufferScope buffer_scope(AccessSet accesses) {
     return merged;
 }
 
-VkImageUsageFlags image_usage(Access access) {
-    switch (access) {
-        case Access::color_attachment:
-            return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        case Access::depth_attachment:
-        case Access::depth_resolve:
-        case Access::depth_attachment_read:
-        case Access::input_attachment:
-            return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        case Access::depth_read_sampled:
-            return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        case Access::sampled_fragment:
-        case Access::sampled_vertex:
-        case Access::sampled_mesh:
-        case Access::sampled_compute:
-        case Access::sampled_raytracing:
-            return VK_IMAGE_USAGE_SAMPLED_BIT;
-        case Access::storage_read_compute:
-        case Access::storage_write_compute:
-        case Access::storage_read_write_compute:
-        case Access::storage_write_raytracing:
-            return VK_IMAGE_USAGE_STORAGE_BIT;
-        case Access::copy_src:
-            return VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        case Access::copy_dst:
-        case Access::clear:
-            return VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        default:
-            return 0;
-    }
-}
-
 VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages) {
     constexpr VkPipelineStageFlags2 GRAPHICS_ONLY =
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | FRAGMENT_TESTS |

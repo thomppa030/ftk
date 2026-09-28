@@ -640,7 +640,7 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // writes into.
     if (ctx.bloom_enabled) {
         TextureDesc bloom_desc{};
-        bloom_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        bloom_desc.format = gpu::Format::rgba16_float;
         bloom_desc.size_class = SizeClass::viewport;
         bloom_desc.viewport_divisor = 2;
         auto bloom_mip0 = builder.create("bloom_mip0", bloom_desc);

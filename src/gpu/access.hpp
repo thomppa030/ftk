@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/flags.hpp"
+#include "gpu/usage.hpp"
 
 #include <cstdint>
 
@@ -155,6 +156,36 @@ using AccessSet = Flags<Access>;
             return true;
         default:
             return false;
+    }
+}
+
+/// What a texture must be made able to do to be used this way: nothing for
+/// an access that does not apply to textures, and nothing for a copy or a
+/// clear, which every texture allows.
+[[nodiscard]] constexpr TextureUses texture_use(Access a) noexcept {
+    switch (a) {
+        case Access::color_attachment:
+            return TextureUse::color_target;
+        case Access::depth_attachment:
+        case Access::depth_resolve:
+        case Access::depth_attachment_read:
+        case Access::input_attachment:
+            return TextureUse::depth_target;
+        case Access::depth_read_sampled:
+            return TextureUse::depth_target | TextureUse::sampled;
+        case Access::sampled_fragment:
+        case Access::sampled_vertex:
+        case Access::sampled_mesh:
+        case Access::sampled_compute:
+        case Access::sampled_raytracing:
+            return TextureUse::sampled;
+        case Access::storage_read_compute:
+        case Access::storage_write_compute:
+        case Access::storage_read_write_compute:
+        case Access::storage_write_raytracing:
+            return TextureUse::storage;
+        default:
+            return {};
     }
 }
 

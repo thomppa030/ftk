@@ -411,6 +411,14 @@ const TextureInfo& Device::info(Texture texture) const {
     return record != nullptr ? record->info : none;
 }
 
+uint64_t Device::memory_size(Texture texture) const {
+    const Impl::TextureRecord* record = impl_->textures.get(texture);
+    if (record == nullptr || record->allocation == VK_NULL_HANDLE) return 0;
+    VmaAllocationInfo allocation{};
+    vmaGetAllocationInfo(impl_->allocator, record->allocation, &allocation);
+    return allocation.size;
+}
+
 // ── Release ─────────────────────────────────────────────────────────────
 
 void release(Device& device, Buffer buffer) {

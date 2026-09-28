@@ -12,6 +12,7 @@
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -31,7 +32,7 @@ namespace fjell {
 
 namespace {
 
-constexpr VkFormat BLOOM_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+constexpr gpu::Format BLOOM_FORMAT = gpu::Format::rgba16_float;
 
 std::string mip_name(uint32_t idx) {
     return "bloom_mip" + std::to_string(idx);
@@ -293,9 +294,11 @@ Result<> BloomCore::create(Device& device, const PassResources& resources) {
     auto* up_mod   = create_shader_module(device_, up_code);
 
     downsample_pipeline_ = create_fullscreen_pipeline(
-        device_, downsample_layout_, vert_mod, down_mod, BLOOM_FORMAT, false, vk_pipeline_cache_);
+        device_, downsample_layout_, vert_mod, down_mod, gpu::vulkan::native_format(BLOOM_FORMAT),
+        false, vk_pipeline_cache_);
     upsample_pipeline_ = create_fullscreen_pipeline(
-        device_, upsample_layout_, vert_mod, up_mod, BLOOM_FORMAT, true, vk_pipeline_cache_);
+        device_, upsample_layout_, vert_mod, up_mod, gpu::vulkan::native_format(BLOOM_FORMAT),
+        true, vk_pipeline_cache_);
 
     vkDestroyShaderModule(device_, up_mod, nullptr);
     vkDestroyShaderModule(device_, down_mod, nullptr);

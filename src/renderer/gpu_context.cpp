@@ -116,7 +116,7 @@ GpuContext::GpuContext(Window& window)
         throw std::runtime_error(r.error());
     }
 
-    transient_pool_.create(core_.vk_device(), core_.allocator());
+    transient_pool_.create(core_.gpu_device());
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "gpu/format.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -86,7 +87,7 @@ public:
     static constexpr uint32_t TILE_SIZE = 8;
     static constexpr uint32_t DEPTH_SLICES = 128;
     static constexpr uint32_t SCREEN_DIVISOR = 16;
-    static constexpr VkFormat VOLUME_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr gpu::Format VOLUME_FORMAT = gpu::Format::rgba16_float;
 
     struct VolumeImage {
         VkImage image{VK_NULL_HANDLE};
