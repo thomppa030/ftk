@@ -200,4 +200,19 @@ void CommandList::dispatch_indirect(BufferRange args) {
     vkCmdDispatchIndirect(impl_->cb, buffer->buffer, args.offset);
 }
 
+void CommandList::execute(std::span<CommandList* const> recorded_in_parallel) {
+    if (!vulkan::outside_render(*device_, *impl_, "plays other lists")) return;
+    std::vector<VkCommandBuffer> recorded;
+    recorded.reserve(recorded_in_parallel.size());
+    for (CommandList* list : recorded_in_parallel) {
+        if (list->impl_->rendering) {
+            device_->impl().report_once("A command list plays one whose render scope is open");
+            return;
+        }
+        recorded.push_back(list->impl_->cb);
+    }
+    if (recorded.empty()) return;
+    vkCmdExecuteCommands(impl_->cb, static_cast<uint32_t>(recorded.size()), recorded.data());
+}
+
 } // namespace fjell::gpu

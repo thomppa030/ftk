@@ -72,6 +72,7 @@ void FrameDescriptorCache::destroy() {
 }
 
 void FrameDescriptorCache::begin_frame(uint32_t frame_index) {
+    std::lock_guard lock(mutex_);
     // Roll over stats from the frame we just finished.
     stats_.sets_last_frame = stats_.sets_this_frame;
     stats_.hits_last_frame = stats_.hits_this_frame;
@@ -149,6 +150,7 @@ void FrameDescriptorCache::write_bindings(VkDescriptorSet set,
 
 VkDescriptorSet FrameDescriptorCache::acquire(VkDescriptorSetLayout layout,
                                                std::span<const FrameCacheBinding> bindings) {
+    std::lock_guard lock(mutex_);
     auto& slot = slots_[current_frame_];
 
     FrameCacheKey key{};
