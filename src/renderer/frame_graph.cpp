@@ -2,6 +2,7 @@
 #include "gpu/vulkan/access.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include "renderer/gpu/vk_check.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -12,7 +13,6 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
-#include <latch>
 #include <unordered_map>
 
 namespace fjell {
@@ -1188,36 +1188,31 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
 
         secondaries_scratch_.resize(group_size);
         auto& secondaries = secondaries_scratch_;
-        std::latch done(static_cast<ptrdiff_t>(group_size));
 
-        for (size_t p = 0; p < group_size; ++p) {
-            auto thread_idx = static_cast<uint32_t>(p % (pool->thread_count() + 1));
-            VkCommandBuffer secondary = cmd_pools->allocate_secondary(thread_idx, frame_index);
-            secondaries[p] = secondary;
+        // A command pool may be used by one thread at a time. A chunk runs on
+        // one thread, so its passes record into buffers from the pool its
+        // chunk id names.
+        pool->parallel_for(0, static_cast<uint32_t>(group_size), 1,
+            [&](uint32_t chunk, uint32_t first, uint32_t last) {
+                for (uint32_t p = first; p < last; ++p) {
+                    VkCommandBuffer secondary = cmd_pools->allocate_secondary(chunk, frame_index);
 
-            auto record = [&passes = passes_, group_begin, p, secondary, &done]() {
-                VkCommandBufferInheritanceInfo inheritance{};
-                inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+                    VkCommandBufferInheritanceInfo inheritance{};
+                    inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
 
-                VkCommandBufferBeginInfo begin_info{};
-                begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                begin_info.pInheritanceInfo = &inheritance;
+                    VkCommandBufferBeginInfo begin_info{};
+                    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                    begin_info.pInheritanceInfo = &inheritance;
 
-                vkBeginCommandBuffer(secondary, &begin_info);
-                passes[group_begin + p].execute(secondary);
-                vkEndCommandBuffer(secondary);
-                done.count_down();
-            };
-
-            if (p < group_size - 1) {
-                (void)pool->submit(std::move(record));
-            } else {
-                record();
-            }
-        }
-
-        done.wait();
+                    vk_check(vkBeginCommandBuffer(secondary, &begin_info),
+                             "Failed to begin a parallel pass's command buffer");
+                    passes_[group_begin + p].execute(secondary);
+                    vk_check(vkEndCommandBuffer(secondary),
+                             "Failed to end a parallel pass's command buffer");
+                    secondaries[p] = secondary;
+                }
+            });
 
         // Parallel groups are graphics-only (depth_prepass + shadow are
         // the only current users). Pick the first pass's CB; a mixed-
