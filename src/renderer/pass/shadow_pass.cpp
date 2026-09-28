@@ -164,6 +164,7 @@ void ShadowPass::update_cascades(const glm::mat4& view, const glm::mat4& project
 // ── Image creation ──────────────────────────────────────────────────────
 
 void ShadowPass::create_images() {
+    written_ = false;
     // Depth image array: CASCADE_COUNT layers
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -699,32 +700,7 @@ void ShadowPass::record(const FrameContext& ctx) {
 
         vkCmdEndRendering(ctx.cmd);
     }
-
-    // Transition all cascade layers to shader-readable. The graph's
-    // final_layout() hint records this post-state so downstream
-    // consumers skip the no-op transition.
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image_;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = CASCADE_COUNT;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    written_ = true;
 }
 
 PassSetup ShadowPass::setup() const {
@@ -740,14 +716,6 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "shadow_atlas");
     if (atlas.valid()) {
         builder.write(atlas, gpu::Access::depth_attachment);
-        // record() finishes with every cascade transitioned to
-        // DEPTH_STENCIL_READ_ONLY_OPTIMAL inline so consumers can
-        // sample without an extra barrier from the graph.
-        builder.final_layout(atlas,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 }
 
@@ -761,6 +729,10 @@ void ShadowPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = CASCADE_COUNT;
     img.mip_count = 1;
     img.persistent = true;
+    // Every lit surface samples it in the fragment shader through the global
+    // set. Nothing is in it before the pass first draws.
+    img.resting = gpu::Access::sampled_fragment;
+    img.unwritten = !written_;
     ctx.imports.emplace(fg_name_hash("shadow_atlas"), img);
 }
 

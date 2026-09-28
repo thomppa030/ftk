@@ -64,6 +64,8 @@ private:
 
     // Depth texture array: one layer per cascade
     VkImage image_{VK_NULL_HANDLE};
+    /// Whether the pass has drawn into the cascades since they were made.
+    bool written_{false};
     VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView array_view_{VK_NULL_HANDLE};                          // all layers
     std::array<VkImageView, CASCADE_COUNT> cascade_views_{};          // per-layer
