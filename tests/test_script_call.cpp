@@ -32,11 +32,11 @@ TEST_CASE("a Ref used with nothing there halts the game library until resumed", 
     CHECK_FALSE(call_script({.type_name = "Other"}, [&] { ran = true; }));
     CHECK_FALSE(ran);
 
-    const auto report = take_ref_gone_report();
+    const auto report = take_missing_reference_report();
     REQUIRE(report.has_value());
     CHECK(report->message == "Probe.tick used `target` with nothing there");
     CHECK(report->node_id == 4);
-    CHECK_FALSE(take_ref_gone_report().has_value());
+    CHECK_FALSE(take_missing_reference_report().has_value());
     CHECK(script_calls_halted());
 
     resume_script_calls();

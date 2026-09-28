@@ -55,7 +55,7 @@ directly, with no check to write. If the target is not there, the game stops on 
 spot, shipped builds included, and says which script, which hook, which field and which
 node: in the editor play ends with the script's node selected, a functional test fails
 with the message, and a shipped game writes `crash_report.txt` beside its executable and
-closes. Catching the `fjell::RefGone` it throws does not keep the game running. So use
+closes. Catching the `fjell::MissingReference` it throws does not keep the game running. So use
 `->` for what is always there, and check with `if (ref)` or `get()` where absence is
 expected, as for an enemy that can be killed:
 

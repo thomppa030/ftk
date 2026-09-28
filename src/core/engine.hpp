@@ -112,8 +112,8 @@ public:
     /// Whether every test passed. Read after run() to pick an exit code; true
     /// when no tests were run.
     [[nodiscard]] bool tests_passed() const { return tests_passed_; }
-    /// Whether a shipped game was stopped because a script used a Ref whose
-    /// target was gone.
+    /// Whether a shipped game was stopped because a script used a Ref or an
+    /// Asset with nothing there.
     [[nodiscard]] bool stopped_by_error() const { return stopped_by_error_; }
 
 private:
@@ -249,10 +249,11 @@ private:
     };
 
     void tick_test_runner();
-    /// Stops the game when a script has used a Ref whose target was gone: a
-    /// running test fails with the report, the editor ends play and selects
-    /// the script's node, a shipped game writes a crash report and closes.
-    void stop_on_dead_ref();
+    /// Stops the game when a script has used a Ref or an Asset with nothing
+    /// there: a running test fails with the report, the editor ends play and
+    /// selects the script's node, a shipped game writes a crash report and
+    /// closes.
+    void stop_on_missing_reference();
     /// At the start of a fixed step: start the test waiting in `prepare` if
     /// it is ready. A test starts on a step so that it acts on the same step
     /// at any frame rate.

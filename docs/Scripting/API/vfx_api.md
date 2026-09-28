@@ -43,7 +43,7 @@ void spawn(const Asset<Vfx>& effect, const glm::vec3& pos);
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `effect` | `const Asset<Vfx>&` | Effect to spawn. If null, the call is a no-op. |
+| `effect` | `const Asset<Vfx>&` | Effect to spawn. One that is unset or failed to load stops the game (see [`Asset`](Asset.md)). |
 | `pos` | `const glm::vec3&` | World-space spawn position. |
 
 ### Remarks

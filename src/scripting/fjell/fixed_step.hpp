@@ -24,6 +24,9 @@ namespace fjell {
 /// begin after it, even when the frame it happened on ran no step or several.
 /// Held buttons and axes read as the latest frame left them.
 ///
+/// Asking about an action that is unset or failed to load stops the game
+/// (see `Asset`).
+///
 /// Only meaningful inside `fixed_tick()`, the one place a `FixedStep` is
 /// handed out; read elsewhere, the engine reports it and answers as if
 /// nothing were pressed.
@@ -37,26 +40,31 @@ namespace fjell {
 struct StepInput {
     /// Whether the action was pressed since the step before this one.
     [[nodiscard]] bool pressed(const Asset<InputAction>& action) const {
+        detail::require(action);
         return fjell_step_input_pressed(action.handle_id()) != 0;
     }
 
     /// Whether the action was released since the step before this one.
     [[nodiscard]] bool released(const Asset<InputAction>& action) const {
+        detail::require(action);
         return fjell_step_input_released(action.handle_id()) != 0;
     }
 
     /// Whether the action is held.
     [[nodiscard]] bool held(const Asset<InputAction>& action) const {
+        detail::require(action);
         return fjell_step_input_held(action.handle_id()) != 0;
     }
 
     /// A one-axis action's value.
     [[nodiscard]] float axis1d(const Asset<InputAction>& action) const {
+        detail::require(action);
         return fjell_step_input_axis1d(action.handle_id());
     }
 
     /// A two-axis action's value, such as a stick or WASD.
     [[nodiscard]] glm::vec2 axis2d(const Asset<InputAction>& action) const {
+        detail::require(action);
         glm::vec2 value{0.0f};
         fjell_step_input_axis2d(action.handle_id(), &value.x, &value.y);
         return value;

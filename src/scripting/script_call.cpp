@@ -12,7 +12,7 @@ namespace {
 // Scripts run on the main thread only.
 const ScriptCall* g_current = nullptr;
 bool g_halted = false;
-std::optional<RefGoneReport> g_report;
+std::optional<MissingReferenceReport> g_report;
 
 } // namespace
 
@@ -27,14 +27,14 @@ std::string describe(const ScriptCall& call) {
 
 bool script_calls_halted() { return g_halted; }
 
-void halt_script_calls(RefGoneReport report) {
+void halt_script_calls(MissingReferenceReport report) {
     // The first is the one that matters; what follows from it is noise.
     if (g_halted) return;
     g_halted = true;
     g_report = std::move(report);
 }
 
-std::optional<RefGoneReport> take_ref_gone_report() { return std::exchange(g_report, std::nullopt); }
+std::optional<MissingReferenceReport> take_missing_reference_report() { return std::exchange(g_report, std::nullopt); }
 
 void resume_script_calls() {
     g_halted = false;
@@ -48,7 +48,7 @@ CurrentScriptCall::CurrentScriptCall(const ScriptCall& call) : previous_{g_curre
 CurrentScriptCall::~CurrentScriptCall() { g_current = previous_; }
 
 void report_script_exception(const ScriptCall& call, const std::exception* error) {
-    // A Ref used with its target gone has halted everything and made its own
+    // A reference used with nothing there has halted everything and made its own
     // report; the throw only unwound the script.
     if (g_halted) return;
     const std::string where = describe(call);

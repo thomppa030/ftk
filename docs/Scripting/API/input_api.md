@@ -105,7 +105,7 @@ void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance);
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `action` | `const Asset<InputAction>&` | The action to listen for. If `action.data_.handle_id == 0` the call is a no-op. |
+| `action` | `const Asset<InputAction>&` | The action to listen for. One that is unset or failed to load stops the game (see [`Asset`](Asset.md)). |
 | `trigger` | `EInputTrigger` | When to fire — see the [trigger table](#einputtrigger). |
 | `instance` | `T*` | Object the method is called on. Captured by pointer; must outlive the binding. |
 

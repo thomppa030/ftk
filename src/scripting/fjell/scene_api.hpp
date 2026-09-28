@@ -90,12 +90,12 @@ inline uint32_t spawn(const char* name,
 /// Instantiate a preset (`.fjp`) — a saved node hierarchy with its meshes,
 /// components, and property values.
 /// @param preset    Preset asset, normally a `[[fj::property]] Asset<Preset>`
-///                  field assigned in the inspector.
+///                  field assigned in the inspector. One that is unset or
+///                  failed to load stops the game (see `Asset`).
 /// @param pos       World position for the preset's root.
 /// @param parent_id Node to parent the spawned root under, or -1 to spawn
 ///                  at the scene root.
-/// @return The root node's ID, or 0 if the preset is unassigned or failed
-///         to load.
+/// @return The root node's ID, or 0 if the scene is unavailable.
 /// @note Single-player spawn only — it creates the node locally. Use
 ///       `net::spawn()` for anything that must exist on every peer.
 /// @code
@@ -106,7 +106,7 @@ inline uint32_t spawn(const char* name,
 inline uint32_t spawn(const Asset<Preset>& preset,
                       const glm::vec3& pos = glm::vec3{0.0f},
                       int32_t parent_id = -1) {
-    if (!preset.valid()) return 0;
+    detail::require(preset);
     return fjell_scene_spawn_preset(preset.handle_id(),
                                     pos.x, pos.y, pos.z, parent_id);
 }

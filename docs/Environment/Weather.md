@@ -220,6 +220,7 @@ void tick(float) override {
 | `weather::play(ref)` | Start an event now; what is playing tails out under it. |
 | `weather::stop()` | Let the current event tail out with nothing to follow. |
 | `weather::set_climate(ref)` | Hand the weather to a climate. |
+| `weather::clear_climate()` | Take it away again: what plays runs out, nothing follows. |
 | `weather::hold(bool)` / `is_held()` | Freeze the director. |
 | `weather::forecast(i)` | The handle id of the i-th event to come, 0 past the end. |
 | `weather::current()` | The playing event's handle id, 0 when clear. |

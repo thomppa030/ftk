@@ -48,7 +48,8 @@ namespace input {
 /// Bind a `void()` method — the form for button actions.
 /// @tparam Method  Member function pointer, as a template argument.
 /// @param action   Action asset, normally a `[[fj::property]] Asset<InputAction>`
-///                 assigned in the inspector. An unassigned ref binds nothing.
+///                 assigned in the inspector. One that is unset or failed to
+///                 load stops the game (see `Asset`).
 /// @param trigger  When to fire: `Pressed` on press, `Released` on release,
 ///                 `Triggered` every frame the action is active, `Completed`
 ///                 when it goes inactive.
@@ -58,9 +59,9 @@ namespace input {
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(); }
 inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
-    if (action.data_.handle_id == 0) return;
+    detail::require(action);
     fjell_input_bind_void(
-        action.data_.handle_id, static_cast<int>(trigger), instance,
+        action.handle_id(), static_cast<int>(trigger), instance,
         [](void* self) { (static_cast<T*>(self)->*Method)(); });
 }
 
@@ -71,9 +72,9 @@ inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* ins
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(0.0f); }
 inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
-    if (action.data_.handle_id == 0) return;
+    detail::require(action);
     fjell_input_bind_float(
-        action.data_.handle_id, static_cast<int>(trigger), instance,
+        action.handle_id(), static_cast<int>(trigger), instance,
         [](void* self, float v) { (static_cast<T*>(self)->*Method)(v); });
 }
 
@@ -91,9 +92,9 @@ inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* ins
 template <auto Method, typename T>
     requires requires(T* t) { (t->*Method)(glm::vec2{}); }
 inline void bind(const Asset<InputAction>& action, EInputTrigger trigger, T* instance) {
-    if (action.data_.handle_id == 0) return;
+    detail::require(action);
     fjell_input_bind_vec2(
-        action.data_.handle_id, static_cast<int>(trigger), instance,
+        action.handle_id(), static_cast<int>(trigger), instance,
         [](void* self, float x, float y) {
             (static_cast<T*>(self)->*Method)(glm::vec2{x, y});
         });

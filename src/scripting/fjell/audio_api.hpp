@@ -23,8 +23,8 @@ namespace audio {
 /// it attenuates with distance from the active camera — and finishes on
 /// its own, so it outlives the node that started it.
 /// @param clip   Audio asset, normally a `[[fj::property]] Asset<Audio>`
-///               field assigned in the inspector. Unassigned refs are
-///               ignored rather than treated as an error.
+///               field assigned in the inspector. One that is unset or
+///               failed to load stops the game (see `Asset`).
 /// @param pos    World-space position to play from.
 /// @param volume Linear gain. 1.0 is the clip's authored level.
 /// @param pitch  Playback rate multiplier; also shifts pitch. 1.0 is
@@ -38,10 +38,8 @@ namespace audio {
 /// @endcode
 inline void play(const Asset<Audio>& clip, const glm::vec3& pos,
                  float volume = 1.0f, float pitch = 1.0f) {
-    if (clip.handle_id() != 0) {
-        fjell_audio_play(clip.handle_id(), pos.x, pos.y, pos.z,
-                         volume, pitch);
-    }
+    detail::require(clip);
+    fjell_audio_play(clip.handle_id(), pos.x, pos.y, pos.z, volume, pitch);
 }
 } // namespace audio
 

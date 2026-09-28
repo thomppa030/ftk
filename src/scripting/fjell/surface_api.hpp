@@ -29,7 +29,7 @@ struct Surface;
 /// [[fj::property]] fjell::Asset<fjell::Audio> grass_step;
 /// // ...
 /// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
-///     if (c->ground_surface == grass.handle_id()) {
+///     if (fjell::surface::is(c->ground_surface, grass)) {
 ///         fjell::audio::play(grass_step, transform().position);
 ///     }
 /// }
@@ -39,8 +39,11 @@ namespace surface {
 /// had none assigned.
 inline bool valid(uint32_t id) { return id != 0; }
 
-/// Whether a reported surface is the one an `Asset<Surface>` holds.
+/// Whether a reported surface is the one an `Asset<Surface>` holds. A
+/// surface that is unset or failed to load stops the game (see `Asset`):
+/// a comparison with nothing would never be true.
 inline bool is(uint32_t id, const Asset<Surface>& surface) {
+    detail::require(surface);
     return id != 0 && id == surface.handle_id();
 }
 

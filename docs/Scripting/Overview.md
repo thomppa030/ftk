@@ -256,7 +256,7 @@ Two kinds: `Asset<T>` for something in the project's files, `Ref<T>` for somethi
 the scene.
 
 ### `fjell::Asset<T>` — asset reference
-For *engine-owned assets*: `Vfx`, `Audio`, `InputAction`, `Preset`, etc. The handle is 64 bits, stable, and resolved through the engine on every dereference (cheap — a pool lookup).
+For *engine-owned assets*: `Vfx`, `Audio`, `InputAction`, `Preset`, etc. A script uses one by handing it to the engine.
 
 ```cpp
 [[fj::property]] fjell::Asset<fjell::Audio> hit_sound;
@@ -266,7 +266,9 @@ void play_it() {
 }
 ```
 
-Assigned in the inspector via drag-drop or asset picker. `hit_sound.valid()` tells you whether it points at anything.
+Assigned in the inspector via drag-drop or asset picker. Handing the engine one that is
+unset, or whose file failed to load, stops the game with the script and the field named;
+where leaving it empty is meant, check `if (hit_sound)` first. See [`Asset`](API/Asset.md).
 
 ### `fjell::Ref<T>` — a component on a node
 For the component of type `T` on another node: an engine component or a script. It

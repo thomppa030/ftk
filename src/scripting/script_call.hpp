@@ -12,16 +12,17 @@ struct Node;
 
 /// A call from the engine into the game library: which script type, which of
 /// its hooks or callbacks, on which node, and the script object itself. For
-/// the report when what runs there throws, or uses a Ref whose target is gone.
+/// the report when what runs there throws, or uses a reference with nothing
+/// there.
 struct ScriptCall {
     std::string_view type_name;     ///< the script's type, or what is being called
     const char* hook{""};           ///< "tick", "timer", "on:click", ...
     const Node* node{nullptr};      ///< the node it runs for, when there is one
-    const void* instance{nullptr};  ///< the script object, to find the field a Ref is in
+    const void* instance{nullptr};  ///< the script object, to find the field a reference is in
 };
 
-/// What stopped the game: a Ref used after its target was gone.
-struct RefGoneReport {
+/// What stopped the game: a Ref or an Asset used with nothing there.
+struct MissingReferenceReport {
     std::string message;
     /// The node whose script it was, for the editor to select; 0 for none.
     uint32_t node_id{0};
@@ -33,16 +34,16 @@ struct RefGoneReport {
 /// "PlayerController.tick on 'Player'", for a report.
 [[nodiscard]] std::string describe(const ScriptCall& call);
 
-/// Whether a Ref has been used after its target was gone, and nothing more
+/// Whether a Ref or an Asset has been used with nothing there, and nothing more
 /// runs in the game library until the engine has stopped the game.
 [[nodiscard]] bool script_calls_halted();
 
 /// Records the report and halts; see script_calls_halted().
-void halt_script_calls(RefGoneReport report);
+void halt_script_calls(MissingReferenceReport report);
 
 /// The report, once, for the engine to stop the game with. The halt stays
 /// until resume_script_calls().
-[[nodiscard]] std::optional<RefGoneReport> take_ref_gone_report();
+[[nodiscard]] std::optional<MissingReferenceReport> take_missing_reference_report();
 
 /// Lets the game library run again, as a new play session starts.
 void resume_script_calls();
@@ -66,7 +67,7 @@ void report_script_exception(const ScriptCall& call, const std::exception* error
 
 /// Runs `fn`, which calls into the game library, as `call`. An exception it
 /// throws is reported and never let out, so one script's mistake cannot take
-/// the engine down; a Ref used after its target was gone has already halted
+/// the engine down; a reference used with nothing there has already halted
 /// the game library and is not reported twice. While halted, `fn` does not
 /// run. Returns whether it ran through.
 template <typename Fn>

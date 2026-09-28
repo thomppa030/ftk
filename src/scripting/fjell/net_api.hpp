@@ -137,16 +137,17 @@ inline void disconnect()                              { fjell_net_disconnect(); 
 /// Spawn a preset on every peer, replicated and kept in sync. This is the
 /// networked counterpart to `scene::spawn()`.
 /// @param preset Preset asset, normally a `[[fj::property]] Asset<Preset>`.
+///               One that is unset or failed to load stops the game, on
+///               every peer (see `Asset`).
 /// @param pos    World position for the spawned root.
 /// @param owner  Peer given ownership — pass the peer from
 ///               `on_player_connected()` for a player pawn. Defaults to
 ///               the server keeping it.
-/// @return The new network ID, or 0 if called off the server or the preset
-///         is unassigned.
+/// @return The new network ID, or 0 if called off the server.
 /// @note Server only. Calling it on a client does nothing.
 inline uint32_t spawn(const Asset<Preset>& preset, const glm::vec3& pos,
                       PeerId owner = SERVER_PEER) {
-    if (!preset.valid()) return 0;
+    detail::require(preset);
     return fjell_net_spawn(preset.handle_id(), pos.x, pos.y, pos.z, owner);
 }
 /// Despawn a replicated object on every peer. Server only.

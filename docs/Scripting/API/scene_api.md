@@ -107,12 +107,12 @@ uint32_t spawn(const Asset<Preset>& preset,
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `preset` | `const Asset<Preset>&` | Preset reference (assigned in the inspector). If null, returns `0`. |
+| `preset` | `const Asset<Preset>&` | Preset reference (assigned in the inspector). One that is unset or failed to load stops the game (see [`Asset`](Asset.md)). |
 | `pos` | `glm::vec3` | World position for the preset's root node. Default origin. |
 | `parent_id` | `int32_t` | Parent node ID. `-1` (default) spawns at root. |
 
 ### Return value
-The ID of the spawned preset's **root node**, or `0` if `preset` is null.
+The ID of the spawned preset's **root node**, or `0` if the scene is unavailable.
 
 ### Remarks
 Instantiates the full preset hierarchy — child nodes, components, default field values are all created. The returned ID is just the root; walk children via `Node3D` or hold a [`Ref<T>`](Ref.md) to a component on a descendant if you need one.

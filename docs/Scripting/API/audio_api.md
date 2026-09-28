@@ -49,13 +49,13 @@ void play(const Asset<Audio>& clip,
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `clip` | `const Asset<Audio>&` | Audio asset reference. If null (`clip.handle_id() == 0`), the call is a no-op. |
+| `clip` | `const Asset<Audio>&` | Audio asset reference. One that is unset or failed to load stops the game (see [`Asset`](Asset.md)). |
 | `pos` | `const glm::vec3&` | World-space position the sound is played from. |
 | `volume` | `float` | Linear volume multiplier. `1.0` = unattenuated, `0.0` = silent. Default `1.0`. |
 | `pitch` | `float` | Playback rate / pitch. `1.0` = original, `2.0` = double-speed (one octave up), `0.5` = half. Default `1.0`. |
 
 ### Remarks
-Skips silently if `clip` is null — the engine logs nothing, the call returns. Validate refs in `begin_play()` if you want to catch unassigned slots.
+A clip left unset, or whose file failed to load, stops the game with the script and the field named. Where a sound is optional, check `if (clip)` first.
 
 Volume above `1.0` is permitted and audible until clipping occurs in the mix. Extremely low pitches stretch the clip; extremely high pitches compress it — both alter perceived duration.
 

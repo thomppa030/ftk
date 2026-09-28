@@ -100,6 +100,13 @@ TEST_CASE("A Ref is its data and nothing more", "[sdk]") {
     STATIC_REQUIRE(std::is_standard_layout_v<fjell::Ref<SamplePlain>>);
 }
 
+TEST_CASE("An Asset is its data and nothing more", "[sdk]") {
+    // The engine reads and writes an Asset field in place as an AssetData,
+    // and reads one handed to an SDK call with nothing there the same way.
+    STATIC_REQUIRE(sizeof(fjell::Asset<fjell::Weather>) == sizeof(fjell::AssetData));
+    STATIC_REQUIRE(std::is_standard_layout_v<fjell::Asset<fjell::Weather>>);
+}
+
 TEST_CASE("A test reports its own verdict", "[sdk]") {
     struct Probe : fjell::FunctionalTest {
         using fjell::FunctionalTest::assert_equal;

@@ -1,95 +1,87 @@
-// asset.hpp — Asset<T> for safe access to engine-owned assets
+// asset.hpp — Asset<T>, a reference to an engine-owned asset
 // Shipped to game projects alongside fjell_api.h.
 
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/missing_reference.hpp"
 
 #include <cstdint>
 
-extern "C" FJELL_SDK_EXPORT void* fjell_asset_resolve(uint32_t handle_id, uint8_t asset_type_id);
-extern "C" FJELL_SDK_EXPORT void  fjell_log_error(const char* msg);
+extern "C" {
+FJELL_SDK_EXPORT void* fjell_asset_resolve(uint32_t handle_id, uint8_t asset_type_id);
+FJELL_SDK_EXPORT void fjell_asset_missing(const void* asset);
+}
 
 namespace fjell {
 
+/// What an Asset holds. The engine reads and writes it in place: it saves the
+/// file the handle was loaded from, and sets both when the field is loaded or
+/// picked in the inspector.
 struct AssetData {
+    /// The asset's handle, 0 while unset.
     uint32_t handle_id{0};
-    uint8_t  asset_type_id{0};   // set by engine at deserialization/inspector time
-    uint8_t  reserved_[3]{};     // future use, keeps sizeof(AssetData) == 8
+    uint8_t  asset_type_id{0};
+    uint8_t  reserved_[3]{};     // keeps sizeof(AssetData) == 8
 };
 
-/// Reference to an engine-owned asset — a preset, audio clip, VFX effect,
-/// input action, surface, and so on. Declare it as a `[[fj::property]]` and the
-/// inspector shows an asset picker for the right type; the chosen asset is
-/// saved with the scene.
+/// A reference to an engine-owned asset: a preset, an audio clip, a VFX
+/// effect, an input action, a surface, a material, weather. Declare it as a
+/// `[[fj::property]]` and the inspector offers the assets of that kind; the
+/// chosen file is saved with the scene.
 ///
 /// An `Asset<Material>` takes any material unless it says which shader types it
 /// can use: `[[fj::shader_type(water)]]` (or `(water, fog)`) lists only those
 /// materials in the picker and refuses others dropped on the field.
 ///
-/// An `Asset` does not own or load anything: it holds a handle and resolves
-/// through the engine on each access, so it stays correct across asset
-/// hot-reload. Always check `valid()` before use — an unassigned field is the
-/// normal state, not an error.
+/// Scripts use an asset by handing it to the engine: `audio::play(clip, ...)`,
+/// `scene::spawn(enemy, ...)`. **Handing over one with nothing there stops the
+/// game**, shipped builds included, naming the script, the field and the node:
+/// an unset field, or one whose file failed to load. Where leaving it empty is
+/// meant, check with `if (asset)` first.
 ///
 /// @code
-/// class Spawner : public fjell::ScriptComponent {
-///     FJELL_COMPONENT(Spawner)
-/// public:
-///     [[fj::property]] fjell::Asset<fjell::Preset> enemy;
+/// [[fj::property]] fjell::Asset<fjell::Preset> enemy;        // always set
+/// [[fj::property]] fjell::Asset<fjell::Audio> spawn_sound;   // optional
 ///
-///     void begin_play() override {
-///         if (enemy.valid()) fjell::scene::spawn(enemy, {0, 1, 0});
-///     }
-/// };
+/// void begin_play() override {
+///     fjell::scene::spawn(enemy, {0, 1, 0});
+///     if (spawn_sound) fjell::audio::play(spawn_sound, {0, 1, 0});
+/// }
 /// @endcode
 template <typename T>
 class Asset {
 public:
     Asset() = default;
 
-    /// Whether an asset has been assigned. False for a field left empty in
-    /// the inspector.
-    [[nodiscard]] bool valid() const { return data_.handle_id != 0; }
-
-    /// Same as `valid()`, for `if (my_asset)`.
-    explicit operator bool() const { return valid(); }
-
-    /// Resolve to the underlying asset.
-    /// @return Pointer to the asset, or null if unassigned or not yet loaded.
-    ///         The safe accessor — unlike `operator->`, it does not log.
-    [[nodiscard]] T* get() const {
-        if (data_.handle_id == 0) return nullptr;
-        return static_cast<T*>(fjell_asset_resolve(data_.handle_id, data_.asset_type_id));
+    /// Whether it holds an asset that is there: false while unset, and for a
+    /// file that failed to load.
+    [[nodiscard]] explicit operator bool() const {
+        return data_.handle_id != 0 && fjell_asset_resolve(data_.handle_id, data_.asset_type_id) != nullptr;
     }
 
-    /// Access the asset's members. Logs an error and returns null when the asset
-    /// is unassigned, so a forgotten inspector assignment is reported rather
-    /// than silently crashing. Prefer `get()` with a null check where an
-    /// unassigned asset is a legitimate state.
-    T* operator->() const {
-        T* ptr = get();
-        if (!ptr) {
-            fjell_log_error("Asset::operator-> on an unset asset — assign it in the inspector");
-        }
-        return ptr;
-    }
-
-    /// Dereference the asset. Logs an error when unassigned; the returned
-    /// reference is invalid in that case, so guard with `valid()` first.
-    T& operator*() const {
-        T* ptr = get();
-        if (!ptr) {
-            fjell_log_error("Asset::operator* on an unset asset — assign it in the inspector");
-        }
-        return *ptr;
-    }
-
-    /// Raw asset handle, for the engine APIs that take one directly.
-    /// 0 means unassigned.
+    /// The asset's handle, for the engine calls that take one and for
+    /// comparing with the handles the engine reports (a hit's surface, the
+    /// weather playing). 0 while unset.
     [[nodiscard]] uint32_t handle_id() const { return data_.handle_id; }
 
+private:
     AssetData data_;
 };
+
+namespace detail {
+
+/// Stops the game unless `asset` holds an asset that is there; what every
+/// SDK call that takes one does first. The throw is here, in the game
+/// library, rather than in the engine's C export, which a compiler may assume
+/// never throws.
+template <typename T>
+void require(const Asset<T>& asset) {
+    if (asset) return;
+    fjell_asset_missing(&asset);
+    throw MissingReference{};
+}
+
+} // namespace detail
 
 } // namespace fjell

@@ -59,23 +59,33 @@ std::string component_name(uint32_t type_id) {
     return "component";
 }
 
-/// Which reflected field of the running script the Ref at `ref` is, or empty
-/// when it is not one of them (a local, or an element of a list).
-std::string field_holding(const fjell::ScriptCall& call, const void* ref) {
-    if (call.instance == nullptr || s_services.manager == nullptr) return {};
+/// The reflected field of kind `type` the running script holds at `at`, or
+/// null when `at` is not one (a local, an element of a list, another
+/// object's field).
+const fjell::OwnedFieldDesc* field_at(const fjell::ScriptCall& call, const void* at, FjellFieldType type) {
+    if (call.instance == nullptr || s_services.manager == nullptr) return nullptr;
     const auto* base = static_cast<const std::byte*>(call.instance);
-    const auto* at = static_cast<const std::byte*>(ref);
-    if (at < base) return {};
-    const auto offset = static_cast<uint32_t>(at - base);
+    const auto* here = static_cast<const std::byte*>(at);
+    if (here < base) return nullptr;
+    const auto offset = static_cast<uint32_t>(here - base);
     const std::string name(call.type_name);
     const std::vector<fjell::OwnedFieldDesc>* fields = nullptr;
-    if (const auto* type = s_services.manager->find_script_type(name)) fields = &type->fields;
+    if (const auto* script = s_services.manager->find_script_type(name)) fields = &script->fields;
     else if (const auto* ui = s_services.manager->find_ui_widget_type(name)) fields = &ui->fields;
-    if (fields == nullptr) return {};
+    if (fields == nullptr) return nullptr;
     for (const auto& f : *fields) {
-        if (f.type == FJELL_FIELD_REF && f.offset == offset) return f.name;
+        if (f.type == type && f.offset == offset) return &f;
     }
-    return {};
+    return nullptr;
+}
+
+/// Stops the game library for a reference used with nothing there: `what`
+/// the script used and `why` nothing was there, said from the running call.
+void halt_for_missing(const fjell::ScriptCall* call, const std::string& what, const std::string& why) {
+    const std::string where = call != nullptr ? fjell::describe(*call) : std::string("A script");
+    const uint32_t script_node = call != nullptr && call->node != nullptr ? call->node->id : 0;
+    fjell::halt_script_calls({.message = where + " used " + what + " with nothing there: " + why,
+                              .node_id = script_node});
 }
 
 } // namespace
@@ -88,10 +98,8 @@ extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_i
     const std::string target_type = component_name(type_id);
 
     std::string what = "a Ref<" + target_type + ">";
-    if (call != nullptr) {
-        if (const std::string field = field_holding(*call, ref); !field.empty()) {
-            what = "`" + field + "` (a Ref<" + target_type + ">)";
-        }
+    if (const auto* field = call != nullptr ? field_at(*call, ref, FJELL_FIELD_REF) : nullptr) {
+        what = "`" + field->name + "` (a Ref<" + target_type + ">)";
     }
 
     // What it was set to, by the name that node had: from the node itself
@@ -111,11 +119,34 @@ extern "C" FJELL_SDK_EXPORT void fjell_ref_gone(const void* ref, uint32_t node_i
     } else {
         why = "the node it was set to (id " + std::to_string(node_id) + ") is gone";
     }
+    halt_for_missing(call, what, why);
+}
 
-    const std::string where = call != nullptr ? fjell::describe(*call) : std::string("A script");
-    const uint32_t script_node = call != nullptr && call->node != nullptr ? call->node->id : 0;
-    fjell::halt_script_calls({.message = where + " used " + what + " with nothing there: " + why,
-                              .node_id = script_node});
+// An Asset was handed to an SDK call unset, or holding a file that failed to
+// load. As for a Ref, the game library throws right after this returns.
+extern "C" FJELL_SDK_EXPORT void fjell_asset_missing(const void* asset) {
+    const auto& data = *static_cast<const fjell::AssetData*>(asset);
+    const fjell::ScriptCall* call = fjell::current_script_call();
+    const auto* field = call != nullptr ? field_at(*call, asset, FJELL_FIELD_ASSET) : nullptr;
+    const auto* entry = fjell::AssetTypeRegistry::instance().find_by_id(data.asset_type_id);
+
+    // The field says what it takes even while empty; one that holds a file
+    // knows its kind itself.
+    const std::string type = field != nullptr ? field->ref_type_name
+                             : entry != nullptr ? entry->type_name
+                                                : std::string();
+    const std::string kind = type.empty() ? "an Asset" : "an Asset<" + type + ">";
+    const std::string what = field != nullptr ? "`" + field->name + "` (" + kind + ")" : kind;
+
+    std::string why = "it was never set";
+    if (data.handle_id != 0) {
+        std::string path;
+        if (entry != nullptr && entry->path_of != nullptr && s_services.resources != nullptr) {
+            path = entry->path_of(*s_services.resources, data.handle_id);
+        }
+        why = path.empty() ? "its file failed to load" : "'" + path + "' failed to load";
+    }
+    halt_for_missing(call, what, why);
 }
 
 // ── Asset<T> resolution (called from game .so) ───────────────────────────

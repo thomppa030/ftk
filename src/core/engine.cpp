@@ -2021,8 +2021,8 @@ void write_crash_report(const std::string& message) {
 
 } // namespace
 
-void Engine::stop_on_dead_ref() {
-    auto report = take_ref_gone_report();
+void Engine::stop_on_missing_reference() {
+    auto report = take_missing_reference_report();
     if (!report) return;
     FJELL_CORE_ERROR("{}", report->message);
     // The halt kept the rest of the frame's scripts from running. What ends
@@ -2323,7 +2323,7 @@ void Engine::run() {
 
         // Where the test runner ends play too: every script of the frame has
         // run, and nothing of the scene is in use.
-        stop_on_dead_ref();
+        stop_on_missing_reference();
 
         // After the play phases, so a test that reached its verdict this frame
         // is read this frame: scripts have ticked and collision events have

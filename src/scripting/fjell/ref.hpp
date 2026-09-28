@@ -5,10 +5,10 @@
 
 #include "fjell/api.h"
 #include "fjell/component_id.hpp"
+#include "fjell/missing_reference.hpp"
 
 #include <atomic>
 #include <cstdint>
-#include <exception>
 
 extern "C" {
 FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t node_id, uint32_t generation, uint32_t type_id);
@@ -33,16 +33,6 @@ struct RefData {
     uint64_t epoch{0};
 };
 
-/// Thrown by `->` and `*` on a Ref whose target is gone. The engine has
-/// already been told by then, and stops the game with the script, the field,
-/// the node and the hook named; the throw only ends what the script was doing.
-/// Catching it does not keep the game running.
-struct RefGone : std::exception {
-    [[nodiscard]] const char* what() const noexcept override {
-        return "a Ref was used after its target was gone";
-    }
-};
-
 namespace detail {
 
 /// Tells the engine a Ref at `ref` was used with nothing there, then throws.
@@ -50,7 +40,7 @@ namespace detail {
 /// export, which a compiler may assume never throws.
 [[noreturn]] inline void ref_gone(const void* ref, uint32_t node_id, uint32_t type_id) {
     fjell_ref_gone(ref, node_id, type_id);
-    throw RefGone{};
+    throw MissingReference{};
 }
 
 /// Moves whenever anything a Ref could point at goes away; until it does, a

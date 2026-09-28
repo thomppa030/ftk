@@ -1,202 +1,115 @@
 # fjell::Asset&lt;T&gt;
 
-Handle to an engine-owned asset. Resolved through the engine on every dereference.
+A reference to an engine-owned asset: a preset, an audio clip, a VFX effect, an input
+action, a surface, a material, weather.
 
 | | |
 |---|---|
 | Header | `fjell/asset.hpp` |
-| Source | (header-only; resolver in `src/scripting/script_globals.cpp`) |
+| Source | (header-only; resolved and reported through `src/scripting/script_manager.cpp`) |
 
 ## Syntax
 
 ```cpp
 namespace fjell {
 
-struct AssetData {
-    uint32_t handle_id{0};
-    uint8_t  asset_type_id{0};
-    uint8_t  reserved_[3]{};
-};
-
 template <typename T>
 class Asset {
 public:
     Asset() = default;
 
-    [[nodiscard]] bool valid() const;
-    explicit operator bool() const;
-
-    [[nodiscard]] T* get()       const;
-    T*               operator->() const;
-    T&               operator*()  const;
-
+    explicit operator bool()           const;
     [[nodiscard]] uint32_t handle_id() const;
-
-    AssetData data_;
 };
 
 }
 ```
 
+`T` is a kind of asset: `Preset`, `Audio`, `Vfx`, `Surface`, `Weather`, `Climate`,
+`DayProfile`, `Material` or `InputAction`.
+
 ## Remarks
 
-`Asset<T>` references an *engine asset* — `Vfx`, `Audio`, `Preset`, `InputAction`, etc. The handle is 64 bits (`AssetData`), stable across reloads, and serializable to `.fjscene`.
+Hold it as a `[[fj::property]]` and pick the file in the inspector, which offers the
+assets of that kind and takes one dragged from the content browser. The scene file saves
+the file.
 
-It is **not** for scene-side objects (other nodes, other components) — use [`Ref<T>`](Ref.md) for those. The difference matters because engine assets live in a different pool with different lifetime rules.
+It is **not** for things in the scene (other nodes, other components): use
+[`Ref<T>`](Ref.md) for those.
 
-Assigned in the editor via the inspector's asset picker. When you declare:
+**A script uses an asset by handing it to the engine**: `audio::play(clip, ...)`,
+`scene::spawn(enemy, ...)`, `input::bind(jump, ...)`. None of the asset kinds has members
+a script reads, so there is nothing to reach through the `Asset` itself.
 
-```cpp
-[[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
+**Handing over one with nothing there stops the game**, shipped builds included, as
+using a gone [`Ref`](Ref.md) does: in the editor play ends with the script's node
+selected, a functional test fails with the message, and a shipped game writes
+`crash_report.txt` beside its executable and closes. The report says which script, which
+hook, which field and why there was nothing:
+
+```
+Coin.on_trigger_enter on 'Coin' used `collect_sound` (an Asset<Audio>) with nothing there: it was never set
 ```
 
-the inspector renders a drop-target for `Audio` files. The `asset_type_id` byte in `AssetData` is set when the inspector or deserializer writes the ref, and it gates `get()` — passing the wrong type returns null.
+Nothing is there when the field was left empty, or when the file it names failed to load.
+So leave a field empty only where the script checks it, with `if (asset)`:
 
-An `Asset<Material>` accepts any material by default. When the script can only use materials of certain shader types, say so:
+```cpp
+[[fj::property]] fjell::Asset<fjell::Preset> enemy;   // always set
+[[fj::property]] fjell::Asset<fjell::Audio> fanfare;  // optional
+
+void begin_play() override {
+    fjell::scene::spawn(enemy, {0, 1, 0});
+    if (fanfare) fjell::audio::play(fanfare, {0, 1, 0});
+}
+```
+
+**Which materials an `Asset<Material>` takes.** It takes any material unless it says which
+shader types it can use:
 
 ```cpp
 [[fj::shader_type(water)]] fjell::Asset<fjell::Material> calm_sea;
 [[fj::shader_type(water, fog)]] fjell::Asset<fjell::Material> surface_or_medium;
 ```
 
-The picker then lists only materials whose shader declares one of those types, a drop of another type is refused with the reason shown over the field, and a field already holding the wrong type says so under it. `fj::shader_type` implies `fj::property`. On anything other than an `Asset<Material>` it is a build error; a name that is not a shader type (`spatial`, `sky`, `ui`, `terrain`, `water`, `fog`) is reported when the engine loads the module.
-
-Every dereference goes through `fjell_asset_resolve` (a C function exported by the engine). It's a pool lookup — cheap, but not free. If you dereference in a hot loop, cache the pointer at the top.
-
-## Members
-
-| Name | Type | Description |
-|---|---|---|
-| `data_` | `AssetData` | The (handle, type) pair. Public for engine access — treat as opaque from game code. |
+The picker then lists only materials whose shader declares one of those types, a drop of
+another type is refused with the reason shown over the field, and a field already holding
+the wrong type says so under it. `fj::shader_type` implies `fj::property`. On anything
+other than an `Asset<Material>` it is a build error; a name that is not a shader type
+(`spatial`, `sky`, `ui`, `terrain`, `water`, `fog`) is reported when the engine loads the
+module.
 
 ## Functions
 
 | Name | Description |
 |---|---|
-| [`valid`](#assetvalid) | True if the ref points at anything |
-| [`operator bool`](#assetoperator-bool) | Same as `valid()` |
-| [`get`](#assetget) | Resolve to `T*` (or null) |
-| [`operator->`](#assetoperator-arrow) | Resolve and dereference; logs on null |
-| [`operator*`](#assetoperator-deref) | Resolve and dereference; logs on null |
-| [`handle_id`](#assethandle_id) | Raw 32-bit handle ID |
-
----
-
-## Asset::valid
-
-### Syntax
-```cpp
-[[nodiscard]] bool valid() const;
-```
-
-### Return value
-`true` if `data_.handle_id != 0` — i.e., something was assigned in the inspector / deserialization.
-
-### Remarks
-A cheap structural check. Does **not** confirm the asset still exists in the engine — it only confirms the ref has been assigned. For most uses this is sufficient because engine assets are typically loaded for the life of the project session.
+| [`operator bool`](#assetoperator-bool) | Whether it holds an asset that is there |
+| [`handle_id`](#assethandle_id) | The asset's handle, 0 while unset |
 
 ---
 
 ## Asset::operator bool
 
-### Syntax
 ```cpp
 explicit operator bool() const;
 ```
 
-Same as `valid()`. Enables `if (ref) { ... }`.
-
----
-
-## Asset::get
-
-### Syntax
-```cpp
-[[nodiscard]] T* get() const;
-```
-
-### Return value
-Pointer to the asset, or `nullptr` if the ref is unassigned or the engine can't resolve it.
-
-### Remarks
-The preferred way to dereference when you want to handle null gracefully:
-
-```cpp
-if (auto* clip = sound.get()) {
-    // ... use clip ...
-}
-```
-
----
-
-## Asset::operator->  <a id="assetoperator-arrow"></a>
-
-### Syntax
-```cpp
-T* operator->() const;
-```
-
-### Return value
-Pointer to the asset.
-
-### Remarks
-**Logs an error if the ref is null** (via `fjell_log_error`) and returns null, which then crashes the caller. Use `get()` if you need to handle missing refs without log spam.
-
----
-
-## Asset::operator*  <a id="assetoperator-deref"></a>
-
-### Syntax
-```cpp
-T& operator*() const;
-```
-
-### Return value
-Reference to the asset.
-
-### Remarks
-Same null-logging behavior as `operator->`. Crashes if the ref is null.
+Whether it holds an asset that is there: false while the field is empty, and when the
+file it names failed to load. Asks the engine each time; it is cheap.
 
 ---
 
 ## Asset::handle_id
 
-### Syntax
 ```cpp
 [[nodiscard]] uint32_t handle_id() const;
 ```
 
-### Return value
-The 32-bit handle ID. Used by some `*_api.hpp` functions that take handle IDs directly (`audio::play`, `vfx::spawn` — though those wrap it internally).
-
-## Example
-
-```cpp
-class Coin : public fjell::ScriptComponent {
-    FJELL_COMPONENT(Coin)
-
-    [[fj::property]] fjell::Asset<fjell::Audio> collect_sound;
-    [[fj::property]] fjell::Asset<fjell::Vfx>   collect_effect;
-
-    void on_trigger_enter(uint32_t /*other*/) override {
-        // Silently no-op if refs unassigned
-        fjell::audio::play(collect_sound, transform().position);
-        fjell::vfx::spawn(collect_effect, transform().position);
-        self().destroy();
-    }
-};
-```
-
-Validating in `begin_play()`:
-
-```cpp
-void begin_play() override {
-    if (!collect_sound.valid()) {
-        fjell::Log::warn("Coin: collect_sound not assigned");
-    }
-}
-```
+The asset's handle, 0 while unset. It is what the engine reports assets by: a
+hit's surface, the weather playing. Compare those with `surface::is` (`fjell/surface_api.hpp`)
+or against `handle_id()`.
 
 ## See also
+
 - [`Ref`](Ref.md) — references to components on nodes
 - [Overview — Reference types](../Overview.md#reference-types)

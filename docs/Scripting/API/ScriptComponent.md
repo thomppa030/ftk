@@ -189,7 +189,8 @@ Timers fire in these steps too.
 
 Inside it `delta_time()` reads `step.dt` and `elapsed_time()` the step's time.
 `step.input.pressed(action)` is true on exactly one step after a press, even
-when the frame the press arrived on ran no step or several.
+when the frame the press arrived on ran no step or several. Asking about an
+action that is unset or failed to load stops the game (see [`Asset`](Asset.md)).
 
 ### Example
 ```cpp

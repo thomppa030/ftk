@@ -22,8 +22,8 @@ namespace vfx {
 /// independently of the caller and cleans itself up when finished, so it
 /// survives the spawning node being destroyed.
 /// @param effect Effect asset, normally a `[[fj::property]] Asset<Vfx>`
-///               field assigned in the inspector. Unassigned refs are
-///               ignored rather than treated as an error.
+///               field assigned in the inspector. One that is unset or
+///               failed to load stops the game (see `Asset`).
 /// @param pos    World-space spawn position.
 /// @code
 /// [[fj::property]] fjell::Asset<fjell::Vfx> explosion;
@@ -31,9 +31,8 @@ namespace vfx {
 /// fjell::vfx::spawn(explosion, transform().position);
 /// @endcode
 inline void spawn(const Asset<Vfx>& effect, const glm::vec3& pos) {
-    if (effect.handle_id() != 0) {
-        fjell_vfx_spawn(effect.handle_id(), pos.x, pos.y, pos.z);
-    }
+    detail::require(effect);
+    fjell_vfx_spawn(effect.handle_id(), pos.x, pos.y, pos.z);
 }
 } // namespace vfx
 

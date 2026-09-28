@@ -156,9 +156,11 @@ inline void set_day_length(float seconds) { fjell_time_of_day_set_day_length(sec
 namespace weather {
 /// Start an event now. Whatever is playing tails out underneath it.
 /// @param event Event asset, normally a `[[fj::property]] Asset<Weather>`.
-///              An unassigned ref is ignored.
+///              One that is unset or failed to load stops the game (see
+///              `Asset`).
 inline void play(const Asset<Weather>& event) {
-    if (event.handle_id() != 0) fjell_weather_play(event.handle_id());
+    detail::require(event);
+    fjell_weather_play(event.handle_id());
 }
 
 /// Let the current event tail out with nothing to follow: clear weather.
@@ -273,10 +275,16 @@ inline void clear_sky_param(const char* name) { fjell_weather_set_sky_param(name
 
 /// Hand the weather to a climate: it rolls what comes next when an event
 /// ends, so the sky keeps having weather without a script deciding each
-/// turn. An unassigned ref leaves whatever plays to run out.
+/// turn. A climate that is unset or failed to load stops the game (see
+/// `Asset`); `clear_climate()` is how to have none.
 inline void set_climate(const Asset<Climate>& climate) {
+    detail::require(climate);
     fjell_weather_set_climate(climate.handle_id());
 }
+
+/// Take the weather away from its climate: whatever plays runs out, and
+/// nothing is rolled after it.
+inline void clear_climate() { fjell_weather_set_climate(0); }
 
 /// Freeze the climate: whatever plays keeps playing and nothing new is
 /// rolled. `play()` still works, for weather a script drives itself.
