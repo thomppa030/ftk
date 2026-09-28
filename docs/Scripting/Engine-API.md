@@ -11,6 +11,8 @@ Reference pages for every type and static API exposed to game scripts. For the m
 | [`Timer`](API/Timer.md) | `fjell/timer_api.hpp` | Schedule one-shot and repeating callbacks |
 | [`scene`](API/scene_api.md) | `fjell/scene_api.hpp` | Find, spawn, and destroy scene nodes |
 | [`camera`](API/camera_api.md) | `fjell/camera_api.hpp` | Active camera and projection control |
+| [`material`](API/material_api.md) | `fjell/material_api.hpp` | Override one node's material parameters |
+| [`physics`](../Physics.md#script-api) | `fjell/physics_api.hpp` | Raycasts, shape casts, overlaps and gravity |
 | [`input`](API/input_api.md) | `fjell/input_api.hpp` | Bind input actions to member functions |
 | [`audio`](API/audio_api.md) | `fjell/audio_api.hpp` | Play audio clips at world positions |
 | [`vfx`](API/vfx_api.md) | `fjell/vfx_api.hpp` | Spawn particle systems |

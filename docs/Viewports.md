@@ -9,7 +9,7 @@
 - Script API (`viewport_api.hpp`)
   ```cpp
   viewport::create("security_cam", 512, 512, VP_TONEMAP | VP_BLOOM);
-  viewport::set_camera("security_cam", camera_node_id);
+  viewport::set_camera("security_cam", lens);   // Ref<Node3D> to a camera node, every frame
   viewport::destroy("security_cam");
   ```
 - Feature flags

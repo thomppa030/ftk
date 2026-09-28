@@ -12,8 +12,8 @@ Controls the active rendering camera and its projection.
 ```cpp
 namespace fjell {
 namespace camera {
-    void     set_active(uint32_t node_id);
-    uint32_t active_id();
+    void        set_active(const Ref<Node3D>& camera);
+    Ref<Node3D> active();
 
     float fov();
     void  set_fov(float fov);
@@ -35,7 +35,7 @@ namespace camera {
 
 The "active camera" is the one used to render the main swapchain. Render-to-texture viewports (see [`viewport`](viewport_api.md)) have their own per-viewport cameras and are unaffected by these functions.
 
-Camera state lives on a `CameraComponent` attached to a scene node. The setters here modify whichever camera is currently active. `set_active(id)` switches to a different camera; its own settings (FOV, near/far) come along.
+A camera is a camera node in the scene; a script refers to one with a [`Ref<Node3D>`](Ref.md), best a `[[fj::property]]` picked in the inspector. The setters here modify whichever camera is currently active. `set_active(camera)` switches to a different camera; its own settings (FOV, near/far) come along.
 
 `set_ortho` and `set_perspective` switch projection mode and set the primary parameter in one call. `set_projection_override` lets you provide a fully custom 4×4 projection matrix that bypasses the standard parameter system.
 
@@ -44,7 +44,7 @@ Camera state lives on a `CameraComponent` attached to a scene node. The setters 
 | Name | Description |
 |---|---|
 | [`set_active`](#cameraset_active) | Switch the active camera |
-| [`active_id`](#cameraactive_id) | Get the active camera's node ID |
+| [`active`](#cameraactive) | The active camera |
 | [`fov`](#camerafov) | Get current vertical FOV (degrees) |
 | [`set_fov`](#cameraset_fov) | Set vertical FOV (degrees) |
 | [`near_plane`](#cameranear_plane-far_plane-set_near-set_far) | Get near clip distance |
@@ -62,28 +62,28 @@ Camera state lives on a `CameraComponent` attached to a scene node. The setters 
 
 ### Syntax
 ```cpp
-void set_active(uint32_t node_id);
+void set_active(const Ref<Node3D>& camera);
 ```
 
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
-| `node_id` | `uint32_t` | ID of a node carrying a `CameraComponent`. |
+| `camera` | `const Ref<Node3D>&` | A camera node. `self()` or `self().find_child("Camera")` pass one of the script's own. |
 
 ### Remarks
-Takes effect on the next frame. Passing an ID that doesn't have a camera component is a no-op (the previous active camera remains).
+Takes effect on the next frame. A camera that is gone stops the game (see [`Ref`](Ref.md)). A node that is no camera is reported, naming the script and the node, and the active camera stays as it was.
 
 ---
 
-## camera::active_id
+## camera::active
 
 ### Syntax
 ```cpp
-[[nodiscard]] uint32_t active_id();
+[[nodiscard]] Ref<Node3D> active();
 ```
 
 ### Return value
-The node ID of the currently active camera, or `0` if none is set.
+The currently active camera, or an empty `Ref` if none is set.
 
 ---
 
@@ -206,10 +206,11 @@ Restores normal projection driven by mode + FOV + near + far.
 Switch cameras for a cinematic:
 
 ```cpp
+[[fj::property]] fjell::Ref<fjell::Node3D> cinematic;   // picked in the inspector
+
 void play_cutscene() {
-    saved_cam_ = fjell::camera::active_id();
-    uint32_t cine = fjell::scene::find_node("CinematicCam");
-    fjell::camera::set_active(cine);
+    saved_cam_ = fjell::camera::active();
+    fjell::camera::set_active(cinematic);
 }
 
 void end_cutscene() {
@@ -218,5 +219,5 @@ void end_cutscene() {
 ```
 
 ## See also
-- [`scene::find_node`](scene_api.md#scenefind_node) — finding the camera node
+- [`Ref`](Ref.md) — referring to a camera node
 - [`viewport`](viewport_api.md) — render-to-texture from other cameras

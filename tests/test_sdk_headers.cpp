@@ -10,6 +10,9 @@
 #include "fjell/scene_api.hpp"
 #include "fjell/engine_components.hpp"
 #include "fjell/physics_api.hpp"
+#include "fjell/camera_api.hpp"
+#include "fjell/material_api.hpp"
+#include "fjell/viewport_api.hpp"
 
 TEST_CASE("The SDK publishes a layout for every mirrored engine component", "[sdk]") {
     constexpr size_t count =
@@ -149,6 +152,14 @@ TEST_CASE("The node API reads as a script writes it", "[sdk]") {
         for (const fjell::Ref<fjell::Node3D>& near : fjell::physics::overlap_sphere(own.position(), 2.0f)) {
             (void)near;
         }
+
+        // Rendering calls take the node they are about.
+        const fjell::Ref<fjell::Node3D> was = fjell::camera::active();
+        fjell::camera::set_active(own.find_child("Camera"));
+        fjell::camera::set_active(was);
+        fjell::material::set_param(own, "tint", 1.0f, 0.2f, 0.2f);
+        fjell::material::reset(door);
+        fjell::viewport::set_camera("monitor", own);
     };
     // A Node3D is the node itself: never a copy.
     STATIC_REQUIRE_FALSE(std::is_copy_constructible_v<fjell::Node3D>);

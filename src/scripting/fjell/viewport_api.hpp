@@ -1,7 +1,8 @@
-// viewport_api.hpp — Static viewport API for game scripts
+// viewport_api.hpp — Rendering the scene into a texture, for game scripts
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/ref.hpp"
 
 #include <cstdint>
 
@@ -42,15 +43,14 @@ namespace fjell {
 /// sample — security monitors, mirrors, portals, minimaps.
 ///
 /// A viewport is a full scene render per frame, so keep the resolution modest
-/// and the flags lean. Create it once in `begin_play()`, point it at a camera,
-/// and destroy it when done.
+/// and the flags lean. Create it once in `begin_play()`, point it at a camera
+/// each frame, and destroy it when done.
 ///
 /// @code
-/// void begin_play() override {
-///     fjell::viewport::create("security_cam", 512, 512, VP_MINIMAL);
-///     fjell::viewport::set_camera("security_cam",
-///         fjell::scene::find_node("CamNode"));
-/// }
+/// [[fj::property]] fjell::Ref<fjell::Node3D> lens;   // a camera node
+///
+/// void begin_play() override { fjell::viewport::create("security_cam", 512, 512, VP_MINIMAL); }
+/// void late_tick(float) override { fjell::viewport::set_camera("security_cam", lens); }
 /// void end_play() override { fjell::viewport::destroy("security_cam"); }
 /// @endcode
 /// A material samples it by naming it: `"display": "$viewport:security_cam"`.
@@ -90,12 +90,16 @@ inline void destroy(const char* name) {
     fjell_viewport_destroy(name);
 }
 
-/// Choose which camera the viewport renders from. Call it once unless the
-/// view should switch; the viewport follows that node's transform on its own.
-/// @param name           The identifier passed to `create()`.
-/// @param camera_node_id A node carrying a CameraNode.
-inline void set_camera(const char* name, uint32_t camera_node_id) {
-    fjell_viewport_set_camera(name, camera_node_id);
+/// Render the viewport from where `camera` looks now. It takes the camera's
+/// view at the call and does not follow the node: for a camera that moves,
+/// call it every frame, from `late_tick()`, where nodes sit where they are
+/// drawn.
+/// @param name   The identifier passed to `create()`.
+/// @param camera A camera node. One that is gone stops the game (see `Ref`);
+///               a node that is no camera leaves the viewport as it is.
+inline void set_camera(const char* name, const Ref<Node3D>& camera) {
+    detail::require(camera);
+    fjell_viewport_set_camera(name, camera.node_id());
 }
 
 /// Bindless texture index for this viewport's output, for code that binds

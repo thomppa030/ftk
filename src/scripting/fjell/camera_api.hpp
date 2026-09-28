@@ -1,7 +1,8 @@
-// camera_api.hpp — Static camera API for game scripts
+// camera_api.hpp — The scene's active camera, for game scripts
 #pragma once
 
 #include "fjell/api.h"
+#include "fjell/ref.hpp"
 
 #include <cstdint>
 
@@ -23,27 +24,28 @@ FJELL_SDK_EXPORT void     fjell_camera_clear_projection_override();
 namespace fjell {
 
 /// Controls the scene's active camera. Every getter and setter here targets
-/// whichever CameraNode is currently active — not a specific node — so
+/// whichever camera is currently active — not a specific node — so
 /// `set_active()` first, then adjust.
 ///
 /// Setters silently do nothing when no camera is active, and getters fall back
 /// to defaults (fov 45, near 0.1, far 1000) rather than reporting an error.
 ///
 /// @code
-/// auto cam = self().find_child("Camera");
-/// fjell::camera::set_active(cam.node_id());
+/// fjell::camera::set_active(self().find_child("Camera"));
 /// fjell::camera::set_fov(70.0f);
 /// @endcode
 namespace camera {
-/// Make a node's CameraNode the one the scene renders from.
-/// @param node_id A node carrying a CameraNode.
-inline void set_active(uint32_t node_id) {
-    fjell_camera_set_active(node_id);
+/// Render the scene from `camera` from now on. A camera that is gone stops
+/// the game (see `Ref`); a node that is no camera is reported and leaves the
+/// active camera as it is.
+inline void set_active(const Ref<Node3D>& camera) {
+    detail::require(camera);
+    fjell_camera_set_active(camera.node_id());
 }
 
-/// Node ID of the active camera, or 0 if none is set.
-inline uint32_t active_id() {
-    return fjell_camera_get_active();
+/// The camera the scene renders from, or an empty Ref when none is active.
+inline Ref<Node3D> active() {
+    return Ref<Node3D>{fjell_camera_get_active()};
 }
 
 /// Vertical field of view in degrees. Returns 45 if no camera is active.

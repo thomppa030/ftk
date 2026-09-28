@@ -31,7 +31,7 @@ namespace viewport {
     uint32_t create_with_graph (const char* name, uint32_t width, uint32_t height,
                                 const char* graph_path);
     void     destroy           (const char* name);
-    void     set_camera        (const char* name, uint32_t camera_node_id);
+    void     set_camera        (const char* name, const Ref<Node3D>& camera);
     uint32_t bindless_index    (const char* name);
     void     resize            (const char* name, uint32_t width, uint32_t height);
 }
@@ -151,17 +151,17 @@ Always call this in `end_play()` if the script created the viewport — viewport
 
 ### Syntax
 ```cpp
-void set_camera(const char* name, uint32_t camera_node_id);
+void set_camera(const char* name, const Ref<Node3D>& camera);
 ```
 
 ### Parameters
 | Name | Type | Description |
 |---|---|---|
 | `name` | `const char*` | Viewport identifier. |
-| `camera_node_id` | `uint32_t` | Node ID carrying a `CameraComponent`. |
+| `camera` | `const Ref<Node3D>&` | A camera node. |
 
 ### Remarks
-Safe to call every frame to track a moving camera node. Passing `0` or an ID without a camera component is a no-op (the previously bound camera stays).
+Takes the camera's view as it is at the call; the viewport does not follow the node. For a camera that moves, call it every frame, from `late_tick()`. A camera that is gone stops the game (see [`Ref`](Ref.md)); a node that is no camera leaves the viewport's view as it was.
 
 ---
 
@@ -206,11 +206,10 @@ class SecurityCamera : public fjell::ScriptComponent {
         fjell::viewport::create("security_cam", 1920, 1080, VP_FULL);
     }
 
-    void tick(float /*dt*/) override {
-        uint32_t cam = fjell::scene::find_node("SecurityCamera");
-        if (cam != 0) {
-            fjell::viewport::set_camera("security_cam", cam);
-        }
+    [[fj::property]] fjell::Ref<fjell::Node3D> lens;   // the camera node, picked in the inspector
+
+    void late_tick(float /*dt*/) override {
+        fjell::viewport::set_camera("security_cam", lens);
     }
 
     void end_play() override {
