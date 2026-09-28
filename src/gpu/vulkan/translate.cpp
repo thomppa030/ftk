@@ -1,0 +1,131 @@
+#include "gpu/vulkan/translate.hpp"
+
+namespace fjell::gpu::vulkan {
+
+// The switches below have no default on purpose: a value added to the
+// interface without a Vulkan mapping fails the build (-Wswitch) instead of
+// mapping to nothing at run time.
+
+VkFormat to_vk(Format format) {
+    switch (format) {
+        case Format::undefined:         return VK_FORMAT_UNDEFINED;
+        case Format::r8_unorm:          return VK_FORMAT_R8_UNORM;
+        case Format::rg8_unorm:         return VK_FORMAT_R8G8_UNORM;
+        case Format::rgba8_unorm:       return VK_FORMAT_R8G8B8A8_UNORM;
+        case Format::rgba8_srgb:        return VK_FORMAT_R8G8B8A8_SRGB;
+        case Format::bgra8_unorm:       return VK_FORMAT_B8G8R8A8_UNORM;
+        case Format::bgra8_srgb:        return VK_FORMAT_B8G8R8A8_SRGB;
+        case Format::r16_unorm:         return VK_FORMAT_R16_UNORM;
+        case Format::rg16_unorm:        return VK_FORMAT_R16G16_UNORM;
+        case Format::rgba16_unorm:      return VK_FORMAT_R16G16B16A16_UNORM;
+        case Format::r16_float:         return VK_FORMAT_R16_SFLOAT;
+        case Format::rg16_float:        return VK_FORMAT_R16G16_SFLOAT;
+        case Format::rgba16_float:      return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case Format::r32_float:         return VK_FORMAT_R32_SFLOAT;
+        case Format::r32_uint:          return VK_FORMAT_R32_UINT;
+        case Format::rgba32_float:      return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case Format::d32_float:         return VK_FORMAT_D32_SFLOAT;
+        case Format::d32_float_s8_uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
+Format from_vk(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_R8_UNORM:            return Format::r8_unorm;
+        case VK_FORMAT_R8G8_UNORM:          return Format::rg8_unorm;
+        case VK_FORMAT_R8G8B8A8_UNORM:      return Format::rgba8_unorm;
+        case VK_FORMAT_R8G8B8A8_SRGB:       return Format::rgba8_srgb;
+        case VK_FORMAT_B8G8R8A8_UNORM:      return Format::bgra8_unorm;
+        case VK_FORMAT_B8G8R8A8_SRGB:       return Format::bgra8_srgb;
+        case VK_FORMAT_R16_UNORM:           return Format::r16_unorm;
+        case VK_FORMAT_R16G16_UNORM:        return Format::rg16_unorm;
+        case VK_FORMAT_R16G16B16A16_UNORM:  return Format::rgba16_unorm;
+        case VK_FORMAT_R16_SFLOAT:          return Format::r16_float;
+        case VK_FORMAT_R16G16_SFLOAT:       return Format::rg16_float;
+        case VK_FORMAT_R16G16B16A16_SFLOAT: return Format::rgba16_float;
+        case VK_FORMAT_R32_SFLOAT:          return Format::r32_float;
+        case VK_FORMAT_R32_UINT:            return Format::r32_uint;
+        case VK_FORMAT_R32G32B32A32_SFLOAT: return Format::rgba32_float;
+        case VK_FORMAT_D32_SFLOAT:          return Format::d32_float;
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:  return Format::d32_float_s8_uint;
+        default:                            return Format::undefined;
+    }
+}
+
+VkFormat to_vk(VertexFormat format) {
+    switch (format) {
+        case VertexFormat::float2: return VK_FORMAT_R32G32_SFLOAT;
+        case VertexFormat::float3: return VK_FORMAT_R32G32B32_SFLOAT;
+        case VertexFormat::float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case VertexFormat::uint4:  return VK_FORMAT_R32G32B32A32_UINT;
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
+VkSampleCountFlagBits to_vk(Samples samples) {
+    switch (samples) {
+        case Samples::x1: return VK_SAMPLE_COUNT_1_BIT;
+        case Samples::x2: return VK_SAMPLE_COUNT_2_BIT;
+        case Samples::x4: return VK_SAMPLE_COUNT_4_BIT;
+        case Samples::x8: return VK_SAMPLE_COUNT_8_BIT;
+    }
+    return VK_SAMPLE_COUNT_1_BIT;
+}
+
+VkImageUsageFlags to_vk(TextureUses uses) {
+    VkImageUsageFlags flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    uses.for_each([&](TextureUse use) {
+        switch (use) {
+            case TextureUse::sampled:      flags |= VK_IMAGE_USAGE_SAMPLED_BIT; break;
+            case TextureUse::storage:      flags |= VK_IMAGE_USAGE_STORAGE_BIT; break;
+            case TextureUse::color_target: flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; break;
+            case TextureUse::depth_target: flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; break;
+        }
+    });
+    return flags;
+}
+
+VkBufferUsageFlags to_vk(BufferUses uses) {
+    VkBufferUsageFlags flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    uses.for_each([&](BufferUse use) {
+        switch (use) {
+            case BufferUse::uniform:  flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
+            case BufferUse::storage:  flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; break;
+            case BufferUse::vertex:   flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; break;
+            case BufferUse::index:    flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
+            case BufferUse::indirect: flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT; break;
+            case BufferUse::acceleration_input:
+                flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+                break;
+            case BufferUse::device_address:
+                flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                break;
+        }
+    });
+    return flags;
+}
+
+VkClearValue to_vk(const Clear& clear, Format format) {
+    VkClearValue value{};
+    switch (kind(format)) {
+        case FormatKind::depth:
+        case FormatKind::depth_stencil:
+            value.depthStencil = {clear.depth, clear.stencil};
+            break;
+        case FormatKind::color_uint:
+            for (size_t i = 0; i < clear.color.size(); ++i) {
+                value.color.uint32[i] = static_cast<uint32_t>(clear.color[i]);
+            }
+            break;
+        case FormatKind::color:
+        case FormatKind::none:
+            for (size_t i = 0; i < clear.color.size(); ++i) {
+                value.color.float32[i] = clear.color[i];
+            }
+            break;
+    }
+    return value;
+}
+
+} // namespace fjell::gpu::vulkan
