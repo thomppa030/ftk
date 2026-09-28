@@ -18,6 +18,8 @@
 #include "renderer/gpu/thread_command_pools.hpp"
 #include <vulkan/vulkan.h>
 
+// Passes that still open zones with FJELL_GPU_ZONE reach Tracy's Vulkan
+// macros through here.
 #ifdef FJELL_ENABLE_TRACY
 #include <tracy/TracyVulkan.hpp>
 #endif
@@ -199,10 +201,6 @@ public:
 
     void wait_idle() { core_.wait_idle(); }
 
-#ifdef FJELL_ENABLE_TRACY
-    [[nodiscard]] tracy::VkCtx* tracy_ctx() { return tracy_vk_ctx_; }
-#endif
-
 private:
     void create_descriptor_resources();
 
@@ -254,9 +252,6 @@ private:
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
     std::unique_ptr<RenderStats> render_stats_;
 
-#ifdef FJELL_ENABLE_TRACY
-    tracy::VkCtx* tracy_vk_ctx_{nullptr};
-#endif
 };
 
 } // namespace fjell

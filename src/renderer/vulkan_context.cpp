@@ -423,9 +423,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
 
     // Extended context for self-registering passes
     ctx.render_stats = &gpu_.render_stats();
-#ifdef FJELL_ENABLE_TRACY
-    ctx.tracy_ctx = gpu_.tracy_ctx();
-#endif
+    ctx.tracy_ctx = gpu::vulkan::profiler_context(gpu_.core().gpu_device());
     ctx.draw_mesh_tasks_indirect_fn = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
     ctx.subsystems = subsystem_ptrs_.data();
     ctx.subsystem_count = static_cast<uint32_t>(subsystem_ptrs_.size());
@@ -873,9 +871,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
             VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     }
 
-#ifdef FJELL_ENABLE_TRACY
-    TracyVkCollect(gpu_.tracy_ctx(), swap_cmd);
-#endif
+    gpu::vulkan::collect_zones(gpu_.core().gpu_device(), swap_cmd);
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
         FJELL_GFX_CRITICAL("Failed to end recording command buffer");

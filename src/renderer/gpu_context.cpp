@@ -134,21 +134,6 @@ GpuContext::GpuContext(Window& window)
                  static_cast<uint32_t>(max_samples)));
     FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
 
-#ifdef FJELL_ENABLE_TRACY
-    {
-        VkCommandBufferAllocateInfo tracy_alloc{};
-        tracy_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        tracy_alloc.commandPool = core_.command_pool();
-        tracy_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        tracy_alloc.commandBufferCount = 1;
-        VkCommandBuffer tracy_cmd;
-        vkAllocateCommandBuffers(core_.vk_device(), &tracy_alloc, &tracy_cmd);
-        tracy_vk_ctx_ = TracyVkContext(
-            core_.physical_device(), core_.vk_device(),
-            core_.graphics_queue(), tracy_cmd);
-        TracyVkContextName(tracy_vk_ctx_, "Fjell GPU", 9);
-    }
-#endif
 
     FJELL_GFX_INFO("GPU context ready");
 }
@@ -211,12 +196,6 @@ GpuContext::~GpuContext() {
     pipeline_cache_.reset();
     pipeline_.reset();
 
-#ifdef FJELL_ENABLE_TRACY
-    if (tracy_vk_ctx_) {
-        TracyVkDestroy(tracy_vk_ctx_);
-        tracy_vk_ctx_ = nullptr;
-    }
-#endif
 
     secondary_pools_.destroy();
 

@@ -145,6 +145,25 @@ Device::Impl::Impl(GpuCore& gpu_core)
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
     caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
+    begin_label = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
+    end_label = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(device, "vkCmdEndDebugUtilsLabelEXT"));
+#ifdef FJELL_ENABLE_TRACY
+    // The profiler calibrates its GPU clock against the graphics queue with a
+    // command buffer of its own.
+    VkCommandBufferAllocateInfo calibration_info{};
+    calibration_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    calibration_info.commandPool = gpu_core.command_pool();
+    calibration_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    calibration_info.commandBufferCount = 1;
+    VkCommandBuffer calibration{VK_NULL_HANDLE};
+    if (vkAllocateCommandBuffers(device, &calibration_info, &calibration) == VK_SUCCESS) {
+        profiler = TracyVkContext(gpu_core.physical_device(), device, gpu_core.graphics_queue(),
+                                  calibration);
+        TracyVkContextName(profiler, "Fjell GPU", 9);
+    }
+#endif
     draw_mesh_tasks = gpu_core.device().draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect = gpu_core.device().draw_mesh_tasks_indirect_fn();
     draw_mesh_tasks_indirect_count = gpu_core.device().draw_mesh_tasks_indirect_count_fn();
@@ -153,6 +172,9 @@ Device::Impl::Impl(GpuCore& gpu_core)
 }
 
 Device::Impl::~Impl() {
+#ifdef FJELL_ENABLE_TRACY
+    if (profiler != nullptr) TracyVkDestroy(profiler);
+#endif
     // The GPU is idle here (GpuCore waits before destroying the device), so
     // what is still held is destroyed now: first the device's own buffers,
     // then anything never released by an owner that outlived the device.

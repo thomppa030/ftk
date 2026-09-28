@@ -112,6 +112,7 @@ fjell_library(gpu
         gpu/vulkan/pipeline.cpp
         gpu/vulkan/render_encoder.cpp
         gpu/vulkan/translate.cpp
+        gpu/vulkan/zones.cpp
     HEADERS
         gpu/access.hpp
         gpu/binding.hpp

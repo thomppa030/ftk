@@ -112,6 +112,20 @@ void begin_frame(Device& device, uint32_t frame_slot) {
     self.transient.begin_frame(frame_slot);
 }
 
+void* profiler_context([[maybe_unused]] Device& device) {
+#ifdef FJELL_ENABLE_TRACY
+    return device.impl().profiler;
+#else
+    return nullptr;
+#endif
+}
+
+void collect_zones([[maybe_unused]] Device& device, [[maybe_unused]] VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+    if (device.impl().profiler != nullptr) TracyVkCollect(device.impl().profiler, cb);
+#endif
+}
+
 FrameDescriptorCache& frame_cache(Device& device) {
     return device.impl().frame_sets;
 }
