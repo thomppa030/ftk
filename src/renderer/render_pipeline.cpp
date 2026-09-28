@@ -241,6 +241,12 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 img.layer_count = 1;
                 img.mip_count = 1;
                 img.persistent = true;
+                // Sampled by the blur in compute, and by every fragment
+                // shader through the global set's "ao_texture": a GTAO
+                // run on the compute queue reaches those after the
+                // semaphore the graphics queue waits on, so compute is
+                // where it rests. Seeded there when created.
+                img.resting = gpu::Access::sampled_compute;
                 decl_ctx.imports.emplace(fg_name_hash("gtao_ao"), img);
             }
         }

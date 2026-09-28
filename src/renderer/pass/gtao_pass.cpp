@@ -2,11 +2,9 @@
 //
 // Three RenderPass classes, one compute dispatch each. The FrameGraph emits
 // one merged barrier per image per node (RDG-style "merged access state"),
-// so nodes declare only the access they need and avoid inline barriers. The
-// single exception is AoBlurVPass's final ao_image GENERAL → SHADER_READ
-// transition: it matches AoPass::declare's final_layout() promise and
-// satisfies the baked SHADER_READ layout in the global descriptor
-// (binding 5 "ao_texture") read by every subsequent frag shader.
+// so nodes declare only the access they need and record no barriers. The
+// AO image rests where the global descriptor's "ao_texture" is sampled, and
+// the graph returns it there after each node that writes it.
 
 #include "renderer/pass/gtao_pass.hpp"
 #include "core/profiler.hpp"
@@ -336,19 +334,9 @@ void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (enabled_) {
         builder.write(ao, gpu::Access::storage_write_compute);
         declare_trace(builder, ctx);
-        // Enabled path: blur_v is the last node to touch ao, and it
-        // declares its own final_layout to SHADER_READ. Nothing to
-        // claim here.
     } else {
-        // Disabled path: we clear ao_image via vkCmdClearColorImage.
-        // This is the only ao node running when disabled — claim the
-        // final SHADER_READ layout here. record() emits the matching
-        // TRANSFER_DST → SHADER_READ transition inline.
+        // Disabled path: ao_image is cleared, the only ao node running.
         builder.write(ao, gpu::Access::copy_dst);
-        builder.final_layout(ao, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 
     builder.has_side_effects();
@@ -364,33 +352,13 @@ void AoPass::record(const FrameContext& ctx) {
     auto* cmd = ctx.cmd;
 
     if (!enabled_) {
-        // Graph barriered us into TRANSFER_DST. Clear, then emit the
-        // matching TRANSFER_DST → SHADER_READ transition to honor the
-        // final_layout promise (no follower nodes run when disabled).
+        // The graph has the image in TRANSFER_DST for the clear: no
+        // occlusion.
         VkClearColorValue clear_value{};
         clear_value.float32[0] = 1.0F;
         VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cmd, g.ao_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                              &clear_value, 1, &range);
-
-        VkImageMemoryBarrier2 bar{};
-        bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        // Compute-queue-safe dstStage; semaphore covers the visibility
-        // to graphics-side FRAGMENT_SHADER readers. Same reasoning as
-        // AoBlurVPass::record's final transition.
-        bar.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bar.image = g.ao_image;
-        bar.subresourceRange = range;
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &bar;
-        vkCmdPipelineBarrier2(cmd, &dep);
         return;
     }
 
@@ -654,16 +622,6 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
     auto ao = builder.import_named(ctx, "gtao_ao");
     builder.write(ao, gpu::Access::storage_write_compute);
-    // blur_v is the last node to touch ao — claim the final SHADER_READ
-    // layout so the graph's cross-frame tracker matches the actual state
-    // (mesh.frag's pre-baked "ao_texture" global descriptor expects
-    // SHADER_READ). record() emits the matching GENERAL → SHADER_READ
-    // transition inline after its dispatch.
-    builder.final_layout(ao, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void AoBlurVPass::record(const FrameContext& ctx) {
@@ -723,33 +681,6 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     vkCmdPushConstants(cmd, owner_->blur_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
-
-    // Final ao_image transition to SHADER_READ — honors AoPass::declare's
-    // final_layout() promise and satisfies the mesh.frag descriptor's
-    // baked SHADER_READ layout.
-    //
-    // dstStage is COMPUTE_SHADER, not FRAGMENT_SHADER: when this pass
-    // runs on the compute queue the fragment stage isn't part of the
-    // queue's supported set. The cross-queue visibility to mesh.frag is
-    // provided by the timeline-semaphore wait in submit_and_present,
-    // which upgrades the dependency to FRAGMENT_SHADER on the graphics
-    // side. Layout transitions under CONCURRENT sharing happen in
-    // whichever CB emits the barrier, so this one legal on compute.
-    VkImageMemoryBarrier2 bar{};
-    bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    bar.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    bar.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    bar.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    bar.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    bar.image = g.ao_image;
-    bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &bar;
-    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 } // namespace fjell
