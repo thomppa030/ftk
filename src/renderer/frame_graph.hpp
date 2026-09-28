@@ -191,13 +191,12 @@ public:
     // Register an image to track and return its id. Registering the same
     // image and layer range again in one run returns the existing id. A new
     // entry starts from what the graph remembers of the image, else at rest
-    // when it has a resting access and has been written, else from
-    // `initial_layout`. `name` is only for the traces.
+    // when it has a resting access and has been written, else undefined.
+    // `name` is only for the traces.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                             uint32_t base_layer = 0, uint32_t layer_count = 1,
                             uint32_t mip_count = 1,
                             bool persistent = false,
-                            VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                             std::string_view name = {}, gpu::AccessSet resting = {},
                             bool unwritten = false);
 
@@ -382,9 +381,8 @@ private:
         uint64_t seen{0};
     };
 
-    // Apply a pass's final_layout overrides: patch slice state to the
-    // declared values without emitting any barrier (producer promises
-    // the image already ends up in that layout).
+    // Apply what a pass says it leaves its textures in: patch slice state
+    // to it without emitting any barrier (the pass's own work got it there).
     void apply_final_layouts(const PassDecl& pass);
 
     // After a pass, in its command buffer: return each resting image it
