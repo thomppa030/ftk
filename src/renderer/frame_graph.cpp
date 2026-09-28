@@ -44,67 +44,67 @@ namespace {
     }
 }
 
-ImageUsage image_usage_for(ResourceAccess a) {
+ImageUsage image_usage_for(gpu::Access a) {
     switch (a) {
-        case ResourceAccess::color_attachment:
+        case gpu::Access::color_attachment:
             return ImageUsage::color_attachment;
-        case ResourceAccess::depth_attachment:
+        case gpu::Access::depth_attachment:
             return ImageUsage::depth_attachment;
-        case ResourceAccess::depth_resolve:
+        case gpu::Access::depth_resolve:
             return ImageUsage::depth_resolve;
-        case ResourceAccess::depth_attachment_read:
-        case ResourceAccess::input_attachment:
+        case gpu::Access::depth_attachment_read:
+        case gpu::Access::input_attachment:
             return ImageUsage::depth_attachment_read;
-        case ResourceAccess::sampled_fragment:
+        case gpu::Access::sampled_fragment:
             return ImageUsage::shader_read;
-        case ResourceAccess::sampled_vertex:
+        case gpu::Access::sampled_vertex:
             return ImageUsage::vertex_read;
-        case ResourceAccess::sampled_mesh:
+        case gpu::Access::sampled_mesh:
             return ImageUsage::mesh_read;
-        case ResourceAccess::sampled_compute:
+        case gpu::Access::sampled_compute:
             return ImageUsage::compute_read;
         // A storage image is only ever read in GENERAL, whatever the access:
         // imageLoad through a SHADER_READ_ONLY_OPTIMAL layout is invalid.
-        case ResourceAccess::storage_read_compute:
+        case gpu::Access::storage_read_compute:
             return ImageUsage::compute_storage_read;
-        case ResourceAccess::storage_write_compute:
+        case gpu::Access::storage_write_compute:
             return ImageUsage::compute_write;
-        case ResourceAccess::storage_read_write_compute:
+        case gpu::Access::storage_read_write_compute:
             return ImageUsage::compute_read_write;
-        case ResourceAccess::depth_read_sampled:
+        case gpu::Access::depth_read_sampled:
             return ImageUsage::depth_read_sampled;
-        case ResourceAccess::sampled_raytracing:
+        case gpu::Access::sampled_raytracing:
             return ImageUsage::raytracing_read;
-        case ResourceAccess::storage_write_raytracing:
+        case gpu::Access::storage_write_raytracing:
             return ImageUsage::raytracing_write;
-        case ResourceAccess::transfer_src:
+        case gpu::Access::copy_src:
             return ImageUsage::transfer_src;
-        case ResourceAccess::transfer_dst:
+        case gpu::Access::copy_dst:
             return ImageUsage::transfer_dst;
         default:
             return ImageUsage::shader_read;
     }
 }
 
-[[nodiscard]] bool access_applies_to_image(ResourceAccess a) {
+[[nodiscard]] bool access_applies_to_image(gpu::Access a) {
     switch (a) {
-        case ResourceAccess::color_attachment:
-        case ResourceAccess::depth_attachment:
-        case ResourceAccess::depth_resolve:
-        case ResourceAccess::depth_attachment_read:
-        case ResourceAccess::depth_read_sampled:
-        case ResourceAccess::input_attachment:
-        case ResourceAccess::sampled_fragment:
-        case ResourceAccess::sampled_vertex:
-        case ResourceAccess::sampled_mesh:
-        case ResourceAccess::sampled_compute:
-        case ResourceAccess::storage_read_compute:
-        case ResourceAccess::storage_write_compute:
-        case ResourceAccess::storage_read_write_compute:
-        case ResourceAccess::sampled_raytracing:
-        case ResourceAccess::storage_write_raytracing:
-        case ResourceAccess::transfer_src:
-        case ResourceAccess::transfer_dst:
+        case gpu::Access::color_attachment:
+        case gpu::Access::depth_attachment:
+        case gpu::Access::depth_resolve:
+        case gpu::Access::depth_attachment_read:
+        case gpu::Access::depth_read_sampled:
+        case gpu::Access::input_attachment:
+        case gpu::Access::sampled_fragment:
+        case gpu::Access::sampled_vertex:
+        case gpu::Access::sampled_mesh:
+        case gpu::Access::sampled_compute:
+        case gpu::Access::storage_read_compute:
+        case gpu::Access::storage_write_compute:
+        case gpu::Access::storage_read_write_compute:
+        case gpu::Access::sampled_raytracing:
+        case gpu::Access::storage_write_raytracing:
+        case gpu::Access::copy_src:
+        case gpu::Access::copy_dst:
             return true;
         default:
             return false;
@@ -118,36 +118,36 @@ struct BufferScope {
     VkAccessFlags2 access{0};
 };
 
-[[nodiscard]] BufferScope buffer_scope_for(ResourceAccess a) {
+[[nodiscard]] BufferScope buffer_scope_for(gpu::Access a) {
     switch (a) {
-        case ResourceAccess::uniform_read:
+        case gpu::Access::uniform_read:
             return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
                         | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                     VK_ACCESS_2_UNIFORM_READ_BIT};
-        case ResourceAccess::storage_buffer_read_compute:
+        case gpu::Access::storage_buffer_read_compute:
             return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case ResourceAccess::storage_buffer_read_vertex:
+        case gpu::Access::storage_buffer_read_vertex:
             return {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case ResourceAccess::storage_buffer_read_fragment:
+        case gpu::Access::storage_buffer_read_fragment:
             return {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case ResourceAccess::storage_buffer_read_mesh:
+        case gpu::Access::storage_buffer_read_mesh:
             return {VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
                     VK_ACCESS_2_SHADER_STORAGE_READ_BIT};
-        case ResourceAccess::indirect_read:
+        case gpu::Access::indirect_read:
             return {VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT};
-        case ResourceAccess::index_read:
+        case gpu::Access::index_read:
             return {VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT};
-        case ResourceAccess::vertex_read:
+        case gpu::Access::vertex_read:
             return {VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                     VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT};
-        case ResourceAccess::storage_buffer_write_compute:
+        case gpu::Access::storage_buffer_write_compute:
             return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
-        case ResourceAccess::storage_buffer_read_write_compute:
+        case gpu::Access::storage_buffer_read_write_compute:
             return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                     VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT};
-        case ResourceAccess::transfer_src:
+        case gpu::Access::copy_src:
             return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT};
-        case ResourceAccess::transfer_dst:
+        case gpu::Access::copy_dst:
             return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
         default:
             return {};

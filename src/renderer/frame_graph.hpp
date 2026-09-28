@@ -228,7 +228,7 @@ public:
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
     /// RenderPass::declare() or a pass's build()) plus the record
     /// callback. Registers all imported images into the graph, derives
-    /// legacy ImageUsage values from declared ResourceAccess, reads
+    /// legacy ImageUsage values from declared gpu::Access, reads
     /// parallel-group assignment from the builder, and enqueues the
     /// pass the same way add_pass() does. Created (non-imported)
     /// resources are not yet allocated — that lands with Phase 3

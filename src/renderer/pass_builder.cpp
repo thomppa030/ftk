@@ -99,34 +99,34 @@ FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSiz
     return h;
 }
 
-FgTexture PassBuilder::read(FgTexture h, ResourceAccess a) {
+FgTexture PassBuilder::read(FgTexture h, gpu::Access a) {
     texture_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
 
-FgBuffer PassBuilder::read(FgBuffer h, ResourceAccess a) {
+FgBuffer PassBuilder::read(FgBuffer h, gpu::Access a) {
     if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
 
-FgTexture PassBuilder::write(FgTexture h, ResourceAccess a) {
+FgTexture PassBuilder::write(FgTexture h, gpu::Access a) {
     texture_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
 
-FgBuffer PassBuilder::write(FgBuffer h, ResourceAccess a) {
+FgBuffer PassBuilder::write(FgBuffer h, gpu::Access a) {
     if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
 
-FgTexture PassBuilder::read_write(FgTexture h, ResourceAccess a) {
+FgTexture PassBuilder::read_write(FgTexture h, gpu::Access a) {
     texture_accesses_.push_back({.handle = h, .access = a});
     return h;
 }
 
-FgBuffer PassBuilder::read_write(FgBuffer h, ResourceAccess a) {
+FgBuffer PassBuilder::read_write(FgBuffer h, gpu::Access a) {
     if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
     return h;
