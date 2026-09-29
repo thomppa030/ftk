@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -173,6 +174,22 @@ public:
         push_bytes(std::as_bytes(std::span(&value, 1)));
     }
 
+    /// As `CommandList::transient`: a copy of `value` in memory that lasts
+    /// this frame, for a draw in this scope to bind.
+    template <typename T>
+        requires(std::is_trivially_copyable_v<T> && !std::ranges::range<T>)
+    [[nodiscard]] BufferRange transient(const T& value) {
+        return transient_bytes(std::as_bytes(std::span(&value, 1)));
+    }
+
+    /// A copy of `values`, one after another, in memory that lasts this frame.
+    template <std::ranges::contiguous_range R>
+        requires std::is_trivially_copyable_v<std::ranges::range_value_t<R>>
+    [[nodiscard]] BufferRange transient(const R& values) {
+        const std::span all(std::ranges::data(values), std::ranges::size(values));
+        return transient_bytes(std::as_bytes(all));
+    }
+
     void set_viewport(const Viewport& viewport);
     void set_scissor(const Rect& scissor);
 
@@ -210,6 +227,7 @@ private:
         : device_(&device), list_(&list), open_(open) {}
 
     void push_bytes(std::span<const std::byte> bytes);
+    [[nodiscard]] BufferRange transient_bytes(std::span<const std::byte> bytes);
 
     Device* device_;
     CommandList* list_;
