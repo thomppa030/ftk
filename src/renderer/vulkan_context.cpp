@@ -666,8 +666,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "contact_shadow",
-                contact_shadow_pass().shadow_view(),
-                contact_shadow_pass().shadow_sampler(),
+                gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
+                gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         } else {
             gb.write_image(current_frame_, "depth_texture",
@@ -686,8 +686,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image(current_frame_, "contact_shadow",
-                contact_shadow_pass().shadow_view(),
-                contact_shadow_pass().shadow_sampler(),
+                gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
+                gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
         gb.flush_writes();
@@ -1626,8 +1626,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         gb.write_image(current_frame_, "contact_shadow",
-            contact_shadow_pass().shadow_view(),
-            contact_shadow_pass().shadow_sampler(),
+            gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
+            gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         gb.flush_writes();

@@ -57,8 +57,6 @@ src/renderer/offscreen_pass.cpp
 src/renderer/offscreen_pass.hpp
 src/renderer/pass/bloom_pass.cpp
 src/renderer/pass/bloom_pass.hpp
-src/renderer/pass/contact_shadow_pass.cpp
-src/renderer/pass/contact_shadow_pass.hpp
 src/renderer/pass/ddgi_pass.cpp
 src/renderer/pass/ddgi_pass.hpp
 src/renderer/pass/debug_pass.cpp
