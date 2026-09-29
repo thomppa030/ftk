@@ -195,8 +195,15 @@ void main() {
     }
     vec3 normal = normalize(oct_decode(encoded_normal));
 
-    // Reconstruct world position
-    vec2 screen_uv = (vec2(coords) + 0.5) / out_res;
+    // Reconstruct world position at the centre of the pixel the depth came
+    // from. At half resolution that is the chosen full-res pixel, not the
+    // centre of the 2x2 block: pairing one pixel's depth with another's
+    // screen position puts the point off the surface, most at grazing angles
+    // where depth changes fastest across a pixel.
+    ivec2 depth_pixel = (output_resolution_half == 1)
+        ? coords * 2 + pixel_offsets[chosen_sample]
+        : coords;
+    vec2 screen_uv = (vec2(depth_pixel) + 0.5) / ddgi.resolution;
     vec3 world_pos = world_position_from_depth(screen_uv, raw_depth);
 
     float cage_weight = 0.0;
