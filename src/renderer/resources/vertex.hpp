@@ -1,9 +1,12 @@
 #pragma once
 
+#include "gpu/pipeline.hpp"
+
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <cstddef>
 
 namespace fjell {
 
@@ -13,6 +16,19 @@ struct Vertex {
     glm::vec2 tex_coord;
     glm::vec3 normal;
     glm::vec4 tangent; // xyz = tangent direction, w = handedness (±1)
+
+    /// The layout a pipeline reads these vertices with, as the GPU interface
+    /// describes it.
+    [[nodiscard]] static gpu::VertexLayout layout() {
+        return {.stride = sizeof(Vertex),
+                .attributes = {
+                    {.location = 0, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, position)},
+                    {.location = 1, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, color)},
+                    {.location = 2, .format = gpu::VertexFormat::float2, .offset = offsetof(Vertex, tex_coord)},
+                    {.location = 3, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, normal)},
+                    {.location = 4, .format = gpu::VertexFormat::float4, .offset = offsetof(Vertex, tangent)},
+                }};
+    }
 
     [[nodiscard]] static VkVertexInputBindingDescription get_binding_description() {
         VkVertexInputBindingDescription desc{};

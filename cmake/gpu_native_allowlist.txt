@@ -102,7 +102,6 @@ src/renderer/pass/terrain_pass.cpp
 src/renderer/pass/terrain_pass.hpp
 src/renderer/pass/transparent_pass.cpp
 src/renderer/pass/transparent_pass.hpp
-src/renderer/pass/uv_viz_pass.cpp
 src/renderer/pass/uv_viz_pass.hpp
 src/renderer/pass/volumetric_fog_pass.cpp
 src/renderer/pass/volumetric_fog_pass.hpp
