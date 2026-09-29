@@ -74,7 +74,12 @@ taskPayloadSharedEXT TaskPayload payload;
 /// survives unless all eight corners fall outside the same plane, which keeps
 /// the test conservative — it can pass a patch that is not visible, never drop
 /// one that is.
-bool box_in_frustum(mat4 vp, vec3 lo, vec3 hi) {
+///
+/// A shadow cascade skips the near plane: ground between the cascade and the
+/// sun still shadows what the cascade sees, and the shadow pipeline clamps its
+/// depth onto the near plane rather than clipping it, as for every other
+/// caster.
+bool box_in_frustum(mat4 vp, vec3 lo, vec3 hi, bool test_near) {
     vec4 clip[8];
     for (uint i = 0u; i < 8u; ++i) {
         vec3 corner = vec3((i & 1u) != 0u ? hi.x : lo.x,
@@ -84,6 +89,7 @@ bool box_in_frustum(mat4 vp, vec3 lo, vec3 hi) {
     }
     // x, y in [-w, w] and z in [0, w]: Vulkan clip space, reverse-Z not in use.
     for (uint plane = 0u; plane < 6u; ++plane) {
+        if (plane == 4u && !test_near) continue;
         bool all_out = true;
         for (uint i = 0u; i < 8u && all_out; ++i) {
             vec4 c = clip[i];
@@ -151,7 +157,7 @@ void main() {
 
     mat4 vp = push.view_index == 0u ? ubo.projection * ubo.view
                                     : ubo.cascade_vp[push.view_index - 1u];
-    if (!box_in_frustum(vp, lo, hi)) {
+    if (!box_in_frustum(vp, lo, hi, push.view_index == 0u)) {
         EmitMeshTasksEXT(0, 0, 0);
         return;
     }

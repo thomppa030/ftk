@@ -81,9 +81,12 @@ Result<> TerrainPass::create(Device& /*device*/, const PassResources& resources)
     // wide, near-flat receiver seen at a grazing angle from a low sun, which
     // is where an unbiased depth-only draw acnes worst, so the two must agree
     // — a cascade half-written with a different bias reads as bands across
-    // the ground. The cascades are single-sampled whatever the camera target
-    // is doing.
+    // the ground. Depth is clamped rather than clipped, as for the other
+    // casters, so ground between the cascade and the sun still lands in the
+    // map; the task stage keeps it for shadow views. The cascades are
+    // single-sampled whatever the camera target is doing.
     gpu::Raster shadow_raster = SURFACE_RASTER;
+    shadow_raster.depth_clamp = true;
     shadow_raster.depth_bias = ShadowPass::DEPTH_BIAS_CONSTANT;
     shadow_raster.depth_bias_slope = ShadowPass::DEPTH_BIAS_SLOPE;
     FJELL_TRY(shadow_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
