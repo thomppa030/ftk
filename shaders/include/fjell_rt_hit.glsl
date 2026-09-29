@@ -45,7 +45,7 @@ struct RtHit {
     uint primitive;          // the triangle within the instance's geometry
     vec2 barycentrics;       // the weights of the triangle's second and third vertex
     float t;                 // distance along the ray
-    mat4x3 object_to_world;  // the instance's transform
+    mat4x3 world_to_object;  // the inverse of the instance's transform
 };
 
 // The closest triangle a finished query committed to. Only meaningful when
@@ -56,7 +56,7 @@ RtHit rt_committed_hit(rayQueryEXT q) {
     hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
     hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(q, true);
     hit.t = rayQueryGetIntersectionTEXT(q, true);
-    hit.object_to_world = rayQueryGetIntersectionObjectToWorldEXT(q, true);
+    hit.world_to_object = rayQueryGetIntersectionWorldToObjectEXT(q, true);
     return hit;
 }
 
@@ -65,7 +65,7 @@ struct RtSurface {
     GpuMaterial material;
     uvec3 vertices;          // the triangle's vertices, as indices into vertex_data
     vec3 weights;            // the barycentric weight of each
-    mat4x3 object_to_world;
+    mat4x3 world_to_object;
     bool two_sided;          // either side of the surface is its front
 };
 
@@ -97,7 +97,7 @@ bool rt_resolve_hit(RtHit hit, out RtSurface surface) {
     surface.vertices = v;
     surface.weights = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y,
                            hit.barycentrics.x, hit.barycentrics.y);
-    surface.object_to_world = hit.object_to_world;
+    surface.world_to_object = hit.world_to_object;
     surface.two_sided = (inst.flags & RT_INSTANCE_TWO_SIDED) != 0u;
     return true;
 }
@@ -126,13 +126,14 @@ vec2 rt_surface_uv(RtSurface surface) {
 }
 
 // The world-space shading normal at the hit: the interpolated vertex normal
-// through the instance's transform. No normal map: the tracers light from
-// the geometry.
+// through the inverse transpose of the instance's transform, which keeps it
+// perpendicular to the surface under non-uniform scale. No normal map: the
+// tracers light from the geometry.
 vec3 rt_surface_normal(RtSurface surface) {
     vec3 object_normal = normalize(rt_vertex_normal(surface.vertices.x) * surface.weights.x
                                  + rt_vertex_normal(surface.vertices.y) * surface.weights.y
                                  + rt_vertex_normal(surface.vertices.z) * surface.weights.z);
-    return normalize(mat3(surface.object_to_world) * object_normal);
+    return normalize(transpose(mat3(surface.world_to_object)) * object_normal);
 }
 
 // Base colour factor times texture, the same albedo the raster template
