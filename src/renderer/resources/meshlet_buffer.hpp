@@ -55,8 +55,8 @@ private:
     uint64_t meshlet_used_{0};
     uint64_t bounds_used_{0};
     uint64_t vertex_index_used_{0};
-    uint64_t triangle_used_{0};          // padded bytes used in GPU buffer
-    uint64_t triangle_raw_bytes_{0};     // unpadded raw bytes (for offset calculation)
+    uint64_t triangle_used_{0};          // up to the end of the word the last byte is in
+    uint64_t triangle_raw_bytes_{0};     // bytes of triangles (for offset calculation)
 
     uint32_t meshlet_count_{0};
 

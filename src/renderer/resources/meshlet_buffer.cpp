@@ -2,7 +2,6 @@
 #include "gpu/device.hpp"
 #include "core/log.hpp"
 
-#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -39,14 +38,16 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     const uint64_t bounds_size = result.bounds.size() * sizeof(MeshletBounds);
     const uint64_t vert_idx_size = result.meshlet_vertices.size() * sizeof(uint32_t);
 
-    // Pack uint8 triangles into uint32 for GPU access (pad to 4 bytes)
+    // Triangles are three bytes each, packed back to back across meshes and
+    // read as uint32 words, so the buffer reaches the word the last byte is
+    // in.
     const uint64_t tri_size_raw = result.meshlet_triangles.size();
-    const uint64_t tri_size_padded = (tri_size_raw + 3) & ~uint64_t{3};
+    const uint64_t tri_end_word = (triangle_raw_bytes_ + tri_size_raw + 3) & ~uint64_t{3};
 
     auto grown = gpu_.grow(meshlets_, meshlet_used_ + meshlet_size);
     if (grown) grown = gpu_.grow(bounds_, bounds_used_ + bounds_size);
     if (grown) grown = gpu_.grow(vertex_indices_, vertex_index_used_ + vert_idx_size);
-    if (grown) grown = gpu_.grow(triangles_, triangle_raw_bytes_ + tri_size_padded);
+    if (grown) grown = gpu_.grow(triangles_, tri_end_word);
     if (!grown) {
         FJELL_GFX_ERROR("Meshlets not added to the meshlet buffer: {}", grown.error());
         return {};
@@ -71,10 +72,9 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     upload.to_buffer(bounds_, bounds_used_, result.bounds);
     upload.to_buffer(vertex_indices_, vertex_index_used_, result.meshlet_vertices);
 
-    // Pad triangle data to 4-byte alignment
-    std::vector<uint8_t> padded_tris(tri_size_padded, 0);
-    std::memcpy(padded_tris.data(), result.meshlet_triangles.data(), tri_size_raw);
-    upload.to_buffer(triangles_, triangle_raw_bytes_, padded_tris);
+    // Only the mesh's own bytes: padding written after them would land on
+    // the next mesh's first bytes, in a copy nothing orders against its.
+    upload.to_buffer(triangles_, triangle_raw_bytes_, result.meshlet_triangles);
 
     MeshletRange range{};
     range.meshlet_offset = meshlet_count_;
@@ -86,7 +86,7 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     bounds_used_ += bounds_size;
     vertex_index_used_ += vert_idx_size;
     triangle_raw_bytes_ += tri_size_raw;
-    triangle_used_ = (triangle_raw_bytes_ + 3) & ~3; // padded total
+    triangle_used_ = tri_end_word;
 
     return range;
 }
