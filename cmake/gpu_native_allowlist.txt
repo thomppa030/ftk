@@ -55,8 +55,6 @@ src/renderer/indirect_batch.cpp
 src/renderer/indirect_batch.hpp
 src/renderer/offscreen_pass.cpp
 src/renderer/offscreen_pass.hpp
-src/renderer/pass/bloom_pass.cpp
-src/renderer/pass/bloom_pass.hpp
 src/renderer/pass/ddgi_pass.cpp
 src/renderer/pass/ddgi_pass.hpp
 src/renderer/pass/depth_pipeline.hpp

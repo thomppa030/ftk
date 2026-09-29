@@ -1,11 +1,12 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "renderer/pass/render_pass.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-
 #include <cstdint>
+#include <string>
 
 namespace fjell {
 
@@ -25,9 +26,9 @@ namespace fjell {
 // so they can alias, same for mip[1]/mip[3].
 //
 // Layering:
-//   • BloomCore     — abstract base. Owns shared sampler, descriptor set
-//                     layouts, pipeline layouts, pipelines, and the
-//                     enabled/threshold/intensity knobs. Itself a
+//   • BloomCore     — abstract base. Owns the shared sampler, the two
+//                     pipelines, and the enabled/threshold/intensity knobs.
+//                     Itself a
 //                     RenderPass; subclass runs downsample of mip 0.
 //   • BloomDs0Pass  — concrete BloomCore. Registered as "bloom_ds_0".
 //                     Runs downsample dispatch on scene color → mip[0].
@@ -64,25 +65,14 @@ public:
     [[nodiscard]] float intensity() const { return intensity_; }
     [[nodiscard]] bool enabled() const { return enabled_; }
 
-    [[nodiscard]] VkSampler sampler() const { return sampler_; }
-    [[nodiscard]] VkDescriptorSetLayout single_tex_layout() const { return single_tex_layout_; }
-    [[nodiscard]] VkPipelineLayout downsample_layout() const { return downsample_layout_; }
-    [[nodiscard]] VkPipelineLayout upsample_layout() const { return upsample_layout_; }
-    [[nodiscard]] VkPipeline downsample_pipeline() const { return downsample_pipeline_; }
-    [[nodiscard]] VkPipeline upsample_pipeline() const { return upsample_pipeline_; }
+    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] gpu::GraphicsPipeline downsample_pipeline() const { return downsample_pipeline_; }
+    [[nodiscard]] gpu::GraphicsPipeline upsample_pipeline() const { return upsample_pipeline_; }
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-
-    VkSampler sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout single_tex_layout_{VK_NULL_HANDLE};
-
-    VkPipelineLayout downsample_layout_{VK_NULL_HANDLE};
-    VkPipeline downsample_pipeline_{VK_NULL_HANDLE};
-    VkPipelineLayout upsample_layout_{VK_NULL_HANDLE};
-    VkPipeline upsample_pipeline_{VK_NULL_HANDLE};
+    gpu::Sampler sampler_;
+    gpu::Owned<gpu::GraphicsPipeline> downsample_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> upsample_pipeline_;
 
     float threshold_{1.0F};
     float intensity_{0.25F};
@@ -102,7 +92,8 @@ public:
 // writes bloom_mip<idx>.
 class BloomDsPass : public RenderPass {
 public:
-    explicit BloomDsPass(uint32_t mip_index) : mip_index_(mip_index) {}
+    explicit BloomDsPass(uint32_t mip_index)
+        : mip_index_(mip_index), zone_name_("Bloom Ds" + std::to_string(mip_index)) {}
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -113,15 +104,17 @@ public:
 
 private:
     uint32_t mip_index_{0};
+    std::string zone_name_;
     BloomCore* core_{nullptr};
 };
 
 // Upsample node: reads bloom_mip<dst+1>, additively blends into
-// bloom_mip<dst>. dst=0 claims the final_layout and flags
-// has_side_effects() since the post pass's consumption isn't visible to the DAG.
+// bloom_mip<dst>. The post pass declares its read of bloom_mip0, so the
+// last upsample needs nothing more to stay alive.
 class BloomUsPass : public RenderPass {
 public:
-    explicit BloomUsPass(uint32_t dst_mip) : dst_mip_(dst_mip) {}
+    explicit BloomUsPass(uint32_t dst_mip)
+        : dst_mip_(dst_mip), zone_name_("Bloom Us" + std::to_string(dst_mip)) {}
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -132,6 +125,7 @@ public:
 
 private:
     uint32_t dst_mip_{0};
+    std::string zone_name_;
     BloomCore* core_{nullptr};
 };
 
