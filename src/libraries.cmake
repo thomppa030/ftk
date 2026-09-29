@@ -91,7 +91,6 @@ fjell_library(gpu
         renderer/gpu/gpu_core.cpp
         renderer/gpu/growable_buffer.cpp
         renderer/gpu/image.cpp
-        renderer/gpu/image_readback.cpp
         renderer/gpu/thread_command_pools.cpp
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
@@ -111,6 +110,7 @@ fjell_library(gpu
         gpu/vulkan/frame_descriptor_cache.cpp
         gpu/vulkan/native.cpp
         gpu/vulkan/pipeline.cpp
+        gpu/vulkan/readback.cpp
         gpu/vulkan/render_encoder.cpp
         gpu/vulkan/swapchain.cpp
         gpu/vulkan/translate.cpp
@@ -129,6 +129,7 @@ fjell_library(gpu
         gpu/format.hpp
         gpu/owned.hpp
         gpu/pipeline.hpp
+        gpu/readback.hpp
         gpu/queue.hpp
         gpu/render_encoder.hpp
         gpu/release_queue.hpp
@@ -155,7 +156,6 @@ fjell_library(gpu
         renderer/gpu/gpu_core.hpp
         renderer/gpu/growable_buffer.hpp
         renderer/gpu/image.hpp
-        renderer/gpu/image_readback.hpp
         renderer/gpu/shader_utils.hpp
         renderer/gpu/thread_command_pools.hpp
         renderer/gpu/upload_context.hpp
@@ -167,6 +167,8 @@ fjell_library(gpu
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
         PRIVATE SDL3::SDL3 spirv-cross-core
 )
+# The device's own shaders, compiled into it.
+fjell_embed_shader(fjell-gpu "${FJELL_SOURCE_ROOT}/gpu/shaders/read_back.comp")
 # VMA's headers warn under our flags, so everything using fjell-gpu sees them
 # as system headers, and its implementation compiles without warnings.
 get_target_property(VMA_INCLUDE_DIRS GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)

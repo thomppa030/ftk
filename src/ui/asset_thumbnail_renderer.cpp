@@ -14,7 +14,7 @@
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
-#include "renderer/gpu/image_readback.hpp"
+#include "gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/post_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -533,10 +533,21 @@ protected:
                                               static_cast<float>(std::max(crop.extent.width, crop.extent.height)));
         auto read_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.width) * read_scale)));
         auto read_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.height) * read_scale)));
-        ImageReadback readback({.device = vk.device(), .allocator = vk.allocator(),
-                                .command_pool = vk.command_pool(), .queue = vk.graphics_queue()},
-                               target_->color_image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                               crop, read_w, read_h);
+        auto readback = vk.gpu_device().read_back(
+            target_->color_texture(),
+            {.region = {.x = static_cast<uint32_t>(crop.offset.x),
+                        .y = static_cast<uint32_t>(crop.offset.y),
+                        .width = crop.extent.width,
+                        .height = crop.extent.height},
+             .width = read_w,
+             .height = read_h,
+             .use = gpu::Access::sampled_fragment});
+        if (!readback) {
+            FJELL_CORE_ERROR("UI thumbnail: {}", readback.error());
+            return false;
+        }
+        readback->wait();
+        const uint8_t* read = readback->pixels().data();
 
         constexpr uint32_t SIZE = AssetThumbnailRenderer::SIZE;
         float fit = std::min(1.0F, std::min(static_cast<float>(SIZE) / static_cast<float>(read_w),
@@ -545,9 +556,9 @@ protected:
         auto fit_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_h) * fit)));
         std::vector<uint8_t> fitted(static_cast<size_t>(fit_w) * fit_h * 4);
         if (fit_w == read_w && fit_h == read_h) {
-            std::memcpy(fitted.data(), readback.pixels(), fitted.size());
+            std::memcpy(fitted.data(), read, fitted.size());
         } else {
-            stbir_resize_uint8_srgb(readback.pixels(), static_cast<int>(read_w), static_cast<int>(read_h), 0,
+            stbir_resize_uint8_srgb(read, static_cast<int>(read_w), static_cast<int>(read_h), 0,
                                     fitted.data(), static_cast<int>(fit_w), static_cast<int>(fit_h), 0,
                                     STBIR_RGBA);
         }
@@ -916,18 +927,20 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     if (out == nullptr) return true;
 
     auto* output = pp_->post();
-    if (output == nullptr || output->image == VK_NULL_HANDLE) {
+    if (output == nullptr || !output->texture) {
         FJELL_CORE_ERROR("Scene thumbnail: post output unavailable");
         return false;
     }
-    ImageReadback readback({.device = vk.device(), .allocator = vk.allocator(),
-                            .command_pool = vk.command_pool(), .queue = vk.graphics_queue()},
-                           output->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           output->extent.width, output->extent.height);
-    out->width = readback.width();
-    out->height = readback.height();
-    out->rgba.assign(readback.pixels(),
-                     readback.pixels() + static_cast<size_t>(out->width) * out->height * 4);
+    auto readback = vk.gpu_device().read_back(output->texture, {.use = gpu::Access::sampled_fragment});
+    if (!readback) {
+        FJELL_CORE_ERROR("Scene thumbnail: {}", readback.error());
+        return false;
+    }
+    readback->wait();
+    out->width = readback->width();
+    out->height = readback->height();
+    const auto pixels = readback->pixels();
+    out->rgba.assign(pixels.begin(), pixels.end());
     return true;
 }
 

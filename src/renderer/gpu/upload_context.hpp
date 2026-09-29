@@ -17,6 +17,8 @@ namespace fjell {
 class Device;
 
 namespace gpu {
+class Device;
+class Readback;
 class Upload;
 }
 
@@ -97,8 +99,11 @@ public:
 
 private:
     // Texture uploads record through gpu::Upload, which owns the copy, the
-    // mips and the state the texture is left in.
+    // mips and the state the texture is left in, and readbacks through the
+    // device, on the image lane too.
     friend class gpu::Upload;
+    friend class gpu::Device;
+    friend class gpu::Readback;
 
     /// Stages pixel data for an image upload, whose commands go into
     /// image_cb().
@@ -107,6 +112,16 @@ private:
     /// The image lane's open command buffer (graphics queue). Valid until
     /// the next flush().
     [[nodiscard]] VkCommandBuffer image_cb();
+
+    /// The value the image lane's open batch signals once it is flushed, read
+    /// through the pointer: 0 until then.
+    [[nodiscard]] std::shared_ptr<const uint64_t> image_batch();
+
+    /// Whether the image lane has finished the batch that signals `value`.
+    [[nodiscard]] bool image_done(uint64_t value) const;
+
+    /// Waits until it has.
+    void wait_image(uint64_t value);
 
     enum LaneIndex : uint32_t { BUFFER = 0, IMAGE = 1, LANE_COUNT = 2 };
 

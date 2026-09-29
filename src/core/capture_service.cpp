@@ -2,9 +2,8 @@
 
 #include "core/log.hpp"
 #include "core/project.hpp"
-#include "renderer/gpu/image_readback.hpp"
+#include "gpu/device.hpp"
 #include "gpu/swapchain.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -13,12 +12,10 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <stb_image_write.h>
-#include <vulkan/vulkan.h>
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <cstring>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -27,15 +24,6 @@
 namespace fjell {
 
 namespace {
-
-ImageReadback::Queue readback_queue(VulkanContext& vk) {
-    return {
-        .device = vk.device(),
-        .allocator = vk.allocator(),
-        .command_pool = vk.command_pool(),
-        .queue = vk.graphics_queue(),
-    };
-}
 
 void bgra_to_rgba(uint8_t* data, size_t pixel_count) {
     for (size_t i = 0; i < pixel_count; ++i) {
@@ -193,20 +181,22 @@ void CaptureService::do_scene_capture(VulkanContext& vk,
     // The panel was resized to the capture dimensions; it just rendered at
     // that resolution and the post output now holds the result.
     auto* output = vk.default_pp().post();
-    if (output == nullptr || output->image == VK_NULL_HANDLE) {
+    if (output == nullptr || !output->texture) {
         FJELL_CORE_ERROR("Capture: post output unavailable");
         return;
     }
 
-    uint32_t w = output->extent.width;
-    uint32_t h = output->extent.height;
-
-    // The post output sits in SHADER_READ_ONLY_OPTIMAL after the frame.
-    ImageReadback readback(readback_queue(vk), output->image,
-                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, w, h);
+    // The editor's viewport samples the post output after the frame.
+    auto readback = vk.gpu_device().read_back(output->texture,
+                                              {.use = gpu::Access::sampled_fragment});
+    if (!readback) {
+        FJELL_CORE_ERROR("Capture: {}", readback.error());
+        return;
+    }
+    readback->wait();
 
     auto path = next_output_path("scene");
-    write_png(path, w, h, readback.pixels());
+    write_png(path, readback->width(), readback->height(), readback->pixels().data());
 
     // Restore the panel size so the next frame's apply_resize puts the
     // editor viewport back to its on-screen size.
@@ -224,12 +214,11 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
     }
 
     const gpu::Swapchain& swapchain = vk.gpu().swapchain();
-    const VkExtent2D swap_extent{swapchain.width(), swapchain.height()};
     int x0 = std::max(0, static_cast<int>(win->Pos.x));
     int y0 = std::max(0, static_cast<int>(win->Pos.y));
-    int x1 = std::min(static_cast<int>(swap_extent.width),
+    int x1 = std::min(static_cast<int>(swapchain.width()),
                       static_cast<int>(win->Pos.x + win->Size.x));
-    int y1 = std::min(static_cast<int>(swap_extent.height),
+    int y1 = std::min(static_cast<int>(swapchain.height()),
                       static_cast<int>(win->Pos.y + win->Size.y));
     int w = x1 - x0;
     int h = y1 - y0;
@@ -238,26 +227,20 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
         return;
     }
 
-    vk.wait_idle();
-
-    VkImage swap_image = gpu::vulkan::native_image(vk.gpu_device(), vk.presented_swapchain_texture());
-    if (swap_image == VK_NULL_HANDLE) {
-        FJELL_CORE_ERROR("Capture: the window was resized since the frame was shown");
+    auto readback = vk.gpu_device().read_back(
+        vk.presented_swapchain_texture(),
+        {.region = {.x = static_cast<uint32_t>(x0),
+                    .y = static_cast<uint32_t>(y0),
+                    .width = static_cast<uint32_t>(w),
+                    .height = static_cast<uint32_t>(h)},
+         .use = gpu::Access::present});
+    if (!readback) {
+        FJELL_CORE_ERROR("Capture: {}", readback.error());
         return;
     }
-
-    std::vector<uint8_t> cropped(static_cast<size_t>(w) * h * 4);
-    {
-        ImageReadback readback(readback_queue(vk), swap_image,
-                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                               swap_extent.width, swap_extent.height);
-        const uint8_t* src = readback.pixels();
-        for (int row = 0; row < h; ++row) {
-            const uint8_t* src_row = src + (((static_cast<size_t>(y0 + row) * swap_extent.width) + x0) * 4);
-            std::memcpy(cropped.data() + (static_cast<size_t>(row) * w * 4), src_row,
-                        static_cast<size_t>(w) * 4);
-        }
-    }
+    readback->wait();
+    const auto pixels = readback->pixels();
+    std::vector<uint8_t> cropped(pixels.begin(), pixels.end());
 
     bgra_to_rgba(cropped.data(), static_cast<size_t>(w) * h);
 

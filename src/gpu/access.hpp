@@ -69,6 +69,8 @@ enum class Access : uint8_t {
     /// Shown in a window: what a swapchain image is left in to be presented,
     /// and what an acquired one waits for before it is drawn into again.
     present,
+    /// Read by the CPU once the GPU is done: a readback's buffer.
+    host_read,
 };
 
 template <>
@@ -158,6 +160,7 @@ using AccessSet = Flags<Access>;
         case Access::copy_src:
         case Access::copy_dst:
         case Access::clear:
+        case Access::host_read:
             return true;
         default:
             return false;

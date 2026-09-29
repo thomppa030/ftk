@@ -114,6 +114,24 @@ VkCommandBuffer UploadContext::image_cb() {
     return lane_cb(IMAGE);
 }
 
+std::shared_ptr<const uint64_t> UploadContext::image_batch() {
+    (void)lane_cb(IMAGE);
+    return lanes_[IMAGE].open.value;
+}
+
+bool UploadContext::image_done(uint64_t value) const {
+    return value != 0 && completed_value(IMAGE) >= value;
+}
+
+void UploadContext::wait_image(uint64_t value) {
+    VkSemaphoreWaitInfo wait{};
+    wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    wait.semaphoreCount = 1;
+    wait.pSemaphores = &lanes_[IMAGE].timeline;
+    wait.pValues = &value;
+    vk_check(vkWaitSemaphores(device_, &wait, UINT64_MAX), "Failed waiting for the image lane");
+}
+
 VkCommandBuffer UploadContext::lane_cb(LaneIndex lane) {
     Batch& open = lanes_[lane].open;
     if (open.cb == VK_NULL_HANDLE) {

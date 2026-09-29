@@ -224,6 +224,9 @@ struct Device::Impl {
     /// The device's upload, made when first asked for.
     Upload::Impl upload_state;
     std::unique_ptr<Upload> upload;
+    /// What converts a texture read back, made at the first readback and
+    /// destroyed with the device.
+    ComputePipeline read_back_pipeline{};
     /// Memory that lasts one frame, reset with `frame_sets`. Its chunks are
     /// the device's own, destroyed with it.
     TransientMemory transient;
