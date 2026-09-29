@@ -1,6 +1,7 @@
 #include "renderer/pass/viz_meshes.hpp"
 
 #include "gpu/render_encoder.hpp"
+#include "renderer/indirect_batch.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -12,14 +13,21 @@ namespace fjell {
 
 void draw_viz_meshes(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     if (ctx.queue == nullptr) return;
-    // Models still record their own draws from the mega buffer, into the
-    // command buffer the encoder's scope is open on.
-    if (ctx.mega_buffer) ctx.mega_buffer->bind(ctx.cmd);
+    if (ctx.mega_buffer == nullptr || ctx.indirect_batch == nullptr) return;
+    // The mega buffer's vertices are still bound natively, into the command
+    // buffer the encoder's scope is open on.
+    ctx.mega_buffer->bind(ctx.cmd);
+    // Each command's material slot at the LOD the batch draws it at, as the
+    // scene shows it.
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
         for (const auto& dc : list) {
             if (dc.skinned) continue; // TODO(skinned-viz): add skinned pipeline variant
             pass.push(dc.world_matrix);
-            dc.model->draw(ctx.cmd);
+            const uint32_t lod = ctx.indirect_batch->lod_for(*dc.model, dc.world_matrix);
+            dc.model->for_each_entry(lod, dc.material_slot, [&](const MegaMeshEntry& entry) {
+                pass.draw_indexed(entry.index_count, 1, entry.first_index,
+                                  static_cast<int32_t>(entry.vertex_offset), 0);
+            });
         }
     };
     draw_list(ctx.queue->commands());

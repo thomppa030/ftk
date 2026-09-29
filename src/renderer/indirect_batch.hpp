@@ -99,6 +99,12 @@ public:
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
+    /// The LOD of `model` placed by `world` that the last build draws, as it
+    /// picks one for each opaque draw: from the model's projected size seen
+    /// from that build's camera. `model.lod_count()` when it is too small to
+    /// draw; 0 for a build without a projection (the shadow batches).
+    [[nodiscard]] uint32_t lod_for(const Model& model, const glm::mat4& world) const;
+
     [[nodiscard]] VkBuffer draw_data_buffer(uint32_t frame_index) const {
         return draw_data_buffers_[frame_index]->handle();
     }
@@ -253,6 +259,11 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_indirect_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_count_buffers_;
+    // What the last build picked LODs from: its camera, and its projection's
+    // vertical scale (0 without a projection, which picks LOD 0).
+    glm::vec3 lod_camera_pos_{0.0f};
+    float lod_proj_scale_{0.0f};
+
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};

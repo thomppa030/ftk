@@ -201,6 +201,18 @@ public:
         if (slot == UINT32_MAX) return true;
         return entry < entry_material_slots_.size() && entry_material_slots_[entry] == slot;
     }
+    // Calls `visit(entry)` for each mega entry a draw of `slot` at `lod`
+    // covers: the LOD's entries whose submesh uses the slot. Nothing for a
+    // LOD past the last, which is how select_lod() says "too small to draw".
+    template <typename Visit>
+    void for_each_entry(uint32_t lod, uint32_t slot, Visit&& visit) const {
+        if (lod >= lod_levels_.size()) return;
+        const LodLevel& level = lod_levels_[lod];
+        for (uint32_t e = level.first_mega_entry; e < level.first_mega_entry + level.mega_entry_count; ++e) {
+            if (entry_uses_slot(e, slot)) visit(mega_entries_[e]);
+        }
+    }
+
     [[nodiscard]] uint32_t material_slot_count() const {
         return static_cast<uint32_t>(authored_.material_slots.size());
     }

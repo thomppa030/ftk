@@ -345,13 +345,15 @@ void TransparentPass::record_draws(const FrameContext& ctx) {
             ctx.mega_buffer->bind(ctx.cmd);
             mega_bound = true;
         }
-        const auto& entries = dc.model->mega_entries();
-        for (const auto& entry : entries) {
+        // The entries of this command's material slot, at the LOD the batch
+        // would draw the model at if it were opaque.
+        const uint32_t lod = ctx.indirect_batch->lod_for(*dc.model, dc.world_matrix);
+        dc.model->for_each_entry(lod, dc.material_slot, [&](const MegaMeshEntry& entry) {
             vkCmdDrawIndexed(ctx.cmd, entry.index_count, 1,
                              entry.first_index,
                              static_cast<int32_t>(entry.vertex_offset),
                              base_index);
-        }
+        });
         base_index++;
     }
 }

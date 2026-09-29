@@ -150,6 +150,19 @@ void IndirectBatch::ensure_spline_segment_capacity(uint32_t frame_index, uint32_
     spline_segment_capacities_[frame_index] = new_cap;
 }
 
+uint32_t IndirectBatch::lod_for(const Model& model, const glm::mat4& world) const {
+    if (lod_proj_scale_ <= 0.0f || model.lod_count() <= 1) return 0;
+    glm::vec3 diff = lod_camera_pos_ - glm::vec3(world[3]);
+    float dist_sq = glm::dot(diff, diff);
+    float radius = model.bounding_radius();
+    float sx2 = glm::dot(glm::vec3(world[0]), glm::vec3(world[0]));
+    float sy2 = glm::dot(glm::vec3(world[1]), glm::vec3(world[1]));
+    float sz2 = glm::dot(glm::vec3(world[2]), glm::vec3(world[2]));
+    float max_scale_sq = std::max({sx2, sy2, sz2});
+    float r_proj_sq = radius * radius * max_scale_sq * lod_proj_scale_ * lod_proj_scale_;
+    return model.select_lod_sq(r_proj_sq, dist_sq);
+}
+
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           uint32_t frame_index,
@@ -159,9 +172,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           bool is_shadow_batch) {
     FJELL_PROFILE_SCOPE_N("indirect_batch_build");
 
-    // Precompute projection scale for LOD selection (vertical FOV)
-    float proj_scale = std::abs(projection[1][1]);
-    bool do_lod = proj_scale > 0.0f; // skip LOD for identity projection (shadow batch)
+    // LOD selection reads the projection's vertical scale; an identity
+    // projection (the shadow batches) skips it.
+    lod_camera_pos_ = camera_pos;
+    lod_proj_scale_ = std::abs(projection[1][1]);
 
     // Count total mesh entries across all draw commands (opaque + transparent)
     // Skinned commands get 1 draw data entry each (for model matrix + bone offsets)
@@ -242,18 +256,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         return dc.model->entry_uses_slot(entry, dc.material_slot);
     };
 
-    auto select_lod = [&](const Model& model, const glm::mat4& world) -> uint32_t {
-        if (!do_lod || model.lod_count() <= 1) return 0;
-        glm::vec3 diff = camera_pos - glm::vec3(world[3]);
-        float dist_sq = glm::dot(diff, diff);
-        float radius = model.bounding_radius();
-        float sx2 = glm::dot(glm::vec3(world[0]), glm::vec3(world[0]));
-        float sy2 = glm::dot(glm::vec3(world[1]), glm::vec3(world[1]));
-        float sz2 = glm::dot(glm::vec3(world[2]), glm::vec3(world[2]));
-        float max_scale_sq = std::max({sx2, sy2, sz2});
-        float r_proj_sq = radius * radius * max_scale_sq * proj_scale * proj_scale;
-        return model.select_lod_sq(r_proj_sq, dist_sq);
-    };
+    auto select_lod = [&](const Model& model, const glm::mat4& world) { return lod_for(model, world); };
 
     for (const auto& dc : opaque_commands) {
         if (dc.skinned) continue; // skinned draws appended after static draws
