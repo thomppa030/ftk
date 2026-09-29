@@ -13,6 +13,7 @@
 #include "scene/scene.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -376,6 +377,7 @@ void AccelStructureManager::retire_scene(SceneTlas scene) {
 void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const DrawCommand> surfaces,
                                           const PipelineCache* pipelines,
                                           const ParticleSystem* particles, MegaBuffer& mega) {
+    FJELL_PROFILE_SCOPE_N("rt_prepare_scene");
     SceneTlas& st = scenes_[scene.id()];
     st.prepared_serial = frame_serial_;
     st.host_instances.clear();
