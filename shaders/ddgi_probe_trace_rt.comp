@@ -11,6 +11,14 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
+// The probe field's own cage, so a probe ray that lands on a surface picks
+// up the light already gathered there, read the way every other reader of
+// the field reads it. Its offsets also place each probe's rays.
+#define FJELL_DDGI_CAGE
+#define FJELL_DDGI_CAGE_IRRADIANCE_BINDING 9
+#define FJELL_DDGI_CAGE_VISIBILITY_BINDING 10
+#define FJELL_DDGI_CAGE_OFFSET_BINDING     5
+#define FJELL_DDGI_CAGE_STATUS_BINDING     4
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -18,17 +26,6 @@ layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(rgba16f, set = 0, binding = 2) uniform writeonly image2D radiance_out;
 layout(set = 0, binding = 3) uniform samplerCube sky_cubemap;
-
-layout(std430, set = 0, binding = 4) readonly buffer ProbeStatusSSBO {
-    uint probe_status[];
-};
-
-layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
-
-// The probe grid's own irradiance/visibility, so a probe ray that lands on
-// a surface picks up the light already gathered there.
-layout(set = 0, binding = 9) uniform sampler2D irradiance_tex;
-layout(set = 0, binding = 10) uniform sampler2D visibility_tex;
 
 // Scene SDF, used only to tell whether a probe sits inside solid geometry.
 // Negative inside, positive outside; a point outside the volume reads as far.
@@ -75,87 +72,6 @@ float sample_scene_sdf(vec3 world_pos) {
     return texture(scene_sdf, uvw).r;
 }
 
-// Irradiance reaching a point from the probe cage: trilinearly weight the
-// 8 surrounding probes, attenuating each by Chebyshev visibility so probes
-// occluded from the point don't leak. Returns hemisphere-integrated
-// irradiance. The canonical implementation also lives in
-// ddgi_sample_irradiance.comp; keep them in sync.
-
-vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
-    vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    // Normal-leaning, spacing-scaled bias (see ddgi_sample_irradiance.comp).
-    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
-    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
-    vec3 biased_pos = world_pos + bias_vector;
-
-    // Cage cell + trilinear from the UNBIASED position; bias only feeds the
-    // visibility distance (see ddgi_sample_irradiance.comp).
-    ivec3 base_grid = ddgi_world_to_grid(world_pos);
-    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
-    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
-
-    vec3 sum_irradiance = vec3(0.0);
-    float sum_weight = 0.0;
-
-    for (int i = 0; i < 8; ++i) {
-        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
-        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
-        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
-
-        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
-        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
-        float weight = 1.0;
-
-        vec3 dir_to_probe = normalize(probe_pos - world_pos);
-        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
-        weight *= (dir_dot_n * dir_dot_n) + 0.2;
-
-        vec3 probe_to_biased = biased_pos - probe_pos;
-        float dist_to_biased = length(probe_to_biased);
-        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
-
-        vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
-        vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
-        float mean_dist = visibility.x;
-
-        if (dist_to_biased > mean_dist) {
-            // Floor the variance. A flat surface gives a probe an almost
-            // perfectly consistent depth, so the measured variance is
-            // ~0 and the Chebyshev ratio collapses for a sample only
-            // centimetres past mean_dist — a 125x weight drop from what
-            // is really depth-map precision, not occlusion. The floor is
-            // a fraction of a cell, small enough that a genuine occluder
-            // (which sits a large fraction of a cell closer) still
-            // rejects to zero.
-            float min_variance = 0.05 * cell;
-            float variance = max(abs(mean_dist * mean_dist - visibility.y),
-                                 min_variance * min_variance);
-            float diff = dist_to_biased - mean_dist;
-            float cheb = variance / (variance + diff * diff);
-            cheb = max(cheb * cheb, 0.0);
-            weight *= max(0.05, cheb);
-        }
-
-        weight = max(0.000001, weight);
-
-        vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
-        vec3 probe_irradiance = ddgi_decode_irradiance(textureLod(irradiance_tex, irr_uv, 0).rgb);
-
-        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
-
-        sum_irradiance += weight * probe_irradiance;
-        sum_weight += weight;
-    }
-
-    if (sum_weight < 1e-6) return vec3(0.0);
-    // See the canonical comment in ddgi_sample_irradiance.comp — a
-    // previous `0.5 * PI` factor here was an uncancelled extra term
-    // (verified numerically: ~1.49x incident irradiance for a fully-lit
-    // white surface, a physically impossible energy gain). 0.95 kept —
-    // matches `energy_conservation` in ddgi_probe_update.comp.
-    return (sum_irradiance / sum_weight) * 0.95;
-}
-
 // What a probe ray brings back: radiance in xyz, distance in w.
 vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
     rayQueryEXT q;
@@ -191,7 +107,7 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
     // infinite_bounces_mult is the per-bounce energy retained (< 1 to keep
     // the feedback from diverging).
     vec3 world_pos = origin + direction * hit.t;
-    vec3 indirect = sample_ddgi_irradiance(world_pos, N) * albedo;
+    vec3 indirect = ddgi_sample_cage(world_pos, N, origin, false).irradiance * albedo;
     radiance += indirect * ddgi.infinite_bounces_mult;
 
     // Emissive GI is handled exclusively by the SS-GI pass.
@@ -209,7 +125,7 @@ void main() {
 
     // Probe world position
     ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
-    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, ddgi_probe_offset_tex, true);
 
     // Burial test from the SDF, re-evaluated EVERY frame so a probe revives the
     // moment it is no longer inside geometry. This is the burial authority — we

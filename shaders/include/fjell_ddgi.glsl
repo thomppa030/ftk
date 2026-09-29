@@ -213,13 +213,14 @@ ivec3 ddgi_world_to_grid(vec3 world_pos) {
 // weight its eight corner probes by trilinear position, which way the
 // surface faces and whether each probe can see the point, and blend.
 //
-// Every reader of the field goes through here. There were two hand-copied
-// versions of this once — the screen-space pass and the reflection hit
-// shader — and the copy silently missed fixes the original had grown: it
-// scaled the bias by a scalar instead of per axis, it never faded the view
-// term up close, and it blended probes the status pass had switched off.
-// A reflection lit by a different cage than the surface beside it is not a
-// difference anyone can author around, so the cage lives in one place.
+// Every reader of the field goes through here: the screen-space pass, the
+// reflection trace and the probe trace's own bounce. Hand-copied versions of
+// this existed once, and each copy silently missed fixes the original had
+// grown: it scaled the bias by a scalar instead of per axis, it never faded
+// the view term up close, and it blended probes the status pass had switched
+// off. A reflection or a bounce lit by a different cage than the surface
+// beside it is not a difference anyone can author around, so the cage lives
+// in one place.
 //
 // A caller declares the field's resources before including this file, at
 // whatever bindings its own set layout uses:
