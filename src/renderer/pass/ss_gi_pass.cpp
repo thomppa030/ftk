@@ -194,30 +194,23 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
     sampler_ci.minFilter = VK_FILTER_NEAREST;
     vkCreateSampler(vk_device_, &sampler_ci, nullptr, &nearest_sampler_);
 
-    // ── RT trace pipeline ──
+    // ── Trace compute pipeline (ray queries) ──
     if (device.ray_tracing_supported()) {
         // Descriptor set layout for trace:
         // 0: UBO, 1: TLAS, 2: depth, 3: normal, 5: radiance_out
         // 6: vertex SSBO, 7: index SSBO, 8: instance data SSBO
         // Binding 4 is unused: it held a previous-frame color image the trace
         // never sampled. The remaining binding numbers match the shader.
+        const VkShaderStageFlags trace_stages = VK_SHADER_STAGE_COMPUTE_BIT;
         std::array<VkDescriptorSetLayoutBinding, 8> trace_bindings{};
-        VkShaderStageFlags all_rt = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
-        trace_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, all_rt, nullptr};
-        trace_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
-                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
-                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
-                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[4] = {5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
-                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[5] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-                             VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-        trace_bindings[6] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-                             VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-        trace_bindings[7] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-                             VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        trace_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, trace_stages, nullptr};
+        trace_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, trace_stages, nullptr};
+        trace_bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, trace_stages, nullptr};
+        trace_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, trace_stages, nullptr};
+        trace_bindings[4] = {5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, trace_stages, nullptr};
+        trace_bindings[5] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, trace_stages, nullptr};
+        trace_bindings[6] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, trace_stages, nullptr};
+        trace_bindings[7] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, trace_stages, nullptr};
 
         std::array<VkDescriptorBindingFlags, 8> trace_flags{};
         trace_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
@@ -240,7 +233,7 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
 
         // Pipeline layout: set 0 = trace set, set 1 = bindless (materials)
         VkPushConstantRange push{};
-        push.stageFlags = all_rt;
+        push.stageFlags = trace_stages;
         push.size = sizeof(TracePushConstants);
 
         std::array trace_layouts = {trace_set_layout_, resources.material_set_layout};
@@ -252,105 +245,25 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
         pipe_ci.pPushConstantRanges = &push;
         vkCreatePipelineLayout(vk_device_, &pipe_ci, nullptr, &trace_pipeline_layout_);
 
-        // Load RT shaders
-        auto rgen_spirv = read_spirv(base_path::resolve("shaders/ss_gi_trace.rgen.spv"));
-        auto rchit_spirv = read_spirv(base_path::resolve("shaders/ss_gi_trace.rchit.spv"));
-        auto rmiss_spirv = read_spirv(base_path::resolve("shaders/ss_gi_trace.rmiss.spv"));
-
-        auto rgen_mod = create_shader_module(vk_device_, rgen_spirv);
-        auto rchit_mod = create_shader_module(vk_device_, rchit_spirv);
-        auto rmiss_mod = create_shader_module(vk_device_, rmiss_spirv);
-
-        std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
-        for (auto& s : stages) s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR; stages[0].module = rgen_mod; stages[0].pName = "main";
-        stages[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;   stages[1].module = rmiss_mod; stages[1].pName = "main";
-        stages[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR; stages[2].module = rchit_mod; stages[2].pName = "main";
-
-        std::array<VkRayTracingShaderGroupCreateInfoKHR, 3> groups{};
-        for (auto& g : groups) {
-            g.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-            g.generalShader = VK_SHADER_UNUSED_KHR;
-            g.closestHitShader = VK_SHADER_UNUSED_KHR;
-            g.anyHitShader = VK_SHADER_UNUSED_KHR;
-            g.intersectionShader = VK_SHADER_UNUSED_KHR;
-        }
-        groups[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-        groups[0].generalShader = 0;
-        groups[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-        groups[1].generalShader = 1;
-        groups[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-        groups[2].closestHitShader = 2;
-
-        VkRayTracingPipelineCreateInfoKHR rt_ci{};
-        rt_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
-        rt_ci.stageCount = static_cast<uint32_t>(stages.size());
-        rt_ci.pStages = stages.data();
-        rt_ci.groupCount = static_cast<uint32_t>(groups.size());
-        rt_ci.pGroups = groups.data();
-        rt_ci.maxPipelineRayRecursionDepth = 1;
-        rt_ci.layout = trace_pipeline_layout_;
-
-        VkResult rt_result = device.create_rt_pipelines_fn()(
-            vk_device_, VK_NULL_HANDLE, resources.pipeline_cache, 1, &rt_ci, nullptr, &trace_pipeline_);
-
-        vkDestroyShaderModule(vk_device_, rgen_mod, nullptr);
-        vkDestroyShaderModule(vk_device_, rchit_mod, nullptr);
-        vkDestroyShaderModule(vk_device_, rmiss_mod, nullptr);
-
-        if (rt_result != VK_SUCCESS) {
-            FJELL_GFX_WARN("Failed to create SS-GI RT pipeline");
+        auto spirv = read_spirv(base_path::resolve("shaders/ss_gi_trace.comp.spv"));
+        auto mod = create_shader_module(vk_device_, spirv);
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = mod;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo cci{};
+        cci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        cci.stage = stage;
+        cci.layout = trace_pipeline_layout_;
+        VkResult result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &cci,
+                                                   nullptr, &trace_pipeline_);
+        vkDestroyShaderModule(vk_device_, mod, nullptr);
+        if (result != VK_SUCCESS) {
+            FJELL_GFX_WARN("Failed to create the SS-GI trace pipeline");
+            trace_pipeline_ = VK_NULL_HANDLE;
         } else {
-            // Build SBT
-            VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
-            rt_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-            VkPhysicalDeviceProperties2 props2{};
-            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            props2.pNext = &rt_props;
-            vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
-
-            uint32_t handle_size = rt_props.shaderGroupHandleSize;
-            uint32_t handle_alignment = rt_props.shaderGroupHandleAlignment;
-            uint32_t base_alignment = rt_props.shaderGroupBaseAlignment;
-            uint32_t handle_size_aligned = (handle_size + handle_alignment - 1) & ~(handle_alignment - 1);
-
-            uint32_t group_count = static_cast<uint32_t>(groups.size());
-            std::vector<uint8_t> handles(group_count * handle_size);
-            device.get_rt_shader_group_handles_fn()(
-                vk_device_, trace_pipeline_, 0, group_count,
-                handles.size(), handles.data());
-
-            uint32_t raygen_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
-            uint32_t miss_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
-            uint32_t hit_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
-            VkDeviceSize sbt_total = raygen_size + miss_size + hit_size;
-
-            sbt_buffer_ = std::make_unique<Buffer>(
-                resources.allocator, sbt_total,
-                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-
-            auto* sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped());
-            if (!sbt_data) { sbt_buffer_->map(); sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped()); }
-
-            std::memcpy(sbt_data, handles.data(), handle_size);
-            std::memcpy(sbt_data + raygen_size, handles.data() + handle_size, handle_size);
-            std::memcpy(sbt_data + raygen_size + miss_size, handles.data() + 2 * handle_size, handle_size);
-
-            VkBufferDeviceAddressInfo addr_info{};
-            addr_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-            addr_info.buffer = sbt_buffer_->handle();
-            VkDeviceAddress sbt_addr = device.get_buffer_device_address_fn()(vk_device_, &addr_info);
-
-            sbt_raygen_ = {sbt_addr, raygen_size, raygen_size};
-            sbt_miss_ = {sbt_addr + raygen_size, miss_size, miss_size};
-            sbt_hit_ = {sbt_addr + raygen_size + miss_size, hit_size, hit_size};
-            sbt_callable_ = {};
-
-            FJELL_GFX_INFO("SS-GI RT pipeline created");
+            FJELL_GFX_INFO("SS-GI trace pipeline created (ray queries)");
         }
     }
 
@@ -474,7 +387,6 @@ void SsGiPass::destroy() {
     safe_destroy(vkDestroyDescriptorSetLayout, upsample_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
     safe_destroy(vkDestroySampler, nearest_sampler_);
-    sbt_buffer_.reset();
 }
 
 // ── Frame lifecycle ─────────────────────────────────────────────────────
@@ -589,10 +501,7 @@ PassSetup SsGiPass::setup() const {
 void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     auto normal = builder.import_named(ctx, "normal");
-    // The trace reads both in the ray tracing stages, the resolve and the
-    // upsample in compute.
-    builder.read(depth, gpu::Access::sampled_raytracing);
-    builder.read(normal, gpu::Access::sampled_raytracing);
+    // The trace, the resolve and the upsample all read both in compute.
     builder.read(depth, gpu::Access::sampled_compute);
     builder.read(normal, gpu::Access::sampled_compute);
     // The emissive light the surfaces sample, kept for them into the next
@@ -817,34 +726,11 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdPipelineBarrier2(cmd, &d);
     };
 
-    // ── 1. Pre-trace barriers ──
+    // ── 1. Pre-trace barrier ──
     barrier_image(imgs.raw_radiance_image,
                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
-                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT);
-
-    // Depth buffer: the frame graph transitions depth to READ_ONLY for DDGI's
-    // compute_read, but the stage mask only covers COMPUTE_SHADER_BIT. We need
-    // an execution barrier to extend visibility to RAY_TRACING_SHADER_BIT_KHR.
-    // Same layout on both sides = pure execution/memory dependency, no transition.
-    barrier_image(ctx.target->depth_image(),
-                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
-                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                  VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    // Normal buffer: same pattern — extend visibility to RT stage
-    barrier_image(ctx.target->normal_image(),
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                  VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT);
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
     // ── 2. Update TLAS + instance data descriptors (per-frame) ──
     {
@@ -875,34 +761,34 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
-    // ── 3. Dispatch RT trace ──
+    // ── 3. Dispatch the trace ──
     {
         FJELL_PROFILE_SCOPE_N("ss_gi_trace");
         FJELL_GPU_ZONE(ctx, "SS-GI Trace");
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, trace_pipeline_);
-        std::array rt_sets = {imgs.trace_set[ctx.frame_index], ctx.bindless_set};
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                                trace_pipeline_layout_, 0,
-                                static_cast<uint32_t>(rt_sets.size()), rt_sets.data(),
-                                0, nullptr);
-
+        std::array trace_sets = {imgs.trace_set[ctx.frame_index], ctx.bindless_set};
         TracePushConstants push{};
         push.rays_per_probe = config_.rays_per_probe;
         push.ray_offset = frame_counter_ * config_.rays_per_probe;
-        vkCmdPushConstants(cmd, trace_pipeline_layout_,
-                           VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                trace_pipeline_layout_, 0,
+                                static_cast<uint32_t>(trace_sets.size()), trace_sets.data(),
+                                0, nullptr);
+        vkCmdPushConstants(cmd, trace_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(push), &push);
 
-        // Dispatch: X = probe_count.x, Y = probe_count.y, Z = rays_per_probe
-        device_->cmd_trace_rays_fn()(cmd,
-                                     &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
-                                     imgs.probe_count.x, imgs.probe_count.y, config_.rays_per_probe);
+        // One invocation per ray: x and y the probe, z the ray.
+        vkCmdDispatch(cmd,
+                      (imgs.probe_count.x + 7) / 8,
+                      (imgs.probe_count.y + 7) / 8,
+                      config_.rays_per_probe);
     }
 
     // ── 4. Barrier: raw radiance write → read ──
     barrier_image(imgs.raw_radiance_image,
                   VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // Resolved output to GENERAL for write

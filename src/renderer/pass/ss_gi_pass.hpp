@@ -211,7 +211,7 @@ private:
     glm::vec3 sun_color_{1.0f};
     float sun_intensity_{1.5f};
 
-    // RT trace pipeline
+    // Trace compute pipeline, tracing with ray queries
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline trace_pipeline_{VK_NULL_HANDLE};
@@ -232,13 +232,6 @@ private:
     // RT backend
     AccelStructureManager* accel_manager_{nullptr};
     float trace_cell_size_{0.0F};
-
-    // Shader binding table
-    std::unique_ptr<Buffer> sbt_buffer_;
-    VkStridedDeviceAddressRegionKHR sbt_raygen_{};
-    VkStridedDeviceAddressRegionKHR sbt_miss_{};
-    VkStridedDeviceAddressRegionKHR sbt_hit_{};
-    VkStridedDeviceAddressRegionKHR sbt_callable_{};
 };
 
 /// Copies the scene depth into SS-GI's private history after SS-GI has

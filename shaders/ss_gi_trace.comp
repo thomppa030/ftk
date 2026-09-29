@@ -1,11 +1,15 @@
 #version 460
-#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_nonuniform_qualifier : require
 
-// ── Screen-Space GI: Ray Generation ────────────────────────────────────
-// Traces cosine-weighted hemisphere rays from screen probes. The closest-
-// hit shader computes single-bounce diffuse radiance at the hit surface
-// (sun + ambient + emission). The rgen just dispatches rays and stores
-// the returned radiance per probe per ray.
+// ── Screen-Space GI: trace ─────────────────────────────────────────────
+// Traces cosine-weighted hemisphere rays from screen probes, one ray per
+// invocation, and stores the radiance each one returns per probe per ray.
+// A hit returns what its surface emits and nothing else: SS-GI supplements
+// DDGI with smooth, per-pixel emissive GI that tracks moving objects without
+// the probe grid's stepping artifacts. DDGI handles sun bounce indirect.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(std140, set = 0, binding = 0) uniform SsGiConstants {
     mat4 view;
@@ -37,7 +41,22 @@ layout(push_constant) uniform PushConstants {
 
 #include "include/fjell_common.glsl"
 
-layout(location = 0) rayPayloadEXT vec4 payload;
+// ── Material access (set 1 = bindless) ──────────────────────────────────
+
+#include "fjell_gpu_types.glsl"
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
+
+// ── Traced geometry (set 0, bindings 6-8) ───────────────────────────────
+
+#define FJELL_RT_VERTEX_BINDING   6
+#define FJELL_RT_INDEX_BINDING    7
+#define FJELL_RT_INSTANCE_BINDING 8
+#include "fjell_rt_hit.glsl"
 
 float halton(uint index, uint base) {
     float f = 1.0;
@@ -92,10 +111,30 @@ vec3 world_from_depth(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
+// The radiance a ray brings back: what the surface it hits emits, or nothing
+// when it misses (the sky reaches surfaces through IBL, not through SS-GI).
+vec3 trace_emission(vec3 origin, vec3 direction) {
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+                          origin, 0.01, direction, max_trace_dist);
+    // Every instance is opaque, so there is no candidate to judge.
+    while (rayQueryProceedEXT(q)) {}
+
+    if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+        return vec3(0.0);
+    }
+    RtSurface surface;
+    if (!rt_resolve_hit(rt_committed_hit(q), surface)) {
+        return vec3(0.0);
+    }
+    vec2 uv = rt_surface_uv(surface);
+    return rt_surface_emission(surface, uv);
+}
+
 void main() {
-    uint probe_x = gl_LaunchIDEXT.x;
-    uint probe_y = gl_LaunchIDEXT.y;
-    uint ray_index = gl_LaunchIDEXT.z;
+    uint probe_x = gl_GlobalInvocationID.x;
+    uint probe_y = gl_GlobalInvocationID.y;
+    uint ray_index = gl_GlobalInvocationID.z;
 
     if (probe_x >= probe_count.x || probe_y >= probe_count.y) return;
     if (ray_index >= rays_per_probe) return;
@@ -159,18 +198,9 @@ void main() {
                          * (1.0 - local_dir.z));
     vec3 ray_origin = world_pos + normal * bias;
 
-    payload = vec4(0.0, 0.0, 0.0, -1.0);
-    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                0, 0, 0,
-                ray_origin, 0.01, ray_dir, max_trace_dist, 0);
-
-    // Every ray contributes: hits return rchit radiance, misses return
-    // zero (no indirect from sky/void). Excluding misses biases probes
-    // that trace more toward geometry to have brighter averages.
-    vec3 radiance = vec3(0.0);
-    if (payload.w > 0.0) {
-        radiance = min(payload.rgb, vec3(20.0));
-    }
+    // Every ray contributes, a miss as zero. Excluding misses would bias
+    // probes that trace more toward geometry to have brighter averages.
+    vec3 radiance = min(trace_emission(ray_origin, ray_dir), vec3(20.0));
 
     imageStore(radiance_out, out_coord, vec4(radiance, 1.0));
 }
