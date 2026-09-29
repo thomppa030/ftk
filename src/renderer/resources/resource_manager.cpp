@@ -663,8 +663,7 @@ Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::stri
 
     try {
         auto data = SkeletalModel::load_fjskel(path);
-        auto model = std::make_unique<SkeletalModel>(allocator_, gpu_,
-                                                      std::move(data), meshlet_buffer_);
+        auto model = std::make_unique<SkeletalModel>(gpu_, std::move(data), *meshlet_buffer_);
         return skeletal_models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
         return make_error("Failed to load skeletal model '" + path + "': " + e.what());

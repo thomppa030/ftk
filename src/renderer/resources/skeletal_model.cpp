@@ -1,7 +1,6 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "gpu/render_encoder.hpp"
 #include "gpu/device.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "core/log.hpp"
@@ -15,18 +14,22 @@
 
 namespace fjell {
 
-SkeletalModel::SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
-                             FjSkinnedMeshData&& data,
-                             MeshletBuffer* meshlet_buf)
-    : vertex_buffer_{allocator,
-                     data.vertices.size() * sizeof(SkinnedVertex),
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-                         | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}
-    , index_buffer_{allocator,
-                    data.indices.size() * sizeof(uint32_t),
-                    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}
+namespace {
+
+gpu::Owned<gpu::Buffer> make_buffer(gpu::Device& gpu, uint64_t size, gpu::BufferUses use,
+                                    std::string_view name) {
+    auto made = gpu.create(gpu::BufferDesc{.size = size, .use = use, .name = name});
+    if (!made) throw std::runtime_error(made.error());
+    return std::move(*made);
+}
+
+} // namespace
+
+SkeletalModel::SkeletalModel(gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets)
+    : vertex_buffer_{make_buffer(gpu, data.vertices.size() * sizeof(SkinnedVertex),
+                                 gpu::BufferUse::vertex | gpu::BufferUse::storage, "skinned_vertices")}
+    , index_buffer_{make_buffer(gpu, data.indices.size() * sizeof(uint32_t), gpu::BufferUse::index,
+                                "skinned_indices")}
     , index_count_{static_cast<uint32_t>(data.indices.size())}
     , joint_count_{data.joint_count}
     , local_aabb_{data.aabb}
@@ -56,12 +59,10 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
         // Upload meshlet records into the shared GPU buffer. The skinned
         // mesh shader fetches verts from this model's own vertex_buffer_
         // (per-draw bound at set 3 binding 4), so vertex_offset stays 0.
-        if (meshlet_buf && !meshlets_.meshlets.empty()) {
-            meshlet_range_ = meshlet_buf->upload(meshlets_, 0);
+        if (!meshlets_.meshlets.empty()) {
+            meshlet_range_ = meshlets.upload(meshlets_, 0);
         }
     }
-
-    vertex_buffer_size_ = data.vertices.size() * sizeof(SkinnedVertex);
 
     // Build embedded skeleton from joint data if present
     if (!data.joints.empty()) {
@@ -84,10 +85,8 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
         }
     }
 
-    vertex_buffer_.share(gpu);
-    index_buffer_.share(gpu);
-    gpu.upload().to_buffer(vertex_buffer_.shared(), 0, data.vertices);
-    gpu.upload().to_buffer(index_buffer_.shared(), 0, data.indices);
+    gpu.upload().to_buffer(vertex_buffer_, 0, data.vertices);
+    gpu.upload().to_buffer(index_buffer_, 0, data.indices);
 
     FJELL_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
                     data.vertices.size(), data.indices.size(), joint_count_,
@@ -119,8 +118,8 @@ void SkeletalModel::pose_surface(const std::vector<glm::mat4>& skin_matrices,
 }
 
 void SkeletalModel::bind(gpu::RenderEncoder& pass) const {
-    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_.shared()));
-    pass.set_index_buffer(gpu::BufferRange(index_buffer_.shared()), gpu::IndexType::u32);
+    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_));
+    pass.set_index_buffer(gpu::BufferRange(index_buffer_), gpu::IndexType::u32);
 }
 
 // ── .fjskel loading (mesh + skeleton) ───────────────────────────────────

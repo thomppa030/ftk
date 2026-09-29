@@ -1,14 +1,14 @@
 #pragma once
 
 #include "animation/skeleton.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/meshlet.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include <gpu/buffer.hpp>
+#include <gpu/owned.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -50,9 +50,9 @@ class RenderEncoder;
 
 class SkeletalModel {
 public:
-    SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
-                  FjSkinnedMeshData&& data,
-                  MeshletBuffer* meshlet_buf = nullptr);
+    /// Uploads the vertices and indices through `gpu` and adds the meshlets
+    /// to `meshlets`. Throws when the buffers cannot be made.
+    SkeletalModel(gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets);
 
     // Parse a .fjskel file (mesh + embedded skeleton).
     [[nodiscard]] static FjSkinnedMeshData load_fjskel(const std::string& path);
@@ -71,13 +71,10 @@ public:
     // hasn't been built yet).
     [[nodiscard]] const MeshletBuildResult& meshlets() const { return meshlets_; }
 
-    // GPU range inside the shared MeshletBuffer (populated when meshlet_buf
-    // was passed at construction). vertex_offset is unused on the skinned
-    // path — the mesh shader fetches from vertex_buffer_ at zero base.
+    // GPU range inside the shared MeshletBuffer. vertex_offset is unused on
+    // the skinned path — the mesh shader fetches from vertex_buffer_ at zero
+    // base.
     [[nodiscard]] const MeshletRange& meshlet_range() const { return meshlet_range_; }
-
-    [[nodiscard]] VkBuffer vertex_buffer_handle() const { return vertex_buffer_.handle(); }
-    [[nodiscard]] VkDeviceSize vertex_buffer_size() const { return vertex_buffer_size_; }
 
     // Embedded skeleton (non-null when loaded from .fjskel).
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_.get(); }
@@ -103,8 +100,8 @@ public:
                       std::vector<glm::vec3>& out) const;
 
 private:
-    Buffer vertex_buffer_;
-    Buffer index_buffer_;
+    gpu::Owned<gpu::Buffer> vertex_buffer_;
+    gpu::Owned<gpu::Buffer> index_buffer_;
     uint32_t index_count_{0};
     uint32_t joint_count_{0};
     AABB local_aabb_;
@@ -117,7 +114,6 @@ private:
     std::shared_ptr<Skeleton> skeleton_;
     MeshletBuildResult meshlets_;
     MeshletRange meshlet_range_;
-    VkDeviceSize vertex_buffer_size_{0};
 };
 
 } // namespace fjell
