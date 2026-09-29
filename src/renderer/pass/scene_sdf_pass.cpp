@@ -490,7 +490,7 @@ void SceneSdfPass::gather_instance(uint64_t key, const AABB& world_bounds, bool 
         GpuSdfSlot& entry = slots_[slot];
         entry = {};
         entry.material_count = static_cast<uint32_t>(std::min<size_t>(materials.size(), SDF_SLOT_MATERIALS));
-        std::copy_n(materials.begin(), entry.material_count, entry.material_ids);
+        for (uint32_t i = 0; i < entry.material_count; ++i) entry.material_ids[i] = materials[i];
     }
 }
 
