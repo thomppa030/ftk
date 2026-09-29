@@ -13,15 +13,14 @@ using namespace fjell::gpu;
 namespace {
 
 // The test shaders in tests/shaders/, compiled by the build.
+std::string shader_path(const std::string& name) {
+    return (std::filesystem::path(FJELL_TEST_SHADER_DIR) / (name + ".spv")).string();
+}
+
 std::vector<uint32_t> spirv(const std::string& name) {
-    const std::filesystem::path path = std::filesystem::path(FJELL_TEST_SHADER_DIR) / (name + ".spv");
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    REQUIRE(file.good());
-    const auto bytes = static_cast<size_t>(file.tellg());
-    std::vector<uint32_t> words(bytes / sizeof(uint32_t));
-    file.seekg(0);
-    file.read(reinterpret_cast<char*>(words.data()), static_cast<std::streamsize>(bytes));
-    return words;
+    auto words = read_spirv(shader_path(name));
+    REQUIRE(words.has_value());
+    return *words;
 }
 
 ShaderLayout reflected(const std::string& name) {
@@ -117,6 +116,20 @@ TEST_CASE("stages that disagree on a binding cannot be merged", "[gpu][shader]")
     auto merged = merge(reflected("reflect.vert"), reflected("reflect_conflict.frag"));
     REQUIRE_FALSE(merged.has_value());
     CHECK(merged.error().find("set 0 binding 0") != std::string::npos);
+}
+
+TEST_CASE("a SPIR-V file is read whole, and a missing or ragged one refused", "[gpu][shader]") {
+    const auto words = read_spirv(shader_path("reflect.comp"));
+    REQUIRE(words.has_value());
+    CHECK(words->size() * sizeof(uint32_t) == std::filesystem::file_size(shader_path("reflect.comp")));
+    CHECK(words->front() == 0x07230203U);  // the SPIR-V magic number
+
+    CHECK_FALSE(read_spirv(shader_path("not_there.comp")).has_value());
+
+    const auto ragged = std::filesystem::temp_directory_path() / "fjell_ragged.spv";
+    std::ofstream(ragged, std::ios::binary) << "abcde";
+    CHECK_FALSE(read_spirv(ragged.string()).has_value());
+    std::filesystem::remove(ragged);
 }
 
 TEST_CASE("what is not SPIR-V is refused with a reason", "[gpu][shader]") {

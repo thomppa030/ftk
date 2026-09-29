@@ -5,7 +5,6 @@
 #include "renderer/gpu/gpu_core.hpp"
 
 #include <algorithm>
-#include <fstream>
 #include <string>
 
 namespace fjell::gpu {
@@ -78,15 +77,7 @@ Result<std::vector<uint32_t>> Device::Impl::load(const ShaderCode& code) const {
     if (!code.spirv.empty()) return std::vector<uint32_t>(code.spirv.begin(), code.spirv.end());
     if (code.path.empty()) return make_error("No shader given");
 
-    const std::string path = locator(std::string(code.path) + ".spv");
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) return make_error("Shader not found: " + path);
-    const auto bytes = static_cast<size_t>(file.tellg());
-    if (bytes == 0 || bytes % sizeof(uint32_t) != 0) return make_error("Not SPIR-V: " + path);
-    std::vector<uint32_t> words(bytes / sizeof(uint32_t));
-    file.seekg(0);
-    file.read(reinterpret_cast<char*>(words.data()), static_cast<std::streamsize>(bytes));
-    return words;
+    return read_spirv(locator(std::string(code.path) + ".spv"));
 }
 
 Result<Device::Impl::LayoutInfo> Device::Impl::pipeline_layout(const ShaderLayout& layout,
