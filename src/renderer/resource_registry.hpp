@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/buffer.hpp"
 #include "gpu/texture.hpp"
 
 #include <vulkan/vulkan.h>
@@ -27,8 +28,9 @@ public:
     };
 
     struct BufferResource {
-        VkBuffer buffer{VK_NULL_HANDLE};
-        VkDeviceSize size{0};
+        gpu::Buffer buffer{};
+        /// The bytes in use, from its start.
+        uint64_t size{0};
     };
 
     // ── Registration (called by frame setup or producer passes) ────────
