@@ -1,4 +1,5 @@
 #include "gpu/vulkan/device_impl.hpp"
+#include "gpu/vulkan/frame_impl.hpp"
 
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
@@ -182,6 +183,25 @@ Device::Impl::Impl(GpuCore& gpu_core)
              "Failed to create the frame timeline");
     vulkan::name_object(device, VK_OBJECT_TYPE_SEMAPHORE,
                         reinterpret_cast<uint64_t>(frame_timeline), "frame timeline");
+
+    caps.frames_in_flight = MAX_FRAMES_IN_FLIGHT;
+    frames.resize(MAX_FRAMES_IN_FLIGHT);
+    const auto found = gpu_core.device().find_queue_families();
+    queues[0] = gpu_core.graphics_queue();
+    families[0] = found.graphics.value();
+    caps.async_compute = gpu_core.device().async_compute_supported();
+    if (caps.async_compute) {
+        queues[1] = gpu_core.device().async_compute_queue();
+        families[1] = found.async_compute.value();
+    }
+    constexpr const char* QUEUE_TIMELINE_NAMES[] = {"graphics timeline", "compute timeline"};
+    for (size_t q = 0; q < queue_timelines.size(); ++q) {
+        if (queues[q] == VK_NULL_HANDLE) continue;
+        vk_check(vkCreateSemaphore(device, &timeline_info, nullptr, &queue_timelines[q]),
+                 "Failed to create a queue timeline");
+        vulkan::name_object(device, VK_OBJECT_TYPE_SEMAPHORE,
+                            reinterpret_cast<uint64_t>(queue_timelines[q]), QUEUE_TIMELINE_NAMES[q]);
+    }
 }
 
 Device::Impl::~Impl() {
@@ -210,6 +230,15 @@ Device::Impl::~Impl() {
     });
     for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
     vkDestroySemaphore(device, frame_timeline, nullptr);
+    for (VkSemaphore timeline : queue_timelines) {
+        if (timeline != VK_NULL_HANDLE) vkDestroySemaphore(device, timeline, nullptr);
+    }
+    for (const auto& slot : frames) {
+        if (!slot) continue;
+        for (VkCommandPool pool : slot->impl.pools) {
+            if (pool != VK_NULL_HANDLE) vkDestroyCommandPool(device, pool, nullptr);
+        }
+    }
     frame_sets.destroy();
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);

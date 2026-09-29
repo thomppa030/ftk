@@ -83,27 +83,6 @@ public:
     [[nodiscard]] ThreadCommandPools& secondary_pools() { return secondary_pools_; }
     void ensure_secondary_pools(uint32_t thread_count);
 
-    [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
-        return core_.command_buffer(frame_index);
-    }
-    [[nodiscard]] VkCommandBuffer graphics_post_cb(uint32_t frame_index) const {
-        return core_.graphics_post_cb(frame_index);
-    }
-
-    // Async compute resources forwarded from GpuCore. Null when the
-    // device has no separate compute queue family.
-    [[nodiscard]] VkCommandPool async_compute_pool() const {
-        return core_.async_compute_pool();
-    }
-    [[nodiscard]] VkCommandBuffer async_compute_cb(uint32_t frame_index) const {
-        return core_.async_compute_cb(frame_index);
-    }
-    [[nodiscard]] VkSemaphore async_compute_timeline(uint32_t frame_index) const {
-        return core_.async_compute_timeline(frame_index);
-    }
-    [[nodiscard]] VkQueue async_compute_queue() const {
-        return core_.device().async_compute_queue();
-    }
     [[nodiscard]] bool async_compute_supported() const {
         return core_.device().async_compute_supported();
     }

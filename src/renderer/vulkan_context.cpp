@@ -519,11 +519,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     // would interleave preview compute dispatches into a CB that
     // submit_and_present fences independently. Nulling both handles
     // folds previews back to single-CB behavior.
-    const bool is_main_cb = (cmd == gpu_.command_buffer(current_frame_));
-    current_ctx_.async_compute_cmd = is_main_cb ? gpu_.async_compute_cb(current_frame_)
-                                                : VK_NULL_HANDLE;
-    current_ctx_.graphics_post_cmd = is_main_cb ? gpu_.graphics_post_cb(current_frame_)
-                                                : VK_NULL_HANDLE;
+    const bool is_main_cb = (cmd == frame_cmd_);
+    current_ctx_.async_compute_cmd = is_main_cb ? async_cmd_ : VK_NULL_HANDLE;
+    current_ctx_.graphics_post_cmd = is_main_cb ? post_cmd_ : VK_NULL_HANDLE;
     // The main frame binds the per-frame set, where record_frame put the GI
     // outputs; a preview's set holds the fallbacks there.
     current_ctx_.bound_gi_indirect = is_main_cb ? bound_gi_indirect_ : VK_NULL_HANDLE;
@@ -731,32 +729,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                           uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_command_buffer");
     current_environment_ = &environment;
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-
-    if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("Failed to begin recording command buffer");
-        return;
-    }
-
-    // Async compute CB and post-compute graphics CB begin alongside
-    // the main graphics CB. They stay empty on frames without compute
-    // work — submit_and_present detects that and skips the extra
-    // submissions.
-    VkCommandBuffer async_cmd = gpu_.async_compute_cb(current_frame_);
-    VkCommandBuffer post_cmd = gpu_.graphics_post_cb(current_frame_);
-    if (async_cmd != VK_NULL_HANDLE) {
-        if (vkBeginCommandBuffer(async_cmd, &begin_info) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("Failed to begin recording async compute command buffer");
-            return;
-        }
-    }
-    if (post_cmd != VK_NULL_HANDLE) {
-        if (vkBeginCommandBuffer(post_cmd, &begin_info) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("Failed to begin recording post-compute graphics command buffer");
-            return;
-        }
-    }
 
     // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
     if (scene_sdf_pass().has_pending_update()) {
@@ -826,8 +798,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     // finish. Easiest is to record into the post-compute CB when the
     // frame uses async (post_cmd non-null + recorded_async_this_frame_);
     // otherwise stick with the pre CB, same as today's single-CB flow.
-    VkCommandBuffer swap_cmd = (post_cmd != VK_NULL_HANDLE && recorded_async_this_frame_)
-        ? post_cmd : cmd;
+    VkCommandBuffer swap_cmd = (post_cmd_ != VK_NULL_HANDLE && recorded_async_this_frame_)
+        ? post_cmd_ : cmd;
 
     // --- Render ImGui to swapchain ---
     {
@@ -873,21 +845,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 
     gpu::vulkan::collect_zones(gpu_.core().gpu_device(), swap_cmd);
-
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("Failed to end recording command buffer");
-    }
-
-    if (async_cmd != VK_NULL_HANDLE) {
-        if (vkEndCommandBuffer(async_cmd) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("Failed to end recording async compute command buffer");
-        }
-    }
-    if (post_cmd != VK_NULL_HANDLE) {
-        if (vkEndCommandBuffer(post_cmd) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("Failed to end recording post-compute graphics command buffer");
-        }
-    }
 }
 
 static float halton(int index, int base) {
@@ -1201,7 +1158,7 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
 void VulkanContext::record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                                     OffscreenPass& target,
                                                     uint32_t frame_index) {
-    record_game_ui_into(gpu_.command_buffer(frame_index), record_fn, target, frame_index);
+    record_game_ui_into(frame_cmd_, record_fn, target, frame_index);
 }
 
 void VulkanContext::sync_scene_particles(Scene& scene) {
@@ -1332,208 +1289,32 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
 
 void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
+    gpu::Frame& frame = *recorded_gpu_frame_;
 
-    // Submit any uploads batched since the last flush. The frame submit
-    // below waits on the buffer lane's timeline (the image lane shares the
-    // graphics queue, where submission order already suffices).
-    auto& upload = gpu_.upload_context();
-    upload.flush();
-
-    VkSemaphoreSubmitInfo upload_wait{};
-    upload_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    upload_wait.semaphore = upload.buffer_timeline();
-    upload_wait.value = upload.last_buffer_value();
-    upload_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-    // The frame's last submission marks it finished on the frame timeline,
-    // which is what releases what it used.
-    VkSemaphoreSubmitInfo frame_done{};
-    frame_done.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    frame_done.semaphore = gpu::vulkan::frame_timeline(gpu_device());
-    frame_done.value = recorded_serial_;
-    frame_done.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
+    // The frame's first graphics list waits for the swapchain image where it
+    // writes colour, and its last list signals the semaphore present waits
+    // on. Uploads batched since the last frame go before it.
     auto& render_finished = gpu_.swapchain().render_finished_semaphores();
-    VkSemaphore image_available = recorded_acquire_semaphore_;
-    VkFence fence = gpu_.in_flight_fence(recorded_frame_);
-    VkSemaphore timeline = gpu_.async_compute_timeline(recorded_frame_);
+    gpu::vulkan::wait_acquired(frame, recorded_acquire_semaphore_);
+    gpu::vulkan::signal_rendered(frame, render_finished[recorded_image_index_]);
 
-    // Fast path: no async work this frame → single graphics submit,
-    // same as pre-Phase-3 behavior.
-    if (!recorded_async_this_frame_) {
-        std::array<VkSemaphoreSubmitInfo, 2> waits{};
-        waits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        waits[0].semaphore = image_available;
-        waits[0].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        waits[1] = upload_wait;
-
-        VkCommandBufferSubmitInfo cmd_info{};
-        cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        cmd_info.commandBuffer = gpu_.command_buffer(recorded_frame_);
-
-        // Every stage: the swapchain image's transition to PRESENT_SRC is
-        // the last thing in the command buffer, and present has to wait for
-        // it, not only for the colour writes before it.
-        std::array<VkSemaphoreSubmitInfo, 2> signals{};
-        signals[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        signals[0].semaphore = render_finished[recorded_image_index_];
-        signals[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        signals[1] = frame_done;
-
-        VkSubmitInfo2 submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit.waitSemaphoreInfoCount = static_cast<uint32_t>(waits.size());
-        submit.pWaitSemaphoreInfos = waits.data();
-        submit.commandBufferInfoCount = 1;
-        submit.pCommandBufferInfos = &cmd_info;
-        submit.signalSemaphoreInfoCount = static_cast<uint32_t>(signals.size());
-        submit.pSignalSemaphoreInfos = signals.data();
-
-        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit, fence); r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (single) failed: VkResult={}", static_cast<int>(r));
-            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics single submit");
-            has_recorded_frame_ = false;
-            return;
-        }
-    } else {
-        // Async path: three submits chained by timeline semaphore.
-        //   graphics_pre  : wait(image_available) → signal(timeline v1)
-        //   compute       : wait(timeline v1)     → signal(timeline v2)
-        //   graphics_post : wait(timeline v2)     → signal(render_finished) + fence
-        //
-        // v1 is the "depth is ready for compute" fence line; v2 is
-        // "compute output is ready for graphics". Using two values per
-        // frame keeps the sync unambiguous — compute doesn't risk
-        // consuming the wrong graphics pre-output.
-        //
-        // Status (2026-04-27 Tracy session, showcase scene):
-        // the single-submit path measures ~5% *faster* (344 → 327 FPS)
-        // than the async path. CPU work is identical; the regression is
-        // GPU-side serialization plus 3× submit overhead. Suspect the
-        // chain is effectively serial in practice — and graphics_post now
-        // waits for v2 at every stage, since its compute passes read the
-        // async results too, which leaves even less to overlap.
-        //
-        // Three async passes total ~83µs of GPU compute; per-frame
-        // delta is ~130µs. To make this pay we'd need either bigger
-        // overlap candidates (DDGI probe update, bloom downsample) or
-        // a deeper graphics tail to hide compute behind. Both deferred
-        // until the workload supports them, which is why the project
-        // setting defaults to off; the async-hint flags on GTAO/HiZ/
-        // LightCull stay (the infrastructure is correct, just dormant).
-        async_timeline_values_[recorded_frame_] += 2;
-        uint64_t v1 = async_timeline_values_[recorded_frame_] - 1;
-        uint64_t v2 = async_timeline_values_[recorded_frame_];
-
-        // ── Submit 1: graphics pre ────────────────────────────────────
-        std::array<VkSemaphoreSubmitInfo, 2> pre_waits{};
-        pre_waits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        pre_waits[0].semaphore = image_available;
-        pre_waits[0].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pre_waits[1] = upload_wait;
-
-        VkCommandBufferSubmitInfo pre_cmd{};
-        pre_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        pre_cmd.commandBuffer = gpu_.command_buffer(recorded_frame_);
-
-        VkSemaphoreSubmitInfo pre_signal{};
-        pre_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        pre_signal.semaphore = timeline;
-        pre_signal.value = v1;
-        // Signal from late-fragment stage — depth_prepass writes ended
-        // by the end of LATE_FRAGMENT_TESTS, which is where compute
-        // starts safely sampling depth from.
-        pre_signal.stageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
-                              | VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-        VkSubmitInfo2 pre_submit{};
-        pre_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        pre_submit.waitSemaphoreInfoCount = static_cast<uint32_t>(pre_waits.size());
-        pre_submit.pWaitSemaphoreInfos = pre_waits.data();
-        pre_submit.commandBufferInfoCount = 1;
-        pre_submit.pCommandBufferInfos = &pre_cmd;
-        pre_submit.signalSemaphoreInfoCount = 1;
-        pre_submit.pSignalSemaphoreInfos = &pre_signal;
-
-        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &pre_submit, VK_NULL_HANDLE); r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_pre) failed: VkResult={}", static_cast<int>(r));
-            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics_pre submit");
-            has_recorded_frame_ = false;
-            return;
-        }
-
-        // ── Submit 2: compute ────────────────────────────────────────
-        VkSemaphoreSubmitInfo comp_wait{};
-        comp_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        comp_wait.semaphore = timeline;
-        comp_wait.value = v1;
-        comp_wait.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-        VkCommandBufferSubmitInfo comp_cmd{};
-        comp_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        comp_cmd.commandBuffer = gpu_.async_compute_cb(recorded_frame_);
-
-        VkSemaphoreSubmitInfo comp_signal{};
-        comp_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        comp_signal.semaphore = timeline;
-        comp_signal.value = v2;
-        comp_signal.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-        VkSubmitInfo2 comp_submit{};
-        comp_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        comp_submit.waitSemaphoreInfoCount = 1;
-        comp_submit.pWaitSemaphoreInfos = &comp_wait;
-        comp_submit.commandBufferInfoCount = 1;
-        comp_submit.pCommandBufferInfos = &comp_cmd;
-        comp_submit.signalSemaphoreInfoCount = 1;
-        comp_submit.pSignalSemaphoreInfos = &comp_signal;
-
-        if (VkResult r = vkQueueSubmit2(gpu_.async_compute_queue(), 1, &comp_submit, VK_NULL_HANDLE); r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (async compute) failed: VkResult={}", static_cast<int>(r));
-            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("async compute submit");
-            has_recorded_frame_ = false;
-            return;
-        }
-
-        // ── Submit 3: graphics post ──────────────────────────────────
-        VkSemaphoreSubmitInfo post_wait{};
-        post_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        post_wait.semaphore = timeline;
-        post_wait.value = v2;
-        // Every stage waits. The compute results are read by compute
-        // passes here too, not only by fragment shaders (the second
-        // meshlet cull samples the Hi-Z pyramid), and the frame graph
-        // relies on this wait for every hand-off between the queues: its
-        // barriers after a compute-queue access only chain onto it.
-        post_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-        VkCommandBufferSubmitInfo post_cmd{};
-        post_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        post_cmd.commandBuffer = gpu_.graphics_post_cb(recorded_frame_);
-
-        // Every stage, for the same reason as the single-submit path: the
-        // transition to PRESENT_SRC has to be inside what present waits on.
-        std::array<VkSemaphoreSubmitInfo, 2> post_signals{};
-        post_signals[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        post_signals[0].semaphore = render_finished[recorded_image_index_];
-        post_signals[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        post_signals[1] = frame_done;
-
-        VkSubmitInfo2 post_submit{};
-        post_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        post_submit.waitSemaphoreInfoCount = 1;
-        post_submit.pWaitSemaphoreInfos = &post_wait;
-        post_submit.commandBufferInfoCount = 1;
-        post_submit.pCommandBufferInfos = &post_cmd;
-        post_submit.signalSemaphoreInfoCount = static_cast<uint32_t>(post_signals.size());
-        post_submit.pSignalSemaphoreInfos = post_signals.data();
-
-        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &post_submit, fence); r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_post) failed: VkResult={}", static_cast<int>(r));
-            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics_post submit");
-            has_recorded_frame_ = false;
-            return;
-        }
+    // Without async work the frame is its pre list alone. With it, three
+    // lists chained across the queues: the compute list runs once pre is
+    // done (depth ready for GTAO, the light cull's inputs), and post, which
+    // holds the swapchain image and ImGui, once the compute list is; every
+    // hand-off the frame graph makes between the queues relies on these
+    // waits.
+    frame.submit(*pre_list_);
+    if (recorded_async_this_frame_) {
+        frame.submit(*async_list_, {.after = pre_list_});
+        frame.submit(*post_list_, {.after = async_list_});
+    }
+    recorded_gpu_frame_ = nullptr;
+    frame_cmd_ = async_cmd_ = post_cmd_ = VK_NULL_HANDLE;
+    if (auto sent = gpu_device().end_frame(frame); !sent) {
+        FJELL_GFX_CRITICAL("{}", sent.error());
+        has_recorded_frame_ = false;
+        return;
     }
 
     VkPresentInfoKHR present_info{};
@@ -1562,26 +1343,19 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("begin_frame");
     auto vk_device = gpu_.device();
 
-    // Advance to next frame slot
-    current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
-
     // Clean slate for async tracking. render_scene_to sets this when
     // any viewport actually records into the async CB.
     recorded_async_this_frame_ = false;
 
-    VkFence frame_fence = gpu_.in_flight_fence(current_frame_);
-    vkWaitForFences(vk_device, 1, &frame_fence, VK_TRUE,
-                    std::numeric_limits<uint64_t>::max());
-
-    // GPU is now done with this frame slot — safe to destroy/resize resources.
-    ++frame_serial_;
-    render_pipeline_.begin_frame();
-    // The device frees this slot's one-frame sets and memory, and destroys
-    // what the frames the GPU has finished used, as the frame timeline
-    // measures it: at least the frame that last used this slot, often later
+    // The device waits until the GPU has finished the frame that last used
+    // this slot, frees the slot's lists and one-frame memory, and destroys
+    // what the frames it has finished used: at least that frame, often later
     // ones too. Transients those frames used are free again.
-    const uint64_t finished = gpu::vulkan::begin_frame(gpu_device(), current_frame_, frame_serial_);
-    gpu_.transient_pool().begin_frame(frame_serial_, finished);
+    frame_ = &gpu_device().begin_frame();
+    current_frame_ = frame_->slot();
+    frame_serial_ = frame_->serial();
+    render_pipeline_.begin_frame();
+    gpu_.transient_pool().begin_frame(frame_serial_, gpu_device().finished_frame());
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
     apply_ddgi_settle_rebuild();
@@ -1621,20 +1395,20 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
                           acquire_sem, VK_NULL_HANDLE,
                           &image_index);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_NOT_READY) {
-        gpu_.swapchain().recreate();
-        has_recorded_frame_ = false;
-        return false;  // fence stays signaled — next wait will pass through
-    }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        FJELL_GFX_CRITICAL("vkAcquireNextImageKHR failed: {}", static_cast<int>(result));
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_NOT_READY) {
+            gpu_.swapchain().recreate();
+        } else {
+            FJELL_GFX_CRITICAL("vkAcquireNextImageKHR failed: {}", static_cast<int>(result));
+        }
+        // A frame with nothing in it still ends, so the frames after it do
+        // not wait for it.
+        (void)gpu_device().end_frame(*frame_);
+        frame_ = nullptr;
         has_recorded_frame_ = false;
         return false;
     }
 
-    // Reset fence only after successful acquire — ensures the fence stays
-    // signaled on the error/recreate path so the next vkWaitForFences doesn't hang
-    vkResetFences(vk_device, 1, &frame_fence);
     pending_image_index_ = image_index;
     pending_acquire_semaphore_ = acquire_sem;
     return true;
@@ -1925,12 +1699,27 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         gb.flush_writes();
     }
 
-    vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
-    record_command_buffer(gpu_.command_buffer(current_frame_), pending_image_index_,
-                          viewports, environment, scene, dt, selected_id, pool);
+    // The frame's lists: pre, and, where there is a compute queue, the
+    // compute list and the graphics list after it that async passes need.
+    // They stay empty on frames without compute work, and are then never
+    // submitted.
+    pre_list_ = &frame_->commands(gpu::Queue::graphics);
+    async_list_ = nullptr;
+    post_list_ = nullptr;
+    if (gpu_device().caps().async_compute) {
+        async_list_ = &frame_->commands(gpu::Queue::compute);
+        post_list_ = &frame_->commands(gpu::Queue::graphics);
+    }
+    frame_cmd_ = gpu::vulkan::native_command_buffer(*pre_list_);
+    async_cmd_ = async_list_ != nullptr ? gpu::vulkan::native_command_buffer(*async_list_)
+                                        : VK_NULL_HANDLE;
+    post_cmd_ = post_list_ != nullptr ? gpu::vulkan::native_command_buffer(*post_list_)
+                                      : VK_NULL_HANDLE;
+    record_command_buffer(frame_cmd_, pending_image_index_, viewports, environment, scene, dt,
+                          selected_id, pool);
 
-    recorded_frame_ = current_frame_;
-    recorded_serial_ = frame_serial_;
+    recorded_gpu_frame_ = frame_;
+    frame_ = nullptr;
     recorded_image_index_ = pending_image_index_;
     recorded_acquire_semaphore_ = pending_acquire_semaphore_;
     has_recorded_frame_ = true;

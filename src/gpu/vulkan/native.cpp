@@ -1,6 +1,7 @@
 #include "gpu/vulkan/native.hpp"
 
 #include "gpu/vulkan/device_impl.hpp"
+#include "gpu/vulkan/frame_impl.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
@@ -159,26 +160,16 @@ VkDescriptorSet native_group(Device& device, BindGroup group) {
     return record != nullptr ? record->set : VK_NULL_HANDLE;
 }
 
-VkSemaphore frame_timeline(Device& device) {
-    return device.impl().frame_timeline;
+VkCommandBuffer native_command_buffer(CommandList& list) {
+    return list.impl().cb;
 }
 
-uint64_t finished_frame(Device& device) {
-    uint64_t value = 0;
-    vk_check(vkGetSemaphoreCounterValue(device.impl().device, device.impl().frame_timeline, &value),
-             "Failed to read the frame timeline");
-    return value;
+void wait_acquired(Frame& frame, VkSemaphore acquired) {
+    frame.impl().acquired = acquired;
 }
 
-uint64_t begin_frame(Device& device, uint32_t frame_slot, uint64_t serial) {
-    Device::Impl& self = device.impl();
-    self.frame_slot = frame_slot;
-    self.frame_sets.begin_frame(frame_slot);
-    self.transient.begin_frame(frame_slot);
-    const uint64_t finished = finished_frame(device);
-    self.recording = serial;
-    self.releases.collect(finished);
-    return finished;
+void signal_rendered(Frame& frame, VkSemaphore rendered) {
+    frame.impl().rendered = rendered;
 }
 
 void defer(Device& device, std::move_only_function<void()> fn) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/frame.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_registry.hpp"
@@ -457,10 +458,22 @@ private:
 
   // ── Frame state ───────────────────────────────────────────────────────
   std::unique_ptr<PostProcessResources> default_pp_;
-  uint32_t current_frame_{MAX_FRAMES_IN_FLIGHT - 1};
+  /// The frame begun and not yet recorded, and its slot.
+  gpu::Frame* frame_{nullptr};
+  uint32_t current_frame_{0};
 
   // Split-frame state: carried between begin_frame / record_frame / submit_and_present
-  uint32_t recorded_frame_{0};
+  /// The frame recorded and not yet submitted, and the lists it recorded
+  /// into: pre, and the compute and post lists where there is a compute
+  /// queue.
+  gpu::Frame* recorded_gpu_frame_{nullptr};
+  gpu::CommandList* pre_list_{nullptr};
+  gpu::CommandList* async_list_{nullptr};
+  gpu::CommandList* post_list_{nullptr};
+  /// Those lists' command buffers, which the frame's recording writes.
+  VkCommandBuffer frame_cmd_{VK_NULL_HANDLE};
+  VkCommandBuffer async_cmd_{VK_NULL_HANDLE};
+  VkCommandBuffer post_cmd_{VK_NULL_HANDLE};
   uint32_t recorded_image_index_{0};
   uint32_t pending_image_index_{0};
   // Acquire semaphore for the in-flight frame, owned by the swapchain and
@@ -480,18 +493,9 @@ private:
   /// that bind that set.
   VkImage bound_gi_indirect_{VK_NULL_HANDLE};
   VkImage bound_ss_gi_emissive_{VK_NULL_HANDLE};
-  /// Counts frames from the first begin_frame(); what the transient pool
-  /// and the frame graph date their state by, and the value each frame
-  /// signals on the frame timeline.
+  /// The serial of the frame begun last: what the transient pool dates its
+  /// textures by.
   uint64_t frame_serial_{0};
-  /// The serial of the frame recorded and not yet submitted, which its last
-  /// submission signals on the frame timeline.
-  uint64_t recorded_serial_{0};
-  // Per-frame-slot monotonic counter for timeline semaphore values.
-  // Compute submit signals `next`, graphics waits on `next`, then we
-  // advance. Separate per slot so MAX_FRAMES_IN_FLIGHT concurrent frames
-  // don't stomp on each other.
-  std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> async_timeline_values_{};
 
 
   // ── Editor / game state ───────────────────────────────────────────────

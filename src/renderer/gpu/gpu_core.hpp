@@ -61,31 +61,6 @@ public:
     [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
         return command_buffers_[frame_index];
     }
-    // Second graphics CB per frame slot. Phase 3d uses this for
-    // post-compute graphics work — after async compute signals its
-    // timeline value, graphics waits and resumes in this CB. Empty +
-    // unused on frames without compute work; null when the device has
-    // no separate compute queue.
-    [[nodiscard]] VkCommandBuffer graphics_post_cb(uint32_t frame_index) const {
-        return graphics_post_cbs_.empty() ? VK_NULL_HANDLE : graphics_post_cbs_[frame_index];
-    }
-
-    // Async compute command pool + per-frame CB. Null when
-    // `device().async_compute_supported()` is false. Passes that hint
-    // async compute route through these; cross-queue sync is a timeline
-    // semaphore (see `async_compute_timeline()`).
-    [[nodiscard]] VkCommandPool async_compute_pool() const { return async_compute_pool_; }
-    [[nodiscard]] VkCommandBuffer async_compute_cb(uint32_t frame_index) const {
-        return async_compute_cbs_.empty() ? VK_NULL_HANDLE : async_compute_cbs_[frame_index];
-    }
-
-    // Timeline semaphore for cross-queue sync between graphics and async
-    // compute. One per in-flight frame to avoid head-of-line blocking
-    // when consecutive frames both submit compute work. Phase 3 reads
-    // and increments these; Phase 1 just owns them.
-    [[nodiscard]] VkSemaphore async_compute_timeline(uint32_t frame_index) const {
-        return async_compute_timeline_[frame_index];
-    }
 
     // ── Frame sync ──────────────────────────────────────────────────────
     [[nodiscard]] VkSemaphore image_available_semaphore(uint32_t frame_index) const {
@@ -121,14 +96,8 @@ private:
     std::vector<VkCommandBuffer> command_buffers_;
     // Post-compute graphics CBs — allocated in pairs with the primary
     // ones when async compute is available. Shares command_pool_.
-    std::vector<VkCommandBuffer> graphics_post_cbs_;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
-
-    // Async compute resources (created only when Device reports support).
-    VkCommandPool async_compute_pool_{VK_NULL_HANDLE};
-    std::vector<VkCommandBuffer> async_compute_cbs_;
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> async_compute_timeline_{};
 };
 
 } // namespace fjell
