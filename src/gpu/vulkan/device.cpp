@@ -189,8 +189,10 @@ Device::Impl::~Impl() {
     if (profiler != nullptr) TracyVkDestroy(profiler);
 #endif
     // The GPU is idle here (GpuCore waits before destroying the device), so
-    // what is still held is destroyed now: first the device's own buffers,
-    // then anything never released by an owner that outlived the device.
+    // what is still held is destroyed now: first what was released and
+    // waits for frames, then the device's own buffers, then anything never
+    // released by an owner that outlived the device.
+    releases.flush();
     for (Buffer chunk : transient.chunks()) {
         if (auto record = buffers.take(chunk)) destroy_buffer(allocator, *record);
     }
@@ -440,7 +442,7 @@ void release(Device& device, Buffer buffer) {
     Device::Impl& self = device.impl();
     auto record = self.buffers.take(buffer);
     if (!record.has_value()) return;
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [allocator = self.allocator, gone = *record] { destroy_buffer(allocator, gone); });
 }
 
@@ -448,7 +450,7 @@ void release(Device& device, Texture texture) {
     Device::Impl& self = device.impl();
     auto record = self.textures.take(texture);
     if (!record.has_value()) return;
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [dev = self.device, allocator = self.allocator, gone = std::move(*record)] {
             destroy_texture(dev, allocator, gone);
         });

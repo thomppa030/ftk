@@ -8,8 +8,10 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
+#include <utility>
 
 // The bridge between the GPU interface and code that still speaks Vulkan,
 // both ways, so either can use what the other made while files move onto the
@@ -87,10 +89,31 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 /// The VkDescriptorSet behind a bind group; null when the handle finds none.
 [[nodiscard]] VkDescriptorSet native_group(Device& device, BindGroup group);
 
-/// Tells the device a frame slot starts recording, right after the slot's
-/// fence wait: the sets and transient memory that lasted one frame in that
-/// slot are free again.
-void begin_frame(Device& device, uint32_t frame_slot);
+/// Tells the device frame `serial` starts recording in `frame_slot`, right
+/// after the slot's fence wait: the sets and transient memory that lasted one
+/// frame in that slot are free again, what frames the GPU has finished used
+/// is destroyed, and what is released from now on waits for `serial`.
+/// @return the newest frame the GPU has finished
+uint64_t begin_frame(Device& device, uint32_t frame_slot, uint64_t serial);
+
+/// Keeps `object` alive until the GPU has finished the frame recording now,
+/// then lets its destructor run: for what was made before the interface and
+/// has no handle to release.
+template <typename T>
+void retire(Device& device, T object);
+
+/// Runs `fn` once the GPU has finished the frame recording now: for native
+/// handles whose destruction needs more than a destructor.
+void defer(Device& device, std::move_only_function<void()> fn);
+
+/// Destroys everything released, whatever frame it waits for. The GPU must
+/// be idle.
+void release_all(Device& device);
+
+template <typename T>
+void retire(Device& device, T object) {
+    defer(device, [doomed = std::move(object)] { (void)doomed; });
+}
 
 /// Makes `CommandList::transition` describe each barrier it records as a
 /// line appended to `lines`, resources by the names their transitions carry

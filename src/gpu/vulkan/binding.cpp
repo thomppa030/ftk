@@ -227,7 +227,7 @@ Result<> Device::update(BindGroup group, std::span<const BindEntry> entries) {
     self.write_set(set, *placed);
     // Commands already recorded still bind the old set; it goes once the GPU
     // is done with them.
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [device = self.device, old_pool = record->pool, old_set = record->set] {
             vkFreeDescriptorSets(device, old_pool, 1, &old_set);
         });
@@ -240,7 +240,7 @@ void release(Device& device, BindGroup group) {
     Device::Impl& self = device.impl();
     auto record = self.groups.take(group);
     if (!record.has_value() || record->pool == VK_NULL_HANDLE) return;
-    self.core.deferred_deleter().defer([dev = self.device, pool = record->pool, set = record->set] {
+    self.release_later([dev = self.device, pool = record->pool, set = record->set] {
         vkFreeDescriptorSets(dev, pool, 1, &set);
     });
 }

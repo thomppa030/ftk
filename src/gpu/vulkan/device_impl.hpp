@@ -2,6 +2,7 @@
 
 #include "core/handle_pool.hpp"
 #include "gpu/device.hpp"
+#include "gpu/release_queue.hpp"
 #include "gpu/transient_memory.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 
@@ -12,6 +13,7 @@
 #include <tracy/TracyVulkan.hpp>
 #endif
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <source_location>
@@ -155,6 +157,12 @@ struct Device::Impl {
     /// the set is the pipeline's own.
     [[nodiscard]] std::string shared_at(const PipelineRecord& pipeline, uint32_t set);
 
+    /// Runs `fn` once the GPU has finished the frame recording now: how
+    /// everything the device destroys is destroyed.
+    void release_later(std::move_only_function<void()> fn) {
+        releases.defer(recording, std::move(fn));
+    }
+
     /// Logs `message` as an error the first time it is reported, so a
     /// mistake recorded every frame is read once.
     void report_once(const std::string& message);
@@ -185,6 +193,12 @@ struct Device::Impl {
     /// serial: the value it has reached is the newest frame the GPU has
     /// finished.
     VkSemaphore frame_timeline{VK_NULL_HANDLE};
+    /// The serial of the frame recording now, which what is released is
+    /// kept alive for.
+    uint64_t recording{0};
+    /// What was released and waits for the GPU to finish the frames that
+    /// may still use it.
+    ReleaseQueue releases;
     /// Memory that lasts one frame, reset with `frame_sets`. Its chunks are
     /// the device's own, destroyed with it.
     TransientMemory transient;

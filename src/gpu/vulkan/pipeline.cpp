@@ -413,7 +413,7 @@ Result<> replace(Device::Impl& self, Pool& pool, PipelineHandle handle,
         vkDestroyPipeline(self.device, rebuilt->pipeline, nullptr);
         return make_error("Recreating a pipeline that no longer exists");
     }
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [device = self.device, old = record->pipeline] { vkDestroyPipeline(device, old, nullptr); });
     *record = std::move(*rebuilt);
     return {};
@@ -445,7 +445,7 @@ void release(Device& device, ComputePipeline pipeline) {
     Device::Impl& self = device.impl();
     auto record = self.compute_pipelines.take(pipeline);
     if (!record.has_value()) return;
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [dev = self.device, gone = record->pipeline] { vkDestroyPipeline(dev, gone, nullptr); });
 }
 
@@ -453,7 +453,7 @@ void release(Device& device, GraphicsPipeline pipeline) {
     Device::Impl& self = device.impl();
     auto record = self.graphics_pipelines.take(pipeline);
     if (!record.has_value()) return;
-    self.core.deferred_deleter().defer(
+    self.release_later(
         [dev = self.device, gone = record->pipeline] { vkDestroyPipeline(dev, gone, nullptr); });
 }
 
