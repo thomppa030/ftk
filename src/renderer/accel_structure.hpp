@@ -4,6 +4,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/resources/mega_buffer.hpp"
+#include "renderer/rt_instance.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -25,19 +26,6 @@ class PipelineCache;
 class Scene;
 struct DrawCommand;
 struct GpuDrawData;
-
-/// Per-RT-instance data, accessible in closest-hit shader via gl_InstanceID.
-struct GpuRtInstance {
-    uint32_t material_id;
-    uint32_t first_index;    // into global index buffer
-    uint32_t vertex_offset;  // into global vertex buffer
-    uint32_t flags;          // RT_INSTANCE_* bits
-};
-
-/// GpuRtInstance::flags: the instance's material draws both sides of its
-/// surfaces, so a ray reaching either side has hit the surface's front.
-/// RT_INSTANCE_TWO_SIDED in fjell_gpu_types.glsl.
-inline constexpr uint32_t RT_INSTANCE_TWO_SIDED = 1U;
 
 /// One bottom-level acceleration structure (BLAS) over one mesh entry, so
 /// gl_PrimitiveID in a hit shader indexes that entry's triangles from
@@ -96,25 +84,8 @@ public:
         VkDeviceAddress blas_address;
         uint32_t first_index;
         uint32_t vertex_offset;
-    };
-
-    /// One host-side TLAS instance. Everything whose count is known on the CPU
-    /// — mesh draws, terrain, and whatever comes next — reduces to this, so
-    /// adding a source means building these rather than extending build_tlas.
-    ///
-    /// Particles are deliberately not expressible here: their instances are
-    /// written by a compute shader into a region reserved from their upper
-    /// bound, because the count is not known until the GPU has culled them.
-    struct RtInstance {
-        glm::mat4 transform{1.0F};
-        uint32_t material_id{0};
-        /// The BLAS, by value, as for ParticleEmitterInfo.
-        VkDeviceAddress blas_address{0};
-        uint32_t first_index{0};
-        uint32_t vertex_offset{0};
-        /// The material draws both sides (its shader culls no faces, or
-        /// the front ones), so neither side is a back face to a ray.
-        bool two_sided{false};
+        /// RT_MASK_* of the emitter's particles, by how they are drawn.
+        uint32_t mask;
     };
 
     /// Starts a frame. A TLAS answers for the frame it was built in and no

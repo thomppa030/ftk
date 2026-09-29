@@ -41,6 +41,23 @@ static VmaAllocationCreateFlags as_dedicated_flag() {
     return VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 }
 
+namespace {
+
+// particle_tlas_build.comp's push constants: one mesh particle emitter.
+struct ParticleTlasPush {
+    uint32_t particle_offset;
+    uint32_t particle_count;
+    uint32_t material_id;
+    float particle_size;
+    uint32_t blas_addr_lo;
+    uint32_t blas_addr_hi;
+    uint32_t first_index;
+    uint32_t vertex_offset;
+    uint32_t mask;
+};
+
+} // namespace
+
 AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator allocator,
                                              VkCommandPool command_pool, VkQueue queue,
                                              UploadContext& upload, gpu::Device& gpu)
@@ -384,6 +401,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
             inst.blas_address = blases[i].device_address;
             inst.first_index = blases[i].first_index;
             inst.vertex_offset = blases[i].vertex_offset;
+            inst.mask = rt_instance_mask(dc.transparent);
             inst.two_sided = two_sided;
             st.host_instances.push_back(inst);
         }
@@ -429,6 +447,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
         inst.blas_address = blas->device_address;
         inst.first_index = blas->first_index;
         inst.vertex_offset = blas->vertex_offset;
+        inst.mask = RT_MASK_OPAQUE;
         st.host_instances.push_back(inst);
     }
 
@@ -452,6 +471,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
             info.blas_address = blas->device_address;
             info.first_index = blas->first_index;
             info.vertex_offset = blas->vertex_offset;
+            info.mask = rt_instance_mask(em.blend_mode != ParticleBlendMode::opaque);
             st.particle_emitters.push_back(info);
         }
     }
@@ -522,7 +542,7 @@ uint32_t AccelStructureManager::build_tlas(VkCommandBuffer cmd, SceneTlas& scene
         instance.transform.matrix[2][0] = m[0][2]; instance.transform.matrix[2][1] = m[1][2]; instance.transform.matrix[2][2] = m[2][2]; instance.transform.matrix[2][3] = m[3][2];
 
         instance.instanceCustomIndex = src.material_id;
-        instance.mask = 0xFF;
+        instance.mask = src.mask;
         instance.instanceShaderBindingTableRecordOffset = 0;
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
         instance.accelerationStructureReference = src.blas_address;
@@ -718,16 +738,7 @@ uint32_t AccelStructureManager::build_tlas(VkCommandBuffer cmd, SceneTlas& scene
         for (const auto& pe : particle_emitters) {
             if (pe.blas_address == 0) continue;
 
-            struct {
-                uint32_t particle_offset;
-                uint32_t particle_count;
-                uint32_t material_id;
-                float particle_size;
-                uint32_t blas_addr_lo;
-                uint32_t blas_addr_hi;
-                uint32_t first_index;
-                uint32_t vertex_offset;
-            } push{};
+            ParticleTlasPush push{};
             push.particle_offset = pe.base_offset;
             push.particle_count = pe.max_particles;
             push.material_id = pe.material_id;
@@ -736,6 +747,7 @@ uint32_t AccelStructureManager::build_tlas(VkCommandBuffer cmd, SceneTlas& scene
             push.blas_addr_hi = static_cast<uint32_t>(pe.blas_address >> 32);
             push.first_index = pe.first_index;
             push.vertex_offset = pe.vertex_offset;
+            push.mask = pe.mask;
 
             vkCmdPushConstants(cmd, particle_tlas_pipe_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                                0, sizeof(push), &push);
@@ -874,11 +886,10 @@ void AccelStructureManager::create_particle_tlas_pipeline(VkPipelineCache pipeli
     vk_check(vkCreateDescriptorSetLayout(vk_device_, &set_ci, nullptr, &particle_tlas_set_layout_),
              "Failed to create particle TLAS descriptor set layout");
 
-    // Push constants: 8 uint/float values (32 bytes)
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_range.offset = 0;
-    push_range.size = 32; // +first_index, +vertex_offset
+    push_range.size = sizeof(ParticleTlasPush);
 
     VkPipelineLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

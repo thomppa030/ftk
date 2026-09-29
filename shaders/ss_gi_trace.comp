@@ -115,9 +115,10 @@ vec3 world_from_depth(vec2 uv, float depth) {
 // when it misses (the sky reaches surfaces through IBL, not through SS-GI).
 vec3 trace_emission(vec3 origin, vec3 direction) {
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+    // Light reaches a surface through glass.
+    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, RT_MASK_OPAQUE,
                           origin, 0.01, direction, max_trace_dist);
-    // Every instance is opaque, so there is no candidate to judge.
+    // Every triangle is taken as opaque, so there is no candidate to judge.
     while (rayQueryProceedEXT(q)) {}
 
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {

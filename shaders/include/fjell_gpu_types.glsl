@@ -71,7 +71,16 @@ struct RtInstanceData {
 
 // RtInstanceData::flags: the instance's material draws both sides of its
 // surfaces, so a ray reaching either side has hit the surface's front.
-// Mirrors fjell::RT_INSTANCE_TWO_SIDED (renderer/accel_structure.hpp).
+// Mirrors fjell::RT_INSTANCE_TWO_SIDED (renderer/rt_instance.hpp).
 #define RT_INSTANCE_TWO_SIDED 1u
+
+// Which rays stop at an instance: the instance's mask holds the bit of its
+// kind and a ray query's cull mask names the kinds that ray can hit.
+// Mirrors fjell::RT_MASK_* (renderer/rt_instance.hpp).
+// Surfaces that stop light: everything drawn opaque, and terrain.
+#define RT_MASK_OPAQUE 0x01u
+// Surfaces drawn blended. Rays gathering diffuse light and shadow tests pass
+// through them; reflection rays stop at them.
+#define RT_MASK_TRANSPARENT 0x02u
 
 #endif // FJELL_GPU_TYPES_GLSL

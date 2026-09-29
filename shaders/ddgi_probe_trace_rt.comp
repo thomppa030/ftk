@@ -75,9 +75,10 @@ float sample_scene_sdf(vec3 world_pos) {
 // What a probe ray brings back: radiance in xyz, distance in w.
 vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+    // Light reaches a probe through glass.
+    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, RT_MASK_OPAQUE,
                           origin, tmin, direction, tmax);
-    // Every instance is opaque, so there is no candidate to judge.
+    // Every triangle is taken as opaque, so there is no candidate to judge.
     while (rayQueryProceedEXT(q)) {}
 
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {

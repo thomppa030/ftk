@@ -50,6 +50,7 @@ layout(push_constant) uniform PushConstants {
     uvec2 blas_address;    // device address of the mesh BLAS (uint64 as two uint32s)
     uint first_index;      // emitter BLAS geometry offsets (for rt_instances)
     uint vertex_offset;
+    uint mask;             // RT_MASK_* of the emitter's particles
 };
 
 void main() {
@@ -72,7 +73,7 @@ void main() {
     inst.transform[8]  = 0.0; inst.transform[9]  = 0.0; inst.transform[10] = s;   inst.transform[11] = p.position.z;
 
     // instanceCustomIndex (24 bits) | mask (8 bits)
-    inst.custom_index_and_mask = (material_id & 0xFFFFFF) | (0xFF << 24);
+    inst.custom_index_and_mask = (material_id & 0xFFFFFF) | (mask << 24);
 
     // SBT offset (24 bits) | flags (8 bits) — disable culling
     inst.sbt_offset_and_flags = (0 & 0xFFFFFF) | (0x04 << 24); // VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT

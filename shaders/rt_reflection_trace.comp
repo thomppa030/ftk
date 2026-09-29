@@ -152,9 +152,10 @@ vec3 world_from_depth(vec2 uv, float depth) {
 // The radiance a reflection ray brings back.
 vec3 trace_radiance(vec3 origin, vec3 direction) {
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+    // Glass shows in a reflection.
+    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, RT_MASK_OPAQUE | RT_MASK_TRANSPARENT,
                           origin, 0.001, direction, max_trace_dist);
-    // Every instance is opaque, so there is no candidate to judge.
+    // Every triangle is taken as opaque, so there is no candidate to judge.
     while (rayQueryProceedEXT(q)) {}
 
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
