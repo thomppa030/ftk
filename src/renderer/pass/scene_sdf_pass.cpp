@@ -91,7 +91,7 @@ void SceneSdfPass::destroy() {
     }
 
     mesh_sdf_buffer_.reset();
-    instance_buffer_.reset();
+    for (auto& buffer : instance_buffers_) buffer.reset();
     tracked_.clear();
     gathered_.clear();
     gathered_bounds_.clear();
@@ -200,41 +200,29 @@ void SceneSdfPass::create_compute_pipeline() {
     vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci, nullptr, &composite_pipeline_), "SDF pass");
     vkDestroyShaderModule(device_, mod, nullptr);
 
-    // Descriptor pool
+    // Descriptor pool: one set per frame in flight, each binding its slot's
+    // instance buffer
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pool_sizes[0].descriptorCount = 1;
+    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_sizes[1].descriptorCount = 2;
+    pool_sizes[1].descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 1;
+    pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
     pool_ci.poolSizeCount = 2;
     pool_ci.pPoolSizes = pool_sizes;
     vk_check(vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_), "SDF pass");
 
-    // Allocate descriptor set
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> set_layouts{};
+    set_layouts.fill(composite_set_layout_);
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &composite_set_layout_;
-    vk_check(vkAllocateDescriptorSets(device_, &alloc_info, &composite_set_), "SDF pass");
-
-    // Write binding 0 (storage image)
-    VkDescriptorImageInfo img_info{};
-    img_info.imageView = sdf_view_;
-    img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = composite_set_;
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    write.descriptorCount = 1;
-    write.pImageInfo = &img_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    alloc_info.pSetLayouts = set_layouts.data();
+    vk_check(vkAllocateDescriptorSets(device_, &alloc_info, composite_sets_.data()), "SDF pass");
 
     // Allocate mesh SDF buffer (128MB — room for ~2000 meshes at 32³)
     mesh_sdf_buffer_ = std::make_unique<Buffer>(
@@ -244,39 +232,48 @@ void SceneSdfPass::create_compute_pipeline() {
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_sdf_buffer_->map();
 
-    // Allocate instance buffer (enough for 256 instances)
-    instance_buffer_ = std::make_unique<Buffer>(
-        allocator_, 1024 * sizeof(GpuSdfInstance),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    instance_buffer_->map();
+    // Instance buffers, room for 1024 instances each
+    for (auto& buffer : instance_buffers_) {
+        buffer = std::make_unique<Buffer>(
+            allocator_, 1024 * sizeof(GpuSdfInstance),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        buffer->map();
+    }
 
-    // Write bindings 1 and 2
-    VkDescriptorBufferInfo mesh_buf_info{};
-    mesh_buf_info.buffer = mesh_sdf_buffer_->handle();
-    mesh_buf_info.range = mesh_sdf_buffer_->size();
+    // Each slot's set: the field (0), the shared mesh SDF data (1) and the
+    // slot's own instances (2)
+    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
+        VkDescriptorImageInfo img_info{};
+        img_info.imageView = sdf_view_;
+        img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    VkDescriptorBufferInfo inst_buf_info{};
-    inst_buf_info.buffer = instance_buffer_->handle();
-    inst_buf_info.range = instance_buffer_->size();
+        VkDescriptorBufferInfo mesh_buf_info{};
+        mesh_buf_info.buffer = mesh_sdf_buffer_->handle();
+        mesh_buf_info.range = mesh_sdf_buffer_->size();
 
-    VkWriteDescriptorSet buf_writes[2]{};
-    buf_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    buf_writes[0].dstSet = composite_set_;
-    buf_writes[0].dstBinding = 1;
-    buf_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    buf_writes[0].descriptorCount = 1;
-    buf_writes[0].pBufferInfo = &mesh_buf_info;
+        VkDescriptorBufferInfo inst_buf_info{};
+        inst_buf_info.buffer = instance_buffers_[slot]->handle();
+        inst_buf_info.range = instance_buffers_[slot]->size();
 
-    buf_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    buf_writes[1].dstSet = composite_set_;
-    buf_writes[1].dstBinding = 2;
-    buf_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    buf_writes[1].descriptorCount = 1;
-    buf_writes[1].pBufferInfo = &inst_buf_info;
-
-    vkUpdateDescriptorSets(device_, 2, buf_writes, 0, nullptr);
+        VkWriteDescriptorSet writes[3]{};
+        for (auto& w : writes) {
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstSet = composite_sets_[slot];
+            w.descriptorCount = 1;
+        }
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[0].pImageInfo = &img_info;
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].pBufferInfo = &mesh_buf_info;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].pBufferInfo = &inst_buf_info;
+        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
+    }
 }
 
 bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
@@ -479,8 +476,9 @@ void SceneSdfPass::add_dirty_region(AABB region) {
     dirty_regions_.push_back(region);
 }
 
-void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
+void SceneSdfPass::compose_pending(VkCommandBuffer cmd, uint32_t frame_index) {
     if (!has_pending_update()) return;
+    Buffer& instance_buffer = *instance_buffers_[frame_index];
 
     // Each region gets the instances whose distance band reaches into it,
     // laid out contiguously so one push constant range addresses them.
@@ -492,7 +490,7 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
     };
     std::vector<Dispatch> dispatches;
     std::vector<GpuSdfInstance> upload;
-    auto capacity = static_cast<uint32_t>(instance_buffer_->size() / sizeof(GpuSdfInstance));
+    auto capacity = static_cast<uint32_t>(instance_buffer.size() / sizeof(GpuSdfInstance));
 
     if (full_rebuild_) {
         upload = gathered_;
@@ -533,7 +531,7 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
                               static_cast<uint32_t>(upload.size())});
     }
     if (!upload.empty()) {
-        std::memcpy(instance_buffer_->mapped(), upload.data(),
+        std::memcpy(instance_buffer.mapped(), upload.data(),
                     upload.size() * sizeof(GpuSdfInstance));
     }
 
@@ -560,7 +558,7 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_layout_,
-                            0, 1, &composite_set_, 0, nullptr);
+                            0, 1, &composite_sets_[frame_index], 0, nullptr);
     for (const auto& d : dispatches) {
         compose_region(cmd, d.voxel_min, d.voxel_extent, d.instance_offset, d.instance_count);
     }

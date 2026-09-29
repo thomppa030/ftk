@@ -111,8 +111,9 @@ public:
     [[nodiscard]] bool has_pending_update() const {
         return full_rebuild_ || !dirty_regions_.empty();
     }
-    /// Records the outstanding region updates, or a full rebuild, into `cmd`.
-    void compose_pending(VkCommandBuffer cmd);
+    /// Records the outstanding region updates, or a full rebuild, into `cmd`,
+    /// the command buffer of frame slot `frame_index`.
+    void compose_pending(VkCommandBuffer cmd, uint32_t frame_index);
 
     // Set world-space bounds of the global SDF volume
     void set_bounds(const glm::vec3& min, const glm::vec3& max);
@@ -184,14 +185,16 @@ private:
     VkPipelineLayout composite_layout_{VK_NULL_HANDLE};
     VkPipeline composite_pipeline_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet composite_set_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> composite_sets_{};
 
     // Per-mesh SDF data packed into a single SSBO
     std::unique_ptr<Buffer> mesh_sdf_buffer_;
     uint32_t mesh_sdf_offset_{0}; // next free offset in int16 units
 
-    // Per-instance metadata SSBO
-    std::unique_ptr<Buffer> instance_buffer_;
+    // Per-instance metadata, host-written when a compose is recorded, so one
+    // per frame in flight: a compose still running on the GPU must not read
+    // the next frame's instance list.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;
 
     // Volume config
     glm::vec3 volume_min_{-10.0f};

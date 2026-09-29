@@ -741,7 +741,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
 
     // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
     if (scene_sdf_pass().has_pending_update()) {
-        scene_sdf_pass().compose_pending(cmd);
+        scene_sdf_pass().compose_pending(cmd, current_frame_);
     }
     // The SDF debug window's slice, once the field is up to date.
     scene_sdf_pass().record_slice(cmd, current_frame_);
