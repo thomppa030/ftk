@@ -5,11 +5,16 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <string>
 
 // The render scope: `CommandList::render` and what the encoder records in it.
 
 namespace fjell::gpu {
+
+static_assert(sizeof(DrawIndexedArgs) == sizeof(VkDrawIndexedIndirectCommand) &&
+              offsetof(DrawIndexedArgs, vertex_offset) == offsetof(VkDrawIndexedIndirectCommand, vertexOffset) &&
+              offsetof(DrawIndexedArgs, first_instance) == offsetof(VkDrawIndexedIndirectCommand, firstInstance));
 
 namespace {
 
