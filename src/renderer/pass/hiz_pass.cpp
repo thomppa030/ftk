@@ -64,6 +64,10 @@ Result<> HizPass::create(Device& /*device*/, const PassResources& resources) {
                              .shader = "shaders/hiz_build.comp",
                              .name = "hiz_build",
                          }));
+    FJELL_TRY(msaa_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                  .shader = "shaders/hiz_build_msaa.comp",
+                                  .name = "hiz_build_msaa",
+                              }));
     FJELL_GFX_DEBUG("HizPass created");
     return {};
 }
@@ -71,6 +75,7 @@ Result<> HizPass::create(Device& /*device*/, const PassResources& resources) {
 void HizPass::destroy() {
     default_images_.destroy();
     pipeline_.reset();
+    msaa_pipeline_.reset();
 }
 
 void HizPass::resize(uint32_t width, uint32_t height) {
@@ -119,16 +124,19 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
     // The graph has every mip of the pyramid written as storage. Each mip
     // is reduced from the one before, depth for the first, and handed to
     // the next as a compute read; the chain ends sampled in compute, where
-    // the graph expects it.
+    // the graph expects it. The depth is read before it is resolved: under
+    // MSAA the first mip reduces the multisampled depth itself.
     auto& cmd = ctx.commands();
-    cmd.set_pipeline(pipeline_);
+    const bool msaa = ctx.target->samples() != gpu::Samples::x1;
     uint32_t src_w = extent.width;
     uint32_t src_h = extent.height;
     for (uint32_t mip = 0; mip < imgs.mip_count; ++mip) {
         const uint32_t dst_w = std::max(imgs.width >> mip, 1U);
         const uint32_t dst_h = std::max(imgs.height >> mip, 1U);
-        const gpu::TextureView source = mip == 0 ? gpu::TextureView(ctx.target->depth_texture())
+        const gpu::TextureView source = mip == 0 ? gpu::TextureView(ctx.target->msaa_depth_texture())
                                                  : gpu::mip(imgs.pyramid, mip - 1);
+        if (mip == 0) cmd.set_pipeline(msaa ? msaa_pipeline_ : pipeline_);
+        if (mip == 1 && msaa) cmd.set_pipeline(pipeline_);
         cmd.bind({{"src_depth", gpu::sampled(source, sampler_)},
                   {"dst_mip", gpu::storage(gpu::mip(imgs.pyramid, mip))}});
         cmd.push(glm::uvec4(src_w, src_h, dst_w, dst_h));
@@ -153,7 +161,10 @@ PassSetup HizPass::setup() const {
 }
 
 void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto depth = builder.import_named(ctx, "depth");
+    // The depth as the prepass drew it, before the resolve; without MSAA
+    // the two names are one image.
+    const bool has_msaa = ctx.msaa_samples != gpu::Samples::x1;
+    auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
     builder.read(depth, gpu::Access::sampled_compute);
 
     auto hiz = builder.import_named(ctx, "hiz_pyramid");

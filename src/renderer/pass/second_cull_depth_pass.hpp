@@ -8,10 +8,9 @@ class MeshShaderDepthPass;
 
 /// Adds to the depth what the second meshlet cull found visible: meshlets
 /// the first cull took for hidden behind last frame's depth that this
-/// frame's shows are not. It runs straight after that cull, so the passes
-/// reading depth before the colour pass (the light cull, ambient occlusion,
-/// contact shadows) see them too; under MSAA it resolves the depth again as
-/// it ends.
+/// frame's shows are not. It runs straight after that cull and before the
+/// depth is resolved, so the passes reading depth before the colour pass
+/// (the light cull, ambient occlusion, contact shadows) see them too.
 class SecondCullDepthPass : public RenderPass {
 public:
     Result<> create(Device&, const PassResources&) override { return {}; }

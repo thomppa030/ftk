@@ -11,7 +11,7 @@ PassSetup DepthResolvePass::setup() const {
     return {
         .name = "depth_resolve",
         .phase = RenderPhase::DepthPrepass,
-        .sub_order = 51,
+        .sub_order = 170,
     };
 }
 

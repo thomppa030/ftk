@@ -49,7 +49,11 @@ public:
 
 private:
     gpu::Device* device_{nullptr};
+    /// Reduces single-sample depth, and each mip into the next.
     gpu::Owned<gpu::ComputePipeline> pipeline_;
+    /// Reduces multisampled depth into the first mip, from sample 0: the
+    /// pyramid is built before the depth is resolved.
+    gpu::Owned<gpu::ComputePipeline> msaa_pipeline_;
     gpu::Sampler sampler_;
 
     // Default per-viewport images

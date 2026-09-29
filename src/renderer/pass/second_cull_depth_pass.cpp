@@ -28,13 +28,12 @@ void SecondCullDepthPass::declare(PassBuilder& builder, const DeclareContext& ct
                  gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
                  gpu::Access::indirect_read);
-    // Tested against and added to what the prepass drew. Under MSAA the
-    // depth resolves into `depth` as rendering ends; without it the two
-    // names are one attachment.
+    // Tested against and added to what the prepass drew, which
+    // DepthResolvePass resolves afterwards; without MSAA the two names are
+    // one attachment.
     const bool has_msaa = ctx.msaa_samples != gpu::Samples::x1;
     builder.write(builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth"),
                   gpu::Access::depth_attachment);
-    if (has_msaa) builder.write(builder.import_named(ctx, "depth"), gpu::Access::depth_resolve);
 }
 
 void SecondCullDepthPass::record(const FrameContext& ctx) {
@@ -47,13 +46,7 @@ void SecondCullDepthPass::record(const FrameContext& ctx) {
 
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Second Cull Depth");
-    const bool msaa = ctx.target->samples() != gpu::Samples::x1;
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{
-                                .view = ctx.target->msaa_depth_texture(),
-                                .resolve = msaa ? gpu::TextureView(ctx.target->depth_texture())
-                                                : gpu::TextureView{},
-                                .resolve_mode = gpu::DepthResolve::sample_zero,
-                            }});
+    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture()}});
     depth_pass_->draw_found(pass, ctx, MeshletInstancePass::Cull::second);
 }
 

@@ -234,13 +234,12 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     depth_info.arrayLayers = 1;
     depth_info.samples = msaa_samples_;
     depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    // TRANSFER_SRC on both paths: the water surface seeds its own depth
-    // attachment from this one, so that a folded crest is still hidden by
-    // whatever opaque geometry stands in front of the sea.
-    depth_info.usage = msaa
-        ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-        : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-              | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    // Sampled on both paths: the Hi-Z build reads the depth before it is
+    // resolved. TRANSFER_SRC on both too: the water surface seeds its own
+    // depth attachment from this one, so that a folded crest is still
+    // hidden by whatever opaque geometry stands in front of the sea.
+    depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                       | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // Async-eligible passes (GTAO, Hi-Z, depth viz) sample depth on the
     // compute queue while the graphics queue may still own its last
