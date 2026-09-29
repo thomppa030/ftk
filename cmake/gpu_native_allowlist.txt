@@ -108,7 +108,6 @@ src/renderer/pass/water_fft_pass.cpp
 src/renderer/pass/water_fft_pass.hpp
 src/renderer/pass/water_pass.cpp
 src/renderer/pass/water_pass.hpp
-src/renderer/pass/wireframe_pass.cpp
 src/renderer/pass/wireframe_pass.hpp
 src/renderer/pass_builder.hpp
 src/renderer/pipeline.cpp
