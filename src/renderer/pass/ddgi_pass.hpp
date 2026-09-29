@@ -67,18 +67,17 @@ enum class DdgiDebugMode : uint32_t {
 };
 
 /// DDGI probe grid configuration.
-/// The grid is auto-fitted to the scene SDF bounds once on first frame, then
-/// frozen. Changing grid_position or probe_spacing at runtime invalidates all
-/// accumulated irradiance (probes shift to new world positions). For streaming
-/// or procedural worlds, set bounds before the first frame or use a scrolling
-/// grid (not yet implemented).
+/// The grid is fitted to the scene bounds and fitted again whenever content
+/// reaches outside it (VulkanContext does this, through refit_grid()). Every
+/// fit moves the probes to new world positions, which discards everything
+/// they have accumulated.
 struct DdgiConfig {
     /// Cubic: the grid is fitted to scene bounds, so a shorter Y axis does
     /// not mean finer vertical detail — it means the same scene height is
     /// covered by fewer probes, and vertical spacing grows to match.
     glm::ivec3 probe_counts{16, 16, 16};
     glm::vec3 probe_spacing{2.0f};
-    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
+    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // replaced by the first fit
     float hysteresis{0.95f};
     int probe_rays{128};
     // Octahedral texel resolution of one probe's own irradiance map — the
@@ -202,23 +201,6 @@ public:
         VkImage probe_offset_image{VK_NULL_HANDLE};
         VmaAllocation probe_offset_memory{VK_NULL_HANDLE};
         VkImageView probe_offset_view{VK_NULL_HANDLE};
-
-        // Indirection: grid coord -> probe slot, R32_UINT 3D, probe_counts
-        // texels. Double-buffered — the reallocation pass reads [1 - current]
-        // (the mapping from before this shift) and writes [current].
-        VkImage indirection_image[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        VmaAllocation indirection_memory[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        VkImageView indirection_view[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        int indirection_current{0};
-
-        // Slot -> grid coord (xyz) + flags (w), one uvec4 per probe slot.
-        // The inverse of the indirection texture, for dispatches that run
-        // per-slot and need to know which cell the slot currently holds.
-        std::unique_ptr<Buffer> slot_grid_buffer;
-
-        // Free list consumed by the reallocation pass: leading counter,
-        // then one slot index per probe.
-        std::unique_ptr<Buffer> free_list_buffer;
 
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
@@ -351,7 +333,8 @@ public:
 
     /// World-space bounds of the scene SDF volume, used by the RT trace to
     /// test whether a probe is buried. Kept current by the owner since the
-    /// SDF volume can move while the probe grid stays frozen.
+    /// SDF volume follows the scene every frame while the probe grid moves only
+    /// when content escapes it.
     void set_sdf_bounds(const glm::vec3& min, const glm::vec3& max) {
         sdf_volume_min_ = min;
         sdf_volume_max_ = max;

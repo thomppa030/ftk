@@ -133,64 +133,6 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
                  static_cast<uint32_t>(config.probe_counts.z),
                  VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
 
-    // Indirection: grid coordinate -> probe slot, one texel per cell of the
-    // clipmap level. Double-buffered so the reallocation pass can read the
-    // previous mapping while writing the new one without a hazard on a
-    // single image. R32_UINT rather than R16_UINT: the current probe count
-    // fits in 16 bits, but the spare high bits are where per-cell flags go
-    // once levels are stacked, and the whole pair is only a few KB.
-    auto create_indirection = [&](VkImage& img, VmaAllocation& alloc, VkImageView& view) {
-        VkImageCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_3D;
-        info.format = VK_FORMAT_R32_UINT;
-        info.extent = {static_cast<uint32_t>(config.probe_counts.x),
-                       static_cast<uint32_t>(config.probe_counts.y),
-                       static_cast<uint32_t>(config.probe_counts.z)};
-        info.mipLevels = 1;
-        info.arrayLayers = 1;
-        info.samples = VK_SAMPLE_COUNT_1_BIT;
-        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        create_vma_image(allocator, &info, &img, &alloc);
-
-        VkImageViewCreateInfo view_info{};
-        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = img;
-        view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
-        view_info.format = VK_FORMAT_R32_UINT;
-        view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        vkCreateImageView(device, &view_info, nullptr, &view);
-    };
-
-    for (int i = 0; i < 2; ++i) {
-        create_indirection(indirection_image[i], indirection_memory[i], indirection_view[i]);
-    }
-    indirection_current = 0;
-
-    // Slot -> grid coordinate, the inverse of the indirection texture. The
-    // trace/update dispatches run one invocation per slot and need the world
-    // position that slot currently stands for; deriving it arithmetically
-    // from the slot index (as the frozen grid did) is exactly what stops
-    // working once slots are reused for different cells.
-    VkDeviceSize slot_grid_size = static_cast<VkDeviceSize>(total_probes) * sizeof(uint32_t) * 4;
-    slot_grid_buffer = std::make_unique<Buffer>(
-        allocator, slot_grid_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Free list for the reallocation pass: a leading counter followed by
-    // one slot per probe. Worst case (a shift clearing the whole volume)
-    // every slot is freed at once, so it never needs to hold more.
-    VkDeviceSize free_list_size = sizeof(uint32_t) * (1 + static_cast<VkDeviceSize>(total_probes));
-    free_list_buffer = std::make_unique<Buffer>(
-        allocator, free_list_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
     // Probe status SSBO
     VkDeviceSize status_size = static_cast<VkDeviceSize>(total_probes) * sizeof(uint32_t);
     probe_status_buffer = std::make_unique<Buffer>(
@@ -254,12 +196,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     destroy_img(probe_offset_view, probe_offset_image, probe_offset_memory);
     indirect_texture.reset();
     destroy_img(indirect_view, indirect_image, indirect_memory);
-    for (int i = 0; i < 2; ++i) {
-        destroy_img(indirection_view[i], indirection_image[i], indirection_memory[i]);
-    }
 
-    slot_grid_buffer.reset();
-    free_list_buffer.reset();
     probe_status_buffer.reset();
     for (auto& ubo : constants_ubo) ubo.reset();
 }
