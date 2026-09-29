@@ -325,7 +325,9 @@ public:
         glm::vec3 light_color;
         float sdf_resolution;
         glm::vec3 sdf_volume_min;
-        float pad0;
+        /// Changes every frame, so a probe hit takes a different local light
+        /// each time it is traced.
+        uint32_t random_seed;
         glm::vec3 sdf_volume_max;
         float pad1;
     };

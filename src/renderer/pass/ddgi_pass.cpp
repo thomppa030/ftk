@@ -345,7 +345,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     // binding 5: probe offset texture (sampler2D)
     // binding 6: irradiance atlas (sampler2D) — the bounce at a hit
     // binding 7: visibility atlas (sampler2D) — the bounce at a hit
-    std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
+    // binding 8: light list (SSBO) — the local lights at a hit
+    std::array<VkDescriptorSetLayoutBinding, 9> bindings{};
 
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -379,6 +380,7 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
 
     bindings[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     bindings[7] = {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -799,7 +801,12 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     visibility_info.imageView = imgs.visibility_view;
     visibility_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    std::array<VkWriteDescriptorSet, 8> writes{};
+    // 8: the local lights at a hit
+    VkDescriptorBufferInfo lights_info{};
+    lights_info.buffer = imgs.light_list[slot]->handle();
+    lights_info.range = VK_WHOLE_SIZE;
+
+    std::array<VkWriteDescriptorSet, 9> writes{};
     for (auto& w : writes) {
         w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         w.dstSet = set;
@@ -837,6 +844,10 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     writes[7].dstBinding = 7;
     writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[7].pImageInfo = &visibility_info;
+
+    writes[8].dstBinding = 8;
+    writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[8].pBufferInfo = &lights_info;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -1004,7 +1015,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
         // Four sets per frame slot without RT (trace, update, sample, light
-        // select), holding 11 samplers, 5 storage images and 4 storage
+        // select), holding 11 samplers, 5 storage images and 5 storage
         // buffers between them. With RT, one RT trace set per slot on top;
         // each adds 1 UBO, 5 samplers, 1 storage image, 5 storage buffers
         // and 1 acceleration structure.
@@ -1016,7 +1027,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS};
         pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 5u * SLOTS + RT_SLOTS : 5u * SLOTS};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u * SLOTS + 5u * RT_SLOTS : 4u * SLOTS};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 5u * SLOTS + 5u * RT_SLOTS : 5u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -1419,7 +1430,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // The lights that reach the grid, for the tracer to pick from at its hits.
-    if (use_rt) record_light_select(ctx, imgs);
+    record_light_select(ctx, imgs);
 
     if (use_rt) {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_rt");
@@ -1492,6 +1503,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.light_color = light_color_;
         push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
         push.sdf_volume_min = sdf_volume_min_;
+        push.random_seed = frame_counter_;
         push.sdf_volume_max = sdf_volume_max_;
 
         vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,

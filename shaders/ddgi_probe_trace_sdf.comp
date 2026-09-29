@@ -18,6 +18,10 @@ layout(set = 0, binding = 1) uniform sampler3D scene_sdf;
 layout(rgba16f, set = 0, binding = 2) uniform writeonly image2D radiance_out;
 layout(set = 0, binding = 3) uniform samplerCube sky_cubemap;
 
+// The point and spot lights that reach the grid (binding 8).
+#define FJELL_DDGI_LIGHTS_BINDING 8
+#include "fjell_ddgi_lights.glsl"
+
 // ── Push constants ──────────────────────────────────────────────────────
 
 layout(push_constant) uniform PushConstants {
@@ -26,7 +30,7 @@ layout(push_constant) uniform PushConstants {
     vec3 light_color;
     float sdf_resolution;
     vec3 sdf_volume_min;
-    float pad_pc0;
+    uint random_seed;         // changes every frame: which local light a hit takes
     vec3 sdf_volume_max;
     float pad_pc1;
 };
@@ -137,9 +141,24 @@ void main() {
         // it any closer without finding the surface it starts on.
         radiance = vec3(0.0);
         float NdotL = max(dot(N, light_direction), 0.0);
+        float voxel = sdf_voxel_size();
         if (NdotL > 0.0 && light_intensity > 0.0
-            && sdf_unoccluded(hit_pos + N * sdf_voxel_size(), light_direction, MAX_TRACE_DIST)) {
+            && sdf_unoccluded(hit_pos + N * voxel, light_direction, MAX_TRACE_DIST)) {
             radiance = albedo * light_color * light_intensity * NdotL;
+        }
+
+        // One point or spot light, picked in proportion to what each gives
+        // the hit and scaled by the chance of the pick, where the march
+        // toward it gets there. It stops short of the light, which has no
+        // surface of its own.
+        uint h = fjell_hash(uint(probe_index) * uint(ddgi.probe_rays) + uint(ray_index));
+        h = fjell_hash(h ^ random_seed);
+        float u = float(h >> 8u) * (1.0 / 16777216.0);
+        DdgiLightPick pick = ddgi_pick_light(hit_pos, N, u);
+        if (pick.index >= 0
+            && sdf_unoccluded(hit_pos + N * voxel, pick.light.to_light,
+                              max(pick.light.distance - 2.0 * voxel, 0.0))) {
+            radiance += albedo * pick.light.incident;
         }
 
         // Indirect bounce, as the RT trace does it: the field's irradiance
