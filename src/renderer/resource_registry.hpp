@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/texture.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cassert>
@@ -16,6 +18,8 @@ class ResourceRegistry {
 public:
     struct ImageResource {
         uint32_t frame_graph_id{0};
+        /// The texture as the GPU interface knows it.
+        gpu::Texture texture{};
         VkImage image{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
         VkSampler sampler{VK_NULL_HANDLE};
@@ -64,6 +68,12 @@ public:
         const auto* res = find_image(name);
         assert(res != nullptr && "ResourceRegistry::image_id: resource not found");
         return res->frame_graph_id;
+    }
+
+    /// The texture registered under `name`; invalid if none is.
+    [[nodiscard]] gpu::Texture texture(const std::string& name) const {
+        const auto* res = find_image(name);
+        return res != nullptr ? res->texture : gpu::Texture{};
     }
 
     /// Get the VkImageView for a named resource.
