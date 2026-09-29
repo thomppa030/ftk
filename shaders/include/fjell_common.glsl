@@ -48,6 +48,17 @@ vec3 oct_decode(vec2 o) {
 // and VIEW_DIR from inside fragment() or light(); they're already in
 // scope in both.
 
+// Scrambles an integer into one that looks random: the tracers seed their
+// random numbers with it. Nearby inputs give unrelated outputs.
+uint fjell_hash(uint x) {
+    x ^= x >> 16u;
+    x *= 0x45d9f3bu;
+    x ^= x >> 16u;
+    x *= 0x45d9f3bu;
+    x ^= x >> 16u;
+    return x;
+}
+
 // Raw fresnel-style facing term: 0 facing camera, 1 at silhouette.
 // `power` shapes the falloff — 1.0 is wide, 5.0 is a tight rim.
 float fresnel_facing(vec3 normal, vec3 view_dir, float power) {

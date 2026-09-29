@@ -70,15 +70,6 @@ float halton(uint index, uint base) {
     return r;
 }
 
-uint hash_probe(uint x) {
-    x ^= x >> 16u;
-    x *= 0x45d9f3bu;
-    x ^= x >> 16u;
-    x *= 0x45d9f3bu;
-    x ^= x >> 16u;
-    return x;
-}
-
 // Extended hemisphere: z ranges from Z_MIN to 1.0
 // Z_MIN < 0 lets rays reach slightly below the surface horizon,
 // catching emissive objects at the same height as the probe.
@@ -172,7 +163,7 @@ void main() {
     // either hit by a fixed ray or missed entirely, and the probe flips
     // between the two as the camera shifts it by a pixel.
     uint probe_id = probe_x + probe_y * probe_count.x;
-    uint hashed = hash_probe(probe_id);
+    uint hashed = fjell_hash(probe_id);
     uint seq_index = (hashed + ray_offset + ray_index) & 0xFFFFu;
     vec2 xi = vec2(halton(seq_index + 1u, 2u), halton(seq_index + 1u, 3u));
     vec3 local_dir = extended_hemisphere(xi);

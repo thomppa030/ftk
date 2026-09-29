@@ -101,13 +101,7 @@ const float RT_RAY_BIAS_SLOPE_SCALE = 0.75;
 // ── Hash + Halton ──────────────────────────────────────────────────────
 
 uint hash_pixel(uvec2 p, uint frame) {
-    uint x = p.x * 1973u + p.y * 9277u + frame * 26699u;
-    x ^= x >> 16u;
-    x *= 0x45d9f3bu;
-    x ^= x >> 16u;
-    x *= 0x45d9f3bu;
-    x ^= x >> 16u;
-    return x;
+    return fjell_hash(p.x * 1973u + p.y * 9277u + frame * 26699u);
 }
 
 float halton(uint index, uint base) {
