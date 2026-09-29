@@ -43,7 +43,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -226,10 +225,6 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
         // this the new count would sit inert until an unrelated viewport
         // resize or GI toggle happened to run.
         has_pending_ddgi_probe_count_ = true;
-    }
-    if (!ddgi_settings_seen_) {
-        ddgi_settings_seen_ = true;
-        request_ddgi_settle_rebuild();
     }
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
@@ -747,7 +742,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
 
     // IBL intensity from the environment (consumed by update_uniform_buffer)
     ibl_intensity_ = environment.sky.ibl_intensity;
-    sky_wants_hdri_ = !environment.sky.hdri_path.empty();
 
     // --- Render scene once per viewport ---
     for (const auto& vp : viewports) {
@@ -1294,7 +1288,6 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     gpu_.transient_pool().begin_frame(frame_serial_, gpu_device().finished_frame());
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
-    apply_ddgi_settle_rebuild();
 
     // A font whose recipe changed is rebuilt here, where the retired texture
     // lands in a slot the GPU is done with.
@@ -1529,7 +1522,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
             if (!ddgi_grid_initialized_) {
                 ddgi_pass().refit_grid(padded_min, spacing);
-                ddgi_settle_countdown_ = 30;
                 ddgi_grid_initialized_ = true;
                 ddgi_grid_min_ = padded_min;
                 ddgi_grid_max_ = padded_min + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
@@ -1544,7 +1536,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                             || glm::any(glm::greaterThan(padded_max, ddgi_grid_max_ + margin));
                 if (escaped) {
                     ddgi_pass().refit_grid(padded_min, spacing);
-                    ddgi_settle_countdown_ = 30;
                     ddgi_grid_min_ = padded_min;
                     ddgi_grid_max_ = padded_min
                         + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
@@ -1724,59 +1715,6 @@ void VulkanContext::apply_pending_ddgi_probe_count() {
     if (default_pp_ == nullptr) return;
     if (!default_pp_->config().ddgi) return;
 
-    rebuild_ddgi_resources();
-}
-
-void VulkanContext::apply_ddgi_settle_rebuild() {
-    if (!ddgi_settle_rebuild_armed_) return;
-    if (default_pp_ == nullptr) return;
-
-
-    // DDGI off: disarm instead of waiting. Enabling it later goes through
-    // the toggle path, which creates the images fresh against the loaded
-    // scene — the same effect this rebuild exists to produce.
-    if (!default_pp_->config().ddgi || !ddgi_pass().config().enabled) {
-        ddgi_settle_rebuild_armed_ = false;
-        return;
-    }
-
-    // The gates below describe a scene settling, but each can stall on a
-    // scene it does not model. Past the deadline, rebuild regardless: a late
-    // rebuild costs one device wait, while never rebuilding leaves the
-    // misrender this mechanism exists to clear.
-    if (ddgi_settle_deadline_ == std::chrono::steady_clock::time_point{}) {
-        ddgi_settle_deadline_ = std::chrono::steady_clock::now()
-                              + std::chrono::milliseconds(DDGI_SETTLE_DEADLINE_MS);
-    }
-    const bool past_deadline = std::chrono::steady_clock::now() >= ddgi_settle_deadline_;
-
-    // Wait until the grid has held still: every refit pushes the countdown
-    // back up, so reaching zero means content has stopped arriving and the
-    // scene is in the state a rebuild is known to fix.
-    if (!past_deadline && ddgi_settle_countdown_ > 0) {
-        --ddgi_settle_countdown_;
-        return;
-    }
-
-    // Refit silence is necessary but not sufficient: it only says the grid
-    // stopped moving. Probes trace the scene SDF and integrate the sky, and
-    // both are built after the first frames — rebuilding before they exist
-    // seeds every probe from a placeholder and reproduces the misrender this
-    // rebuild is here to clear. Gate on those two inputs directly.
-    if (!past_deadline && scene_sdf_pass().view() == VK_NULL_HANDLE) {
-        return;
-    }
-
-    // cubemap_view() falls back to the procedural sky, so a non-null view is
-    // not proof the final sky is resident. Only wait when the scene actually
-    // asks for an HDRI — otherwise the procedural sky IS the final one.
-    if (!past_deadline && sky_wants_hdri_ && !sky_cubemap_pass().has_hdri()) {
-        return;
-    }
-
-    ddgi_settle_rebuild_armed_ = false;
-    FJELL_GFX_DEBUG("DDGI: post-load rebuild ({})",
-                    past_deadline ? "deadline reached" : "SDF + sky ready");
     rebuild_ddgi_resources();
 }
 
