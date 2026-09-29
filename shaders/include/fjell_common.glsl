@@ -1,6 +1,10 @@
 #ifndef FJELL_COMMON_GLSL
 #define FJELL_COMMON_GLSL
 
+// tests/test_ddgi.cpp compiles this file as C++ (through fjell_ddgi.glsl), so
+// it is written without swizzles, and a literal in vector arithmetic goes
+// through a constructor or a float.
+
 const float PI = 3.14159265359;
 
 // Octahedral normal encoding/decoding
@@ -13,10 +17,10 @@ vec2 sign_not_zero2(vec2 v) {
 }
 
 vec2 oct_encode(vec3 v) {
-    float l1norm = abs(v.x) + abs(v.y) + abs(v.z);
-    vec2 result = v.xy * (1.0 / l1norm);
+    float inv_l1norm = 1.0 / (abs(v.x) + abs(v.y) + abs(v.z));
+    vec2 result = vec2(v.x, v.y) * inv_l1norm;
     if (v.z < 0.0) {
-        result = (1.0 - abs(result.yx)) * sign_not_zero2(result);
+        result = vec2(1.0 - abs(result.y), 1.0 - abs(result.x)) * sign_not_zero2(result);
     }
     return result;
 }
@@ -24,7 +28,9 @@ vec2 oct_encode(vec3 v) {
 vec3 oct_decode(vec2 o) {
     vec3 v = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
     if (v.z < 0.0) {
-        v.xy = (1.0 - abs(v.yx)) * sign_not_zero2(v.xy);
+        vec2 folded = vec2(1.0 - abs(v.y), 1.0 - abs(v.x)) * sign_not_zero2(vec2(v.x, v.y));
+        v.x = folded.x;
+        v.y = folded.y;
     }
     return normalize(v);
 }
@@ -46,7 +52,8 @@ vec3 oct_decode(vec2 o) {
 // `power` shapes the falloff — 1.0 is wide, 5.0 is a tight rim.
 float fresnel_facing(vec3 normal, vec3 view_dir, float power) {
     float NdotV = max(dot(normal, view_dir), 0.0);
-    return pow(1.0 - NdotV, power);
+    float facing = 1.0 - NdotV;
+    return pow(facing, power);
 }
 
 // Sub-surface-ish Fresnel: bias and scale let you push the curve so it
@@ -55,7 +62,8 @@ float fresnel_facing(vec3 normal, vec3 view_dir, float power) {
 float fresnel_bias_scale(vec3 normal, vec3 view_dir,
                          float bias, float scale, float power) {
     float NdotV = max(dot(normal, view_dir), 0.0);
-    return clamp(bias + scale * pow(1.0 - NdotV, power), 0.0, 1.0);
+    float facing = 1.0 - NdotV;
+    return clamp(bias + scale * pow(facing, power), 0.0, 1.0);
 }
 
 #endif

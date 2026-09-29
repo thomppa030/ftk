@@ -203,6 +203,7 @@ add_executable(fjell-tests
     test_post_layers.cpp
     test_lut_asset.cpp
     test_post_effects.cpp
+    test_ddgi.cpp
     test_surface_asset.cpp
     test_fjui_serializer.cpp
     test_data_bind.cpp

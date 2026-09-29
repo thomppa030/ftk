@@ -6,6 +6,7 @@
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
+#include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -153,48 +154,6 @@ struct DdgiConfig {
     /// Diagnostic view replacing the indirect output. Runtime only, never
     /// saved with the project.
     DdgiDebugMode debug_mode{DdgiDebugMode::Off};
-};
-
-/// GPU-side constants UBO (std140 layout).
-struct GpuDdgiConstants {
-    glm::vec3 probe_grid_position;
-    float probe_sphere_scale{0.1f};
-
-    glm::vec3 probe_spacing;
-    float max_probe_offset;
-
-    glm::vec3 reciprocal_spacing;
-    float self_shadow_bias;
-
-    glm::ivec3 probe_counts;
-    uint32_t debug_options{0};
-
-    int32_t irr_tex_w{0};
-    int32_t irr_tex_h{0};
-    int32_t irr_side{0};
-    int32_t probe_rays{0};
-
-    int32_t vis_tex_w{0};
-    int32_t vis_tex_h{0};
-    int32_t vis_side{0};
-    int32_t probe_update_offset{0};
-
-    int32_t probe_update_count{0};
-    float hysteresis{0.97f};
-    float infinite_bounces_mult{0.0f};
-    float normal_bias{0.0f};   // sample bias along the surface normal (× spacing)
-
-    glm::mat4 random_rotation{1.0f};
-
-    // Camera data for sampling pass
-    glm::vec3 camera_position;
-    float pad1{0.0f};
-
-    glm::mat4 inv_view_proj{1.0f};
-
-    glm::vec2 resolution;
-    float view_bias{0.0f};     // sample bias toward the camera (× spacing)
-    float pad3{0.0f};
 };
 
 class DdgiPass : public RenderPass {

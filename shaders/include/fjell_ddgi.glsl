@@ -2,12 +2,20 @@
 #define FJELL_DDGI_GLSL
 
 // Shared DDGI probe utilities — adapted from Mastering Vulkan ch14 ddgi.h
+//
+// tests/test_ddgi.cpp compiles this file as C++ and pins its math, so it is
+// written without swizzles, and a literal in vector arithmetic goes through a
+// constructor or a float. The test defines FJELL_DDGI_EXTERNAL_BINDINGS and
+// supplies what a shader gets from its bindings: the constants as `ddgi`, and
+// the cage's four reads (see the cage below).
 
 #include "fjell_common.glsl"
 
 // ── DDGIConstants UBO ───────────────────────────────────────────────────
-// Mirrors fjell::DdgiConstants on the C++ side. Every DDGI / RT shader binds
-// it at the same slot (set 0, binding 0 by default).
+// Mirrors fjell::GpuDdgiConstants (renderer/uniform_types.hpp). Every DDGI /
+// RT shader binds it at the same slot (set 0, binding 0 by default).
+
+#ifndef FJELL_DDGI_EXTERNAL_BINDINGS
 
 #ifndef FJELL_DDGI_UBO_SET
 #define FJELL_DDGI_UBO_SET 0
@@ -30,6 +38,8 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
     mat4 inv_view_proj;
     vec2 resolution;           float view_bias; float pad3;
 } ddgi;
+
+#endif // FJELL_DDGI_EXTERNAL_BINDINGS
 
 // ── Perceptual irradiance encoding ──────────────────────────────────────
 // Probe irradiance is stored gamma-compressed so the temporal hysteresis
@@ -78,6 +88,11 @@ vec3 ddgi_decode_irradiance(vec3 v) {
     return pow(max(v, vec3(0.0)), vec3(DDGI_IRRADIANCE_GAMMA));
 }
 
+// The small share of energy the probe field deliberately loses on the way
+// from a ray's radiance to a surface: the cage hands a point this much of the
+// irradiance it blends (see the end of ddgi_sample_cage).
+const float DDGI_ENERGY_CONSERVATION = 0.95;
+
 // ── Spherical Fibonacci ─────────────────────────────────────────────────
 
 vec3 spherical_fibonacci(float i, float n) {
@@ -109,10 +124,11 @@ vec2 get_probe_uv(vec3 direction, int probe_index,
     ivec2 probe_indices = ivec2(probe_index % probes_per_row,
                                 probe_index / probes_per_row);
 
+    float half_side = float(probe_side_length) * 0.5;
     vec2 atlas_texels = vec2(probe_indices) * probe_with_border_side;
     atlas_texels += vec2(1.0);                                   // border offset
-    atlas_texels += vec2(probe_side_length * 0.5);               // center
-    atlas_texels += oct_coords * (probe_side_length * 0.5);      // octahedral offset
+    atlas_texels += vec2(half_side);                             // center
+    atlas_texels += oct_coords * half_side;                      // octahedral offset
 
     return atlas_texels / vec2(float(full_tex_w), float(full_tex_h));
 }
@@ -142,16 +158,23 @@ vec3 ddgi_grid_to_world_no_offsets(ivec3 grid_indices) {
     return vec3(grid_indices) * ddgi.probe_spacing + ddgi.probe_grid_position;
 }
 
+// Where a probe's relocation offset sits in the offset image: one texel per
+// probe, a row per XY slab of the grid.
+ivec2 ddgi_probe_offset_texel(int probe_index) {
+    int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
+    return ivec2(probe_index % pxy, probe_index / pxy);
+}
+
+#ifndef FJELL_DDGI_EXTERNAL_BINDINGS
 vec3 ddgi_grid_to_world(ivec3 grid_indices, int probe_index,
                         sampler2D probe_offset_tex, bool use_offsets) {
     vec3 offset = vec3(0.0);
     if (use_offsets) {
-        int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
-        ivec2 offset_coord = ivec2(probe_index % pxy, probe_index / pxy);
-        offset = texelFetch(probe_offset_tex, offset_coord, 0).rgb;
+        offset = texelFetch(probe_offset_tex, ddgi_probe_offset_texel(probe_index), 0).rgb;
     }
     return ddgi_grid_to_world_no_offsets(grid_indices) + offset;
 }
+#endif
 
 ivec3 ddgi_world_to_grid(vec3 world_pos) {
     return clamp(ivec3((world_pos - ddgi.probe_grid_position) * ddgi.reciprocal_spacing),
@@ -160,10 +183,10 @@ ivec3 ddgi_world_to_grid(vec3 world_pos) {
 
 // ── Probe status constants ──────────────────────────────────────────────
 
-#define PROBE_STATUS_OFF            0
-#define PROBE_STATUS_SLEEP          1
-#define PROBE_STATUS_ACTIVE         4
-#define PROBE_STATUS_UNINITIALIZED  6
+#define PROBE_STATUS_OFF            0u
+#define PROBE_STATUS_SLEEP          1u
+#define PROBE_STATUS_ACTIVE         4u
+#define PROBE_STATUS_UNINITIALIZED  6u
 
 // ── The probe cage ──────────────────────────────────────────────────────
 //
@@ -191,8 +214,14 @@ ivec3 ddgi_world_to_grid(vec3 world_pos) {
 //
 // Defining FJELL_DDGI_CAGE is what asks for the cage; a shader that only
 // wants the grid helpers above leaves it alone and declares nothing.
+//
+// The cage reads those resources only through the four ddgi_cage_* functions
+// below. With FJELL_DDGI_EXTERNAL_BINDINGS defined the includer supplies them
+// instead, over whatever stands in for the atlases.
 
 #ifdef FJELL_DDGI_CAGE
+
+#ifndef FJELL_DDGI_EXTERNAL_BINDINGS
 
 #ifndef FJELL_DDGI_CAGE_SET
 #define FJELL_DDGI_CAGE_SET 0
@@ -209,9 +238,32 @@ layout(std430, set = FJELL_DDGI_CAGE_SET, binding = FJELL_DDGI_CAGE_STATUS_BINDI
     uint ddgi_probe_status[];
 };
 
-// What the cage did, for the diagnostics that want to see inside it. A
-// caller that only wants the light ignores it.
-struct DdgiCageTrace {
+// The irradiance atlas at uv, still encoded.
+vec3 ddgi_cage_irradiance(vec2 uv) {
+    return textureLod(ddgi_irradiance_tex, uv, 0).rgb;
+}
+
+// The visibility atlas at uv: mean hit distance and mean squared distance.
+vec2 ddgi_cage_visibility(vec2 uv) {
+    return textureLod(ddgi_visibility_tex, uv, 0).rg;
+}
+
+// How far the offset pass has moved a probe from its grid position.
+vec3 ddgi_cage_probe_offset(int probe_index) {
+    return texelFetch(ddgi_probe_offset_tex, ddgi_probe_offset_texel(probe_index), 0).rgb;
+}
+
+uint ddgi_cage_probe_status(int probe_index) {
+    return ddgi_probe_status[probe_index];
+}
+
+#endif // FJELL_DDGI_EXTERNAL_BINDINGS
+
+// The light the cage gives a point, and what it did to get there, for the
+// diagnostics that want to see inside it. A caller that only wants the light
+// reads `irradiance`.
+struct DdgiCageSample {
+    vec3  irradiance;     // what the surface receives, before its albedo
     ivec3 base_grid;      // the cell the point landed in
     vec3  alpha;          // where in that cell, 0..1 per axis
     float sum_weight;     // what the blend divided by
@@ -221,8 +273,9 @@ struct DdgiCageTrace {
 
 // Skip the Chebyshev visibility test. Only the screen-space pass's
 // NO_VISIBILITY diagnostic passes true.
-vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
-                      out DdgiCageTrace trace) {
+DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility) {
+    DdgiCageSample trace;
+    trace.irradiance = vec3(0.0);
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
 
     // Bias the sample off the surface before the cage lookup. Lean on the
@@ -286,12 +339,12 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
         // Skip probes the status pass disabled (buried in / behind geometry).
         // Their irradiance is stale or meaningless, so let the other cage
         // probes carry the interpolation instead of leaking it in.
-        if (ddgi_probe_status[probe_idx] == PROBE_STATUS_OFF) continue;
+        if (ddgi_cage_probe_status(probe_idx) == PROBE_STATUS_OFF) continue;
 
-        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx,
-                                            ddgi_probe_offset_tex, true);
+        vec3 probe_pos = ddgi_grid_to_world_no_offsets(probe_grid)
+                       + ddgi_cage_probe_offset(probe_idx);
 
-        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
+        vec3 trilinear = mix(vec3(1.0) - alpha, alpha, vec3(offset));
         float weight = 1.0;
 
         // Smooth backface weight
@@ -306,7 +359,7 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
 
         vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx,
                                    ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
-        vec2 visibility = textureLod(ddgi_visibility_tex, vis_uv, 0).rg;
+        vec2 visibility = ddgi_cage_visibility(vis_uv);
         float mean_dist = visibility.x;
 
         if (dist_to_biased > mean_dist && !skip_visibility) {
@@ -333,8 +386,7 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
 
         vec2 irr_uv = get_probe_uv(normal, probe_idx,
                                    ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
-        vec3 probe_irradiance = ddgi_decode_irradiance(
-            textureLod(ddgi_irradiance_tex, irr_uv, 0).rgb);
+        vec3 probe_irradiance = ddgi_decode_irradiance(ddgi_cage_irradiance(irr_uv));
 
         weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
 
@@ -345,7 +397,7 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
     trace.sum_weight = sum_weight;
 
     // All cage probes disabled (e.g. deep inside geometry) — no indirect.
-    if (sum_weight < 1e-6) return vec3(0.0);
+    if (sum_weight < 1e-6) return trace;
 
     // sum_irradiance already holds albedo * incident_light (see the store
     // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.comp —
@@ -365,7 +417,8 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
     // 0.95 is kept: it's the same deliberate small energy-loss damping
     // factor used as `energy_conservation` in ddgi_irradiance_update.comp,
     // unrelated to the PI error.
-    return (sum_irradiance / sum_weight) * 0.95;
+    trace.irradiance = (sum_irradiance / sum_weight) * DDGI_ENERGY_CONSERVATION;
+    return trace;
 }
 
 #endif // FJELL_DDGI_CAGE

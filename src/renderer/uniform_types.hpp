@@ -114,6 +114,52 @@ struct GpuFogVolume {
 // the extras are dropped rather than growing the buffer mid-frame.
 inline constexpr uint32_t MAX_FOG_VOLUMES = 64;
 
+/// DDGI's constants UBO (std140), mirrored by `DDGIConstants` in
+/// shaders/include/fjell_ddgi.glsl. Every vec3 is followed by a scalar, which
+/// keeps each row on 16 bytes without alignas. tests/test_ddgi.cpp stands one
+/// of these in for the shader's `ddgi`, so a field renamed on one side alone
+/// stops that test compiling.
+struct GpuDdgiConstants {
+    glm::vec3 probe_grid_position;
+    float probe_sphere_scale{0.1f};
+
+    glm::vec3 probe_spacing;
+    float max_probe_offset;
+
+    glm::vec3 reciprocal_spacing;
+    float self_shadow_bias;
+
+    glm::ivec3 probe_counts;
+    uint32_t debug_options{0};
+
+    int32_t irr_tex_w{0};
+    int32_t irr_tex_h{0};
+    int32_t irr_side{0};
+    int32_t probe_rays{0};
+
+    int32_t vis_tex_w{0};
+    int32_t vis_tex_h{0};
+    int32_t vis_side{0};
+    int32_t probe_update_offset{0};
+
+    int32_t probe_update_count{0};
+    float hysteresis{0.97f};
+    float infinite_bounces_mult{0.0f};
+    float normal_bias{0.0f};   // sample bias along the surface normal (× spacing)
+
+    glm::mat4 random_rotation{1.0f};
+
+    // Camera data for sampling pass
+    glm::vec3 camera_position;
+    float pad1{0.0f};
+
+    glm::mat4 inv_view_proj{1.0f};
+
+    glm::vec2 resolution;
+    float view_bias{0.0f};     // sample bias toward the camera (× spacing)
+    float pad3{0.0f};
+};
+
 struct PbrPushConstants {
     glm::mat4 model;
     uint32_t material_id{0};

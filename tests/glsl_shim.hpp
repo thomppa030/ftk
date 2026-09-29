@@ -25,7 +25,10 @@
 using vec2 = glm::vec2;
 using vec3 = glm::vec3;
 using vec4 = glm::vec4;
+using mat3 = glm::mat3;
 using mat4 = glm::mat4;
+using ivec2 = glm::ivec2;
+using ivec3 = glm::ivec3;
 using uvec2 = glm::uvec2;
 using uvec4 = glm::uvec4;
 using uint = unsigned int;
@@ -37,6 +40,7 @@ using glm::dot;
 using glm::length;
 using glm::max;
 using glm::min;
+using glm::mix;
 using glm::normalize;
 
 inline float max(float a, float b) { return std::max(a, b); }
@@ -52,6 +56,7 @@ inline float floor(float v) { return std::floor(v); }
 inline float fract(float v) { return v - std::floor(v); }
 inline float mod(float x, float y) { return x - y * std::floor(x / y); }
 inline float pow(float a, float b) { return std::pow(a, b); }
+inline vec3 pow(vec3 a, vec3 b) { return glm::pow(a, b); }
 inline float mix(float a, float b, float t) { return a + (b - a) * t; }
 inline float exp(float v) { return std::exp(v); }
 inline float inversesqrt(float v) { return 1.0f / std::sqrt(v); }
