@@ -158,6 +158,7 @@ Result<> ShadowPass::create(Device& /*device*/, const PassResources& resources) 
     device_ = resources.device;
     written_ = false;
     FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{
+                          .kind = gpu::TextureKind::tex2d_array,
                           .format = DEPTH_FORMAT,
                           .width = MAP_SIZE,
                           .height = MAP_SIZE,
