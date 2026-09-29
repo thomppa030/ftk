@@ -5,6 +5,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass/post_pass.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/base_path.hpp"
@@ -115,7 +116,7 @@ Result<> DebugPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create debug pipeline layout");
     }
 
-    VkFormat color_format = PostPass::OUTPUT_FORMAT;
+    VkFormat color_format = gpu::vulkan::to_vk(PostPass::OUTPUT_FORMAT);
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;

@@ -1,5 +1,6 @@
 #include "renderer/pass/post_pass.hpp"
 #include "gpu/vulkan/native.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -44,7 +45,7 @@ void PostPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = OUTPUT_FORMAT;
+    ci.format = gpu::vulkan::to_vk(OUTPUT_FORMAT);
     ci.extent = {width, height, 1};
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
@@ -65,7 +66,7 @@ void PostPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_ci.image = image;
     view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = OUTPUT_FORMAT;
+    view_ci.format = gpu::vulkan::to_vk(OUTPUT_FORMAT);
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create post output view");
@@ -384,7 +385,7 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
             .layout = layout_,
             .vert_module = vert_module,
             .frag_module = frag_module,
-            .color_format = OUTPUT_FORMAT,
+            .color_format = gpu::vulkan::to_vk(OUTPUT_FORMAT),
             .pipeline_cache = vk_pipeline_cache_,
         };
         built.base = vk_utils::create_fullscreen_pipeline(info);

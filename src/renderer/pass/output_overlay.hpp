@@ -1,10 +1,13 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/render_encoder.hpp"
+#include "gpu/sampler.hpp"
 
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <optional>
 
 namespace fjell {
 
@@ -30,6 +33,8 @@ public:
     static constexpr uint32_t DEPTH_SET = 1;
 
     Result<> create(VkDevice device);
+    /// Makes the sampler the scene depth is read through, for bind_depth().
+    void create(gpu::Device& device);
     void destroy();
 
     [[nodiscard]] VkDescriptorSetLayout depth_set_layout() const { return depth_set_layout_; }
@@ -48,10 +53,20 @@ public:
     /// End rendering and hand the output back to ImGui.
     void end(const FrameContext& ctx) const;
 
+    /// The output as the one colour target an overlay draws over, kept as it
+    /// is beneath. None, and nothing is drawn, exactly when declare()
+    /// declared nothing.
+    [[nodiscard]] static std::optional<gpu::RenderTargets> targets(const FrameContext& ctx);
+
+    /// Binds the scene depth where the overlay's shaders test against it
+    /// (`scene_depth` in fjell_overlay_depth.glsl).
+    void bind_depth(gpu::RenderEncoder& pass, const FrameContext& ctx) const;
+
 private:
     VkDevice device_{VK_NULL_HANDLE};
     VkSampler sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout depth_set_layout_{VK_NULL_HANDLE};
+    gpu::Sampler depth_sampler_;
 };
 
 } // namespace fjell

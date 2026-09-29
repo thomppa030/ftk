@@ -1,4 +1,5 @@
 #include "renderer/pass/output_overlay.hpp"
+#include "gpu/device.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/pass/post_pass.hpp"
@@ -97,6 +98,23 @@ bool OutputOverlay::begin(const FrameContext& ctx, VkPipelineLayout layout) cons
 
 void OutputOverlay::end(const FrameContext& ctx) const {
     vkCmdEndRendering(ctx.cmd);
+}
+
+void OutputOverlay::create(gpu::Device& device) {
+    depth_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
+                                     .mip_filter = gpu::Filter::nearest,
+                                     .address = gpu::Address::clamp});
+}
+
+std::optional<gpu::RenderTargets> OutputOverlay::targets(const FrameContext& ctx) {
+    // The same condition under which the graph catalogues "post_output".
+    const auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->post() : nullptr;
+    if (output == nullptr || !output->texture) return std::nullopt;
+    return gpu::RenderTargets{.color = {{.view = output->texture}}};
+}
+
+void OutputOverlay::bind_depth(gpu::RenderEncoder& pass, const FrameContext& ctx) const {
+    pass.bind({{"scene_depth", gpu::sampled(ctx.texture("depth"), depth_sampler_)}});
 }
 
 } // namespace fjell

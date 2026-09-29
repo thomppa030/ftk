@@ -1,9 +1,9 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/output_overlay.hpp"
 #include "renderer/pass/render_pass.hpp"
-
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -44,9 +44,7 @@ public:
     [[nodiscard]] const GridSettings& settings() const { return settings_; }
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
     OutputOverlay overlay_;
     GridSettings settings_;
 };

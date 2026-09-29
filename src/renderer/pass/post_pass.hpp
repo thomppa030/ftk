@@ -43,7 +43,7 @@ class PostPass : public RenderPass {
 public:
     /// The format of what the viewport shows, which the editor overlays draw
     /// into after this pass.
-    static constexpr VkFormat OUTPUT_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
+    static constexpr gpu::Format OUTPUT_FORMAT = gpu::Format::rgba8_srgb;
 
     /// The bindless index a sampler with this hint reads when nothing is
     /// bound: what the engine default's row holds in its texture slots, the
