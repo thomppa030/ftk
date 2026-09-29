@@ -29,6 +29,7 @@ A reference of every pass under `src/renderer/pass/` — what it does, what it r
 ### Lighting
 - `opaque_pass` — main forward+ shading
 - `gtao_pass` — ground-truth AO
+- `rt_scene_pass` — builds the scene's ray tracing acceleration structure once per frame, before any pass traces (when ray tracing available)
 - `ddgi_pass` — DDGI probe update + sample
 - SS-GI passes — diffuse, specular, composite
 - `ssr_trace_pass`, `ssr_composite_pass`
