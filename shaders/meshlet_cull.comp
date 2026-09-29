@@ -26,7 +26,8 @@ layout(set = 1, binding = 2) readonly buffer InputCounter {
     uint input_count;
 };
 
-// Visible output: binned by pipeline, each bin a segment of its own
+// Visible output: binned by pipeline, each bin a segment of its own, and
+// each cull a set of bins of its own
 layout(set = 1, binding = 3) writeonly buffer OutputInstances {
     MeshletInstance instances_out[];
 };
@@ -57,8 +58,8 @@ layout(set = 1, binding = 9) buffer CulledCounter {
     uint culled_count;
 };
 
-// Each bin's segment of the visible output: its first slot, and how many
-// it holds
+// Each bin's segment of the visible output in this cull's set: its first
+// slot, and how many it holds
 layout(set = 1, binding = 10) readonly buffer BinSegments {
     uvec2 bin_segments[];
 };
@@ -68,6 +69,7 @@ layout(push_constant) uniform PushConstants {
     uint viewport_height;
     uint hiz_mip_count;
     uint is_second_pass;  // 0 = first pass (prev Hi-Z), 1 = second pass (new Hi-Z)
+    uint first_command;   // this cull's bin 0 among the commands
 };
 
 shared vec4 shared_planes[6];
@@ -129,7 +131,7 @@ void main() {
     // Visible — add to its bin's segment
     uint bin = pipeline_bin[inst.draw_index];
     uvec2 segment = bin_segments[bin];
-    uint slot = atomicAdd(cmds[bin * 3], 1);
+    uint slot = atomicAdd(cmds[(first_command + bin) * 3], 1);
     if (slot < segment.y) {
         instances_out[segment.x + slot] = inst;
     }

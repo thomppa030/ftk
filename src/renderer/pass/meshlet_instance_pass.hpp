@@ -27,8 +27,9 @@ static_assert(sizeof(GpuMeshletInstance) == 16);
 /// per bin counting them. A bin is one of the batch's pipeline ranges, and
 /// its segment holds every meshlet the range expands to. The first cull
 /// tests against last frame's Hi-Z and sets aside what it rejected;
-/// `MeshletCullPass2` tests those again against this frame's and appends
-/// what is visible after all.
+/// `MeshletCullPass2` tests those again against this frame's, into a set
+/// of bins of its own, so `SecondCullDepthPass` can add what is visible
+/// after all to the depth the first set drew.
 class MeshletInstancePass : public RenderPass {
 public:
     /// Which of the two culls a dispatch is.
@@ -47,24 +48,26 @@ public:
     /// instances in `bin_count` pipeline bins.
     void ensure_capacity(uint32_t frame_index, uint32_t instance_count, uint32_t bin_count);
 
-    /// Records one cull over this frame's draws. The first starts the
-    /// indirect commands and the set-aside count from zero; the second
-    /// appends to them and is skipped while there is no Hi-Z to test against.
+    /// Records one cull over this frame's draws into its set of bins. The
+    /// first starts both sets' commands and the set-aside count from zero;
+    /// the second is skipped while there is no Hi-Z to test against, and
+    /// its set then draws nothing.
     void record_cull(const FrameContext& ctx, Cull which);
 
     // Visible instances buffer for binding in meshlet descriptor (set 3 binding 5)
     [[nodiscard]] gpu::Buffer visible_buffer(uint32_t frame_index) const { return visible_buffers_[frame_index]; }
     [[nodiscard]] uint64_t visible_buffer_size(uint32_t frame_index) const {
-        return uint64_t{capacities_[frame_index]} * sizeof(GpuMeshletInstance);
+        return uint64_t{capacities_[frame_index]} * sizeof(GpuMeshletInstance) * 2;
     }
 
-    /// One mesh-task dispatch (x, y, z groups) per pipeline bin.
+    /// One mesh-task dispatch (x, y, z groups) per pipeline bin: the first
+    /// cull's bins, then the second's.
     [[nodiscard]] gpu::Buffer indirect_buffer(uint32_t frame_index) const { return indirect_buffers_[frame_index]; }
 
-    /// Draws the meshlets the culls found visible in one bin, one task
-    /// group each, through the pipeline bound: one whose task stage is
+    /// Draws the meshlets one cull found visible in one bin, one task group
+    /// each, through the pipeline bound: one whose task stage is
     /// mesh_gpu_driven.task.
-    static void draw_bin(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t bin);
+    static void draw_bin(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t bin, Cull which);
 
 private:
     void record_expand(const FrameContext& ctx, uint32_t total_draws);

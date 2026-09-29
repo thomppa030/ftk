@@ -24,8 +24,8 @@ void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) 
     if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
         builder.read(hiz, gpu::Access::sampled_compute);
     }
-    // Tests again what the first cull set aside, and appends what is now
-    // visible to the same instances and indirect commands.
+    // Tests again what the first cull set aside, and writes what is now
+    // visible into the second set of the same instances and commands.
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled"),
                  gpu::Access::storage_buffer_read_compute);
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled_count"),

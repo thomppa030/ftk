@@ -17,6 +17,7 @@ A reference of every pass under `src/renderer/pass/` — what it does, what it r
 ### Depth & prepass
 - `depth_prepass`
 - `mesh_shader_depth_pass`
+- `second_cull_depth_pass` — adds what the second meshlet cull found to the depth
 - `depth_resolve_pass`
 - `normal_pass`
 - `contact_shadow_pass`

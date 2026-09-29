@@ -117,6 +117,7 @@ add_executable(fjell
     renderer/pass/meshlet_cull_pass2.cpp
     renderer/pass/meshlet_instance_pass.cpp
     renderer/pass/meshlet_viz_pass.cpp
+    renderer/pass/second_cull_depth_pass.cpp
     renderer/pass/light_viz_pass.cpp
     renderer/pass/shadow_pass.cpp
     renderer/pass/sky_pass.cpp

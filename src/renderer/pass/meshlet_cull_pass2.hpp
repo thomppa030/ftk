@@ -7,8 +7,9 @@ namespace fjell {
 class MeshletInstancePass;
 
 /// Second-pass occlusion cull: retests meshlets rejected by pass 1
-/// against the freshly-built Hi-Z pyramid. Survivors are appended
-/// to the same visible buffer used by the color pass.
+/// against the freshly-built Hi-Z pyramid, into the cull's second set of
+/// bins, which SecondCullDepthPass adds to the depth and the colour pass
+/// draws with the first.
 class MeshletCullPass2 : public RenderPass {
 public:
     Result<> create(Device&, const PassResources&) override { return {}; }

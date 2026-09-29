@@ -122,8 +122,8 @@ void OpaquePass::record(const FrameContext& ctx) {
         const IndirectBatch& batch = *ctx.indirect_batch;
         const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
 
-        // What the meshlet culls found visible, bin by bin, each through its
-        // material's mesh pipeline.
+        // What both meshlet culls found visible, bin by bin, each through
+        // its material's mesh pipeline.
         if (ctx.gpu_driven_commands.valid() && ctx.meshlets.valid()) {
             for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
                 pass.set_pipeline(ctx.pipeline_cache->gpu_driven_pipeline(ranges[bin].pipeline_id));
@@ -131,7 +131,8 @@ void OpaquePass::record(const FrameContext& ctx) {
                 pass.bind(ctx.bindless);
                 pass.bind(ctx.draw_data);
                 pass.bind(ctx.meshlets);
-                MeshletInstancePass::draw_bin(pass, ctx, bin);
+                MeshletInstancePass::draw_bin(pass, ctx, bin, MeshletInstancePass::Cull::first);
+                MeshletInstancePass::draw_bin(pass, ctx, bin, MeshletInstancePass::Cull::second);
             }
         }
 

@@ -73,6 +73,33 @@ void MeshShaderDepthPass::destroy() {
     skinned_pipeline_.reset();
 }
 
+namespace {
+
+gpu::Cull material_cull(const FrameContext& ctx, uint32_t pipeline_id) {
+    return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
+}
+
+} // namespace
+
+void MeshShaderDepthPass::draw_found(gpu::RenderEncoder& pass, const FrameContext& ctx,
+                                     MeshletInstancePass::Cull which) const {
+    const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
+    gpu::GraphicsPipeline bound{};
+    for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
+        if (meshes_.has_custom(ranges[bin].pipeline_id)) continue;
+        const gpu::GraphicsPipeline needed =
+            gpu_driven_pipelines_[static_cast<size_t>(material_cull(ctx, ranges[bin].pipeline_id))];
+        if (needed != bound) {
+            pass.set_pipeline(needed);
+            pass.bind(ctx.globals);
+            pass.bind(ctx.draw_data);
+            pass.bind(ctx.meshlets);
+            bound = needed;
+        }
+        MeshletInstancePass::draw_bin(pass, ctx, bin, which);
+    }
+}
+
 void MeshShaderDepthPass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr || ctx.queue == nullptr) return;
 
@@ -96,28 +123,10 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         const IndirectBatch& batch = *ctx.indirect_batch;
         const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
         const bool gpu_driven = ctx.gpu_driven_commands.valid();
-        const auto cull_of = [&](uint32_t pipeline_id) {
-            return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
-        };
 
-        // What the meshlet cull found visible, bin by bin, except the bins of
-        // materials with their own mesh stage, drawn below.
-        if (gpu_driven) {
-            gpu::GraphicsPipeline bound{};
-            for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
-                if (meshes_.has_custom(ranges[bin].pipeline_id)) continue;
-                const gpu::GraphicsPipeline needed =
-                    gpu_driven_pipelines_[static_cast<size_t>(cull_of(ranges[bin].pipeline_id))];
-                if (needed != bound) {
-                    pass.set_pipeline(needed);
-                    pass.bind(ctx.globals);
-                    pass.bind(ctx.draw_data);
-                    pass.bind(ctx.meshlets);
-                    bound = needed;
-                }
-                MeshletInstancePass::draw_bin(pass, ctx, bin);
-            }
-        }
+        // What the first meshlet cull found visible; SecondCullDepthPass
+        // adds what the second finds.
+        if (gpu_driven) draw_found(pass, ctx, MeshletInstancePass::Cull::first);
 
         // The batch's per-draw commands: every range without the cull's, and
         // with them only the ranges of materials with their own mesh stage.
@@ -128,7 +137,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             if (gpu_driven && !meshes_.has_custom(ranges[r].pipeline_id)) continue;
             const DepthVariants::Variant needed =
-                meshes_.variant(ranges[r].pipeline_id, cull_of(ranges[r].pipeline_id));
+                meshes_.variant(ranges[r].pipeline_id, material_cull(ctx, ranges[r].pipeline_id));
             if (needed.pipeline != bound) {
                 pass.set_pipeline(needed.pipeline);
                 pass.bind(ctx.globals);

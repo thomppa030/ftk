@@ -16,6 +16,7 @@
         { "class": "InstanceCullPass",    "name": "instance_cull" },
         { "class": "MeshletInstancePass", "name": "meshlet_cull",       "enabled_if": "mesh_shaders" },
         { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2", "enabled_if": "mesh_shaders" },
+        { "class": "SecondCullDepthPass", "name": "second_cull_depth",  "enabled_if": "mesh_shaders" },
         { "class": "MeshShaderDepthPass", "name": "mesh_shader_depth",  "enabled_if": "mesh_shaders" },
 
         // The sky cubemap is what the sphere reflects.

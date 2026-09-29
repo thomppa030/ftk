@@ -3,6 +3,7 @@
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
 #include "renderer/pass/depth_variants.hpp"
+#include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <array>
@@ -14,12 +15,20 @@ namespace fjell {
 // as meshlets: those the first meshlet cull found visible through its
 // commands, and the ranges of materials with a mesh stage of their own
 // through the batch's per-draw commands. DepthPrePass records it in its
-// place; it is not a node of its own.
+// place; it is not a node of its own. SecondCullDepthPass draws what the
+// second cull finds through draw_found().
 class MeshShaderDepthPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
+
+    /// Draws what one meshlet cull found visible into the depth scope open
+    /// on `pass`, each bin culling what its material culls. Skips the bins
+    /// of materials with a mesh stage of their own, which the prepass draws
+    /// whole from the batch's per-draw commands. Needs the cull's commands
+    /// and the meshlet set in `ctx`.
+    void draw_found(gpu::RenderEncoder& pass, const FrameContext& ctx, MeshletInstancePass::Cull which) const;
 
     /// Create a custom depth pipeline for a specific shader pipeline ID
     /// using a custom mesh shader SPV, on the default pipeline's state,

@@ -14,6 +14,7 @@
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
 #include "renderer/pass/fog_density_field_pass.hpp"
+#include "renderer/pass/second_cull_depth_pass.hpp"
 #include "renderer/pass/water_fft_pass.hpp"
 #include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
@@ -101,6 +102,7 @@ FJELL_REGISTER_PASS(OpaquePass)
 FJELL_REGISTER_PASS(OverdrawPass)
 FJELL_REGISTER_PASS(SceneSdfPass)
 FJELL_REGISTER_PASS(ScreenColorCopyPass)
+FJELL_REGISTER_PASS(SecondCullDepthPass)
 FJELL_REGISTER_PASS(ShadowPass)
 FJELL_REGISTER_PASS(SkyCubemapPass)
 FJELL_REGISTER_PASS(SkyPass)
