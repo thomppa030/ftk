@@ -3,11 +3,11 @@
 #include "renderer/pass/render_pass.hpp"
 #include "gpu/format.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <string_view>
@@ -54,8 +54,8 @@ class PipelineCache;
 // single-frame transients of matching shape).
 //
 // Layering:
-//   • FogCore          — abstract base. Owns sampler, descriptor layouts,
-//                        the engine's own pipelines, the per-material fog
+//   • FogCore          — abstract base. Owns sampler, the engine's own
+//                        pipelines, the per-material fog
 //                        pipelines and rows, scene parameters, the
 //                        per-viewport Images struct (scatter ping-pong),
 //                        and prepare_frame() to source scene state. Itself
@@ -80,9 +80,9 @@ class PipelineCache;
 //     read.
 //
 // Barrier contract: nodes declare only the accesses they perform. The
-// graph emits one merged barrier per image per node. The one inline
-// barrier is the medium pass's own, between its dispatches, because they
-// accumulate into one image inside one node.
+// graph emits one merged barrier per image per node. The medium pass's own
+// barriers are between its dispatches, which accumulate into one image
+// inside one node, and after the waterline it writes for them.
 
 class FogCore : public RenderPass {
 public:
@@ -91,26 +91,19 @@ public:
     static constexpr uint32_t SCREEN_DIVISOR = 16;
     static constexpr gpu::Format VOLUME_FORMAT = gpu::Format::rgba16_float;
 
-    struct VolumeImage {
-        VkImage image{VK_NULL_HANDLE};
-        VmaAllocation memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        /// The volume as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> texture;
-    };
-
     struct Images {
-        VolumeImage scatter_volumes[2];
+        /// The lit froxels, this frame's and last frame's by turns.
+        gpu::Owned<gpu::Texture> scatter_volumes[2];
 
-        VkExtent3D volume_extent{};
+        glm::uvec3 volume_extent{0};
         uint32_t frame_counter{0};
         uint32_t ping_pong{0};  // index of the "current" volume this frame
 
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     uint32_t screen_w, uint32_t screen_h);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     uint32_t screen_w, uint32_t screen_h);
+        void create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        /// Releases the volumes; the frames still reading them keep them
+        /// until they are done.
+        void destroy();
+        void resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
 
         void invalidate_imgui_texture();
 
@@ -153,24 +146,14 @@ public:
     static constexpr const char* WATER_LINE_NAME = "water_line";
 
     // Getters for follower passes.
-    [[nodiscard]] VkSampler fog_sampler() const { return linear_sampler_; }
-    [[nodiscard]] VkDescriptorSetLayout medium_set_layout() const { return medium_set_layout_; }
-    [[nodiscard]] VkDescriptorSetLayout light_set_layout() const { return light_set_layout_; }
-    [[nodiscard]] VkDescriptorSetLayout temporal_set_layout() const { return temporal_set_layout_; }
-    [[nodiscard]] VkDescriptorSetLayout integrate_set_layout() const { return integrate_set_layout_; }
-    [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_set_layout_; }
-    [[nodiscard]] VkPipelineLayout medium_pipeline_layout() const { return medium_pipeline_layout_; }
-    [[nodiscard]] VkPipelineLayout light_pipeline_layout() const { return light_pipeline_layout_; }
-    [[nodiscard]] VkPipelineLayout temporal_pipeline_layout() const { return temporal_pipeline_layout_; }
-    [[nodiscard]] VkPipelineLayout integrate_pipeline_layout() const { return integrate_pipeline_layout_; }
-    [[nodiscard]] VkPipelineLayout composite_pipeline_layout() const { return composite_pipeline_layout_; }
-    /// The haze material's two pipelines for this frame, or null when
+    [[nodiscard]] gpu::Sampler fog_sampler() const { return linear_sampler_; }
+    /// The haze material's two pipelines for this frame, or unset when
     /// neither the node's material nor the engine's default has compiled.
-    [[nodiscard]] VkPipeline medium_pipeline() const { return medium_pipeline_; }
-    [[nodiscard]] VkPipeline light_pipeline() const { return light_pipeline_; }
-    [[nodiscard]] VkPipeline temporal_pipeline() const { return temporal_pipeline_; }
-    [[nodiscard]] VkPipeline integrate_pipeline() const { return integrate_pipeline_; }
-    [[nodiscard]] VkPipeline composite_pipeline() const { return composite_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline medium_pipeline() const { return medium_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline light_pipeline() const { return light_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline temporal_pipeline() const { return temporal_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline integrate_pipeline() const { return integrate_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
 
     // Scene-driven fog parameters + push-constant helper read by each node.
@@ -206,6 +189,11 @@ public:
         // For a water source: whether the camera is under its surface, which
         // decides which side of the surface depth the water is on.
         uint32_t camera_below;
+        // The workgroup a medium dispatch starts at: a volume covers only
+        // the froxels its bounds reach. Zero for every other dispatch.
+        uint32_t first_group_x;
+        uint32_t first_group_y;
+        uint32_t first_group_z;
     };
     static constexpr uint32_t SOURCE_HAZE = 0;
     static constexpr uint32_t SOURCE_VOLUME = 1;
@@ -221,7 +209,7 @@ public:
     /// the dispatch needs.
     struct VolumeDraw {
         uint32_t index{0};          // its entry in the fog volume SSBO
-        VkPipeline pipeline{VK_NULL_HANDLE};
+        gpu::ComputePipeline pipeline{};
         uint32_t material_id{0};    // the pass's row for this volume
         glm::mat4 transform{1.0f};  // world, for the froxel box and ORIGIN
     };
@@ -232,21 +220,17 @@ public:
     /// the shader, not from a box on the CPU.
     struct WaterDraw {
         uint32_t node_id{0};
-        VkPipeline pipeline{VK_NULL_HANDLE};
+        gpu::ComputePipeline pipeline{};
         uint32_t material_id{0};    // the pass's row for this water
         glm::vec3 origin{0.0f};     // the node's position: ORIGIN
     };
     [[nodiscard]] const std::vector<WaterDraw>& water_draws() const { return water_draws_; }
 
 private:
-    static VolumeImage create_volume_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                                            uint32_t w, uint32_t h, uint32_t d);
-    static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
-
     /// The medium and light pipelines built from one fog shader entry.
     struct MaterialPipeline {
-        VkPipeline medium{VK_NULL_HANDLE};
-        VkPipeline light{VK_NULL_HANDLE};
+        gpu::Owned<gpu::ComputePipeline> medium;
+        gpu::Owned<gpu::ComputePipeline> light;
         uint32_t generation{0};
     };
     /// The engine's default for a kind of node, registered once and given a
@@ -317,32 +301,21 @@ private:
     std::unordered_map<uint32_t, Instance> water_instances_;
     std::vector<WaterDraw> water_draws_;
 
-    VkDevice device_{VK_NULL_HANDLE};
     gpu::Device* gpu_device_{nullptr};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    /// The engine's globals and the bindless material set, which the fog
+    /// shaders bind at sets 0 and 1.
+    gpu::SharedLayout globals_{};
+    gpu::SharedLayout bindless_layout_{};
 
-    VkSampler linear_sampler_{VK_NULL_HANDLE};
+    gpu::Sampler linear_sampler_{};
 
-    VkDescriptorSetLayout medium_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout medium_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline medium_pipeline_{VK_NULL_HANDLE};
+    // This frame's haze: its material's pipelines, held in material_pipelines_.
+    gpu::ComputePipeline medium_pipeline_{};
+    gpu::ComputePipeline light_pipeline_{};
 
-    VkDescriptorSetLayout light_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout light_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline light_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout temporal_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout temporal_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline temporal_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout integrate_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout integrate_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline integrate_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout composite_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout composite_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline composite_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> temporal_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> integrate_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
 
     Images default_images_;
 };

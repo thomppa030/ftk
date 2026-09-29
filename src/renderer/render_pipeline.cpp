@@ -236,10 +236,10 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // cur_index() here points at the volume that inject/temporal/
         // integrate all target this frame.
         if (auto* fog = pp_resources->volumetric_fog()) {
-            if (fog->scatter_volumes[0].view != VK_NULL_HANDLE) {
+            if (fog->scatter_volumes[0]) {
                 auto add_scatter = [&](std::string_view name, uint32_t idx) {
                     ImportedImage img{};
-                    img.view = fog->scatter_volumes[idx].texture;
+                    img.view = fog->scatter_volumes[idx];
                     img.persistent = true;
                     decl_ctx.imports.emplace(fg_name_hash(name), img);
                 };

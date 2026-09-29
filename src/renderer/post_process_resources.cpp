@@ -66,7 +66,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
         gtao_images_.create(*gpu_, half_w, half_h);
     }
     if (config_.volumetric_fog) {
-        fog_images_.create(*gpu_, device_, allocator_, width, height);
+        fog_images_.create(*gpu_, width, height);
     }
     if (config_.post && width > 0 && height > 0) {
         post_images_.create(*gpu_, width, height);
@@ -91,7 +91,7 @@ PostProcessResources::~PostProcessResources() {
     if (device_ == VK_NULL_HANDLE) return;
     hiz_images_.destroy();
     gtao_images_.destroy();
-    fog_images_.destroy(device_, allocator_);
+    fog_images_.destroy();
     post_images_.destroy();
     ddgi_images_.destroy(device_, allocator_);
     ss_gi_images_.destroy(device_, allocator_);
@@ -127,7 +127,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         if (device_ != VK_NULL_HANDLE) {
             hiz_images_.destroy();
             gtao_images_.destroy();
-            fog_images_.destroy(device_, allocator_);
+            fog_images_.destroy();
             post_images_.destroy();
             ddgi_images_.destroy(device_, allocator_);
             ss_gi_images_.destroy(device_, allocator_);
@@ -173,7 +173,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         gtao_images_.resize(*gpu_, width, height);
     }
     if (config_.volumetric_fog) {
-        fog_images_.resize(*gpu_, device_, allocator_, width, height);
+        fog_images_.resize(*gpu_, width, height);
     }
     if (config_.post) {
         post_images_.resize(*gpu_, width, height);

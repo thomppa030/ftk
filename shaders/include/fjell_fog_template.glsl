@@ -395,7 +395,8 @@ FjellFroxel fjell_froxel(ivec3 coord) {
 // ── Medium variant: one source of fog into the accumulated fjell_medium ──
 
 void main() {
-    ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
+    uvec3 first_group = uvec3(pc.first_group_x, pc.first_group_y, pc.first_group_z);
+    ivec3 coord = ivec3(first_group * gl_WorkGroupSize + gl_GlobalInvocationID);
     if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
 
     FjellFroxel f = fjell_froxel(coord);

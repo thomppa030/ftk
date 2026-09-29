@@ -192,7 +192,7 @@ public:
     /// Recorded from the fog medium pass, outside any rendering scope, once
     /// the water's buffers for the frame are in place. Writes an empty mask
     /// when no surface is within reach of the camera.
-    void record_water_line(const FrameContext& ctx, VkImageView mask, VkExtent2D size);
+    void record_water_line(const FrameContext& ctx, gpu::Texture mask);
 
     /// How close, in metres, a surface has to be to the camera for the
     /// waterline to be worked out. The near plane is centimetres; the slack

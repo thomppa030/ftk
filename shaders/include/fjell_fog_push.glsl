@@ -30,6 +30,9 @@ layout(push_constant) uniform PushConstants {
     uint fog_material_id;       // the source's row in the material buffer
     uint source_kind;           // FOG_SOURCE_HAZE, _VOLUME or _WATER
     uint camera_below;          // water: 1 when the camera is under the surface
+    uint first_group_x;         // the workgroup a medium dispatch starts at: a
+    uint first_group_y;         // volume covers only the froxels its bounds
+    uint first_group_z;         // reach; zero for every other dispatch
 } pc;
 
 const uint FOG_HAZE = 0xffffffffu;

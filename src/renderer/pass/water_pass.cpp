@@ -695,7 +695,7 @@ void WaterPass::upload_fields(const FrameContext& ctx) {
     }
 }
 
-void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkExtent2D size) {
+void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
     if (ctx.scene == nullptr || line_pipeline_ == VK_NULL_HANDLE || simulation_ == nullptr) return;
 
     // The body of water nearest the camera, if any is within reach of the
@@ -730,7 +730,7 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
     FrameCacheBinding mask_binding{};
     mask_binding.binding = 0;
     mask_binding.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    mask_binding.image.imageView = mask;
+    mask_binding.image.imageView = gpu::vulkan::native_view(*ctx.device, mask);
     mask_binding.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     const VkDescriptorSet mask_set =
         ctx.descriptor_cache->acquire(line_set_layout_, std::span{&mask_binding, 1});
@@ -742,6 +742,7 @@ void WaterPass::record_water_line(const FrameContext& ctx, VkImageView mask, VkE
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_layout_, 0,
                             static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
     vkCmdPushConstants(ctx.cmd, line_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    const gpu::TextureInfo& size = ctx.device->info(mask);
     vkCmdDispatch(ctx.cmd, (size.width + 7) / 8, (size.height + 7) / 8, 1);
 }
 
@@ -795,7 +796,8 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
     FrameCacheBinding volume{};
     volume.binding = 6;
     volume.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    volume.image.sampler = fog_ != nullptr ? fog_->fog_sampler() : simulation_->sampler();
+    volume.image.sampler = fog_ != nullptr ? gpu::vulkan::native_sampler(*ctx.device, fog_->fog_sampler())
+                                           : simulation_->sampler();
     volume.image.imageView = medium != VK_NULL_HANDLE ? medium : fallback_volume_;
     volume.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     const FrameCacheBinding bindings[7]{
