@@ -1,6 +1,5 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "animation/animation_system.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -10,146 +9,137 @@
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 
+#include <gpu/device.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <span>
 
 namespace fjell {
 
-IndirectBatch::IndirectBatch(gpu::Device& gpu, VmaAllocator allocator)
-    : gpu_{gpu}
-    , allocator_{allocator} {
+namespace {
+
+// A buffer of `count` elements of `element_size` bytes. Unset, with the
+// reason logged, when it could not be made.
+gpu::Owned<gpu::Buffer> make_buffer(gpu::Device& gpu, uint64_t count, uint64_t element_size,
+                                    gpu::BufferUses use, gpu::Memory memory, std::string_view name) {
+    auto made = gpu.create(gpu::BufferDesc{
+        .size = count * element_size,
+        .use = use,
+        .memory = memory,
+        .name = name,
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("{}", made.error());
+        return {};
+    }
+    return std::move(*made);
 }
 
-void IndirectBatch::retire(std::unique_ptr<Buffer> buffer) {
-    if (buffer) gpu::vulkan::retire(gpu_, std::move(buffer));
+// Grown by doubling, so a scene that grows a little each frame does not
+// reallocate each frame.
+uint32_t grown(uint32_t needed, uint32_t held, uint32_t least) {
+    return std::max({needed, held * 2, least});
 }
 
-void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
-    if (count <= capacities_[frame_index]) return;
+// Copies `values` to the start of an upload buffer.
+template <typename T>
+void fill_mapped(gpu::Device& gpu, gpu::Buffer buffer, std::span<const T> values) {
+    if (values.empty()) return;
+    std::memcpy(gpu.mapped(buffer).data(), values.data(), values.size_bytes());
+}
 
-    uint32_t new_cap = std::max(count, capacities_[frame_index] * 2);
-    if (new_cap < 256) new_cap = 256;
+} // namespace
 
-    retire(std::move(indirect_buffers_[frame_index]));
-    indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(VkDrawIndexedIndirectCommand),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    indirect_buffers_[frame_index]->map();
-    indirect_buffers_[frame_index]->share(gpu_);
+IndirectBatch::IndirectBatch(gpu::Device& gpu)
+    : gpu_{gpu} {
+}
 
-    retire(std::move(draw_data_buffers_[frame_index]));
-    draw_data_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(GpuDrawData),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    draw_data_buffers_[frame_index]->map();
-    draw_data_buffers_[frame_index]->share(gpu_);
+bool IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= capacities_[frame_index]) return true;
+    const uint32_t new_cap = grown(count, capacities_[frame_index], 256);
 
-    // Mesh shader indirect dispatch buffers
-    retire(std::move(mesh_indirect_buffers_[frame_index]));
-    mesh_indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(VkDrawMeshTasksIndirectCommandEXT),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    mesh_indirect_buffers_[frame_index]->map();
-    mesh_indirect_buffers_[frame_index]->share(gpu_);
+    // Written by the CPU each build; the instance cull patches the indirect
+    // commands' instance counts.
+    constexpr gpu::Memory UPLOAD = gpu::Memory::upload;
+    auto indirect = make_buffer(gpu_, new_cap, sizeof(gpu::DrawIndexedArgs),
+                                gpu::BufferUse::indirect | gpu::BufferUse::storage, UPLOAD,
+                                "batch_indirect");
+    auto draw_data = make_buffer(gpu_, new_cap, sizeof(GpuDrawData), gpu::BufferUse::storage, UPLOAD,
+                                 "batch_draw_data");
+    auto mesh_indirect = make_buffer(gpu_, new_cap, sizeof(gpu::DrawMeshTasksArgs),
+                                     gpu::BufferUse::indirect | gpu::BufferUse::storage, UPLOAD,
+                                     "batch_mesh_indirect");
+    // One count per pipeline range, and there are no more ranges than draws.
+    auto mesh_counts = make_buffer(gpu_, new_cap, sizeof(uint32_t), gpu::BufferUse::indirect, UPLOAD,
+                                   "batch_mesh_counts");
+    auto pipeline_bins = make_buffer(gpu_, new_cap, sizeof(uint32_t), gpu::BufferUse::storage, UPLOAD,
+                                     "batch_pipeline_bins");
+    if (!indirect || !draw_data || !mesh_indirect || !mesh_counts || !pipeline_bins) return false;
 
-    // Count buffer: one uint32_t per pipeline range
-    uint32_t max_ranges = std::max(new_cap, 64u);
-    retire(std::move(mesh_count_buffers_[frame_index]));
-    mesh_count_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        max_ranges * sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    mesh_count_buffers_[frame_index]->map();
-    mesh_count_buffers_[frame_index]->share(gpu_);
-
-    retire(std::move(pipeline_bin_buffers_[frame_index]));
-    pipeline_bin_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    pipeline_bin_buffers_[frame_index]->map();
-    pipeline_bin_buffers_[frame_index]->share(gpu_);
-
+    indirect_buffers_[frame_index] = std::move(indirect);
+    draw_data_buffers_[frame_index] = std::move(draw_data);
+    mesh_indirect_buffers_[frame_index] = std::move(mesh_indirect);
+    mesh_count_buffers_[frame_index] = std::move(mesh_counts);
+    pipeline_bin_buffers_[frame_index] = std::move(pipeline_bins);
     capacities_[frame_index] = new_cap;
+    return true;
 }
 
-void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t count) {
-    if (count <= instance_transform_capacities_[frame_index]) return;
+bool IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= instance_transform_capacities_[frame_index]) return true;
+    const uint32_t new_cap = grown(count, instance_transform_capacities_[frame_index], 256);
 
-    uint32_t new_cap = std::max(count, instance_transform_capacities_[frame_index] * 2);
-    if (new_cap < 256) new_cap = 256;
+    auto transforms = make_buffer(gpu_, new_cap, sizeof(glm::mat4), gpu::BufferUse::storage,
+                                  gpu::Memory::upload, "batch_instance_transforms");
+    // What the instance cull keeps, written on the GPU.
+    auto visible = make_buffer(gpu_, new_cap, sizeof(glm::mat4), gpu::BufferUse::storage,
+                               gpu::Memory::gpu, "batch_visible_instances");
+    if (!transforms || !visible) return false;
 
-    retire(std::move(instance_transform_buffers_[frame_index]));
-    instance_transform_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(glm::mat4),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    instance_transform_buffers_[frame_index]->map();
-    instance_transform_buffers_[frame_index]->share(gpu_);
-
-    // GPU-only buffer for per-instance culled output (written by InstanceCullPass)
-    retire(std::move(visible_instance_buffers_[frame_index]));
-    visible_instance_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(glm::mat4),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-    visible_instance_buffers_[frame_index]->share(gpu_);
-
+    instance_transform_buffers_[frame_index] = std::move(transforms);
+    visible_instance_buffers_[frame_index] = std::move(visible);
     instance_transform_capacities_[frame_index] = new_cap;
+    return true;
 }
 
-void IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count) {
-    if (count <= instanced_draw_capacities_[frame_index]) return;
+bool IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= instanced_draw_capacities_[frame_index]) return true;
+    const uint32_t new_cap = grown(count, instanced_draw_capacities_[frame_index], 64);
 
-    uint32_t new_cap = std::max(count, instanced_draw_capacities_[frame_index] * 2);
-    if (new_cap < 64) new_cap = 64;
-
-    retire(std::move(instanced_draw_buffers_[frame_index]));
-    instanced_draw_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(GpuInstancedDraw),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    instanced_draw_buffers_[frame_index]->map();
-    instanced_draw_buffers_[frame_index]->share(gpu_);
-
+    auto draws = make_buffer(gpu_, new_cap, sizeof(GpuInstancedDraw), gpu::BufferUse::storage,
+                             gpu::Memory::upload, "batch_instanced_draws");
+    if (!draws) return false;
+    instanced_draw_buffers_[frame_index] = std::move(draws);
     instanced_draw_capacities_[frame_index] = new_cap;
+    return true;
 }
 
-void IndirectBatch::ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count) {
-    if (count <= spline_segment_capacities_[frame_index]) return;
+bool IndirectBatch::ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= spline_segment_capacities_[frame_index]) return true;
+    const uint32_t new_cap = grown(count, spline_segment_capacities_[frame_index], 64);
 
-    uint32_t new_cap = std::max(count, spline_segment_capacities_[frame_index] * 2);
-    if (new_cap < 64) new_cap = 64;
-
-    retire(std::move(spline_segment_buffers_[frame_index]));
-    spline_segment_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(GpuSplineSegment),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    spline_segment_buffers_[frame_index]->map();
-
+    auto segments = make_buffer(gpu_, new_cap, sizeof(GpuSplineSegment), gpu::BufferUse::storage,
+                                gpu::Memory::upload, "batch_spline_segments");
+    if (!segments) return false;
+    spline_segment_buffers_[frame_index] = std::move(segments);
     spline_segment_capacities_[frame_index] = new_cap;
+    return true;
+}
+
+void IndirectBatch::clear(uint32_t frame_index) {
+    opaque_counts_[frame_index] = 0;
+    draw_data_counts_[frame_index] = 0;
+    total_triangles_[frame_index] = 0;
+    total_meshlet_instances_[frame_index] = 0;
+    most_mesh_task_groups_[frame_index] = 0;
+    instance_transform_counts_[frame_index] = 0;
+    instanced_draw_counts_[frame_index] = 0;
+    spline_segment_counts_[frame_index] = 0;
+    pipeline_ranges_[frame_index].clear();
+    skinned_draw_indices_[frame_index].clear();
+    node_draws_[frame_index].clear();
 }
 
 uint32_t IndirectBatch::lod_for(const Model& model, const glm::mat4& world) const {
@@ -192,21 +182,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
     total_draws += static_cast<uint32_t>(transparent_commands.size());
 
-    if (total_draws == 0) {
-        opaque_counts_[frame_index] = 0;
-        draw_data_counts_[frame_index] = 0;
-        total_triangles_[frame_index] = 0;
-        total_meshlet_instances_[frame_index] = 0;
-        instance_transform_counts_[frame_index] = 0;
-        instanced_draw_counts_[frame_index] = 0;
-        spline_segment_counts_[frame_index] = 0;
-        pipeline_ranges_[frame_index].clear();
-        skinned_draw_indices_[frame_index].clear();
-        node_draws_[frame_index].clear();
+    // Without room for every draw the build draws nothing rather than part.
+    if (total_draws == 0 || !ensure_capacity(frame_index, total_draws)) {
+        clear(frame_index);
         return;
     }
-
-    ensure_capacity(frame_index, total_draws);
 
     // Pre-count total instance transforms across instanced opaque draws.
     // Each instanced draw contributes N transforms, shared across its mega entries.
@@ -216,8 +196,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             total_instance_transforms += static_cast<uint32_t>(dc.instance_transforms->size());
         }
     }
-    if (total_instance_transforms > 0) {
-        ensure_instance_capacity(frame_index, total_instance_transforms);
+    if (total_instance_transforms > 0 && !ensure_instance_capacity(frame_index, total_instance_transforms)) {
+        clear(frame_index);
+        return;
     }
     staged_instance_transforms_.clear();
     staged_instance_transforms_.reserve(total_instance_transforms);
@@ -331,12 +312,12 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             for (uint32_t e = entry_begin; e < entry_end; ++e) {
                 if (!entry_matches_slot(dc, e)) continue;
                 const auto& entry = entries[e];
-                VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
-                cmd.indexCount    = entry.index_count;
-                cmd.instanceCount = seg_count;
-                cmd.firstIndex    = entry.first_index;
-                cmd.vertexOffset  = static_cast<int32_t>(entry.vertex_offset);
-                cmd.firstInstance = draw_index;
+                gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                cmd.index_count    = entry.index_count;
+                cmd.instance_count = seg_count;
+                cmd.first_index    = entry.first_index;
+                cmd.vertex_offset  = static_cast<int32_t>(entry.vertex_offset);
+                cmd.first_instance = draw_index;
 
                 GpuDrawData& data = draw_data[draw_index];
                 data.model          = dc.push.model;
@@ -382,12 +363,12 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
                     if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
-                    VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
-                    cmd.indexCount = entry.index_count;
-                    cmd.instanceCount = src_count;
-                    cmd.firstIndex = entry.first_index;
-                    cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
-                    cmd.firstInstance = draw_index;
+                    gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                    cmd.index_count = entry.index_count;
+                    cmd.instance_count = src_count;
+                    cmd.first_index = entry.first_index;
+                    cmd.vertex_offset = static_cast<int32_t>(entry.vertex_offset);
+                    cmd.first_instance = draw_index;
 
                     GpuDrawData& data = draw_data[draw_index];
                     data.model = dc.push.model;
@@ -464,12 +445,12 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
                     if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
-                    VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
-                    cmd.indexCount = entry.index_count;
-                    cmd.instanceCount = bucket_count;
-                    cmd.firstIndex = entry.first_index;
-                    cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
-                    cmd.firstInstance = draw_index;
+                    gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                    cmd.index_count = entry.index_count;
+                    cmd.instance_count = bucket_count;
+                    cmd.first_index = entry.first_index;
+                    cmd.vertex_offset = static_cast<int32_t>(entry.vertex_offset);
+                    cmd.first_instance = draw_index;
 
                     GpuInstancedDraw desc{};
                     desc.local_aabb_min = glm::vec4(local.min, 0.0f);
@@ -510,12 +491,12 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         for (uint32_t e = entry_begin; e < entry_end; ++e) {
             if (!entry_matches_slot(dc, e)) continue;
             const auto& entry = entries[e];
-            VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
-            cmd.indexCount = entry.index_count;
-            cmd.instanceCount = 1;
-            cmd.firstIndex = entry.first_index;
-            cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
-            cmd.firstInstance = draw_index;
+            gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+            cmd.index_count = entry.index_count;
+            cmd.instance_count = 1;
+            cmd.first_index = entry.first_index;
+            cmd.vertex_offset = static_cast<int32_t>(entry.vertex_offset);
+            cmd.first_instance = draw_index;
 
             GpuDrawData& data = draw_data[draw_index];
             data.model = dc.push.model;
@@ -560,8 +541,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
 
     // Fill per-draw pipeline bin mapping
-    auto* bin_data = static_cast<uint32_t*>(
-        pipeline_bin_buffers_[frame_index]->mapped());
+    auto* bin_data = reinterpret_cast<uint32_t*>(gpu_.mapped(pipeline_bin_buffers_[frame_index]).data());
     for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
         for (uint32_t d = 0; d < ranges[r].draw_count; ++d) {
             bin_data[ranges[r].first_draw + d] = r;
@@ -598,55 +578,38 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     // Bulk copy staged CPU data → write-combined GPU memory (one large memcpy
     // is much faster than scattered writes to WC memory in the inner loop)
-    std::memcpy(indirect_buffers_[frame_index]->mapped(),
-                staged_indirect_.data(),
-                draw_index * sizeof(VkDrawIndexedIndirectCommand));
-    std::memcpy(draw_data_buffers_[frame_index]->mapped(),
-                staged_draw_data_.data(),
-                draw_index * sizeof(GpuDrawData));
+    fill_mapped(gpu_, indirect_buffers_[frame_index], std::span<const gpu::DrawIndexedArgs>(staged_indirect_).first(draw_index));
+    fill_mapped(gpu_, draw_data_buffers_[frame_index], std::span<const GpuDrawData>(staged_draw_data_).first(draw_index));
 
-    uint32_t staged_instances = static_cast<uint32_t>(staged_instance_transforms_.size());
+    const auto staged_instances = static_cast<uint32_t>(staged_instance_transforms_.size());
     instance_transform_counts_[frame_index] = staged_instances;
-    if (staged_instances > 0) {
-        std::memcpy(instance_transform_buffers_[frame_index]->mapped(),
-                    staged_instance_transforms_.data(),
-                    staged_instances * sizeof(glm::mat4));
-    }
+    fill_mapped(gpu_, instance_transform_buffers_[frame_index], std::span<const glm::mat4>(staged_instance_transforms_));
 
-    uint32_t staged_inst_draws = static_cast<uint32_t>(staged_instanced_draws_.size());
+    const auto staged_inst_draws = static_cast<uint32_t>(staged_instanced_draws_.size());
+    const auto staged_segments = static_cast<uint32_t>(staged_spline_segments_.size());
+    if ((staged_inst_draws > 0 && !ensure_instanced_draw_capacity(frame_index, staged_inst_draws)) ||
+        (staged_segments > 0 && !ensure_spline_segment_capacity(frame_index, staged_segments))) {
+        clear(frame_index);
+        return;
+    }
     instanced_draw_counts_[frame_index] = staged_inst_draws;
-    if (staged_inst_draws > 0) {
-        ensure_instanced_draw_capacity(frame_index, staged_inst_draws);
-        std::memcpy(instanced_draw_buffers_[frame_index]->mapped(),
-                    staged_instanced_draws_.data(),
-                    staged_inst_draws * sizeof(GpuInstancedDraw));
-    }
-
-    uint32_t staged_segments = static_cast<uint32_t>(staged_spline_segments_.size());
+    fill_mapped(gpu_, instanced_draw_buffers_[frame_index], std::span<const GpuInstancedDraw>(staged_instanced_draws_));
     spline_segment_counts_[frame_index] = staged_segments;
-    if (staged_segments > 0) {
-        ensure_spline_segment_capacity(frame_index, staged_segments);
-        std::memcpy(spline_segment_buffers_[frame_index]->mapped(),
-                    staged_spline_segments_.data(),
-                    staged_segments * sizeof(GpuSplineSegment));
-    }
+    fill_mapped(gpu_, spline_segment_buffers_[frame_index], std::span<const GpuSplineSegment>(staged_spline_segments_));
 
     // Populate mesh shader indirect dispatch buffers
     most_mesh_task_groups_[frame_index] = 0;
     uint32_t opaque_count = opaque_counts_[frame_index];
     if (opaque_count > 0) {
-        auto* mesh_cmds = static_cast<VkDrawMeshTasksIndirectCommandEXT*>(
-            mesh_indirect_buffers_[frame_index]->mapped());
-        auto* counts = static_cast<uint32_t*>(
-            mesh_count_buffers_[frame_index]->mapped());
+        auto* mesh_cmds =
+            reinterpret_cast<gpu::DrawMeshTasksArgs*>(gpu_.mapped(mesh_indirect_buffers_[frame_index]).data());
+        auto* counts = reinterpret_cast<uint32_t*>(gpu_.mapped(mesh_count_buffers_[frame_index]).data());
 
         uint32_t most_groups = 0;
         for (uint32_t i = 0; i < opaque_count; ++i) {
-            uint32_t mc = staged_draw_data_[i].meshlet_count;
-            mesh_cmds[i].groupCountX = (mc + 31) / 32;
-            mesh_cmds[i].groupCountY = 1;
-            mesh_cmds[i].groupCountZ = 1;
-            most_groups = std::max(most_groups, mesh_cmds[i].groupCountX);
+            const uint32_t mc = staged_draw_data_[i].meshlet_count;
+            mesh_cmds[i] = gpu::DrawMeshTasksArgs{.x = (mc + 31) / 32};
+            most_groups = std::max(most_groups, mesh_cmds[i].x);
         }
         most_mesh_task_groups_[frame_index] = most_groups;
 

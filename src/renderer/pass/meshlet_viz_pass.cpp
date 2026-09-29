@@ -64,8 +64,8 @@ void MeshletVizPass::record(const FrameContext& ctx) {
         pass.bind(ctx.globals);
         pass.bind(ctx.draw_data);
         pass.bind(ctx.meshlets);
-        const gpu::Buffer commands = batch.shared_mesh_indirect_buffer(ctx.frame_index);
-        const gpu::Buffer counts = batch.shared_mesh_count_buffer(ctx.frame_index);
+        const gpu::Buffer commands = batch.mesh_indirect_buffer(ctx.frame_index);
+        const gpu::Buffer counts = batch.mesh_count_buffer(ctx.frame_index);
         const uint32_t most_groups = std::max(batch.most_mesh_task_groups(ctx.frame_index), 1U);
         const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {

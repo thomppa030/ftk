@@ -51,8 +51,6 @@ src/renderer/gpu/window.cpp
 src/renderer/gpu/window.hpp
 src/renderer/gpu_context.cpp
 src/renderer/gpu_context.hpp
-src/renderer/indirect_batch.cpp
-src/renderer/indirect_batch.hpp
 src/renderer/offscreen_pass.cpp
 src/renderer/offscreen_pass.hpp
 src/renderer/pass/ddgi_pass.cpp

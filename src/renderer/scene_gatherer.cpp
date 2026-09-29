@@ -21,14 +21,13 @@
 namespace fjell {
 
 void SceneGatherer::init(GpuContext& gpu) {
-    indirect_batch_ = std::make_unique<IndirectBatch>(
-        gpu.core().gpu_device(), gpu.allocator());
-    draw_data_descriptor_.create(gpu.device());
+    gpu::Device& device = gpu.core().gpu_device();
+    indirect_batch_ = std::make_unique<IndirectBatch>(device);
+    draw_data_descriptor_.create(gpu.device(), device);
 
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-        shadow_batches_[c] = std::make_unique<IndirectBatch>(
-            gpu.core().gpu_device(), gpu.allocator());
-        shadow_draw_data_[c].create(gpu.device());
+        shadow_batches_[c] = std::make_unique<IndirectBatch>(device);
+        shadow_draw_data_[c].create(gpu.device(), device);
     }
 
 }

@@ -1,13 +1,15 @@
 #include "renderer/draw_data_descriptor.hpp"
 #include "core/log.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include <array>
 #include <stdexcept>
 
 namespace fjell {
 
-void DrawDataDescriptor::create(VkDevice device) {
+void DrawDataDescriptor::create(VkDevice device, gpu::Device& gpu) {
     device_ = device;
+    gpu_ = &gpu;
 
     // Layout:
     //   binding 0 = draw data SSBO
@@ -83,8 +85,9 @@ void DrawDataDescriptor::destroy() {
     layout_.reset();
 }
 
-void DrawDataDescriptor::update(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index) {
-    if (size == 0) return;
+void DrawDataDescriptor::write(uint32_t binding, VkBuffer buffer, VkDeviceSize size,
+                               uint32_t frame_index) {
+    if (buffer == VK_NULL_HANDLE || size == 0) return;
 
     VkDescriptorBufferInfo buffer_info{};
     buffer_info.buffer = buffer;
@@ -94,97 +97,37 @@ void DrawDataDescriptor::update(VkBuffer buffer, VkDeviceSize size, uint32_t fra
     VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = 0;
+    write.dstBinding = binding;
     write.dstArrayElement = 0;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     write.descriptorCount = 1;
     write.pBufferInfo = &buffer_info;
 
     vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+}
+
+void DrawDataDescriptor::update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
+    write(0, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
 void DrawDataDescriptor::update_bones(VkBuffer buffer, VkDeviceSize size,
                                       uint32_t frame_index) {
-    if (size == 0) return;
-
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = 1;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write(1, buffer, size, frame_index);
 }
 
-void DrawDataDescriptor::update_instance_transforms(VkBuffer buffer, VkDeviceSize size,
+void DrawDataDescriptor::update_instance_transforms(gpu::Buffer buffer, uint64_t size,
                                                     uint32_t frame_index) {
-    if (buffer == VK_NULL_HANDLE || size == 0) return;
-
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = 2;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write(2, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
-void DrawDataDescriptor::update_visible_instance_transforms(VkBuffer buffer, VkDeviceSize size,
+void DrawDataDescriptor::update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size,
                                                             uint32_t frame_index) {
-    if (buffer == VK_NULL_HANDLE || size == 0) return;
-
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = 3;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write(3, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
-void DrawDataDescriptor::update_spline_segments(VkBuffer buffer, VkDeviceSize size,
+void DrawDataDescriptor::update_spline_segments(gpu::Buffer buffer, uint64_t size,
                                                 uint32_t frame_index) {
-    if (buffer == VK_NULL_HANDLE || size == 0) return;
-
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = 4;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write(4, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
 } // namespace fjell

@@ -3,6 +3,8 @@
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <gpu/buffer.hpp>
+
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -12,18 +14,25 @@
 
 namespace fjell {
 
+namespace gpu {
+class Device;
+}
+
 class DrawDataDescriptor {
 public:
     DrawDataDescriptor() = default;
 
-    void create(VkDevice device);
+    /// `gpu` is the device the buffers bound here were made by.
+    void create(VkDevice device, gpu::Device& gpu);
     void destroy();
 
-    void update(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
+    // Each binds the first `size` bytes of a buffer into the frame slot's
+    // set; nothing while the buffer is unset or `size` is 0.
+    void update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
     void update_bones(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
-    void update_instance_transforms(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
-    void update_visible_instance_transforms(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
-    void update_spline_segments(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
+    void update_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
+    void update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
+    void update_spline_segments(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
     /// The bindings the layout was made from, for the GPU interface's shared
@@ -36,7 +45,10 @@ public:
     }
 
 private:
+    void write(uint32_t binding, VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
+
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_{nullptr};
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::array<VkDescriptorSetLayoutBinding, 5> layout_bindings_{};
     std::unique_ptr<DescriptorPool> pool_;

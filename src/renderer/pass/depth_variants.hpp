@@ -85,7 +85,7 @@ public:
     template <typename CullOf, typename Bind>
     void draw_batch(gpu::RenderEncoder& pass, const IndirectBatch& batch, uint32_t frame_index,
                     CullOf&& cull_of, Bind&& bind) const {
-        const gpu::Buffer commands = batch.shared_indirect_buffer(frame_index);
+        const gpu::Buffer commands = batch.indirect_buffer(frame_index);
         gpu::GraphicsPipeline bound{};
         for (const auto& range : batch.pipeline_ranges(frame_index)) {
             const Variant needed = variant(range.pipeline_id, cull_of(range.pipeline_id));

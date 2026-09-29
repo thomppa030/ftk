@@ -1,14 +1,14 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include <gpu/buffer.hpp>
+#include <gpu/owned.hpp>
+#include <gpu/render_encoder.hpp>
 
 #include <array>
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 namespace fjell {
@@ -77,7 +77,7 @@ struct GpuInstancedDraw {
     glm::vec4 local_aabb_max;        // model local AABB max (.w unused)
     uint32_t first_instance;         // offset into InstanceTransforms
     uint32_t instance_count;         // source instance count (pre-cull)
-    uint32_t indirect_cmd_index;     // which VkDrawIndexedIndirectCommand to patch
+    uint32_t indirect_cmd_index;     // which indirect command's instance count to patch
     uint32_t _pad;
 };
 static_assert(sizeof(GpuInstancedDraw) == 48, "GpuInstancedDraw must be 48 bytes for std430");
@@ -96,9 +96,8 @@ struct PipelineDrawRange {
 
 class IndirectBatch {
 public:
-    /// `gpu` is the GPU interface's device, which is handed the buffers the
-    /// frame graph tracks.
-    IndirectBatch(gpu::Device& gpu, VmaAllocator allocator);
+    /// The buffers are made and written through `gpu`.
+    explicit IndirectBatch(gpu::Device& gpu);
 
     void build(const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
@@ -129,15 +128,15 @@ public:
     /// draw; 0 for a build without a projection (the shadow batches).
     [[nodiscard]] uint32_t lod_for(const Model& model, const glm::mat4& world) const;
 
-    [[nodiscard]] VkBuffer draw_data_buffer(uint32_t frame_index) const {
-        return draw_data_buffers_[frame_index]->handle();
+    // Each buffer is unset until a build first needs it.
+
+    /// One GpuDrawData per draw: the static opaque draws, then the skinned
+    /// ones, then the transparent ones.
+    [[nodiscard]] gpu::Buffer draw_data_buffer(uint32_t frame_index) const {
+        return draw_data_buffers_[frame_index];
     }
-    /// The draw data as the GPU interface knows it.
-    [[nodiscard]] gpu::Buffer shared_draw_data_buffer(uint32_t frame_index) const {
-        return draw_data_buffers_[frame_index] ? draw_data_buffers_[frame_index]->shared() : gpu::Buffer{};
-    }
-    [[nodiscard]] VkDeviceSize draw_data_size(uint32_t frame_index) const {
-        return draw_data_counts_[frame_index] * sizeof(GpuDrawData);
+    [[nodiscard]] uint64_t draw_data_size(uint32_t frame_index) const {
+        return uint64_t{draw_data_counts_[frame_index]} * sizeof(GpuDrawData);
     }
     [[nodiscard]] uint32_t draw_data_count(uint32_t frame_index) const {
         return draw_data_counts_[frame_index];
@@ -157,40 +156,30 @@ public:
         return pipeline_ranges_[frame_index];
     }
 
-    [[nodiscard]] VkBuffer indirect_buffer(uint32_t frame_index) const {
-        return indirect_buffers_[frame_index]->handle();
-    }
-    /// The indirect commands as the GPU interface knows them.
-    [[nodiscard]] gpu::Buffer shared_indirect_buffer(uint32_t frame_index) const {
-        return indirect_buffers_[frame_index] ? indirect_buffers_[frame_index]->shared() : gpu::Buffer{};
+    /// One gpu::DrawIndexedArgs per static opaque draw.
+    [[nodiscard]] gpu::Buffer indirect_buffer(uint32_t frame_index) const {
+        return indirect_buffers_[frame_index];
     }
 
-    [[nodiscard]] VkBuffer mesh_indirect_buffer(uint32_t frame_index) const {
-        return mesh_indirect_buffers_[frame_index] ? mesh_indirect_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
-    }
-    [[nodiscard]] VkBuffer mesh_count_buffer(uint32_t frame_index) const {
-        return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
-    }
     /// The mesh-shader draw commands, one gpu::DrawMeshTasksArgs per static
-    /// draw, and each pipeline range's draw count, as the GPU interface knows
-    /// them.
-    [[nodiscard]] gpu::Buffer shared_mesh_indirect_buffer(uint32_t frame_index) const {
-        return mesh_indirect_buffers_[frame_index] ? mesh_indirect_buffers_[frame_index]->shared() : gpu::Buffer{};
+    /// draw, and each pipeline range's draw count.
+    [[nodiscard]] gpu::Buffer mesh_indirect_buffer(uint32_t frame_index) const {
+        return mesh_indirect_buffers_[frame_index];
     }
-    [[nodiscard]] gpu::Buffer shared_mesh_count_buffer(uint32_t frame_index) const {
-        return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->shared() : gpu::Buffer{};
+    [[nodiscard]] gpu::Buffer mesh_count_buffer(uint32_t frame_index) const {
+        return mesh_count_buffers_[frame_index];
     }
     /// The most task groups any of those commands asks for.
     [[nodiscard]] uint32_t most_mesh_task_groups(uint32_t frame_index) const {
         return most_mesh_task_groups_[frame_index];
     }
 
-    /// Each draw's pipeline bin as the GPU interface knows it.
-    [[nodiscard]] gpu::Buffer shared_pipeline_bin_buffer(uint32_t frame_index) const {
-        return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->shared() : gpu::Buffer{};
+    /// Each static draw's pipeline bin: the index of its pipeline range.
+    [[nodiscard]] gpu::Buffer pipeline_bin_buffer(uint32_t frame_index) const {
+        return pipeline_bin_buffers_[frame_index];
     }
-    [[nodiscard]] VkDeviceSize pipeline_bin_size(uint32_t frame_index) const {
-        return opaque_counts_[frame_index] * sizeof(uint32_t);
+    [[nodiscard]] uint64_t pipeline_bin_size(uint32_t frame_index) const {
+        return uint64_t{opaque_counts_[frame_index]} * sizeof(uint32_t);
     }
 
     [[nodiscard]] const std::vector<uint32_t>& skinned_draw_indices(uint32_t frame_index) const {
@@ -206,100 +195,89 @@ public:
                static_cast<uint32_t>(skinned_draw_indices_[frame_index].size());
     }
 
-    [[nodiscard]] VkBuffer instance_transform_buffer(uint32_t frame_index) const {
-        return instance_transform_buffers_[frame_index]
-                   ? instance_transform_buffers_[frame_index]->handle()
-                   : VK_NULL_HANDLE;
+    /// Every instanced draw's world transforms, one after another.
+    [[nodiscard]] gpu::Buffer instance_transform_buffer(uint32_t frame_index) const {
+        return instance_transform_buffers_[frame_index];
     }
-    /// The instance transforms as the GPU interface knows them.
-    [[nodiscard]] gpu::Buffer shared_instance_transform_buffer(uint32_t frame_index) const {
-        return instance_transform_buffers_[frame_index]
-                   ? instance_transform_buffers_[frame_index]->shared()
-                   : gpu::Buffer{};
-    }
-    [[nodiscard]] VkDeviceSize instance_transform_size(uint32_t frame_index) const {
-        return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
+    [[nodiscard]] uint64_t instance_transform_size(uint32_t frame_index) const {
+        return uint64_t{instance_transform_counts_[frame_index]} * sizeof(glm::mat4);
     }
     [[nodiscard]] uint32_t instance_transform_count(uint32_t frame_index) const {
         return instance_transform_counts_[frame_index];
     }
 
-    [[nodiscard]] VkBuffer visible_instance_buffer(uint32_t frame_index) const {
-        return visible_instance_buffers_[frame_index]
-                   ? visible_instance_buffers_[frame_index]->handle()
-                   : VK_NULL_HANDLE;
+    /// The transforms the instance cull keeps, written on the GPU, as many
+    /// as there are instance transforms.
+    [[nodiscard]] gpu::Buffer visible_instance_buffer(uint32_t frame_index) const {
+        return visible_instance_buffers_[frame_index];
     }
-    /// The visible instances as the GPU interface knows them.
-    [[nodiscard]] gpu::Buffer shared_visible_instance_buffer(uint32_t frame_index) const {
-        return visible_instance_buffers_[frame_index]
-                   ? visible_instance_buffers_[frame_index]->shared()
-                   : gpu::Buffer{};
-    }
-    [[nodiscard]] VkDeviceSize visible_instance_size(uint32_t frame_index) const {
-        return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
+    [[nodiscard]] uint64_t visible_instance_size(uint32_t frame_index) const {
+        return uint64_t{instance_transform_counts_[frame_index]} * sizeof(glm::mat4);
     }
 
-    /// The instanced draws as the GPU interface knows them.
-    [[nodiscard]] gpu::Buffer shared_instanced_draw_buffer(uint32_t frame_index) const {
-        return instanced_draw_buffers_[frame_index]
-                   ? instanced_draw_buffers_[frame_index]->shared()
-                   : gpu::Buffer{};
+    /// One GpuInstancedDraw per instanced draw.
+    [[nodiscard]] gpu::Buffer instanced_draw_buffer(uint32_t frame_index) const {
+        return instanced_draw_buffers_[frame_index];
     }
-    [[nodiscard]] VkDeviceSize instanced_draw_size(uint32_t frame_index) const {
-        return static_cast<VkDeviceSize>(instanced_draw_counts_[frame_index]) * sizeof(GpuInstancedDraw);
+    [[nodiscard]] uint64_t instanced_draw_size(uint32_t frame_index) const {
+        return uint64_t{instanced_draw_counts_[frame_index]} * sizeof(GpuInstancedDraw);
     }
     [[nodiscard]] uint32_t instanced_draw_count(uint32_t frame_index) const {
         return instanced_draw_counts_[frame_index];
     }
 
-    [[nodiscard]] VkBuffer spline_segment_buffer(uint32_t frame_index) const {
-        return spline_segment_buffers_[frame_index]
-                   ? spline_segment_buffers_[frame_index]->handle()
-                   : VK_NULL_HANDLE;
+    /// One GpuSplineSegment per instance of a spline mesh draw.
+    [[nodiscard]] gpu::Buffer spline_segment_buffer(uint32_t frame_index) const {
+        return spline_segment_buffers_[frame_index];
     }
-    [[nodiscard]] VkDeviceSize spline_segment_size(uint32_t frame_index) const {
-        return static_cast<VkDeviceSize>(spline_segment_counts_[frame_index]) * sizeof(GpuSplineSegment);
+    [[nodiscard]] uint64_t spline_segment_size(uint32_t frame_index) const {
+        return uint64_t{spline_segment_counts_[frame_index]} * sizeof(GpuSplineSegment);
     }
     [[nodiscard]] uint32_t spline_segment_count(uint32_t frame_index) const {
         return spline_segment_counts_[frame_index];
     }
 
 private:
-    void ensure_capacity(uint32_t frame_index, uint32_t count);
-    void ensure_instance_capacity(uint32_t frame_index, uint32_t count);
-    void ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count);
-    void ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count);
+    template <typename T>
+    using PerFrame = std::array<T, MAX_FRAMES_IN_FLIGHT>;
 
-    // Keeps an outgoing buffer alive until the frames using it are done
-    // instead of freeing it inline: a pending command buffer may still read
-    // it.
-    void retire(std::unique_ptr<Buffer> buffer);
+    /// Grows a frame slot's buffers to hold `count` draws, or `count`
+    /// instance transforms, instanced draws or spline segments. The frames
+    /// still reading the old buffers keep them until they are done. False,
+    /// with the reason logged, when a buffer could not be made; the slot
+    /// keeps what it had.
+    [[nodiscard]] bool ensure_capacity(uint32_t frame_index, uint32_t count);
+    [[nodiscard]] bool ensure_instance_capacity(uint32_t frame_index, uint32_t count);
+    [[nodiscard]] bool ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count);
+    [[nodiscard]] bool ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count);
+
+    /// Empties a frame slot's build: nothing to draw.
+    void clear(uint32_t frame_index);
 
     gpu::Device& gpu_;
-    VmaAllocator allocator_;
 
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_indirect_buffers_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_count_buffers_;
-    std::array<std::vector<NodeDraws>, MAX_FRAMES_IN_FLIGHT> node_draws_;
+    PerFrame<gpu::Owned<gpu::Buffer>> indirect_buffers_;
+    PerFrame<gpu::Owned<gpu::Buffer>> draw_data_buffers_;
+    PerFrame<gpu::Owned<gpu::Buffer>> mesh_indirect_buffers_;
+    PerFrame<gpu::Owned<gpu::Buffer>> mesh_count_buffers_;
+    PerFrame<std::vector<NodeDraws>> node_draws_;
 
     // What the last build picked LODs from: its camera, and its projection's
     // vertical scale (0 without a projection, which picks LOD 0).
     glm::vec3 lod_camera_pos_{0.0f};
     float lod_proj_scale_{0.0f};
 
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_meshlet_instances_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> most_mesh_task_groups_{};
-    std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> pipeline_bin_buffers_;
+    PerFrame<uint32_t> capacities_{};
+    PerFrame<uint32_t> opaque_counts_{};
+    PerFrame<uint32_t> draw_data_counts_{};
+    PerFrame<uint32_t> total_triangles_{};
+    PerFrame<uint32_t> total_meshlet_instances_{};
+    PerFrame<uint32_t> most_mesh_task_groups_{};
+    PerFrame<std::vector<PipelineDrawRange>> pipeline_ranges_;
+    PerFrame<gpu::Owned<gpu::Buffer>> pipeline_bin_buffers_;
 
     // CPU-side staging buffers (avoid scattered writes to write-combined GPU memory)
-    std::vector<VkDrawIndexedIndirectCommand> staged_indirect_;
+    std::vector<gpu::DrawIndexedArgs> staged_indirect_;
     std::vector<GpuDrawData> staged_draw_data_;
 
     // Per-draw scratch for instanced LOD bucketing — reused across draws to
@@ -308,26 +286,26 @@ private:
     std::vector<glm::mat4> staged_bucket_worlds_;
 
     // Per-frame skinned draw data indices (draw_index into GpuDrawData SSBO)
-    std::array<std::vector<uint32_t>, MAX_FRAMES_IN_FLIGHT> skinned_draw_indices_;
+    PerFrame<std::vector<uint32_t>> skinned_draw_indices_;
 
     // Per-frame packed instance transforms (world-space, concatenated for all instanced draws)
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_transform_buffers_;
+    PerFrame<gpu::Owned<gpu::Buffer>> instance_transform_buffers_;
     // GPU-written compacted visible instances — vertex path reads this
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> visible_instance_buffers_;
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_capacities_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_counts_{};
+    PerFrame<gpu::Owned<gpu::Buffer>> visible_instance_buffers_;
+    PerFrame<uint32_t> instance_transform_capacities_{};
+    PerFrame<uint32_t> instance_transform_counts_{};
     std::vector<glm::mat4> staged_instance_transforms_;
 
     // Per-frame per-instanced-draw descriptors (local AABB + indirect cmd index)
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instanced_draw_buffers_;
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_capacities_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_counts_{};
+    PerFrame<gpu::Owned<gpu::Buffer>> instanced_draw_buffers_;
+    PerFrame<uint32_t> instanced_draw_capacities_{};
+    PerFrame<uint32_t> instanced_draw_counts_{};
     std::vector<GpuInstancedDraw> staged_instanced_draws_;
 
     // Per-frame packed spline-mesh per-instance segment records
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> spline_segment_buffers_;
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_capacities_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_counts_{};
+    PerFrame<gpu::Owned<gpu::Buffer>> spline_segment_buffers_;
+    PerFrame<uint32_t> spline_segment_capacities_{};
+    PerFrame<uint32_t> spline_segment_counts_{};
     std::vector<GpuSplineSegment> staged_spline_segments_;
 };
 

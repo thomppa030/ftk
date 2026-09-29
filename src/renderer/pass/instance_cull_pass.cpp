@@ -38,8 +38,8 @@ void InstanceCullPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) 
         || ctx.indirect_batch->instanced_draw_count(ctx.frame_index) == 0) {
         return;
     }
-    transforms_ = {.buffer = ctx.indirect_batch->shared_visible_instance_buffer(ctx.frame_index)};
-    commands_ = {.buffer = ctx.indirect_batch->shared_indirect_buffer(ctx.frame_index)};
+    transforms_ = {.buffer = ctx.indirect_batch->visible_instance_buffer(ctx.frame_index)};
+    commands_ = {.buffer = ctx.indirect_batch->indirect_buffer(ctx.frame_index)};
 }
 
 void InstanceCullPass::collect_exports(DeclareContext& ctx) {
@@ -77,15 +77,15 @@ void InstanceCullPass::record(const FrameContext& ctx) {
     // Each instanced draw's box and slice, the transforms the CPU wrote, the
     // compacted survivors, and the commands whose instance counts are patched.
     cmd.bind({{"InstancedDrawBuffer",
-               gpu::storage(gpu::BufferRange(batch.shared_instanced_draw_buffer(frame), 0,
+               gpu::storage(gpu::BufferRange(batch.instanced_draw_buffer(frame), 0,
                                              batch.instanced_draw_size(frame)))},
               {"InstanceTransformsBuffer",
-               gpu::storage(gpu::BufferRange(batch.shared_instance_transform_buffer(frame), 0,
+               gpu::storage(gpu::BufferRange(batch.instance_transform_buffer(frame), 0,
                                              batch.instance_transform_size(frame)))},
               {"VisibleTransformsBuffer",
-               gpu::storage(gpu::BufferRange(batch.shared_visible_instance_buffer(frame), 0,
+               gpu::storage(gpu::BufferRange(batch.visible_instance_buffer(frame), 0,
                                              batch.visible_instance_size(frame)))},
-              {"IndirectBuffer", gpu::storage(batch.shared_indirect_buffer(frame))}});
+              {"IndirectBuffer", gpu::storage(batch.indirect_buffer(frame))}});
     cmd.dispatch(draw_count, 1, 1);
 }
 
