@@ -117,12 +117,6 @@ void trace_transitions(Device& device, std::string* lines);
 /// Vulkan itself.
 [[nodiscard]] VkCommandBuffer native_command_buffer(CommandList& list);
 
-/// The swapchain's part in a frame, until the swapchain is the interface's:
-/// the frame's first graphics list waits for `acquired` where it writes
-/// colour, and its last list signals `rendered`, which present waits on.
-void wait_acquired(Frame& frame, VkSemaphore acquired);
-void signal_rendered(Frame& frame, VkSemaphore rendered);
-
 /// The device's one-frame descriptor sets, for passes that acquire their own.
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
 [[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);

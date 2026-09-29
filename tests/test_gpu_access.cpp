@@ -7,7 +7,7 @@ using namespace fjell::gpu;
 
 namespace {
 
-constexpr int ACCESS_COUNT = static_cast<int>(Access::clear) + 1;
+constexpr int ACCESS_COUNT = static_cast<int>(Access::present) + 1;
 
 } // namespace
 
@@ -23,14 +23,14 @@ TEST_CASE("Every access applies to a texture, a buffer, or to both only for copi
     }
 }
 
-TEST_CASE("Every texture access but a copy or a clear asks a use of the texture",
+TEST_CASE("Every texture access but a copy, a clear or present asks a use of the texture",
           "[gpu][access]") {
     for (int i = 0; i < ACCESS_COUNT; ++i) {
         const auto access = static_cast<Access>(i);
         INFO("access " << i);
-        const bool copy_or_clear =
-            access == Access::copy_src || access == Access::copy_dst || access == Access::clear;
-        CHECK(texture_use(access).empty() == (!applies_to_texture(access) || copy_or_clear));
+        const bool asks_nothing = access == Access::copy_src || access == Access::copy_dst ||
+                                  access == Access::clear || access == Access::present;
+        CHECK(texture_use(access).empty() == (!applies_to_texture(access) || asks_nothing));
     }
     CHECK(texture_use(Access::depth_read_sampled) ==
           (TextureUse::depth_target | TextureUse::sampled));

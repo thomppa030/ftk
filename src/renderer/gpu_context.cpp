@@ -103,6 +103,10 @@ GpuContext::GpuContext(Window& window)
     , render_stats_{std::make_unique<RenderStats>()} {
     FJELL_GFX_INFO("Initializing GPU context");
 
+    auto swapchain = gpu::Swapchain::create(core_.gpu_device(), window);
+    if (!swapchain) throw std::runtime_error(swapchain.error());
+    swapchain_ = std::move(*swapchain);
+
     vk_pipeline_cache_ = load_pipeline_cache(core_.vk_device());
     // The GPU interface's pipelines read the shaders the build compiled beside
     // the program, through the engine's pipeline cache.
@@ -199,8 +203,8 @@ GpuContext::~GpuContext() {
 
     secondary_pools_.destroy();
 
-    // GpuCore destructor handles: sync objects, command pool, swapchain cleanup,
-    // VMA allocator, device, in the correct order.
+    // The swapchain goes next, once the GPU is idle, then GpuCore: the
+    // command pool, the device, the allocator, in that order.
 }
 
 void GpuContext::create_descriptor_resources() {

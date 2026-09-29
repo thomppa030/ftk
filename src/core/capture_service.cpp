@@ -3,7 +3,8 @@
 #include "core/log.hpp"
 #include "core/project.hpp"
 #include "renderer/gpu/image_readback.hpp"
-#include "renderer/gpu/swapchain.hpp"
+#include "gpu/swapchain.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -222,7 +223,8 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
         return;
     }
 
-    VkExtent2D swap_extent = vk.swapchain_extent();
+    const gpu::Swapchain& swapchain = vk.gpu().swapchain();
+    const VkExtent2D swap_extent{swapchain.width(), swapchain.height()};
     int x0 = std::max(0, static_cast<int>(win->Pos.x));
     int y0 = std::max(0, static_cast<int>(win->Pos.y));
     int x1 = std::min(static_cast<int>(swap_extent.width),
@@ -238,8 +240,11 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
 
     vk.wait_idle();
 
-    uint32_t image_index = vk.recorded_swapchain_image_index();
-    VkImage swap_image = vk.gpu().swapchain().image(image_index);
+    VkImage swap_image = gpu::vulkan::native_image(vk.gpu_device(), vk.presented_swapchain_texture());
+    if (swap_image == VK_NULL_HANDLE) {
+        FJELL_CORE_ERROR("Capture: the window was resized since the frame was shown");
+        return;
+    }
 
     std::vector<uint8_t> cropped(static_cast<size_t>(w) * h * 4);
     {

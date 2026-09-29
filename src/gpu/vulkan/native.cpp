@@ -1,7 +1,6 @@
 #include "gpu/vulkan/native.hpp"
 
 #include "gpu/vulkan/device_impl.hpp"
-#include "gpu/vulkan/frame_impl.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
@@ -162,14 +161,6 @@ VkDescriptorSet native_group(Device& device, BindGroup group) {
 
 VkCommandBuffer native_command_buffer(CommandList& list) {
     return list.impl().cb;
-}
-
-void wait_acquired(Frame& frame, VkSemaphore acquired) {
-    frame.impl().acquired = acquired;
-}
-
-void signal_rendered(Frame& frame, VkSemaphore rendered) {
-    frame.impl().rendered = rendered;
 }
 
 void defer(Device& device, std::move_only_function<void()> fn) {

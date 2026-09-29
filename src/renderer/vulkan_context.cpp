@@ -722,7 +722,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
 }
 
-void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage& image,
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const EnvironmentState& environment,
                                           Scene* scene, float dt,
@@ -798,50 +798,24 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     // finish. Easiest is to record into the post-compute CB when the
     // frame uses async (post_cmd non-null + recorded_async_this_frame_);
     // otherwise stick with the pre CB, same as today's single-CB flow.
-    VkCommandBuffer swap_cmd = (post_cmd_ != VK_NULL_HANDLE && recorded_async_this_frame_)
-        ? post_cmd_ : cmd;
+    gpu::CommandList& swap_list = (post_list_ != nullptr && recorded_async_this_frame_)
+        ? *post_list_ : *pre_list_;
+    VkCommandBuffer swap_cmd = gpu::vulkan::native_command_buffer(swap_list);
 
     // --- Render ImGui to swapchain ---
     {
-        // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL.
-        // The submit waits for the acquire at the colour output stage, and the
-        // transition has to come after that wait: the source scope names it.
-        transition_image(swap_cmd, gpu_.swapchain().image(image_index),
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-        VkRenderingAttachmentInfo color_attachment{};
-        color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = gpu_.swapchain().image_view(image_index);
-        color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachment.clearValue.color = {{0.012f, 0.012f, 0.015f, 1.0f}};
-
-        VkRenderingInfo rendering_info{};
-        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        rendering_info.renderArea.offset = {0, 0};
-        rendering_info.renderArea.extent = gpu_.swapchain().extent();
-        rendering_info.layerCount = 1;
-        rendering_info.colorAttachmentCount = 1;
-        rendering_info.pColorAttachments = &color_attachment;
-
-        vkCmdBeginRendering(swap_cmd, &rendering_info);
-
-        if (overlay_callback_) {
-            overlay_callback_(swap_cmd);
+        const gpu::Transition draw = image.to_draw();
+        swap_list.transition({&draw, 1});
+        {
+            auto target = swap_list.render({.color = {{.view = image.texture,
+                                                       .load = gpu::Load::clear,
+                                                       .clear = gpu::Clear{0.012f, 0.012f, 0.015f, 1.0f}}}});
+            if (overlay_callback_) {
+                overlay_callback_(swap_cmd);
+            }
         }
-
-        vkCmdEndRendering(swap_cmd);
-
-        // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
-        transition_image(swap_cmd, gpu_.swapchain().image(image_index),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+        const gpu::Transition show = image.to_present();
+        swap_list.transition({&show, 1});
     }
 
     gpu::vulkan::collect_zones(gpu_.core().gpu_device(), swap_cmd);
@@ -1287,16 +1261,14 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
         0, 0, nullptr, 0, nullptr, 1, &to_read);
 }
 
+VkFormat VulkanContext::swapchain_format() const {
+    return gpu::vulkan::native_format(gpu_.swapchain().format());
+}
+
 void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
+    has_recorded_frame_ = false;
     gpu::Frame& frame = *recorded_gpu_frame_;
-
-    // The frame's first graphics list waits for the swapchain image where it
-    // writes colour, and its last list signals the semaphore present waits
-    // on. Uploads batched since the last frame go before it.
-    auto& render_finished = gpu_.swapchain().render_finished_semaphores();
-    gpu::vulkan::wait_acquired(frame, recorded_acquire_semaphore_);
-    gpu::vulkan::signal_rendered(frame, render_finished[recorded_image_index_]);
 
     // Without async work the frame is its pre list alone. With it, three
     // lists chained across the queues: the compute list runs once pre is
@@ -1311,37 +1283,14 @@ void VulkanContext::submit_and_present() {
     }
     recorded_gpu_frame_ = nullptr;
     frame_cmd_ = async_cmd_ = post_cmd_ = VK_NULL_HANDLE;
-    if (auto sent = gpu_device().end_frame(frame); !sent) {
-        FJELL_GFX_CRITICAL("{}", sent.error());
-        has_recorded_frame_ = false;
-        return;
+    presented_texture_ = recorded_image_.texture;
+    if (auto shown = gpu_.swapchain().present(frame, recorded_image_); !shown) {
+        FJELL_GFX_CRITICAL("{}", shown.error());
     }
-
-    VkPresentInfoKHR present_info{};
-    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &render_finished[recorded_image_index_];
-    present_info.swapchainCount = 1;
-    VkSwapchainKHR swapchain_handle = gpu_.swapchain().handle();
-    present_info.pSwapchains = &swapchain_handle;
-    present_info.pImageIndices = &recorded_image_index_;
-
-    VkResult result = vkQueuePresentKHR(gpu_.device_ref().present_queue(), &present_info);
-
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
-        gpu_.window().was_resized()) {
-        gpu_.window().reset_resized();
-        gpu_.swapchain().recreate();
-    } else if (result != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("vkQueuePresentKHR failed: {}", static_cast<int>(result));
-    }
-
-    has_recorded_frame_ = false;
 }
 
 bool VulkanContext::begin_frame(ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("begin_frame");
-    auto vk_device = gpu_.device();
 
     // Clean slate for async tracking. render_scene_to sets this when
     // any viewport actually records into the async CB.
@@ -1384,33 +1333,17 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
         gpu_.secondary_pools().reset_frame(current_frame_);
     }
 
-    // Rotating acquire semaphore (owned by the swapchain, not the frame slot).
-    // Decoupling it from current_frame_ means a skipped/failed frame can't leave
-    // this slot's semaphore signaled-but-unwaited for the next reuse.
-    VkSemaphore acquire_sem = gpu_.swapchain().next_acquire_semaphore();
-
-    uint32_t image_index;
-    VkResult result = vkAcquireNextImageKHR(vk_device, gpu_.swapchain().handle(),
-                          std::numeric_limits<uint64_t>::max(),
-                          acquire_sem, VK_NULL_HANDLE,
-                          &image_index);
-
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_NOT_READY) {
-            gpu_.swapchain().recreate();
-        } else {
-            FJELL_GFX_CRITICAL("vkAcquireNextImageKHR failed: {}", static_cast<int>(result));
-        }
-        // A frame with nothing in it still ends, so the frames after it do
-        // not wait for it.
+    // The frame's first graphics list waits for the image where it writes
+    // colour. Without one (the window changed size, and the swapchain was
+    // remade) the frame ends empty, so the frames after it do not wait for
+    // it.
+    auto image = gpu_.swapchain().acquire(*frame_);
+    if (!image) {
         (void)gpu_device().end_frame(*frame_);
         frame_ = nullptr;
-        has_recorded_frame_ = false;
         return false;
     }
-
-    pending_image_index_ = image_index;
-    pending_acquire_semaphore_ = acquire_sem;
+    acquired_image_ = *image;
     return true;
 }
 
@@ -1715,13 +1648,12 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                                         : VK_NULL_HANDLE;
     post_cmd_ = post_list_ != nullptr ? gpu::vulkan::native_command_buffer(*post_list_)
                                       : VK_NULL_HANDLE;
-    record_command_buffer(frame_cmd_, pending_image_index_, viewports, environment, scene, dt,
+    record_command_buffer(frame_cmd_, acquired_image_, viewports, environment, scene, dt,
                           selected_id, pool);
 
     recorded_gpu_frame_ = frame_;
     frame_ = nullptr;
-    recorded_image_index_ = pending_image_index_;
-    recorded_acquire_semaphore_ = pending_acquire_semaphore_;
+    recorded_image_ = acquired_image_;
     has_recorded_frame_ = true;
 }
 

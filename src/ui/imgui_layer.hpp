@@ -27,10 +27,13 @@ struct ImGuiLayerFiles {
 
 class ImGuiLayer {
 public:
+    /// Draws into `color_format` targets. `frames_in_flight` is how many
+    /// frames the GPU may be working on at once, the device's: ImGui keeps
+    /// vertex buffers for that many frames and uses them in turn.
     ImGuiLayer(Window& window, VkInstance instance,
                VkPhysicalDevice physical_device, VkDevice device,
                uint32_t graphics_family, VkQueue graphics_queue,
-               VkFormat color_format, uint32_t image_count,
+               VkFormat color_format, uint32_t frames_in_flight,
                const ImGuiLayerFiles& files);
     ~ImGuiLayer();
 

@@ -242,7 +242,8 @@ void Engine::init_ui() {
         window_, vulkan_context_->instance(),
         vulkan_context_->physical_device(), vulkan_context_->device(),
         vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
-        vulkan_context_->swapchain_format(), vulkan_context_->image_count(), engine_imgui_files());
+        vulkan_context_->swapchain_format(), vulkan_context_->gpu_device().caps().frames_in_flight,
+        engine_imgui_files());
 
     vulkan_context_->set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);

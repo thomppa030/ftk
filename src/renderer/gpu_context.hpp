@@ -7,6 +7,9 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/gpu/gpu_core.hpp"
+// Through the include path: a quoted "gpu/swapchain.hpp" finds the older
+// renderer/gpu/swapchain.hpp beside this file first.
+#include <gpu/swapchain.hpp>
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/meshlet_descriptor.hpp"
@@ -73,10 +76,9 @@ public:
     [[nodiscard]] Device& device_ref() { return core_.device(); }
 
     // ── Swapchain ───────────────────────────────────────────────────────
-    [[nodiscard]] Swapchain& swapchain() { return core_.swapchain(); }
-    [[nodiscard]] VkFormat swapchain_format() const { return core_.swapchain_format(); }
-    [[nodiscard]] VkExtent2D swapchain_extent() const { return core_.swapchain_extent(); }
-    [[nodiscard]] uint32_t image_count() const { return core_.image_count(); }
+    /// What the main window shows.
+    [[nodiscard]] gpu::Swapchain& swapchain() { return *swapchain_; }
+    [[nodiscard]] const gpu::Swapchain& swapchain() const { return *swapchain_; }
 
     // ── Command infrastructure ──────────────────────────────────────────
     [[nodiscard]] VkCommandPool command_pool() const { return core_.command_pool(); }
@@ -85,14 +87,6 @@ public:
 
     [[nodiscard]] bool async_compute_supported() const {
         return core_.device().async_compute_supported();
-    }
-
-    // ── Frame sync ──────────────────────────────────────────────────────
-    [[nodiscard]] VkSemaphore image_available_semaphore(uint32_t frame_index) const {
-        return core_.image_available_semaphore(frame_index);
-    }
-    [[nodiscard]] VkFence in_flight_fence(uint32_t frame_index) const {
-        return core_.in_flight_fence(frame_index);
     }
 
     // ── Deferred destruction ────────────────────────────────────────────
@@ -183,6 +177,7 @@ private:
     void create_descriptor_resources();
 
     GpuCore core_;
+    std::unique_ptr<gpu::Swapchain> swapchain_;
 
     ThreadCommandPools secondary_pools_;
     bool secondary_pools_initialized_{false};

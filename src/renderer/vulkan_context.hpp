@@ -1,6 +1,9 @@
 #pragma once
 
 #include "gpu/frame.hpp"
+// Through the include path: a quoted "gpu/swapchain.hpp" finds the older
+// renderer/gpu/swapchain.hpp beside this file first.
+#include <gpu/swapchain.hpp>
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_registry.hpp"
@@ -148,9 +151,8 @@ public:
   [[nodiscard]] UploadContext& upload_context() { return gpu_.upload_context(); }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
   [[nodiscard]] VkInstance instance() const { return gpu_.instance(); }
-  [[nodiscard]] VkFormat swapchain_format() const { return gpu_.swapchain_format(); }
-  [[nodiscard]] VkExtent2D swapchain_extent() const { return gpu_.swapchain_extent(); }
-  [[nodiscard]] uint32_t image_count() const { return gpu_.image_count(); }
+  /// The main window's images' format, what ImGui and the game UI draw into.
+  [[nodiscard]] VkFormat swapchain_format() const;
   [[nodiscard]] uint32_t graphics_family() const { return gpu_.graphics_family(); }
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
@@ -390,13 +392,14 @@ public:
                       const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
 
-  /// The swapchain image index of the last frame submitted for present.
-  /// Used by editor screenshot capture to read back the composited frame.
-  [[nodiscard]] uint32_t recorded_swapchain_image_index() const { return recorded_image_index_; }
+  /// The swapchain image of the last frame presented, for the editor's
+  /// screenshot capture to read the composited frame back from. A handle
+  /// that finds nothing once the swapchain has been remade since.
+  [[nodiscard]] gpu::Texture presented_swapchain_texture() const { return presented_texture_; }
 
 private:
   void
-  record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+  record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage &image,
                         const std::vector<ViewportRenderRequest> &viewports,
                         const EnvironmentState &environment, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool);
@@ -474,14 +477,11 @@ private:
   VkCommandBuffer frame_cmd_{VK_NULL_HANDLE};
   VkCommandBuffer async_cmd_{VK_NULL_HANDLE};
   VkCommandBuffer post_cmd_{VK_NULL_HANDLE};
-  uint32_t recorded_image_index_{0};
-  uint32_t pending_image_index_{0};
-  // Acquire semaphore for the in-flight frame, owned by the swapchain and
-  // rotated per acquire (not per frame-slot) so a skipped/failed frame can't
-  // orphan a signal. pending_ is set at acquire; recorded_ is what
-  // submit_and_present waits on for the frame it submits.
-  VkSemaphore pending_acquire_semaphore_{VK_NULL_HANDLE};
-  VkSemaphore recorded_acquire_semaphore_{VK_NULL_HANDLE};
+  /// The swapchain image `frame_` draws into, and the one
+  /// `recorded_gpu_frame_` drew into, which it presents.
+  gpu::SwapchainImage acquired_image_{};
+  gpu::SwapchainImage recorded_image_{};
+  gpu::Texture presented_texture_{};
   bool has_recorded_frame_{false};
   // True when the main-viewport pipeline actually recorded commands
   // into the async compute CB this frame — drives whether submit_and_

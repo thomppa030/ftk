@@ -51,9 +51,9 @@ struct Frame::Impl {
     };
     std::vector<Submission> submissions;
 
-    /// The swapchain's part, until the swapchain is the interface's: what
-    /// the first graphics list waits for at colour output, and what the last
-    /// list signals for present. Null without a swapchain image.
+    /// Set by `Swapchain::acquire`: what the first graphics list waits for
+    /// at colour output, and what the last list signals for present. Null
+    /// without a swapchain image.
     VkSemaphore acquired{VK_NULL_HANDLE};
     VkSemaphore rendered{VK_NULL_HANDLE};
 };

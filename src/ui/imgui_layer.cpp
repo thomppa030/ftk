@@ -12,6 +12,7 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <stdexcept>
@@ -36,7 +37,7 @@ std::vector<uint32_t> read_spirv_words(const std::string& path) {
 ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
-                       VkFormat color_format, uint32_t image_count,
+                       VkFormat color_format, uint32_t frames_in_flight,
                        const ImGuiLayerFiles& files)
     : window_{window}, device_{device} {
   // Descriptor pool for ImGui. Every ImGui::Image texture holds one set for
@@ -110,8 +111,11 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
       FJELL_GFX_ERROR("ImGui Vulkan backend: VkResult={}", static_cast<int>(result));
     }
   };
+  // The backend's "image count" is how many sets of vertex buffers it keeps
+  // and uses in turn, one per frame: enough for every frame in flight. The
+  // minimum is only for swapchains of its own, which it is never asked for.
   init_info.MinImageCount = 2;
-  init_info.ImageCount = image_count;
+  init_info.ImageCount = std::max(frames_in_flight, init_info.MinImageCount);
   init_info.UseDynamicRendering = true;
   init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
   init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;

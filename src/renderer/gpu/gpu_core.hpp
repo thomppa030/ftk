@@ -2,25 +2,21 @@
 
 #include "gpu/device.hpp"
 #include "renderer/gpu/device.hpp"
-#include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/upload_context.hpp"
-#include "renderer/gpu/frames_in_flight.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
-#include <array>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 namespace fjell {
 
 class Window;
 
-/// Core Vulkan infrastructure: device, allocator, swapchain, command pool,
-/// command buffers, and frame sync objects. Owns the destruction order so
-/// VMA-backed images (e.g. swapchain depth) are freed before the allocator.
+/// Core Vulkan infrastructure: device, allocator, upload lane, a command
+/// pool for one-shot work, and the GPU interface's device over them. Owns the
+/// destruction order, so everything VMA made is freed before the allocator.
 ///
 /// Used directly by lightweight tool windows (hub, file browser) and composed
 /// by GpuContext for the full renderer.
@@ -49,26 +45,9 @@ public:
     // ── Allocator ───────────────────────────────────────────────────────
     [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
 
-    // ── Swapchain ───────────────────────────────────────────────────────
-    [[nodiscard]] Swapchain& swapchain() { return swapchain_; }
-    [[nodiscard]] const Swapchain& swapchain() const { return swapchain_; }
-    [[nodiscard]] VkFormat swapchain_format() const { return swapchain_.format(); }
-    [[nodiscard]] VkExtent2D swapchain_extent() const { return swapchain_.extent(); }
-    [[nodiscard]] uint32_t image_count() const { return swapchain_.image_count(); }
-
     // ── Command infrastructure ──────────────────────────────────────────
+    /// For one-shot command buffers on the graphics queue.
     [[nodiscard]] VkCommandPool command_pool() const { return command_pool_; }
-    [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
-        return command_buffers_[frame_index];
-    }
-
-    // ── Frame sync ──────────────────────────────────────────────────────
-    [[nodiscard]] VkSemaphore image_available_semaphore(uint32_t frame_index) const {
-        return image_available_[frame_index];
-    }
-    [[nodiscard]] VkFence in_flight_fence(uint32_t frame_index) const {
-        return in_flight_[frame_index];
-    }
 
     // ── Batched GPU uploads ─────────────────────────────────────────────
     [[nodiscard]] UploadContext& upload_context() { return *upload_; }
@@ -82,22 +61,14 @@ public:
     void wait_idle();
 
 private:
-    friend class Swapchain; // cleanup() access
-
     Window& window_;
     Device device_;
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    Swapchain swapchain_;
 
     std::unique_ptr<UploadContext> upload_;
     std::unique_ptr<gpu::Device> gpu_device_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
-    std::vector<VkCommandBuffer> command_buffers_;
-    // Post-compute graphics CBs — allocated in pairs with the primary
-    // ones when async compute is available. Shares command_pool_.
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
 };
 
 } // namespace fjell
