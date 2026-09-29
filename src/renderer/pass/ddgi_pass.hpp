@@ -139,15 +139,6 @@ struct DdgiConfig {
     // hides the staggering. Also caps the radiance image's height, since
     // the trace writes one row per probe in the current batch.
     int probes_per_frame_batch{512};
-    /// Blend each probe's irradiance with its face-adjacent neighbours
-    /// before sampling. Without it the trilinear cage exposes every
-    /// disagreement between neighbouring probes as a visible lattice.
-    /// Lumen runs the equivalent pass by default.
-    bool spatial_filter{true};
-    /// Radians. A neighbour whose hit point lies further off this probe's
-    /// cone direction is looking at different geometry and is rejected.
-    /// Larger values filter more and leak more; Lumen defaults to 0.2.
-    float filter_max_hit_angle{0.2f};
     bool half_res_output{true};
     bool enabled{true};
     /// Diagnostic view replacing the indirect output. Runtime only, never
@@ -168,19 +159,6 @@ public:
         VkImage irradiance_image{VK_NULL_HANDLE};
         VmaAllocation irradiance_memory{VK_NULL_HANDLE};
         VkImageView irradiance_view{VK_NULL_HANDLE};
-
-        // Spatial-filter destination for the irradiance atlas. The filter
-        // gathers a probe's neighbours, so it needs a separate target.
-        VkImage irradiance_filtered_image{VK_NULL_HANDLE};
-        VmaAllocation irradiance_filtered_memory{VK_NULL_HANDLE};
-        VkImageView irradiance_filtered_view{VK_NULL_HANDLE};
-
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> filter_set{};
-
-        /// Which atlas the consumers are currently bound to. The sample and
-        /// RT sets are written once at init, so toggling the filter has to
-        /// rewrite that one binding or the change never reaches the GPU.
-        bool bound_to_filtered{false};
 
         /// Grid generation this viewport last discarded its atlases at.
         uint32_t reset_generation_{0};
@@ -366,12 +344,6 @@ public:
         float pad1;
     };
 
-    /// Push constants for the irradiance spatial filter.
-    struct FilterPushConstants {
-        float max_hit_angle;
-        uint32_t border_phase;
-    };
-
     /// Max ray distance used in RT trace push constants.
     static constexpr float MAX_TRACE_DIST = 40.0f;
 
@@ -411,10 +383,6 @@ private:
     VkDescriptorSetLayout update_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout update_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline probe_update_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout filter_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout filter_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline irradiance_filter_pipeline_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};

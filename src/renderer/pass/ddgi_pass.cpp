@@ -119,16 +119,6 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
                  static_cast<uint32_t>(irr_height),
                  VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
 
-    // Filter destination. The spatial filter reads every neighbour of a
-    // probe, so it cannot write in place — a probe filtered early would
-    // feed its filtered value to the ones after it. Sampling reads this
-    // one; the update pass keeps writing the unfiltered atlas above.
-    create_image(irradiance_filtered_image, irradiance_filtered_memory,
-                 irradiance_filtered_view,
-                 static_cast<uint32_t>(irr_width),
-                 static_cast<uint32_t>(irr_height),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
-
     // Visibility atlas
     create_image(visibility_image, visibility_memory, visibility_view,
                  static_cast<uint32_t>(vis_width),
@@ -195,12 +185,10 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
         rt_trace_set.fill(VK_NULL_HANDLE);
         update_set.fill(VK_NULL_HANDLE);
         sample_set.fill(VK_NULL_HANDLE);
-        filter_set.fill(VK_NULL_HANDLE);
     }
 
     destroy_img(radiance_view, radiance_image, radiance_memory);
     destroy_img(irradiance_view, irradiance_image, irradiance_memory);
-    destroy_img(irradiance_filtered_view, irradiance_filtered_image, irradiance_filtered_memory);
     destroy_img(visibility_view, visibility_image, visibility_memory);
     destroy_img(probe_offset_view, probe_offset_image, probe_offset_memory);
     indirect_texture.reset();
@@ -373,20 +361,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     bindings[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     bindings[7] = {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
-    // Irradiance is re-pointed when the spatial filter is toggled, which can
-    // land while an earlier frame still references the set.
-    std::array<VkDescriptorBindingFlags, 8> trace_binding_flags{};
-    trace_binding_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfo trace_flags_ci{};
-    trace_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    trace_flags_ci.bindingCount = static_cast<uint32_t>(trace_binding_flags.size());
-    trace_flags_ci.pBindingFlags = trace_binding_flags.data();
-
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.pNext = &trace_flags_ci;
-    layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
     layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
     layout_ci.pBindings = bindings.data();
 
@@ -495,63 +471,6 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     if (create_compute("shaders/ddgi_probe_update.comp.spv", probe_update_pipeline_) != VK_SUCCESS)
         return make_error("Failed to create DDGI probe update pipeline");
 
-    // ── Spatial filter descriptor set layout ──
-    // binding 0: DDGIConstants UBO
-    // binding 1: source irradiance (sampler2D)
-    // binding 2: visibility atlas (sampler2D) — the occlusion test
-    // binding 3: destination irradiance (storage, write)
-    // binding 5: probe status SSBO
-    std::array<VkDescriptorSetLayoutBinding, 5> filter_bindings{};
-    filter_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    filter_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    filter_bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    filter_bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    filter_bindings[4] = {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-
-    VkDescriptorSetLayoutCreateInfo filter_layout_ci{};
-    filter_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    filter_layout_ci.bindingCount = static_cast<uint32_t>(filter_bindings.size());
-    filter_layout_ci.pBindings = filter_bindings.data();
-
-    if (vkCreateDescriptorSetLayout(vk_device_, &filter_layout_ci, nullptr, &filter_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI filter set layout");
-    }
-
-    VkPushConstantRange filter_push{};
-    filter_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    filter_push.offset = 0;
-    filter_push.size = sizeof(FilterPushConstants);
-
-    VkPipelineLayoutCreateInfo filter_pipe_layout_ci{};
-    filter_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    filter_pipe_layout_ci.setLayoutCount = 1;
-    filter_pipe_layout_ci.pSetLayouts = &filter_set_layout_;
-    filter_pipe_layout_ci.pushConstantRangeCount = 1;
-    filter_pipe_layout_ci.pPushConstantRanges = &filter_push;
-
-    if (vkCreatePipelineLayout(vk_device_, &filter_pipe_layout_ci, nullptr, &filter_pipeline_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI filter pipeline layout");
-    }
-
-    {
-        auto code = read_spirv(base_path::resolve("shaders/ddgi_filter_irradiance.comp.spv"));
-        VkShaderModule mod = create_shader_module(vk_device_, code);
-        VkPipelineShaderStageCreateInfo st{};
-        st.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        st.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        st.module = mod;
-        st.pName = "main";
-        VkComputePipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        ci.stage = st;
-        ci.layout = filter_pipeline_layout_;
-        VkResult r = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &ci, nullptr, &irradiance_filter_pipeline_);
-        vkDestroyShaderModule(vk_device_, mod, nullptr);
-        if (r != VK_SUCCESS) {
-            return make_error("Failed to create DDGI irradiance filter pipeline");
-        }
-    }
-
     // ── Sampling descriptor set layout ──
     // binding 0: DDGIConstants UBO
     // binding 1: depth texture (sampler2D)
@@ -576,9 +495,6 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     std::array<VkDescriptorBindingFlags, 8> sample_binding_flags{};
     sample_binding_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth
     sample_binding_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal
-    // Irradiance: re-pointed when the spatial filter is toggled, which can
-    // land while an earlier frame still references this set.
-    sample_binding_flags[3] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo sample_flags_ci{};
     sample_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
@@ -630,7 +546,7 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
             return make_error("Failed to create DDGI sample irradiance pipeline");
     }
 
-    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + probe update + filter + sample pipelines)");
+    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + probe update + sample pipelines)");
 
     // ── RT trace pipeline (optional): compute, tracing with ray queries ──
     if (device.ray_tracing_supported()) {
@@ -669,7 +585,6 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         rt_bind_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // vertex buffer
         rt_bind_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // index buffer
         rt_bind_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // per-instance data
-        rt_bind_flags[9] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // irradiance (filter toggle)
 
         VkDescriptorSetLayoutBindingFlagsCreateInfo rt_flags_ci{};
         rt_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
@@ -742,17 +657,14 @@ void DdgiPass::destroy() {
     safe_destroy(vkDestroyPipeline, trace_pipeline_);
     safe_destroy(vkDestroyPipeline, probe_update_pipeline_);
     safe_destroy(vkDestroyPipeline, sample_pipeline_);
-    safe_destroy(vkDestroyPipeline, irradiance_filter_pipeline_);
     safe_destroy(vkDestroyPipeline, rt_trace_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
-    safe_destroy(vkDestroyPipelineLayout, filter_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, rt_trace_pipeline_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, filter_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, rt_trace_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
 
@@ -775,7 +687,6 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
                                      DdgiPass::Images& imgs,
                                      VkImageView sdf_view, VkSampler sdf_sampler,
                                      VkImageView sky_view, VkSampler sky_sampler,
-                                     VkImageView irradiance_view,
                                      VkSampler linear_sampler) {
     // 0: constants UBO
     VkDescriptorBufferInfo ubo_info{};
@@ -815,7 +726,7 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     // 6, 7: the probe field, for the bounce at a hit
     VkDescriptorImageInfo irradiance_info{};
     irradiance_info.sampler = linear_sampler;
-    irradiance_info.imageView = irradiance_view;
+    irradiance_info.imageView = imgs.irradiance_view;
     irradiance_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     VkDescriptorImageInfo visibility_info{};
@@ -1056,19 +967,20 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
-        // Four sets per frame slot without RT (trace, update, sample,
-        // filter), holding 13 samplers between them. With RT, one RT trace
-        // set per slot on top; each adds 1 UBO, 5 samplers, 1 storage image,
-        // 4 storage buffers and 1 acceleration structure.
+        // Three sets per frame slot without RT (trace, update, sample),
+        // holding 11 samplers, 5 storage images and 3 storage buffers
+        // between them. With RT, one RT trace set per slot on top; each adds
+        // 1 UBO, 5 samplers, 1 storage image, 4 storage buffers and 1
+        // acceleration structure.
         constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
         constexpr uint32_t RT_SLOTS = MAX_FRAMES_IN_FLIGHT;
-        uint32_t max_sets = has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS;
+        uint32_t max_sets = has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS;
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 13u * SLOTS + 5u * RT_SLOTS : 13u * SLOTS};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u * SLOTS + RT_SLOTS : 6u * SLOTS};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u * SLOTS + 4u * RT_SLOTS : 4u * SLOTS};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 5u * SLOTS + RT_SLOTS : 5u * SLOTS};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 3u * SLOTS + 4u * RT_SLOTS : 3u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -1081,16 +993,15 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
-        // Slot s owns layouts[4s..4s+3]; the RT sets follow.
-        std::array<VkDescriptorSetLayout, 4 * SLOTS + RT_SLOTS> layouts{};
+        // Slot s owns layouts[3s..3s+2]; the RT sets follow.
+        std::array<VkDescriptorSetLayout, 3 * SLOTS + RT_SLOTS> layouts{};
         for (uint32_t s = 0; s < SLOTS; ++s) {
-            layouts[4 * s + 0] = trace_set_layout_;
-            layouts[4 * s + 1] = update_set_layout_;
-            layouts[4 * s + 2] = sample_set_layout_;
-            layouts[4 * s + 3] = filter_set_layout_;
+            layouts[3 * s + 0] = trace_set_layout_;
+            layouts[3 * s + 1] = update_set_layout_;
+            layouts[3 * s + 2] = sample_set_layout_;
         }
-        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[4 * SLOTS + s] = rt_trace_set_layout_;
-        std::array<VkDescriptorSet, 4 * SLOTS + RT_SLOTS> sets{};
+        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[3 * SLOTS + s] = rt_trace_set_layout_;
+        std::array<VkDescriptorSet, 3 * SLOTS + RT_SLOTS> sets{};
 
         VkDescriptorSetAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1100,13 +1011,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
         for (uint32_t s = 0; s < SLOTS; ++s) {
-            imgs.trace_set[s] = sets[4 * s + 0];
-            imgs.update_set[s] = sets[4 * s + 1];
-            imgs.sample_set[s] = sets[4 * s + 2];
-            imgs.filter_set[s] = sets[4 * s + 3];
+            imgs.trace_set[s] = sets[3 * s + 0];
+            imgs.update_set[s] = sets[3 * s + 1];
+            imgs.sample_set[s] = sets[3 * s + 2];
         }
         if (has_rt) {
-            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[4 * SLOTS + s];
+            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[3 * SLOTS + s];
         }
         imgs.images_need_init = true;
     }
@@ -1133,8 +1043,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             write_trace_descriptors(vk_device_, imgs.trace_set[s], s, imgs,
                                     sdf_view, sdf_sampler,
                                     sky_cubemap_view, sky_cubemap_sampler,
-                                    config_.spatial_filter ? imgs.irradiance_filtered_view
-                                                           : imgs.irradiance_view,
                                     linear_sampler_);
         }
 
@@ -1188,13 +1096,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             VkDescriptorBufferInfo s_ubo{};
             s_ubo.range = sizeof(GpuDdgiConstants);
 
-            // Consumers read the FILTERED atlas; the update pass keeps
-            // writing the raw one, which the filter reads from.
             VkDescriptorImageInfo s_irr{};
             s_irr.sampler = linear_sampler_;
-            s_irr.imageView = config_.spatial_filter ? imgs.irradiance_filtered_view
-                                                     : imgs.irradiance_view;
-            imgs.bound_to_filtered = config_.spatial_filter;
+            s_irr.imageView = imgs.irradiance_view;
             s_irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             VkDescriptorImageInfo s_vis{};
@@ -1257,8 +1161,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             // Irradiance + visibility atlases for multi-bounce GI in closest-hit
             VkDescriptorImageInfo rt_irradiance{};
             rt_irradiance.sampler = linear_sampler_;
-            rt_irradiance.imageView = config_.spatial_filter ? imgs.irradiance_filtered_view
-                                                             : imgs.irradiance_view;
+            rt_irradiance.imageView = imgs.irradiance_view;
             rt_irradiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             VkDescriptorImageInfo rt_visibility{};
@@ -1288,44 +1191,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rtw[7].dstBinding = 11; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_sdf;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
-            }
-        }
-
-        // Spatial filter set. Fixed for the life of an Images: the filter
-        // always reads the update pass's atlas and writes the filtered one.
-        {
-            VkDescriptorBufferInfo f_ubo{};
-            f_ubo.range = sizeof(GpuDdgiConstants);
-
-            VkDescriptorImageInfo f_src{};
-            f_src.sampler = linear_sampler_;
-            f_src.imageView = imgs.irradiance_view;
-            f_src.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo f_vis{};
-            f_vis.sampler = linear_sampler_;
-            f_vis.imageView = imgs.visibility_view;
-            f_vis.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo f_dst{};
-            f_dst.imageView = imgs.irradiance_filtered_view;
-            f_dst.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorBufferInfo f_status{};
-            f_status.buffer = imgs.probe_status_buffer->handle();
-            f_status.range = VK_WHOLE_SIZE;
-
-            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-                f_ubo.buffer = imgs.constants_ubo[s]->handle();
-                std::array<VkWriteDescriptorSet, 5> fw{};
-                for (auto& w : fw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.filter_set[s]; w.descriptorCount = 1; }
-                fw[0].dstBinding = 0; fw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; fw[0].pBufferInfo = &f_ubo;
-                fw[1].dstBinding = 1; fw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[1].pImageInfo = &f_src;
-                fw[2].dstBinding = 2; fw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; fw[2].pImageInfo = &f_vis;
-                fw[3].dstBinding = 3; fw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; fw[3].pImageInfo = &f_dst;
-                fw[4].dstBinding = 5; fw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; fw[4].pBufferInfo = &f_status;
-
-                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(fw.size()), fw.data(), 0, nullptr);
             }
         }
 
@@ -1382,7 +1247,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // A new grid (a refit, a sky that changed identity) or new images. The
     // atlases hold probes of another grid, or nothing yet, so they are
     // cleared, and every probe is marked untraced: until its batch is traced
-    // the update gives it no history and the cage and filter pass over it.
+    // the update gives it no history and the cage passes over it.
     bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
     if (resetting_atlases) {
         constexpr uint32_t PROBE_STATUS_UNINITIALIZED = 6;
@@ -1390,9 +1255,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size,
                         PROBE_STATUS_UNINITIALIZED);
 
-        const std::array<VkImage, 4> atlases = {imgs.irradiance_image, imgs.irradiance_filtered_image,
-                                                imgs.visibility_image, imgs.probe_offset_image};
-        std::array<VkImageMemoryBarrier2, 4> to_clear{};
+        const std::array<VkImage, 3> atlases = {imgs.irradiance_image, imgs.visibility_image,
+                                                imgs.probe_offset_image};
+        std::array<VkImageMemoryBarrier2, 3> to_clear{};
         for (size_t i = 0; i < atlases.size(); ++i) {
             VkImageMemoryBarrier2& b = to_clear[i];
             b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -1712,99 +1577,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdDispatch(ctx.cmd, static_cast<uint32_t>(constants->probe_update_count), 1, 1);
     }
 
-    // What the update wrote (atlases, offsets, status), for the filter and
-    // the sample pass after it.
+    // What the update wrote (atlases, offsets, status), for the sample pass.
     barrier_memory();
 
-    // The sample and RT sets bind the irradiance atlas once at init, so a
-    // runtime toggle of the filter has to re-point them; otherwise the
-    // setting changes and nothing observable does.
-    if (imgs.sample_set[0] != VK_NULL_HANDLE
-        && imgs.bound_to_filtered != config_.spatial_filter) {
-        VkDescriptorImageInfo irr{};
-        irr.sampler = linear_sampler_;
-        irr.imageView = config_.spatial_filter ? imgs.irradiance_filtered_view
-                                               : imgs.irradiance_view;
-        irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        // Every slot's sample set and both trace sets: this binding is
-        // static per set, so all slots move together.
-        std::array<VkWriteDescriptorSet, 3 * MAX_FRAMES_IN_FLIGHT> w{};
-        uint32_t count = 0;
-        for (VkDescriptorSet sample_set : imgs.sample_set) {
-            w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w[count].dstSet = sample_set;
-            w[count].dstBinding = 3;
-            w[count].descriptorCount = 1;
-            w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w[count].pImageInfo = &irr;
-            ++count;
-        }
-
-        for (VkDescriptorSet rt_set : imgs.rt_trace_set) {
-            if (rt_set == VK_NULL_HANDLE) continue;
-            w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w[count].dstSet = rt_set;
-            w[count].dstBinding = 9;
-            w[count].descriptorCount = 1;
-            w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w[count].pImageInfo = &irr;
-            ++count;
-        }
-
-        for (VkDescriptorSet trace_set : imgs.trace_set) {
-            w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w[count].dstSet = trace_set;
-            w[count].dstBinding = 6;
-            w[count].descriptorCount = 1;
-            w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w[count].pImageInfo = &irr;
-            ++count;
-        }
-
-        vkUpdateDescriptorSets(vk_device_, count, w.data(), 0, nullptr);
-        imgs.bound_to_filtered = config_.spatial_filter;
-    }
-
-    // ── 6. Spatial filter ──
-    // Blends each probe with its face-adjacent neighbours so the trilinear
-    // cage has less to disagree about. Runs after the update: it reads this
-    // frame's irradiance, the visibility atlas the occlusion test depends on
-    // and the status the update just wrote.
-    if (config_.spatial_filter) {
-        FJELL_PROFILE_SCOPE_N("ddgi_filter_irradiance");
-        FJELL_GPU_ZONE(ctx, "DDGI Filter Irradiance");
-
-        barrier_image(imgs.irradiance_filtered_image,
-                      VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
-                      VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_filter_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                filter_pipeline_layout_, 0, 1, &imgs.filter_set[ctx.frame_index], 0, nullptr);
-
-        uint32_t gx = (static_cast<uint32_t>(imgs.irr_width) + 7) / 8;
-        uint32_t gy = (static_cast<uint32_t>(imgs.irr_height) + 7) / 8;
-
-        // Interiors, then the border ring that mirrors them — the border
-        // reads interior texels, so it cannot run in the same dispatch.
-        for (uint32_t phase = 0; phase < 2; ++phase) {
-            FilterPushConstants fpc{};
-            fpc.max_hit_angle = config_.filter_max_hit_angle;
-            fpc.border_phase = phase;
-            vkCmdPushConstants(ctx.cmd, filter_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(fpc), &fpc);
-            vkCmdDispatch(ctx.cmd, gx, gy, 1);
-            if (phase == 0) barrier_memory();
-        }
-    }
-
-    // The sample pass reads whichever atlas the consumers were bound to.
-    if (config_.spatial_filter) {
-        barrier_memory();
-    }
-
-    // ── 7. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
+    // ── 6. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!imgs.first_frame_) {
         FJELL_PROFILE_SCOPE_N("ddgi_sample");
         FJELL_GPU_ZONE(ctx, "DDGI Sample");

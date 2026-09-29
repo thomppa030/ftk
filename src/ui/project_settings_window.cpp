@@ -310,20 +310,6 @@ void ProjectSettingsWindow::draw_rendering() {
                 ui::row("View bias", [&] {
                     edit |= ui::slider("##view_bias", s.ddgi.view_bias, 0.0f, 1.0f);
                 });
-                // Not part of RenderSettings yet — drives the pass directly
-                // so this can be A/B'd without a project-format change.
-                auto& dcfg = vk_->ddgi_pass().config();
-                ui::row("Spatial filter",
-                        "Blends each probe with its neighbours before sampling. Without it "
-                        "the interpolation cage shows every probe-to-probe difference as a "
-                        "visible lattice.",
-                        [&] { (void)ui::checkbox("##spatial_filter", dcfg.spatial_filter); });
-                if (dcfg.spatial_filter) {
-                    ui::row("Filter angle", [&] {
-                        (void)ui::slider("##filter_angle", dcfg.filter_max_hit_angle, 0.0f, 1.0f,
-                                         ui::Unit::Radians);
-                    });
-                }
             }
 
             ui::row("SS-GI", [&] { edit |= ui::checkbox("##ssgi", s.ss_gi.enabled); });
