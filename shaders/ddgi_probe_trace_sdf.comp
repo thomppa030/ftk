@@ -45,6 +45,26 @@ float sample_scene_sdf(vec3 world_pos) {
     return texture(scene_sdf, uvw).r;
 }
 
+// Whether a march from `origin` along `direction` gets `max_t` away, or out of
+// the volume, without touching a surface.
+bool sdf_unoccluded(vec3 origin, vec3 direction, float max_t) {
+    float t = 0.0;
+    for (int i = 0; i < MAX_STEPS && t < max_t; i++) {
+        float d = sample_scene_sdf(origin + direction * t);
+        if (d < MIN_DIST) {
+            return false;
+        }
+        t += max(d, MIN_DIST);
+    }
+    return true;
+}
+
+// The edge of one voxel of the field, its longest.
+float sdf_voxel_size() {
+    vec3 voxel = (sdf_volume_max - sdf_volume_min) / sdf_resolution;
+    return max(voxel.x, max(voxel.y, voxel.z));
+}
+
 vec3 estimate_normal(vec3 p) {
     float e = 0.05;
     float d = sample_scene_sdf(p);
@@ -111,8 +131,16 @@ void main() {
         // shading model is otherwise the same so switching backends keeps
         // scene brightness consistent for mid-gray albedos.
         vec3 albedo = vec3(0.5);
+
+        // The sun, where nothing stands between it and the hit. The march
+        // starts a voxel off the surface: the field is too coarse to leave
+        // it any closer without finding the surface it starts on.
+        radiance = vec3(0.0);
         float NdotL = max(dot(N, light_direction), 0.0);
-        radiance = albedo * light_color * light_intensity * NdotL;
+        if (NdotL > 0.0 && light_intensity > 0.0
+            && sdf_unoccluded(hit_pos + N * sdf_voxel_size(), light_direction, MAX_TRACE_DIST)) {
+            radiance = albedo * light_color * light_intensity * NdotL;
+        }
 
         // Indirect bounce, as the RT trace does it: the field's irradiance
         // at the hit, gathered last frame, reflected once more.
