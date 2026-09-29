@@ -101,8 +101,6 @@ src/renderer/pass/rt_reflection_pass.cpp
 src/renderer/pass/rt_reflection_pass.hpp
 src/renderer/pass/scene_sdf_pass.cpp
 src/renderer/pass/scene_sdf_pass.hpp
-src/renderer/pass/screen_color_copy_pass.cpp
-src/renderer/pass/screen_color_copy_pass.hpp
 src/renderer/pass/shadow_pass.cpp
 src/renderer/pass/shadow_pass.hpp
 src/renderer/pass/sky_cubemap_pass.cpp

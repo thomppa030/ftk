@@ -2,8 +2,6 @@
 
 #include "renderer/pass/render_pass.hpp"
 
-#include <vulkan/vulkan.h>
-
 namespace fjell {
 
 // Copies the resolved color buffer into screen_color so transparent

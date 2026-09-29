@@ -1,9 +1,8 @@
 #include "renderer/pass/screen_color_copy_pass.hpp"
+
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/resource_registry.hpp"
 
 namespace fjell {
 
@@ -30,20 +29,9 @@ void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ct
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_screen_color_copy");
-    auto* target = ctx.target;
-    VkExtent2D ext = target->extent();
-
-    FJELL_GPU_ZONE(ctx, "Screen Color Copy");
-
-    VkImageCopy region{};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.extent = {ext.width, ext.height, 1};
-
-    vkCmdCopyImage(ctx.cmd,
-        target->color_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        target->screen_color_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &region);
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Screen Color Copy");
+    cmd.copy(ctx.target->color_texture(), ctx.target->screen_color_texture());
 }
 
 } // namespace fjell
