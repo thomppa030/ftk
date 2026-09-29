@@ -13,7 +13,6 @@
 
 namespace fjell {
 
-class Device;
 class Project;
 
 // Manages the pipelines (transparent, skinned, mesh shader, outline) of every
@@ -43,8 +42,10 @@ public:
         gpu::SharedLayout meshlets{};
     };
 
-    PipelineCache(Device& device, gpu::Device& gpu, const Targets& targets,
-                  const SharedLayouts& layouts);
+    /// A compile that replaces an entry's pipelines hands the old ones back
+    /// to `gpu`, which destroys them once the frames drawing with them are
+    /// done.
+    PipelineCache(gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts);
     ~PipelineCache();
 
     PipelineCache(const PipelineCache&) = delete;
@@ -172,8 +173,6 @@ private:
     /// `spv_path`; throws with the reason one cannot be built.
     void create_pipelines(Entry& entry, const std::string& spv_path);
 
-    /// Waited on before an entry is compiled again.
-    Device& device_;
     gpu::Device& gpu_;
     Targets targets_;
     SharedLayouts layouts_;

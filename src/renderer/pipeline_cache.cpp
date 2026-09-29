@@ -1,7 +1,6 @@
 #include "renderer/pipeline_cache.hpp"
 #include <gpu/device.hpp>
 #include "gpu/shader.hpp"
-#include "renderer/gpu/device.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
@@ -17,10 +16,8 @@
 
 namespace fjell {
 
-PipelineCache::PipelineCache(Device& device, gpu::Device& gpu, const Targets& targets,
-                             const SharedLayouts& layouts)
-    : device_{device}
-    , gpu_{gpu}
+PipelineCache::PipelineCache(gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts)
+    : gpu_{gpu}
     , targets_{targets}
     , layouts_{layouts}
     , compiler_{base_path::resolve("shaders"), base_path::resolve("shaders/generated"),
@@ -207,7 +204,7 @@ void PipelineCache::compile_entry(Entry& entry) {
 
         // Sky, ui and terrain shaders don't participate in any of the spatial
         // pipelines (opaque/transparent/depth-prepass/shadow/outline). SkyPass,
-        // UiRenderer and TerrainPass own their VkPipelines, built from this
+        // UiRenderer and TerrainPass own their pipelines, built from this
         // entry's SPV.
         if (!owns_own_pipeline) {
             create_pipelines(next, frag_spv);
@@ -426,7 +423,6 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
 void PipelineCache::reload(uint32_t id) {
     if (id >= entries_.size()) return;
-    vkDeviceWaitIdle(device_.handle());
     compile_entry(entries_[id]);
     FJELL_GFX_INFO("Reloaded FJSL pipeline {}", id);
 }
@@ -448,9 +444,6 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
     }
     if (to_reload.empty()) return 0;
 
-    // One wait for the whole batch rather than one per pipeline: every entry
-    // here is about to have its old pipelines destroyed.
-    vkDeviceWaitIdle(device_.handle());
     for (uint32_t id : to_reload) {
         compile_entry(entries_[id]);
         FJELL_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].program.path);
@@ -459,7 +452,6 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
 }
 
 void PipelineCache::recreate_all() {
-    vkDeviceWaitIdle(device_.handle());
     // Everything is rebuilt because an include may have changed, and the
     // templates every shader is generated against are includes.
     compiler_.rehash_includes();

@@ -153,7 +153,7 @@ void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
         vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
-        core_.device(), core_.gpu_device(),
+        core_.gpu_device(),
         PipelineCache::Targets{
             .color = gpu::vulkan::from_vk(OffscreenPass::COLOR_FORMAT),
             .mr = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT),
