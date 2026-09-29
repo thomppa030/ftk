@@ -24,22 +24,22 @@ namespace fjell {
 
 namespace {
 
-// Push constant for the rgen + rchit. Kept small (16 bytes) so we have
-// budget elsewhere if needed.
+// Push constant for the trace. Kept small (16 bytes) so we have budget
+// elsewhere if needed.
 struct ReflectionPush {
     uint32_t frame_index;
     float max_trace_dist;
     float intensity;
     // Size of the coarsest cell in the traced geometry, in metres — the
     // terrain ray mesh's, since it is the one geometry that is traced at a
-    // lower resolution than it is shaded. The ray generation shader offsets
-    // a ray's origin by how far the two representations can disagree over
-    // that distance. Zero where no terrain is loaded.
+    // lower resolution than it is shaded. The trace offsets a ray's origin
+    // by how far the two representations can disagree over that distance.
+    // Zero where no terrain is loaded.
     float trace_cell_size;
 };
 
-// UBO at binding 14: sun lighting only. Everything else needed by the
-// hit shader (camera, projection inverse, DDGI grid info) lives in the
+// UBO at binding 14: sun lighting only. Everything else needed at a hit
+// (camera, projection inverse, DDGI grid info) lives in the
 // DDGI UBO at binding 0, which we share with DdgiPass.
 struct ReflectionUbo {
     glm::vec4 sun_dir_intensity;
@@ -63,11 +63,6 @@ struct SpatialPush {
     float strength;
     float depth_sigma;
 };
-
-// Round up to multiple of `alignment`.
-constexpr uint32_t align_up(uint32_t v, uint32_t alignment) {
-    return (v + alignment - 1) & ~(alignment - 1);
-}
 
 void emit_image_barrier(VkCommandBuffer cmd, VkImage image,
                          VkImageLayout old_layout, VkImageLayout new_layout,
@@ -119,8 +114,9 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
         }
     }
 
-    // RT pipeline only built when device supports it. Without RT the pass
-    // still exists (so .fjgraph parses) but record() returns immediately.
+    // The trace is only built when the device supports ray tracing. Without
+    // it the pass still exists (so .fjgraph parses) but record() returns
+    // immediately.
     if (!device.ray_tracing_supported()) {
         FJELL_GFX_INFO("RT reflections disabled (no VK_KHR_ray_tracing_pipeline)");
         return {};
@@ -128,27 +124,24 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
 
     // ── Trace descriptor set layout (15 bindings) ──
     constexpr uint32_t BINDING_COUNT = 15;
-    constexpr VkShaderStageFlags ALL_RT =
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR
-        | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
-        | VK_SHADER_STAGE_MISS_BIT_KHR;
+    constexpr VkShaderStageFlags TRACE = VK_SHADER_STAGE_COMPUTE_BIT;
 
     std::array<VkDescriptorSetLayoutBinding, BINDING_COUNT> bindings{};
-    bindings[0]  = {0,  VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, ALL_RT, nullptr};
-    bindings[1]  = {1,  VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,1, VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-    bindings[2]  = {2,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-    bindings[3]  = {3,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-    bindings[4]  = {4,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-    bindings[5]  = {5,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_MISS_BIT_KHR,    nullptr};
-    bindings[6]  = {6,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             1, VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-    bindings[7]  = {7,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[8]  = {8,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[9]  = {9,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[11] = {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[12] = {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[13] = {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-    bindings[14] = {14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+    bindings[0]  = {0,  VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, TRACE, nullptr};
+    bindings[1]  = {1,  VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,1, TRACE, nullptr};
+    bindings[2]  = {2,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[3]  = {3,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[4]  = {4,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[5]  = {5,  VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[6]  = {6,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             1, TRACE, nullptr};
+    bindings[7]  = {7,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, TRACE, nullptr};
+    bindings[8]  = {8,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, TRACE, nullptr};
+    bindings[9]  = {9,  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, TRACE, nullptr};
+    bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[11] = {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[12] = {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, TRACE, nullptr};
+    bindings[13] = {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, TRACE, nullptr};
+    bindings[14] = {14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, TRACE, nullptr};
 
     // UPDATE_AFTER_BIND on every binding rewritten per-frame. Bindings
     // 7, 8, 14 (mega vertex/index, reflection UBO) are written once at
@@ -184,7 +177,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
 
     // ── Pipeline layout: set 0 = trace set, set 1 = bindless materials ──
     VkPushConstantRange push{};
-    push.stageFlags = ALL_RT;
+    push.stageFlags = TRACE;
     push.size = sizeof(ReflectionPush);
 
     std::array<VkDescriptorSetLayout, 2> layouts = {trace_set_layout_, resources.material_set_layout};
@@ -194,107 +187,30 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     pl_ci.pSetLayouts = layouts.data();
     pl_ci.pushConstantRangeCount = 1;
     pl_ci.pPushConstantRanges = &push;
-    if (vkCreatePipelineLayout(vk_device_, &pl_ci, nullptr, &rt_pipeline_layout_) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(vk_device_, &pl_ci, nullptr, &trace_pipeline_layout_) != VK_SUCCESS) {
         return make_error("Failed to create RT reflection pipeline layout");
     }
 
-    // ── RT pipeline ──
-    auto rgen_spv  = read_spirv(base_path::resolve("shaders/rt_reflection.rgen.spv"));
-    auto rchit_spv = read_spirv(base_path::resolve("shaders/rt_reflection.rchit.spv"));
-    auto rmiss_spv = read_spirv(base_path::resolve("shaders/rt_reflection.rmiss.spv"));
-
-    auto* rgen_mod  = create_shader_module(vk_device_, rgen_spv);
-    auto* rchit_mod = create_shader_module(vk_device_, rchit_spv);
-    auto* rmiss_mod = create_shader_module(vk_device_, rmiss_spv);
-
-    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
-    for (auto& s : stages) s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;     stages[0].module = rgen_mod;  stages[0].pName = "main";
-    stages[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;       stages[1].module = rmiss_mod; stages[1].pName = "main";
-    stages[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;stages[2].module = rchit_mod; stages[2].pName = "main";
-
-    std::array<VkRayTracingShaderGroupCreateInfoKHR, 3> groups{};
-    for (auto& g : groups) {
-        g.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-        g.generalShader = VK_SHADER_UNUSED_KHR;
-        g.closestHitShader = VK_SHADER_UNUSED_KHR;
-        g.anyHitShader = VK_SHADER_UNUSED_KHR;
-        g.intersectionShader = VK_SHADER_UNUSED_KHR;
+    // ── Trace compute pipeline (ray queries) ──
+    {
+        auto spirv = read_spirv(base_path::resolve("shaders/rt_reflection_trace.comp.spv"));
+        auto* mod = create_shader_module(vk_device_, spirv);
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = mod;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo cci{};
+        cci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        cci.stage = stage;
+        cci.layout = trace_pipeline_layout_;
+        VkResult result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &cci,
+                                                   nullptr, &trace_pipeline_);
+        vkDestroyShaderModule(vk_device_, mod, nullptr);
+        if (result != VK_SUCCESS) {
+            return make_error("Failed to create RT reflection trace pipeline");
+        }
     }
-    groups[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-    groups[0].generalShader = 0;
-    groups[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-    groups[1].generalShader = 1;
-    groups[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-    groups[2].closestHitShader = 2;
-
-    VkRayTracingPipelineCreateInfoKHR rt_ci{};
-    rt_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
-    rt_ci.stageCount = static_cast<uint32_t>(stages.size());
-    rt_ci.pStages = stages.data();
-    rt_ci.groupCount = static_cast<uint32_t>(groups.size());
-    rt_ci.pGroups = groups.data();
-    rt_ci.maxPipelineRayRecursionDepth = 1;
-    rt_ci.layout = rt_pipeline_layout_;
-
-    VkResult rt_result = device.create_rt_pipelines_fn()(
-        vk_device_, VK_NULL_HANDLE, resources.pipeline_cache,
-        1, &rt_ci, nullptr, &rt_pipeline_);
-
-    vkDestroyShaderModule(vk_device_, rgen_mod, nullptr);
-    vkDestroyShaderModule(vk_device_, rchit_mod, nullptr);
-    vkDestroyShaderModule(vk_device_, rmiss_mod, nullptr);
-
-    if (rt_result != VK_SUCCESS) {
-        return make_error("Failed to create RT reflection pipeline");
-    }
-
-    // ── Shader binding table ──
-    VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
-    rt_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-    VkPhysicalDeviceProperties2 props2{};
-    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    props2.pNext = &rt_props;
-    vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
-
-    const uint32_t handle_size = rt_props.shaderGroupHandleSize;
-    const uint32_t handle_alignment = rt_props.shaderGroupHandleAlignment;
-    const uint32_t base_alignment = rt_props.shaderGroupBaseAlignment;
-    const uint32_t handle_aligned = align_up(handle_size, handle_alignment);
-    const uint32_t group_size = align_up(handle_aligned, base_alignment);
-
-    constexpr uint32_t GROUP_COUNT = 3;
-    std::vector<uint8_t> handles(static_cast<size_t>(GROUP_COUNT) * handle_size);
-    device.get_rt_shader_group_handles_fn()(vk_device_, rt_pipeline_, 0,
-                                              GROUP_COUNT, handles.size(), handles.data());
-
-    const VkDeviceSize sbt_total = static_cast<VkDeviceSize>(group_size) * GROUP_COUNT;
-    sbt_buffer_ = std::make_unique<Buffer>(
-        resources.allocator, sbt_total,
-        VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR
-        | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-        | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-
-    auto* sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped());
-    if (sbt_data == nullptr) {
-        sbt_buffer_->map();
-        sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped());
-    }
-    std::memcpy(sbt_data,                        handles.data(),                     handle_size);
-    std::memcpy(sbt_data + group_size,           handles.data() + handle_size,       handle_size);
-    std::memcpy(sbt_data + group_size * 2,       handles.data() + handle_size * 2,   handle_size);
-
-    VkBufferDeviceAddressInfo addr_info{};
-    addr_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-    addr_info.buffer = sbt_buffer_->handle();
-    VkDeviceAddress sbt_addr = device.get_buffer_device_address_fn()(vk_device_, &addr_info);
-
-    sbt_raygen_   = {sbt_addr,                    group_size, group_size};
-    sbt_miss_     = {sbt_addr + group_size,       group_size, group_size};
-    sbt_hit_      = {sbt_addr + group_size * 2,   group_size, group_size};
-    sbt_callable_ = {};
 
     // ── Temporal denoise compute pipeline ──
     // One stochastic sample per pixel is unusable raw; this accumulates it
@@ -650,7 +566,6 @@ void RtReflectionPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllo
 void RtReflectionPass::destroy() {
     if (vk_device_ == VK_NULL_HANDLE) return;
 
-    sbt_buffer_.reset();
 
     if (spatial_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(vk_device_, spatial_pipeline_, nullptr);
@@ -676,13 +591,13 @@ void RtReflectionPass::destroy() {
         vkDestroyDescriptorSetLayout(vk_device_, denoise_set_layout_, nullptr);
         denoise_set_layout_ = VK_NULL_HANDLE;
     }
-    if (rt_pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk_device_, rt_pipeline_, nullptr);
-        rt_pipeline_ = VK_NULL_HANDLE;
+    if (trace_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk_device_, trace_pipeline_, nullptr);
+        trace_pipeline_ = VK_NULL_HANDLE;
     }
-    if (rt_pipeline_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk_device_, rt_pipeline_layout_, nullptr);
-        rt_pipeline_layout_ = VK_NULL_HANDLE;
+    if (trace_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vk_device_, trace_pipeline_layout_, nullptr);
+        trace_pipeline_layout_ = VK_NULL_HANDLE;
     }
     if (trace_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(vk_device_, trace_set_layout_, nullptr);
@@ -712,19 +627,19 @@ void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     // The output image lives in PostProcessResources (one per viewport),
     // not the framegraph. We declare side-effects so the pass isn't
     // culled, and import the screen-space inputs the trace reads so the
-    // graph brings them to the ray tracing stage.
+    // graph brings them to the compute stage.
     builder.has_side_effects();
 
     if (ray_traced_active()) {
         auto depth = builder.import_named(ctx, "depth");
         auto normal = builder.import_named(ctx, "normal");
         auto mr = builder.import_named(ctx, "mr");
-        builder.read(depth, gpu::Access::sampled_raytracing);
-        builder.read(normal, gpu::Access::sampled_raytracing);
-        builder.read(mr, gpu::Access::sampled_raytracing);
+        builder.read(depth, gpu::Access::sampled_compute);
+        builder.read(normal, gpu::Access::sampled_compute);
+        builder.read(mr, gpu::Access::sampled_compute);
         // A reflection ray that misses reads the sky.
         if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
-            builder.read(sky, gpu::Access::sampled_raytracing);
+            builder.read(sky, gpu::Access::sampled_compute);
         }
     }
 }
@@ -812,11 +727,11 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     // ── Pre-trace: raw target to GENERAL ──
     // The trace writes raw_image; the denoise below reads it and writes
     // out_image, which is what the composite sees. Depth, normal and MR
-    // arrive at the ray tracing stage through the graph's barriers.
+    // arrive at the compute stage through the graph's barriers.
     emit_image_barrier(cmd, imgs->raw_image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
     // ── Update descriptor set ──
     // First-use writes: static bindings (vertex/index SSBOs, output, UBOs).
@@ -874,7 +789,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         VkDescriptorImageInfo offset_info{nearest_sampler_, ddgi_imgs->probe_offset_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         // DDGI UBO (binding 0) — share buffer with DdgiPass so the layout
-        // matches the rchit's struct without us replicating the data.
+        // matches the trace's struct without us replicating the data.
         VkDescriptorBufferInfo ddgi_ubo_info{ddgi_imgs->constants_ubo[ctx.frame_index]->handle(), 0, VK_WHOLE_SIZE};
 
         // Probe status SSBO.
@@ -913,27 +828,25 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     }
 
     // ── Bind + dispatch ──
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rt_pipeline_);
     std::array<VkDescriptorSet, 2> sets = {imgs->trace_set[ctx.frame_index], ctx.bindless_set};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                            rt_pipeline_layout_, 0,
-                            static_cast<uint32_t>(sets.size()), sets.data(),
-                            0, nullptr);
-
     ReflectionPush push{};
     push.frame_index = frame_counter_++;
     push.max_trace_dist = max_trace_dist_;
     push.trace_cell_size = trace_cell_size_;
     push.intensity = intensity_;
-    vkCmdPushConstants(cmd, rt_pipeline_layout_,
-                       VK_SHADER_STAGE_RAYGEN_BIT_KHR
-                       | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
-                       | VK_SHADER_STAGE_MISS_BIT_KHR,
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            trace_pipeline_layout_, 0,
+                            static_cast<uint32_t>(sets.size()), sets.data(),
+                            0, nullptr);
+    vkCmdPushConstants(cmd, trace_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
 
-    device_->cmd_trace_rays_fn()(cmd,
-        &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
-        imgs->out_extent.width, imgs->out_extent.height, 1);
+    // One invocation per pixel.
+    vkCmdDispatch(cmd,
+                  (imgs->out_extent.width + 7) / 8,
+                  (imgs->out_extent.height + 7) / 8, 1);
 
     // ── Temporal denoise ──
     // FJELL_DISABLE_RT_DENOISE=1 skips accumulation and hands the composite the
@@ -946,7 +859,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     if (denoise_disabled) {
         emit_image_barrier(cmd, imgs->raw_image,
             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         emit_image_barrier(cmd, imgs->out_image,
             imgs->out_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -977,7 +890,7 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
     // Raw trace output becomes a sampled input.
     emit_image_barrier(cmd, imgs.raw_image,
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
     // Resolved target to GENERAL for the compute write.

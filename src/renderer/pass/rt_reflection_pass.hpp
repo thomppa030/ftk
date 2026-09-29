@@ -134,7 +134,7 @@ public:
     void set_mode(Mode m) { mode_ = m; }
     [[nodiscard]] Mode mode() const { return mode_; }
     [[nodiscard]] bool ray_traced_active() const {
-        return mode_ == Mode::RayTraced && rt_pipeline_ != VK_NULL_HANDLE;
+        return mode_ == Mode::RayTraced && trace_pipeline_ != VK_NULL_HANDLE;
     }
 
     void set_sun_light(glm::vec3 direction, glm::vec3 color, float intensity) {
@@ -206,10 +206,10 @@ private:
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     VkSampler nearest_sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout rt_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline rt_pipeline_{VK_NULL_HANDLE};
+    VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline trace_pipeline_{VK_NULL_HANDLE};  // compute, tracing with ray queries
 
-    // Temporal denoise (compute). Built alongside the RT pipeline.
+    // Temporal denoise (compute). Built alongside the trace.
     VkDescriptorSetLayout denoise_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout denoise_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline denoise_pipeline_{VK_NULL_HANDLE};
@@ -223,13 +223,6 @@ private:
     // Scales the roughness-driven kernel radius. 0 disables the pass, leaving
     // the composite reading the accumulated image directly.
     float spatial_strength_{1.0F};
-
-    // Shader binding table (shared)
-    std::unique_ptr<Buffer> sbt_buffer_;
-    VkStridedDeviceAddressRegionKHR sbt_raygen_{};
-    VkStridedDeviceAddressRegionKHR sbt_miss_{};
-    VkStridedDeviceAddressRegionKHR sbt_hit_{};
-    VkStridedDeviceAddressRegionKHR sbt_callable_{};
 };
 
 } // namespace fjell

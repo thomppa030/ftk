@@ -1,10 +1,10 @@
 #ifndef FJELL_RT_HIT_GLSL
 #define FJELL_RT_HIT_GLSL
 
-// What a ray tracer knows about the triangle a ray hit: its material and
-// where on the triangle the ray landed. The tracers light a hit from cheap
-// terms like these rather than running the material's fragment(), so they
-// read them in one place.
+// What a ray tracer knows about the triangle a ray hit: its material, where
+// on the triangle the ray landed, and the surface there. The tracers light a
+// hit from these cheap terms rather than running the material's fragment(),
+// so they read them in one place.
 //
 // A caller enables GL_EXT_ray_query and GL_EXT_nonuniform_qualifier, declares
 // the bindless material table (`textures[]`, `materials[]`), and names the
@@ -37,13 +37,15 @@ layout(set = 0, binding = FJELL_RT_INSTANCE_BINDING) readonly buffer InstanceDat
 // tangent(vec4), 15 floats.
 const uint RT_FLOATS_PER_VERTEX = 15;
 const uint RT_TEXCOORD_OFFSET = 6;
+const uint RT_NORMAL_OFFSET = 8;
 
 // A hit as the hardware reports it.
 struct RtHit {
-    uint instance;      // the TLAS instance's index (not its custom index)
-    uint primitive;     // the triangle within the instance's geometry
-    vec2 barycentrics;  // the weights of the triangle's second and third vertex
-    float t;            // distance along the ray
+    uint instance;           // the TLAS instance's index (not its custom index)
+    uint primitive;          // the triangle within the instance's geometry
+    vec2 barycentrics;       // the weights of the triangle's second and third vertex
+    float t;                 // distance along the ray
+    mat4x3 object_to_world;  // the instance's transform
 };
 
 // The closest triangle a finished query committed to. Only meaningful when
@@ -54,14 +56,16 @@ RtHit rt_committed_hit(rayQueryEXT q) {
     hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
     hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(q, true);
     hit.t = rayQueryGetIntersectionTEXT(q, true);
+    hit.object_to_world = rayQueryGetIntersectionObjectToWorldEXT(q, true);
     return hit;
 }
 
 // A hit resolved to the surface it landed on.
 struct RtSurface {
     GpuMaterial material;
-    uvec3 vertices;  // the triangle's vertices, as indices into vertex_data
-    vec3 weights;    // the barycentric weight of each
+    uvec3 vertices;          // the triangle's vertices, as indices into vertex_data
+    vec3 weights;            // the barycentric weight of each
+    mat4x3 object_to_world;
 };
 
 // Resolves a hit to its material and vertices. Returns false when a read it
@@ -92,12 +96,18 @@ bool rt_resolve_hit(RtHit hit, out RtSurface surface) {
     surface.vertices = v;
     surface.weights = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y,
                            hit.barycentrics.x, hit.barycentrics.y);
+    surface.object_to_world = hit.object_to_world;
     return true;
 }
 
 vec2 rt_vertex_texcoord(uint vertex_index) {
     uint base = vertex_index * RT_FLOATS_PER_VERTEX + RT_TEXCOORD_OFFSET;
     return vec2(vertex_data[base], vertex_data[base + 1]);
+}
+
+vec3 rt_vertex_normal(uint vertex_index) {
+    uint base = vertex_index * RT_FLOATS_PER_VERTEX + RT_NORMAL_OFFSET;
+    return vec3(vertex_data[base], vertex_data[base + 1], vertex_data[base + 2]);
 }
 
 // The texture coordinate at the hit, with the material's UV scale applied.
@@ -111,6 +121,31 @@ vec2 rt_surface_uv(RtSurface surface) {
     if (uv_scale_x > 0.0) uv.x *= uv_scale_x;
     if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
     return uv;
+}
+
+// The world-space shading normal at the hit: the interpolated vertex normal
+// through the instance's transform. No normal map: the tracers light from
+// the geometry.
+vec3 rt_surface_normal(RtSurface surface) {
+    vec3 object_normal = normalize(rt_vertex_normal(surface.vertices.x) * surface.weights.x
+                                 + rt_vertex_normal(surface.vertices.y) * surface.weights.y
+                                 + rt_vertex_normal(surface.vertices.z) * surface.weights.z);
+    return normalize(mat3(surface.object_to_world) * object_normal);
+}
+
+// Base colour factor times texture, the same albedo the raster template
+// starts fragment() from. A shader's hint_albedo uniforms are already folded
+// into the factor, so a solid-colour material shows its tint. Read two mips
+// down: a ray does not know its footprint, and the light it feeds is soft.
+vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
+    vec3 albedo = vec3(surface.material.base_params[0],
+                       surface.material.base_params[1],
+                       surface.material.base_params[2]);
+    uint base_color_tex = surface.material.texture_indices[0];
+    if (base_color_tex > 0) {
+        albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
+    }
+    return albedo;
 }
 
 // What the surface emits at the hit (see fjell_material_emission.glsl), read

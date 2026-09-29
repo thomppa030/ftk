@@ -1,21 +1,41 @@
 #version 460
-#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_nonuniform_qualifier : require
 
-// ── Ray-traced reflections: ray generation ────────────────────────────
-// Per pixel: read depth + normal + MR. Compute view-space reflect dir,
-// importance-sample GGX lobe sized to roughness, trace one ray. The
-// closest-hit returns radiance at the hit point (sun direct + DDGI
-// indirect + emissive). Output goes to rt_reflection_output, where the
-// SSR composite picks it up and applies Fresnel/roughness response.
+// ── Ray-traced reflections: trace ─────────────────────────────────────
+// Per pixel: read depth + normal + MR, importance-sample the GGX lobe sized
+// to roughness, and trace one ray. A hit returns the radiance at the hit
+// point: direct sun (N·L, no shadow ray), DDGI indirect and emission. A miss
+// returns the sky. Output goes to the raw image, which the denoise
+// accumulates and the SSR composite applies Fresnel/roughness to.
 
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// ── DDGI (binding 0 UBO) and its cage for hit-point indirect ───────────
+// The same cage the screen-space pass reads, so a reflection is lit by the
+// probe field the way the surface beside it is.
+
+#define FJELL_DDGI_CAGE
+#define FJELL_DDGI_CAGE_IRRADIANCE_BINDING 10
+#define FJELL_DDGI_CAGE_VISIBILITY_BINDING 11
+#define FJELL_DDGI_CAGE_OFFSET_BINDING     12
+#define FJELL_DDGI_CAGE_STATUS_BINDING     13
 #include "fjell_ddgi.glsl"
+
+#include "fjell_common.glsl"
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform sampler2D depth_tex;
 layout(set = 0, binding = 3) uniform sampler2D normal_tex;
 layout(set = 0, binding = 4) uniform sampler2D mr_tex;
-// binding 5 = sky_cubemap (used in rmiss)
+layout(set = 0, binding = 5) uniform samplerCube sky_cubemap;
 layout(rgba16f, set = 0, binding = 6) uniform writeonly image2D reflection_out;
+
+// Sun light for the hit's direct term.
+layout(std140, set = 0, binding = 14) uniform ReflectionConstants {
+    vec4 sun_dir_intensity;  // xyz = toward-light dir, w = intensity
+    vec4 sun_color;          // xyz = color
+} rc;
 
 layout(push_constant) uniform PushConstants {
     uint frame_index;
@@ -24,8 +44,21 @@ layout(push_constant) uniform PushConstants {
     float trace_cell_size;   // metres between traced-geometry vertices
 };
 
+// ── Material access (set 1 = bindless) ─────────────────────────────────
 
-layout(location = 0) rayPayloadEXT vec4 payload;
+#include "fjell_gpu_types.glsl"
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
+
+// ── Traced geometry (set 0, bindings 7-9) ──────────────────────────────
+
+#define FJELL_RT_VERTEX_BINDING   7
+#define FJELL_RT_INDEX_BINDING    8
+#define FJELL_RT_INSTANCE_BINDING 9
+#include "fjell_rt_hit.glsl"
 
 // Where a dielectric stops being worth a reflection ray, and where it starts
 // being worth less. Past the cutoff no ray is traced; between the two the
@@ -114,9 +147,47 @@ vec3 world_from_depth(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
+// ── The trace ──────────────────────────────────────────────────────────
+
+// The radiance a reflection ray brings back.
+vec3 trace_radiance(vec3 origin, vec3 direction) {
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+                          origin, 0.001, direction, max_trace_dist);
+    // Every instance is opaque, so there is no candidate to judge.
+    while (rayQueryProceedEXT(q)) {}
+
+    if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+        return textureLod(sky_cubemap, normalize(direction), 0.0).rgb;
+    }
+
+    RtHit hit = rt_committed_hit(q);
+    RtSurface surface;
+    if (!rt_resolve_hit(hit, surface)) {
+        return vec3(0.0);
+    }
+
+    vec3 N = rt_surface_normal(surface);
+    vec3 world_pos = origin + direction * hit.t;
+    vec2 uv = rt_surface_uv(surface);
+    vec3 albedo = rt_surface_albedo(surface, uv);
+
+    // Sun direct. No shadow ray: the sun lights through walls in
+    // reflections, the accepted trade for cost.
+    vec3 sun_dir = normalize(rc.sun_dir_intensity.xyz);
+    float NdotL = max(dot(N, sun_dir), 0.0);
+    vec3 sun_radiance = albedo * rc.sun_color.rgb * rc.sun_dir_intensity.w * NdotL;
+
+    // DDGI indirect at the hit point.
+    DdgiCageTrace cage;
+    vec3 indirect = ddgi_sample_cage(world_pos, N, false, cage) * albedo;
+
+    return sun_radiance + indirect + rt_surface_emission(surface, uv);
+}
+
 void main() {
-    ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
-    ivec2 size = ivec2(gl_LaunchSizeEXT.xy);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(reflection_out);
     if (pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
@@ -189,13 +260,8 @@ void main() {
                      trace_cell_size * RT_RAY_BIAS_SLOPE_SCALE * grazing);
     vec3 ray_origin = world_pos + N * bias;
 
-    payload = vec4(0.0, 0.0, 0.0, -1.0);
-    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                0, 0, 0,
-                ray_origin, 0.001, ray_dir, max_trace_dist, 0);
-
-    vec3 radiance = max(payload.rgb, vec3(0.0));
-    // Cap fireflies — RT secondary rays can land on tiny bright emissives
+    vec3 radiance = max(trace_radiance(ray_origin, ray_dir), vec3(0.0));
+    // Cap fireflies — secondary rays can land on tiny bright emissives
     // and explode the variance.
     radiance = min(radiance, vec3(50.0));
     radiance *= intensity * rough_fade;
