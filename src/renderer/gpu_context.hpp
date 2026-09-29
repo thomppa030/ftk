@@ -7,9 +7,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/gpu/gpu_core.hpp"
-// Through the include path: a quoted "gpu/swapchain.hpp" finds the older
-// renderer/gpu/swapchain.hpp beside this file first.
-#include <gpu/swapchain.hpp>
+#include "gpu/swapchain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/meshlet_descriptor.hpp"

@@ -1,10 +1,5 @@
 #pragma once
 
-#include "renderer/gpu/frames_in_flight.hpp"
-
-#include <vulkan/vulkan.h>
-
-#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,8 +9,11 @@ namespace fjell {
 class GpuCore;
 class ImGuiLayer;
 struct ImGuiLayerFiles;
-class Swapchain;
 class Window;
+
+namespace gpu {
+class Swapchain;
+}
 
 /// A second OS window on the editor's GPU device, for a window that lives
 /// outside the editor's own (the file browser, the import dialog): its own
@@ -40,22 +38,17 @@ public:
     /// The user asked to close it (its title bar's close button).
     [[nodiscard]] bool close_requested() const;
 
-    /// Draws one frame: `draw` runs in this window's ImGui context with the
-    /// window's size in pixels. A frame is skipped, without calling `draw`,
-    /// while the swapchain is being rebuilt.
+    /// Draws one frame of its own on the device: `draw` runs in this
+    /// window's ImGui context with the window's size in pixels. Called
+    /// between the editor's frames, never while one is recording. A frame is
+    /// skipped, without calling `draw`, while the swapchain is being rebuilt.
     void frame(const std::function<void(float width, float height)>& draw);
 
 private:
     GpuCore& gpu_;
     std::unique_ptr<Window> window_;
-    VkSurfaceKHR surface_{VK_NULL_HANDLE};
-    std::unique_ptr<Swapchain> swapchain_;
+    std::unique_ptr<gpu::Swapchain> swapchain_;
     std::unique_ptr<ImGuiLayer> imgui_;
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
-    std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> command_buffers_{};
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
-    uint32_t frame_index_{0};
 };
 
 } // namespace fjell

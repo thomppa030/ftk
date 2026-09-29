@@ -92,7 +92,6 @@ fjell_library(gpu
         renderer/gpu/growable_buffer.cpp
         renderer/gpu/image.cpp
         renderer/gpu/image_readback.cpp
-        renderer/gpu/swapchain.cpp
         renderer/gpu/thread_command_pools.cpp
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
@@ -156,7 +155,6 @@ fjell_library(gpu
         renderer/gpu/image.hpp
         renderer/gpu/image_readback.hpp
         renderer/gpu/shader_utils.hpp
-        renderer/gpu/swapchain.hpp
         renderer/gpu/thread_command_pools.hpp
         renderer/gpu/upload_context.hpp
         renderer/gpu/vk_check.hpp

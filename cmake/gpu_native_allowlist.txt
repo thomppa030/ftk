@@ -42,8 +42,6 @@ src/renderer/gpu/image.hpp
 src/renderer/gpu/image_readback.cpp
 src/renderer/gpu/image_readback.hpp
 src/renderer/gpu/shader_utils.hpp
-src/renderer/gpu/swapchain.cpp
-src/renderer/gpu/swapchain.hpp
 src/renderer/gpu/thread_command_pools.cpp
 src/renderer/gpu/thread_command_pools.hpp
 src/renderer/gpu/upload_context.cpp
@@ -225,8 +223,6 @@ src/ui/project_settings_window.cpp
 src/ui/scene_editor_context.cpp
 src/ui/scene_editor_context.hpp
 src/ui/sdf_debug_panel.cpp
-src/ui/standalone_window.cpp
-src/ui/standalone_window.hpp
 src/ui/texture_preview.cpp
 src/ui/ui_editor_context.cpp
 src/ui/viewport_manager.cpp

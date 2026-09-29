@@ -1,9 +1,7 @@
 #pragma once
 
 #include "gpu/frame.hpp"
-// Through the include path: a quoted "gpu/swapchain.hpp" finds the older
-// renderer/gpu/swapchain.hpp beside this file first.
-#include <gpu/swapchain.hpp>
+#include "gpu/swapchain.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_registry.hpp"
