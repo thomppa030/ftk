@@ -1,5 +1,6 @@
 #include "gpu/vulkan/command_list_impl.hpp"
 
+#include "core/small_vector.hpp"
 #include "gpu/vulkan/access.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/gpu_core.hpp"
@@ -395,6 +396,25 @@ void CommandList::barrier(const TextureView& view, AccessSet before, AccessSet a
     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     dependency.imageMemoryBarrierCount = 1;
     dependency.pImageMemoryBarriers = &*barrier;
+    vkCmdPipelineBarrier2(impl_->cb, &dependency);
+}
+
+void CommandList::barrier(std::span<const TextureView> views, AccessSet before, AccessSet after) {
+    if (!vulkan::outside_render(*device_, *impl_, "places a barrier")) return;
+    SmallVector<VkImageMemoryBarrier2, 8> barriers;
+    for (const TextureView& view : views) {
+        const auto barrier = image_barrier(device_->impl(), view, before, after, impl_->queue);
+        if (!barrier) {
+            report(*device_, "Barrier", barrier.error());
+            return;
+        }
+        barriers.push_back(*barrier);
+    }
+    if (barriers.empty()) return;
+    VkDependencyInfo dependency{};
+    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependency.pImageMemoryBarriers = barriers.data();
     vkCmdPipelineBarrier2(impl_->cb, &dependency);
 }
 
