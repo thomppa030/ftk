@@ -1,12 +1,15 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/renderer_constants.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
+#include <glm/glm.hpp>
+
+#include <array>
+#include <cstdint>
 
 namespace fjell {
 
@@ -14,25 +17,16 @@ class TaaResolvePass : public RenderPass {
 public:
     // Per-viewport ping-pong history textures.
     struct Images {
-        VkImage history[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        VmaAllocation history_memory[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        VkImageView history_view[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
-        /// The histories as the GPU interface's textures.
-        gpu::Owned<gpu::Texture> history_texture[2];
-        VkExtent2D extent{};
+        std::array<gpu::Owned<gpu::Texture>, 2> history;
+        glm::uvec2 extent{0, 0};
         uint32_t write_index{0}; // ping-pong: write to [write_index], read from [1-write_index]
         bool needs_init{true};
 
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        VkDescriptorSet sets[MAX_FRAMES_IN_FLIGHT]{};
-
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout,
-                     uint32_t width, uint32_t height);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout,
-                     uint32_t width, uint32_t height);
+        void create(gpu::Device& gpu, uint32_t width, uint32_t height);
+        /// Releases the histories; the frames still reading them keep them
+        /// until they are done.
+        void destroy();
+        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
     Result<> create(Device& device, const PassResources& resources) override;
@@ -43,18 +37,9 @@ public:
 
     void record_into(const FrameContext& ctx, Images& imgs);
 
-    [[nodiscard]] VkDescriptorSetLayout image_set_layout() const { return set_layout_; }
-    [[nodiscard]] VkSampler sampler() const { return sampler_; }
-
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-
-    VkSampler sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    gpu::Sampler sampler_;
 };
 
 } // namespace fjell

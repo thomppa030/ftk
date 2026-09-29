@@ -272,12 +272,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // post pass then reads, and the one it reads back from the frame
         // before. Persistent: each slot is next frame's read.
         if (auto* taa = pp_resources->taa();
-            taa != nullptr && taa->history[0] != VK_NULL_HANDLE && taa->history[1] != VK_NULL_HANDLE) {
+            taa != nullptr && taa->history[0] && taa->history[1]) {
             auto add_history_slot = [&](std::string_view name, uint32_t idx) {
-                ImportedImage img{};
-                img.view = taa->history_texture[idx];
-                img.persistent = true;
-                decl_ctx.imports.emplace(fg_name_hash(name), img);
+                decl_ctx.export_texture(name, taa->history[idx], {.persistent = true});
             };
             add_history_slot("taa_history_write", taa->write_index);
             add_history_slot("taa_history_read", 1 - taa->write_index);

@@ -465,8 +465,8 @@ void PostPass::record(const FrameContext& ctx) {
     VkImageView color_source = ctx.target->color_view();
     if (auto* taa_imgs = ctx.pp_resources->taa()) {
         uint32_t output_idx = 1 - taa_imgs->write_index;
-        if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
-            color_source = taa_imgs->history_view[output_idx];
+        if (taa_imgs->history[output_idx]) {
+            color_source = gpu::vulkan::native_view(*ctx.device, taa_imgs->history[output_idx]);
         }
     }
 
