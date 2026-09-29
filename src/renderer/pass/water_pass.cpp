@@ -397,10 +397,9 @@ void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
     auto& cmd = ctx.commands();
     cmd.set_pipeline(line_pipeline_);
     cmd.bind(ctx.globals);
-    std::vector<gpu::BindEntry> entries =
-        water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {});
-    entries.push_back({"water_line", gpu::storage(mask)});
-    cmd.bind(entries);
+    // Set 2 is the water set the mesh stage reads, set 3 the mask written.
+    cmd.bind(water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {}));
+    cmd.bind({{"water_line", gpu::storage(mask)}});
     cmd.push(push);
     const gpu::TextureInfo& size = device_->info(mask);
     cmd.dispatch((size.width + 7) / 8, (size.height + 7) / 8, 1);
