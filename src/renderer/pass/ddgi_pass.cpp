@@ -36,6 +36,12 @@
 
 namespace fjell {
 
+static_assert(DdgiConfig{}.probe_rays <= DdgiPass::MAX_PROBE_RAYS,
+              "the probe update keeps every ray of a probe in shared memory");
+static_assert(DdgiConfig{}.irradiance_side_length <= DdgiPass::MAX_ATLAS_SIDE
+                  && DdgiConfig{}.visibility_side_length <= DdgiPass::MAX_ATLAS_SIDE,
+              "the probe update keeps a probe's whole tile in shared memory");
+
 // ── Images ──────────────────────────────────────────────────────────────
 
 static void compute_atlas_dims(const DdgiConfig& config,
@@ -466,14 +472,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         return r;
     };
 
-    if (create_compute("shaders/ddgi_irradiance_update.comp.spv", irradiance_update_pipeline_) != VK_SUCCESS)
-        return make_error("Failed to create DDGI irradiance update pipeline");
-    if (create_compute("shaders/ddgi_visibility_update.comp.spv", visibility_update_pipeline_) != VK_SUCCESS)
-        return make_error("Failed to create DDGI visibility update pipeline");
-    if (create_compute("shaders/ddgi_probe_offsets.comp.spv", probe_offset_pipeline_) != VK_SUCCESS)
-        return make_error("Failed to create DDGI probe offset pipeline");
-    if (create_compute("shaders/ddgi_probe_status.comp.spv", probe_status_pipeline_) != VK_SUCCESS)
-        return make_error("Failed to create DDGI probe status pipeline");
+    if (create_compute("shaders/ddgi_probe_update.comp.spv", probe_update_pipeline_) != VK_SUCCESS)
+        return make_error("Failed to create DDGI probe update pipeline");
 
     // ── Spatial filter descriptor set layout ──
     // binding 0: DDGIConstants UBO
@@ -610,7 +610,7 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
             return make_error("Failed to create DDGI sample irradiance pipeline");
     }
 
-    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + 4 update + sample pipelines)");
+    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + probe update + filter + sample pipelines)");
 
     // ── RT trace pipeline (optional): compute, tracing with ray queries ──
     if (device.ray_tracing_supported()) {
@@ -720,10 +720,7 @@ void DdgiPass::destroy() {
     };
 
     safe_destroy(vkDestroyPipeline, trace_pipeline_);
-    safe_destroy(vkDestroyPipeline, irradiance_update_pipeline_);
-    safe_destroy(vkDestroyPipeline, visibility_update_pipeline_);
-    safe_destroy(vkDestroyPipeline, probe_offset_pipeline_);
-    safe_destroy(vkDestroyPipeline, probe_status_pipeline_);
+    safe_destroy(vkDestroyPipeline, probe_update_pipeline_);
     safe_destroy(vkDestroyPipeline, sample_pipeline_);
     safe_destroy(vkDestroyPipeline, irradiance_filter_pipeline_);
     safe_destroy(vkDestroyPipeline, rt_trace_pipeline_);
@@ -1624,7 +1621,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
-    // ── 4. Transition irradiance/visibility to GENERAL for update ──
+    // ── 4. The probe atlases to GENERAL for the update ──
     barrier_image(imgs.irradiance_image,
                   imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_GENERAL,
@@ -1633,39 +1630,33 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    // The trace read the offsets through a sampler; the update rewrites them.
+    barrier_image(imgs.probe_offset_image,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
     struct UpdatePush {
         uint32_t first_frame;
         float max_trace_dist;
     } update_push{resetting_atlases ? 1U : 0U, MAX_TRACE_DIST};
 
-    // ── 5. Dispatch irradiance update ──
+    // ── 5. Probe update: one workgroup per probe traced this frame ──
+    // Irradiance, visibility, both tiles' border rings, offset and status,
+    // all from the probe's rays read once.
     {
-        FJELL_PROFILE_SCOPE_N("ddgi_update_irradiance");
-        FJELL_GPU_ZONE(ctx, "DDGI Update Irradiance");
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
+        FJELL_PROFILE_SCOPE_N("ddgi_probe_update");
+        FJELL_GPU_ZONE(ctx, "DDGI Probe Update");
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_update_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
         vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(update_push), &update_push);
-        vkCmdDispatch(ctx.cmd,
-                      (static_cast<uint32_t>(imgs.irr_width) + 7) / 8,
-                      (static_cast<uint32_t>(imgs.irr_height) + 7) / 8, 1);
+        vkCmdDispatch(ctx.cmd, static_cast<uint32_t>(constants->probe_update_count), 1, 1);
     }
 
-    // ── 6. Dispatch visibility update ──
-    {
-        FJELL_PROFILE_SCOPE_N("ddgi_update_visibility");
-        FJELL_GPU_ZONE(ctx, "DDGI Update Visibility");
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, visibility_update_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
-        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(update_push), &update_push);
-        vkCmdDispatch(ctx.cmd,
-                      (static_cast<uint32_t>(imgs.vis_width) + 7) / 8,
-                      (static_cast<uint32_t>(imgs.vis_height) + 7) / 8, 1);
-    }
+    // What the update wrote (atlases, offsets, status), for the filter and
+    // the sample pass after it.
+    barrier_memory();
 
     // The sample and RT sets bind the irradiance atlas once at init, so a
     // runtime toggle of the filter has to re-point them; otherwise the
@@ -1707,16 +1698,15 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         imgs.bound_to_filtered = config_.spatial_filter;
     }
 
-    // ── 6.5 Spatial filter ──
+    // ── 6. Spatial filter ──
     // Blends each probe with its face-adjacent neighbours so the trilinear
-    // cage has less to disagree about. Runs after both update passes: it
-    // reads this frame's irradiance and the visibility atlas the occlusion
-    // test depends on.
+    // cage has less to disagree about. Runs after the update: it reads this
+    // frame's irradiance, the visibility atlas the occlusion test depends on
+    // and the status the update just wrote.
     if (config_.spatial_filter) {
         FJELL_PROFILE_SCOPE_N("ddgi_filter_irradiance");
         FJELL_GPU_ZONE(ctx, "DDGI Filter Irradiance");
 
-        barrier_memory();
         barrier_image(imgs.irradiance_filtered_image,
                       VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                       VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -1746,40 +1736,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         barrier_memory();
     }
 
-    // ── 7. Barrier for probe offset/status computation ──
-    barrier_memory();
-    barrier_image(imgs.probe_offset_image,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-
-    // ── 8. Dispatch probe offsets ──
-    uint32_t total = static_cast<uint32_t>(imgs.total_probes);
-    {
-        FJELL_PROFILE_SCOPE_N("ddgi_probe_offsets");
-        FJELL_GPU_ZONE(ctx, "DDGI Probe Offsets");
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_offset_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
-        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(update_push), &update_push);
-        vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
-    }
-
-    // ── 9. Dispatch probe status ──
-    {
-        FJELL_PROFILE_SCOPE_N("ddgi_probe_status");
-        FJELL_GPU_ZONE(ctx, "DDGI Probe Status");
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_status_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
-        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(update_push), &update_push);
-        vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
-    }
-
-    // ── 10. The graph has the indirect image in GENERAL for sample output ──
-
-    // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
+    // ── 7. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!imgs.first_frame_) {
         FJELL_PROFILE_SCOPE_N("ddgi_sample");
         FJELL_GPU_ZONE(ctx, "DDGI Sample");

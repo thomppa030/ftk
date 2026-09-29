@@ -58,7 +58,7 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
 // as a soft bright glow around geometry lit by a bright white light on a
 // bright white material — the one case that pushes irradiance high enough
 // to reach that unstable region. Per-ray radiance is already clamped to
-// 30.0 upstream (ddgi_irradiance_update.comp) before it's averaged into
+// 30.0 upstream (ddgi_probe_update.comp) before it's averaged into
 // the probe's stored value, so this DOES stay bounded in the normal
 // per-frame path — but multi-bounce feedback (a probe's own irradiance
 // feeding back into future ray hits) and temporal-blend overshoot aren't
@@ -131,6 +131,25 @@ vec2 get_probe_uv(vec3 direction, int probe_index,
     atlas_texels += oct_coords * half_side;                      // octahedral offset
 
     return atlas_texels / vec2(float(full_tex_w), float(full_tex_h));
+}
+
+// A probe's tile is its side x side octahedral map inside a one-texel ring.
+// The ring holds copies of interior texels, so bilinear filtering at the
+// map's edge blends with the texels that really lie beyond it: the octahedron
+// folds, and just past an edge sits the same edge read backwards, just past a
+// corner the opposite corner. Given a ring texel in tile coordinates
+// (0..side+1 on each axis), returns the interior texel it copies.
+ivec2 ddgi_border_source(ivec2 tile_texel, int side) {
+    int last = side + 1;
+    bool ring_x = tile_texel.x == 0 || tile_texel.x == last;
+    bool ring_y = tile_texel.y == 0 || tile_texel.y == last;
+    if (ring_x && ring_y) {
+        return ivec2(tile_texel.x == 0 ? side : 1, tile_texel.y == 0 ? side : 1);
+    }
+    if (ring_y) {
+        return ivec2(last - tile_texel.x, tile_texel.y == 0 ? 1 : side);
+    }
+    return ivec2(tile_texel.x == 0 ? 1 : side, last - tile_texel.y);
 }
 
 int get_probe_index_from_pixels(ivec2 pixels, int probe_with_border_side, int full_tex_w) {
@@ -400,7 +419,7 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibilit
     if (sum_weight < 1e-6) return trace;
 
     // sum_irradiance already holds albedo * incident_light (see the store
-    // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.comp —
+    // side in ddgi_probe_update.comp / ddgi_probe_trace_rt.comp —
     // no /PI there, matching how the surface composites this result: it
     // multiplies by the RECEIVING surface's albedo directly, no /PI,
     // matching both the Mastering Graphics Programming with Vulkan
@@ -415,7 +434,7 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibilit
     // irradiance for albedo=1; the old constant produced ~1.49x incident,
     // a physically impossible gain, uniform across all albedo values).
     // 0.95 is kept: it's the same deliberate small energy-loss damping
-    // factor used as `energy_conservation` in ddgi_irradiance_update.comp,
+    // factor used as `energy_conservation` in ddgi_probe_update.comp,
     // unrelated to the PI error.
     trace.irradiance = (sum_irradiance / sum_weight) * DDGI_ENERGY_CONSERVATION;
     return trace;

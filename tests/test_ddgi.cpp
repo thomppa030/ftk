@@ -202,6 +202,40 @@ TEST_CASE("Every atlas texel's direction samples back into that texel", "[ddgi]"
     }
 }
 
+// A ring texel's centre lies just past an edge of the octahedral map. Along an
+// edge the map meets itself read backwards, so folding the centre back across
+// the edge it overhangs (across both at a corner) lands on the centre of the
+// interior texel whose value the ring texel must hold.
+TEST_CASE("Every border texel copies the interior texel the octahedron folds it onto", "[ddgi]") {
+    for (int side : {6, 8}) {
+        const int last = side + 1;
+        const float s = static_cast<float>(side);
+        auto to_oct = [s](int t) { return (static_cast<float>(t - 1) + 0.5f) * 2.0f / s - 1.0f; };
+        auto to_texel = [s](float o) {
+            return static_cast<int>(std::lround((o + 1.0f) * s / 2.0f - 0.5f)) + 1;
+        };
+        for (int y = 0; y <= last; ++y) {
+            for (int x = 0; x <= last; ++x) {
+                if (x != 0 && y != 0 && x != last && y != last) continue;
+                vec2 o(to_oct(x), to_oct(y));
+                if (o.x > 1.0f) o = vec2(2.0f - o.x, -o.y);
+                else if (o.x < -1.0f) o = vec2(-2.0f - o.x, -o.y);
+                if (o.y > 1.0f) o = vec2(-o.x, 2.0f - o.y);
+                else if (o.y < -1.0f) o = vec2(-o.x, -2.0f - o.y);
+
+                INFO("side " << side << " ring texel " << x << "," << y);
+                const ivec2 source = ddgi_border_source(ivec2(x, y), side);
+                REQUIRE(source.x == to_texel(o.x));
+                REQUIRE(source.y == to_texel(o.y));
+                REQUIRE(source.x >= 1);
+                REQUIRE(source.x <= side);
+                REQUIRE(source.y >= 1);
+                REQUIRE(source.y <= side);
+            }
+        }
+    }
+}
+
 namespace {
 
 // Points strictly inside the grid's cells, away from any probe, with the

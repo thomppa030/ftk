@@ -61,12 +61,6 @@ ivec2 same_texel_in_probe(ivec2 coords, int from_probe, int to_probe, int tile) 
     return coords - probe_tile_origin(from_probe, tile) + probe_tile_origin(to_probe, tile);
 }
 
-// See ddgi_irradiance_update.comp — a border texel mirrors the interior
-// texel opposite it.
-int octahedral_border_offset(uint interior_index, int side) {
-    return side - 1 - 2 * int(interior_index);
-}
-
 /// Mean hit distance this probe recorded in `dir`, from the visibility
 /// atlas. Used as a cheap stand-in for Lumen's per-probe depth atlas.
 float probe_depth(int probe_index, vec3 dir) {
@@ -87,25 +81,12 @@ void main() {
                      || (py == 0) || (py == probe_last_pixel);
 
     if (border_phase != 0u) {
-        // Border ring mirrors the filtered interior, same as the update
-        // pass does for the unfiltered one.
+        // The border ring copies the interior texels it mirrors, read from
+        // the unfiltered atlas the interiors were filtered from.
         if (!border_pixel) return;
 
-        bool corner = (px == 0 || px == probe_last_pixel)
-                   && (py == 0 || py == probe_last_pixel);
-        bool row = (px > 0 && px < probe_last_pixel);
-
-        ivec2 source = coords;
-        if (corner) {
-            source.x += int(px == 0 ? ddgi.irr_side : -ddgi.irr_side);
-            source.y += int(py == 0 ? ddgi.irr_side : -ddgi.irr_side);
-        } else if (row) {
-            source.x += octahedral_border_offset(px - 1, ddgi.irr_side);
-            source.y += (py > 0) ? -1 : 1;
-        } else {
-            source.x += (px > 0) ? -1 : 1;
-            source.y += octahedral_border_offset(py - 1, ddgi.irr_side);
-        }
+        ivec2 tile_texel = ivec2(int(px), int(py));
+        ivec2 source = coords - tile_texel + ddgi_border_source(tile_texel, ddgi.irr_side);
         imageStore(irradiance_dst, coords, texelFetch(irradiance_src, source, 0));
         return;
     }

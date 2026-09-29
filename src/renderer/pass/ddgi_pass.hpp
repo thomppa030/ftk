@@ -79,7 +79,7 @@ struct DdgiConfig {
     glm::vec3 probe_spacing{2.0f};
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // replaced by the first fit
     float hysteresis{0.95f};
-    int probe_rays{128};
+    int probe_rays{128};  // at most DdgiPass::MAX_PROBE_RAYS
     // Octahedral texel resolution of one probe's own irradiance map — the
     // full sphere of incoming directions at that probe is represented by
     // this many texels per side. Cross-probe blending (the 8-probe
@@ -92,11 +92,11 @@ struct DdgiConfig {
     // step: ~78% more per-probe irradiance-update compute
     // (proportional to side²), and atlas VRAM that scales with the probe
     // count — cheap on both fronts, revisit higher if still visible.
-    int irradiance_side_length{8};
+    int irradiance_side_length{8};  // at most DdgiPass::MAX_ATLAS_SIDE
     // Visibility (mean depth + variance for Chebyshev occlusion testing)
     // is lower-frequency than full directional irradiance color, so it
     // doesn't need to track the same resolution bump — left at 6.
-    int visibility_side_length{6};
+    int visibility_side_length{6};  // at most DdgiPass::MAX_ATLAS_SIDE
     float self_shadow_bias{0.3f};
     // Sample-position bias as a fraction of probe spacing. Normal-leaning so
     // the sample lifts off the surface rather than sliding along it at grazing
@@ -375,6 +375,12 @@ public:
     /// Max ray distance used in RT trace push constants.
     static constexpr float MAX_TRACE_DIST = 40.0f;
 
+    /// What ddgi_probe_update.comp holds in shared memory for one probe
+    /// (DDGI_MAX_PROBE_RAYS and DDGI_MAX_ATLAS_SIDE there): the most rays a
+    /// probe traces, and the widest octahedral map either atlas keeps.
+    static constexpr int MAX_PROBE_RAYS = 256;
+    static constexpr int MAX_ATLAS_SIDE = 16;
+
     /// Probe grid bounds expanded by max trace distance — objects outside
     /// this volume can never be hit by DDGI rays, so it is also the volume
     /// the gather keeps off-screen geometry for.
@@ -404,10 +410,7 @@ private:
 
     VkDescriptorSetLayout update_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout update_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline irradiance_update_pipeline_{VK_NULL_HANDLE};
-    VkPipeline visibility_update_pipeline_{VK_NULL_HANDLE};
-    VkPipeline probe_offset_pipeline_{VK_NULL_HANDLE};
-    VkPipeline probe_status_pipeline_{VK_NULL_HANDLE};
+    VkPipeline probe_update_pipeline_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout filter_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout filter_pipeline_layout_{VK_NULL_HANDLE};

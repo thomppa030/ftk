@@ -1,0 +1,327 @@
+#version 460
+
+// ── DDGI probe update ───────────────────────────────────────────────────
+// One workgroup per probe traced this frame. The group reads the probe's rays
+// once into shared memory and from them writes everything the probe keeps:
+// its irradiance and visibility tiles, both tiles' border rings, its
+// relocation offset and its status.
+//
+// The whole tile belongs to one group, so the ring is copied from interior
+// values the group already holds in shared memory, after a group barrier:
+// nothing reads a texel another group may be writing.
+
+#define DDGI_UPDATE_GROUP_SIZE 64
+layout(local_size_x = DDGI_UPDATE_GROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+#include "fjell_ddgi.glsl"
+
+layout(set = 0, binding = 1) uniform sampler2D radiance_tex;
+layout(rgba16f, set = 0, binding = 2) uniform image2D irradiance_image;
+layout(rg16f, set = 0, binding = 3) uniform image2D visibility_image;
+layout(rgba16f, set = 0, binding = 4) uniform image2D probe_offset_image;
+
+layout(std430, set = 0, binding = 5) buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint first_frame;
+    float max_trace_dist;
+};
+
+// What shared memory is sized for. DdgiPass holds its configuration to the
+// same limits (MAX_PROBE_RAYS, MAX_ATLAS_SIDE).
+#define DDGI_MAX_PROBE_RAYS 256
+#define DDGI_MAX_ATLAS_SIDE 16
+
+#define EPSILON 0.0001
+
+shared vec4 s_ray[DDGI_MAX_PROBE_RAYS];   // radiance, hit distance (negative: back face)
+shared vec4 s_dir[DDGI_MAX_PROBE_RAYS];   // the ray's direction in xyz
+shared vec4 s_irradiance[DDGI_MAX_ATLAS_SIDE * DDGI_MAX_ATLAS_SIDE];
+shared vec2 s_visibility[DDGI_MAX_ATLAS_SIDE * DDGI_MAX_ATLAS_SIDE];
+shared uint s_backfaces;
+shared uint s_previous_status;
+
+ivec2 tile_origin(int probe_index, int tex_w, int side) {
+    int tile = side + 2;
+    int per_row = tex_w / tile;
+    return ivec2(probe_index % per_row, probe_index / per_row) * tile;
+}
+
+// One interior irradiance texel: the cosine-weighted mean of the rays'
+// radiance around its direction, blended into its history in the encoded
+// space the atlas stores.
+vec4 update_irradiance_texel(ivec2 atlas_texel, bool has_history) {
+    vec3 texel_direction = oct_decode(normalized_oct_coord(atlas_texel, ddgi.irr_side));
+    const float energy_conservation = 0.95;
+
+    vec4 result = vec4(0.0);
+    for (int r = 0; r < ddgi.probe_rays; ++r) {
+        float dist = s_ray[r].w;
+        if (dist < 0.0) continue;
+
+        float weight = max(0.0, dot(texel_direction, s_dir[r].xyz));
+        if (weight < EPSILON) continue;
+
+        // Clamp radiance to prevent emissive hotspots from causing flicker
+        vec3 radiance = min(s_ray[r].rgb, vec3(30.0)) * energy_conservation;
+
+        // Down-weight sky miss rays so nearby surface bounces dominate.
+        // Even with blurred sky sampling (mip 4), HDR skies can still
+        // overpower subtle color bleeding from nearby geometry.
+        if (dist >= max_trace_dist - 0.1) {
+            weight *= 0.25;
+        }
+
+        result += vec4(radiance * weight, weight);
+    }
+
+    // Confidence in this frame's estimate: more contributing rays = less
+    // noisy. Dark/shadowed cells gather few weighted rays and are the
+    // noisiest, so they lean harder on history.
+    float confidence = clamp(result.w, 0.0, 1.0);
+
+    if (result.w > EPSILON) {
+        result.xyz /= result.w;
+        result.w = 1.0;
+    }
+
+    // Blend in perceptual space: encode the fresh result so it matches the
+    // already-encoded history, then mix. Decode happens at every read site.
+    result.rgb = ddgi_encode_irradiance(result.rgb);
+
+    if (has_history) {
+        // Low-confidence cells blend toward a higher hysteresis (keep more
+        // history) so weak-signal shadow cells stop shimmering, while
+        // confident cells stay responsive at the configured value.
+        float hyst = mix(0.97, ddgi.hysteresis, confidence);
+        result = mix(result, imageLoad(irradiance_image, atlas_texel), hyst);
+    }
+    return result;
+}
+
+// One interior visibility texel: the mean hit distance around its direction
+// and the mean of its square, the moments the cage's Chebyshev test reads.
+vec2 update_visibility_texel(ivec2 atlas_texel, bool has_history) {
+    vec3 texel_direction = oct_decode(normalized_oct_coord(atlas_texel, ddgi.vis_side));
+    float probe_max_ray_distance = length(ddgi.probe_spacing) * 1.5;
+
+    vec3 result = vec3(0.0);
+    for (int r = 0; r < ddgi.probe_rays; ++r) {
+        float weight = pow(max(0.0, dot(texel_direction, s_dir[r].xyz)), 2.5);
+        if (weight < EPSILON) continue;
+
+        float distance = min(abs(s_ray[r].w), probe_max_ray_distance);
+        result += vec3(distance * weight, distance * distance * weight, weight);
+    }
+
+    vec2 moments = result.z > EPSILON ? result.xy / result.z : result.xy;
+    if (has_history) {
+        moments = mix(moments, imageLoad(visibility_image, atlas_texel).rg, ddgi.hysteresis);
+    }
+    return moments;
+}
+
+// Where the probe sits relative to the geometry its rays found: moved out of
+// a surface it is buried in, or away from one it touches.
+void update_offset(int probe_index) {
+    int closest_backface_index = -1;
+    float closest_backface_distance = 1e8;
+
+    int closest_frontface_index = -1;
+    float closest_frontface_distance = 1e8;
+
+    int farthest_frontface_index = -1;
+    float farthest_frontface_distance = 0.0;
+
+    int backfaces_count = 0;
+
+    for (int r = 0; r < ddgi.probe_rays; ++r) {
+        float ray_distance = s_ray[r].w;
+
+        if (ray_distance <= 0.0) {
+            ++backfaces_count;
+            if (-ray_distance < closest_backface_distance) {
+                closest_backface_distance = -ray_distance;
+                closest_backface_index = r;
+            }
+        } else {
+            if (ray_distance < closest_frontface_distance) {
+                closest_frontface_distance = ray_distance;
+                closest_frontface_index = r;
+            } else if (ray_distance > farthest_frontface_distance) {
+                farthest_frontface_distance = ray_distance;
+                farthest_frontface_index = r;
+            }
+        }
+    }
+
+    vec3 cell_offset_limit = ddgi.max_probe_offset * ddgi.probe_spacing;
+    ivec2 offset_texel = ddgi_probe_offset_texel(probe_index);
+
+    vec4 current_offset = vec4(0.0);
+    if (first_frame == 0) {
+        current_offset.rgb = imageLoad(probe_offset_image, offset_texel).rgb;
+    }
+
+    vec3 full_offset = vec3(1e4);
+    bool relocated = false;
+
+    bool inside_geometry = (float(backfaces_count) / float(ddgi.probe_rays)) > 0.25;
+    if (inside_geometry && closest_backface_index != -1) {
+        vec3 backface_dir = closest_backface_distance * s_dir[closest_backface_index].xyz;
+
+        vec3 pos_off = (current_offset.xyz + cell_offset_limit) / backface_dir;
+        vec3 neg_off = (current_offset.xyz - cell_offset_limit) / backface_dir;
+        vec3 max_off = max(pos_off, neg_off);
+
+        float scale = min(min(max_off.x, max_off.y), max_off.z) - 0.001;
+        full_offset = current_offset.xyz - backface_dir * scale;
+        relocated = true;
+    } else if (closest_frontface_distance < 0.05) {
+        vec3 farthest_dir = farthest_frontface_index < 0 ? vec3(0.0)
+            : min(0.2, farthest_frontface_distance) * s_dir[farthest_frontface_index].xyz;
+        vec3 closest_dir = s_dir[closest_frontface_index].xyz;
+
+        if (dot(farthest_dir, closest_dir) < 0.5) {
+            full_offset = current_offset.xyz + farthest_dir;
+            relocated = true;
+        }
+    }
+
+    // Clamp the new offset to the cell limit per-axis rather than rejecting
+    // the whole update when one axis exceeds it. Rejecting made probes in
+    // conflicted geometry oscillate — each frame they recompute an offset
+    // past the limit and get held in place. Clamping slides them to the cell
+    // boundary and lets them settle.
+    if (relocated) {
+        current_offset.xyz = clamp(full_offset, -cell_offset_limit, cell_offset_limit);
+    }
+
+    imageStore(probe_offset_image, offset_texel, current_offset);
+}
+
+// Whether the probe is worth reading: off when it is buried or sees nothing
+// but back faces, active when it has geometry close by. A probe that has
+// just been traced for the first time since a reset starts from active.
+uint classify_probe(uint previous) {
+    uint flag = previous == PROBE_STATUS_UNINITIALIZED ? PROBE_STATUS_ACTIVE : previous;
+
+    int backfaces_count = 0;
+    int closest_frontface_index = -1;
+    float closest_frontface_distance = 1e8;
+
+    vec3 outer_bounds = normalize(ddgi.probe_spacing)
+                      * (length(ddgi.probe_spacing) + 2.0 * ddgi.self_shadow_bias);
+
+    for (int r = 0; r < ddgi.probe_rays; ++r) {
+        float d_front = s_ray[r].w;
+
+        if (d_front <= 0.0) {
+            backfaces_count += 1;
+        }
+
+        if (d_front > 0.0) {
+            vec3 front_dir = d_front * s_dir[r].xyz;
+            if (all(lessThan(abs(front_dir), outer_bounds))) {
+                flag = PROBE_STATUS_ACTIVE;
+            }
+            if (d_front < closest_frontface_distance) {
+                closest_frontface_distance = d_front;
+                closest_frontface_index = r;
+            }
+        }
+    }
+
+    if (backfaces_count > 0 && (float(backfaces_count) / float(ddgi.probe_rays)) > 0.25) {
+        flag = PROBE_STATUS_OFF;
+    } else if (closest_frontface_index == -1) {
+        flag = PROBE_STATUS_OFF;
+    } else if (closest_frontface_distance < 0.05) {
+        flag = PROBE_STATUS_ACTIVE;
+    }
+    return flag;
+}
+
+void main() {
+    int batch_row = int(gl_WorkGroupID.x);
+    int probe_index = batch_row + ddgi.probe_update_offset;
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    // Uniform across the group, so no invocation is left at a barrier.
+    if (probe_index >= total_probes) return;
+
+    uint tid = gl_LocalInvocationIndex;
+
+    // ── The probe's rays, once ──
+    // The status is read here, before anything writes it: one invocation
+    // writes the new status while the others are still deciding from the old.
+    if (tid == 0) {
+        s_backfaces = 0;
+        s_previous_status = probe_status[probe_index];
+    }
+    barrier();
+    for (int r = int(tid); r < ddgi.probe_rays; r += DDGI_UPDATE_GROUP_SIZE) {
+        s_ray[r] = texelFetch(radiance_tex, ivec2(r, batch_row), 0);
+        s_dir[r] = vec4(normalize(mat3(ddgi.random_rotation) *
+                        spherical_fibonacci(float(r), float(ddgi.probe_rays))), 0.0);
+        if (s_ray[r].w < 0.0) atomicAdd(s_backfaces, 1u);
+    }
+    barrier();
+
+    uint previous_status = s_previous_status;
+    bool traced_before = previous_status != PROBE_STATUS_UNINITIALIZED;
+
+    // A probe whose rays mostly start inside geometry keeps the irradiance it
+    // had: what it sees from in there is not light worth blending in.
+    uint max_backfaces = max(uint(float(ddgi.probe_rays) * 0.1), 1u);
+    bool irradiance_frozen = s_backfaces >= max_backfaces;
+
+    // ── Interiors ──
+    int irr_side = ddgi.irr_side;
+    int vis_side = ddgi.vis_side;
+    int irr_count = irr_side * irr_side;
+    int vis_count = vis_side * vis_side;
+    ivec2 irr_origin = tile_origin(probe_index, ddgi.irr_tex_w, irr_side);
+    ivec2 vis_origin = tile_origin(probe_index, ddgi.vis_tex_w, vis_side);
+
+    for (int i = int(tid); i < irr_count + vis_count; i += DDGI_UPDATE_GROUP_SIZE) {
+        if (i < irr_count) {
+            ivec2 atlas_texel = irr_origin + ivec2(1 + i % irr_side, 1 + i / irr_side);
+            s_irradiance[i] = irradiance_frozen
+                ? imageLoad(irradiance_image, atlas_texel)
+                : update_irradiance_texel(atlas_texel, first_frame == 0 && traced_before);
+        } else {
+            int j = i - irr_count;
+            ivec2 atlas_texel = vis_origin + ivec2(1 + j % vis_side, 1 + j / vis_side);
+            s_visibility[j] = update_visibility_texel(atlas_texel, first_frame == 0);
+        }
+    }
+
+    // The offset and status read only the rays, so one invocation works
+    // them out beside the texels.
+    if (tid == DDGI_UPDATE_GROUP_SIZE - 1) {
+        update_offset(probe_index);
+        probe_status[probe_index] = classify_probe(previous_status);
+    }
+    barrier();
+
+    // ── Whole tiles, rings included, from what the group holds ──
+    int irr_tile = irr_side + 2;
+    int vis_tile = vis_side + 2;
+    for (int i = int(tid); i < irr_tile * irr_tile + vis_tile * vis_tile; i += DDGI_UPDATE_GROUP_SIZE) {
+        if (i < irr_tile * irr_tile) {
+            ivec2 t = ivec2(i % irr_tile, i / irr_tile);
+            bool ring = t.x == 0 || t.y == 0 || t.x == irr_tile - 1 || t.y == irr_tile - 1;
+            ivec2 s = (ring ? ddgi_border_source(t, irr_side) : t) - ivec2(1);
+            imageStore(irradiance_image, irr_origin + t, s_irradiance[s.x + s.y * irr_side]);
+        } else {
+            int j = i - irr_tile * irr_tile;
+            ivec2 t = ivec2(j % vis_tile, j / vis_tile);
+            bool ring = t.x == 0 || t.y == 0 || t.x == vis_tile - 1 || t.y == vis_tile - 1;
+            ivec2 s = (ring ? ddgi_border_source(t, vis_side) : t) - ivec2(1);
+            imageStore(visibility_image, vis_origin + t,
+                       vec4(s_visibility[s.x + s.y * vis_side], 0.0, 1.0));
+        }
+    }
+}
