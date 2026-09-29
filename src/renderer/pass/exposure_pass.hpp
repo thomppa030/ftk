@@ -1,15 +1,14 @@
 #pragma once
 
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
-
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
-#include <memory>
 
 namespace fjell {
 
@@ -25,7 +24,7 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// The average luminance the frame that last used `frame_index`'s slot
-    /// computed. Complete once that slot's fence has been waited on.
+    /// computed. Complete once the GPU has finished that frame.
     [[nodiscard]] float average_luminance(uint32_t frame_index) const;
 
     void set_enabled(bool e) { enabled_ = e; }
@@ -38,20 +37,14 @@ public:
     }
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    gpu::Sampler sampler_;
 
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sets_{};
-    VkSampler sampler_{VK_NULL_HANDLE};
-
-    // Per-frame histogram SSBO (256 uint bins + 1 float avg_luminance) — device-local
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> buffers_;
-    // Small host-visible readback buffer (1 float per frame)
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> readback_buffers_;
+    // Per frame slot: the histogram (256 bins and the average), and the
+    // average copied where the CPU reads it once the GPU is done with the slot.
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> histograms_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> readbacks_;
 
     bool enabled_{false};
     float min_log_lum_{-10.0f};

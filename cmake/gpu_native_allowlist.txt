@@ -71,8 +71,6 @@ src/renderer/pass/distortion_apply_pass.cpp
 src/renderer/pass/distortion_apply_pass.hpp
 src/renderer/pass/distortion_pass.cpp
 src/renderer/pass/distortion_pass.hpp
-src/renderer/pass/exposure_pass.cpp
-src/renderer/pass/exposure_pass.hpp
 src/renderer/pass/grid_pass.cpp
 src/renderer/pass/grid_pass.hpp
 src/renderer/pass/gtao_pass.cpp
