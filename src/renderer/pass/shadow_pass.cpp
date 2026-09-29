@@ -510,10 +510,13 @@ void ShadowPass::record(const FrameContext& ctx) {
     }
 
     for (uint32_t c = 0; c < CASCADE_COUNT; ++c) {
-        // Skip cascade if it has nothing to draw or its descriptor is not ready
+        // Skip cascade if it has nothing to draw or its descriptor is not ready.
+        // Skinned casters count: they are drawn below the batched meshes and
+        // are not among the batch's opaque draws.
         auto* cascade_batch = ctx.shadow_cascade_batches[c];
         const bool has_meshes = cascade_batch != nullptr
-                                && cascade_batch->opaque_draw_count(ctx.frame_index) > 0
+                                && (cascade_batch->opaque_draw_count(ctx.frame_index) > 0
+                                    || !cascade_batch->skinned_draw_indices(ctx.frame_index).empty())
                                 && ctx.shadow_cascade_draw_data[c] != VK_NULL_HANDLE;
         if (!has_meshes && terrain == nullptr) {
             // Still need to clear the cascade layer for correct sampling
