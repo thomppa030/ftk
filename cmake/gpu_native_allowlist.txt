@@ -64,8 +64,6 @@ src/renderer/pass/depth_viz_pass.hpp
 src/renderer/pass/gtao_pass.cpp
 src/renderer/pass/gtao_pass.hpp
 src/renderer/pass/light_viz_pass.hpp
-src/renderer/pass/local_shadow_pass.cpp
-src/renderer/pass/local_shadow_pass.hpp
 src/renderer/pass/mesh_shader_depth_pass.cpp
 src/renderer/pass/mesh_shader_depth_pass.hpp
 src/renderer/pass/meshlet_viz_pass.cpp

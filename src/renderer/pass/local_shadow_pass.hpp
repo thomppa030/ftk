@@ -1,14 +1,15 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <vector>
@@ -31,7 +32,7 @@ struct ShadowTile {
 class LocalShadowPass : public RenderPass {
 public:
     static constexpr uint32_t ATLAS_SIZE = LOCAL_SHADOW_ATLAS_SIZE;
-    static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
+    static constexpr gpu::Format DEPTH_FORMAT = gpu::Format::d32_float;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -41,9 +42,6 @@ public:
     void collect_exports(DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
-
-    [[nodiscard]] VkImageView atlas_view() const { return atlas_view_; }
-    [[nodiscard]] VkSampler sampler() const { return sampler_; }
 
     // Spot light tiles assigned this frame (read by update_light_ssbo to fill shadow fields)
     [[nodiscard]] const std::vector<ShadowTile>& spot_tiles() const { return spot_tiles_; }
@@ -63,31 +61,20 @@ public:
     [[nodiscard]] const std::vector<PointShadowBlock>& point_blocks() const { return point_blocks_; }
 
 private:
-    void create_atlas();
-    void destroy_atlas();
     void assign_spot_tiles(const FrameContext& ctx);
     void assign_point_tiles(const FrameContext& ctx);
+    /// Draws the camera batch's casters into one tile of the atlas, seen
+    /// through `light_vp`.
+    void draw_casters(const FrameContext& ctx, gpu::RenderEncoder& pass, uint32_t x, uint32_t y,
+                      uint32_t size, const glm::mat4& light_vp) const;
 
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    gpu::Owned<gpu::Texture> atlas_;
+    gpu::Sampler sampler_;
 
-    // Atlas image
-    VkImage atlas_image_{VK_NULL_HANDLE};
-    VmaAllocation atlas_memory_{VK_NULL_HANDLE};
-    VkImageView atlas_view_{VK_NULL_HANDLE};
-    /// The atlas as the GPU interface's texture.
-    gpu::Owned<gpu::Texture> atlas_texture_;
-    VkSampler sampler_{VK_NULL_HANDLE};
-
-    // Pipeline (reuses shadow.vert / depth_only.frag)
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkPipeline skinned_pipeline_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
+    // Pipelines (the cascades' shadow.vert / depth_only.frag)
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;
 
     // Per-frame tile assignments
     std::vector<ShadowTile> spot_tiles_;

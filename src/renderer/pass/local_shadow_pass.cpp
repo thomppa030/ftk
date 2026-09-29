@@ -1,26 +1,20 @@
 #include "renderer/pass/local_shadow_pass.hpp"
-#include "gpu/vulkan/native.hpp"
+
+#include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/vma_image.hpp"
+#include "gpu/device.hpp"
+#include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/render_queue.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
-#include "renderer/resources/model.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/vertex.hpp"
-#include "renderer/render_queue.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
-#include "core/base_path.hpp"
-#include "core/log.hpp"
-
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -29,237 +23,67 @@
 
 namespace fjell {
 
-// ── Atlas image ─────────────────────────────────────────────────────────
-
-void LocalShadowPass::create_atlas() {
-    written_ = false;
-    VkImageCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    info.imageType = VK_IMAGE_TYPE_2D;
-    info.format = DEPTH_FORMAT;
-    info.extent = {ATLAS_SIZE, ATLAS_SIZE, 1};
-    info.mipLevels = 1;
-    info.arrayLayers = 1;
-    info.samples = VK_SAMPLE_COUNT_1_BIT;
-    info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (create_vma_image(allocator_, &info, &atlas_image_, &atlas_memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create local shadow atlas");
-    }
-    set_image_debug_name(device_, atlas_image_, "local_shadow_atlas");
-
-    VkImageViewCreateInfo view_info{};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = atlas_image_;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = DEPTH_FORMAT;
-    view_info.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-
-    if (vkCreateImageView(device_, &view_info, nullptr, &atlas_view_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create local shadow atlas view");
-    }
-    atlas_texture_ = gpu::vulkan::adopt(*gpu_device_, atlas_image_, atlas_view_, info);
-
-    // Comparison sampler (same as cascade shadows)
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-    sampler_info.compareEnable = VK_TRUE;
-    sampler_info.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    if (vkCreateSampler(device_, &sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create local shadow sampler");
-    }
-
-    FJELL_GFX_DEBUG("Local shadow atlas created: {}x{}", ATLAS_SIZE, ATLAS_SIZE);
-}
-
-void LocalShadowPass::destroy_atlas() {
-    if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
-    if (atlas_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, atlas_view_, nullptr); atlas_view_ = VK_NULL_HANDLE; }
-    atlas_texture_.reset();
-    destroy_vma_image(allocator_, atlas_image_, atlas_memory_);
-    atlas_image_ = VK_NULL_HANDLE;
-    atlas_memory_ = VK_NULL_HANDLE;
-}
-
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> LocalShadowPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    gpu_device_ = resources.device;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    draw_data_layout_ = resources.draw_data_layout;
-    global_set_layout_ = resources.global_set_layout;
-    material_set_layout_ = resources.material_set_layout;
+Result<> LocalShadowPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    written_ = false;
+    FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{
+                          .format = DEPTH_FORMAT,
+                          .width = ATLAS_SIZE,
+                          .height = ATLAS_SIZE,
+                          .use = gpu::TextureUse::depth_target | gpu::TextureUse::sampled,
+                          .name = "local_shadow_atlas",
+                      }));
+    // The cascades' comparison: filtered, and outside the map reads as lit.
+    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
+                                 .mip_filter = gpu::Filter::nearest,
+                                 .address = gpu::Address::border,
+                                 .compare = gpu::Compare::less_equal,
+                                 .border = gpu::Border::opaque_white});
 
-    create_atlas();
+    // The cascades' caster state: clamped depth, front faces culled, their
+    // bias. Skinned casters cull nothing.
+    const gpu::Raster raster{.cull = gpu::Cull::front,
+                             .depth_clamp = true,
+                             .depth_bias = ShadowPass::DEPTH_BIAS_CONSTANT,
+                             .depth_bias_slope = ShadowPass::DEPTH_BIAS_SLOPE};
+    const gpu::Depth depth{.test = true, .write = true, .compare = gpu::Compare::less_equal};
+    FJELL_TRY(pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+                             .vertex = "shaders/shadow.vert",
+                             .fragment = "shaders/depth_only.frag",
+                             .vertex_layout = Vertex::layout(),
+                             .raster = raster,
+                             .depth = depth,
+                             .depth_format = DEPTH_FORMAT,
+                             .shared = {resources.globals, resources.draw_data},
+                             .name = "local_shadow",
+                         }));
+    gpu::Raster skinned_raster = raster;
+    skinned_raster.cull = gpu::Cull::none;
+    FJELL_TRY(skinned_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+                                     .vertex = "shaders/skinned_shadow.vert",
+                                     .fragment = "shaders/depth_only.frag",
+                                     .vertex_layout = SkinnedVertex::layout(),
+                                     .raster = skinned_raster,
+                                     .depth = depth,
+                                     .depth_format = DEPTH_FORMAT,
+                                     .shared = {resources.globals, resources.draw_data},
+                                     .name = "skinned_local_shadow",
+                                 }));
 
-    // Reuse the same shadow vertex + depth-only fragment shaders as cascade shadows
-    auto vert_code = read_spirv(base_path::resolve("shaders/shadow.vert.spv"));
-    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
-    auto vert_module = create_shader_module(device_, vert_code);
-    auto frag_module = create_shader_module(device_, frag_code);
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_module;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_module;
-    stages[1].pName = "main";
-
-    auto binding_desc = Vertex::get_binding_description();
-    auto attrib_descs = Vertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding_desc;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrib_descs.size());
-    vertex_input.pVertexAttributeDescriptions = attrib_descs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_TRUE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = 1.25f;
-    rasterizer.depthBiasSlopeFactor = 1.75f;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 0;
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_TRUE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(glm::mat4);
-
-    std::array set_layouts = {global_set_layout_, material_set_layout_, draw_data_layout_};
-
-    VkPipelineLayoutCreateInfo layout_info{};
-    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    layout_info.pSetLayouts = set_layouts.data();
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
-
-    if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create local shadow pipeline layout");
-    }
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 0;
-    rendering_info.depthAttachmentFormat = DEPTH_FORMAT;
-
-    VkGraphicsPipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    ci.pNext = &rendering_info;
-    ci.stageCount = static_cast<uint32_t>(stages.size());
-    ci.pStages = stages.data();
-    ci.pVertexInputState = &vertex_input;
-    ci.pInputAssemblyState = &input_assembly;
-    ci.pViewportState = &viewport_state;
-    ci.pRasterizationState = &rasterizer;
-    ci.pMultisampleState = &multisampling;
-    ci.pDepthStencilState = &depth_stencil;
-    ci.pColorBlendState = &color_blending;
-    ci.pDynamicState = &dynamic_state;
-    ci.layout = layout_;
-
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create local shadow pipeline");
-    }
-
-    // Skinned variant
-    auto skinned_vert = read_spirv(base_path::resolve("shaders/skinned_shadow.vert.spv"));
-    auto skinned_mod = create_shader_module(device_, skinned_vert);
-    stages[0].module = skinned_mod;
-
-    auto skinned_bind = SkinnedVertex::get_binding_description();
-    auto skinned_attr = SkinnedVertex::get_attribute_descriptions();
-    vertex_input.pVertexBindingDescriptions = &skinned_bind;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attr.size());
-    vertex_input.pVertexAttributeDescriptions = skinned_attr.data();
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-
-    ci.pStages = stages.data();
-    ci.pVertexInputState = &vertex_input;
-
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &skinned_pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, skinned_mod, nullptr);
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create skinned local shadow pipeline");
-    }
-
-    vkDestroyShaderModule(device_, skinned_mod, nullptr);
-    vkDestroyShaderModule(device_, vert_module, nullptr);
-    vkDestroyShaderModule(device_, frag_module, nullptr);
-
-    FJELL_GFX_DEBUG("Local shadow pass created");
+    FJELL_GFX_DEBUG("Local shadow atlas created: {}x{}", ATLAS_SIZE, ATLAS_SIZE);
     return {};
 }
 
 void LocalShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    auto& gb = gpu.global_bindings();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        gb.write_image(i, "local_shadow_atlas",
-            atlas_view_, sampler_,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-    }
-    gb.flush_writes();
+    gpu.global_bindings().set("local_shadow_atlas", gpu::sampled(atlas_, sampler_));
 }
 
 void LocalShadowPass::destroy() {
-    if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
-    if (skinned_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, skinned_pipeline_, nullptr); skinned_pipeline_ = VK_NULL_HANDLE; }
-    if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
-    destroy_atlas();
+    pipeline_.reset();
+    skinned_pipeline_.reset();
+    atlas_.reset();
 }
 
 // ── Per-frame tile assignment ──────────────────────────────────────────
@@ -474,210 +298,81 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {
-    if (atlas_image_ == VK_NULL_HANDLE || atlas_view_ == VK_NULL_HANDLE) { return; }
-    ImportedImage img{};
-    img.view = atlas_texture_;
-    img.persistent = true;
+    if (!atlas_) { return; }
     // The lit surfaces sample it in the fragment shader and the fog light in
     // compute, both through the global set. Nothing is in it before the pass
     // first draws.
-    img.resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
-    img.unwritten = !written_;
-    ctx.imports.emplace(fg_name_hash("local_shadow_atlas"), img);
+    ctx.export_texture("local_shadow_atlas", atlas_,
+                       {.persistent = true,
+                        .resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute,
+                        .unwritten = !written_});
 }
 
 // ── Recording ──────────────────────────────────────────────────────────
 
-void LocalShadowPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_local_shadows");
-    if (!has_work()) return;
-    if (!ctx.mega_buffer || !ctx.indirect_batch) return;
+void LocalShadowPass::draw_casters(const FrameContext& ctx, gpu::RenderEncoder& pass, uint32_t x,
+                                   uint32_t y, uint32_t size, const glm::mat4& light_vp) const {
+    pass.set_viewport({.x = static_cast<float>(x),
+                       .y = static_cast<float>(y),
+                       .width = static_cast<float>(size),
+                       .height = static_cast<float>(size)});
+    pass.set_scissor({.x = static_cast<int32_t>(x), .y = static_cast<int32_t>(y), .width = size, .height = size});
 
-#ifdef FJELL_ENABLE_TRACY
-    TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Local Shadows");
-#endif
-
-    auto cmd = ctx.cmd;
-
-    // The graph has the atlas in DEPTH_ATTACHMENT_OPTIMAL.
-
-    // Clear the entire atlas first
-    VkRenderingAttachmentInfo clear_att{};
-    clear_att.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    clear_att.imageView = atlas_view_;
-    clear_att.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    clear_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    clear_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    clear_att.clearValue.depthStencil = {1.0f, 0};
-
-    VkRenderingInfo clear_ri{};
-    clear_ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    clear_ri.renderArea = {{0, 0}, {ATLAS_SIZE, ATLAS_SIZE}};
-    clear_ri.layerCount = 1;
-    clear_ri.pDepthAttachment = &clear_att;
-    vkCmdBeginRendering(cmd, &clear_ri);
-    vkCmdEndRendering(cmd);
-
-    // Render each spot light tile
-    std::array descriptor_sets = {
-        ctx.global_descriptor_set,
-        ctx.bindless_set,
-        ctx.draw_data_set};
-
-    for (const auto& tile : spot_tiles_) {
-        VkRenderingAttachmentInfo depth_att{};
-        depth_att.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_att.imageView = atlas_view_;
-        depth_att.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // preserve cleared/previous tiles
-        depth_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        VkRenderingInfo ri{};
-        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        ri.renderArea.offset = {static_cast<int32_t>(tile.x), static_cast<int32_t>(tile.y)};
-        ri.renderArea.extent = {tile.size, tile.size};
-        ri.layerCount = 1;
-        ri.pDepthAttachment = &depth_att;
-
-        vkCmdBeginRendering(cmd, &ri);
-
-        VkViewport vp{};
-        vp.x = static_cast<float>(tile.x);
-        vp.y = static_cast<float>(tile.y);
-        vp.width = static_cast<float>(tile.size);
-        vp.height = static_cast<float>(tile.size);
-        vp.minDepth = 0.0f;
-        vp.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &vp);
-
-        VkRect2D sc{};
-        sc.offset = {static_cast<int32_t>(tile.x), static_cast<int32_t>(tile.y)};
-        sc.extent = {tile.size, tile.size};
-        vkCmdSetScissor(cmd, 0, 1, &sc);
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                0, static_cast<uint32_t>(descriptor_sets.size()),
-                                descriptor_sets.data(), 0, nullptr);
-
-        // Push light VP matrix
-        vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                           0, sizeof(glm::mat4), &tile.light_vp);
-
-        // Draw all opaque geometry using indirect
-        ctx.mega_buffer->bind(cmd);
-        const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-        for (const auto& range : ranges) {
-            if (range.skinned) continue; // skip skinned in indirect path
-            VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
-            vkCmdDrawIndexedIndirect(cmd,
-                ctx.indirect_batch->indirect_buffer(ctx.frame_index),
-                offset, range.draw_count,
-                sizeof(VkDrawIndexedIndirectCommand));
-        }
-
-        // Draw skinned meshes
-        const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
-        if (!skinned_indices.empty() && ctx.queue) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                    0, static_cast<uint32_t>(descriptor_sets.size()),
-                                    descriptor_sets.data(), 0, nullptr);
-            vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(glm::mat4), &tile.light_vp);
-
-            uint32_t skinned_cmd_idx = 0;
-            for (const auto& dc : ctx.queue->commands()) {
-                if (!dc.skinned || !dc.skeletal_model) continue;
-                if (skinned_cmd_idx >= skinned_indices.size()) break;
-                dc.skeletal_model->bind(cmd);
-                uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
-                vkCmdDrawIndexed(cmd, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                skinned_cmd_idx++;
-            }
-        }
-
-        vkCmdEndRendering(cmd);
+    // Every static draw of the camera batch in one indirect draw: the ranges
+    // follow each other from the first draw, and no material's vertex stage
+    // is drawn here.
+    const IndirectBatch& batch = *ctx.indirect_batch;
+    const uint32_t draws = batch.opaque_draw_count(ctx.frame_index);
+    if (draws > 0) {
+        pass.set_pipeline(pipeline_);
+        pass.bind(ctx.globals);
+        pass.bind(ctx.draw_data);
+        pass.push(light_vp);
+        ctx.mega_buffer->bind(pass);
+        pass.draw_indexed_indirect(gpu::BufferRange(batch.shared_indirect_buffer(ctx.frame_index), 0,
+                                                    uint64_t{draws} * sizeof(gpu::DrawIndexedArgs)),
+                                   draws, sizeof(gpu::DrawIndexedArgs));
     }
 
-    // Render point light shadow faces (6 tiles per light in 2x3 layout)
+    // Skinned meshes, each from its own vertices.
+    const auto& skinned_indices = batch.skinned_draw_indices(ctx.frame_index);
+    if (!skinned_indices.empty() && ctx.queue) {
+        pass.set_pipeline(skinned_pipeline_);
+        pass.bind(ctx.globals);
+        pass.bind(ctx.draw_data);
+        pass.push(light_vp);
+        uint32_t skinned_cmd_idx = 0;
+        for (const auto& dc : ctx.queue->commands()) {
+            if (!dc.skinned || !dc.skeletal_model) continue;
+            if (skinned_cmd_idx >= skinned_indices.size()) break;
+            dc.skeletal_model->bind(pass);
+            pass.draw_indexed(dc.skeletal_model->index_count(), 1, 0, 0, skinned_indices[skinned_cmd_idx]);
+            skinned_cmd_idx++;
+        }
+    }
+}
+
+void LocalShadowPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_local_shadows");
+    if (!has_work() || !atlas_) return;
+    if (!ctx.mega_buffer || !ctx.indirect_batch) return;
+
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Local Shadows");
+    // The whole atlas in one scope, cleared as it opens; each light's tiles
+    // are drawn through a viewport and scissor of their own.
+    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = atlas_, .load = gpu::Load::clear}});
+
+    for (const auto& tile : spot_tiles_) {
+        draw_casters(ctx, pass, tile.x, tile.y, tile.size, tile.light_vp);
+    }
+
+    // Point light faces, six tiles per light in a 2x3 block.
     for (const auto& block : point_blocks_) {
-        uint32_t ts = block.tile_size;
-        for (int face = 0; face < 6; ++face) {
-            uint32_t face_x = block.x + (face % 2) * ts;
-            uint32_t face_y = block.y + (face / 2) * ts;
-
-            VkRenderingAttachmentInfo depth_att{};
-            depth_att.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            depth_att.imageView = atlas_view_;
-            depth_att.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depth_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-            VkRenderingInfo ri{};
-            ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            ri.renderArea.offset = {static_cast<int32_t>(face_x), static_cast<int32_t>(face_y)};
-            ri.renderArea.extent = {ts, ts};
-            ri.layerCount = 1;
-            ri.pDepthAttachment = &depth_att;
-
-            vkCmdBeginRendering(cmd, &ri);
-
-            VkViewport vp{};
-            vp.x = static_cast<float>(face_x);
-            vp.y = static_cast<float>(face_y);
-            vp.width = static_cast<float>(ts);
-            vp.height = static_cast<float>(ts);
-            vp.minDepth = 0.0f;
-            vp.maxDepth = 1.0f;
-            vkCmdSetViewport(cmd, 0, 1, &vp);
-
-            VkRect2D sc{};
-            sc.offset = {static_cast<int32_t>(face_x), static_cast<int32_t>(face_y)};
-            sc.extent = {ts, ts};
-            vkCmdSetScissor(cmd, 0, 1, &sc);
-
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                    0, static_cast<uint32_t>(descriptor_sets.size()),
-                                    descriptor_sets.data(), 0, nullptr);
-
-            vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(glm::mat4), &block.face_vp[face]);
-
-            ctx.mega_buffer->bind(cmd);
-            const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-            for (const auto& range : ranges) {
-                if (range.skinned) continue;
-                VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
-                vkCmdDrawIndexedIndirect(cmd,
-                    ctx.indirect_batch->indirect_buffer(ctx.frame_index),
-                    offset, range.draw_count,
-                    sizeof(VkDrawIndexedIndirectCommand));
-            }
-
-            // Draw skinned meshes
-            const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
-            if (!skinned_indices.empty() && ctx.queue) {
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                        0, static_cast<uint32_t>(descriptor_sets.size()),
-                                        descriptor_sets.data(), 0, nullptr);
-                vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                                   0, sizeof(glm::mat4), &block.face_vp[face]);
-
-                uint32_t skinned_cmd_idx = 0;
-                for (const auto& dc : ctx.queue->commands()) {
-                    if (!dc.skinned || !dc.skeletal_model) continue;
-                    if (skinned_cmd_idx >= skinned_indices.size()) break;
-                    dc.skeletal_model->bind(cmd);
-                    uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
-                    vkCmdDrawIndexed(cmd, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                    skinned_cmd_idx++;
-                }
-            }
-
-            vkCmdEndRendering(cmd);
+        const uint32_t ts = block.tile_size;
+        for (uint32_t face = 0; face < 6; ++face) {
+            draw_casters(ctx, pass, block.x + (face % 2) * ts, block.y + (face / 2) * ts, ts,
+                         block.face_vp[face]);
         }
     }
     written_ = true;
