@@ -118,7 +118,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     // it the pass still exists (so .fjgraph parses) but record() returns
     // immediately.
     if (!device.ray_tracing_supported()) {
-        FJELL_GFX_INFO("RT reflections disabled (no VK_KHR_ray_tracing_pipeline)");
+        FJELL_GFX_INFO("RT reflections disabled (no ray queries)");
         return {};
     }
 

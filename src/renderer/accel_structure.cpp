@@ -554,14 +554,12 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
         }
 
         // Barrier: compute write → AS build read (instances) AND the tracers'
-        // read of rt_instance_data at a hit, by instance index. A tracer is a
-        // ray tracing pipeline or a compute shader with ray queries.
+        // compute read of rt_instance_data at a hit, by instance index.
         VkMemoryBarrier2 comp_bar{};
         comp_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         comp_bar.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         comp_bar.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         comp_bar.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
-                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
                               | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         comp_bar.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
                                | VK_ACCESS_2_SHADER_READ_BIT;
@@ -648,14 +646,12 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
 
     device_.cmd_build_accel_structs_fn()(cmd, 1, &build_info, &range_ptr);
 
-    // Barrier: TLAS build → traversal, by a ray tracing pipeline or by ray
-    // queries from compute
+    // Barrier: TLAS build → traversal by ray queries from compute
     VkMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
     barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
-                         | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
     VkDependencyInfo dep{};

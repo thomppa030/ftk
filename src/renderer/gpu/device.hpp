@@ -119,13 +119,10 @@ public:
     }
 
     // Ray tracing
-    /// True when acceleration structures, ray tracing pipelines and ray
-    /// queries are all enabled on this device; false leaves every ray traced
-    /// pass off and DDGI on its SDF trace.
+    /// True when acceleration structures and ray queries are both enabled on
+    /// this device; the ray traced passes trace from compute shaders. False
+    /// leaves every ray traced pass off and DDGI on its SDF trace.
     [[nodiscard]] bool ray_tracing_supported() const { return ray_tracing_supported_; }
-    [[nodiscard]] PFN_vkCreateRayTracingPipelinesKHR create_rt_pipelines_fn() const { return pfn_create_rt_pipelines_; }
-    [[nodiscard]] PFN_vkCmdTraceRaysKHR cmd_trace_rays_fn() const { return pfn_cmd_trace_rays_; }
-    [[nodiscard]] PFN_vkGetRayTracingShaderGroupHandlesKHR get_rt_shader_group_handles_fn() const { return pfn_get_rt_shader_group_handles_; }
     [[nodiscard]] PFN_vkCreateAccelerationStructureKHR create_accel_struct_fn() const { return pfn_create_accel_struct_; }
     [[nodiscard]] PFN_vkDestroyAccelerationStructureKHR destroy_accel_struct_fn() const { return pfn_destroy_accel_struct_; }
     [[nodiscard]] PFN_vkGetAccelerationStructureBuildSizesKHR get_accel_struct_build_sizes_fn() const { return pfn_get_accel_struct_build_sizes_; }
@@ -189,9 +186,6 @@ private:
     bool device_fault_supported_{false};
 
     bool ray_tracing_supported_{false};
-    PFN_vkCreateRayTracingPipelinesKHR pfn_create_rt_pipelines_{nullptr};
-    PFN_vkCmdTraceRaysKHR pfn_cmd_trace_rays_{nullptr};
-    PFN_vkGetRayTracingShaderGroupHandlesKHR pfn_get_rt_shader_group_handles_{nullptr};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
     PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
     PFN_vkGetAccelerationStructureBuildSizesKHR pfn_get_accel_struct_build_sizes_{nullptr};

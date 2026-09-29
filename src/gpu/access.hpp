@@ -39,12 +39,6 @@ enum class Access : uint8_t {
     storage_write_compute,
     storage_read_write_compute,
 
-    // Ray tracing shaders (vkCmdTraceRaysKHR). A distinct pipeline stage
-    // from compute: a barrier addressed to the compute stage does not
-    // order a trace.
-    sampled_raytracing,
-    storage_write_raytracing,
-
     // Buffers (reads)
     uniform_read,
     storage_buffer_read_compute,
@@ -87,7 +81,6 @@ using AccessSet = Flags<Access>;
         case Access::depth_resolve:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
-        case Access::storage_write_raytracing:
         case Access::storage_buffer_write_compute:
         case Access::storage_buffer_read_write_compute:
         case Access::copy_dst:
@@ -106,7 +99,6 @@ using AccessSet = Flags<Access>;
     switch (a) {
         case Access::depth_resolve:
         case Access::storage_write_compute:
-        case Access::storage_write_raytracing:
         case Access::storage_buffer_write_compute:
         case Access::copy_dst:
         case Access::clear:
@@ -132,8 +124,6 @@ using AccessSet = Flags<Access>;
         case Access::storage_read_compute:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
-        case Access::sampled_raytracing:
-        case Access::storage_write_raytracing:
         case Access::copy_src:
         case Access::copy_dst:
         case Access::clear:
@@ -186,12 +176,10 @@ using AccessSet = Flags<Access>;
         case Access::sampled_vertex:
         case Access::sampled_mesh:
         case Access::sampled_compute:
-        case Access::sampled_raytracing:
             return TextureUse::sampled;
         case Access::storage_read_compute:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
-        case Access::storage_write_raytracing:
             return TextureUse::storage;
         default:
             return {};

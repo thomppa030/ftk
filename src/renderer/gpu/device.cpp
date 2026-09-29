@@ -247,15 +247,11 @@ void Device::pick_physical_device() {
         FJELL_GFX_INFO("VK_EXT_device_fault not available");
     }
 
-    // Probe for VK_KHR_ray_tracing_pipeline + VK_KHR_acceleration_structure +
-    // VK_KHR_ray_query
-    bool has_rt_pipeline = false;
+    // Probe for VK_KHR_acceleration_structure + VK_KHR_ray_query
     bool has_accel_struct = false;
     bool has_deferred_ops = false;
     bool has_ray_query = false;
     for (const auto& ext : available_exts) {
-        if (std::strcmp(ext.extensionName, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) == 0)
-            has_rt_pipeline = true;
         if (std::strcmp(ext.extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0)
             has_accel_struct = true;
         if (std::strcmp(ext.extensionName, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) == 0)
@@ -264,27 +260,21 @@ void Device::pick_physical_device() {
             has_ray_query = true;
     }
 
-    if (has_rt_pipeline && has_accel_struct && has_deferred_ops && has_ray_query) {
+    if (has_accel_struct && has_deferred_ops && has_ray_query) {
         VkPhysicalDeviceRayQueryFeaturesKHR rq_features{};
         rq_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
 
-        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_features{};
-        rt_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-        rt_features.pNext = &rq_features;
-
         VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
         as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-        as_features.pNext = &rt_features;
+        as_features.pNext = &rq_features;
 
         VkPhysicalDeviceFeatures2 rt_query{};
         rt_query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
         rt_query.pNext = &as_features;
         vkGetPhysicalDeviceFeatures2(physical_device_, &rt_query);
 
-        if (rt_features.rayTracingPipeline && as_features.accelerationStructure
-            && rq_features.rayQuery) {
+        if (as_features.accelerationStructure && rq_features.rayQuery) {
             ray_tracing_supported_ = true;
-            device_extensions_.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
@@ -385,7 +375,6 @@ void Device::create_logical_device() {
     }
 
     VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_features{};
     VkPhysicalDeviceRayQueryFeaturesKHR rq_features{};
     if (ray_tracing_supported_) {
         as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
@@ -393,11 +382,6 @@ void Device::create_logical_device() {
         as_features.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
         as_features.pNext = chain_tail;
         chain_tail = &as_features;
-
-        rt_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-        rt_features.rayTracingPipeline = VK_TRUE;
-        rt_features.pNext = chain_tail;
-        chain_tail = &rt_features;
 
         rq_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
         rq_features.rayQuery = VK_TRUE;
@@ -500,12 +484,6 @@ void Device::create_logical_device() {
 
     // Load ray tracing extension function pointers
     if (ray_tracing_supported_) {
-        pfn_create_rt_pipelines_ = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(
-            vkGetDeviceProcAddr(device_, "vkCreateRayTracingPipelinesKHR"));
-        pfn_cmd_trace_rays_ = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(
-            vkGetDeviceProcAddr(device_, "vkCmdTraceRaysKHR"));
-        pfn_get_rt_shader_group_handles_ = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(
-            vkGetDeviceProcAddr(device_, "vkGetRayTracingShaderGroupHandlesKHR"));
         pfn_create_accel_struct_ = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(
             vkGetDeviceProcAddr(device_, "vkCreateAccelerationStructureKHR"));
         pfn_destroy_accel_struct_ = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(

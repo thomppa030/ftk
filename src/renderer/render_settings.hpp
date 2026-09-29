@@ -27,9 +27,9 @@ struct RenderSettings {
         float infinite_bounces_mult{0.5f};
         float normal_bias{0.25f};
         float view_bias{0.08f};
-        /// How probes gather light. Ray-traced needs
-        /// VK_KHR_ray_tracing_pipeline and falls back to the SDF trace at
-        /// runtime when the device lacks it.
+        /// How probes gather light. Ray-traced needs acceleration structures
+        /// and ray queries, and falls back to the SDF trace at runtime when
+        /// the device lacks them.
         enum class Backend : uint8_t { SdfFallback = 0, RayTraced = 1 };
         Backend backend{Backend::RayTraced};
         /// Probes along each axis — the grid is a cube of this many.
@@ -82,8 +82,8 @@ struct RenderSettings {
         bool operator==(const SunShafts&) const = default;
     } sun_shafts;
     struct Ssr {
-        // Reflection backend selection. RayTraced requires VK_KHR_ray_tracing_pipeline;
-        // it falls back to ScreenSpace at runtime if the device doesn't support RT.
+        // Reflection backend selection. RayTraced requires acceleration structures and
+        // ray queries; it falls back to ScreenSpace at runtime if the device doesn't support RT.
         enum class Mode : uint8_t { Off, ScreenSpace, RayTraced };
         Mode mode{Mode::ScreenSpace};
         float intensity{1.0f};

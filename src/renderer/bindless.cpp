@@ -32,19 +32,18 @@ Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator, gpu::
     // binding 2 = custom params SSBO
     std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
 
-    // Compute is in the list for the fog material: a `shader_type fog`
+    // Compute is in the list for the fog material, whose `shader_type fog`
     // shader reads its textures and parameters from this set inside the
-    // volumetric fog dispatch.
+    // volumetric fog dispatch, and for the ray traced passes, which read the
+    // material at a hit from their compute traces.
     constexpr VkShaderStageFlags all_stages =
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-        VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-        VK_SHADER_STAGE_COMPUTE_BIT;
+        VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
 
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = MAX_TEXTURES;
-    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
-                           | VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
