@@ -86,6 +86,12 @@ struct ShaderLayout {
     }
 };
 
+/// The SPIR-V in the file at `path`, word by word: a shader compiled at run
+/// time, which `ShaderCode` then carries in memory.
+/// @return the words, or why not: the file cannot be read, or holds no whole
+///         number of words.
+[[nodiscard]] Result<std::vector<uint32_t>> read_spirv(const std::string& path);
+
 /// What one compiled shader binds and takes.
 /// @return the layout, or why it cannot be read: not SPIR-V, no entry point,
 ///         or a stage the interface does not run.

@@ -98,6 +98,7 @@ fjell_library(gpu
         gpu/binding.cpp
         gpu/command_list.cpp
         gpu/release_queue.cpp
+        gpu/shader_file.cpp
         gpu/shader_reflection.cpp
         gpu/transient_memory.cpp
         gpu/vulkan/access.cpp
