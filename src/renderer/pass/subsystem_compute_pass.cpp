@@ -1,11 +1,8 @@
 #include "renderer/pass/subsystem_compute_pass.hpp"
+
 #include "core/profiler.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/systems/render_subsystem.hpp"
-
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
 
 namespace fjell {
 
@@ -36,9 +33,9 @@ void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& c
 
 void SubsystemComputePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_subsystem_compute");
-#ifdef FJELL_ENABLE_TRACY
-    TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Subsystem Compute");
-#endif
+    // The subsystems still record their dispatches and barriers natively,
+    // into the command buffer this list records into.
+    auto zone = ctx.commands().zone("Subsystem Compute");
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_compute(ctx);
     }

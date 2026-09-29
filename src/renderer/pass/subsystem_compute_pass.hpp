@@ -2,8 +2,6 @@
 
 #include "renderer/pass/render_pass.hpp"
 
-#include <vulkan/vulkan.h>
-
 namespace fjell {
 
 // Dispatches record_compute() on all render subsystems (particles, sprites, tilemaps).
