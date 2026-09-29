@@ -275,7 +275,7 @@ void WaterFftPass::record(const FrameContext& ctx) {
         FJELL_PROFILE_SCOPE_N("water_fft_evolve");
         auto evolve_zone = cmd.zone("WaterFft Evolve");
         cmd.set_pipeline(evolve_);
-        cmd.bind({{"Amplitudes", gpu::storage(amplitude_buffers_[slot])},
+        cmd.bind({{"sea", gpu::storage(amplitude_buffers_[slot])},
                   {"spectra_a", gpu::storage(spectra_a_[0])},
                   {"spectra_b", gpu::storage(spectra_b_[0])}});
         cmd.push(EvolvePush{resolution_, log2_resolution, k_spacing_, time_, choppiness_});

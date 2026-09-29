@@ -428,12 +428,12 @@ std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange 
                                                  gpu::Texture medium) const {
     const gpu::Sampler sampler = simulation_->sampler();
     std::vector<gpu::BindEntry> entries{
-        {"WaterFieldBuffer", gpu::uniform(field)},
+        {"water", gpu::uniform(field)},
         {"simulated_displacement", gpu::sampled(simulation_->displacement(), sampler)},
-        {"WakeBuffer", gpu::storage(wakes)},
+        {"wakes", gpu::storage(wakes)},
     };
     if (use == WaterSet::line) return entries;
-    entries.push_back({"WaterClipmapBuffer", gpu::uniform(clipmap)});
+    entries.push_back({"clip", gpu::uniform(clipmap)});
     entries.push_back({"simulated_previous", gpu::sampled(simulation_->previous_displacement(), sampler)});
     entries.push_back({"simulated_derivatives", gpu::sampled(simulation_->derivatives(), sampler)});
     if (use == WaterSet::colour) {
