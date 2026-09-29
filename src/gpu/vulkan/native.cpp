@@ -142,6 +142,7 @@ SharedLayout share_layout(Device& device, std::string name, uint32_t usual_set,
         binding.binding = vk.binding;
         binding.kind = *kind;
         binding.count = vk.descriptorCount;
+        binding.array = vk.descriptorCount != 1;
         record.desc.bindings.push_back(binding);
     }
     return device.impl().shared_layouts.emplace(std::move(record));

@@ -55,6 +55,11 @@ struct ShaderBinding {
     BindingKind kind{BindingKind::uniform_buffer};
     /// Array length; 0 for an array sized at run time (`textures[]`).
     uint32_t count{1};
+    /// Declared as an array. One of a single element is still an array: an
+    /// unsized `textures[]` indexed only by constants compiles to as many
+    /// elements as the highest index reaches, often one, and binds wherever
+    /// the whole table would.
+    bool array{false};
     /// The stages that declare it.
     ShaderStages stages{};
 

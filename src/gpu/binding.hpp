@@ -158,8 +158,9 @@ struct SharedLayoutDesc {
 /// The set each of `shared` takes in `layout`, in the same order. A pipeline
 /// names the shared layouts it binds; this finds where its shaders declare
 /// them. A set fits a shared layout when every binding declared there is one
-/// of the layout's by number and kind, an array only where the layout has an
-/// array at least as long (one sized at run time fits any). Names take no
+/// of the layout's by number and kind, an array (even of one element) only
+/// where the layout has an array at least as long (one sized at run time fits
+/// any). Names take no
 /// part. Of the sets that fit, the layout's usual set is taken; else the only
 /// one that fits.
 /// @return the sets, or which layout fits no set, fits several none of which
