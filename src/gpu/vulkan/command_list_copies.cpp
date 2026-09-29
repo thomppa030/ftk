@@ -62,8 +62,12 @@ VkOffset3D far_corner(const VkExtent3D& extent) {
 }
 
 VkImageSubresourceLayers layers_of(const Found& found, uint32_t mip) {
-    return {vulkan::view_aspect(found.view.format), mip, found.view.base_layer,
-            found.view.layer_count};
+    // The texture's own aspect unless the view reads it as another format:
+    // an adopted depth image may have a format `Format` has no name for.
+    const VkImageAspectFlags aspect = found.view.format == found.record->info.format
+                                          ? found.record->aspect
+                                          : vulkan::view_aspect(found.view.format);
+    return {aspect, mip, found.view.base_layer, found.view.layer_count};
 }
 
 bool is_depth(Format format) {
@@ -110,9 +114,12 @@ Result<TextureCopy> texture_copy(Device::Impl& device, const TextureView& src,
         from->view.layer_count != to->view.layer_count) {
         return make_error("the views have different mips or layers");
     }
-    const uint32_t texel = texel_size(from->view.format);
-    if (texel == 0 || texel != texel_size(to->view.format)) {
-        return make_error("the formats' texels differ in size");
+    // Views of one format copy whatever it is; of two, only texel for texel.
+    if (from->view.format != to->view.format) {
+        const uint32_t texel = texel_size(from->view.format);
+        if (texel == 0 || texel != texel_size(to->view.format)) {
+            return make_error("the formats' texels differ in size");
+        }
     }
 
     TextureCopy copy{from->record->image, to->record->image, {}};
