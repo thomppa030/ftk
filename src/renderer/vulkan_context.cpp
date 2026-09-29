@@ -135,7 +135,7 @@ VulkanContext::VulkanContext(Window& window)
 
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
-    debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
+    debug_draw_ = std::make_unique<DebugDraw>(gpu_device(), gpu_.allocator());
 
     // The engine's own font is the one every UI falls back to.
     font_library_ = std::make_unique<FontLibrary>();

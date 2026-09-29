@@ -1,4 +1,5 @@
 #include "renderer/debug_draw.hpp"
+#include "gpu/render_encoder.hpp"
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/model.hpp"
@@ -21,8 +22,8 @@
 
 namespace fjell {
 
-DebugDraw::DebugDraw(VkDevice device, VmaAllocator allocator)
-    : device_{device}, allocator_{allocator} {}
+DebugDraw::DebugDraw(gpu::Device& gpu, VmaAllocator allocator)
+    : gpu_{gpu}, allocator_{allocator} {}
 
 // ── Geometry helpers ────────────────────────────────────────────────────
 
@@ -432,29 +433,21 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         buf->map();
+        buf->share(gpu_);
     }
     buf->write(vertices_.data(), required);
 }
 
 // ── Draw ────────────────────────────────────────────────────────────────
 
-void DebugDraw::draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const {
+void DebugDraw::draw(gpu::RenderEncoder& pass, uint32_t frame_index) const {
     const auto& buf = vertex_buffers_[frame_index];
     if (!buf || draw_commands_.empty()) return;
 
-    VkBuffer vb = buf->handle();
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-
+    pass.set_vertex_buffer(gpu::BufferRange(buf->shared()));
     for (const auto& dc : draw_commands_) {
-        DebugPushConstants push{};
-        push.model = dc.model;
-        push.color = dc.color;
-
-        vkCmdPushConstants(cmd, layout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(DebugPushConstants), &push);
-        vkCmdDraw(cmd, dc.vertex_count, 1, dc.first_vertex, 0);
+        pass.push(DebugPushConstants{.model = dc.model, .color = dc.color});
+        pass.draw(dc.vertex_count, 1, dc.first_vertex, 0);
     }
 }
 

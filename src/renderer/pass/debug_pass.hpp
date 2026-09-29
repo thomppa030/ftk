@@ -1,9 +1,9 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/output_overlay.hpp"
 #include "renderer/pass/render_pass.hpp"
-
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -17,13 +17,8 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
 
-    [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
-
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
     OutputOverlay overlay_;
 };
 

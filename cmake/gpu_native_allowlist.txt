@@ -59,8 +59,6 @@ src/renderer/pass/bloom_pass.cpp
 src/renderer/pass/bloom_pass.hpp
 src/renderer/pass/ddgi_pass.cpp
 src/renderer/pass/ddgi_pass.hpp
-src/renderer/pass/debug_pass.cpp
-src/renderer/pass/debug_pass.hpp
 src/renderer/pass/depth_pipeline.hpp
 src/renderer/pass/depth_prepass.cpp
 src/renderer/pass/depth_prepass.hpp
@@ -86,8 +84,6 @@ src/renderer/pass/normal_pass.cpp
 src/renderer/pass/normal_pass.hpp
 src/renderer/pass/opaque_pass.cpp
 src/renderer/pass/opaque_pass.hpp
-src/renderer/pass/output_overlay.cpp
-src/renderer/pass/output_overlay.hpp
 src/renderer/pass/overdraw_pass.cpp
 src/renderer/pass/overdraw_pass.hpp
 src/renderer/pass/pass_gpu_zone.hpp

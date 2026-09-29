@@ -15,6 +15,11 @@
 
 namespace fjell {
 
+namespace gpu {
+class Device;
+class RenderEncoder;
+} // namespace gpu
+
 class Buffer;
 class DebugDrawQueue;
 class Scene;
@@ -22,7 +27,7 @@ struct CameraNode;
 
 class DebugDraw {
 public:
-    DebugDraw(VkDevice device, VmaAllocator allocator);
+    DebugDraw(gpu::Device& gpu, VmaAllocator allocator);
 
     /// Record debug primitives and upload them into the current frame's
     /// vertex buffer. `frame_index` is the slot in [0, MAX_FRAMES_IN_FLIGHT)
@@ -55,8 +60,9 @@ public:
     void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight,
                                     const CollisionMesh& geometry = {});
 
-    /// Draw with the buffer populated by the matching `update()` call.
-    void draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const;
+    /// Draw with the buffer populated by the matching `update()` call, through
+    /// the debug pass's pipeline set on `pass`.
+    void draw(gpu::RenderEncoder& pass, uint32_t frame_index) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }
 
@@ -91,7 +97,7 @@ private:
     void add_circle(const glm::vec3& center, const glm::vec3& axis_a,
                     const glm::vec3& axis_b, float radius, uint32_t segments);
 
-    VkDevice device_;
+    gpu::Device& gpu_;
     VmaAllocator allocator_;
 
     // Shapes submitted this frame, each with its own colour.
