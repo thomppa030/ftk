@@ -63,7 +63,6 @@ Result<> SsrCore::create(Device& /*device*/, const PassResources& resources) {
                                }));
     FJELL_TRY(composite_pipeline_, device_->create(gpu::ComputePipelineDesc{
                                        .shader = "shaders/ssr_composite.comp",
-                                       .shared = {resources.globals},
                                        .name = "ssr_composite",
                                    }));
     FJELL_GFX_DEBUG("SSR pass created");
@@ -262,7 +261,6 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     const auto extent = ctx.target->extent();
     const gpu::Sampler nearest = core_->nearest_sampler();
     cmd.set_pipeline(core_->composite_pipeline());
-    cmd.bind(ctx.globals);
     cmd.bind({{"ssr_texture", gpu::sampled(ssr, nearest)},
               {"scene_color", gpu::storage(ctx.target->color_texture())},
               {"mr_texture", gpu::sampled(mr, nearest)},
