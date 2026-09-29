@@ -18,3 +18,16 @@ struct [[nodiscard]] Result : std::expected<T, std::string> {
 }
 
 } // namespace fjell
+
+/// Moves the value of `expr`, a `Result`, into `target`, or returns its error
+/// from the function it is in, which returns a `Result` too.
+///
+/// @code
+/// FJELL_TRY(pipeline_, device.create(gpu::ComputePipelineDesc{...}));
+/// @endcode
+#define FJELL_TRY(target, expr)                                                   \
+    do {                                                                          \
+        auto fjell_try_result = (expr);                                           \
+        if (!fjell_try_result) return std::unexpected(std::move(fjell_try_result).error()); \
+        (target) = std::move(*fjell_try_result);                                  \
+    } while (false)
