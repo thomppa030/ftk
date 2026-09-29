@@ -105,6 +105,9 @@ struct FrameContext {
     VkImage bound_gi_indirect{VK_NULL_HANDLE};
     VkImage bound_ss_gi_emissive{VK_NULL_HANDLE};
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
+    /// That set as the GPU interface binds it, for pipelines that name the
+    /// shared bindless layout.
+    gpu::BindGroup bindless{};
     VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
     /// That set as the GPU interface binds it, for pipelines that name the
     /// shared draw data layout.

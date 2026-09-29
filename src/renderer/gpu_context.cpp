@@ -374,16 +374,23 @@ void GpuContext::create_descriptor_resources() {
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
 
-gpu::BindGroup GpuContext::global_group(VkDescriptorSet set) {
-    auto& group = global_groups_[set];
-    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), shared_layouts_.globals, set);
+gpu::BindGroup GpuContext::adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout,
+                                         VkDescriptorSet set) {
+    auto& group = groups[set];
+    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), layout, set);
     return group;
 }
 
+gpu::BindGroup GpuContext::global_group(VkDescriptorSet set) {
+    return adopted_group(global_groups_, shared_layouts_.globals, set);
+}
+
 gpu::BindGroup GpuContext::draw_data_group(VkDescriptorSet set) {
-    auto& group = draw_data_groups_[set];
-    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), shared_layouts_.draw_data, set);
-    return group;
+    return adopted_group(draw_data_groups_, shared_layouts_.draw_data, set);
+}
+
+gpu::BindGroup GpuContext::bindless_group(VkDescriptorSet set) {
+    return adopted_group(bindless_groups_, shared_layouts_.bindless, set);
 }
 
 void GpuContext::finalize_descriptors() {

@@ -279,8 +279,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         }
         // The post pass's output, what the viewport shows: written as a colour
         // attachment, and resting where ImGui samples it after the graph.
-        if (auto* output = pp_resources->post();
-            output != nullptr && output->image != VK_NULL_HANDLE) {
+        if (auto* output = pp_resources->post(); output != nullptr && output->texture) {
             ImportedImage img{};
             img.view = output->texture;
             img.resting = gpu::Access::sampled_fragment;

@@ -173,6 +173,9 @@ public:
     /// the first time it is asked for.
     [[nodiscard]] gpu::BindGroup draw_data_group(VkDescriptorSet set);
 
+    /// The bindless set as the GPU interface binds it, the same way.
+    [[nodiscard]] gpu::BindGroup bindless_group(VkDescriptorSet set);
+
     /// Hands the GPU interface the draw data layout, which the scene gatherer
     /// owns and makes after this context.
     void share_draw_data_layout(VkDescriptorSetLayout layout,
@@ -207,8 +210,13 @@ private:
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;
     SharedLayouts shared_layouts_;
-    std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>> global_groups_;
-    std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>> draw_data_groups_;
+    /// Sets made before the interface, handed to the device as groups of a
+    /// shared layout the first time a pass binds them.
+    using AdoptedGroups = std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>>;
+    gpu::BindGroup adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout, VkDescriptorSet set);
+    AdoptedGroups global_groups_;
+    AdoptedGroups draw_data_groups_;
+    AdoptedGroups bindless_groups_;
 
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;

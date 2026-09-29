@@ -388,6 +388,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
         ? view.global_set : gpu_.global_descriptor_set(current_frame_);
     ctx.globals = gpu_.global_group(ctx.global_descriptor_set);
     ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
+    ctx.bindless = gpu_.bindless_group(ctx.bindless_set);
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.draw_data = gpu_.draw_data_group(ctx.draw_data_set);
     ctx.debug_draw = debug_draw_.get();
@@ -639,7 +640,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 gpu::vulkan::native_sampler(gpu_device(), gtao_pass().ao_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "screen_color",
-                req.target->screen_color_view(), post_pass().output_sampler(),
+                req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "gi_indirect",
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
@@ -657,7 +658,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
             gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
             gb.write_image(current_frame_, "screen_color",
-                req.target->screen_color_view(), post_pass().output_sampler(),
+                req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image(current_frame_, "gi_indirect",
                 gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
@@ -1567,7 +1568,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
 
         gb.write_image(current_frame_, "screen_color",
-            viewports[0].target->screen_color_view(), post_pass().output_sampler(),
+            viewports[0].target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // GI indirect: DDGI handles sun bounce indirect.
@@ -1677,9 +1678,9 @@ void VulkanContext::apply_pending_ddgi_toggle() {
     // Get current viewport size
     uint32_t w = 256, h = 256;
     auto* tm = default_pp_->post();
-    if (tm && tm->extent.width > 0) {
-        w = tm->extent.width;
-        h = tm->extent.height;
+    if (tm && tm->extent.x > 0) {
+        w = tm->extent.x;
+        h = tm->extent.y;
     }
 
     // Resize triggers create/destroy of DDGI images based on updated config
@@ -1699,9 +1700,9 @@ void VulkanContext::rebuild_ddgi_resources() {
 
     uint32_t w = 256, h = 256;
     auto* tm = default_pp_->post();
-    if (tm && tm->extent.width > 0) {
-        w = tm->extent.width;
-        h = tm->extent.height;
+    if (tm && tm->extent.x > 0) {
+        w = tm->extent.x;
+        h = tm->extent.y;
     }
     default_pp_->resize(w, h);
 

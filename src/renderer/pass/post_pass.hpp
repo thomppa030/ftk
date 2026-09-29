@@ -2,17 +2,16 @@
 
 #include "core/named_value.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/post_layers.hpp"
-#include "renderer/renderer_constants.hpp"
 
-#include <vk_mem_alloc.h>
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
-#include <array>
 #include <functional>
-#include <memory>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -21,7 +20,6 @@
 namespace fjell {
 
 class BindlessTextures;
-class Buffer;
 class PipelineCache;
 
 // The post pass: what the viewport shows, drawn from the scene colour after
@@ -36,9 +34,9 @@ class PipelineCache;
 //
 // A shader's values are per viewport, because each viewport's camera may sit
 // somewhere different, and one frame renders several. So the pass does not
-// write a material row's params: it writes each layer's values into a buffer
-// of its own per frame in flight, one slice per draw, and pushes where the
-// slice starts. The material row supplies the textures.
+// write a material row's params: it writes each layer's values into the
+// frame's transient memory, one slice per draw, and pushes where the slice
+// starts. The material row supplies the textures.
 class PostPass : public RenderPass {
 public:
     /// The format of what the viewport shows, which the editor overlays draw
@@ -58,27 +56,23 @@ public:
     [[nodiscard]] bool ungraded() const { return ungraded_; }
 
 
-    // Per-viewport output image. Input descriptor sets are not owned per
-    // viewport: record_into() acquires them from FrameContext::descriptor_cache
-    // against the current source views.
+    // Per-viewport output image.
     struct Images {
-        VkImage image{VK_NULL_HANDLE};
-        VmaAllocation memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        /// The output as the GPU interface's texture.
+        /// What the viewport shows, in OUTPUT_FORMAT.
         gpu::Owned<gpu::Texture> texture;
-        VkExtent2D extent{};
+        glm::uvec2 extent{0, 0};
+        gpu::Device* device{nullptr};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         /// Whether the pass has drawn into the image since it was made.
         bool written{false};
 
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     uint32_t width, uint32_t height);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     uint32_t width, uint32_t height);
+        void create(gpu::Device& gpu, uint32_t width, uint32_t height);
+        /// Releases the output; the frames still reading it keep it until
+        /// they are done.
+        void destroy();
+        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
 
-        [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
+        [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
         void invalidate_imgui_texture();
     };
 
@@ -101,15 +95,15 @@ public:
     void set_exposure_range(float min_ev, float max_ev) { min_ev_ = min_ev; max_ev_ = max_ev; }
 
     /// The sampler the viewport images are shown with.
-    [[nodiscard]] VkSampler output_sampler() const { return sampler_; }
+    [[nodiscard]] gpu::Sampler output_sampler() const { return linear_sampler_; }
 
 private:
     /// A post shader's two pipelines. The first layer covers the image
     /// and draws opaque, as the one draw of the common case should; every
     /// layer after it blends over what is there by the weight it writes.
     struct MaterialPipeline {
-        VkPipeline base{VK_NULL_HANDLE};
-        VkPipeline over{VK_NULL_HANDLE};
+        gpu::Owned<gpu::GraphicsPipeline> base;
+        gpu::Owned<gpu::GraphicsPipeline> over;
         uint32_t generation{0};
     };
     /// The engine default, registered once and given a material row for its
@@ -137,38 +131,33 @@ private:
     /// What a volume draws with: its material, or the engine default when it
     /// has none or its shader has no pipeline to draw with.
     [[nodiscard]] PostLook look_for(const PostVolume& volume) const;
-    /// Resolve a layer's values and write them into this frame's buffer.
-    /// Returns where they start, in floats.
-    uint32_t write_values(uint32_t frame_index, const PostLayer& layer);
+    /// A layer's values resolved against its shader's uniform block.
+    [[nodiscard]] std::vector<float> layer_values(const PostLayer& layer) const;
 
-    /// What the template's set 2 samples. `bloom` is null when this
+    /// What the template's set 2 samples. `bloom` is unset when this
     /// viewport's graph builds no bloom.
     struct Inputs {
-        VkImageView color{VK_NULL_HANDLE};
-        VkImageView bloom{VK_NULL_HANDLE};
-        VkImageView depth{VK_NULL_HANDLE};
-        VkImageView normal{VK_NULL_HANDLE};
-        VkImageView velocity{VK_NULL_HANDLE};
+        gpu::Texture color{};
+        gpu::Texture bloom{};
+        gpu::Texture depth{};
+        gpu::Texture normal{};
+        gpu::Texture velocity{};
     };
     void record_into(const FrameContext& ctx, Images& imgs, const Inputs& inputs, float exposure,
                      std::span<const PostLayer> layers);
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    /// The engine's globals and bindless table, sets 0 and 1 of the template.
+    gpu::SharedLayout globals_{};
+    gpu::SharedLayout bindless_layout_{};
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
 
-    // Resolution-independent (shared across all Images)
-    VkSampler sampler_{VK_NULL_HANDLE};
-    VkSampler input_sampler_{VK_NULL_HANDLE};
-    VkSampler nearest_sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout input_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
+    // The colours filter; the depth, the encoded normal and the motion are
+    // read texel by texel.
+    gpu::Sampler linear_sampler_;
+    gpu::Sampler nearest_sampler_;
 
     std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
     /// Entries already reported as unusable, so a broken shader is said once
@@ -177,12 +166,6 @@ private:
     Fallback default_;
     TextureFallbacks texture_fallbacks_;
     bool ungraded_{false};
-
-    /// This frame's layer values: host-written, read by the fragment
-    /// shader at the pushed base. Reset in prepare_frame(), once the frame
-    /// that last used the slot has finished.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> value_buffers_;
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> values_used_{};
 
     float exposure_{0.0f};
     float luminance_{0.0f};

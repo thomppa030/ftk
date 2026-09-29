@@ -1,5 +1,6 @@
 #include "renderer/scene_viewport.hpp"
 #include "renderer/bindless.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "core/log.hpp"
 
@@ -45,8 +46,8 @@ void SceneViewport::resize(uint32_t width, uint32_t height) {
 VkImageView SceneViewport::output_view() const {
     if (!config_.expose_hdr && config_.pp_config.post) {
         auto* output = pp_->post();
-        if (output && output->view != VK_NULL_HANDLE) {
-            return output->view;
+        if (output && output->texture) {
+            return gpu::vulkan::native_view(*output->device, output->texture);
         }
     }
     return offscreen_->color_view();
