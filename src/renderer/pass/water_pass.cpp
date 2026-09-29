@@ -203,22 +203,26 @@ void WaterPass::ensure_fallback_material() {
 
     // A material row seeded with the shader's own defaults, as TerrainPass
     // does for a terrain with no .fjmat behind it.
-    GpuMaterial gpu{};
-    if (meta.custom_param_count > 0) {
-        gpu.param_offset = bindless_->allocate_params(meta.custom_param_count);
-        gpu.param_count = meta.custom_param_count;
-        std::vector<float> seed(meta.custom_param_count, 0.0F);
-        for (const auto& u : meta.uniforms) {
-            if (u.type == UniformType::Sampler2D) continue;
-            const uint32_t count = uniform_float_count(u.type);
-            for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
-                seed[u.slot + i] = u.default_value[i];
+    // Made once: nothing hands a row back, so a row per attempt would
+    // fill the table while the pipeline cannot be built.
+    if (fallback_material_id_ == NO_ROW) {
+        GpuMaterial gpu{};
+        if (meta.custom_param_count > 0) {
+            gpu.param_offset = bindless_->allocate_params(meta.custom_param_count);
+            gpu.param_count = meta.custom_param_count;
+            std::vector<float> seed(meta.custom_param_count, 0.0F);
+            for (const auto& u : meta.uniforms) {
+                if (u.type == UniformType::Sampler2D) continue;
+                const uint32_t count = uniform_float_count(u.type);
+                for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+                    seed[u.slot + i] = u.default_value[i];
+                }
+                encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
             }
-            encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
+            bindless_->write_params(gpu.param_offset, seed.data(), meta.custom_param_count);
         }
-        bindless_->write_params(gpu.param_offset, seed.data(), meta.custom_param_count);
+        fallback_material_id_ = bindless_->add_material(gpu);
     }
-    fallback_material_id_ = bindless_->add_material(gpu);
     fallback_pipeline_id_ = pid;
     fallback_ready_ = ensure_material_pipeline(pid).valid();
 }

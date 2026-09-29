@@ -288,7 +288,9 @@ private:
     /// Entries already reported as unusable, so the log says it once.
     std::unordered_set<uint32_t> reported_entries_;
     uint32_t fallback_pipeline_id_{0};
-    uint32_t fallback_material_id_{0};
+    /// The fallback's material row, made once; `NO_ROW` until then.
+    static constexpr uint32_t NO_ROW = ~0u;
+    uint32_t fallback_material_id_{NO_ROW};
     bool fallback_ready_{false};
 };
 
