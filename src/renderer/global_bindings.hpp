@@ -120,6 +120,11 @@ public:
     /// through the GPU interface.
     void set(const std::string& name, const gpu::BindResource& resource);
 
+    /// `set()` for one frame slot's set only: for a binding that changes
+    /// every frame, written for the slot about to record, whose last frame
+    /// the GPU has finished.
+    void set(uint32_t frame_index, const std::string& name, const gpu::BindResource& resource);
+
     // ── Cleanup ────────────────────────────────────────────────────────
 
     void destroy();
