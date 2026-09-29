@@ -250,6 +250,10 @@ void RenderEncoder::push_bytes(std::span<const std::byte> bytes) {
     if (open_) vulkan::push(*device_, list_->impl(), bytes);
 }
 
+BufferRange RenderEncoder::transient_bytes(std::span<const std::byte> bytes) {
+    return list_->transient(bytes);
+}
+
 void RenderEncoder::set_viewport(const Viewport& viewport) {
     if (!open_) return;
     const VkViewport native{viewport.x,     viewport.y,         viewport.width,
