@@ -419,7 +419,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = view.skip_shadows;
-    ctx.flip_output_y = view.flip_output_y;
     ctx.backdrop = view.backdrop;
     ctx.show_grid = view.show_grid;
 
@@ -761,7 +760,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         // right way up, whatever a request says.
         ViewportRenderRequest view = vp;
         view.global_set = VK_NULL_HANDLE;
-        view.flip_output_y = false;
         render_scene_to(cmd, view, scene, dt, selected_id, pool, pp);
     }
 

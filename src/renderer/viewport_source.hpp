@@ -63,7 +63,6 @@ struct ViewportRenderRequest {
     glm::vec3 camera_position{0.0f};
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
-    bool flip_output_y{false};  // flip the output for render-to-texture
 
     /// Private global descriptor set for this offscreen viewport. When set,
     /// render_preview copies the per-frame global bindings into it and

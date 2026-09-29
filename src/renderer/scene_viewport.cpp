@@ -69,7 +69,6 @@ ViewportRenderRequest SceneViewport::build_request() const {
     req.camera_position = view_.camera_position;
     req.pp_resources = pp_.get();
     req.skip_shadows = config_.skip_shadows;
-    req.flip_output_y = true;
     req.viewport_graph = config_.viewport_graph;
     return req;
 }
