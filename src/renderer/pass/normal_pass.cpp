@@ -27,8 +27,7 @@ Result<> NormalPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
 
-    viz_image_.init(device.handle(), resources.allocator, NORMAL_FORMAT);
-    viz_image_.create(64, 64);
+    viz_image_.init(*resources.device, gpu::Format::rgba16_float, "viz_normals");
 
     auto vert_code = read_spirv(base_path::resolve("shaders/normal_viz.vert.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/normal_viz.frag.spv"));

@@ -24,8 +24,7 @@ Result<> WireframePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
 
-    viz_image_.init(device.handle(), resources.allocator, VK_FORMAT_R8G8B8A8_SRGB);
-    viz_image_.create(64, 64);
+    viz_image_.init(*resources.device, gpu::Format::rgba8_srgb, "viz_wireframe");
 
     // Shaders: reuse depth_push.vert (transforms position via UBO), wireframe.frag (solid color)
     auto vert_code = read_spirv(base_path::resolve("shaders/depth_push.vert.spv"));

@@ -1,8 +1,11 @@
 #include "renderer/viz_image.hpp"
-#include "renderer/gpu/vma_image.hpp"
-#include <imgui_impl_vulkan.h>
 
-#include <stdexcept>
+#include "core/log.hpp"
+#include "gpu/device.hpp"
+#include "gpu/vulkan/native.hpp"
+#include "renderer/pass_builder.hpp"
+
+#include <imgui_impl_vulkan.h>
 
 namespace fjell {
 
@@ -10,77 +13,76 @@ VizImage::~VizImage() {
     cleanup();
 }
 
-void VizImage::init(VkDevice device, VmaAllocator allocator,
-                    VkFormat format) {
-    device_ = device;
-    allocator_ = allocator;
+void VizImage::init(gpu::Device& device, gpu::Format format, std::string name) {
+    device_ = &device;
     format_ = format;
-
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    vkCreateSampler(device_, &sampler_ci, nullptr, &sampler_);
+    name_ = std::move(name);
+    sampler_ = device.sampler({.filter = gpu::Filter::linear,
+                               .mip_filter = gpu::Filter::nearest,
+                               .address = gpu::Address::clamp});
+    create(64, 64);
 }
 
 void VizImage::cleanup() {
     invalidate_imgui_texture();
-    destroy_image();
-    if (sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, sampler_, nullptr);
-        sampler_ = VK_NULL_HANDLE;
-    }
+    texture_.reset();
+    extent_ = {0, 0};
 }
 
 void VizImage::create(uint32_t width, uint32_t height) {
+    auto made = device_->create(gpu::TextureDesc{
+        .format = format_,
+        .width = width,
+        .height = height,
+        .use = gpu::TextureUse::color_target | gpu::TextureUse::sampled,
+        .name = name_,
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("{}", made.error());
+        return;
+    }
+    texture_ = std::move(*made);
     extent_ = {width, height};
-
-    VkImageCreateInfo image_ci{};
-    image_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_ci.imageType = VK_IMAGE_TYPE_2D;
-    image_ci.format = format_;
-    image_ci.extent = {width, height, 1};
-    image_ci.mipLevels = 1;
-    image_ci.arrayLayers = 1;
-    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    create_vma_image(allocator_, &image_ci, &image_, &allocation_);
-
-    VkImageViewCreateInfo view_ci{};
-    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image = image_;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = format_;
-    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCreateImageView(device_, &view_ci, nullptr, &view_);
-}
-
-void VizImage::destroy_image() {
-    if (view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, view_, nullptr); view_ = VK_NULL_HANDLE; }
-    destroy_vma_image(allocator_, image_, allocation_);
-    image_ = VK_NULL_HANDLE;
-    allocation_ = VK_NULL_HANDLE;
+    has_rendered_ = false;
 }
 
 void VizImage::resize(uint32_t width, uint32_t height) {
-    if (extent_.width == width && extent_.height == height) return;
-    vkDeviceWaitIdle(device_);
-
-    invalidate_imgui_texture();
-    destroy_image();
+    if (device_ == nullptr || (texture_ && extent_.x == width && extent_.y == height)) return;
+    // The editor's view of the old image may still be in a frame's draw
+    // data; it goes when that frame is done.
+    if (imgui_descriptor_ != VK_NULL_HANDLE) {
+        gpu::vulkan::defer(*device_, [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
+        imgui_descriptor_ = VK_NULL_HANDLE;
+    }
     create(width, height);
-    has_rendered_ = false;
+}
+
+void VizImage::collect_exports(DeclareContext& ctx) const {
+    if (!texture_) return;
+    ctx.export_texture(name_, texture_,
+                       {.resting = gpu::Access::sampled_fragment, .unwritten = !has_rendered_});
+}
+
+bool VizImage::declare(PassBuilder& builder, const DeclareContext& ctx) const {
+    auto image = builder.import_named_optional(ctx, name_);
+    if (!image.valid()) return false;
+    builder.write(image, gpu::Access::color_attachment);
+    // ImGui reads the image after the graph, so nothing in it reads what the
+    // pass writes, and the cull walk would drop the pass.
+    builder.has_side_effects();
+    return true;
+}
+
+gpu::RenderTargets VizImage::targets(const gpu::Clear& clear) const {
+    return {.color = {{.view = texture_, .load = gpu::Load::clear, .clear = clear}}};
 }
 
 VkDescriptorSet VizImage::imgui_texture() {
     if (!has_rendered_) return VK_NULL_HANDLE;
-    if (imgui_descriptor_ == VK_NULL_HANDLE && view_ != VK_NULL_HANDLE) {
+    if (imgui_descriptor_ == VK_NULL_HANDLE && texture_) {
         imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            sampler_, view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gpu::vulkan::native_sampler(*device_, sampler_), gpu::vulkan::native_view(*device_, texture_),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return imgui_descriptor_;
 }
@@ -90,6 +92,18 @@ void VizImage::invalidate_imgui_texture() {
         ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
         imgui_descriptor_ = VK_NULL_HANDLE;
     }
+}
+
+VkImageView VizImage::view() const {
+    return texture_ ? gpu::vulkan::native_view(*device_, texture_) : VK_NULL_HANDLE;
+}
+
+VkImage VizImage::image() const {
+    return texture_ ? gpu::vulkan::native_image(*device_, texture_) : VK_NULL_HANDLE;
+}
+
+VkSampler VizImage::sampler() const {
+    return gpu::vulkan::native_sampler(*device_, sampler_);
 }
 
 } // namespace fjell
