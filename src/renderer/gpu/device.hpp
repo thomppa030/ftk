@@ -119,6 +119,9 @@ public:
     }
 
     // Ray tracing
+    /// True when acceleration structures, ray tracing pipelines and ray
+    /// queries are all enabled on this device; false leaves every ray traced
+    /// pass off and DDGI on its SDF trace.
     [[nodiscard]] bool ray_tracing_supported() const { return ray_tracing_supported_; }
     [[nodiscard]] PFN_vkCreateRayTracingPipelinesKHR create_rt_pipelines_fn() const { return pfn_create_rt_pipelines_; }
     [[nodiscard]] PFN_vkCmdTraceRaysKHR cmd_trace_rays_fn() const { return pfn_cmd_trace_rays_; }

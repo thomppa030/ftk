@@ -416,23 +416,20 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
     // unconditionally whenever scene instances were written, and cover the AS
     // build as a destination stage.
     if (!instances.empty()) {
-        // Split in two: AS-read access may only pair with shader stages when the
-        // rayQuery feature is enabled (VUID-VkMemoryBarrier2-dstAccessMask-06256).
-        std::array<VkMemoryBarrier2, 2> host_bars{};
-        host_bars[0].sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        host_bars[0].srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        host_bars[0].srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
-        host_bars[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT
-                                  | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        host_bars[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT
-                                   | VK_ACCESS_2_SHADER_READ_BIT;
-        host_bars[1] = host_bars[0];
-        host_bars[1].dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        host_bars[1].dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+        VkMemoryBarrier2 host_bar{};
+        host_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        host_bar.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        host_bar.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+        host_bar.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT
+                              | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                              | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        host_bar.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT
+                               | VK_ACCESS_2_SHADER_READ_BIT
+                               | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
         VkDependencyInfo host_dep{};
         host_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        host_dep.memoryBarrierCount = static_cast<uint32_t>(host_bars.size());
-        host_dep.pMemoryBarriers = host_bars.data();
+        host_dep.memoryBarrierCount = 1;
+        host_dep.pMemoryBarriers = &host_bar;
         vkCmdPipelineBarrier2(cmd, &host_dep);
     }
 
@@ -556,14 +553,16 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
             vkCmdDispatch(cmd, (pe.max_particles + 63) / 64, 1, 1);
         }
 
-        // Barrier: compute write → AS build read (instances) AND RT-shader read
-        // (rt_instance_data, read in the closest-hit shaders by gl_InstanceID).
+        // Barrier: compute write → AS build read (instances) AND the tracers'
+        // read of rt_instance_data at a hit, by instance index. A tracer is a
+        // ray tracing pipeline or a compute shader with ray queries.
         VkMemoryBarrier2 comp_bar{};
         comp_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         comp_bar.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         comp_bar.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         comp_bar.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
-                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                              | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
+                              | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         comp_bar.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
                                | VK_ACCESS_2_SHADER_READ_BIT;
         VkDependencyInfo comp_dep{};
@@ -649,12 +648,14 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
 
     device_.cmd_build_accel_structs_fn()(cmd, 1, &build_info, &range_ptr);
 
-    // Barrier: TLAS build → ray tracing read
+    // Barrier: TLAS build → traversal, by a ray tracing pipeline or by ray
+    // queries from compute
     VkMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
     barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
+                         | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
     VkDependencyInfo dep{};
