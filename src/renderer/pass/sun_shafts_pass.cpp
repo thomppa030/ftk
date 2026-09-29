@@ -1,28 +1,16 @@
 #include "renderer/pass/sun_shafts_pass.hpp"
-#include "gpu/vulkan/native.hpp"
+
+#include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/vma_image.hpp"
-#include "renderer/gpu/vk_check.hpp"
-#include "renderer/offscreen_pass.hpp"
-#include "gpu/vulkan/frame_descriptor_cache.hpp"
-#include "renderer/pass_builder.hpp"
-#include "renderer/pass_registry.hpp"
-#include "renderer/resource_registry.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "environment/material_track.hpp"
+#include "gpu/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
-#include "scene/scene.hpp"
-#include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
 
 #include <algorithm>
-#include <array>
-#include <span>
-#include <stdexcept>
-#include <vector>
 
 namespace fjell {
 
@@ -59,73 +47,6 @@ struct ShaftsCompositePush {
 
 namespace {
 
-VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
-                                   const std::string& shader_path,
-                                   VkPipelineCache pipeline_cache) {
-    auto code = read_spirv(base_path::resolve(shader_path));
-    auto* module = create_shader_module(device, code);
-
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = module;
-    stage.pName = "main";
-
-    VkComputePipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    ci.stage = stage;
-    ci.layout = layout;
-
-    VkPipeline pipeline{VK_NULL_HANDLE};
-    if (vkCreateComputePipelines(device, pipeline_cache, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(device, module, nullptr);
-        throw std::runtime_error("Failed to create sun shafts compute pipeline");
-    }
-    vkDestroyShaderModule(device, module, nullptr);
-    return pipeline;
-}
-
-VkPipelineLayout create_pipeline_layout(VkDevice device,
-                                        const VkDescriptorSetLayout* set_layouts,
-                                        uint32_t set_count, uint32_t push_size) {
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
-    push_range.size = push_size;
-
-    VkPipelineLayoutCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    ci.setLayoutCount = set_count;
-    ci.pSetLayouts = set_layouts;
-    ci.pushConstantRangeCount = 1;
-    ci.pPushConstantRanges = &push_range;
-
-    VkPipelineLayout layout{VK_NULL_HANDLE};
-    if (vkCreatePipelineLayout(device, &ci, nullptr, &layout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sun shafts pipeline layout");
-    }
-    return layout;
-}
-
-VkDescriptorSetLayout create_set_layout(VkDevice device,
-                                        std::span<const VkDescriptorType> types,
-                                        const char* what) {
-    std::vector<VkDescriptorSetLayoutBinding> bindings(types.size());
-    for (uint32_t i = 0; i < bindings.size(); ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = types[i];
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    ci.bindingCount = static_cast<uint32_t>(bindings.size());
-    ci.pBindings = bindings.data();
-    VkDescriptorSetLayout layout{VK_NULL_HANDLE};
-    vk_check(vkCreateDescriptorSetLayout(device, &ci, nullptr, &layout), what);
-    return layout;
-}
-
 /// The march's output. Declared by the march that writes it and by the resolve
 /// that reads it, and the two descriptions have to be the same one.
 TextureDesc raw_desc() {
@@ -136,186 +57,90 @@ TextureDesc raw_desc() {
     return desc;
 }
 
-FrameCacheBinding sampled(uint32_t binding, VkSampler sampler, VkImageView view,
-                          VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-    FrameCacheBinding b{};
-    b.binding = binding;
-    b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    b.image.sampler = sampler;
-    b.image.imageView = view;
-    b.image.imageLayout = layout;
-    return b;
+void dispatch(gpu::CommandList& cmd, glm::uvec2 extent) {
+    cmd.dispatch((extent.x + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE,
+                 (extent.y + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE, 1);
 }
 
-FrameCacheBinding storage(uint32_t binding, VkImageView view) {
-    FrameCacheBinding b{};
-    b.binding = binding;
-    b.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    b.image.imageView = view;
-    b.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    return b;
-}
-
-void dispatch(VkCommandBuffer cmd, VkExtent2D extent) {
-    vkCmdDispatch(cmd,
-                  (extent.width + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE,
-                  (extent.height + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE, 1);
+glm::uvec2 size_of(const OffscreenPass& target) {
+    const auto extent = target.extent();
+    return {extent.width, extent.height};
 }
 
 } // namespace
 
-// ── Image helpers ──────────────────────────────────────────────────────────
-
-SunShaftsPass::Image SunShaftsPass::create_image(gpu::Device& gpu, VkDevice device,
-                                                 VmaAllocator allocator, uint32_t w, uint32_t h) {
-    Image img{};
-
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = SHAFTS_FORMAT;
-    ci.extent = {w, h, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (create_vma_image(allocator, &ci, &img.image, &img.memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sun shafts image");
-    }
-
-    VkImageViewCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    vi.image = img.image;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = SHAFTS_FORMAT;
-    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device, &vi, nullptr, &img.view) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sun shafts image view");
-    }
-    img.texture = gpu::vulkan::adopt(gpu, img.image, img.view, ci);
-
-    return img;
-}
-
-void SunShaftsPass::destroy_image(VkDevice device, VmaAllocator allocator, Image& img) {
-    if (img.view != VK_NULL_HANDLE) {
-        vkDestroyImageView(device, img.view, nullptr);
-    }
-    destroy_vma_image(allocator, img.image, img.memory);
-    img = {};
-}
-
 // ── Images ─────────────────────────────────────────────────────────────────
 
-void SunShaftsPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                                   uint32_t screen_w, uint32_t screen_h) {
-    uint32_t w = std::max(1u, screen_w / RESOLUTION_DIVISOR);
-    uint32_t h = std::max(1u, screen_h / RESOLUTION_DIVISOR);
+void SunShaftsPass::Images::create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+    const uint32_t w = std::max(1U, screen_w / RESOLUTION_DIVISOR);
+    const uint32_t h = std::max(1U, screen_h / RESOLUTION_DIVISOR);
 
     extent = {w, h};
     ping_pong = 0;
     frame_counter = 0;
     history_valid = false;
 
-    shafts[0] = create_image(gpu, device, allocator, w, h);
-    shafts[1] = create_image(gpu, device, allocator, w, h);
+    for (auto& image : shafts) {
+        auto made = gpu.create(gpu::TextureDesc{
+            .format = SHAFTS_FORMAT,
+            .width = w,
+            .height = h,
+            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+            .name = "sun_shafts",
+        });
+        if (!made) {
+            FJELL_GFX_ERROR("{}", made.error());
+            destroy();
+            return;
+        }
+        image = std::move(*made);
+    }
 }
 
-void SunShaftsPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
-    destroy_image(device, allocator, shafts[0]);
-    destroy_image(device, allocator, shafts[1]);
-    extent = {};
+void SunShaftsPass::Images::destroy() {
+    for (auto& image : shafts) image.reset();
+    extent = {0, 0};
     history_valid = false;
 }
 
-void SunShaftsPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                                   uint32_t screen_w, uint32_t screen_h) {
-    uint32_t w = std::max(1u, screen_w / RESOLUTION_DIVISOR);
-    uint32_t h = std::max(1u, screen_h / RESOLUTION_DIVISOR);
-    if (w == extent.width && h == extent.height) return;
-    // A frame still in flight may reference the old images.
-    vkDeviceWaitIdle(device);
-    destroy(device, allocator);
-    create(gpu, device, allocator, screen_w, screen_h);
+void SunShaftsPass::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+    const uint32_t w = std::max(1U, screen_w / RESOLUTION_DIVISOR);
+    const uint32_t h = std::max(1U, screen_h / RESOLUTION_DIVISOR);
+    if (w == extent.x && h == extent.y) return;
+    destroy();
+    create(gpu, screen_w, screen_h);
 }
 
 // ── SunShaftsPass ──────────────────────────────────────────────────────────
 
-Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    gpu_device_ = resources.device;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    auto global_set_layout = resources.global_set_layout;
-
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(device_, &sampler_ci, nullptr, &linear_sampler_) != VK_SUCCESS) {
-        return make_error("Failed to create sun shafts sampler");
-    }
-
-    constexpr VkDescriptorType STORAGE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    constexpr VkDescriptorType SAMPLED = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-
-    auto build = [&](std::span<const VkDescriptorType> types, uint32_t push_size,
-                     const char* shader, const char* what,
-                     VkDescriptorSetLayout& set_layout, VkPipelineLayout& pipeline_layout,
-                     VkPipeline& pipeline) {
-        set_layout = create_set_layout(device_, types, what);
-        std::array layouts{global_set_layout, set_layout};
-        pipeline_layout = create_pipeline_layout(
-            device_, layouts.data(), static_cast<uint32_t>(layouts.size()), push_size);
-        pipeline = create_compute_pipeline(device_, pipeline_layout, shader, vk_pipeline_cache_);
+Result<> SunShaftsPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
+                                 .mip_filter = gpu::Filter::nearest,
+                                 .address = gpu::Address::clamp});
+    auto build = [&](const char* shader, const char* name) {
+        return device_->create(gpu::ComputePipelineDesc{
+            .shader = shader,
+            .shared = {resources.globals},
+            .name = name,
+        });
     };
+    FJELL_TRY(march_pipeline_, build("shaders/sun_shafts.comp", "sun_shafts"));
+    FJELL_TRY(resolve_pipeline_, build("shaders/sun_shafts_resolve.comp", "sun_shafts_resolve"));
+    FJELL_TRY(composite_pipeline_,
+              build("shaders/sun_shafts_composite.comp", "sun_shafts_composite"));
 
-    // march: raw out, depth
-    build(std::array{STORAGE, SAMPLED}, sizeof(ShaftsMarchPush),
-          "shaders/sun_shafts.comp.spv", "Failed to create sun shafts march set layout",
-          march_set_layout_, march_pipeline_layout_, march_pipeline_);
-    // resolve: shafts out, raw, history, depth, velocity
-    build(std::array{STORAGE, SAMPLED, SAMPLED, SAMPLED, SAMPLED}, sizeof(ShaftsResolvePush),
-          "shaders/sun_shafts_resolve.comp.spv", "Failed to create sun shafts resolve set layout",
-          resolve_set_layout_, resolve_pipeline_layout_, resolve_pipeline_);
-    // composite: shafts, depth, scene colour
-    build(std::array{SAMPLED, SAMPLED, STORAGE}, sizeof(ShaftsCompositePush),
-          "shaders/sun_shafts_composite.comp.spv",
-          "Failed to create sun shafts composite set layout",
-          composite_set_layout_, composite_pipeline_layout_, composite_pipeline_);
-
-    default_images_.create(*gpu_device_, device_, allocator_, 2, 2);
+    default_images_.create(*device_, 2, 2);
 
     FJELL_GFX_DEBUG("Sun shafts pass created");
     return {};
 }
 
 void SunShaftsPass::destroy() {
-    if (device_ == VK_NULL_HANDLE) return;
-
-    default_images_.destroy(device_, allocator_);
-
-    auto destroy_pass = [&](VkPipeline& p, VkPipelineLayout& l, VkDescriptorSetLayout& sl) {
-        if (p != VK_NULL_HANDLE) { vkDestroyPipeline(device_, p, nullptr); p = VK_NULL_HANDLE; }
-        if (l != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, l, nullptr); l = VK_NULL_HANDLE; }
-        if (sl != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, sl, nullptr); sl = VK_NULL_HANDLE; }
-    };
-    destroy_pass(march_pipeline_, march_pipeline_layout_, march_set_layout_);
-    destroy_pass(resolve_pipeline_, resolve_pipeline_layout_, resolve_set_layout_);
-    destroy_pass(composite_pipeline_, composite_pipeline_layout_, composite_set_layout_);
-
-    if (linear_sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, linear_sampler_, nullptr);
-        linear_sampler_ = VK_NULL_HANDLE;
-    }
-    device_ = VK_NULL_HANDLE;
+    default_images_.destroy();
+    march_pipeline_.reset();
+    resolve_pipeline_.reset();
+    composite_pipeline_.reset();
 }
 
 void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -364,17 +189,13 @@ PassSetup SunShaftsPass::setup() const {
     };
 }
 
-SunShaftsPass::Images& SunShaftsPass::frame_images(VkExtent2D viewport) {
-    default_images_.resize(*gpu_device_, device_, allocator_, viewport.width, viewport.height);
+SunShaftsPass::Images& SunShaftsPass::frame_images(glm::uvec2 viewport) {
+    default_images_.resize(*device_, viewport.x, viewport.y);
     return default_images_;
 }
 
-SunShaftsPass::RayPush SunShaftsPass::ray_push(const Images& imgs, VkExtent2D viewport) const {
-    RayPush push{};
-    push.output_size = glm::uvec2(imgs.extent.width, imgs.extent.height);
-    push.full_size = glm::uvec2(viewport.width, viewport.height);
-    push.max_reach = max_reach_;
-    return push;
+SunShaftsPass::RayPush SunShaftsPass::ray_push(const Images& imgs, glm::uvec2 viewport) const {
+    return {.output_size = imgs.extent, .full_size = viewport, .max_reach = max_reach_};
 }
 
 void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
@@ -398,29 +219,18 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void SunShaftsPass::record(const FrameContext& ctx) {
-    if (!enabled_ || ctx.target == nullptr || ctx.registry == nullptr) return;
-
-    auto* raw = ctx.registry->find_image(RAW_NAME);
-    if (raw == nullptr || raw->view == VK_NULL_HANDLE) return;
-    const VkImageView surface_depth = ctx.registry->image_view(DEPTH_NAME);
-    if (surface_depth == VK_NULL_HANDLE) return;
+    if (!enabled_ || ctx.target == nullptr) return;
+    const gpu::Texture raw = ctx.texture(RAW_NAME);
+    const gpu::Texture surface_depth = ctx.texture(DEPTH_NAME);
+    if (!raw.valid() || !surface_depth.valid()) return;
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts");
-    FJELL_GPU_ZONE(ctx, "Sun Shafts");
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Sun Shafts");
 
     const auto& imgs = default_images_;
-    auto extent = ctx.target->extent();
-    VkCommandBuffer cmd = ctx.cmd;
-
-    std::array bindings{
-        storage(0, raw->view),
-        sampled(1, linear_sampler_, surface_depth,
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
-    };
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(march_set_layout_, bindings);
-
     ShaftsMarchPush push{};
-    push.ray = ray_push(imgs, extent);
+    push.ray = ray_push(imgs, size_of(*ctx.target));
     // Effective density for shafts. The fog's base density is tuned for a
     // 3D froxel volume that accumulates over 64+ slices; a screen-space ray
     // march needs a larger coefficient to produce visible in-scatter at the
@@ -454,12 +264,11 @@ void SunShaftsPass::record(const FrameContext& ctx) {
         }
     }
 
-    std::array sets{ctx.global_descriptor_set, set};
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, march_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, march_pipeline_layout_,
-                            0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-    vkCmdPushConstants(cmd, march_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
+    cmd.set_pipeline(march_pipeline_);
+    cmd.bind(ctx.globals);
+    cmd.bind({{"shafts_raw", gpu::storage(raw)},
+              {"depth_texture", gpu::sampled(surface_depth, sampler_)}});
+    cmd.push(push);
     dispatch(cmd, imgs.extent);
 }
 
@@ -500,40 +309,28 @@ void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& c
 }
 
 void SunShaftsResolvePass::record(const FrameContext& ctx) {
-    if (core_ == nullptr || !core_->enabled()) { return; }
-    if (ctx.target == nullptr || ctx.registry == nullptr) { return; }
-
-    auto* raw = ctx.registry->find_image(SunShaftsPass::RAW_NAME);
-    if (raw == nullptr || raw->view == VK_NULL_HANDLE) { return; }
-    const VkImageView surface_depth = ctx.registry->image_view(SunShaftsPass::DEPTH_NAME);
-    if (surface_depth == VK_NULL_HANDLE) { return; }
+    if (core_ == nullptr || !core_->enabled() || ctx.target == nullptr) { return; }
+    const gpu::Texture raw = ctx.texture(SunShaftsPass::RAW_NAME);
+    const gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
+    if (!raw.valid() || !surface_depth.valid()) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts_resolve");
-    FJELL_GPU_ZONE(ctx, "Sun Shafts Resolve");
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Sun Shafts Resolve");
 
     auto& imgs = core_->images();
-    VkCommandBuffer cmd = ctx.cmd;
-
-    std::array bindings{
-        storage(0, imgs.shafts[imgs.cur_index()].view),
-        sampled(1, core_->sampler(), raw->view),
-        sampled(2, core_->sampler(), imgs.shafts[imgs.prev_index()].view),
-        sampled(3, core_->sampler(), surface_depth,
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
-        sampled(4, core_->sampler(), ctx.target->velocity_view()),
-    };
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(core_->resolve_set_layout(), bindings);
-
-    ShaftsResolvePush push{};
-    push.ray = core_->ray_push(imgs, ctx.target->extent());
-    push.history_valid = imgs.history_valid ? 1u : 0u;
-
-    std::array sets{ctx.global_descriptor_set, set};
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->resolve_pipeline());
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->resolve_pipeline_layout(),
-                            0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-    vkCmdPushConstants(cmd, core_->resolve_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
+    const gpu::Sampler sampler = core_->sampler();
+    cmd.set_pipeline(core_->resolve_pipeline());
+    cmd.bind(ctx.globals);
+    cmd.bind({{"shafts_out", gpu::storage(imgs.shafts[imgs.cur_index()])},
+              {"shafts_raw", gpu::sampled(raw, sampler)},
+              {"shafts_history", gpu::sampled(imgs.shafts[imgs.prev_index()], sampler)},
+              {"depth_texture", gpu::sampled(surface_depth, sampler)},
+              {"velocity_texture", gpu::sampled(ctx.target->velocity_texture(), sampler)}});
+    cmd.push(ShaftsResolvePush{
+        .ray = core_->ray_push(imgs, size_of(*ctx.target)),
+        .history_valid = imgs.history_valid ? 1U : 0U,
+    });
     dispatch(cmd, imgs.extent);
 }
 
@@ -569,41 +366,29 @@ void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext&
 }
 
 void SunShaftsCompositePass::record(const FrameContext& ctx) {
-    if (core_ == nullptr || !core_->enabled()) { return; }
-    if (ctx.target == nullptr || ctx.registry == nullptr) { return; }
-
-    const VkImageView surface_depth = ctx.registry->image_view(SunShaftsPass::DEPTH_NAME);
-    if (surface_depth == VK_NULL_HANDLE) { return; }
+    if (core_ == nullptr || !core_->enabled() || ctx.target == nullptr) { return; }
+    const gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
+    if (!surface_depth.valid()) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_sun_shafts_composite");
-    FJELL_GPU_ZONE(ctx, "Sun Shafts Composite");
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Sun Shafts Composite");
 
     auto& imgs = core_->images();
-    auto extent = ctx.target->extent();
-    VkCommandBuffer cmd = ctx.cmd;
-
-    std::array bindings{
-        sampled(0, core_->sampler(), imgs.shafts[imgs.cur_index()].view),
-        sampled(1, core_->sampler(), surface_depth,
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
-        storage(2, ctx.target->color_view()),
-    };
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(core_->composite_set_layout(), bindings);
-
-    ShaftsCompositePush push{};
-    push.viewport_size = glm::uvec2(extent.width, extent.height);
-    push.shafts_size = glm::uvec2(imgs.extent.width, imgs.extent.height);
-    // Clamped above zero: a zero tolerance rejects every tap including the
-    // pixel's own, and the upsample would fall back to nearest everywhere.
-    push.depth_tolerance = std::max(core_->upsample_depth_tolerance(), 1e-4F);
-
-    std::array sets{ctx.global_descriptor_set, set};
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->composite_pipeline());
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            core_->composite_pipeline_layout(),
-                            0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-    vkCmdPushConstants(cmd, core_->composite_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
+    const glm::uvec2 extent = size_of(*ctx.target);
+    const gpu::Sampler sampler = core_->sampler();
+    cmd.set_pipeline(core_->composite_pipeline());
+    cmd.bind(ctx.globals);
+    cmd.bind({{"shafts_tex", gpu::sampled(imgs.shafts[imgs.cur_index()], sampler)},
+              {"depth_texture", gpu::sampled(surface_depth, sampler)},
+              {"scene_color", gpu::storage(ctx.target->color_texture())}});
+    cmd.push(ShaftsCompositePush{
+        .viewport_size = extent,
+        .shafts_size = imgs.extent,
+        // Clamped above zero: a zero tolerance rejects every tap including the
+        // pixel's own, and the upsample would fall back to nearest everywhere.
+        .depth_tolerance = std::max(core_->upsample_depth_tolerance(), 1e-4F),
+    });
     dispatch(cmd, extent);
 
     // What was resolved this frame is next frame's history: the images swap

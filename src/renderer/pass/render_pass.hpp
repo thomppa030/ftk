@@ -6,6 +6,7 @@
 #include "renderer/frame_graph.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/render_pipeline.hpp"
+#include "renderer/resource_registry.hpp"
 
 #include <array>
 #include <functional>
@@ -139,6 +140,11 @@ struct FrameContext {
 
     // Named resource registry (pass-to-pass data flow)
     ResourceRegistry* registry{nullptr};
+    /// The texture this viewport's graph knows by `name`: a target image or a
+    /// transient the graph made. Invalid when there is none.
+    [[nodiscard]] gpu::Texture texture(const std::string& name) const {
+        return registry != nullptr ? registry->texture(name) : gpu::Texture{};
+    }
 
     // Inverse view-projection for world-space reconstruction (DDGI sampling)
     glm::mat4 inv_view_proj{1.0f};

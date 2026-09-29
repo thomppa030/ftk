@@ -299,13 +299,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             shafts != nullptr && shafts->enabled()
             && (viewport_graph == nullptr ? state_for("sun_shafts").enabled
                                           : viewport_enabled.contains(fg_name_hash("sun_shafts")))) {
-            auto& imgs = shafts->frame_images(
-                {decl_ctx.viewport_extent.x, decl_ctx.viewport_extent.y});
+            auto& imgs = shafts->frame_images(decl_ctx.viewport_extent);
             auto add_history = [&](std::string_view name, uint32_t idx) {
-                ImportedImage img{};
-                img.view = imgs.shafts[idx].texture;
-                img.persistent = true;
-                decl_ctx.imports.emplace(fg_name_hash(name), img);
+                decl_ctx.export_texture(name, imgs.shafts[idx], {.persistent = true});
             };
             add_history(SunShaftsPass::HISTORY_CUR_NAME, imgs.cur_index());
             add_history(SunShaftsPass::HISTORY_PREV_NAME, imgs.prev_index());
@@ -596,21 +592,22 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto screen_color_id = graph.register_image(target.screen_color_texture());
     auto distortion_id   = graph.register_image(target.distortion_texture());
 
-    registry.register_image("color",         {.frame_graph_id = color_id,         .image = target.color_image(),         .view = target.color_view()});
-    registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
-    registry.register_image("depth",         {.frame_graph_id = depth_id,         .image = target.depth_image(),         .view = target.depth_view()});
-    registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .image = target.msaa_depth_image(),    .view = target.msaa_depth_view()});
+    registry.register_image("color",         {.frame_graph_id = color_id,         .texture = target.color_texture(),         .image = target.color_image(),         .view = target.color_view()});
+    registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .texture = target.msaa_color_texture(),    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
+    registry.register_image("depth",         {.frame_graph_id = depth_id,         .texture = target.depth_texture(),         .image = target.depth_image(),         .view = target.depth_view()});
+    registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .texture = target.msaa_depth_texture(),    .image = target.msaa_depth_image(),    .view = target.msaa_depth_view()});
     registry.register_image("surface_depth", {.frame_graph_id = surface_depth_id,
+                                              .texture = water_draws ? target.surface_depth_texture() : target.depth_texture(),
                                               .image = water_draws ? target.surface_depth_image() : target.depth_image(),
                                               .view = water_draws ? target.surface_depth_view() : target.depth_view()});
-    registry.register_image("mr",            {.frame_graph_id = mr_id,            .image = target.mr_image(),            .view = target.mr_view()});
-    registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .image = target.msaa_mr_image(),       .view = target.msaa_mr_view()});
-    registry.register_image("normal",        {.frame_graph_id = normal_id,        .image = target.normal_image(),        .view = target.normal_view()});
-    registry.register_image("msaa_normal",   {.frame_graph_id = msaa_normal_id,   .image = target.msaa_normal_image(),   .view = target.msaa_normal_view()});
-    registry.register_image("velocity",      {.frame_graph_id = velocity_id,      .image = target.velocity_image(),      .view = target.velocity_view()});
-    registry.register_image("msaa_velocity", {.frame_graph_id = msaa_velocity_id, .image = target.msaa_velocity_image(), .view = target.msaa_velocity_view()});
-    registry.register_image("screen_color",  {.frame_graph_id = screen_color_id,  .image = target.screen_color_image(),  .view = target.screen_color_view()});
-    registry.register_image("distortion",    {.frame_graph_id = distortion_id,    .image = target.distortion_image(),    .view = target.distortion_view()});
+    registry.register_image("mr",            {.frame_graph_id = mr_id,            .texture = target.mr_texture(),            .image = target.mr_image(),            .view = target.mr_view()});
+    registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .texture = target.msaa_mr_texture(),       .image = target.msaa_mr_image(),       .view = target.msaa_mr_view()});
+    registry.register_image("normal",        {.frame_graph_id = normal_id,        .texture = target.normal_texture(),        .image = target.normal_image(),        .view = target.normal_view()});
+    registry.register_image("msaa_normal",   {.frame_graph_id = msaa_normal_id,   .texture = target.msaa_normal_texture(),   .image = target.msaa_normal_image(),   .view = target.msaa_normal_view()});
+    registry.register_image("velocity",      {.frame_graph_id = velocity_id,      .texture = target.velocity_texture(),      .image = target.velocity_image(),      .view = target.velocity_view()});
+    registry.register_image("msaa_velocity", {.frame_graph_id = msaa_velocity_id, .texture = target.msaa_velocity_texture(), .image = target.msaa_velocity_image(), .view = target.msaa_velocity_view()});
+    registry.register_image("screen_color",  {.frame_graph_id = screen_color_id,  .texture = target.screen_color_texture(),  .image = target.screen_color_image(),  .view = target.screen_color_view()});
+    registry.register_image("distortion",    {.frame_graph_id = distortion_id,    .texture = target.distortion_texture(),    .image = target.distortion_image(),    .view = target.distortion_view()});
 
     for (size_t idx : dag_order) {
         if (!alive[idx]) { continue; }
@@ -669,6 +666,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 if (img.name.empty()) { continue; }
                 ResourceRegistry::ImageResource res{};
                 res.frame_graph_id = rid;
+                res.texture = texture;
                 res.image = image;
                 res.view = view;
                 res.sampler = VK_NULL_HANDLE;

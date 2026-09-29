@@ -3,12 +3,12 @@
 #include "renderer/pass/render_pass.hpp"
 #include "gpu/format.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 
 #include <array>
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <unordered_map>
@@ -42,39 +42,31 @@ public:
     /// The resolved shafts, kept from frame to frame. Alpha keeps the length
     /// of the ray each texel was resolved for, which is how the next frame
     /// tells whether that history is of the same surface.
-    static constexpr VkFormat SHAFTS_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr gpu::Format SHAFTS_FORMAT = gpu::Format::rgba16_float;
     static constexpr const char* HISTORY_CUR_NAME = "sun_shafts_cur";
     static constexpr const char* HISTORY_PREV_NAME = "sun_shafts_prev";
-
-    struct Image {
-        VkImage image{VK_NULL_HANDLE};
-        VmaAllocation memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        /// The image as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> texture;
-    };
 
     struct Images {
         // Ping-pong: each frame resolves into shafts[cur] and samples
         // shafts[prev] as history. The graph tracks their layouts; they reach
         // it as imports each frame.
-        std::array<Image, 2> shafts;
+        std::array<gpu::Owned<gpu::Texture>, 2> shafts;
         /// False until a resolve has written, and again after a resize: the
         /// history holds nothing worth blending with.
         bool history_valid{false};
 
-        VkExtent2D extent{};
+        glm::uvec2 extent{0, 0};
         uint32_t ping_pong{0};
         uint32_t frame_counter{0};
 
         [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
 
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                    uint32_t screen_w, uint32_t screen_h);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                    uint32_t screen_w, uint32_t screen_h);
+        void create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        /// Releases the images; the frames still reading them keep them
+        /// until they are done.
+        void destroy();
+        void resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
     };
 
     /// What the march and the resolve both need to rebuild a pixel's ray.
@@ -96,7 +88,7 @@ public:
     /// The history images for this frame, sized to the viewport. Called while
     /// the frame's imports are gathered, before anything declares: a resize
     /// replaces the images, and the graph has to be handed the new ones.
-    [[nodiscard]] Images& frame_images(VkExtent2D viewport);
+    [[nodiscard]] Images& frame_images(glm::uvec2 viewport);
     [[nodiscard]] Images& images() { return default_images_; }
 
     /// The catalog name all three nodes read depth under: the scene depth
@@ -108,16 +100,12 @@ public:
     /// taken from the seabed.
     static constexpr const char* DEPTH_NAME = "surface_depth";
 
-    [[nodiscard]] RayPush ray_push(const Images& imgs, VkExtent2D viewport) const;
+    [[nodiscard]] RayPush ray_push(const Images& imgs, glm::uvec2 viewport) const;
     [[nodiscard]] float upsample_depth_tolerance() const { return upsample_depth_tolerance_; }
 
-    [[nodiscard]] VkSampler sampler() const { return linear_sampler_; }
-    [[nodiscard]] VkDescriptorSetLayout resolve_set_layout() const { return resolve_set_layout_; }
-    [[nodiscard]] VkPipelineLayout resolve_pipeline_layout() const { return resolve_pipeline_layout_; }
-    [[nodiscard]] VkPipeline resolve_pipeline() const { return resolve_pipeline_; }
-    [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_set_layout_; }
-    [[nodiscard]] VkPipelineLayout composite_pipeline_layout() const { return composite_pipeline_layout_; }
-    [[nodiscard]] VkPipeline composite_pipeline() const { return composite_pipeline_; }
+    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] gpu::ComputePipeline resolve_pipeline() const { return resolve_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
 
     /// How far a half-res tap's surface may sit from a pixel's own, as a share
     /// of that pixel's distance, before the tap stops counting in the upsample.
@@ -128,10 +116,6 @@ public:
     }
 
 private:
-    static Image create_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                              uint32_t w, uint32_t h);
-    static void destroy_image(VkDevice device, VmaAllocator allocator, Image& img);
-
     bool enabled_{false};
     float intensity_{1.0f};
     float density_mult_{1.0f};
@@ -152,23 +136,11 @@ private:
     std::unordered_map<uint32_t, WaterMarch> water_march_;
     float upsample_depth_tolerance_{0.05f};
 
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkSampler linear_sampler_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout march_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout march_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline march_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout resolve_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout resolve_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline resolve_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout composite_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout composite_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline composite_pipeline_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    gpu::Sampler sampler_;
+    gpu::Owned<gpu::ComputePipeline> march_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> resolve_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
 
     Images default_images_;
 };

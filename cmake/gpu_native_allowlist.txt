@@ -120,8 +120,6 @@ src/renderer/pass/ssr_pass.cpp
 src/renderer/pass/ssr_pass.hpp
 src/renderer/pass/subsystem_compute_pass.cpp
 src/renderer/pass/subsystem_compute_pass.hpp
-src/renderer/pass/sun_shafts_pass.cpp
-src/renderer/pass/sun_shafts_pass.hpp
 src/renderer/pass/terrain_pass.cpp
 src/renderer/pass/terrain_pass.hpp
 src/renderer/pass/transparent_pass.cpp
