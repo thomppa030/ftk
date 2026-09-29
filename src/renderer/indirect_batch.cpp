@@ -180,6 +180,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         draw_data_counts_[frame_index] = 0;
         total_triangles_[frame_index] = 0;
         total_meshlet_instances_[frame_index] = 0;
+        instance_transform_counts_[frame_index] = 0;
+        instanced_draw_counts_[frame_index] = 0;
+        spline_segment_counts_[frame_index] = 0;
         pipeline_ranges_[frame_index].clear();
         skinned_draw_indices_[frame_index].clear();
         return;
@@ -206,7 +209,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes
     // to write-combined GPU memory. Bulk memcpy at the end.
     staged_indirect_.resize(total_draws);
-    staged_draw_data_.resize(total_draws);
+    // Every draw starts from the defaults: each kind below writes only the
+    // fields it sets, and the shaders branch on the rest (a spline segment
+    // offset, an instance count, a bone offset), so a value left in the slot
+    // by an earlier build would deform or place the draw as that one did.
+    staged_draw_data_.assign(total_draws, GpuDrawData{});
 
     auto* indirect = staged_indirect_.data();
     auto* draw_data = staged_draw_data_.data();
