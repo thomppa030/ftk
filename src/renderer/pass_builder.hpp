@@ -78,6 +78,13 @@ constexpr uint64_t fg_name_hash(std::string_view s) noexcept {
 /// FrameContext: only contains information that is legal to read when
 /// the graph is being built (no command buffer, no transient pointers).
 /// This is also the cache key for compiled-graph reuse in Phase 6.
+/// How a texture a pass exports is tracked; the fields are `ImportedImage`'s.
+struct TextureExport {
+    bool persistent{false};
+    gpu::AccessSet resting{};
+    bool unwritten{false};
+};
+
 struct DeclareContext {
     glm::uvec2 viewport_extent{0, 0};
     VkSampleCountFlagBits msaa_samples{VK_SAMPLE_COUNT_1_BIT};
@@ -140,6 +147,17 @@ struct DeclareContext {
     /// that walked 150+ map lookups on std::string keys before; this
     /// drops string alloc + hashing entirely.
     std::unordered_map<uint64_t, ImportedImage> imports;
+
+    /// Hands the graph a texture a pass owns, under `name`, for passes to
+    /// import (from `collect_exports()`). The first export of a name this
+    /// frame is the one kept.
+    void export_texture(std::string_view name, const gpu::TextureView& view,
+                        const TextureExport& how = {}) {
+        imports.emplace(fg_name_hash(name), ImportedImage{.view = view,
+                                                          .persistent = how.persistent,
+                                                          .resting = how.resting,
+                                                          .unwritten = how.unwritten});
+    }
 
     /// Named buffer catalog, filled the same way as `imports` and keyed the
     /// same way. A buffer both a producer and its consumers declare is what

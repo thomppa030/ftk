@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/binding.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
@@ -16,6 +17,10 @@
 #include <vector>
 
 namespace fjell {
+
+namespace gpu {
+class Device;
+}
 
 /// Declaration for a single global descriptor set binding.
 struct GlobalBindingDecl {
@@ -46,8 +51,9 @@ public:
 
     // ── Phase 1 → 2 transition ─────────────────────────────────────────
 
-    /// Build layout, pool, and allocate per-frame descriptor sets.
-    void finalize(VkDevice device, uint32_t frames_in_flight);
+    /// Build layout, pool, and allocate per-frame descriptor sets. `gpu` is
+    /// what `set()` resolves the interface's handles through.
+    void finalize(VkDevice device, uint32_t frames_in_flight, gpu::Device& gpu);
 
     // ── Phase 2: Lookup ────────────────────────────────────────────────
 
@@ -108,6 +114,12 @@ public:
     /// Submit all staged writes via vkUpdateDescriptorSets, then clear.
     void flush_writes();
 
+    /// Points the binding `name` at `resource` in every per-frame set, written
+    /// at once: a texture read through a sampler, in the layout sampling
+    /// reads, or as storage, or a buffer range. For what a pass makes
+    /// through the GPU interface.
+    void set(const std::string& name, const gpu::BindResource& resource);
+
     // ── Cleanup ────────────────────────────────────────────────────────
 
     void destroy();
@@ -121,6 +133,7 @@ private:
 
     bool finalized_{false};
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_{nullptr};
 
     // Registration data
     std::vector<BindingEntry> entries_;

@@ -1,5 +1,7 @@
 #include "renderer/global_bindings.hpp"
 #include "core/log.hpp"
+#include "gpu/format.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -76,11 +78,12 @@ void GlobalBindings::declare(GlobalBindingDecl decl) {
     entries_.push_back({std::move(decl)});
 }
 
-void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight) {
+void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight, gpu::Device& gpu) {
     assert(!finalized_ && "GlobalBindings::finalize() called twice");
     assert(!entries_.empty() && "GlobalBindings: no bindings declared");
 
     device_ = device;
+    gpu_ = &gpu;
 
     // Sort entries by binding number for clean layout creation
     std::sort(entries_.begin(), entries_.end(),
@@ -200,6 +203,42 @@ void GlobalBindings::write_image(uint32_t frame_index, const std::string& name,
     write.pImageInfo = &info;
 
     pending_writes_.push_back(write);
+}
+
+void GlobalBindings::set(const std::string& name, const gpu::BindResource& resource) {
+    assert(finalized_ && "GlobalBindings::set() called before finalize()");
+    switch (resource.kind) {
+        case gpu::BindingKind::sampled_texture:
+        case gpu::BindingKind::storage_texture: {
+            const VkImageView view = gpu::vulkan::native_view(*gpu_, resource.view);
+            const VkSampler sampler = gpu::vulkan::native_sampler(*gpu_, resource.sampler);
+            const bool depth = gpu::vulkan::native_aspect(*gpu_, resource.view.texture) ==
+                               VK_IMAGE_ASPECT_DEPTH_BIT;
+            const VkImageLayout layout =
+                resource.kind == gpu::BindingKind::storage_texture ? VK_IMAGE_LAYOUT_GENERAL
+                : depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            for (uint32_t i = 0; i < descriptor_sets_.size(); ++i) {
+                write_image(i, name, view, sampler, layout);
+            }
+            break;
+        }
+        case gpu::BindingKind::uniform_buffer:
+        case gpu::BindingKind::storage_buffer: {
+            const VkBuffer buffer = gpu::vulkan::native_buffer(*gpu_, resource.buffer.buffer);
+            const VkDeviceSize range = resource.buffer.size == gpu::BufferRange::REST
+                ? VK_WHOLE_SIZE : resource.buffer.size;
+            for (uint32_t i = 0; i < descriptor_sets_.size(); ++i) {
+                write_buffer(i, name, buffer, resource.buffer.offset, range);
+            }
+            break;
+        }
+        default:
+            FJELL_GFX_ERROR("GlobalBindings::set: binding '{}' is given a kind it does not take",
+                            name);
+            return;
+    }
+    flush_writes();
 }
 
 void GlobalBindings::write_buffer(uint32_t frame_index, const std::string& name,

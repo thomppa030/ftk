@@ -92,6 +92,9 @@ struct FrameContext {
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
+    /// That set as the GPU interface binds it, for pipelines that name the
+    /// shared globals layout.
+    gpu::BindGroup globals{};
     /// What that set binds at the GI slots this run: DDGI's and SS-GI's
     /// outputs once they hold something, null while it binds the fallback.
     VkImage bound_gi_indirect{VK_NULL_HANDLE};

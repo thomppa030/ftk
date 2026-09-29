@@ -385,6 +385,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // Previews bind their own private global set; everyone else the per-frame set.
     ctx.global_descriptor_set = view.global_set != VK_NULL_HANDLE
         ? view.global_set : gpu_.global_descriptor_set(current_frame_);
+    ctx.globals = gpu_.global_group(ctx.global_descriptor_set);
     ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();

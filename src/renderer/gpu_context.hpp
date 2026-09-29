@@ -30,6 +30,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -164,6 +165,10 @@ public:
     };
     [[nodiscard]] const SharedLayouts& shared_layouts() const { return shared_layouts_; }
 
+    /// A global set (per-frame or a preview's) as the GPU interface binds it,
+    /// handed to the device the first time it is asked for.
+    [[nodiscard]] gpu::BindGroup global_group(VkDescriptorSet set);
+
     /// Hands the GPU interface the draw data layout, which the scene gatherer
     /// owns and makes after this context.
     void share_draw_data_layout(VkDescriptorSetLayout layout,
@@ -198,6 +203,7 @@ private:
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;
     SharedLayouts shared_layouts_;
+    std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>> global_groups_;
 
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;

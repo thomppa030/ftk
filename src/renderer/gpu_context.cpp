@@ -373,11 +373,17 @@ void GpuContext::create_descriptor_resources() {
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
 
+gpu::BindGroup GpuContext::global_group(VkDescriptorSet set) {
+    auto& group = global_groups_[set];
+    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), shared_layouts_.globals, set);
+    return group;
+}
+
 void GpuContext::finalize_descriptors() {
     auto vk_device = core_.vk_device();
 
     // Build layout, pool, and per-frame descriptor sets from registered bindings
-    global_bindings_.finalize(vk_device, MAX_FRAMES_IN_FLIGHT);
+    global_bindings_.finalize(vk_device, MAX_FRAMES_IN_FLIGHT, core_.gpu_device());
 
     // Write initial descriptor values for static bindings
     constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);

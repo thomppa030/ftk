@@ -2,12 +2,12 @@
 
 #include "environment/cloud_shadow_frame.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 
@@ -24,7 +24,6 @@ class CloudShadowPass : public RenderPass {
 public:
     static constexpr uint32_t RESOLUTION = 256;
     static constexpr float EXTENT_METRES = 512.0f;
-    static constexpr VkFormat SHADOW_FORMAT = VK_FORMAT_R8_UNORM;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -42,30 +41,9 @@ public:
     [[nodiscard]] const glm::mat4& world_to_uv() const { return frame_.world_to_uv; }
 
 private:
-    void create_image();
-    void destroy_image();
-    void seed_layout();
-
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-
-    VkImage image_{VK_NULL_HANDLE};
-    VmaAllocation memory_{VK_NULL_HANDLE};
-    VkImageView view_{VK_NULL_HANDLE};
-    /// The map as the GPU interface's texture.
-    gpu::Owned<gpu::Texture> texture_;
-    VkSampler sampler_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet output_set_{VK_NULL_HANDLE};
-
-    VkQueue graphics_queue_{VK_NULL_HANDLE};
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::Texture> map_;
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    gpu::Sampler sampler_;
 
     CloudShadowFrame frame_{};
     float ground_y_{0.0f};
