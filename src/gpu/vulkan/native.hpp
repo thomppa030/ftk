@@ -89,13 +89,6 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 /// The VkDescriptorSet behind a bind group; null when the handle finds none.
 [[nodiscard]] VkDescriptorSet native_group(Device& device, BindGroup group);
 
-/// Tells the device frame `serial` starts recording in `frame_slot`, right
-/// after the slot's fence wait: the sets and transient memory that lasted one
-/// frame in that slot are free again, what frames the GPU has finished used
-/// is destroyed, and what is released from now on waits for `serial`.
-/// @return the newest frame the GPU has finished
-uint64_t begin_frame(Device& device, uint32_t frame_slot, uint64_t serial);
-
 /// Keeps `object` alive until the GPU has finished the frame recording now,
 /// then lets its destructor run: for what was made before the interface and
 /// has no handle to release.
@@ -120,12 +113,15 @@ void retire(Device& device, T object) {
 /// (the frame graph's barrier trace); null stops it.
 void trace_transitions(Device& device, std::string* lines);
 
-/// The timeline a frame's last submission signals at the frame's serial.
-[[nodiscard]] VkSemaphore frame_timeline(Device& device);
+/// The command buffer a list records into, for code that still records
+/// Vulkan itself.
+[[nodiscard]] VkCommandBuffer native_command_buffer(CommandList& list);
 
-/// The newest frame serial the GPU has finished: what the frame timeline has
-/// reached.
-[[nodiscard]] uint64_t finished_frame(Device& device);
+/// The swapchain's part in a frame, until the swapchain is the interface's:
+/// the frame's first graphics list waits for `acquired` where it writes
+/// colour, and its last list signals `rendered`, which present waits on.
+void wait_acquired(Frame& frame, VkSemaphore acquired);
+void signal_rendered(Frame& frame, VkSemaphore rendered);
 
 /// The device's one-frame descriptor sets, for passes that acquire their own.
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);

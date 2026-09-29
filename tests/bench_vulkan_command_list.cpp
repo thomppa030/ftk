@@ -168,11 +168,11 @@ int main(int argc, char** argv) {
         const int runs = profiling ? RUNS * 10 : RUNS;
 
         const size_t reported_before = device.impl().reported.size();
-        uint64_t serial = 0;
         for (int run = 0; run < runs; ++run) {
             for (Way& way : ways) {
                 // A frame of its own each time: the frame sets start empty.
-                (void)gpu::vulkan::begin_frame(device, static_cast<uint32_t>(run) % 2, ++serial);
+                // It submits nothing; the way records into a buffer of its own.
+                gpu::Frame& frame = device.begin_frame();
                 vkResetCommandBuffer(cb, 0);
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -182,6 +182,7 @@ int main(int argc, char** argv) {
                 way.record(cb);
                 const auto stop = std::chrono::steady_clock::now();
                 vkEndCommandBuffer(cb);
+                (void)device.end_frame(frame);
                 const double ns = std::chrono::duration<double, std::nano>(stop - start).count();
                 way.ns_per_dispatch.push_back(ns / DISPATCHES);
             }

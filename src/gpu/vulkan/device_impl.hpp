@@ -13,6 +13,7 @@
 #include <tracy/TracyVulkan.hpp>
 #endif
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -29,6 +30,8 @@ class GpuCore;
 }
 
 namespace fjell::gpu {
+
+struct FrameSlot;
 
 /// The Vulkan backend's device: pools of native objects behind the handles,
 /// over what `GpuCore` already brought up (the VkDevice, the allocator, the
@@ -196,6 +199,17 @@ struct Device::Impl {
     /// The serial of the frame recording now, which what is released is
     /// kept alive for.
     uint64_t recording{0};
+    /// The frames in flight, one per slot, made when first used, and the
+    /// serial of the last frame begun.
+    std::vector<std::unique_ptr<FrameSlot>> frames;
+    uint64_t frame_serial{0};
+    /// Per queue (graphics, compute): the queue, its family, and a timeline
+    /// every submission on it signals one count higher, which is how a list
+    /// on one queue waits for one on the other.
+    std::array<VkQueue, 2> queues{};
+    std::array<uint32_t, 2> families{};
+    std::array<VkSemaphore, 2> queue_timelines{};
+    std::array<uint64_t, 2> queue_values{};
     /// What was released and waits for the GPU to finish the frames that
     /// may still use it.
     ReleaseQueue releases;

@@ -113,13 +113,20 @@ int main() {
 
         // Transient memory, which the command list hands out: two slices in
         // one frame slot, the same ones again when that slot comes round.
+        // Frames that submit nothing end at once, so the device can cycle
+        // through its slots.
         auto& transient = device.impl().transient;
-        (void)fjell::gpu::vulkan::begin_frame(device, 0, 1);
+        auto& first_frame = device.begin_frame();
         auto first = transient.allocate(100);
         auto second = transient.allocate(3u << 20);
-        (void)fjell::gpu::vulkan::begin_frame(device, 1, 2);
+        (void)device.end_frame(first_frame);
+        auto& second_frame = device.begin_frame();
         auto other_slot = transient.allocate(100);
-        (void)fjell::gpu::vulkan::begin_frame(device, 0, 3);
+        (void)device.end_frame(second_frame);
+        for (uint32_t slot = 2; slot < device.caps().frames_in_flight; ++slot) {
+            (void)device.end_frame(device.begin_frame());
+        }
+        auto& round_again = device.begin_frame();
         auto again = transient.allocate(100);
         const bool transient_ok = first && second && other_slot && again &&
                                   again->range == first->range &&
@@ -127,6 +134,7 @@ int main() {
                                   second->bytes.size() == (3u << 20) &&
                                   fjell::gpu::vulkan::native_buffer(device, first->range.buffer) != VK_NULL_HANDLE;
         if (first) std::memset(first->bytes.data(), 0xCD, first->bytes.size());
+        (void)device.end_frame(round_again);
         if (!transient_ok) std::fprintf(stderr, "transient memory failed\n");
         pipelines = pipelines && transient_ok;
 

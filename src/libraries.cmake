@@ -105,6 +105,7 @@ fjell_library(gpu
         gpu/vulkan/access.cpp
         gpu/vulkan/binding.cpp
         gpu/vulkan/command_list.cpp
+        gpu/vulkan/frame.cpp
         gpu/vulkan/command_list_copies.cpp
         gpu/vulkan/device.cpp
         gpu/vulkan/frame_cache_key.cpp
@@ -135,11 +136,13 @@ fjell_library(gpu
         gpu/texture.hpp
         gpu/transient_memory.hpp
         gpu/transition.hpp
+        gpu/frame.hpp
         gpu/usage.hpp
         gpu/vulkan/access.hpp
         gpu/vulkan/command_list_impl.hpp
         gpu/vulkan/device_impl.hpp
         gpu/vulkan/frame_descriptor_cache.hpp
+        gpu/vulkan/frame_impl.hpp
         gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp

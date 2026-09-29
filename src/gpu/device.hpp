@@ -3,6 +3,7 @@
 #include "core/result.hpp"
 #include "gpu/binding.hpp"
 #include "gpu/buffer.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
@@ -26,6 +27,11 @@ struct Caps {
     /// Bytes of push data a pipeline may take: 128 on every GPU the engine
     /// runs on, which is what every pipeline keeps to.
     uint32_t max_push_size{128};
+    /// Whether there is a compute queue beside the graphics one, which lists
+    /// for `Queue::compute` run on.
+    bool async_compute{false};
+    /// How many frames may be recorded or on the GPU at once.
+    uint32_t frames_in_flight{1};
 };
 
 /// Finds a file the build produced (`"shaders/grid.vert.spv"`) and returns its
@@ -123,6 +129,22 @@ public:
     /// How shaders named by path are found. Without one, a path is opened as
     /// given, relative to the working directory.
     void set_shader_locator(ShaderLocator locator);
+
+    /// Starts the next frame: waits until the GPU has finished the frame
+    /// that last used its slot, frees that slot's lists and one-frame
+    /// memory, and destroys what the frames the GPU has finished released.
+    /// What is released from now on waits for this frame.
+    [[nodiscard]] Frame& begin_frame();
+
+    /// Sends what `frame` submitted to the GPU, in order, with the frame's
+    /// uploads before it; the GPU finishing the last list is the frame
+    /// finished. A frame that submitted nothing is over at once. Frames end
+    /// in the order they began.
+    /// @return nothing, or why the GPU refused the work (the device is lost)
+    [[nodiscard]] Result<> end_frame(Frame& frame);
+
+    /// The newest frame the GPU has finished.
+    [[nodiscard]] uint64_t finished_frame() const;
 
     [[nodiscard]] const Caps& caps() const;
 
