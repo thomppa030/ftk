@@ -204,11 +204,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
         if (pp_resources != nullptr) {
         if (auto* hiz = pp_resources->hiz()) {
-            if (hiz->ready() && hiz->hiz_sampled_view != VK_NULL_HANDLE) {
-                ImportedImage img{};
-                img.view = hiz->hiz_texture;
-                img.persistent = true;
-                decl_ctx.imports.emplace(fg_name_hash("hiz_pyramid"), img);
+            if (hiz->ready()) {
+                decl_ctx.export_texture("hiz_pyramid", hiz->pyramid, {.persistent = true});
             }
         }
         // AO output image is per-viewport: look up the active pp_resources

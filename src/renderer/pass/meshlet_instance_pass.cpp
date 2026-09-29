@@ -651,7 +651,7 @@ void MeshletInstancePass::record(const FrameContext& ctx) {
     VkSampler hiz_sampler = VK_NULL_HANDLE;
     if (hiz_ready && ctx.passes != nullptr) {
         if (auto* hiz = ctx.passes->try_get<HizPass>("hiz")) {
-            hiz_sampler = hiz->sampler();
+            hiz_sampler = gpu::vulkan::native_sampler(*ctx.device, hiz->sampler());
         }
     }
 
@@ -666,10 +666,10 @@ void MeshletInstancePass::record(const FrameContext& ctx) {
         ctx.indirect_batch->pipeline_bin_size(ctx.frame_index),
         static_cast<uint32_t>(ranges_ref.size()),
         ctx.frame_index,
-        hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
+        hiz_ready ? gpu::vulkan::native_view(*ctx.device, hiz_imgs->pyramid) : VK_NULL_HANDLE,
         hiz_sampler,
         extent.width, extent.height,
-        hiz_ready ? hiz_imgs->hiz_mip_count : 0);
+        hiz_ready ? hiz_imgs->mip_count : 0);
 
     if (ctx.render_stats != nullptr) {
         ctx.render_stats->two_pass_occlusion = hiz_ready;

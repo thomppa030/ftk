@@ -57,8 +57,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
     passes_ = passes_storage_.get();
 
     if (config_.hiz && width > 0 && height > 0) {
-        hiz_images_.create(*gpu_, device_, allocator_,
-                           passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
+        hiz_images_.create(*gpu_,
                            width, height);
     }
     if (config_.gtao) {
@@ -95,7 +94,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
 
 PostProcessResources::~PostProcessResources() {
     if (device_ == VK_NULL_HANDLE) return;
-    hiz_images_.destroy(device_, allocator_);
+    hiz_images_.destroy();
     gtao_images_.destroy(device_, allocator_);
     fog_images_.destroy(device_, allocator_);
     post_images_.destroy(device_, allocator_);
@@ -131,7 +130,7 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
 PostProcessResources& PostProcessResources::operator=(PostProcessResources&& other) noexcept {
     if (this != &other) {
         if (device_ != VK_NULL_HANDLE) {
-            hiz_images_.destroy(device_, allocator_);
+            hiz_images_.destroy();
             gtao_images_.destroy(device_, allocator_);
             fog_images_.destroy(device_, allocator_);
             post_images_.destroy(device_, allocator_);
@@ -172,8 +171,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     if (passes_ == nullptr || width == 0 || height == 0) return;
 
     if (config_.hiz) {
-        hiz_images_.resize(*gpu_, device_, allocator_,
-                           passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
+        hiz_images_.resize(*gpu_,
                            width, height);
     }
     if (config_.gtao) {

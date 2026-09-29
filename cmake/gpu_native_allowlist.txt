@@ -75,8 +75,6 @@ src/renderer/pass/grid_pass.cpp
 src/renderer/pass/grid_pass.hpp
 src/renderer/pass/gtao_pass.cpp
 src/renderer/pass/gtao_pass.hpp
-src/renderer/pass/hiz_pass.cpp
-src/renderer/pass/hiz_pass.hpp
 src/renderer/pass/light_viz_pass.cpp
 src/renderer/pass/light_viz_pass.hpp
 src/renderer/pass/local_shadow_pass.cpp

@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_cull_pass2.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
@@ -73,7 +74,7 @@ void MeshletCullPass2::record(const FrameContext& ctx) {
     VkSampler hiz_sampler = VK_NULL_HANDLE;
     if (ctx.passes != nullptr) {
         if (auto* hiz = ctx.passes->try_get<HizPass>("hiz")) {
-            hiz_sampler = hiz->sampler();
+            hiz_sampler = gpu::vulkan::native_sampler(*ctx.device, hiz->sampler());
         }
     }
 
@@ -89,9 +90,9 @@ void MeshletCullPass2::record(const FrameContext& ctx) {
         ctx.indirect_batch->pipeline_bin_size(ctx.frame_index),
         static_cast<uint32_t>(ranges_ref.size()),
         ctx.frame_index,
-        hiz_imgs->hiz_sampled_view, hiz_sampler,
+        gpu::vulkan::native_view(*ctx.device, hiz_imgs->pyramid), hiz_sampler,
         extent.width, extent.height,
-        hiz_imgs->hiz_mip_count);
+        hiz_imgs->mip_count);
 }
 
 } // namespace fjell

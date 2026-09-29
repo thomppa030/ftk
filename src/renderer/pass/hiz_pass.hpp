@@ -1,14 +1,11 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-
-#include <array>
 #include <cstdint>
 
 namespace fjell {
@@ -19,32 +16,18 @@ public:
 
     // Per-viewport resolution-dependent image state.
     struct Images {
-        VkImage hiz_image{VK_NULL_HANDLE};
-        VmaAllocation hiz_memory{VK_NULL_HANDLE};
-        VkImageView hiz_sampled_view{VK_NULL_HANDLE};
-        /// The pyramid as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> hiz_texture;
-        std::array<VkImageView, MAX_HIZ_MIPS> hiz_mip_views{};
-        uint32_t hiz_mip_count{0};
-        uint32_t hiz_width{0};
-        uint32_t hiz_height{0};
+        /// The pyramid, every mip; mip 0 is half the depth's size.
+        gpu::Owned<gpu::Texture> pyramid;
+        uint32_t mip_count{0};
+        uint32_t width{0};
+        uint32_t height{0};
 
-        // Own pool + per-mip descriptor sets
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        std::array<VkDescriptorSet, MAX_HIZ_MIPS> mip_sets{};
-
-        // Cached depth view to avoid redundant descriptor updates
-        VkImageView last_depth_view{VK_NULL_HANDLE};
-
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout, VkSampler sampler,
-                     uint32_t width, uint32_t height);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout, VkSampler sampler,
-                     uint32_t width, uint32_t height);
-
-        [[nodiscard]] bool ready() const { return hiz_image != VK_NULL_HANDLE; }
+        void create(gpu::Device& gpu, uint32_t depth_width, uint32_t depth_height);
+        /// Releases the pyramid; the frames still reading it keep it until
+        /// they are done.
+        void destroy();
+        void resize(gpu::Device& gpu, uint32_t depth_width, uint32_t depth_height);
+        [[nodiscard]] bool ready() const { return pyramid.get().valid(); }
     };
 
     Result<> create(Device& device, const PassResources& resources) override;
@@ -57,28 +40,17 @@ public:
 
     // Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs);
-
     void resize(uint32_t width, uint32_t height);
 
-    [[nodiscard]] VkImageView sampled_view() const { return default_images_.hiz_sampled_view; }
-    [[nodiscard]] VkSampler sampler() const { return sampler_; }
-    [[nodiscard]] uint32_t mip_count() const { return default_images_.hiz_mip_count; }
+    /// What the pyramid is read through: nearest, every mip.
+    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] uint32_t mip_count() const { return default_images_.mip_count; }
     [[nodiscard]] bool ready() const { return default_images_.ready(); }
 
-    // Expose layout/sampler so external Images can be created
-    [[nodiscard]] VkDescriptorSetLayout image_set_layout() const { return set_layout_; }
-
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-
-    // Resolution-independent (shared across all Images)
-    VkSampler sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    gpu::Sampler sampler_;
 
     // Default per-viewport images
     Images default_images_;
