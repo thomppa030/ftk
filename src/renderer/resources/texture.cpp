@@ -1,17 +1,20 @@
 #include "renderer/resources/texture.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/device.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/log.hpp"
 
 #include <stb_image.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <span>
 #include <stdexcept>
 
 namespace fjell {
 
 Texture::Texture(VkDevice device, VmaAllocator allocator,
-                 VkPhysicalDevice physical_device, UploadContext& upload_ctx,
+                 VkPhysicalDevice physical_device, gpu::Device& gpu,
                  const std::string& path, bool nearest)
     : device_{device} {
     int width, height, channels;
@@ -23,7 +26,7 @@ Texture::Texture(VkDevice device, VmaAllocator allocator,
     // Pixel art: no mipmaps, nearest filter, clamp to edge
     uint32_t mip = nearest ? 1 : 0;
     bool clamp = nearest;
-    upload(allocator, physical_device, upload_ctx, pixels,
+    upload(allocator, physical_device, gpu, pixels,
            static_cast<uint32_t>(width), static_cast<uint32_t>(height),
            VK_FORMAT_R8G8B8A8_SRGB, mip, clamp, nearest);
     stbi_image_free(pixels);
@@ -32,11 +35,11 @@ Texture::Texture(VkDevice device, VmaAllocator allocator,
 }
 
 Texture::Texture(VkDevice device, VmaAllocator allocator,
-                 VkPhysicalDevice physical_device, UploadContext& upload_ctx,
+                 VkPhysicalDevice physical_device, gpu::Device& gpu,
                  const uint8_t* pixels, uint32_t width, uint32_t height,
                  VkFormat format, uint32_t mip_levels, bool clamp_to_edge, bool nearest)
     : device_{device} {
-    upload(allocator, physical_device, upload_ctx, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
+    upload(allocator, physical_device, gpu, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -69,7 +72,7 @@ VkDeviceSize texel_bytes(VkFormat format) {
 } // namespace
 
 void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
-                     UploadContext& upload_ctx,
+                     gpu::Device& gpu,
                      const void* pixels, uint32_t width, uint32_t height,
                      VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge,
                      bool nearest) {
@@ -77,42 +80,22 @@ void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
-    StagingSlice staging = upload_ctx.stage_for_image(pixels, image_size);
-
     image_ = std::make_unique<Image>(
         allocator, width, height,
         format, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_SAMPLED_BIT,
         VMA_MEMORY_USAGE_AUTO, mip_levels);
-
-    // Recorded into the upload batch; the flush at frame submission runs
-    // this before any rendering on the same queue, so the image is
-    // SHADER_READ_ONLY by the time anything samples it.
-    VkCommandBuffer cmd = upload_ctx.image_cb();
-
-    image_->transition_layout(cmd, VK_IMAGE_LAYOUT_UNDEFINED,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels);
-
-    VkBufferImageCopy region{};
-    region.bufferOffset = staging.offset;
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageExtent = {width, height, 1};
-
-    vkCmdCopyBufferToImage(cmd, staging.buffer, image_->handle(),
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    if (mip_levels > 1) {
-        image_->generate_mipmaps(cmd, physical_device, width, height, mip_levels);
-    } else {
-        image_->transition_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    }
-
     image_->create_view(device_, format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
+    image_->share(gpu);
+
+    // Materials sample it in fragment shaders, and the GI passes trace
+    // through the same bindless array from compute.
+    gpu.upload().to_texture(
+        gpu::mip(image_->shared(), 0), {},
+        std::span(static_cast<const std::byte*>(pixels), image_size),
+        {.after = gpu::Access::sampled_fragment | gpu::Access::sampled_compute,
+         .generate_mips = mip_levels > 1});
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);

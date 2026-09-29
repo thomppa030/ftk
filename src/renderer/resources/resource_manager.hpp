@@ -43,7 +43,6 @@ class MegaBuffer;
 class MeshletBuffer;
 class Model;
 class PipelineCache;
-class UploadContext;
 class Project;
 class Texture;
 class Material;
@@ -54,7 +53,7 @@ class ResourceManager {
 public:
     ResourceManager(VkDevice device, VmaAllocator allocator,
                     VkPhysicalDevice physical_device,
-                    UploadContext& upload,
+                    gpu::Device& gpu,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
                     MeshletBuffer* meshlet_buffer = nullptr,
                     PipelineCache* pipeline_cache = nullptr);
@@ -73,11 +72,6 @@ public:
     /// Re-read every loaded table whose recipe or source changed on disk.
     /// Debug builds; once a frame, before anything records.
     void poll_lut_changes();
-
-    /// The GPU interface's device, which keeps a texture being replaced
-    /// alive until the frames still reading it are done. Without one a table
-    /// cannot reload.
-    void set_gpu_device(gpu::Device* device) { gpu_device_ = device; }
 
     // Async loading support
     [[nodiscard]] ModelHandle find_model(const std::string& path) const;
@@ -245,7 +239,9 @@ private:
     VkDevice device_;
     VmaAllocator allocator_;
     VkPhysicalDevice physical_device_;
-    UploadContext& upload_;
+    /// Uploads what is loaded, and keeps a texture being replaced alive
+    /// until the frames still reading it are done.
+    gpu::Device& gpu_;
     BindlessTextures& bindless_;
     MegaBuffer* mega_buffer_;
     MeshletBuffer* meshlet_buffer_;
@@ -299,7 +295,6 @@ private:
     void watch_lut(const std::string& path, TextureHandle handle);
     void reload_lut(LoadedLut& lut);
 
-    gpu::Device* gpu_device_{nullptr};
     std::vector<LoadedLut> luts_;
     platform::FileWatcher lut_watcher_;
     std::unordered_set<std::string> lut_watched_dirs_;

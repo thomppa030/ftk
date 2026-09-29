@@ -277,19 +277,18 @@ void Engine::init_resources() {
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_->device(), vulkan_context_->allocator(),
         vulkan_context_->physical_device(),
-        vulkan_context_->upload_context(),
+        vulkan_context_->gpu_device(),
         vulkan_context_->bindless_textures(), vulkan_context_->mega_buffer(),
         vulkan_context_->meshlet_buffer(), vulkan_context_->pipeline_cache());
 
     resource_manager_->set_viewport_resolver([this](const std::string& name) -> uint32_t {
         return vulkan_context_->scene_viewport_bindless_index(name);
     });
-    resource_manager_->set_gpu_device(&vulkan_context_->gpu_device());
 
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
         vulkan_context_->allocator(), vulkan_context_->device(),
-        vulkan_context_->upload_context(),
+        vulkan_context_->gpu_device(),
         vulkan_context_->mega_buffer(), vulkan_context_->meshlet_buffer());
 
     default_texture_ = resource_manager_->load_texture(

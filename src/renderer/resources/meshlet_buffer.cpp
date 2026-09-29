@@ -1,5 +1,5 @@
 #include "renderer/resources/meshlet_buffer.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/device.hpp"
 #include "core/log.hpp"
 
 #include <cstring>
@@ -17,7 +17,7 @@ constexpr VkBufferUsageFlags MESHLET_SSBO_USAGE =
 
 MeshletBuffer::MeshletBuffer(Device& device, VmaAllocator allocator,
                              UploadContext& upload, gpu::Device& gpu)
-    : upload_{upload}
+    : gpu_{gpu}
     , meshlet_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                       INITIAL_MESHLET_SIZE, MAX_MESHLET_SIZE, "meshlets"}
     , bounds_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
@@ -26,6 +26,10 @@ MeshletBuffer::MeshletBuffer(Device& device, VmaAllocator allocator,
                            INITIAL_VERTEX_INDEX_SIZE, MAX_VERTEX_INDEX_SIZE, "meshlet_verts"}
     , triangle_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                        INITIAL_TRIANGLE_SIZE, MAX_TRIANGLE_SIZE, "meshlet_tris"} {
+    meshlet_buffer_.share();
+    bounds_buffer_.share();
+    vertex_index_buffer_.share();
+    triangle_buffer_.share();
     FJELL_GFX_INFO("MeshletBuffer created: {}KB meshlets, {}KB bounds, {}KB vert_idx, {}KB tris",
                    meshlet_buffer_.capacity() / 1024, bounds_buffer_.capacity() / 1024,
                    vertex_index_buffer_.capacity() / 1024, triangle_buffer_.capacity() / 1024);
@@ -62,18 +66,15 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
         m.triangle_offset = (original_byte_offset + global_tri_base_bytes) / 3;
     }
 
-    upload_.upload_buffer(meshlet_buffer_.handle(), meshlet_used_,
-                          adjusted_meshlets.data(), meshlet_size);
-    upload_.upload_buffer(bounds_buffer_.handle(), bounds_used_,
-                          result.bounds.data(), bounds_size);
-    upload_.upload_buffer(vertex_index_buffer_.handle(), vertex_index_used_,
-                          result.meshlet_vertices.data(), vert_idx_size);
+    gpu::Upload& upload = gpu_.upload();
+    upload.to_buffer(meshlet_buffer_.shared(), meshlet_used_, adjusted_meshlets);
+    upload.to_buffer(bounds_buffer_.shared(), bounds_used_, result.bounds);
+    upload.to_buffer(vertex_index_buffer_.shared(), vertex_index_used_, result.meshlet_vertices);
 
     // Pad triangle data to 4-byte alignment
     std::vector<uint8_t> padded_tris(tri_size_padded, 0);
     std::memcpy(padded_tris.data(), result.meshlet_triangles.data(), tri_size_raw);
-    upload_.upload_buffer(triangle_buffer_.handle(), triangle_raw_bytes_,
-                          padded_tris.data(), tri_size_padded);
+    upload.to_buffer(triangle_buffer_.shared(), triangle_raw_bytes_, padded_tris);
 
     MeshletRange range{};
     range.meshlet_offset = meshlet_count_;

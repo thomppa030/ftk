@@ -1,22 +1,25 @@
 #include "renderer/resources/mesh.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/device.hpp"
+#include "gpu/vulkan/native.hpp"
 
 namespace fjell {
 
-Mesh::Mesh(VmaAllocator allocator, UploadContext& upload,
+Mesh::Mesh(VmaAllocator allocator, gpu::Device& gpu,
            std::span<const Vertex> vertices,
            std::span<const uint32_t> indices)
     : vertex_buffer_{Buffer{allocator,
                      vertices.size_bytes(),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}}
+                     VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}}
     , index_buffer_{Buffer{allocator,
                     indices.size_bytes(),
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}}
+                    VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}}
     , index_count_{static_cast<uint32_t>(indices.size())} {
-    upload.upload_buffer(vertex_buffer_->handle(), 0, vertices.data(), vertices.size_bytes());
-    upload.upload_buffer(index_buffer_->handle(), 0, indices.data(), indices.size_bytes());
+    vertex_buffer_->share(gpu);
+    index_buffer_->share(gpu);
+    gpu.upload().to_buffer(vertex_buffer_->shared(), 0, vertices);
+    gpu.upload().to_buffer(index_buffer_->shared(), 0, indices);
 }
 
 Mesh::Mesh(MegaMeshEntry entry)

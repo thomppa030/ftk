@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    UploadContext& upload_;
+    gpu::Device& gpu_;
 
     GrowableBuffer vertex_buffer_;
     GrowableBuffer index_buffer_;

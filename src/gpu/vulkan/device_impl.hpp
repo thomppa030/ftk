@@ -4,6 +4,7 @@
 #include "gpu/device.hpp"
 #include "gpu/release_queue.hpp"
 #include "gpu/transient_memory.hpp"
+#include "gpu/upload.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include <vk_mem_alloc.h>
@@ -27,15 +28,22 @@
 
 namespace fjell {
 class GpuCore;
+class UploadContext;
 }
 
 namespace fjell::gpu {
 
 struct FrameSlot;
 
+/// The Vulkan backend's upload: the lanes `GpuCore` runs, which frames wait
+/// for.
+struct Upload::Impl {
+    UploadContext& lanes;
+};
+
 /// The Vulkan backend's device: pools of native objects behind the handles,
-/// over what `GpuCore` already brought up (the VkDevice, the allocator, the
-/// upload lane and the deferred deleter a frame drives).
+/// over what `GpuCore` already brought up (the VkDevice, the allocator and
+/// the upload lanes).
 struct Device::Impl {
     struct BufferRecord {
         VkBuffer buffer{VK_NULL_HANDLE};
@@ -213,6 +221,9 @@ struct Device::Impl {
     /// What was released and waits for the GPU to finish the frames that
     /// may still use it.
     ReleaseQueue releases;
+    /// The device's upload, made when first asked for.
+    Upload::Impl upload_state;
+    std::unique_ptr<Upload> upload;
     /// Memory that lasts one frame, reset with `frame_sets`. Its chunks are
     /// the device's own, destroyed with it.
     TransientMemory transient;

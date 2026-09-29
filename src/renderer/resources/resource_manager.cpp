@@ -35,14 +35,14 @@ namespace fs = std::filesystem;
 
 ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
                                  VkPhysicalDevice physical_device,
-                                 UploadContext& upload,
+                                 gpu::Device& gpu,
                                  BindlessTextures& bindless, MegaBuffer* mega_buffer,
                                  MeshletBuffer* meshlet_buffer,
                                  PipelineCache* pipeline_cache)
     : device_{device}
     , allocator_{allocator}
     , physical_device_{physical_device}
-    , upload_{upload}
+    , gpu_{gpu}
     , bindless_{bindless}
     , mega_buffer_{mega_buffer}
     , meshlet_buffer_{meshlet_buffer}
@@ -55,7 +55,7 @@ ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
     const std::array<uint8_t, 4> black = {0, 0, 0, 255};
 
     auto register_default = [&](const std::string& name, const uint8_t* pixels) -> TextureHandle {
-        auto tex = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_,
+        auto tex = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_,
                                              pixels, 1, 1);
         uint32_t bindless_idx = bindless_.add(*tex);
         auto handle = textures_.insert(name, std::move(tex));
@@ -92,7 +92,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         // Direct .fjmesh load
         if (ext == ".fjmesh") {
             auto data = Model::load_fjmesh(path);
-            auto model = std::make_unique<Model>(allocator_, upload_,
+            auto model = std::make_unique<Model>(allocator_, gpu_,
                                                   std::move(data), mega_buffer_,
                                                   meshlet_buffer_);
             return models_.insert(path, std::move(model));
@@ -108,7 +108,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
                 if (!ec && cache_time >= src_time) {
                     FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
                     auto data = Model::load_fjmesh(cached.string());
-                    auto model = std::make_unique<Model>(allocator_, upload_,
+                    auto model = std::make_unique<Model>(allocator_, gpu_,
                                                           std::move(data), mega_buffer_,
                                                           meshlet_buffer_);
                     return models_.insert(path, std::move(model));
@@ -117,7 +117,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         }
 
         // Fall back to glTF loading (existing path)
-        auto model = std::make_unique<Model>(allocator_, device_, physical_device_, upload_,
+        auto model = std::make_unique<Model>(allocator_, device_, physical_device_, gpu_,
                                               path, mega_buffer_, meshlet_buffer_);
         return models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
@@ -147,7 +147,7 @@ Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
         return make_error("Unknown primitive type: " + type);
     }
 
-    auto model = std::make_unique<Model>(allocator_, upload_, data, mega_buffer_, meshlet_buffer_);
+    auto model = std::make_unique<Model>(allocator_, gpu_, data, mega_buffer_, meshlet_buffer_);
     return models_.insert(key, std::move(model));
 }
 
@@ -159,7 +159,7 @@ Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_, path);
+        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_, path);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(path, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -178,7 +178,7 @@ Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& p
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_, path, true);
+        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_, path, true);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(key, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -231,7 +231,7 @@ uint32_t ResourceManager::file_texture_index(const FjslUniform& u, const std::st
 std::unique_ptr<Texture> ResourceManager::make_lut_texture(const LutStrip& strip) {
     // Clamped, filtered, one mip: the lookup takes its own half-texel
     // offsets and reads the table's edge texels as its ends.
-    return std::make_unique<Texture>(device_, allocator_, physical_device_, upload_,
+    return std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_,
                                      reinterpret_cast<const uint8_t*>(strip.rgba.data()),
                                      strip.width(), strip.height(),
                                      VK_FORMAT_R16G16B16A16_UNORM, 1, true);
@@ -321,7 +321,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     const uint32_t index = bindless_index(lut.handle);
     bindless_.update_entry(index, fresh->image_view(), fresh->sampler());
     auto& slot = textures_.slots[lut.handle.index()];
-    if (gpu_device_ != nullptr) gpu::vulkan::retire(*gpu_device_, std::move(slot));
+    gpu::vulkan::retire(gpu_, std::move(slot));
     slot = std::move(fresh);
     FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }
@@ -667,7 +667,7 @@ Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::stri
 
     try {
         auto data = SkeletalModel::load_fjskel(path);
-        auto model = std::make_unique<SkeletalModel>(allocator_, upload_,
+        auto model = std::make_unique<SkeletalModel>(allocator_, gpu_,
                                                       std::move(data), meshlet_buffer_);
         return skeletal_models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
@@ -744,7 +744,7 @@ Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string
         return it->second;
     }
 
-    auto terrain = TerrainAsset::load(path, device_, allocator_, physical_device_, upload_);
+    auto terrain = TerrainAsset::load(path, device_, allocator_, gpu_);
     if (!terrain) {
         return make_error(terrain.error());
     }

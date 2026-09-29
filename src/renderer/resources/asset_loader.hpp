@@ -16,13 +16,12 @@ class MegaBuffer;
 class MeshletBuffer;
 class ResourceManager;
 class ThreadPool;
-class UploadContext;
 
 class AssetLoader {
 public:
     AssetLoader(ThreadPool& pool, ResourceManager& resources,
                 VmaAllocator allocator, VkDevice device,
-                UploadContext& upload,
+                gpu::Device& gpu,
                 MegaBuffer* mega, MeshletBuffer* meshlet_buf);
 
     // Request async model load. Returns handle immediately (Loading state).
@@ -48,7 +47,7 @@ private:
     ResourceManager& resources_;
     VmaAllocator allocator_;
     VkDevice device_;
-    UploadContext& upload_;
+    gpu::Device& gpu_;
     MegaBuffer* mega_;
     MeshletBuffer* meshlet_buf_;
 

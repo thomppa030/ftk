@@ -43,11 +43,13 @@ struct SkinInfluence {
 // When loaded from .fjskel, also owns the embedded Skeleton.
 class MeshletBuffer;
 
-class UploadContext;
+namespace gpu {
+class Device;
+}
 
 class SkeletalModel {
 public:
-    SkeletalModel(VmaAllocator allocator, UploadContext& upload,
+    SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
                   FjSkinnedMeshData&& data,
                   MeshletBuffer* meshlet_buf = nullptr);
 

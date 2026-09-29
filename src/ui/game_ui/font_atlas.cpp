@@ -168,7 +168,7 @@ void FontAtlas::create(const std::string& recipe_path, const FontAtlasGpu& gpu,
 
     // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
     atlas_texture_ = std::make_unique<Texture>(
-        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.upload,
+        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.gpu_device,
         data.pixels.data(), atlas_width_, atlas_height_,
         VK_FORMAT_R8G8B8A8_UNORM, 1, true);
     atlas_index_ = gpu_.bindless->add(*atlas_texture_);
@@ -187,7 +187,7 @@ void FontAtlas::reload(FontAtlasData data) {
     ++generation_;
 
     auto fresh = std::make_unique<Texture>(
-        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.upload,
+        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.gpu_device,
         data.pixels.data(), atlas_width_, atlas_height_,
         VK_FORMAT_R8G8B8A8_UNORM, 1, true);
     gpu_.bindless->update_entry(atlas_index_, fresh->image_view(), fresh->sampler());

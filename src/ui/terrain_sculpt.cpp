@@ -46,7 +46,7 @@ HeightRect HeightRect::merged(const HeightRect& other) const {
     return {x0, z0, x1 - x0, z1 - z0};
 }
 
-void apply_terrain_rect(TerrainAsset& terrain, UploadContext& upload, PhysicsSubsystem* physics,
+void apply_terrain_rect(TerrainAsset& terrain, gpu::Upload& upload, PhysicsSubsystem* physics,
                         uint32_t node_id, const HeightRect& rect, const float* heights) {
     terrain.apply_heights(rect.x, rect.z, rect.width, rect.height, heights, upload);
     if (physics == nullptr) return;
@@ -55,7 +55,7 @@ void apply_terrain_rect(TerrainAsset& terrain, UploadContext& upload, PhysicsSub
     }
 }
 
-void apply_terrain_weights(TerrainAsset& terrain, UploadContext& upload,
+void apply_terrain_weights(TerrainAsset& terrain, gpu::Upload& upload,
                            PhysicsSubsystem* physics, uint32_t node_id, const HeightRect& rect,
                            const uint8_t* rgba) {
     terrain.apply_weights(rect.x, rect.z, rect.width, rect.height, rgba, upload);
@@ -125,7 +125,7 @@ bool raycast_terrain(const TerrainAsset& terrain, const glm::vec3& terrain_origi
     return false;
 }
 
-SculptStrokeCommand::SculptStrokeCommand(TerrainAsset& terrain, UploadContext& upload,
+SculptStrokeCommand::SculptStrokeCommand(TerrainAsset& terrain, gpu::Upload& upload,
                                          PhysicsSubsystem* physics, uint32_t node_id,
                                          HeightRect rect, std::vector<float> before,
                                          std::vector<float> after)
@@ -144,7 +144,7 @@ std::string SculptStrokeCommand::description() const {
     return "Sculpt terrain";
 }
 
-PaintStrokeCommand::PaintStrokeCommand(TerrainAsset& terrain, UploadContext& upload,
+PaintStrokeCommand::PaintStrokeCommand(TerrainAsset& terrain, gpu::Upload& upload,
                                        PhysicsSubsystem* physics, uint32_t node_id,
                                        HeightRect rect, std::vector<uint8_t> before,
                                        std::vector<uint8_t> after)

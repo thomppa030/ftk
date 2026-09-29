@@ -9,6 +9,7 @@
 #include "gpu/sampler.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
+#include "gpu/upload.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -145,6 +146,10 @@ public:
 
     /// The newest frame the GPU has finished.
     [[nodiscard]] uint64_t finished_frame() const;
+
+    /// Where data from the CPU goes into buffers and textures, landing before
+    /// the next frame's work.
+    [[nodiscard]] Upload& upload();
 
     [[nodiscard]] const Caps& caps() const;
 

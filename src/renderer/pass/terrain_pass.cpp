@@ -368,7 +368,7 @@ void TerrainPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
         // against. Catching them up here rather than in apply_heights() means
         // a stroke of many dabs costs one rebuild per frame, and the copy is
         // recorded outside the render pass like every other upload.
-        tc->terrain->refresh_patch_bounds(gpu.upload_context());
+        tc->terrain->refresh_patch_bounds(gpu.core().gpu_device().upload());
     }
     if (!any) return;
     ensure_fallback_material();

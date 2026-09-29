@@ -1,5 +1,5 @@
 #include "renderer/resources/mega_buffer.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/device.hpp"
 #include "core/log.hpp"
 
 namespace fjell {
@@ -22,11 +22,13 @@ constexpr VkBufferUsageFlags MEGA_INDEX_USAGE =
 
 MegaBuffer::MegaBuffer(Device& device, VmaAllocator allocator,
                        UploadContext& upload, gpu::Device& gpu)
-    : upload_{upload}
+    : gpu_{gpu}
     , vertex_buffer_{device, allocator, upload, gpu, MEGA_VERTEX_USAGE,
                      INITIAL_VERTEX_SIZE, MAX_VERTEX_SIZE, "mega_vertex"}
     , index_buffer_{device, allocator, upload, gpu, MEGA_INDEX_USAGE,
                     INITIAL_INDEX_SIZE, MAX_INDEX_SIZE, "mega_index"} {
+    vertex_buffer_.share();
+    index_buffer_.share();
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
                    vertex_buffer_.capacity() / (1024 * 1024),
                    index_buffer_.capacity() / (1024 * 1024));
@@ -43,10 +45,8 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
     vertex_buffer_.ensure_capacity(vertex_byte_offset + vertex_size);
     index_buffer_.ensure_capacity(index_byte_offset + index_size);
 
-    upload_.upload_buffer(vertex_buffer_.handle(), vertex_byte_offset,
-                          vertices.data(), vertex_size);
-    upload_.upload_buffer(index_buffer_.handle(), index_byte_offset,
-                          indices.data(), index_size);
+    gpu_.upload().to_buffer(vertex_buffer_.shared(), vertex_byte_offset, vertices);
+    gpu_.upload().to_buffer(index_buffer_.shared(), index_byte_offset, indices);
 
     MegaMeshEntry entry{};
     entry.vertex_offset = vertex_offset_;
@@ -65,8 +65,7 @@ void MegaBuffer::update_vertices(const MegaMeshEntry& entry,
     if (entry.vertex_count == 0 || vertices.size() != entry.vertex_count) return;
     const VkDeviceSize byte_offset =
         static_cast<VkDeviceSize>(entry.vertex_offset) * sizeof(Vertex);
-    upload_.upload_buffer(vertex_buffer_.handle(), byte_offset, vertices.data(),
-                          vertices.size() * sizeof(Vertex));
+    gpu_.upload().to_buffer(vertex_buffer_.shared(), byte_offset, vertices);
 }
 
 void MegaBuffer::bind(VkCommandBuffer cmd) const {

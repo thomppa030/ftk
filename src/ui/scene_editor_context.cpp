@@ -506,7 +506,7 @@ void SceneEditorContext::draw_sculpt(ViewportPanel& vp) {
     frame.brush.keys_allowed = vp.hovered || vp.focused;
     frame.brush.dt = ImGui::GetIO().DeltaTime;
     frame.brush.debug = deps_.vulkan_context->debug_draw_queue();
-    frame.upload = &deps_.vulkan_context->upload_context();
+    frame.upload = &deps_.vulkan_context->gpu_device().upload();
     frame.physics = deps_.physics;
     frame.history = &command_history();
     sculpt_tool_.update(frame);

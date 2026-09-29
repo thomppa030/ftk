@@ -9,13 +9,13 @@ namespace fjell {
 
 AssetLoader::AssetLoader(ThreadPool& pool, ResourceManager& resources,
                          VmaAllocator allocator, VkDevice device,
-                         UploadContext& upload,
+                         gpu::Device& gpu,
                          MegaBuffer* mega, MeshletBuffer* meshlet_buf)
     : pool_{pool}
     , resources_{resources}
     , allocator_{allocator}
     , device_{device}
-    , upload_{upload}
+    , gpu_{gpu}
     , mega_{mega}
     , meshlet_buf_{meshlet_buf} {}
 
@@ -78,7 +78,7 @@ void AssetLoader::poll() {
         }
 
         auto model = std::make_unique<Model>(
-            allocator_, upload_,
+            allocator_, gpu_,
             std::move(load.data), mega_, meshlet_buf_);
 
         resources_.emplace_model(load.handle, std::move(model));

@@ -19,7 +19,11 @@ namespace fjell {
 
 class Image;
 class Material;
-class UploadContext;
+
+namespace gpu {
+class Device;
+class Upload;
+}
 
 /// A loaded .fjterrain: the CPU height data plus the GPU texture the mesh
 /// shader samples to place vertices.
@@ -42,8 +46,7 @@ public:
 
     /// Load a .fjterrain and upload its heights as a single-channel texture.
     [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(
-        const std::string& path, VkDevice device, VmaAllocator allocator,
-        VkPhysicalDevice physical_device, UploadContext& upload);
+        const std::string& path, VkDevice device, VmaAllocator allocator, gpu::Device& gpu);
 
     [[nodiscard]] const FjTerrainData& data() const { return data_; }
     [[nodiscard]] const std::string& path() const { return path_; }
@@ -87,7 +90,7 @@ public:
     /// what makes the weights part of the saved file. Same shape as
     /// apply_heights; there is nothing to tell physics.
     void apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                       const uint8_t* rgba, UploadContext& upload);
+                       const uint8_t* rgba, gpu::Upload& upload);
 
     // ── Material layers ──
     // Up to FJTERRAIN_MAX_LAYERS ordinary .fjmat materials, blended by the
@@ -252,7 +255,7 @@ public:
     /// no physics world, and a play-time body is the caller's to refresh
     /// through PhysicsWorld::update_terrain_heights.
     void apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                       const float* heights, UploadContext& upload);
+                       const float* heights, gpu::Upload& upload);
 
     /// A rectangle of height samples: what an edit touched.
     struct SampleRect {
@@ -301,7 +304,7 @@ public:
     /// pass calls it every frame it draws. Kept off apply_heights() so a
     /// stroke of many dabs rebuilds each patch once per frame rather than once
     /// per dab.
-    void refresh_patch_bounds(UploadContext& upload);
+    void refresh_patch_bounds(gpu::Upload& upload);
 
 private:
     /// Decimate the height array into the triangle mesh ray tracing needs.

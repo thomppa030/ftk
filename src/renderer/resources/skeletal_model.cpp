@@ -1,5 +1,6 @@
 #include "renderer/resources/skeletal_model.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/device.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "core/log.hpp"
@@ -13,18 +14,18 @@
 
 namespace fjell {
 
-SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
+SkeletalModel::SkeletalModel(VmaAllocator allocator, gpu::Device& gpu,
                              FjSkinnedMeshData&& data,
                              MeshletBuffer* meshlet_buf)
     : vertex_buffer_{allocator,
                      data.vertices.size() * sizeof(SkinnedVertex),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                          | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}
+                     VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}
     , index_buffer_{allocator,
                     data.indices.size() * sizeof(uint32_t),
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}
+                    VMA_MEMORY_USAGE_AUTO, 0, 0, gpu::vulkan::upload_families(gpu)}
     , index_count_{static_cast<uint32_t>(data.indices.size())}
     , joint_count_{data.joint_count}
     , local_aabb_{data.aabb}
@@ -82,11 +83,10 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
         }
     }
 
-    VkDeviceSize vert_size = data.vertices.size() * sizeof(SkinnedVertex);
-    upload.upload_buffer(vertex_buffer_.handle(), 0, data.vertices.data(), vert_size);
-
-    VkDeviceSize idx_size = data.indices.size() * sizeof(uint32_t);
-    upload.upload_buffer(index_buffer_.handle(), 0, data.indices.data(), idx_size);
+    vertex_buffer_.share(gpu);
+    index_buffer_.share(gpu);
+    gpu.upload().to_buffer(vertex_buffer_.shared(), 0, data.vertices);
+    gpu.upload().to_buffer(index_buffer_.shared(), 0, data.indices);
 
     FJELL_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
                     data.vertices.size(), data.indices.size(), joint_count_,

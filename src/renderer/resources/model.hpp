@@ -71,17 +71,17 @@ class Model {
 public:
     // Load from glTF/GLB file (existing path)
     Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
-          UploadContext& upload,
+          gpu::Device& gpu,
           const std::string& path, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from primitive mesh data (cube/plane/sphere)
-    Model(VmaAllocator allocator, UploadContext& upload,
+    Model(VmaAllocator allocator, gpu::Device& gpu,
           const PrimitiveMeshData& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from pre-loaded .fjmesh data (no parsing, no meshlet building)
-    Model(VmaAllocator allocator, UploadContext& upload,
+    Model(VmaAllocator allocator, gpu::Device& gpu,
           FjMeshData&& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 

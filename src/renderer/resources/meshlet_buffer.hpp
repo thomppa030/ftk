@@ -41,7 +41,7 @@ public:
     [[nodiscard]] uint32_t total_meshlets() const { return meshlet_count_; }
 
 private:
-    UploadContext& upload_;
+    gpu::Device& gpu_;
 
     GrowableBuffer meshlet_buffer_;
     GrowableBuffer bounds_buffer_;

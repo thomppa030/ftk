@@ -17,7 +17,6 @@ struct FjFontRecipe;
 
 class Texture;
 class BindlessTextures;
-class UploadContext;
 namespace gpu {
 class Device;
 }
@@ -28,10 +27,9 @@ struct FontAtlasGpu {
     VkDevice device{VK_NULL_HANDLE};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device{VK_NULL_HANDLE};
-    UploadContext* upload{nullptr};
     BindlessTextures* bindless{nullptr};
-    /// Keeps a reloaded atlas's old texture alive until the frames drawing
-    /// with it are done.
+    /// Uploads the atlas, and keeps a reloaded atlas's old texture alive
+    /// until the frames drawing with it are done.
     gpu::Device* gpu_device{nullptr};
 };
 

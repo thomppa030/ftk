@@ -56,6 +56,10 @@ namespace fjell::gpu::vulkan {
 [[nodiscard]] Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
                                    const VkImageCreateInfo& made_as);
 
+/// The queue families a buffer that `Upload` writes is shared across, for
+/// such a buffer made outside the interface.
+[[nodiscard]] std::span<const uint32_t> upload_families(Device& device);
+
 /// The aspect a barrier on a texture names; colour when the handle finds
 /// none.
 [[nodiscard]] VkImageAspectFlags native_aspect(Device& device, Texture texture);

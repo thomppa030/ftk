@@ -12,11 +12,13 @@
 
 namespace fjell {
 
-class UploadContext;
+namespace gpu {
+class Device;
+}
 
 class Mesh {
 public:
-    Mesh(VmaAllocator allocator, UploadContext& upload,
+    Mesh(VmaAllocator allocator, gpu::Device& gpu,
          std::span<const Vertex> vertices,
          std::span<const uint32_t> indices);
 
