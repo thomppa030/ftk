@@ -1,4 +1,5 @@
 #include "renderer/resources/mega_buffer.hpp"
+#include "gpu/render_encoder.hpp"
 #include "gpu/device.hpp"
 #include "core/log.hpp"
 
@@ -66,6 +67,11 @@ void MegaBuffer::update_vertices(const MegaMeshEntry& entry,
     const VkDeviceSize byte_offset =
         static_cast<VkDeviceSize>(entry.vertex_offset) * sizeof(Vertex);
     gpu_.upload().to_buffer(vertex_buffer_.shared(), byte_offset, vertices);
+}
+
+void MegaBuffer::bind(gpu::RenderEncoder& pass) const {
+    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_.shared()));
+    pass.set_index_buffer(gpu::BufferRange(index_buffer_.shared()), gpu::IndexType::u32);
 }
 
 void MegaBuffer::bind(VkCommandBuffer cmd) const {

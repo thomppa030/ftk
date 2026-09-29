@@ -202,6 +202,8 @@ struct FrameContext {
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
     std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};
     std::array<VkDescriptorSet, MAX_SHADOW_CASCADES> shadow_cascade_draw_data{};
+    /// Those sets as the GPU interface binds them.
+    std::array<gpu::BindGroup, MAX_SHADOW_CASCADES> shadow_cascade_draw_data_groups{};
 
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };

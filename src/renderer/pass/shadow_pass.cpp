@@ -1,28 +1,19 @@
 #include "renderer/pass/shadow_pass.hpp"
-#include "gpu/vulkan/native.hpp"
 
-#include "renderer/pass_registry.hpp"
-#include "renderer/pass/terrain_pass.hpp"
-#include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
-#include "renderer/gpu/vma_image.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu_context.hpp"
-#include "renderer/frustum.hpp"
-#include "renderer/indirect_batch.hpp"
-#include "renderer/pass_builder.hpp"
-#include "renderer/renderer_constants.hpp"
-#include "renderer/resources/mega_buffer.hpp"
-#include "renderer/resources/model.hpp"
-#include "renderer/offscreen_pass.hpp"
-#include "renderer/render_queue.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "renderer/resources/skeletal_model.hpp"
-#include "renderer/uniform_types.hpp"
-#include "renderer/resources/vertex.hpp"
-#include "environment/environment_state.hpp"
-#include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
+#include "environment/environment_state.hpp"
+#include "gpu/device.hpp"
+#include "renderer/global_bindings.hpp"
+#include "renderer/gpu_context.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/pass/terrain_pass.hpp"
+#include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/render_queue.hpp"
+#include "renderer/resources/mega_buffer.hpp"
+#include "renderer/resources/skeletal_model.hpp"
+#include "renderer/resources/vertex.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -30,7 +21,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <stdexcept>
 
 namespace fjell {
 
@@ -162,340 +152,80 @@ void ShadowPass::update_cascades(const glm::mat4& view, const glm::mat4& project
     }
 }
 
-// ── Image creation ──────────────────────────────────────────────────────
-
-void ShadowPass::create_images() {
-    written_ = false;
-    // Depth image array: CASCADE_COUNT layers
-    VkImageCreateInfo image_info{};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.format = DEPTH_FORMAT;
-    image_info.extent = {MAP_SIZE, MAP_SIZE, 1};
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = CASCADE_COUNT;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (create_vma_image(allocator_, &image_info, &image_, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shadow map image");
-    }
-    set_image_debug_name(device_, image_, "shadow_map");
-
-    // Array view (all layers) for sampling in the fragment shader
-    VkImageViewCreateInfo array_view_info{};
-    array_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    array_view_info.image = image_;
-    array_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    array_view_info.format = DEPTH_FORMAT;
-    array_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    array_view_info.subresourceRange.baseMipLevel = 0;
-    array_view_info.subresourceRange.levelCount = 1;
-    array_view_info.subresourceRange.baseArrayLayer = 0;
-    array_view_info.subresourceRange.layerCount = CASCADE_COUNT;
-
-    if (vkCreateImageView(device_, &array_view_info, nullptr, &array_view_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shadow map array view");
-    }
-    texture_ = gpu::vulkan::adopt(*gpu_device_, image_, array_view_, image_info);
-
-    // Per-layer views for rendering into each cascade
-    for (uint32_t i = 0; i < CASCADE_COUNT; ++i) {
-        VkImageViewCreateInfo layer_view_info{};
-        layer_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        layer_view_info.image = image_;
-        layer_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        layer_view_info.format = DEPTH_FORMAT;
-        layer_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        layer_view_info.subresourceRange.baseMipLevel = 0;
-        layer_view_info.subresourceRange.levelCount = 1;
-        layer_view_info.subresourceRange.baseArrayLayer = i;
-        layer_view_info.subresourceRange.layerCount = 1;
-
-        if (vkCreateImageView(device_, &layer_view_info, nullptr, &cascade_views_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create shadow map cascade view");
-        }
-    }
-
-    // Comparison sampler for PCF shadow sampling
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-    sampler_info.compareEnable = VK_TRUE;
-    sampler_info.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    if (vkCreateSampler(device_, &sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shadow map sampler");
-    }
-
-    FJELL_GFX_DEBUG("Shadow map created: {}x{}, {} cascades", MAP_SIZE, MAP_SIZE, CASCADE_COUNT);
-}
-
-void ShadowPass::destroy_images() {
-    if (sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, sampler_, nullptr);
-        sampler_ = VK_NULL_HANDLE;
-    }
-    for (auto& v : cascade_views_) {
-        if (v != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, v, nullptr);
-            v = VK_NULL_HANDLE;
-        }
-    }
-    if (array_view_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(device_, array_view_, nullptr);
-        array_view_ = VK_NULL_HANDLE;
-    }
-    texture_.reset();
-    destroy_vma_image(allocator_, image_, memory_);
-    image_ = VK_NULL_HANDLE;
-    memory_ = VK_NULL_HANDLE;
-}
-
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> ShadowPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    gpu_device_ = resources.device;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    draw_data_layout_ = resources.draw_data_layout;
-    global_set_layout_ = resources.global_set_layout;
-    material_set_layout_ = resources.material_set_layout;
+Result<> ShadowPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    written_ = false;
+    FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{
+                          .format = DEPTH_FORMAT,
+                          .width = MAP_SIZE,
+                          .height = MAP_SIZE,
+                          .layers = CASCADE_COUNT,
+                          .use = gpu::TextureUse::depth_target | gpu::TextureUse::sampled,
+                          .name = "shadow_map",
+                      }));
+    // Filtered comparison; outside the map reads as lit.
+    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
+                                 .mip_filter = gpu::Filter::nearest,
+                                 .address = gpu::Address::border,
+                                 .compare = gpu::Compare::less_equal,
+                                 .border = gpu::Border::opaque_white});
 
-    create_images();
-
-    auto vert_code = read_spirv(base_path::resolve("shaders/shadow.vert.spv"));
-    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
-    auto vert_module = create_shader_module(device_, vert_code);
-    auto frag_module = create_shader_module(device_, frag_code);
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_module;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_module;
-    stages[1].pName = "main";
-
-    auto binding_desc = Vertex::get_binding_description();
-    auto attrib_descs = Vertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding_desc;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrib_descs.size());
-    vertex_input.pVertexAttributeDescriptions = attrib_descs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    input_assembly.primitiveRestartEnable = VK_FALSE;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_TRUE;   // clamp instead of clip for shadow maps
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT; // front-face culling reduces shadow acne
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_TRUE;
-    rasterizer.depthBiasConstantFactor = DEPTH_BIAS_CONSTANT;
-    rasterizer.depthBiasSlopeFactor = DEPTH_BIAS_SLOPE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.logicOpEnable = VK_FALSE;
-    color_blending.attachmentCount = 0;
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_TRUE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depth_stencil.depthBoundsTestEnable = VK_FALSE;
-    depth_stencil.stencilTestEnable = VK_FALSE;
-
-    // Push constants: light_space mat4 only (64 bytes); model from SSBO
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(glm::mat4);
-
-    std::array shadow_set_layouts = {global_set_layout_, material_set_layout_, draw_data_layout_};
-
-    VkPipelineLayoutCreateInfo layout_info{};
-    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = static_cast<uint32_t>(shadow_set_layouts.size());
-    layout_info.pSetLayouts = shadow_set_layouts.data();
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
-
-    if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create shadow pipeline layout");
+    // Depth clamped rather than clipped, so casters behind the near plane
+    // still land in the map; front faces culled and a slope-scaled bias
+    // against acne.
+    DepthVariantState state{
+        .vertex_layout = Vertex::layout(),
+        .raster = {.cull = gpu::Cull::front,
+                   .depth_clamp = true,
+                   .depth_bias = DEPTH_BIAS_CONSTANT,
+                   .depth_bias_slope = DEPTH_BIAS_SLOPE},
+        .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
+        .depth_format = DEPTH_FORMAT,
+    };
+    if (auto made = casters_.create(*device_, "shaders/shadow.vert", "shaders/depth_only.frag", state,
+                                    resources.globals, resources.bindless, resources.draw_data,
+                                    "shadow");
+        !made) {
+        return made;
     }
+    // Skinned casters draw from their own vertices, with the same state.
+    state.vertex_layout = SkinnedVertex::layout();
+    FJELL_TRY(skinned_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+                                     .vertex = "shaders/skinned_shadow.vert",
+                                     .fragment = "shaders/depth_only.frag",
+                                     .vertex_layout = state.vertex_layout,
+                                     .raster = state.raster,
+                                     .depth = state.depth,
+                                     .depth_format = DEPTH_FORMAT,
+                                     .shared = {resources.globals, resources.draw_data},
+                                     .name = "skinned_shadow",
+                                 }));
 
-    shadow_config_.layout = layout_;
-    shadow_config_.depth_format = DEPTH_FORMAT;
-    shadow_config_.samples = VK_SAMPLE_COUNT_1_BIT;
-    shadow_config_.cull_mode = VK_CULL_MODE_FRONT_BIT;
-    shadow_config_.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-    shadow_config_.depth_clamp = true;
-    shadow_config_.depth_bias = true;
-    shadow_config_.depth_bias_constant = 1.25f;
-    shadow_config_.depth_bias_slope = 1.75f;
-    shadow_config_.pipeline_cache = vk_pipeline_cache_;
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 0;
-    rendering_info.depthAttachmentFormat = DEPTH_FORMAT;
-
-    VkGraphicsPipelineCreateInfo pipeline_info{};
-    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = &rendering_info;
-    pipeline_info.stageCount = static_cast<uint32_t>(stages.size());
-    pipeline_info.pStages = stages.data();
-    pipeline_info.pVertexInputState = &vertex_input;
-    pipeline_info.pInputAssemblyState = &input_assembly;
-    pipeline_info.pViewportState = &viewport_state;
-    pipeline_info.pRasterizationState = &rasterizer;
-    pipeline_info.pMultisampleState = &multisampling;
-    pipeline_info.pDepthStencilState = &depth_stencil;
-    pipeline_info.pColorBlendState = &color_blending;
-    pipeline_info.pDynamicState = &dynamic_state;
-    pipeline_info.layout = layout_;
-    pipeline_info.renderPass = VK_NULL_HANDLE;
-
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
-                                   nullptr, &pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create shadow pipeline");
-    }
-
-    // Skinned shadow pipeline
-    auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_shadow.vert.spv"));
-    auto skinned_vert_module = create_shader_module(device_, skinned_vert_code);
-
-    stages[0].module = skinned_vert_module;
-
-    auto skinned_binding_desc = SkinnedVertex::get_binding_description();
-    auto skinned_attrib_descs = SkinnedVertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo skinned_vertex_input{};
-    skinned_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    skinned_vertex_input.vertexBindingDescriptionCount = 1;
-    skinned_vertex_input.pVertexBindingDescriptions = &skinned_binding_desc;
-    skinned_vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attrib_descs.size());
-    skinned_vertex_input.pVertexAttributeDescriptions = skinned_attrib_descs.data();
-
-    pipeline_info.pStages = stages.data();
-    pipeline_info.pVertexInputState = &skinned_vertex_input;
-
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
-                                   nullptr, &skinned_pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        return make_error("Failed to create skinned shadow pipeline");
-    }
-
-    vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
-    vkDestroyShaderModule(device_, vert_module, nullptr);
-    vkDestroyShaderModule(device_, frag_module, nullptr);
-    FJELL_GFX_DEBUG("Shadow pass pipelines created (standard + skinned)");
+    FJELL_GFX_DEBUG("Shadow map created: {}x{}, {} cascades", MAP_SIZE, MAP_SIZE, CASCADE_COUNT);
     return {};
 }
 
 void ShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    auto& gb = gpu.global_bindings();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        gb.write_image(i, "shadow_map",
-            array_view_, sampler_,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-        gb.flush_writes();
-    }
-}
-
-void ShadowPass::register_custom_shadow(uint32_t pipeline_id,
-                                          const std::string& vert_spv_path) {
-    auto pipeline = create_depth_vertex_pipeline(device_, vert_spv_path, shadow_config_);
-    register_pipeline(device_, custom_shadow_pipelines_, pipeline_id, pipeline);
+    gpu.global_bindings().set("shadow_map", gpu::sampled(atlas_, sampler_));
 }
 
 void ShadowPass::destroy() {
-    destroy_pipeline_map(device_, custom_shadow_pipelines_);
-
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device_, pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
-    }
-    if (skinned_pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device_, skinned_pipeline_, nullptr);
-        skinned_pipeline_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device_, layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
-    destroy_images();
+    casters_.destroy();
+    skinned_pipeline_.reset();
+    atlas_.reset();
 }
 
-// ── Recording ───────────────────────────────────────────────────────────
-
 void ShadowPass::record(const FrameContext& ctx) {
-    // No early-out on an empty queue: consumers sample the atlas whether or not
-    // anything cast into it, and returning here would leave the cascades in
-    // DEPTH_ATTACHMENT_OPTIMAL. The per-cascade path below already clears and
-    // transitions a cascade that has no geometry, so an empty queue is just the
-    // case where every cascade takes that branch.
-    if (ctx.queue == nullptr) return;
+    // No early-out on an empty queue: lit surfaces sample every cascade
+    // whether or not anything cast into it, so a cascade with nothing to draw
+    // is still cleared.
+    if (ctx.queue == nullptr || !atlas_) return;
 
     FJELL_PROFILE_SCOPE_N("record_shadow");
-    FJELL_GPU_ZONE(ctx, "Cascade Shadows");
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(MAP_SIZE);
-    viewport.height = static_cast<float>(MAP_SIZE);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = {MAP_SIZE, MAP_SIZE};
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Cascade Shadows");
 
     // Terrain casts too, and generates its surface in a mesh shader, so it has
     // no draw in the indirect batches below and has to record itself. A scene
@@ -510,202 +240,56 @@ void ShadowPass::record(const FrameContext& ctx) {
     }
 
     for (uint32_t c = 0; c < CASCADE_COUNT; ++c) {
-        // Skip cascade if it has nothing to draw or its descriptor is not ready.
         // Skinned casters count: they are drawn below the batched meshes and
         // are not among the batch's opaque draws.
         auto* cascade_batch = ctx.shadow_cascade_batches[c];
         const bool has_meshes = cascade_batch != nullptr
                                 && (cascade_batch->opaque_draw_count(ctx.frame_index) > 0
                                     || !cascade_batch->skinned_draw_indices(ctx.frame_index).empty())
-                                && ctx.shadow_cascade_draw_data[c] != VK_NULL_HANDLE;
-        if (!has_meshes && terrain == nullptr) {
-            // Still need to clear the cascade layer for correct sampling
-            VkImageMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            barrier.srcAccessMask = 0;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-            barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image = image_;
-            barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, c, 1};
+                                && ctx.shadow_cascade_draw_data_groups[c].valid();
 
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(ctx.cmd, &dep);
+        // The cascade's layer, cleared as its scope opens.
+        auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = gpu::layer(atlas_, c),
+                                                               .load = gpu::Load::clear}});
+        if (has_meshes) {
+            const gpu::BindGroup draw_data = ctx.shadow_cascade_draw_data_groups[c];
+            auto bind = [&](bool custom) {
+                pass.bind(ctx.globals);
+                if (custom) pass.bind(ctx.bindless);
+                pass.bind(draw_data);
+                pass.push(light_matrices_[c]);
+            };
 
-            VkRenderingAttachmentInfo depth_attachment{};
-            depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            depth_attachment.imageView = cascade_views_[c];
-            depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depth_attachment.clearValue.depthStencil = {1.0f, 0};
+            // This cascade's batched casters, each range with its material's
+            // pipeline.
+            if (ctx.mega_buffer) {
+                ctx.mega_buffer->bind(pass);
+                casters_.draw_batch(pass, *cascade_batch, ctx.frame_index, bind);
+            }
 
-            VkRenderingInfo rendering_info{};
-            rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            rendering_info.renderArea.offset = {0, 0};
-            rendering_info.renderArea.extent = {MAP_SIZE, MAP_SIZE};
-            rendering_info.layerCount = 1;
-            rendering_info.pDepthAttachment = &depth_attachment;
-            vkCmdBeginRendering(ctx.cmd, &rendering_info);
-            vkCmdEndRendering(ctx.cmd);
-            continue;
-        }
-
-        // A cascade with terrain but no meshes still needs its render pass: the
-        // mesh path below binds descriptors this draw does not use, and the
-        // batch it reads from is empty, so terrain records on its own here.
-        if (!has_meshes) {
-            VkImageMemoryBarrier2 t_barrier{};
-            t_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            t_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            t_barrier.srcAccessMask = 0;
-            t_barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-            t_barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            t_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            t_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            t_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            t_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            t_barrier.image = image_;
-            t_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, c, 1};
-
-            VkDependencyInfo t_dep{};
-            t_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            t_dep.imageMemoryBarrierCount = 1;
-            t_dep.pImageMemoryBarriers = &t_barrier;
-            vkCmdPipelineBarrier2(ctx.cmd, &t_dep);
-
-            VkRenderingAttachmentInfo t_depth{};
-            t_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            t_depth.imageView = cascade_views_[c];
-            t_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            t_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            t_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            t_depth.clearValue.depthStencil = {1.0f, 0};
-
-            VkRenderingInfo t_info{};
-            t_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            t_info.renderArea.offset = {0, 0};
-            t_info.renderArea.extent = {MAP_SIZE, MAP_SIZE};
-            t_info.layerCount = 1;
-            t_info.colorAttachmentCount = 0;
-            t_info.pDepthAttachment = &t_depth;
-
-            vkCmdBeginRendering(ctx.cmd, &t_info);
-            terrain->record_shadow(ctx, c);
-            vkCmdEndRendering(ctx.cmd);
-            continue;
-        }
-
-        VkDescriptorSet cascade_draw_data = ctx.shadow_cascade_draw_data[c];
-
-        // Transition cascade layer: UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        barrier.srcAccessMask = 0;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image_;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = c;
-        barrier.subresourceRange.layerCount = 1;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(ctx.cmd, &dep);
-
-        VkRenderingAttachmentInfo depth_attachment{};
-        depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = cascade_views_[c];
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depth_attachment.clearValue.depthStencil = {1.0f, 0};
-
-        VkRenderingInfo rendering_info{};
-        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        rendering_info.renderArea.offset = {0, 0};
-        rendering_info.renderArea.extent = {MAP_SIZE, MAP_SIZE};
-        rendering_info.layerCount = 1;
-        rendering_info.colorAttachmentCount = 0;
-        rendering_info.pDepthAttachment = &depth_attachment;
-
-        vkCmdBeginRendering(ctx.cmd, &rendering_info);
-
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-        // Bind global UBO + material/params + per-cascade draw data
-        std::array shadow_sets = {ctx.global_descriptor_set, ctx.bindless_set, cascade_draw_data};
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                0, static_cast<uint32_t>(shadow_sets.size()),
-                                shadow_sets.data(), 0, nullptr);
-
-        // Push light_space matrix for this cascade
-        vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                           0, sizeof(glm::mat4), &light_matrices_[c]);
-
-        // Draw only this cascade's geometry via MDI
-        if (ctx.mega_buffer) {
-            ctx.mega_buffer->bind(ctx.cmd);
-
-            draw_indirect_per_range(ctx.cmd, pipeline_, custom_shadow_pipelines_,
-                                    *cascade_batch, ctx.frame_index,
-                                    [&](VkCommandBuffer cmd) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                        0, static_cast<uint32_t>(shadow_sets.size()),
-                                        shadow_sets.data(), 0, nullptr);
-                vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                                   0, sizeof(glm::mat4), &light_matrices_[c]);
-            });
-        }
-
-        // Skinned shadow draws (per-model VBO, same pattern as depth prepass)
-        const auto& skinned_indices = cascade_batch->skinned_draw_indices(ctx.frame_index);
-        if (!skinned_indices.empty() && ctx.shadow_cascade_commands[c]) {
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
-            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                    0, static_cast<uint32_t>(shadow_sets.size()),
-                                    shadow_sets.data(), 0, nullptr);
-            vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(glm::mat4), &light_matrices_[c]);
-
-            uint32_t idx = 0;
-            for (const auto& dc : *ctx.shadow_cascade_commands[c]) {
-                if (!dc.skinned || !dc.skeletal_model) continue;
-                if (idx >= skinned_indices.size()) break;
-                dc.skeletal_model->bind(ctx.cmd);
-                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(),
-                                 1, 0, 0, skinned_indices[idx]);
-                idx++;
+            // Skinned casters, each from its own vertices.
+            const auto& skinned_indices = cascade_batch->skinned_draw_indices(ctx.frame_index);
+            if (!skinned_indices.empty() && ctx.shadow_cascade_commands[c]) {
+                pass.set_pipeline(skinned_pipeline_);
+                bind(false);
+                uint32_t idx = 0;
+                for (const auto& dc : *ctx.shadow_cascade_commands[c]) {
+                    if (!dc.skinned || !dc.skeletal_model) continue;
+                    if (idx >= skinned_indices.size()) break;
+                    dc.skeletal_model->bind(pass);
+                    pass.draw_indexed(dc.skeletal_model->index_count(), 1, 0, 0, skinned_indices[idx]);
+                    idx++;
+                }
             }
         }
 
         // Terrain, which generates its surface in a mesh shader and so cannot
-        // be part of the indirect batches above. It rebinds its own pipeline
-        // and descriptor sets; the cascade index picks the light matrix out of
-        // the global UBO, which is already bound here.
+        // be part of the batches above. It still records natively into this
+        // scope, binding its own pipeline and sets; the cascade index picks
+        // the light matrix out of the global UBO.
         if (terrain != nullptr) {
             terrain->record_shadow(ctx, c);
         }
-
-        vkCmdEndRendering(ctx.cmd);
     }
     written_ = true;
 }
@@ -727,15 +311,11 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void ShadowPass::collect_exports(DeclareContext& ctx) {
-    if (image_ == VK_NULL_HANDLE || array_view_ == VK_NULL_HANDLE) { return; }
-    ImportedImage img{};
-    img.view = texture_;
-    img.persistent = true;
+    if (!atlas_) { return; }
     // Every lit surface samples it in the fragment shader through the global
     // set. Nothing is in it before the pass first draws.
-    img.resting = gpu::Access::sampled_fragment;
-    img.unwritten = !written_;
-    ctx.imports.emplace(fg_name_hash("shadow_atlas"), img);
+    ctx.export_texture("shadow_atlas", atlas_,
+                       {.persistent = true, .resting = gpu::Access::sampled_fragment, .unwritten = !written_});
 }
 
 } // namespace fjell

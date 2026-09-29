@@ -145,3 +145,16 @@ TEST_CASE("the engine vertex's layout matches its Vulkan description", "[gpu]") 
         CHECK(layout.attributes[i].offset == attributes[i].offset);
     }
 }
+
+TEST_CASE("the skinned vertex's layout matches its Vulkan description", "[gpu]") {
+    const VertexLayout layout = fjell::SkinnedVertex::layout();
+    const auto binding = fjell::SkinnedVertex::get_binding_description();
+    const auto attributes = fjell::SkinnedVertex::get_attribute_descriptions();
+    CHECK(layout.stride == binding.stride);
+    REQUIRE(layout.attributes.size() == attributes.size());
+    for (size_t i = 0; i < attributes.size(); ++i) {
+        CHECK(layout.attributes[i].location == attributes[i].location);
+        CHECK(vulkan::to_vk(layout.attributes[i].format) == attributes[i].format);
+        CHECK(layout.attributes[i].offset == attributes[i].offset);
+    }
+}

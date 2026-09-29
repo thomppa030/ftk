@@ -9,6 +9,7 @@
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/gpu/device.hpp"
 #include "gpu/vulkan/native.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
@@ -280,7 +281,7 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     shadow_raster.depthBiasSlopeFactor = ShadowPass::DEPTH_BIAS_SLOPE;
 
     VkPipelineRenderingCreateInfo shadow_rendering = depth_rendering;
-    shadow_rendering.depthAttachmentFormat = ShadowPass::DEPTH_FORMAT;
+    shadow_rendering.depthAttachmentFormat = gpu::vulkan::to_vk(ShadowPass::DEPTH_FORMAT);
 
     // The cascades are single-sampled whatever the camera target is doing, and
     // a pipeline whose rasterizationSamples disagree with the attachment is

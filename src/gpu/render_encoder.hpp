@@ -111,6 +111,17 @@ struct Rect {
     uint32_t height{0};
 };
 
+/// One draw's arguments as `RenderEncoder::draw_indexed_indirect` reads them
+/// from a buffer, in this order on every backend.
+struct DrawIndexedArgs {
+    uint32_t index_count{0};
+    uint32_t instance_count{0};
+    uint32_t first_index{0};
+    int32_t vertex_offset{0};
+    uint32_t first_instance{0};
+};
+static_assert(sizeof(DrawIndexedArgs) == 20);
+
 /// The size of an index.
 enum class IndexType : uint8_t {
     u16,

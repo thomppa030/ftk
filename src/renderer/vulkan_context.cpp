@@ -442,6 +442,9 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
         ctx.shadow_cascade_batches[c] = gatherer_.shadow_batch(c);
         ctx.shadow_cascade_draw_data[c] =
             gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
+        if (ctx.shadow_cascade_draw_data[c] != VK_NULL_HANDLE) {
+            ctx.shadow_cascade_draw_data_groups[c] = gpu_.draw_data_group(ctx.shadow_cascade_draw_data[c]);
+        }
         ctx.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
     }
 
@@ -1796,6 +1799,9 @@ void VulkanContext::sync_custom_depth_pipelines() {
     auto* pc = gpu_.pipeline_cache();
     if (!pc) return;
 
+    // Registered afresh, so a shader that no longer displaces its vertices
+    // falls back to the pass's own pipeline.
+    shadow_pass().clear_custom_shadows();
     for (uint32_t id = 0; id < pc->shader_count(); ++id) {
         if (!pc->has_custom_vertex(id)) continue;
 

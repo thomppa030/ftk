@@ -1,4 +1,5 @@
 #include "renderer/resources/skeletal_model.hpp"
+#include "gpu/render_encoder.hpp"
 #include "gpu/device.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "renderer/resources/fjmesh.hpp"
@@ -115,6 +116,11 @@ void SkeletalModel::pose_surface(const std::vector<glm::mat4>& skin_matrices,
         }
         out[i] = posed;
     }
+}
+
+void SkeletalModel::bind(gpu::RenderEncoder& pass) const {
+    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_.shared()));
+    pass.set_index_buffer(gpu::BufferRange(index_buffer_.shared()), gpu::IndexType::u32);
 }
 
 void SkeletalModel::bind(VkCommandBuffer cmd) const {

@@ -108,6 +108,7 @@ add_executable(fjell
     renderer/pass/debug_pass.cpp
     renderer/pass/output_overlay.cpp
     renderer/pass/depth_prepass.cpp
+    renderer/pass/depth_variants.cpp
     renderer/pass/depth_resolve_pass.cpp
     renderer/pass/depth_viz_pass.cpp
     renderer/pass/light_cull_pass.cpp

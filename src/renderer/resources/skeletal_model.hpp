@@ -45,6 +45,7 @@ class MeshletBuffer;
 
 namespace gpu {
 class Device;
+class RenderEncoder;
 }
 
 class SkeletalModel {
@@ -57,6 +58,8 @@ public:
     [[nodiscard]] static FjSkinnedMeshData load_fjskel(const std::string& path);
 
     void bind(VkCommandBuffer cmd) const;
+    /// Sets the model's own vertices and 32-bit indices.
+    void bind(gpu::RenderEncoder& pass) const;
     void draw(VkCommandBuffer cmd) const;
 
     [[nodiscard]] uint32_t index_count() const { return index_count_; }

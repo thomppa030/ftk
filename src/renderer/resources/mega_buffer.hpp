@@ -14,6 +14,7 @@ class Device;
 class UploadContext;
 namespace gpu {
 class Device;
+class RenderEncoder;
 }
 
 struct MegaMeshEntry {
@@ -45,6 +46,8 @@ public:
     void update_vertices(const MegaMeshEntry& entry, const std::vector<Vertex>& vertices);
 
     void bind(VkCommandBuffer cmd) const;
+    /// Sets the vertices and 32-bit indices every mega entry draws from.
+    void bind(gpu::RenderEncoder& pass) const;
 
     [[nodiscard]] uint32_t vertex_count() const { return vertex_offset_; }
     [[nodiscard]] uint32_t index_count() const { return index_offset_; }
