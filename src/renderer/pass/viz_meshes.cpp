@@ -14,9 +14,7 @@ namespace fjell {
 void draw_viz_meshes(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     if (ctx.queue == nullptr) return;
     if (ctx.mega_buffer == nullptr || ctx.indirect_batch == nullptr) return;
-    // The mega buffer's vertices are still bound natively, into the command
-    // buffer the encoder's scope is open on.
-    ctx.mega_buffer->bind(ctx.cmd);
+    ctx.mega_buffer->bind(pass);
     // Each command's material slot at the LOD the batch draws it at, as the
     // scene shows it.
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
