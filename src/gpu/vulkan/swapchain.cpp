@@ -136,8 +136,11 @@ Result<> Swapchain::Impl::build() {
     info.imageColorSpace = surface_format->colorSpace;
     info.imageExtent = choose_extent(support.capabilities, drawable);
     info.imageArrayLayers = 1;
-    // Copied from by the editor's pane capture.
-    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    // Sampled where the window allows it, so a frame shown can be read back.
+    const bool sampled =
+        (support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
+    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    if (sampled) info.imageUsage |= VK_IMAGE_USAGE_SAMPLED_BIT;
     const auto families = vk.find_queue_families();
     const std::array<uint32_t, 2> both{families.graphics.value(), families.present.value()};
     if (both[0] != both[1]) {
@@ -167,6 +170,7 @@ Result<> Swapchain::Impl::build() {
     texture_info.width = extent.width;
     texture_info.height = extent.height;
     texture_info.use = TextureUse::color_target;
+    if (sampled) texture_info.use |= TextureUse::sampled;
     VkSemaphoreCreateInfo semaphore_info{};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     for (uint32_t i = 0; i < count; ++i) {

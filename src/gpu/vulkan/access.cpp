@@ -168,6 +168,8 @@ BufferScope buffer_scope(Access access) {
             return {VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
         case Access::clear:
             return {VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
+        case Access::host_read:
+            return {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT};
         default:
             return {};
     }

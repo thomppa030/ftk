@@ -6,6 +6,7 @@
 #include "gpu/frame.hpp"
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
+#include "gpu/readback.hpp"
 #include "gpu/sampler.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
@@ -150,6 +151,12 @@ public:
     /// Where data from the CPU goes into buffers and textures, landing before
     /// the next frame's work.
     [[nodiscard]] Upload& upload();
+
+    /// Reads a box of one mip and layer of a colour texture, which must be
+    /// made to be sampled, back to the CPU (see `Readback`).
+    /// @return the read on its way, or why it cannot be made (the message
+    ///         says what the texture lacks)
+    [[nodiscard]] Result<Readback> read_back(const TextureView& view, const ReadbackDesc& desc = {});
 
     [[nodiscard]] const Caps& caps() const;
 

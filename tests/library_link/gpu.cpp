@@ -377,6 +377,57 @@ int main() {
         pipelines = pipelines && uploaded;
         if (upload_target) upload_target->reset();
         if (upload_texture) upload_texture->reset();
+
+        // Readbacks: a texture red on its left half and green on its right,
+        // with one grey texel, read back whole, as a box, and scaled to half
+        // its size. Colour comes back sRGB-encoded, and a read is not ready
+        // before it has been sent.
+        bool read_back = false;
+        auto readable = device.create(fjell::gpu::TextureDesc{
+            .format = fjell::gpu::Format::rgba8_unorm,
+            .width = 4,
+            .height = 4,
+            .use = fjell::gpu::TextureUse::sampled,
+            .name = "link_readback",
+        });
+        if (readable) {
+            using fjell::gpu::Access;
+            constexpr uint32_t RED = 0xFF0000FFU;
+            constexpr uint32_t GREEN = 0xFF00FF00U;
+            constexpr uint32_t GREY = 0xFF808080U;
+            // 128 of 255 read as linear and encoded again.
+            constexpr uint32_t GREY_ENCODED = 0xFFBCBCBCU;
+            std::array<uint32_t, 16> texels{};
+            for (uint32_t i = 0; i < 16; ++i) texels[i] = i % 4 < 2 ? RED : GREEN;
+            texels[12] = GREY;
+            device.upload().to_texture(*readable, {}, std::as_bytes(std::span(texels)),
+                                       {.after = Access::sampled_fragment});
+            auto whole = device.read_back(*readable);
+            auto box = device.read_back(*readable, {.region = {.x = 2, .width = 2, .height = 4}});
+            auto half = device.read_back(*readable, {.width = 2, .height = 2});
+            auto pixel = [](const fjell::gpu::Readback& read, uint32_t index) {
+                uint32_t value = 0;
+                std::memcpy(&value, read.pixels().data() + index * sizeof(uint32_t), sizeof(value));
+                return value;
+            };
+            if (whole && box && half) {
+                read_back = !whole->ready();
+                whole->wait();
+                box->wait();
+                half->wait();
+                read_back = read_back && whole->ready() && whole->width() == 4 &&
+                            box->width() == 2 && half->width() == 2 && half->height() == 2;
+                for (uint32_t i = 0; read_back && i < 16; ++i) {
+                    read_back = pixel(*whole, i) == (i == 12 ? GREY_ENCODED : texels[i]);
+                }
+                for (uint32_t i = 0; read_back && i < 8; ++i) read_back = pixel(*box, i) == GREEN;
+                read_back = read_back && pixel(*half, 0) == RED && pixel(*half, 1) == GREEN;
+            }
+            if (!whole) std::fprintf(stderr, "%s\n", whole.error().c_str());
+        }
+        if (!read_back) std::fprintf(stderr, "readbacks failed\n");
+        pipelines = pipelines && read_back;
+        if (readable) readable->reset();
         // Rendering: a triangle over a 4 × 4 target drawn with vertices and
         // tested against depth, then with a mesh shader where the GPU has one,
         // then into four samples resolved into one; each target read back.
